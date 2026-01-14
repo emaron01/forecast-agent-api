@@ -67,7 +67,8 @@ async function callAnthropic(userInput, state) {
       }
     }
   );
-const usage = response.data.usage;
+
+  const usage = response.data.usage;
   console.log("Anthropic usage:", usage);
 
   axios.post("https://hook.us2.make.com/n8ejcz5msg3apa18il8khc423dps7iy9", {
@@ -79,7 +80,6 @@ const usage = response.data.usage;
   }).catch(err => {
     console.error("Make.com logging error:", err.message);
   });
-
 
   return JSON.parse(response.data.content[0].text);
 }
@@ -110,7 +110,31 @@ Your JSON response MUST be:
 }
 
 // -----------------------------
-// HTTP Endpoint for Twilio
+// HTTP Endpoint for Twilio Studio
+// -----------------------------
+app.post("/forecast", async (req, res) => {
+  try {
+    const { rep_name, rep_response = "", deals = [], state = {} } = req.body;
+
+    const userInput = rep_response || `Let's begin. Here are the deals: ${JSON.stringify(deals)}`;
+    const agentResult = await runAgent(userInput, state);
+
+    res.json({
+      message: agentResult.next_question || "Let's begin.",
+      state: agentResult.state || {},
+      score_update: agentResult.score_update || {},
+      risk_flags: agentResult.risk_flags || [],
+      make_webhook_payload: agentResult.make_webhook_payload || {}
+    });
+
+  } catch (err) {
+    console.error("Forecast endpoint error:", err.message);
+    res.status(500).json({ message: "Agent unavailable. Please try again." });
+  }
+});
+
+// -----------------------------
+// Legacy /agent Endpoint (Optional)
 // -----------------------------
 app.post("/agent", async (req, res) => {
   try {
@@ -119,14 +143,12 @@ app.post("/agent", async (req, res) => {
 
     const agentResult = await runAgent(userSpeech, state);
 
-    // Twilio expects a simple JSON response
     res.json({
       next_action: "continue",
       say_text: agentResult.next_question,
       state: agentResult.state
     });
 
-    // Optional: send to Make.com
     if (agentResult.make_webhook_payload) {
       axios.post(
         "https://hook.make.com/YOUR_WEBHOOK",
