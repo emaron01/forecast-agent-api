@@ -141,19 +141,27 @@ app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
 
+    // ⭐ Correct Anthropic Messages API request
     const response = await axios.post(
       process.env.MODEL_API_URL,
       {
         model: process.env.MODEL_NAME,
+        system: agentSystemPrompt(),
         messages: [
-          { role: "system", content: agentSystemPrompt() },
-          { role: "user", content: transcript }
-        ]
+          {
+            role: "user",
+            content: [
+              { type: "text", text: transcript }
+            ]
+          }
+        ],
+        max_tokens: 1024
       },
       {
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.MODEL_API_KEY}`
+          "x-api-key": process.env.MODEL_API_KEY,
+          "anthropic-version": "2023-06-01"
         }
       }
     );
@@ -162,14 +170,14 @@ app.post("/agent", async (req, res) => {
   } catch (err) {
     console.error("Agent error:", err.message);
 
-    // FIXED FALLBACK JSON 
+    // FIXED FALLBACK JSON
     res.status(500).json({
       next_question: "Something went wrong — let's pick this up shortly.",
       score_update: { metric: "none", score: 0 },
       state: { updated_state: false },
       risk_flags: ["system_error"],
       make_webhook_payload: { log: true },
-      end_of_call: false   // CRITICAL FIX
+      end_of_call: false
     });
   }
 });
