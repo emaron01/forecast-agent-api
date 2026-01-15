@@ -147,7 +147,7 @@ console.log("TEST OUTBOUND URL:", "https://api.anthropic.com/v1/health");
 // ===============================
 app.get("/test-outbound", async (req, res) => {
   try {
-    const r = await axios.get("https://api.anthropic.com/v1/health");
+   const r = await axios.get("https://jsonplaceholder.typicode.com/todos/1");
     res.json({ ok: true, data: r.data });
   } catch (err) {
     res.json({
