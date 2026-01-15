@@ -9,8 +9,6 @@ console.log("Server file loaded");
 
 // ======================================================
 // [TODO: CRM_INTEGRATION] 
-// This is your mock data. Delete this whole 'deals' array 
-// once you connect your real database or spreadsheet.
 // ======================================================
 const deals = [
   {
@@ -24,27 +22,12 @@ const deals = [
   }
 ];
 
-// ===============================
-// SYSTEM PROMPT
-// ===============================
 function agentSystemPrompt() {
   return `You are the SalesForecast.io Forecast Confidence Agent.
-
 Your mission:
 - Ask one MEDDPICC‑aligned question at a time.
 - Score each answer (0–3).
-- Maintain and update conversation state.
-- Identify risks and uncertainties.
-- Coach like a real sales leader: conversational, probing, clarifying.
-- Never repeat the same question more than once.
 - Produce JSON only.
-
-====================================================
-CONVERSATIONAL COACHING RULES
-====================================================
-- Use natural, conversational language.
-- BE CONCISE: Keep questions under 15 words.
-- If the rep is vague, ask ONE clarifying question, then move on.
 
 ====================================================
 JSON RESPONSE CONTRACT
@@ -67,37 +50,28 @@ Rules: No markdown, no backticks, no text outside the JSON.`;
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
-    const history = req.body.history || [];
+    const history = req.body.history || []; 
     let messages = [...history];
 
-    // ======================================================
-    // [TODO: CRM_LOGIC] 
-    // Currently hardcoded to the first deal. 
-    // Later, you will use req.body.dealId to find the right deal.
-    // ======================================================
     const currentDeal = deals[0];
 
-    // Logic for starting the call vs continuing the call
+    // 1. HANDLE THE START OF THE CALL (Role Alternation Fix)
     if (messages.length === 0) {
-      messages.push({
-        role: "user",
-        content: `CONVERSATION START: You are the Virtual VP calling ${currentDeal.repName} about the ${currentDeal.account} deal (${currentDeal.opportunityName}). Start with a greeting and your first MEDDPICC question.`
-      });
-      if (transcript.trim()) {
-        messages.push({ role: "user", content: transcript });
-      }
+      const initialPrompt = `CONVERSATION START: You are the Virtual VP calling ${currentDeal.repName} about the ${currentDeal.account} deal. Start with a greeting and a MEDDPICC question.`;
+      const content = transcript.trim() ? `${initialPrompt}\n\nRep says: "${transcript}"` : initialPrompt;
+      messages.push({ role: "user", content: content });
     } else if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     }
 
-    // Call Anthropic
+    // 2. CALL CLAUDE 5 FLASH
     const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
       {
-        model: process.env.MODEL_NAME.trim(),
+        model: "claude-5-flash-20251210",
         system: agentSystemPrompt(),
         messages: messages,
-        max_tokens: 200,
+        max_tokens: 300,
         temperature: 0
       },
       {
@@ -109,23 +83,22 @@ app.post("/agent", async (req, res) => {
       }
     );
 
-    // Clean the response (Removes backticks if Claude adds them)
+    // 3. CLEAN & PARSE JSON
     let rawText = response.data.content[0].text.trim();
     if (rawText.startsWith("```")) {
-      rawText = rawText.replace(/^```json/, "").replace(/^```/, "").replace(/```$/, "").trim();
+      rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim();
     }
 
     const agentResult = JSON.parse(rawText);
 
     // ======================================================
-    //[TODO: WEBHOOK_SYNC]
-    // This is where you will add code to save the score to your CRM.
+    // [TODO: WEBHOOK_SYNC] - Save to CRM here later
     // ======================================================
 
     res.json(agentResult);
 
   } catch (err) {
-    console.error("Agent error:", err.message);
+    console.error("DETAILED ERROR:", err.response?.data || err.message);
     res.status(500).json({ 
       next_question: "I'm having a connection issue. Let's try again later.", 
       end_of_call: true 
@@ -133,10 +106,5 @@ app.post("/agent", async (req, res) => {
   }
 });
 
-// ===============================
-// PORT BINDING
-// ===============================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Agent live on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
