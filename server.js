@@ -135,6 +135,9 @@ OVERALL BEHAVIOR
 // ===============================
 // VERSION CHECK ROUTE
 // ===============================
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
 app.get("/version", (req, res) => {
   res.send("version-2025-01-15-2");
 });
