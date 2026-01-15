@@ -132,57 +132,23 @@ OVERALL BEHAVIOR
 - End cleanly when appropriate.
 `;
 }
-// ===============================
-// VERSION CHECK ROUTE
-// ===============================
-app.get("/health", (req, res) => {
-  res.json({ status: "ok" });
-});
-app.get("/version", (req, res) => {
-  res.send("version-2025-01-15-2");
-});
-console.log("TEST OUTBOUND URL:", "https://api.anthropic.com/v1/health");
-// ===============================
-// ===============================
-// OUTBOUND TEST ROUTE
-// ===============================
-app.get("/test-outbound", async (req, res) => {
-  try {
-    const r = await axios.get("https://api.anthropic.com/v1/health", {
-      headers: {
-        "x-api-key": process.env.MODEL_API_KEY,
-        "anthropic-version": "2023-06-01"
-      }
-    });
 
-    res.json({ ok: true, data: r.data });
-  } catch (err) {
-    res.json({
-      ok: false,
-      message: err.message,
-      code: err.code,
-      errno: err.errno,
-      stack: err.stack
-    });
-  }
-});// ===============================
+// ===============================
 // AGENT ENDPOINT
 // ===============================
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
 
-    const response = await axios.post(
-      process.env.MODEL_API_URL,
+   const response = await axios.post(
+      process.env.MODEL_API_URL, 
       {
         model: process.env.MODEL_NAME,
-        system: "You are a helpful assistant.",
-        input: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: transcript }
-            ]
+        system: agentSystemPrompt(), // This connects your Sales Coach rules
+        messages: [
+          { 
+            role: "user", 
+            content: transcript 
           }
         ],
         max_tokens: 1024
