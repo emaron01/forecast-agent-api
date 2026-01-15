@@ -7,6 +7,9 @@ app.use(express.json());
 
 console.log("Server file loaded");
 
+// ===============================
+// SYSTEM PROMPT
+// ===============================
 function agentSystemPrompt() {
   return `
 You are the SalesForecast.io Forecast Confidence Agent.
@@ -130,6 +133,49 @@ OVERALL BEHAVIOR
 - End cleanly when appropriate.
 `;
 }
+
+// ===============================
+// AGENT ENDPOINT
+// ===============================
+app.post("/agent", async (req, res) => {
+  try {
+    const transcript = req.body.transcript || "";
+
+    const response = await axios.post(
+      process.env.MODEL_API_URL,
+      {
+        model: process.env.MODEL_NAME,
+        messages: [
+          { role: "system", content: agentSystemPrompt() },
+          { role: "user", content: transcript }
+        ]
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.MODEL_API_KEY}`
+        }
+      }
+    );
+
+    res.json(response.data);
+  } catch (err) {
+    console.error("Agent error:", err.message);
+
+    res.status(500).json({
+      next_question: "Something went wrong — let's pick this up shortly.",
+      score_update: { metric: "none", score: 0 },
+      state: { updated_state: false },
+      risk_flags: ["system_error"],
+      make_webhook_payload: { log: true },
+      end_of_call: true
+    });
+  }
+});
+
+// ===============================
+// PORT BINDING (Render-safe)
+// ===============================
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
