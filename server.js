@@ -101,6 +101,9 @@ app.post("/agent", async (req, res) => {
     const transcript = req.body.transcript || "";
     const history = req.body.history || [];
 
+    // 🔍 DEBUG: Confirm what Thunder is sending
+    console.log("DEBUG INPUT:", { transcript, history });
+
     // Build message array from history
     let messages = [...history];
 
@@ -168,12 +171,16 @@ Do NOT assume MEDDPICC details — you must uncover them during the conversation
 
     res.json(agentResult);
 
-  } catch (err) {
-    console.error("Agent error:", err.message);
+ } catch (err) {
+    console.error("AGENT ERROR:", err.response?.data || err.message);
+
     res.status(500).json({
       next_question: "I'm having a technical glitch. Let's touch base later.",
       end_of_call: true
     });
+  }
+});
+
   }
 });
 
