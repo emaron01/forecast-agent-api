@@ -143,11 +143,18 @@ app.get("/version", (req, res) => {
 });
 console.log("TEST OUTBOUND URL:", "https://api.anthropic.com/v1/health");
 // ===============================
+// ===============================
 // OUTBOUND TEST ROUTE
 // ===============================
 app.get("/test-outbound", async (req, res) => {
   try {
-   const r = await axios.get("https://jsonplaceholder.typicode.com/todos/1");
+    const r = await axios.get("https://api.anthropic.com/v1/health", {
+      headers: {
+        "x-api-key": process.env.MODEL_API_KEY,
+        "anthropic-version": "2023-06-01"
+      }
+    });
+
     res.json({ ok: true, data: r.data });
   } catch (err) {
     res.json({
@@ -158,8 +165,7 @@ app.get("/test-outbound", async (req, res) => {
       stack: err.stack
     });
   }
-});
-// ===============================
+});// ===============================
 // AGENT ENDPOINT
 // ===============================
 app.post("/agent", async (req, res) => {
