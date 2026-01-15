@@ -1,19 +1,14 @@
 require("dotenv").config();
 const express = require("express");
-const Anthropic = require("@anthropic-ai/sdk");
+const axios = require("axios");
 
 const app = express();
 app.use(express.json());
 
-// Initialize the SDK with your API Key
-const anthropic = new Anthropic({
-  apiKey: process.env.MODEL_API_KEY.trim(),
-});
-
-console.log("Server file loaded with Anthropic SDK");
+console.log("Server file loaded");
 
 // ======================================================
-// [MOCK CRM DATA]
+// TEMPORARY: PLACEHOLDER DEAL DATA (REMOVE AFTER CRM INTEGRATION)
 // ======================================================
 const deals = [
   {
@@ -24,6 +19,24 @@ const deals = [
     product: "SalesForecast.io Enterprise",
     forecastCategory: "Commit",
     closeDate: "2026-02-15"
+  },
+  {
+    id: "D-002",
+    repName: "Erik Thompson",
+    account: "Northwind Logistics",
+    opportunityName: "Routing Optimization Suite",
+    product: "SalesForecast.io Core",
+    forecastCategory: "Upside",
+    closeDate: "2026-03-01"
+  },
+  {
+    id: "D-003",
+    repName: "Erik Thompson",
+    account: "Brightline Health",
+    opportunityName: "Care Coordination Platform",
+    product: "SalesForecast.io Enterprise",
+    forecastCategory: "Commit",
+    closeDate: "2026-02-28"
   }
 ];
 
@@ -32,84 +45,142 @@ const deals = [
 // ===============================
 function agentSystemPrompt() {
   return `You are the SalesForecast.io Forecast Confidence Agent.
+
 Your mission:
-- Ask one MEDDPICC-aligned question at a time.
-- Score each answer (0-3).
+- Ask one MEDDPICC‑aligned question at a time.
+- Score each answer (0–3).
+- Maintain and update conversation state.
 - Identify risks and uncertainties.
 - Coach like a real sales leader: conversational, probing, clarifying.
+- Never repeat the same question more than once. If unclear, ask a clarifying question, then move forward.
 - Produce JSON only.
 
-JSON STRUCTURE REQUIRED:
+====================================================
+CONVERSATIONAL COACHING RULES
+====================================================
+- You are a forecast coach, not a survey bot.
+- Use natural, conversational language.
+- If the rep gives a vague or incomplete answer:
+  1. Ask ONE clarifying question.
+  2. If still unclear, move on to the next MEDDPICC area.
+- Never ask the same question more than once.
+- Avoid robotic phrasing. Keep it human and professional.
+
+====================================================
+SILENCE HANDLING RULES
+====================================================
+- On the FIRST silence event: Ask a brief, professional check‑in. Do not advance the question.
+- On the SECOND consecutive silence event: Set "end_of_call": true and provide a closing message.
+
+====================================================
+JSON RESPONSE CONTRACT
+====================================================
+You MUST return ONLY valid JSON in this exact structure:
+
 {
   "next_question": "string",
   "score_update": { "metric": "string", "score": 0-3 },
   "state": { "updated_state": true },
   "risk_flags": [],
+  "make_webhook_payload": { "log": true },
   "end_of_call": false
 }
-Rules: No markdown, no backticks, no text outside the JSON.`;
+
+Rules:
+- Never include commentary outside the JSON.
+- Never include markdown or explanations outside the JSON.
+`;
 }
 
 // ===============================
 // AGENT ENDPOINT
 // ===============================
+
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
     const history = req.body.history || [];
+
+    // Build message array from history
     let messages = [...history];
 
+    // ======================================================
+    // TEMPORARY: SELECT FIRST DEAL (REMOVE AFTER CRM INTEGRATION)
+    // ======================================================
     const currentDeal = deals[0];
 
-    // --- 1. HANDLE START VS ONGOING (Role Fix) ---
-    if (messages.length === 0) {
-      // First turn: Merge instructions and rep words into ONE user message
-      const initialPrompt = `CONVERSATION START: You are the Virtual VP calling ${currentDeal.repName} about the ${currentDeal.account} deal. Start with a greeting and your first MEDDPICC question.`;
-      const combinedContent = transcript.trim() 
-        ? `${initialPrompt}\n\nRep says: "${transcript}"` 
-        : initialPrompt;
+    // ======================================================
+    // TEMPORARY: FIRST-TURN DEAL INJECTION (REMOVE AFTER CRM INTEGRATION)
+    // ======================================================
+    if (history.length === 0 && !transcript.trim()) {
+      messages.push({
+        role: "user",
+        content: `
+CONVERSATION START:
+You are the Virtual VP calling ${currentDeal.repName} about their ${currentDeal.account} opportunity.
 
-      messages.push({ role: "user", content: combinedContent });
-    } else if (transcript.trim()) {
-      // Turn 2+: Standard user message
+Deal context:
+- Opportunity: ${currentDeal.opportunityName}
+- Product: ${currentDeal.product}
+- Forecast Category: ${currentDeal.forecastCategory}
+- Close Date: ${currentDeal.closeDate}
+
+Start the call with a natural greeting and your first MEDDPICC question.
+Do NOT assume MEDDPICC details — you must uncover them during the conversation.
+`
+      });
+    }
+
+    // Add transcript if present
+    if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     }
 
-    // --- 2. CALL CLAUDE VIA SDK ---
-    // Note: If claude-5-flash-20251210 fails, try "claude-3-5-sonnet-latest"
-    const msg = await anthropic.messages.create({
-      model: "claude-5-flash-20251210", 
-      max_tokens: 500,
-      temperature: 0,
-      system: agentSystemPrompt(),
-      messages: messages,
-    });
+    // OpenAI API call
+    const response = await axios.post(
+      process.env.MODEL_API_URL.trim(),
+      {
+        model: process.env.MODEL_NAME.trim(),
+        messages: [
+          { role: "system", content: agentSystemPrompt() },
+          ...messages
+        ],
+        max_tokens: 1024
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.MODEL_API_KEY.trim()}`
+        }
+      }
+    );
 
-    // --- 3. CLEAN & PARSE JSON ---
-    let rawText = msg.content[0].text.trim();
-    
-    // Safety check for markdown backticks
+    let rawText = response.data.choices[0].message.content.trim();
     if (rawText.startsWith("```")) {
-      rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim();
+      rawText = rawText
+        .replace(/^```json/, "")
+        .replace(/^```/, "")
+        .replace(/```$/, "")
+        .trim();
     }
 
     const agentResult = JSON.parse(rawText);
+
     res.json(agentResult);
 
   } catch (err) {
-    // The SDK provides detailed error objects
-    console.error("SDK ERROR:", err);
-    
-    res.status(500).json({ 
-      next_question: "I'm having a connection issue. Let's try again later.", 
-      error_detail: err.message,
-      end_of_call: true 
+    console.error("Agent error:", err.message);
+    res.status(500).json({
+      next_question: "I'm having a technical glitch. Let's touch base later.",
+      end_of_call: true
     });
   }
 });
 
 // ===============================
-// START SERVER
+// PORT BINDING
 // ===============================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`VP Agent Live on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Agent live on port ${PORT}`);
+});
