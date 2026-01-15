@@ -132,23 +132,7 @@ OVERALL BEHAVIOR
 - End cleanly when appropriate.
 `;
 }
-// ===============================
-// OUTBOUND TEST ROUTE
-// ===============================
-app.get("/test-outbound", async (req, res) => {
-  try {
-    const r = await axios.get("https://api.anthropic.com/v1/health");
-    res.json({ ok: true, data: r.data });
-  } catch (err) {
-    res.json({
-      ok: false,
-      message: err.message,
-      code: err.code,
-      errno: err.errno,
-      stack: err.stack
-    });
-  }
-});
+
 // ===============================
 // AGENT ENDPOINT
 // ===============================
