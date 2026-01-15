@@ -144,7 +144,7 @@ app.post("/agent", async (req, res) => {
       process.env.MODEL_API_URL,
       {
         model: process.env.MODEL_NAME,
-        system: agentSystemPrompt().trim(),
+        system: "You are a helpful assistant.",
         input: [
           {
             role: "user",
