@@ -140,16 +140,17 @@ app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
 
-   const response = await axios.post(
+    // ADD THESE TWO LINES FOR DEBUGGING:
+    console.log("Calling URL:", process.env.MODEL_API_URL);
+    console.log("Using Model:", process.env.MODEL_NAME);
+
+    const response = await axios.post(
       process.env.MODEL_API_URL, 
       {
         model: process.env.MODEL_NAME,
-        system: agentSystemPrompt(), // This connects your Sales Coach rules
+        system: agentSystemPrompt(),
         messages: [
-          { 
-            role: "user", 
-            content: transcript 
-          }
+          { role: "user", content: transcript }
         ],
         max_tokens: 1024
       },
@@ -164,7 +165,8 @@ app.post("/agent", async (req, res) => {
 
     res.json(response.data);
   } catch (err) {
-    console.error("Agent error:", err.message);
+    // THIS LINE WILL NOW SHOW THE SPECIFIC REASON IN RENDER LOGS
+    console.error("Agent error:", err.response?.data || err.message);
 
     res.status(500).json({
       next_question: "Something went wrong — let's pick this up shortly.",
@@ -176,7 +178,6 @@ app.post("/agent", async (req, res) => {
     });
   }
 });
-
 // ===============================
 // PORT BINDING (Render-safe)
 // ===============================
