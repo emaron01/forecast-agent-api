@@ -64,11 +64,11 @@ app.post("/agent", async (req, res) => {
       messages.push({ role: "user", content: transcript });
     }
 
-    // 2. CALL ANTHROPIC (Hard-coded for testing to bypass Render variable issues)
+   // 2. CALL ANTHROPIC (Using the Flash model that worked for you)
     const response = await axios.post(
       "https://api.anthropic.com/v1/messages", 
       {
-        model: "claude-3-5-sonnet-20241022", // <--- THE MODEL GOES HERE
+        model: "claude-5-flash-20251210", // <--- THE MODEL THAT WORKED
         system: agentSystemPrompt(),
         messages: messages,
         max_tokens: 300,
@@ -77,7 +77,7 @@ app.post("/agent", async (req, res) => {
       {
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": process.env.MODEL_API_KEY.trim(), // We still keep the key secret!
+          "x-api-key": process.env.MODEL_API_KEY.trim(),
           "anthropic-version": "2023-06-01"
         }
       }
