@@ -8,7 +8,9 @@ app.use(express.json());
 console.log("Server file loaded");
 
 // ======================================================
-// TEMPORARY: PLACEHOLDER DEAL DATA (REMOVE AFTER CRM INTEGRATION)
+// [TODO: CRM_INTEGRATION] 
+// This is your mock data. Delete this whole 'deals' array 
+// once you connect your real database or spreadsheet.
 // ======================================================
 const deals = [
   {
@@ -19,24 +21,6 @@ const deals = [
     product: "SalesForecast.io Enterprise",
     forecastCategory: "Commit",
     closeDate: "2026-02-15"
-  },
-  {
-    id: "D-002",
-    repName: "Erik Thompson",
-    account: "Northwind Logistics",
-    opportunityName: "Routing Optimization Suite",
-    product: "SalesForecast.io Core",
-    forecastCategory: "Upside",
-    closeDate: "2026-03-01"
-  },
-  {
-    id: "D-003",
-    repName: "Erik Thompson",
-    account: "Brightline Health",
-    opportunityName: "Care Coordination Platform",
-    product: "SalesForecast.io Enterprise",
-    forecastCategory: "Commit",
-    closeDate: "2026-02-28"
   }
 ];
 
@@ -52,31 +36,20 @@ Your mission:
 - Maintain and update conversation state.
 - Identify risks and uncertainties.
 - Coach like a real sales leader: conversational, probing, clarifying.
-- Never repeat the same question more than once. If unclear, ask a clarifying question, then move forward.
+- Never repeat the same question more than once.
 - Produce JSON only.
 
 ====================================================
 CONVERSATIONAL COACHING RULES
 ====================================================
-- You are a forecast coach, not a survey bot.
 - Use natural, conversational language.
-- If the rep gives a vague or incomplete answer:
-  1. Ask ONE clarifying question.
-  2. If still unclear, move on to the next MEDDPICC area.
-- Never ask the same question more than once.
-- Avoid robotic phrasing. Keep it human and professional.
-
-====================================================
-SILENCE HANDLING RULES
-====================================================
-- On the FIRST silence event: Ask a brief, professional check‑in. Do not advance the question.
-- On the SECOND consecutive silence event: Set "end_of_call": true and provide a closing message.
+- BE CONCISE: Keep questions under 15 words.
+- If the rep is vague, ask ONE clarifying question, then move on.
 
 ====================================================
 JSON RESPONSE CONTRACT
 ====================================================
 You MUST return ONLY valid JSON in this exact structure:
-
 {
   "next_question": "string",
   "score_update": { "metric": "string", "score": 0-3 },
@@ -85,65 +58,47 @@ You MUST return ONLY valid JSON in this exact structure:
   "make_webhook_payload": { "log": true },
   "end_of_call": false
 }
-
-Rules:
-- Never include commentary outside the JSON.
-- Never include markdown or explanations outside the JSON.
-`;
+Rules: No markdown, no backticks, no text outside the JSON.`;
 }
 
 // ===============================
 // AGENT ENDPOINT
 // ===============================
-
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
     const history = req.body.history || [];
-
-    // Build message array from history
     let messages = [...history];
 
     // ======================================================
-    // TEMPORARY: SELECT FIRST DEAL (REMOVE AFTER CRM INTEGRATION)
+    // [TODO: CRM_LOGIC] 
+    // Currently hardcoded to the first deal. 
+    // Later, you will use req.body.dealId to find the right deal.
     // ======================================================
     const currentDeal = deals[0];
 
-    // ======================================================
-    // TEMPORARY: FIRST-TURN DEAL INJECTION (REMOVE AFTER CRM INTEGRATION)
-    // ======================================================
-    if (history.length === 0 && !transcript.trim()) {
+    // Logic for starting the call vs continuing the call
+    if (messages.length === 0) {
       messages.push({
         role: "user",
-        content: `
-CONVERSATION START:
-You are the Virtual VP calling ${currentDeal.repName} about their ${currentDeal.account} opportunity.
-
-Deal context:
-- Opportunity: ${currentDeal.opportunityName}
-- Product: ${currentDeal.product}
-- Forecast Category: ${currentDeal.forecastCategory}
-- Close Date: ${currentDeal.closeDate}
-
-Start the call with a natural greeting and your first MEDDPICC question.
-Do NOT assume MEDDPICC details — you must uncover them during the conversation.
-`
+        content: `CONVERSATION START: You are the Virtual VP calling ${currentDeal.repName} about the ${currentDeal.account} deal (${currentDeal.opportunityName}). Start with a greeting and your first MEDDPICC question.`
       });
-    }
-
-    // Add transcript if present
-    if (transcript.trim()) {
+      if (transcript.trim()) {
+        messages.push({ role: "user", content: transcript });
+      }
+    } else if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     }
 
-    // Claude API call
+    // Call Anthropic
     const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
       {
         model: process.env.MODEL_NAME.trim(),
         system: agentSystemPrompt(),
         messages: messages,
-        max_tokens: 1024
+        max_tokens: 200,
+        temperature: 0
       },
       {
         headers: {
@@ -154,23 +109,26 @@ Do NOT assume MEDDPICC details — you must uncover them during the conversation
       }
     );
 
+    // Clean the response (Removes backticks if Claude adds them)
     let rawText = response.data.content[0].text.trim();
     if (rawText.startsWith("```")) {
-      rawText = rawText.replace(/^```json/, "")
-                       .replace(/^```/, "")
-                       .replace(/```$/, "")
-                       .trim();
+      rawText = rawText.replace(/^```json/, "").replace(/^```/, "").replace(/```$/, "").trim();
     }
 
     const agentResult = JSON.parse(rawText);
+
+    // ======================================================
+    //[TODO: WEBHOOK_SYNC]
+    // This is where you will add code to save the score to your CRM.
+    // ======================================================
 
     res.json(agentResult);
 
   } catch (err) {
     console.error("Agent error:", err.message);
-    res.status(500).json({
-      next_question: "I'm having a technical glitch. Let's touch base later.",
-      end_of_call: true
+    res.status(500).json({ 
+      next_question: "I'm having a connection issue. Let's try again later.", 
+      end_of_call: true 
     });
   }
 });
