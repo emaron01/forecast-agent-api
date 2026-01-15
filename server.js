@@ -8,7 +8,7 @@ app.use(express.json());
 console.log("Server file loaded");
 
 // ======================================================
-// TEMPORARY: PLACEHOLDER DEAL DATA (REMOVE AFTER CRM INTEGRATION)
+// TEMPORARY DEAL DATA (REMOVE AFTER CRM INTEGRATION)
 // ======================================================
 const deals = [
   {
@@ -40,19 +40,19 @@ const deals = [
   }
 ];
 
-// ===============================
+// ======================================================
 // SYSTEM PROMPT
-// ===============================
+// ======================================================
 function agentSystemPrompt() {
   return `You are the SalesForecast.io Forecast Confidence Agent.
 
 Your mission:
-- Ask one MEDDPICC‑aligned question at a time.
+- Ask one MEDDPICC-aligned question at a time.
 - Score each answer (0–3).
 - Maintain and update conversation state.
 - Identify risks and uncertainties.
 - Coach like a real sales leader: conversational, probing, clarifying.
-- Never repeat the same question more than once. If unclear, ask a clarifying question, then move forward.
+- Never repeat the same question more than once.
 - Produce JSON only.
 
 ====================================================
@@ -62,20 +62,19 @@ CONVERSATIONAL COACHING RULES
 - Use natural, conversational language.
 - If the rep gives a vague or incomplete answer:
   1. Ask ONE clarifying question.
-  2. If still unclear, move on to the next MEDDPICC area.
-- Never ask the same question more than once.
-- Avoid robotic phrasing. Keep it human and professional.
+  2. If still unclear, move on.
+- Never ask the same question twice.
 
 ====================================================
 SILENCE HANDLING RULES
 ====================================================
-- On the FIRST silence event: Ask a brief, professional check‑in. Do not advance the question.
-- On the SECOND consecutive silence event: Set "end_of_call": true and provide a closing message.
+- First silence: ask a brief check-in.
+- Second silence: set "end_of_call": true.
 
 ====================================================
 JSON RESPONSE CONTRACT
 ====================================================
-You MUST return ONLY valid JSON in this exact structure:
+Return ONLY valid JSON:
 
 {
   "next_question": "string",
@@ -84,37 +83,26 @@ You MUST return ONLY valid JSON in this exact structure:
   "risk_flags": [],
   "make_webhook_payload": { "log": true },
   "end_of_call": false
+}`;
 }
 
-Rules:
-- Never include commentary outside the JSON.
-- Never include markdown or explanations outside the JSON.
-`;
-}
-
-// ===============================
+// ======================================================
 // AGENT ENDPOINT
-// ===============================
-
+// ======================================================
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
     const history = req.body.history || [];
 
-    // 🔍 DEBUG: Confirm what Thunder is sending
+    // DEBUG INPUT
     console.log("DEBUG INPUT:", { transcript, history });
 
-    // Build message array from history
+    // Build messages array
     let messages = [...history];
 
-    // ======================================================
-    // TEMPORARY: SELECT FIRST DEAL (REMOVE AFTER CRM INTEGRATION)
-    // ======================================================
+    // TEMPORARY DEAL INJECTION (first turn only)
     const currentDeal = deals[0];
 
-    // ======================================================
-    // TEMPORARY: FIRST-TURN DEAL INJECTION (REMOVE AFTER CRM INTEGRATION)
-    // ======================================================
     if (history.length === 0 && !transcript.trim()) {
       messages.push({
         role: "user",
@@ -128,9 +116,8 @@ Deal context:
 - Forecast Category: ${currentDeal.forecastCategory}
 - Close Date: ${currentDeal.closeDate}
 
-Start the call with a natural greeting and your first MEDDPICC question.
-Do NOT assume MEDDPICC details — you must uncover them during the conversation.
-`
+Start with a natural greeting and your first MEDDPICC question.
+Do NOT assume MEDDPICC details — uncover them.`
       });
     }
 
@@ -139,7 +126,9 @@ Do NOT assume MEDDPICC details — you must uncover them during the conversation
       messages.push({ role: "user", content: transcript });
     }
 
-    // OpenAI API call
+    // ======================================================
+    // OPENAI CALL
+    // ======================================================
     const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
       {
@@ -158,7 +147,12 @@ Do NOT assume MEDDPICC details — you must uncover them during the conversation
       }
     );
 
+    // DEBUG RAW RESPONSE
+    console.log("RAW OPENAI RESPONSE:", response.data);
+
     let rawText = response.data.choices[0].message.content.trim();
+
+    // Strip code fences if present
     if (rawText.startsWith("```")) {
       rawText = rawText
         .replace(/^```json/, "")
@@ -169,24 +163,21 @@ Do NOT assume MEDDPICC details — you must uncover them during the conversation
 
     const agentResult = JSON.parse(rawText);
 
-    res.json(agentResult);
+    return res.json(agentResult);
 
- } catch (err) {
+  } catch (err) {
     console.error("AGENT ERROR:", err.response?.data || err.message);
 
-    res.status(500).json({
+    return res.status(500).json({
       next_question: "I'm having a technical glitch. Let's touch base later.",
       end_of_call: true
     });
   }
 });
 
-  }
-});
-
-// ===============================
+// ======================================================
 // PORT BINDING
-// ===============================
+// ======================================================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Agent live on port ${PORT}`);
