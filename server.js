@@ -1,74 +1,37 @@
 require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
-
 const app = express();
 app.use(express.json());
 
-console.log("Server file loaded");
-
-// ======================================================
-// [TODO: CRM_INTEGRATION] 
-// ======================================================
-const deals = [
-  {
-    id: "D-001",
-    repName: "Erik Thompson",
-    account: "GlobalTech Industries",
-    opportunityName: "Workflow Automation Expansion",
-    product: "SalesForecast.io Enterprise",
-    forecastCategory: "Commit",
-    closeDate: "2026-02-15"
-  }
-];
+const deals = [{
+  repName: "Erik Thompson",
+  account: "GlobalTech Industries",
+  opportunityName: "Workflow Automation Expansion"
+}];
 
 function agentSystemPrompt() {
-  return `You are the SalesForecast.io Forecast Confidence Agent.
-Your mission:
-- Ask one MEDDPICC‑aligned question at a time.
-- Score each answer (0–3).
-- Produce JSON only.
-
-====================================================
-JSON RESPONSE CONTRACT
-====================================================
-You MUST return ONLY valid JSON in this exact structure:
-{
-  "next_question": "string",
-  "score_update": { "metric": "string", "score": 0-3 },
-  "state": { "updated_state": true },
-  "risk_flags": [],
-  "make_webhook_payload": { "log": true },
-  "end_of_call": false
-}
-Rules: No markdown, no backticks, no text outside the JSON.`;
+  return "You are a Sales VP. Ask one MEDDPICC question. Respond in JSON only: { \"next_question\": \"string\", \"end_of_call\": false }";
 }
 
-// ===============================
-// AGENT ENDPOINT
-// ===============================
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
-    const history = req.body.history || []; 
+    const history = req.body.history || [];
     let messages = [...history];
-
     const currentDeal = deals[0];
 
-    // 1. HANDLE THE START OF THE CALL (Role Alternation Fix)
     if (messages.length === 0) {
-      const initialPrompt = `CONVERSATION START: You are the Virtual VP calling ${currentDeal.repName} about the ${currentDeal.account} deal. Start with a greeting and a MEDDPICC question.`;
-      const content = transcript.trim() ? `${initialPrompt}\n\nRep says: "${transcript}"` : initialPrompt;
-      messages.push({ role: "user", content: content });
+      const prompt = `Start call with ${currentDeal.repName} about ${currentDeal.account}. Rep says: ${transcript}`;
+      messages.push({ role: "user", content: prompt });
     } else if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     }
 
-   // 2. CALL ANTHROPIC (Using the Flash model that worked for you)
     const response = await axios.post(
-      "https://api.anthropic.com/v1/messages", 
+      "https://api.anthropic.com/v1/messages",
       {
-        model: "claude-5-flash-20251210", // <--- THE MODEL THAT WORKED
+        model: "claude-5-flash-20251210",
         system: agentSystemPrompt(),
         messages: messages,
         max_tokens: 300,
@@ -83,28 +46,11 @@ app.post("/agent", async (req, res) => {
       }
     );
 
-    // 3. CLEAN & PARSE JSON
-    let rawText = response.data.content[0].text.trim();
-    if (rawText.startsWith("```")) {
-      rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim();
-    }
-
-    const agentResult = JSON.parse(rawText);
-
-    // ======================================================
-    // [TODO: WEBHOOK_SYNC] - Save to CRM here later
-    // ======================================================
-
-    res.json(agentResult);
-
+    res.json(JSON.parse(response.data.content[0].text));
   } catch (err) {
     console.error("DETAILED ERROR:", err.response?.data || err.message);
-    res.status(500).json({ 
-      next_question: "I'm having a connection issue. Let's try again later.", 
-      end_of_call: true 
-    });
+    res.status(500).json({ next_question: "Connection issue.", error: err.message });
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+app.listen(process.env.PORT || 3000, () => console.log("Server Live"));
