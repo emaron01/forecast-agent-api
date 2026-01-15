@@ -137,7 +137,7 @@ OVERALL BEHAVIOR
 // ===============================
 app.get("/test-outbound", async (req, res) => {
   try {
-    const r = await axios.get("https://api.anthropic.com/health");
+    const r = await axios.get("https://api.anthropic.com/v1/health");
     res.json({ ok: true, data: r.data });
   } catch (err) {
     res.json({
