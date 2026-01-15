@@ -138,7 +138,7 @@ OVERALL BEHAVIOR
 app.get("/version", (req, res) => {
   res.send("version-2025-01-15-2");
 });
-
+console.log("TEST OUTBOUND URL:", "https://api.anthropic.com/v1/health");
 // ===============================
 // OUTBOUND TEST ROUTE
 // ===============================
