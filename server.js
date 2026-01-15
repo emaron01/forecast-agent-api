@@ -140,18 +140,6 @@ app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
 
-// FIRST TURN GUARD — prevents Twilio from dropping the call
-    if (!transcript || transcript.trim() === "") {
-      return res.json({
-        next_question: "Hey — it’s your forecast coach. Got a few minutes to walk through your deals?",
-        score_update: { metric: "none", score: 0 },
-        state: { updated_state: true },
-        risk_flags: [],
-        make_webhook_payload: { log: true },
-        end_of_call: false
-      });
-    }
-
     // We use .trim() here to ignore any accidental spaces in Render
     const cleanModelName = process.env.MODEL_NAME.trim();
     const cleanUrl = process.env.MODEL_API_URL.trim();
@@ -201,3 +189,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Agent endpoint running on port ${PORT}`);
 });
+
+
