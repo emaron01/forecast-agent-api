@@ -162,13 +162,14 @@ app.post("/agent", async (req, res) => {
   } catch (err) {
     console.error("Agent error:", err.message);
 
+    // FIXED FALLBACK JSON 
     res.status(500).json({
       next_question: "Something went wrong — let's pick this up shortly.",
       score_update: { metric: "none", score: 0 },
       state: { updated_state: false },
       risk_flags: ["system_error"],
       make_webhook_payload: { log: true },
-      end_of_call: true
+      end_of_call: false   // CRITICAL FIX
     });
   }
 });
