@@ -62,72 +62,68 @@ Rules:
 // ===============================
 // AGENT ENDPOINT
 // ===============================
-// ===============================
-// AGENT ENDPOINT
-// ===============================
+
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
+    const history = req.body.history || []; 
 
-    // Scrubbing inputs to prevent hidden space errors
-    const cleanUrl = process.env.MODEL_API_URL.trim();
-    const cleanModel = process.env.MODEL_NAME.trim();
-    const cleanKey = process.env.MODEL_API_KEY.trim();
+    // CRM CONTEXT
+    const deal = { repName: "Sarah", account: "Global Tech", amount: "$120k" };
 
-    console.log(`Calling Anthropic... Model: [${cleanModel}]`);
+    let messages = [...history];
+
+    // LOGIC: If history is empty and no transcript, it's the very first second of the call
+    if (messages.length === 0 && !transcript.trim()) {
+      messages.push({
+        role: "user",
+        content: `CONVERSATION START: You are the Virtual VP calling ${deal.repName} about the ${deal.account} deal (${deal.amount}). Start the review now with a greeting and your first MEDDPICC question.`
+      });
+    } else if (transcript.trim()) {
+      // Add the rep's latest response to the history
+      messages.push({ role: "user", content: transcript });
+    }
 
     const response = await axios.post(
-      cleanUrl,
+      process.env.MODEL_API_URL.trim(),
       {
-        model: cleanModel,
+        model: process.env.MODEL_NAME.trim(),
         system: agentSystemPrompt(),
-        messages: [
-          {
-            role: "user",
-            content: transcript
-          }
-        ],
+        messages: messages,
         max_tokens: 1024
       },
       {
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": cleanKey,
+          "x-api-key": process.env.MODEL_API_KEY.trim(),
           "anthropic-version": "2023-06-01"
         }
       }
     );
 
-    // 1. Get the raw text from Claude
     let rawText = response.data.content[0].text.trim();
-
-    // 2. THE CLEANER: This strips away ```json or ``` backticks if Claude adds them
     if (rawText.startsWith("```")) {
-      rawText = rawText
-        .replace(/^```json/, "") // Removes the starting ```json
-        .replace(/^```/, "")     // Removes starting ``` if no 'json' word
-        .replace(/```$/, "")     // Removes the ending ```
-        .trim();                 // Cleans up any leftover spaces
+      rawText = rawText.replace(/^```json/, "").replace(/^```/, "").replace(/```$/, "").trim();
     }
+    
+    const agentResult = JSON.parse(rawText);
 
-    try {
-      // 3. Turn the cleaned text into a real Javascript object
-      const agentResult = JSON.parse(rawText);
-      res.json(agentResult);
-    } catch (parseError) {
-      console.error("JSON Parse Error. Claude sent:", rawText);
-      res.status(500).json({ error: "Claude sent back text instead of clean data." });
-    }
+    // IMPORTANT: In your Twilio script, after receiving this 'agentResult', 
+    // you should add { "role": "assistant", "content": agentResult.next_question } 
+    // to your history array before the next turn.
+
+    res.json(agentResult);
 
   } catch (err) {
-    console.error("Agent error detail:", err.response?.data || err.message);
-    res.status(500).json({
-      next_question: "System error — let's try again in a moment.",
-      end_of_call: false,
-      risk_flags: ["connection_error"]
+    console.error("Agent error:", err.message);
+    res.status(500).json({ 
+      next_question: "I'm having a technical glitch. Let's touch base later.", 
+      end_of_call: true 
     });
   }
-});// ===============================
+});
+
+// ===============================
 // PORT BINDING
 // ===============================
 const PORT = process.env.PORT || 3000;
