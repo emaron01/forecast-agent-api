@@ -7,6 +7,39 @@ app.use(express.json());
 
 console.log("Server file loaded");
 
+// ======================================================
+// TEMPORARY: PLACEHOLDER DEAL DATA (REMOVE AFTER CRM INTEGRATION)
+// ======================================================
+const deals = [
+  {
+    id: "D-001",
+    repName: "Erik Thompson",
+    account: "GlobalTech Industries",
+    opportunityName: "Workflow Automation Expansion",
+    product: "SalesForecast.io Enterprise",
+    forecastCategory: "Commit",
+    closeDate: "2026-02-15"
+  },
+  {
+    id: "D-002",
+    repName: "Erik Thompson",
+    account: "Northwind Logistics",
+    opportunityName: "Routing Optimization Suite",
+    product: "SalesForecast.io Core",
+    forecastCategory: "Upside",
+    closeDate: "2026-03-01"
+  },
+  {
+    id: "D-003",
+    repName: "Erik Thompson",
+    account: "Brightline Health",
+    opportunityName: "Care Coordination Platform",
+    product: "SalesForecast.io Enterprise",
+    forecastCategory: "Commit",
+    closeDate: "2026-02-28"
+  }
+];
+
 // ===============================
 // SYSTEM PROMPT
 // ===============================
@@ -66,24 +99,44 @@ Rules:
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
-    const history = req.body.history || []; 
+    const history = req.body.history || [];
 
-    // CRM CONTEXT
-    const deal = { repName: "Sarah", account: "Global Tech", amount: "$120k" };
-
+    // Build message array from history
     let messages = [...history];
 
-    // LOGIC: If history is empty and no transcript, it's the very first second of the call
-    if (messages.length === 0 && !transcript.trim()) {
+    // ======================================================
+    // TEMPORARY: SELECT FIRST DEAL (REMOVE AFTER CRM INTEGRATION)
+    // ======================================================
+    const currentDeal = deals[0];
+
+    // ======================================================
+    // TEMPORARY: FIRST-TURN DEAL INJECTION (REMOVE AFTER CRM INTEGRATION)
+    // ======================================================
+    if (history.length === 0 && !transcript.trim()) {
       messages.push({
         role: "user",
-        content: `CONVERSATION START: You are the Virtual VP calling ${deal.repName} about the ${deal.account} deal (${deal.amount}). Start the review now with a greeting and your first MEDDPICC question.`
+        content: `
+CONVERSATION START:
+You are the Virtual VP calling ${currentDeal.repName} about their ${currentDeal.account} opportunity.
+
+Deal context:
+- Opportunity: ${currentDeal.opportunityName}
+- Product: ${currentDeal.product}
+- Forecast Category: ${currentDeal.forecastCategory}
+- Close Date: ${currentDeal.closeDate}
+
+Start the call with a natural greeting and your first MEDDPICC question.
+Do NOT assume MEDDPICC details — you must uncover them during the conversation.
+`
       });
-    } else if (transcript.trim()) {
-      // Add the rep's latest response to the history
+    }
+
+    // Add transcript if present
+    if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     }
 
+    // Claude API call
     const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
       {
@@ -103,22 +156,21 @@ app.post("/agent", async (req, res) => {
 
     let rawText = response.data.content[0].text.trim();
     if (rawText.startsWith("```")) {
-      rawText = rawText.replace(/^```json/, "").replace(/^```/, "").replace(/```$/, "").trim();
+      rawText = rawText.replace(/^```json/, "")
+                       .replace(/^```/, "")
+                       .replace(/```$/, "")
+                       .trim();
     }
-    
-    const agentResult = JSON.parse(rawText);
 
-    // IMPORTANT: In your Twilio script, after receiving this 'agentResult', 
-    // you should add { "role": "assistant", "content": agentResult.next_question } 
-    // to your history array before the next turn.
+    const agentResult = JSON.parse(rawText);
 
     res.json(agentResult);
 
   } catch (err) {
     console.error("Agent error:", err.message);
-    res.status(500).json({ 
-      next_question: "I'm having a technical glitch. Let's touch base later.", 
-      end_of_call: true 
+    res.status(500).json({
+      next_question: "I'm having a technical glitch. Let's touch base later.",
+      end_of_call: true
     });
   }
 });
