@@ -146,7 +146,7 @@ app.post("/agent", async (req, res) => {
       {
         model: process.env.MODEL_NAME,
         system: agentSystemPrompt(),
-        messages: [
+        input: [
           {
             role: "user",
             content: [
