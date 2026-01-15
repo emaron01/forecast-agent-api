@@ -141,7 +141,6 @@ app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
 
-    // ⭐ Correct Anthropic Messages API request
     const response = await axios.post(
       process.env.MODEL_API_URL,
       {
@@ -170,7 +169,6 @@ app.post("/agent", async (req, res) => {
   } catch (err) {
     console.error("Agent error:", err.message);
 
-    // FIXED FALLBACK JSON
     res.status(500).json({
       next_question: "Something went wrong — let's pick this up shortly.",
       score_update: { metric: "none", score: 0 },
