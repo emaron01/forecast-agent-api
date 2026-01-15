@@ -140,14 +140,17 @@ app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
 
-    // ADD THESE TWO LINES FOR DEBUGGING:
-    console.log("Calling URL:", process.env.MODEL_API_URL);
-    console.log("Using Model:", process.env.MODEL_NAME);
+    // We use .trim() here to ignore any accidental spaces in Render
+    const cleanModelName = process.env.MODEL_NAME.trim();
+    const cleanUrl = process.env.MODEL_API_URL.trim();
+
+    console.log("Calling URL: [" + cleanUrl + "]");
+    console.log("Using Model: [" + cleanModelName + "]");
 
     const response = await axios.post(
-      process.env.MODEL_API_URL, 
+      cleanUrl, 
       {
-        model: process.env.MODEL_NAME,
+        model: cleanModelName,
         system: agentSystemPrompt(),
         messages: [
           { role: "user", content: transcript }
@@ -157,7 +160,7 @@ app.post("/agent", async (req, res) => {
       {
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": process.env.MODEL_API_KEY,
+          "x-api-key": process.env.MODEL_API_KEY.trim(),
           "anthropic-version": "2023-06-01"
         }
       }
@@ -165,7 +168,7 @@ app.post("/agent", async (req, res) => {
 
     res.json(response.data);
   } catch (err) {
-    // THIS LINE WILL NOW SHOW THE SPECIFIC REASON IN RENDER LOGS
+    // This gives us the detailed error from Anthropic if it fails again
     console.error("Agent error:", err.response?.data || err.message);
 
     res.status(500).json({
