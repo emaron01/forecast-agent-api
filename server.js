@@ -11,8 +11,7 @@ console.log("Server file loaded");
 // SYSTEM PROMPT
 // ===============================
 function agentSystemPrompt() {
-  return `
-You are the SalesForecast.io Forecast Confidence Agent.
+  return `You are the SalesForecast.io Forecast Confidence Agent.
 
 Your mission:
 - Ask one MEDDPICC‑aligned question at a time.
@@ -145,7 +144,7 @@ app.post("/agent", async (req, res) => {
       process.env.MODEL_API_URL,
       {
         model: process.env.MODEL_NAME,
-        system: agentSystemPrompt(),
+        system: agentSystemPrompt().trim(),
         input: [
           {
             role: "user",
