@@ -62,6 +62,9 @@ Rules:
 // ===============================
 // AGENT ENDPOINT
 // ===============================
+// ===============================
+// AGENT ENDPOINT
+// ===============================
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
@@ -96,26 +99,35 @@ app.post("/agent", async (req, res) => {
     );
 
     // 1. Get the raw text from Claude
-    const rawText = response.data.content[0].text;
+    let rawText = response.data.content[0].text.trim();
 
-    // 2. Parse it so we send back actual JSON, not a giant string
-    const agentResult = JSON.parse(rawText);
+    // 2. THE CLEANER: This strips away ```json or ``` backticks if Claude adds them
+    if (rawText.startsWith("```")) {
+      rawText = rawText
+        .replace(/^```json/, "") // Removes the starting ```json
+        .replace(/^```/, "")     // Removes starting ``` if no 'json' word
+        .replace(/```$/, "")     // Removes the ending ```
+        .trim();                 // Cleans up any leftover spaces
+    }
 
-    res.json(agentResult);
+    try {
+      // 3. Turn the cleaned text into a real Javascript object
+      const agentResult = JSON.parse(rawText);
+      res.json(agentResult);
+    } catch (parseError) {
+      console.error("JSON Parse Error. Claude sent:", rawText);
+      res.status(500).json({ error: "Claude sent back text instead of clean data." });
+    }
 
   } catch (err) {
-    // Detailed error logging for the Render dashboard
     console.error("Agent error detail:", err.response?.data || err.message);
-
     res.status(500).json({
       next_question: "System error — let's try again in a moment.",
       end_of_call: false,
       risk_flags: ["connection_error"]
     });
   }
-});
-
-// ===============================
+});// ===============================
 // PORT BINDING
 // ===============================
 const PORT = process.env.PORT || 3000;
