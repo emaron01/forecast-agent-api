@@ -31,10 +31,11 @@ app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
     
-    // Specifically looking for 'history' key from your Twilio Studio Widget
+    // --- FUTURE FIX: TWILIO MEMORY KEY ---
+    // Ensure 'history' matches the variable name in your Twilio Studio Widget
     let messages = Array.isArray(req.body.history) ? req.body.history : [];
     
-    // Manage Memory: Keep last 10 turns to maintain low latency
+    // Manage Memory: Slicing prevents timeouts on long calls
     if (messages.length > 10) {
         messages = messages.slice(-10);
     }
@@ -43,7 +44,6 @@ app.post("/agent", async (req, res) => {
       messages.push({ role: "user", content: transcript });
     }
 
-    // Initialize greeting if history is empty
     if (messages.length === 0) {
       messages.push({ 
         role: "user", 
@@ -51,7 +51,6 @@ app.post("/agent", async (req, res) => {
       });
     }
 
-    // Call AI Model
     const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
       {
@@ -74,7 +73,8 @@ app.post("/agent", async (req, res) => {
     let rawText = response.data.choices[0].message.content.trim();
     let agentResult;
 
-    // Robust JSON Parsing
+    // --- FUTURE FIX: JSON PARSER ---
+    // If the AI stops returning JSON, this block prevents a server crash (500 Error)
     try {
       const jsonStart = rawText.indexOf('{');
       const jsonEnd = rawText.lastIndexOf('}');
@@ -88,25 +88,25 @@ app.post("/agent", async (req, res) => {
       };
     }
 
-    // THE SHIELD: Force string type to prevent .replace() errors
+    // Shield against 'undefined' errors by forcing a string
     let questionText = String(agentResult.next_question || "Tell me more.");
     
-    // WRAP UP TRIGGER: 5-second goodbye
+    // 5-SECOND WRAP UP TRIGGER
     if (agentResult.end_of_call === true) {
         questionText = "Thanks, that wraps up. Talk soon!";
     }
 
     messages.push({ role: "assistant", content: questionText });
 
-    // --- SSML SANITIZER ---
-    // Cleans symbols that crash Polly Matthew-Neural
+    // --- FUTURE FIX: SSML COMPATIBILITY ---
+    // Character cleanup ensures Polly Matthew-Neural doesn't choke on symbols
     const safeText = questionText
       .replace(/['’]/g, "&apos;") 
       .replace(/[&]/g, "and")     
       .replace(/[^a-zA-Z0-9\s?.!,;]/g, ""); 
 
-    // NAKED SSML: Removed outer <speak> tags to prevent Twilio Studio Application Errors
-    const tunedVoice = `<prosody rate="112%" pitch="-1%">${safeText}</prosody>`;
+    // Single-line template prevents XML parsing errors in Twilio widgets
+    const tunedVoice = `<speak><prosody rate="112%" pitch="-1%">${safeText}</prosody></speak>`;
 
     // Log recap to Render console
     if (agentResult.summary_data && (agentResult.summary_data.next_steps || agentResult.summary_data.deal_health)) {
@@ -114,7 +114,6 @@ app.post("/agent", async (req, res) => {
         console.log("Health: " + (agentResult.summary_data.deal_health || "In progress"));
     }
 
-    // Final Response to Twilio matching your widget variable: new_history
     res.json({
       next_question: tunedVoice,
       end_of_call: agentResult.end_of_call || false,
@@ -125,7 +124,7 @@ app.post("/agent", async (req, res) => {
   } catch (err) {
     console.error("Internal Error: ", err.message);
     res.status(500).json({ 
-        next_question: "I had a slight connection issue. Could you repeat that?", 
+        next_question: "<speak>I had a slight connection issue. Could you repeat that?</speak>", 
         end_of_call: false,
         new_history: [] 
     });
