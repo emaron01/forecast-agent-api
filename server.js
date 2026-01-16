@@ -5,7 +5,7 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-console.log("Server live - Pro Mode Active");
+console.log("Server live - Conversational Voice Mode Active");
 
 // ======================================================
 // MOCK CRM DATA
@@ -18,18 +18,24 @@ const deals = [
 ];
 
 // ======================================================
-// SYSTEM PROMPT
+// SYSTEM PROMPT (Tuned for conversational flow)
 // ======================================================
 function agentSystemPrompt(repName, accountName) {
-  return `You are a Sales Forecast AI. Calling ${repName} about the ${accountName} deal.
-Mission: Ask one MEDDPICC question at a time. 
-Output ONLY valid JSON in this format:
-{
-  "next_question": "string",
-  "score_update": { "metric": "string", "score": 0-3 },
-  "end_of_call": false
-}
-If the conversation is finishing, set end_of_call to true.`;
+  return `You are a professional Sales VP conducting a forecast review with ${repName} regarding the ${accountName} deal.
+  
+  STYLE GUIDELINES:
+  - Be concise, direct, and conversational.
+  - Use contractions (e.g., "I've", "you're", "don't") to sound natural.
+  - Use brief acknowledgments like "Got it," "Makes sense," or "Thanks for that" before asking the next question.
+  - Ask ONLY one MEDDPICC question at a time.
+  
+  OUTPUT FORMAT:
+  You must output ONLY valid JSON:
+  {
+    "next_question": "string",
+    "score_update": { "metric": "string", "score": 0-3 },
+    "end_of_call": false
+  }`;
 }
 
 // ======================================================
@@ -61,7 +67,7 @@ app.post("/agent", async (req, res) => {
           { role: "system", content: agentSystemPrompt(currentDeal.repName, currentDeal.account) },
           ...messages
         ],
-        temperature: 0
+        temperature: 0.7 // Increased slightly for more natural variety
       },
       {
         headers: {
@@ -71,12 +77,11 @@ app.post("/agent", async (req, res) => {
       }
     );
 
-    // 4. ROBUST PARSING (Prevents the 500 Error)
+    // 4. ROBUST PARSING
     let rawText = response.data.choices[0].message.content.trim();
     let agentResult;
 
     try {
-      // Find JSON boundaries in case AI adds extra text
       const jsonStart = rawText.indexOf('{');
       const jsonEnd = rawText.lastIndexOf('}');
       if (jsonStart !== -1 && jsonEnd !== -1) {
@@ -85,7 +90,6 @@ app.post("/agent", async (req, res) => {
         throw new Error("No JSON found");
       }
     } catch (e) {
-      // Fallback if AI goes off-script
       agentResult = {
         next_question: rawText.replace(/[{}]/g, ""), 
         score_update: { metric: "General", score: 0 },
@@ -93,26 +97,35 @@ app.post("/agent", async (req, res) => {
       };
     }
 
-    // 5. UPDATE HISTORY WITH AI RESPONSE
+    // 5. UPDATE HISTORY WITH RAW TEXT (for AI context)
     messages.push({ role: "assistant", content: agentResult.next_question });
 
-    // 6. SYNC BACK TO TWILIO
+    // 6. APPLY VOICE TUNING (SSML) FOR TWILIO
+    // rate="112%" makes it faster, pitch="-1%" makes it more masculine/authoritative
+    const tunedVoiceQuestion = `<speak><prosody rate="112%" pitch="-1%">${agentResult.next_question}</prosody></speak>`;
+
+    // 7. SYNC BACK TO TWILIO
     res.json({
-      next_question: agentResult.next_question,
+      next_question: tunedVoiceQuestion, 
       end_of_call: agentResult.end_of_call,
       score_update: agentResult.score_update,
       updated_history: messages 
     });
 
+    // LOGGING FOR YOUR VISIBILITY
+    if (agentResult.score_update && agentResult.score_update.score > 0) {
+      console.log(`[SCORE] ${agentResult.score_update.metric}: ${agentResult.score_update.score}`);
+    }
+
   } catch (err) {
     console.error("CRITICAL ERROR:", err.message);
     res.status(500).json({ 
-      next_question: "Sorry, I hit a snag. Let's try again in a minute.", 
+      next_question: "Sorry, I hit a snag. Let's try again.", 
       end_of_call: true,
       updated_history: []
     });
   }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000; // Render uses 10000 by default
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
