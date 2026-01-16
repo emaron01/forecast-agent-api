@@ -5,69 +5,51 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-console.log("Server live - High-Speed Pro Mode");
+console.log("Server live - Pro Mode Active");
 
 // ======================================================
-// MOCK CRM DATA (Your "Spreadsheet")
+// MOCK CRM DATA
 // ======================================================
 const deals = [
   {
-    id: "D-001",
     repName: "Erik Thompson",
-    account: "GlobalTech Industries",
-    opportunityName: "Workflow Automation Expansion",
-    product: "SalesForecast.io Enterprise",
-    forecastCategory: "Commit",
-    closeDate: "2026-02-15"
+    account: "GlobalTech Industries"
   }
 ];
 
 // ======================================================
-// SYSTEM PROMPT GENERATOR
+// SYSTEM PROMPT
 // ======================================================
 function agentSystemPrompt(repName, accountName) {
-  return `You are the SalesForecast.io Forecast Confidence Agent.
-Your mission:
-- You are calling ${repName} to discuss the ${accountName} deal.
-- Ask one MEDDPICC-aligned question at a time.
-- Score each answer (0–3) for MEDDPICC confidence.
-- Coach like a real sales leader: conversational, probing, clarifying.
-- Produce JSON only.
-
-REQUIRED JSON FORMAT:
+  return `You are a Sales Forecast AI. Calling ${repName} about the ${accountName} deal.
+Mission: Ask one MEDDPICC question at a time. 
+Output ONLY valid JSON in this format:
 {
   "next_question": "string",
   "score_update": { "metric": "string", "score": 0-3 },
   "end_of_call": false
 }
-Rules: No markdown, no backticks, no prose.`;
+If the conversation is finishing, set end_of_call to true.`;
 }
 
 // ======================================================
-// AGENT ENDPOINT
+// MAIN ENDPOINT
 // ======================================================
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
     let messages = Array.isArray(req.body.history) ? req.body.history : [];
     
-    // Pick the deal context
     const currentDeal = deals[0]; 
-    const repName = currentDeal.repName;
-    const account = currentDeal.account;
 
-    console.log(`--- CALL TURN RECEIVED ---`);
-    console.log(`Rep: ${repName} | History: ${messages.length} turns`);
-
-    // 1. ADD REP'S RESPONSE TO HISTORY
+    // 1. ADD USER RESPONSE TO HISTORY
     if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     }
 
-    // 2. INJECT INITIAL CONTEXT IF BRAND NEW CALL
+    // 2. INITIALIZE IF NEW CALL
     if (messages.length === 0) {
-      const initialContext = `CONVERSATION START: You are the Virtual VP calling ${repName} about the ${account} deal. Start by saying 'Hi ${repName.split(' ')[0]}' and ask your first MEDDPICC question.`;
-      messages.push({ role: "user", content: initialContext });
+      messages.push({ role: "user", content: `CONVERSATION START: Hi ${currentDeal.repName.split(' ')[0]}, let's talk about ${currentDeal.account}.` });
     }
 
     // 3. CALL OPENAI
@@ -76,10 +58,9 @@ app.post("/agent", async (req, res) => {
       {
         model: process.env.MODEL_NAME.trim(),
         messages: [
-          { role: "system", content: agentSystemPrompt(repName, account) },
+          { role: "system", content: agentSystemPrompt(currentDeal.repName, currentDeal.account) },
           ...messages
         ],
-        max_tokens: 800,
         temperature: 0
       },
       {
@@ -90,19 +71,32 @@ app.post("/agent", async (req, res) => {
       }
     );
 
-    // 4. CLEAN AND PARSE AI RESPONSE
+    // 4. ROBUST PARSING (Prevents the 500 Error)
     let rawText = response.data.choices[0].message.content.trim();
-    if (rawText.startsWith("```")) {
-      rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim();
+    let agentResult;
+
+    try {
+      // Find JSON boundaries in case AI adds extra text
+      const jsonStart = rawText.indexOf('{');
+      const jsonEnd = rawText.lastIndexOf('}');
+      if (jsonStart !== -1 && jsonEnd !== -1) {
+        agentResult = JSON.parse(rawText.substring(jsonStart, jsonEnd + 1));
+      } else {
+        throw new Error("No JSON found");
+      }
+    } catch (e) {
+      // Fallback if AI goes off-script
+      agentResult = {
+        next_question: rawText.replace(/[{}]/g, ""), 
+        score_update: { metric: "General", score: 0 },
+        end_of_call: rawText.toLowerCase().includes("bye")
+      };
     }
 
-    const agentResult = JSON.parse(rawText);
-
-    // 5. UPDATE HISTORY WITH AI'S QUESTION
+    // 5. UPDATE HISTORY WITH AI RESPONSE
     messages.push({ role: "assistant", content: agentResult.next_question });
 
-    // 6. RETURN SYNCED DATA TO TWILIO FUNCTION
-    console.log("Sending response to Twilio...");
+    // 6. SYNC BACK TO TWILIO
     res.json({
       next_question: agentResult.next_question,
       end_of_call: agentResult.end_of_call,
@@ -111,17 +105,14 @@ app.post("/agent", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("AGENT ERROR:", err.message);
+    console.error("CRITICAL ERROR:", err.message);
     res.status(500).json({ 
-      next_question: "I'm having a technical glitch. Let's talk later.", 
+      next_question: "Sorry, I hit a snag. Let's try again in a minute.", 
       end_of_call: true,
       updated_history: []
     });
   }
 });
 
-// ======================================================
-// START SERVER
-// ======================================================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
