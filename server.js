@@ -4,117 +4,139 @@ const axios = require("axios");
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); 
 
-console.log("Server status: online and listening");
+console.log("Final Verified Server - MEDDPICC Coaching Engine Live");
 
-// 1. PIPELINE DATA
-const dealPipeline = [
-  { account: "GlobalTech Industries" },
-  { account: "Acme Corp" },
-  { account: "CyberDyne Systems" }
+// ======================================================
+// 1. MOCK CRM DATA (Restored & Expanded to 3 Deals)
+// ======================================================
+const deals = [
+  {
+    id: "D-001",
+    repName: "Erik Thompson",
+    account: "GlobalTech Industries",
+    opportunityName: "Workflow Automation Expansion",
+    product: "SalesForecast.io Enterprise",
+    forecastCategory: "Commit",
+    closeDate: "2026-02-15"
+  },
+  {
+    id: "D-002",
+    repName: "Erik Thompson",
+    account: "CyberShield Solutions",
+    opportunityName: "Security Infrastructure Upgrade",
+    product: "SalesForecast.io Security Suite",
+    forecastCategory: "Best Case",
+    closeDate: "2026-03-01"
+  },
+  {
+    id: "D-003",
+    repName: "Erik Thompson",
+    account: "DataStream Corp",
+    opportunityName: "Analytics Platform Migration",
+    product: "SalesForecast.io Analytics",
+    forecastCategory: "Pipeline",
+    closeDate: "2026-03-20"
+  }
 ];
 
-// 2. THE SALES LEADER SYSTEM PROMPT
-function agentSystemPrompt(repName, accounts) {
-  const accountList = accounts.map(a => a.account).join(", ");
-  return `You are a Sales Leader conducting a review with ${repName}.
-  Accounts to cover: ${accountList}
-  Protocol: Ask targeted questions for the current account.
-  When an account is clear, provide a 1-sentence recap and move to the next.
-  Only set end_of_call to true once the entire list is finished.
-  Style: Responses under 40 words. Use contractions like whos and its.
-  Output Format: Strict JSON only.`;
+// ======================================================
+// 2. SYSTEM PROMPT (Coaching, MEDDPICC, & JSON Logic)
+// ======================================================
+function agentSystemPrompt() {
+  return `You are the SalesForecast.io Virtual VP of Sales. 
+Your mission:
+- Conduct a high-stakes MEDDPICC deal review for the provided deals.
+- Ask ONLY ONE probing question at a time to uncover risk.
+- After the rep answers, provide brief coaching (e.g., "Good, but we need the Economic Buyer sign-off").
+- Score the response (0-3) on the specific MEDDPICC metric discussed.
+- Identify risk_flags (e.g., "No Champion", "Vague Metrics").
+- Move through the deals methodically.
+- Produce JSON only. No prose, no markdown backticks.
+
+REQUIRED JSON FORMAT:
+{
+ "next_question": "Your coaching + your next question",
+ "score_update": { "metric": "string", "score": 0-3 },
+ "risk_flags": [],
+ "end_of_call": false
+}`;
 }
 
-// 3. MAIN ENDPOINT
+// ======================================================
+// 3. AGENT ENDPOINT
+// ======================================================
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
     
-    // --- FUTURE FIX: TWILIO MEMORY KEY ---
-    let messages = Array.isArray(req.body.history) ? req.body.history : [];
-    
-    if (messages.length > 10) {
-        messages = messages.slice(-10);
+    // --- MEMORY GUARD (Fixes the "history" loop) ---
+    let history = req.body.history || [];
+    if (typeof history === 'string') {
+        try { history = JSON.parse(history); } catch (e) { history = []; }
     }
 
-    if (transcript.trim()) {
+    let messages = [...history];
+
+    // --- TURN 1: CONTEXT INJECTION (3 Deals + Greeting) ---
+    if (messages.length === 0) {
+      const dealList = deals.map(d => `- ${d.account}: ${d.opportunityName} (${d.forecastCategory})`).join("\n");
+      const initialContext = `CONVERSATION START: Reviewing 3 deals for ${deals[0].repName}.
+DEALS TO REVIEW:
+${dealList}
+
+Start by greeting the rep and starting the MEDDPICC review for GlobalTech Industries.`;
+      
+      messages.push({ role: "user", content: initialContext });
+    } else if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     }
 
-    if (messages.length === 0) {
-      messages.push({ 
-        role: "user", 
-        content: "START: Hi Erik, let's review: " + dealPipeline.map(a=>a.account).join(", ") 
-      });
-    }
-
+    // --- CALL OPENAI (Using your secure env variables) ---
     const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
       {
         model: process.env.MODEL_NAME.trim(),
-        messages: [
-          { role: "system", content: agentSystemPrompt("Erik", dealPipeline) },
-          ...messages
-        ],
-        temperature: 0.7
+        messages: [{ role: "system", content: agentSystemPrompt() }, ...messages],
+        max_tokens: 800,
+        temperature: 0.2 
       },
       {
         headers: {
           "Content-Type": "application/json",
-          "Authorization": "Bearer " + process.env.MODEL_API_KEY.trim()
-        },
-        timeout: 8500 
+          "Authorization": `Bearer ${process.env.MODEL_API_KEY.trim()}`
+        }
       }
     );
 
+    // --- PARSE RESPONSE ---
     let rawText = response.data.choices[0].message.content.trim();
-    let agentResult;
-
-    // --- FUTURE FIX: JSON PARSER ---
-    try {
-      const jsonStart = rawText.indexOf('{');
-      const jsonEnd = rawText.lastIndexOf('}');
-      if (jsonStart === -1) throw new Error("No JSON found");
-      agentResult = JSON.parse(rawText.substring(jsonStart, jsonEnd + 1));
-    } catch (e) {
-      // If JSON fails, we send PLAIN TEXT only to avoid SSML crashes
-      console.log("JSON Parse Failed, using fallback text.");
-      return res.json({
-        next_question: "I heard you, but my system is lagging. Please tell me more about the current deal.",
-        end_of_call: false,
-        new_history: messages
-      });
+    if (rawText.startsWith("```")) {
+      rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim();
     }
 
-    let questionText = String(agentResult.next_question || "Tell me more.");
+    const agentResult = JSON.parse(rawText);
+
+    // --- MATTHEW-NEURAL SAFETY (Crash Protection) ---
+    agentResult.next_question = agentResult.next_question.replace(/[&<>"']/g, "");
+
+    // --- UPDATE HISTORY & RESPOND ---
+    messages.push({ role: "assistant", content: rawText });
     
-    if (agentResult.end_of_call === true) {
-        questionText = "Thanks, that wraps up. Talk soon!";
-    }
-
-    messages.push({ role: "assistant", content: questionText });
-
-   // --- FUTURE FIX: SSML COMPATIBILITY (Moved to Twilio Studio) ---
-    // We strip everything but basic punctuation to ensure Twilio doesn't crash
-    const safeText = questionText.replace(/[^a-zA-Z0-9\s?.!,;]/g, ""); 
-
     res.json({
-      next_question: safeText, // Sending raw text now
-      end_of_call: agentResult.end_of_call || false,
-      summary_data: agentResult.summary_data || { deal_health: "Pending", next_steps: "In progress" },
-      new_history: messages 
+        ...agentResult,
+        new_history: JSON.stringify(messages) // Essential for Twilio memory
     });
 
   } catch (err) {
-    console.error("Internal Error: ", err.message);
+    console.error("AGENT ERROR:", err.response?.data || err.message);
     res.status(500).json({ 
-        next_question: "Sorry, I hit a snag. Let's try that again.", 
-        end_of_call: false,
-        new_history: [] 
+      next_question: "Connection issue with the coaching engine.", 
+      end_of_call: true 
     });
   }
 });
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log("Server listening on port " + PORT));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
