@@ -151,31 +151,17 @@ let rawText = response.data.choices[0].message.content.trim();
         .replace(/[&<>"']/g, "")
         .replace(/<[^>]*>/g, ""); 
 
-    // Define cleanQuestion clearly so the res.json can see it
-    const cleanQuestion = `<speak><prosody rate="95%" pitch="-2st">${rawQuestion}</prosody></speak>`;
-
 // --- 5. UPDATE AND RETURN ---
-    // Save the AI's response to the conversation history
+    // Save the AI's response to the history array
     messages.push({ role: "assistant", content: rawText });
- 
-    // IMPORTANT: Send the response and use RETURN to stop the function here
-    return res.json({
-        ...agentResult,
-        next_question: agentResult.next_question, 
-        new_history: JSON.stringify(messages)
-    });
 
-  } catch (err) {
-    console.error("AGENT ERROR:", err.response?.data || err.message);
-    
-    // Safety check: only send error if we haven't already sent a response
-    if (!res.headersSent) {
-        return res.status(500).json({ 
-          next_question: "Connection issue with the coaching engine.", 
-          end_of_call: true 
-        });
-    }
-  }
-});
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+    // Define cleanQuestion using the actual AI response
+    const cleanQuestion = `<speak><prosody rate="95%" pitch="-2st">${agentResult.next_question}</prosody></speak>`;
+
+    // Log coaching data to Render console
+    console.log("\n>>> COACHING EVALUATION <<<");
+    console.log(`Metric: ${agentResult.score_update?.metric || 'General'}`);
+    console.log(`Score: ${agentResult.score_update?.score || 0}`);
+    console.log(">>> END EVALUATION <<<\n");
+
+// Final Response to Twilio (using cleanQuestion for the voice) return res.json({ next_question: cleanQuestion, score_update: agentResult.score_update, risk_flags: agentResult.risk_flags, end_of_call: agentResult.end_of_call, new_history: JSON.stringify(messages) }); } catch (err) { console.error("AGENT ERROR:", err.response?.data || err.message); if (!res.headersSent) { return res.status(500).json({ next_question: "Connection issue with the coaching engine.", end_of_call: true }); } } }); const PORT = process.env.PORT || 3000; app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
