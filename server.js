@@ -51,12 +51,23 @@ Rules: No markdown, no backticks, no prose outside the JSON.`;
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
-    const history = req.body.history || [];
+    // Ensure history is an array even if Twilio sends null
+    const history = Array.isArray(req.body.history) ? req.body.history : [];
+    
     let messages = [...history];
     const currentDeal = deals[0];
 
-    // --- TURN 1 LOGIC: Inject Context ---
+    // DEBUG: See what is coming from Twilio
+    console.log(`--- NEW REQUEST ---`);
+    console.log(`History length received: ${history.length}`);
+    console.log(`Transcript: "${transcript}"`);
+
+    // ======================================================
+    // TURN LOGIC
+    // ======================================================
     if (messages.length === 0) {
+      // TURN 1: Brand new conversation
+      console.log("Logic: Handling Turn 1 (Injection)");
       const initialContext = `CONVERSATION START: You are the Virtual VP calling ${currentDeal.repName} about the ${currentDeal.account} deal (${currentDeal.opportunityName}). Start with a greeting and a MEDDPICC question.`;
       
       const combinedContent = transcript.trim() 
@@ -64,9 +75,12 @@ app.post("/agent", async (req, res) => {
         : initialContext;
 
       messages.push({ role: "user", content: combinedContent });
-    } else if (transcript.trim()) {
-      // --- TURN 2+ LOGIC: standard follow-up ---
-      messages.push({ role: "user", content: transcript });
+    } else {
+      // TURN 2+: Conversation is already in progress
+      console.log(`Logic: Handling Turn ${messages.length + 1}`);
+      if (transcript.trim()) {
+        messages.push({ role: "user", content: transcript });
+      }
     }
 
     // --- CALL OPENAI ---
@@ -92,11 +106,11 @@ app.post("/agent", async (req, res) => {
     // --- PARSE RESPONSE ---
     let rawText = response.data.choices[0].message.content.trim();
     
-    // Clean code fences if the AI ignores the "JSON ONLY" rule
     if (rawText.startsWith("```")) {
       rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim();
     }
 
+    console.log("AI Response:", rawText);
     const agentResult = JSON.parse(rawText);
     res.json(agentResult);
 
