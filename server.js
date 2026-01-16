@@ -100,9 +100,16 @@ app.post("/agent", async (req, res) => {
     // 5. UPDATE HISTORY WITH RAW TEXT (for AI context)
     messages.push({ role: "assistant", content: agentResult.next_question });
 
-    // 6. APPLY VOICE TUNING (SSML) FOR TWILIO
-    // rate="112%" makes it faster, pitch="-1%" makes it more masculine/authoritative
-    const tunedVoiceQuestion = `<speak><prosody rate="112%" pitch="-1%">${agentResult.next_question}</prosody></speak>`;
+   // 6. APPLY VOICE TUNING (SSML) WITH SAFETY SCRUBBING
+    // Remove characters that often crash Twilio's SSML parser
+    const safeText = agentResult.next_question
+      .replace(/[&]/g, 'and')
+      .replace(/[<]/g, '&lt;')
+      .replace(/[>]/g, '&gt;')
+      .replace(/["“]/g, '') // Remove double quotes
+      .replace(/['’]/g, "&apos;"); // Properly escape apostrophes
+
+    const tunedVoiceQuestion = `<speak><prosody rate="112%" pitch="-1%">${safeText}</prosody></speak>`;
 
     // 7. SYNC BACK TO TWILIO
     res.json({
