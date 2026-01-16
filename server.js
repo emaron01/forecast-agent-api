@@ -115,31 +115,7 @@ app.post("/agent", async (req, res) => {
       }
     );
 
-    // --- 5. PARSE & SSML CLEANUP ---
-    let rawText = response.data.choices[0].message.content.trim();
-    if (rawText.startsWith("```")) {
-      rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim();
-    }
-
-    const agentResult = JSON.parse(rawText);
-    const cleanQuestion = `<speak><prosody rate="95%" pitch="-2st">${agentResult.next_question}</prosody></speak>`;
-
-    // --- 6. UPDATE HISTORY & RESPOND ---
-    messages.push({ role: "assistant", content: rawText });
-
-    console.log("\n>>> COACHING EVALUATION <<<");
-    console.log(`Metric: ${agentResult.score_update?.metric || 'General'}`);
-    console.log(`Score: ${agentResult.score_update?.score || 0}`);
-    console.log(">>> END EVALUATION <<<\n");
-
-    return res.json({
-      next_question: cleanQuestion,
-      score_update: agentResult.score_update,
-      risk_flags: agentResult.risk_flags,
-      end_of_call: agentResult.end_of_call,
-      new_history: JSON.stringify(messages)
-    });
-
+// --- 5. PARSE & SSML CLEANUP --- let rawText = response.data.choices[0].message.content.trim(); // Clean markdown backticks if present if (rawText.startsWith("```")) { rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim(); } const agentResult = JSON.parse(rawText); // SSML wrapping for Matthew-Neural voice const cleanQuestion = `<speak><prosody rate="95%" pitch="-2st">${agentResult.next_question}</prosody></speak>`; // --- 6. THE LOOP BREAKER --- // We add the AI's response to the messages array BEFORE stringifying messages.push({ role: "assistant", content: rawText }); // --- 7. FINAL RESPONSE --- console.log(`[SERVER] Sending new_history with ${messages.length} turns.`); return res.json({ next_question: cleanQuestion, score_update: agentResult.score_update, risk_flags: agentResult.risk_flags, end_of_call: agentResult.end_of_call, new_history: JSON.stringify(messages) });
   } catch (err) {
     console.error("AGENT ERROR:", err.response?.data || err.message);
     if (!res.headersSent) {
@@ -153,3 +129,4 @@ app.post("/agent", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
