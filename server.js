@@ -152,33 +152,30 @@ let rawText = response.data.choices[0].message.content.trim();
         .replace(/<[^>]*>/g, ""); 
 
     // Define cleanQuestion clearly so the res.json can see it
-    const cleanQuestion = `<speak><prosody rate="110%" pitch="-2st">${rawQuestion}</prosody></speak>`;
+    const cleanQuestion = `<speak><prosody rate="95%" pitch="-2st">${rawQuestion}</prosody></speak>`;
 
-    // --- 5. UPDATE AND RETURN ---
+// --- 5. UPDATE AND RETURN ---
     // Save the AI's response to the conversation history
     messages.push({ role: "assistant", content: rawText });
+ 
+    // IMPORTANT: Send the response and use RETURN to stop the function here
+    return res.json({
+        ...agentResult,
+        next_question: agentResult.next_question, 
+        new_history: JSON.stringify(messages)
+    });
 
-    // IMPORTANT: Make sure the key is 'next_question' and the value is 'cleanQuestion'
-    res.json({
-        ...agentResult,
-        next_question: cleanQuestion, 
-        new_history: JSON.stringify(messages)
-    });
-// 2. Memory Persistence: Store the AI's response in the history array messages.push({ role: "assistant", content: rawText });
-    // 3. Final Payload: Send text and the stringified history back to Twilio
-    res.json({
-        ...agentResult,
-        next_question: cleanQuestion,
-        new_history: JSON.stringify(messages)
-    });
   } catch (err) {
     console.error("AGENT ERROR:", err.response?.data || err.message);
-    res.status(500).json({ 
-      next_question: "Connection issue with the coaching engine.", 
-      end_of_call: true 
-    });
+    
+    // Safety check: only send error if we haven't already sent a response
+    if (!res.headersSent) {
+        return res.status(500).json({ 
+          next_question: "Connection issue with the coaching engine.", 
+          end_of_call: true 
+        });
+    }
   }
 });
-
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
