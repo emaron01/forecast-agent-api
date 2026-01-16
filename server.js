@@ -95,17 +95,12 @@ app.post("/agent", async (req, res) => {
 
     messages.push({ role: "assistant", content: questionText });
 
-    // --- FUTURE FIX: SSML COMPATIBILITY ---
-    const safeText = questionText
-      .replace(/['’]/g, "&apos;") 
-      .replace(/[&]/g, "and")     
-      .replace(/[^a-zA-Z0-9\s?.!,;]/g, ""); 
-
-    // Final XML formatting
-    const tunedVoice = `<speak><prosody rate="112%" pitch="-1%">${safeText}</prosody></speak>`;
+   // --- FUTURE FIX: SSML COMPATIBILITY (Moved to Twilio Studio) ---
+    // We strip everything but basic punctuation to ensure Twilio doesn't crash
+    const safeText = questionText.replace(/[^a-zA-Z0-9\s?.!,;]/g, ""); 
 
     res.json({
-      next_question: tunedVoice,
+      next_question: safeText, // Sending raw text now
       end_of_call: agentResult.end_of_call || false,
       summary_data: agentResult.summary_data || { deal_health: "Pending", next_steps: "In progress" },
       new_history: messages 
