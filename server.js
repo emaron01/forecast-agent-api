@@ -118,7 +118,21 @@ app.post("/agent", async (req, res) => {
       }
     );
 
-// --- 5. PARSE & SSML CLEANUP --- let rawText = response.data.choices[0].message.content.trim(); // Clean markdown backticks if present if (rawText.startsWith("```")) { rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim(); } const agentResult = JSON.parse(rawText); // SSML wrapping for Matthew-Neural voice const cleanQuestion = `<speak><prosody rate="115%" pitch="-2st">${agentResult.next_question}</prosody></speak>`;
+// --- 5. PARSE & SSML CLEANUP ---
+let rawText = response.data.choices[0].message.content.trim();
+
+// Clean markdown backticks if present
+if (rawText.startsWith("```")) {
+  rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim();
+}
+
+// 🔍 DEBUG: See exactly what the model returned
+console.log("RAW MODEL OUTPUT:", rawText);
+
+const agentResult = JSON.parse(rawText);
+
+// SSML wrapping for Matthew-Neural voice
+const cleanQuestion = `<speak><prosody rate="115%" pitch="-2st">${agentResult.next_question}</prosody></speak>`;
 
  // --- 6. THE LOOP BREAKER --- // We add the AI's response to the messages array BEFORE stringifying messages.push({ role: "assistant", content: rawText }); // --- 7. FINAL RESPONSE --- console.log(`[SERVER] Sending new_history with ${messages.length} turns.`); 
 return res.json({
