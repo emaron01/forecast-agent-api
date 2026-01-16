@@ -142,18 +142,9 @@ else if (transcript.trim()) {
     console.log(`>>> EVALUATION_END <<<\n`);
     // ======================================================
 
-// 1. Agent Voice: Strip special chars & accidental AI tags
-    // This prevents Twilio Studio from hanging up on malformed SSML
-    l // 1. Agent Voice: Scrub, then wrap in Speed & Pitch control
-    let rawQuestion = agentResult.next_question
-        .replace(/[&<>"']/g, "")
-        .replace(/<[^>]*>/g, ""); 
+// 1. Agent Voice: Scrub, then wrap in Speed & Pitch control let rawQuestion = agentResult.next_question .replace(/[&<>"']/g, "") .replace(/<[^>]*>/g, ""); // USE THIS: 95% is measured/authoritative. Use 115% only if you want him to sound rushed. const cleanQuestion = `<speak><prosody rate="110%" pitch="-2st">${rawQuestion}</prosody></speak>`; 
 
-    // Wrap in SSML for 115% speed and -2 semitones pitch for that VP "Gravitas"
-    const cleanQuestion = `<speak><prosody rate="115%" pitch="-2st">${rawQuestion}</prosody></speak>`;
-    // 2. Memory Persistence: Store the AI's response in the history array
-    messages.push({ role: "assistant", content: rawText });
-
+// 2. Memory Persistence: Store the AI's response in the history array messages.push({ role: "assistant", content: rawText });
     // 3. Final Payload: Send text and the stringified history back to Twilio
     res.json({
         ...agentResult,
