@@ -5,7 +5,6 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-// Log server start without any special symbols
 console.log("Server status: online and listening");
 
 // 1. PIPELINE DATA
@@ -31,11 +30,9 @@ function agentSystemPrompt(repName, accounts) {
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
-    
-    // Using history key to match your Twilio configuration
     let messages = Array.isArray(req.body.history) ? req.body.history : [];
     
-    // Manage Memory: Keep last 10 turns for speed and stability
+    // Manage Memory: Keep it fast for voice
     if (messages.length > 10) {
         messages = messages.slice(-10);
     }
@@ -44,7 +41,6 @@ app.post("/agent", async (req, res) => {
       messages.push({ role: "user", content: transcript });
     }
 
-    // Initial greeting if history is empty
     if (messages.length === 0) {
       messages.push({ 
         role: "user", 
@@ -52,7 +48,6 @@ app.post("/agent", async (req, res) => {
       });
     }
 
-    // Call AI Model
     const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
       {
@@ -75,39 +70,41 @@ app.post("/agent", async (req, res) => {
     let rawText = response.data.choices[0].message.content.trim();
     let agentResult;
 
-    // JSON Parsing
+    // Robust JSON Parsing with Fallbacks
     try {
       const jsonStart = rawText.indexOf('{');
       const jsonEnd = rawText.lastIndexOf('}');
+      if (jsonStart === -1) throw new Error("No JSON found");
       agentResult = JSON.parse(rawText.substring(jsonStart, jsonEnd + 1));
     } catch (e) {
+      // Fallback if AI output is not valid JSON
       agentResult = { 
-        next_question: "Connection error. Please continue.", 
+        next_question: rawText || "Tell me more about that.", 
         end_of_call: false,
         summary_data: {}
       };
     }
 
-    // Update history for next loop
-    messages.push({ role: "assistant", content: agentResult.next_question });
+    // THE FIX: Force the question into a string to prevent .replace() errors
+    let questionText = String(agentResult.next_question || "Tell me more.");
+    
+    messages.push({ role: "assistant", content: questionText });
 
     // --- SSML SANITIZER ---
-    // This removes emojis, smart quotes, and non-standard symbols
-    const safeText = agentResult.next_question
+    // Cleans up special characters for Twilio Amazon Polly
+    const safeText = questionText
       .replace(/['’]/g, "&apos;") 
       .replace(/[&]/g, "and")     
       .replace(/[^a-zA-Z0-9\s?.!,;]/g, ""); 
 
     const tunedVoice = "<speak><prosody rate='112%' pitch='-1%'>" + safeText + "</prosody></speak>";
 
-    // Clean Console Logs
+    // Logging without emojis
     if (agentResult.summary_data && agentResult.summary_data.next_steps) {
-        console.log("Account: " + agentResult.current_account);
-        console.log("Health: " + agentResult.summary_data.deal_health);
-        console.log("Next: " + agentResult.summary_data.next_steps);
+        console.log("Account: " + (agentResult.current_account || "Summary"));
+        console.log("Health: " + (agentResult.summary_data.deal_health || "In progress"));
     }
 
-    // Return JSON with new_history key to match Twilio Studio
     res.json({
       next_question: tunedVoice,
       end_of_call: agentResult.end_of_call || false,
@@ -116,9 +113,9 @@ app.post("/agent", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Error message: ", err.message);
+    console.error("Internal Error: ", err.message);
     res.status(500).json({ 
-        next_question: "Sorry, I hit a snag. Let's try that again.", 
+        next_question: "<speak>I had a slight connection issue. Could you repeat that?</speak>", 
         end_of_call: false,
         new_history: [] 
     });
