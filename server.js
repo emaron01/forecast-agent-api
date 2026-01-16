@@ -5,36 +5,36 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-console.log("🚀 Multi-Account Sales Leader Engine: Online");
+console.log("🚀 Sales Leader Multi-Account Engine: Online");
 
 // ======================================================
 // 1. PIPELINE DATA
-// In a real app, you would fetch this from a CRM based on the caller's ID
 // ======================================================
 const dealPipeline = [
-  { account: "GlobalTech Industries", status: "Active" },
-  { account: "Acme Corp", status: "Active" },
-  { account: "CyberDyne Systems", status: "Active" }
+  { account: "GlobalTech Industries" },
+  { account: "Acme Corp" },
+  { account: "CyberDyne Systems" }
 ];
 
 // ======================================================
-// 2. THE SALES LEADER PROMPT
+// 2. SYSTEM PROMPT: THE SALES LEADER
 // ======================================================
 function agentSystemPrompt(repName, accounts) {
   const accountList = accounts.map(a => a.account).join(", ");
-  return `You are a world-class Sales Leader. You are conducting a 30-minute pipeline review with ${repName}.
+  return `You are a world-class Sales Leader conducting a deep-dive pipeline review with ${repName}.
   
-  ACCOUNTS TO REVIEW: ${accountList}
+  ACCOUNTS TO COVER: ${accountList}
 
-  YOUR OBJECTIVE:
-  1. COCHING LOOP: For the current account, ask MEDDPICC questions. Validate strong answers ("Nice job getting that metric") and coach on weak ones ("We need more than just a coach there, we need a Champion").
-  2. ACCOUNT TRANSITION: When you have enough info on one account, provide a brief 1-sentence summary and a clear next step for THAT specific account. Then say, "Let's move to [Next Account]" and begin the next review.
-  3. DATA CAPTURE: For every account summary, you MUST include it in the "summary_data" object in your JSON response.
-  4. SESSION END: Set "end_of_call": true ONLY after the last account in the list has been summarized.
+  YOUR PROTOCOL:
+  1. DEEP DIVE: For the current account, ask targeted MEDDPICC questions.
+  2. REINFORCE & COACH: Give immediate feedback (e.g., "I like that approach" or "We need more detail on the EB").
+  3. PIVOT: Once an account is clear, provide a 1-sentence "Leadership Summary" (Health + Next Step) and say "Moving on to [Next Account]...".
+  4. DATA: Include account summaries in the "summary_data" field of your JSON.
+  5. TERMINATE: Only set "end_of_call": true once the ENTIRE list is finished.
 
   STYLE:
-  - Professional, punchy, and supportive. 
-  - Use contractions (don't, it's, we've) for a natural voice.
+  - Concise, professional, and supportive.
+  - Use contractions (don't, who's, it's) to sound like a human leader.
   
   OUTPUT FORMAT (STRICT JSON ONLY):
   {
@@ -53,16 +53,19 @@ app.post("/agent", async (req, res) => {
     const transcript = req.body.transcript || "";
     let messages = Array.isArray(req.body.history) ? req.body.history : [];
     
-    // Add user response to history
+    // Manage Memory: Keep last 20 turns to prevent lag/errors in 30-min calls
+    if (messages.length > 20) {
+        messages = messages.slice(-20);
+    }
+
     if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     }
 
-    // Initialize if first turn
     if (messages.length === 0) {
       messages.push({ 
         role: "user", 
-        content: `START: Hi Erik, let's run through your pipeline. We have ${dealPipeline.length} accounts to cover, starting with ${dealPipeline[0].account}.` 
+        content: `START: Hi Erik, let's review your deals: ${dealPipeline.map(a=>a.account).join(", ")}.` 
       });
     }
 
@@ -78,14 +81,10 @@ app.post("/agent", async (req, res) => {
         temperature: 0.7
       },
       {
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.MODEL_API_KEY.trim()}`
-        }
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.MODEL_API_KEY.trim()}` }
       }
     );
 
-    // Robust JSON Parsing
     let rawText = response.data.choices[0].message.content.trim();
     let agentResult;
 
@@ -94,34 +93,36 @@ app.post("/agent", async (req, res) => {
       const jsonEnd = rawText.lastIndexOf('}');
       agentResult = JSON.parse(rawText.substring(jsonStart, jsonEnd + 1));
     } catch (e) {
-      // Emergency fallback if JSON fails
-      agentResult = {
+      agentResult = { 
         next_question: rawText.replace(/[{}]/g, ""), 
         end_of_call: false,
-        summary_data: null
+        summary_data: null 
       };
     }
 
-    // Save assistant response to history
     messages.push({ role: "assistant", content: agentResult.next_question });
 
-    // --- SSML SAFETY SCRUBBING ---
-    // This prevents the Amazon Polly "Application Error" by escaping special characters
+    // --- ULTRA-SAFE SSML SCRUBBING ---
+    // 1. Convert dashes and ampersands
+    // 2. Remove all double quotes (they often break the prosody attribute)
+    // 3. Escape apostrophes properly for XML
+    // 4. STRIP NON-ASCII: This removes em-dashes and symbols that crash Twilio
     const safeText = agentResult.next_question
+      .replace(/[—–]/g, '-')
       .replace(/[&]/g, 'and')
-      .replace(/[<]/g, '&lt;')
-      .replace(/[>]/g, '&gt;')
-      .replace(/["“]/g, '') 
-      .replace(/['’]/g, "&apos;"); 
+      .replace(/[<]/g, '')
+      .replace(/[>]/g, '')
+      .replace(/["“”]/g, '') 
+      .replace(/['’]/g, "&apos;")
+      .replace(/[^\x20-\x7E]/g, ""); 
 
     const tunedVoice = `<speak><prosody rate="112%" pitch="-1%">${safeText}</prosody></speak>`;
 
-    // --- SALES LEADER LOGGING ---
-    // This prints to your Render logs so you can see the coaching summaries in real-time
+    // --- LOGGING LEADERSHIP INSIGHTS ---
     if (agentResult.summary_data && agentResult.summary_data.next_steps) {
-      console.log(`\n✅ ACCOUNT REVIEW COMPLETED: ${agentResult.current_account || 'Current Deal'}`);
+      console.log(`\n[✅ ACCOUNT REVIEW: ${agentResult.current_account || 'Update'}]`);
       console.log(`HEALTH: ${agentResult.summary_data.deal_health}`);
-      console.log(`STEPS: ${agentResult.summary_data.next_steps}\n`);
+      console.log(`NEXT: ${agentResult.summary_data.next_steps}\n`);
     }
 
     // Return to Twilio Studio
@@ -132,13 +133,13 @@ app.post("/agent", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("CRITICAL ERROR:", err.message);
+    console.error("SESSION ERROR:", err.message);
     res.status(500).json({ 
-      next_question: "Sorry, I lost my place in the pipeline. Can we restart this account?", 
-      end_of_call: false 
+        next_question: "Sorry, I hit a snag in the pipeline. Let's keep going.", 
+        end_of_call: false 
     });
   }
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Sales Leader Server listening on port ${PORT}`));
+app.listen(PORT, () => console.log(`Executive Session Server on port ${PORT}`));
