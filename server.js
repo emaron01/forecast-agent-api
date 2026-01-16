@@ -133,6 +133,7 @@ const agentResult = JSON.parse(rawText);
 
 // SSML wrapping for Matthew-Neural voice
 const cleanQuestion = `<speak><prosody rate="115%" pitch="-2st">${agentResult.next_question}</prosody></speak>`;
+
  // --- 6. THE LOOP BREAKER --- // We add the AI's response to the messages array BEFORE stringifying messages.push({ role: "assistant", content: rawText }); // --- 7. FINAL RESPONSE --- console.log(`[SERVER] Sending new_history with ${messages.length} turns.`); 
 return res.json({
   next_question: cleanQuestion,
