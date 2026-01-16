@@ -5,72 +5,77 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-console.log("🚀 Sales Leader AI: Production Mode Active");
+console.log("🚀 Multi-Account Sales Leader Engine: Online");
 
 // ======================================================
-// MOCK CRM DATA
+// 1. PIPELINE DATA
+// In a real app, you would fetch this from a CRM based on the caller's ID
 // ======================================================
-const deals = [
-  {
-    repName: "Erik Thompson",
-    account: "GlobalTech Industries"
-  }
+const dealPipeline = [
+  { account: "GlobalTech Industries", status: "Active" },
+  { account: "Acme Corp", status: "Active" },
+  { account: "CyberDyne Systems", status: "Active" }
 ];
 
 // ======================================================
-// SALES LEADER SYSTEM PROMPT
+// 2. THE SALES LEADER PROMPT
 // ======================================================
-function agentSystemPrompt(repName, accountName) {
-  return `You are a world-class Sales Leader conducting a MEDDPICC review with ${repName} on the ${accountName} deal.
+function agentSystemPrompt(repName, accounts) {
+  const accountList = accounts.map(a => a.account).join(", ");
+  return `You are a world-class Sales Leader. You are conducting a 30-minute pipeline review with ${repName}.
+  
+  ACCOUNTS TO REVIEW: ${accountList}
 
-  YOUR ROLE:
-  1. VALIDATE: If the rep gives a strong answer, give brief positive reinforcement (e.g. "Great relationship there" or "Solid metrics").
-  2. COACH: If a response is weak or missing detail, offer a one-sentence tactical suggestion or realistic observation.
-  3. SUMMARIZE: When you have enough info, set "end_of_call": true. In "summary_data", provide a "deal_health" (a realistic assessment) and "next_steps" (immediate tactical actions) derived ONLY from this specific conversation.
+  YOUR OBJECTIVE:
+  1. COCHING LOOP: For the current account, ask MEDDPICC questions. Validate strong answers ("Nice job getting that metric") and coach on weak ones ("We need more than just a coach there, we need a Champion").
+  2. ACCOUNT TRANSITION: When you have enough info on one account, provide a brief 1-sentence summary and a clear next step for THAT specific account. Then say, "Let's move to [Next Account]" and begin the next review.
+  3. DATA CAPTURE: For every account summary, you MUST include it in the "summary_data" object in your JSON response.
+  4. SESSION END: Set "end_of_call": true ONLY after the last account in the list has been summarized.
 
   STYLE:
-  - Professional, authoritative, yet supportive.
-  - Use contractions (don't, you're, we've) for a natural flow.
-  - No corporate jargon; sound like a real person.
+  - Professional, punchy, and supportive. 
+  - Use contractions (don't, it's, we've) for a natural voice.
   
   OUTPUT FORMAT (STRICT JSON ONLY):
   {
     "next_question": "string",
-    "score_update": { "metric": "string", "score": 0-3 },
+    "current_account": "string",
     "summary_data": { "deal_health": "string", "next_steps": "string" },
     "end_of_call": boolean
   }`;
 }
 
 // ======================================================
-// MAIN ENDPOINT
+// 3. MAIN ENDPOINT
 // ======================================================
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
     let messages = Array.isArray(req.body.history) ? req.body.history : [];
-    const currentDeal = deals[0]; 
-
-    // 1. ADD USER RESPONSE TO HISTORY
+    
+    // Add user response to history
     if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     }
 
-    // 2. INITIALIZE IF NEW CALL
+    // Initialize if first turn
     if (messages.length === 0) {
-      messages.push({ role: "user", content: `CONVERSATION START: Hi ${currentDeal.repName.split(' ')[0]}, let's talk about ${currentDeal.account}.` });
+      messages.push({ 
+        role: "user", 
+        content: `START: Hi Erik, let's run through your pipeline. We have ${dealPipeline.length} accounts to cover, starting with ${dealPipeline[0].account}.` 
+      });
     }
 
-    // 3. CALL OPENAI
+    // Call AI
     const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
       {
         model: process.env.MODEL_NAME.trim(),
         messages: [
-          { role: "system", content: agentSystemPrompt(currentDeal.repName, currentDeal.account) },
+          { role: "system", content: agentSystemPrompt("Erik", dealPipeline) },
           ...messages
         ],
-        temperature: 0.7 
+        temperature: 0.7
       },
       {
         headers: {
@@ -80,32 +85,28 @@ app.post("/agent", async (req, res) => {
       }
     );
 
-    // 4. ROBUST PARSING (Prevents crashes from extra AI text)
+    // Robust JSON Parsing
     let rawText = response.data.choices[0].message.content.trim();
     let agentResult;
 
     try {
       const jsonStart = rawText.indexOf('{');
       const jsonEnd = rawText.lastIndexOf('}');
-      if (jsonStart !== -1 && jsonEnd !== -1) {
-        agentResult = JSON.parse(rawText.substring(jsonStart, jsonEnd + 1));
-      } else {
-        throw new Error("No JSON found");
-      }
+      agentResult = JSON.parse(rawText.substring(jsonStart, jsonEnd + 1));
     } catch (e) {
-      // Fallback if AI output is malformed
+      // Emergency fallback if JSON fails
       agentResult = {
         next_question: rawText.replace(/[{}]/g, ""), 
-        score_update: { metric: "General", score: 0 },
-        summary_data: { deal_health: "In progress", next_steps: "Keep identifying gaps." },
-        end_of_call: rawText.toLowerCase().includes("bye")
+        end_of_call: false,
+        summary_data: null
       };
     }
 
-    // 5. UPDATE HISTORY WITH RAW TEXT
+    // Save assistant response to history
     messages.push({ role: "assistant", content: agentResult.next_question });
 
-    // 6. SSML SAFETY SCRUBBING (Ensures Matthew-Neural doesn't crash on apostrophes)
+    // --- SSML SAFETY SCRUBBING ---
+    // This prevents the Amazon Polly "Application Error" by escaping special characters
     const safeText = agentResult.next_question
       .replace(/[&]/g, 'and')
       .replace(/[<]/g, '&lt;')
@@ -113,37 +114,31 @@ app.post("/agent", async (req, res) => {
       .replace(/["“]/g, '') 
       .replace(/['’]/g, "&apos;"); 
 
-    const tunedVoiceQuestion = `<speak><prosody rate="112%" pitch="-1%">${safeText}</prosody></speak>`;
+    const tunedVoice = `<speak><prosody rate="112%" pitch="-1%">${safeText}</prosody></speak>`;
 
-    // 7. LOG SALES LEADERSHIP INSIGHTS
-    if (agentResult.end_of_call) {
-      console.log(`\n--- 📊 FINAL SALES REVIEW: ${currentDeal.account} ---`);
-      console.log(`REP: ${currentDeal.repName}`);
-      console.log(`HEALTH: ${agentResult.summary_data?.deal_health}`);
-      console.log(`ACTION: ${agentResult.summary_data?.next_steps}`);
-      console.log(`-----------------------------------------------\n`);
-    } else {
-        console.log(`[Turn ${messages.length/2}] Metric: ${agentResult.score_update?.metric || 'Progressing'}`);
+    // --- SALES LEADER LOGGING ---
+    // This prints to your Render logs so you can see the coaching summaries in real-time
+    if (agentResult.summary_data && agentResult.summary_data.next_steps) {
+      console.log(`\n✅ ACCOUNT REVIEW COMPLETED: ${agentResult.current_account || 'Current Deal'}`);
+      console.log(`HEALTH: ${agentResult.summary_data.deal_health}`);
+      console.log(`STEPS: ${agentResult.summary_data.next_steps}\n`);
     }
 
-    // 8. SYNC BACK TO TWILIO
+    // Return to Twilio Studio
     res.json({
-      next_question: tunedVoiceQuestion,
+      next_question: tunedVoice,
       end_of_call: agentResult.end_of_call,
-      score_update: agentResult.score_update,
-      summary_data: agentResult.summary_data || {},
       updated_history: messages 
     });
 
   } catch (err) {
     console.error("CRITICAL ERROR:", err.message);
     res.status(500).json({ 
-      next_question: "Sorry, I hit a snag in the forecast. Let's try again in a bit.", 
-      end_of_call: true,
-      updated_history: []
+      next_question: "Sorry, I lost my place in the pipeline. Can we restart this account?", 
+      end_of_call: false 
     });
   }
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Sales Leader Server listening on port ${PORT}`));
