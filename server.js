@@ -49,10 +49,9 @@ function agentSystemPrompt() {
   
   return `You are the SalesForecast.io Virtual VP of Sales. 
 Your mission:
-- Conduct a high-stakes MEDDPICC deal review for these deals:
-${dealList}
-- Ask ONLY ONE probing question at a time to uncover risk.
-- After the rep answers, provide brief coaching (e.g., "Good, but we need the EB sign-off").
+- TURN 1 RULE: If this is the start of the call, your "next_question" MUST start by presenting the deal details (Account, Name, Category) and then ask the first MEDDPICC question. 
+- MISSION: Conduct a high-stakes MEDDPICC deal review. 
+- Ask ONLY ONE probing question at a time.- After the rep answers, provide brief coaching (e.g., "Good, but we need the EB sign-off").
 - Score the response (0-3) on the specific MEDDPICC metric discussed.
 - Identify risk_flags (e.g., "No Champion").
 - Produce JSON only. No prose, no markdown backticks.
@@ -85,12 +84,17 @@ app.post("/agent", async (req, res) => {
     let messages = [...history];
 
     // --- TURN 1: INITIALIZATION ---
-    if (messages.length === 0) {
-      messages.push({ 
-        role: "user", 
-        content: "I'm ready for my forecast review. Let's start with GlobalTech Industries." 
-      });
-    } else if (transcript.trim()) {
+if (messages.length === 0) {
+  // The VP (Agent) is "opening the CRM" here. 
+  // We feed this as a hidden system instruction so the Agent knows it's time to lead.
+  const dealList = deals.map(d => `- ${d.account}: ${d.opportunityName} (${d.forecastCategory})`).join("\n");
+  
+  messages.push({ 
+    role: "system", 
+    content: `CRM DATA LOADED: \n${dealList}\n\nLEAD THE CALL: Start by greeting Erik. Mention the first account (GlobalTech) and its category, then immediately ask your first MEDDPICC question. You are leading this meeting.` 
+  });
+}
+else if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     }
 
@@ -138,12 +142,15 @@ app.post("/agent", async (req, res) => {
     console.log(`>>> EVALUATION_END <<<\n`);
     // ======================================================
 
-// 1. Matthew-Neural Safety: Strip special chars & accidental AI tags
+// 1. Agent Voice: Strip special chars & accidental AI tags
     // This prevents Twilio Studio from hanging up on malformed SSML
-    let cleanQuestion = agentResult.next_question
+    l // 1. Agent Voice: Scrub, then wrap in Speed & Pitch control
+    let rawQuestion = agentResult.next_question
         .replace(/[&<>"']/g, "")
         .replace(/<[^>]*>/g, ""); 
 
+    // Wrap in SSML for 115% speed and -2 semitones pitch for that VP "Gravitas"
+    const cleanQuestion = `<speak><prosody rate="115%" pitch="-2st">${rawQuestion}</prosody></speak>`;
     // 2. Memory Persistence: Store the AI's response in the history array
     messages.push({ role: "assistant", content: rawText });
 
