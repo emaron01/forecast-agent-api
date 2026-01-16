@@ -122,13 +122,16 @@ else if (transcript.trim()) {
     );
 
     // --- PARSE RESPONSE ---
-    let rawText = response.data.choices[0].message.content.trim();
-    if (rawText.startsWith("```")) {
-      rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim();
+let rawText = response.data.choices[0].message.content.trim();
+    
+    // This finds anything between the first { and the last } 
+    // to prevent crashes if the AI adds prose or markdown backticks
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error("AI returned malformed response: " + rawText);
     }
-
-    const agentResult = JSON.parse(rawText);
-
+    
+    const agentResult = JSON.parse(jsonMatch[0]);
     // ======================================================
     // HOOK: DEAL_EVALUATION (The Summary Logic)
     // ======================================================
@@ -162,3 +165,4 @@ else if (transcript.trim()) {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
