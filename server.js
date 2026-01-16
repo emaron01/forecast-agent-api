@@ -156,7 +156,7 @@ let rawText = response.data.choices[0].message.content.trim();
     messages.push({ role: "assistant", content: rawText });
 
     // Define cleanQuestion using the actual AI response
-    const cleanQuestion = `<speak><prosody rate="95%" pitch="-2st">${agentResult.next_question}</prosody></speak>`;
+    const cleanQuestion = `<speak><prosody rate="115%" pitch="-2st">${agentResult.next_question}</prosody></speak>`;
 
     // Log coaching data to Render console
     console.log("\n>>> COACHING EVALUATION <<<");
@@ -164,4 +164,28 @@ let rawText = response.data.choices[0].message.content.trim();
     console.log(`Score: ${agentResult.score_update?.score || 0}`);
     console.log(">>> END EVALUATION <<<\n");
 
-// Final Response to Twilio (using cleanQuestion for the voice) return res.json({ next_question: cleanQuestion, score_update: agentResult.score_update, risk_flags: agentResult.risk_flags, end_of_call: agentResult.end_of_call, new_history: JSON.stringify(messages) }); } catch (err) { console.error("AGENT ERROR:", err.response?.data || err.message); if (!res.headersSent) { return res.status(500).json({ next_question: "Connection issue with the coaching engine.", end_of_call: true }); } } }); const PORT = process.env.PORT || 3000; app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+    // Final Response to Twilio
+    return res.json({
+        next_question: cleanQuestion,
+        score_update: agentResult.score_update,
+        risk_flags: agentResult.risk_flags,
+        end_of_call: agentResult.end_of_call,
+        new_history: JSON.stringify(messages)
+    });
+
+  } catch (err) {
+    console.error("AGENT ERROR:", err.response?.data || err.message);
+    
+    if (!res.headersSent) {
+        return res.status(500).json({ 
+          next_question: "Connection issue with the coaching engine.", 
+          end_of_call: true 
+        });
+    }
+  }
+});
+
+// SERVER START
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
