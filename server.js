@@ -74,38 +74,15 @@ app.post("/agent", async (req, res) => {
     const transcript = req.body.transcript || "";
     let history = req.body.history;
 
-    // --- MEMORY GUARD ---
-    if (history === "[]" || !history) {
-        history = []; 
-    } else if (typeof history === 'string') {
-        try { history = JSON.parse(history); } catch (e) { history = []; }
-    }
+// --- 1. MEMORY GUARD & INITIALIZATION --- let messages = []; try { // Handle both stringified history from Twilio and empty states messages = (typeof history === 'string' && history !== "[]") ? JSON.parse(history) : (Array.isArray(history) ? history : []); } catch (e) { messages = []; } 
 
-    let messages = [...history];
+// --- 2. MEMORY CAP --- if (messages.length > 11) { console.log("[MEMORY] Trimming history."); messages = [messages[0], ...messages.slice(-10)]; } 
 
-    // --- TURN 1: INITIALIZATION ---
-if (messages.length === 0) {
-  // The VP (Agent) is "opening the CRM" here. 
-  // We feed this as a hidden system instruction so the Agent knows it's time to lead.
-  const dealList = deals.map(d => `- ${d.account}: ${d.opportunityName} (${d.forecastCategory})`).join("\n");
-  
-  messages.push({ 
-    role: "system", 
-    content: `CRM DATA LOADED: \n${dealList}\n\nLEAD THE CALL: Start by greeting Erik. Mention the first account (GlobalTech) and its category, then immediately ask your first MEDDPICC question. You are leading this meeting.` 
-  });
-}
-else if (transcript.trim()) {
-      messages.push({ role: "user", content: transcript });
-    }
 
-    // --- 10-TURN MEMORY CAP ---
-    if (messages.length > 11) {
-      console.log("[MEMORY] Trimming history for performance.");
-      messages = [messages[0], ...messages.slice(-10)];
-    }
 
-    // --- CALL OPENAI ---
-    const response = await axios.post(
+// --- 3. CONTEXT & TRANSCRIPT LOGIC --- if (messages.length === 0) { const dealList = deals.map(d => `- ${d.account}: ${d.opportunityName} (${d.forecastCategory})`).join("\n"); const initialContext = `CONVERSATION START: Virtual VP reviewing 3 deals with ${deals[0].repName}.\nDEALS:\n${dealList}\nStart by greeting the rep and asking the first MEDDPICC question for GlobalTech Industries.`; messages.push({ role: "user", content: initialContext }); } else if (transcript && transcript.trim()) { messages.push({ role: "user", content: transcript }); } 
+
+// --- 4. CALL OPENAI ---    const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
       {
         model: process.env.MODEL_NAME.trim(),
@@ -188,4 +165,3 @@ let rawText = response.data.choices[0].message.content.trim();
 // SERVER START
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
-
