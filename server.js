@@ -72,17 +72,34 @@ REQUIRED JSON FORMAT:
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
-    let history = req.body.history;
+    const history = req.body.history || "[]";
 
-// --- 1. MEMORY GUARD & INITIALIZATION --- let messages = []; try { // Handle both stringified history from Twilio and empty states messages = (typeof history === 'string' && history !== "[]") ? JSON.parse(history) : (Array.isArray(history) ? history : []); } catch (e) { messages = []; } 
+    // --- 1. MEMORY GUARD & INITIALIZATION ---
+    let messages = [];
+    try {
+      messages = (typeof history === 'string' && history !== "[]") 
+        ? JSON.parse(history) 
+        : (Array.isArray(history) ? history : []);
+    } catch (e) {
+      messages = [];
+    }
 
-// --- 2. MEMORY CAP --- if (messages.length > 11) { console.log("[MEMORY] Trimming history."); messages = [messages[0], ...messages.slice(-10)]; } 
+    // --- 2. MEMORY CAP ---
+    if (messages.length > 11) {
+      messages = [messages[0], ...messages.slice(-10)];
+    }
 
+    // --- 3. CONTEXT & TRANSCRIPT LOGIC ---
+    if (messages.length === 0) {
+      const dealList = deals.map(d => `- ${d.account}: ${d.opportunityName} (${d.forecastCategory})`).join("\n");
+      const initialContext = `CONVERSATION START: Virtual VP reviewing 3 deals with ${deals[0].repName}.\nDEALS:\n${dealList}\nStart by greeting the rep and asking the first MEDDPICC question for GlobalTech Industries.`;
+      messages.push({ role: "user", content: initialContext });
+    } else if (transcript && transcript.trim()) {
+      messages.push({ role: "user", content: transcript });
+    }
 
-
-// --- 3. CONTEXT & TRANSCRIPT LOGIC --- if (messages.length === 0) { const dealList = deals.map(d => `- ${d.account}: ${d.opportunityName} (${d.forecastCategory})`).join("\n"); const initialContext = `CONVERSATION START: Virtual VP reviewing 3 deals with ${deals[0].repName}.\nDEALS:\n${dealList}\nStart by greeting the rep and asking the first MEDDPICC question for GlobalTech Industries.`; messages.push({ role: "user", content: initialContext }); } else if (transcript && transcript.trim()) { messages.push({ role: "user", content: transcript }); } 
-
-// --- 4. CALL OPENAI ---    const response = await axios.post(
+    // --- 4. CALL OPENAI ---
+    const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
       {
         model: process.env.MODEL_NAME.trim(),
@@ -98,70 +115,41 @@ app.post("/agent", async (req, res) => {
       }
     );
 
-    // --- PARSE RESPONSE ---
-let rawText = response.data.choices[0].message.content.trim();
-    
-    // This finds anything between the first { and the last } 
-    // to prevent crashes if the AI adds prose or markdown backticks
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error("AI returned malformed response: " + rawText);
+    // --- 5. PARSE & SSML CLEANUP ---
+    let rawText = response.data.choices[0].message.content.trim();
+    if (rawText.startsWith("```")) {
+      rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim();
     }
-    
-    const agentResult = JSON.parse(jsonMatch[0]);
-    // ======================================================
-    // HOOK: DEAL_EVALUATION (The Summary Logic)
-    // ======================================================
-    const DATA_MARKER = ">>> CRM_UPDATE_REQUIRED <<<";
-    const dealHealth = agentResult.score >= 2 ? "HEALTHY" : "RISK";
-    
-    console.log(`\n${DATA_MARKER}`);
-    console.log(`DEAL: ${agentResult.account_name || "GlobalTech"}`);
-    console.log(`HEALTH: ${dealHealth} (Score: ${agentResult.score})`);
-    console.log(`SUMMARY: ${agentResult.coaching_tip}`);
-    console.log(`>>> EVALUATION_END <<<\n`);
-    // ======================================================
 
-// --- 4. VOICE PROCESSING (SCORB & SSML) ---
-    // Extract the question from the AI result
-    const rawQuestion = agentResult.next_question
-        .replace(/[&<>"']/g, "")
-        .replace(/<[^>]*>/g, ""); 
+    const agentResult = JSON.parse(rawText);
+    const cleanQuestion = `<speak><prosody rate="95%" pitch="-2st">${agentResult.next_question}</prosody></speak>`;
 
-// --- 5. UPDATE AND RETURN ---
-    // Save the AI's response to the history array
+    // --- 6. UPDATE HISTORY & RESPOND ---
     messages.push({ role: "assistant", content: rawText });
 
-    // Define cleanQuestion using the actual AI response
-    const cleanQuestion = `<speak><prosody rate="115%" pitch="-2st">${agentResult.next_question}</prosody></speak>`;
-
-    // Log coaching data to Render console
     console.log("\n>>> COACHING EVALUATION <<<");
     console.log(`Metric: ${agentResult.score_update?.metric || 'General'}`);
     console.log(`Score: ${agentResult.score_update?.score || 0}`);
     console.log(">>> END EVALUATION <<<\n");
 
-    // Final Response to Twilio
     return res.json({
-        next_question: cleanQuestion,
-        score_update: agentResult.score_update,
-        risk_flags: agentResult.risk_flags,
-        end_of_call: agentResult.end_of_call,
-        new_history: JSON.stringify(messages)
+      next_question: cleanQuestion,
+      score_update: agentResult.score_update,
+      risk_flags: agentResult.risk_flags,
+      end_of_call: agentResult.end_of_call,
+      new_history: JSON.stringify(messages)
     });
 
   } catch (err) {
     console.error("AGENT ERROR:", err.response?.data || err.message);
-    
     if (!res.headersSent) {
-        return res.status(500).json({ 
-          next_question: "Connection issue with the coaching engine.", 
-          end_of_call: true 
-        });
+      return res.status(500).json({ 
+        next_question: "Connection issue with the coaching engine.", 
+        end_of_call: true 
+      });
     }
   }
 });
 
-// SERVER START
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
