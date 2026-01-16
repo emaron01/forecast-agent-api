@@ -59,13 +59,16 @@ Your mission:
 REQUIRED JSON FORMAT:
 {
   "account_name": "The account currently being discussed",
-  "next_question": "Your question here",
-  "coaching_tip": "Your feedback here",
-  "score": 0-3,
-  "risk_flags": ["flag1"]
-}`;
+  "next_question": "Your next MEDDPICC question",
+  "coaching_tip": "Short coaching feedback",
+  "score": 0,
+  "risk_flags": ["flag1"],
+  "end_of_call": false
 }
 
+You MUST include ALL fields every turn.
+You MUST NOT end the call on turn 1.
+You MUST NOT say the call is complete unless the rep explicitly indicates they are done.
 // ======================================================
 // 3. AGENT ENDPOINT
 // ======================================================
@@ -120,12 +123,12 @@ app.post("/agent", async (req, res) => {
  // --- 6. THE LOOP BREAKER --- // We add the AI's response to the messages array BEFORE stringifying messages.push({ role: "assistant", content: rawText }); // --- 7. FINAL RESPONSE --- console.log(`[SERVER] Sending new_history with ${messages.length} turns.`); 
 return res.json({
   next_question: cleanQuestion,
+  coaching_tip: agentResult.coaching_tip ?? "",
   score: agentResult.score ?? 0,
   risk_flags: agentResult.risk_flags ?? [],
   end_of_call: agentResult.end_of_call ?? false,
   new_history: JSON.stringify(messages)
 });
-
   } catch (err) {
     console.error("AGENT ERROR:", err.response?.data || err.message);
     if (!res.headersSent) {
