@@ -5,6 +5,7 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
+// Log server start without any special symbols
 console.log("Server status: online and listening");
 
 // 1. PIPELINE DATA
@@ -30,9 +31,11 @@ function agentSystemPrompt(repName, accounts) {
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
+    
+    // We look for 'history' to match your Twilio Key configuration
     let messages = Array.isArray(req.body.history) ? req.body.history : [];
     
-    // Manage Memory: Keep it fast for voice
+    // Manage Memory: Keep last 10 turns for speed and stability
     if (messages.length > 10) {
         messages = messages.slice(-10);
     }
@@ -41,6 +44,7 @@ app.post("/agent", async (req, res) => {
       messages.push({ role: "user", content: transcript });
     }
 
+    // Initial greeting if history is empty
     if (messages.length === 0) {
       messages.push({ 
         role: "user", 
@@ -48,6 +52,7 @@ app.post("/agent", async (req, res) => {
       });
     }
 
+    // Call AI Model
     const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
       {
@@ -70,7 +75,7 @@ app.post("/agent", async (req, res) => {
     let rawText = response.data.choices[0].message.content.trim();
     let agentResult;
 
-    // Robust JSON Parsing with Fallbacks
+    // Robust JSON Parsing with Error Catching
     try {
       const jsonStart = rawText.indexOf('{');
       const jsonEnd = rawText.lastIndexOf('}');
@@ -85,13 +90,18 @@ app.post("/agent", async (req, res) => {
       };
     }
 
-    // THE FIX: Force the question into a string to prevent .replace() errors
+    // THE SHIELD: Force the question into a string to prevent .replace() errors
     let questionText = String(agentResult.next_question || "Tell me more.");
     
+    // WRAP UP TRIGGER: If the call is ending, use your specific 5-second goodbye
+    if (agentResult.end_of_call === true) {
+        questionText = "Thanks, that wraps up. Talk soon!";
+    }
+
     messages.push({ role: "assistant", content: questionText });
 
     // --- SSML SANITIZER ---
-    // Cleans up special characters for Twilio Amazon Polly
+    // This removes emojis, smart quotes, and non-standard symbols
     const safeText = questionText
       .replace(/['’]/g, "&apos;") 
       .replace(/[&]/g, "and")     
@@ -99,12 +109,13 @@ app.post("/agent", async (req, res) => {
 
     const tunedVoice = "<speak><prosody rate='112%' pitch='-1%'>" + safeText + "</prosody></speak>";
 
-    // Logging without emojis
+    // Clean Console Logs for Render
     if (agentResult.summary_data && agentResult.summary_data.next_steps) {
         console.log("Account: " + (agentResult.current_account || "Summary"));
         console.log("Health: " + (agentResult.summary_data.deal_health || "In progress"));
     }
 
+    // Return JSON with new_history key to match Twilio Studio flow
     res.json({
       next_question: tunedVoice,
       end_of_call: agentResult.end_of_call || false,
