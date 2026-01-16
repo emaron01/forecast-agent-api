@@ -32,10 +32,8 @@ app.post("/agent", async (req, res) => {
     const transcript = req.body.transcript || "";
     
     // --- FUTURE FIX: TWILIO MEMORY KEY ---
-    // Ensure 'history' matches the variable name in your Twilio Studio Widget
     let messages = Array.isArray(req.body.history) ? req.body.history : [];
     
-    // Manage Memory: Slicing prevents timeouts on long calls
     if (messages.length > 10) {
         messages = messages.slice(-10);
     }
@@ -74,24 +72,23 @@ app.post("/agent", async (req, res) => {
     let agentResult;
 
     // --- FUTURE FIX: JSON PARSER ---
-    // If the AI stops returning JSON, this block prevents a server crash (500 Error)
     try {
       const jsonStart = rawText.indexOf('{');
       const jsonEnd = rawText.lastIndexOf('}');
       if (jsonStart === -1) throw new Error("No JSON found");
       agentResult = JSON.parse(rawText.substring(jsonStart, jsonEnd + 1));
     } catch (e) {
-      agentResult = { 
-        next_question: rawText || "Tell me more about that.", 
+      // If JSON fails, we send PLAIN TEXT only to avoid SSML crashes
+      console.log("JSON Parse Failed, using fallback text.");
+      return res.json({
+        next_question: "I heard you, but my system is lagging. Please tell me more about the current deal.",
         end_of_call: false,
-        summary_data: {}
-      };
+        new_history: messages
+      });
     }
 
-    // Shield against 'undefined' errors by forcing a string
     let questionText = String(agentResult.next_question || "Tell me more.");
     
-    // 5-SECOND WRAP UP TRIGGER
     if (agentResult.end_of_call === true) {
         questionText = "Thanks, that wraps up. Talk soon!";
     }
@@ -99,20 +96,13 @@ app.post("/agent", async (req, res) => {
     messages.push({ role: "assistant", content: questionText });
 
     // --- FUTURE FIX: SSML COMPATIBILITY ---
-    // Character cleanup ensures Polly Matthew-Neural doesn't choke on symbols
     const safeText = questionText
       .replace(/['’]/g, "&apos;") 
       .replace(/[&]/g, "and")     
       .replace(/[^a-zA-Z0-9\s?.!,;]/g, ""); 
 
-    // Single-line template prevents XML parsing errors in Twilio widgets
+    // Final XML formatting
     const tunedVoice = `<speak><prosody rate="112%" pitch="-1%">${safeText}</prosody></speak>`;
-
-    // Log recap to Render console
-    if (agentResult.summary_data && (agentResult.summary_data.next_steps || agentResult.summary_data.deal_health)) {
-        console.log("Account: " + (agentResult.current_account || "Update"));
-        console.log("Health: " + (agentResult.summary_data.deal_health || "In progress"));
-    }
 
     res.json({
       next_question: tunedVoice,
@@ -124,7 +114,7 @@ app.post("/agent", async (req, res) => {
   } catch (err) {
     console.error("Internal Error: ", err.message);
     res.status(500).json({ 
-        next_question: "<speak>I had a slight connection issue. Could you repeat that?</speak>", 
+        next_question: "Sorry, I hit a snag. Let's try that again.", 
         end_of_call: false,
         new_history: [] 
     });
