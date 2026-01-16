@@ -5,73 +5,54 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-console.log("🚀 Sales Leader Engine: Clean & Stable Version");
+// Log server start without any special symbols
+console.log("Server status: online and listening");
 
-// ======================================================
 // 1. PIPELINE DATA
-// ======================================================
 const dealPipeline = [
   { account: "GlobalTech Industries" },
   { account: "Acme Corp" },
   { account: "CyberDyne Systems" }
 ];
 
-// ======================================================
 // 2. THE SALES LEADER SYSTEM PROMPT
-// ======================================================
 function agentSystemPrompt(repName, accounts) {
   const accountList = accounts.map(a => a.account).join(", ");
-  return `You are a world-class Sales Leader conducting a pipeline review with ${repName}.
-  
-  ACCOUNTS TO COVER: ${accountList}
-
-  YOUR PROTOCOL:
-  1. Ask targeted MEDDPICC questions for the current account.
-  2. Provide brief, supportive coaching (e.g., "Good catch there").
-  3. When an account is clear, provide a 1-sentence "Leadership Summary" (Health + Next Step) and say "Moving on to [Next Account]...".
-  4. Only set "end_of_call": true once the ENTIRE list is finished.
-
-  STRICT STYLE RULES:
-  - Keep responses under 40 words.
-  - Use contractions (don't, who's, it's).
-  
-  OUTPUT FORMAT (STRICT JSON ONLY):
-  {
-    "next_question": "string",
-    "current_account": "string",
-    "summary_data": { "deal_health": "string", "next_steps": "string" },
-    "end_of_call": boolean
-  }`;
+  return `You are a Sales Leader conducting a review with ${repName}.
+  Accounts to cover: ${accountList}
+  Protocol: Ask targeted questions for the current account.
+  When an account is clear, provide a 1-sentence recap and move to the next.
+  Only set end_of_call to true once the entire list is finished.
+  Style: Responses under 40 words. Use contractions like whos and its.
+  Output Format: Strict JSON only.`;
 }
 
-// ======================================================
 // 3. MAIN ENDPOINT
-// ======================================================
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
-    // Pull history - using 'updated_history' to match the return object
+    
+    // Using history key to match your Twilio configuration
     let messages = Array.isArray(req.body.history) ? req.body.history : [];
     
-    // Manage Memory: Keep it lean for speed
+    // Manage Memory: Keep last 10 turns for speed and stability
     if (messages.length > 10) {
         messages = messages.slice(-10);
     }
 
-    // Add user response
     if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     }
 
-    // Initialize if brand new call
+    // Initial greeting if history is empty
     if (messages.length === 0) {
       messages.push({ 
         role: "user", 
-        content: `START: Hi Erik, let's review: ${dealPipeline.map(a=>a.account).join(", ")}.` 
+        content: "START: Hi Erik, let's review: " + dealPipeline.map(a=>a.account).join(", ") 
       });
     }
 
-    // Call AI
+    // Call AI Model
     const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
       {
@@ -85,60 +66,64 @@ app.post("/agent", async (req, res) => {
       {
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.MODEL_API_KEY.trim()}`
+          "Authorization": "Bearer " + process.env.MODEL_API_KEY.trim()
         },
-        timeout: 8000 // 8 second timeout to prevent Twilio hanging
+        timeout: 8500 
       }
     );
 
     let rawText = response.data.choices[0].message.content.trim();
     let agentResult;
 
-    // Robust JSON Parsing
+    // JSON Parsing
     try {
       const jsonStart = rawText.indexOf('{');
       const jsonEnd = rawText.lastIndexOf('}');
       agentResult = JSON.parse(rawText.substring(jsonStart, jsonEnd + 1));
     } catch (e) {
       agentResult = { 
-        next_question: "I had a glitch. Let's keep going with the current account.", 
-        end_of_call: false 
+        next_question: "Connection error. Please continue.", 
+        end_of_call: false,
+        summary_data: {}
       };
     }
 
-    // Update history for the next turn
+    // Update history for next loop
     messages.push({ role: "assistant", content: agentResult.next_question });
 
-    // --- NUCLEAR SSML SANITIZER ---
-    // This strips EVERY character that isn't a standard letter, number, space, or basic punctuation.
-    // This is the only way to 100% guarantee no "Application Errors".
+    // --- SSML SANITIZER ---
+    // This removes emojis, smart quotes, and non-standard symbols
     const safeText = agentResult.next_question
-      .replace(/['’]/g, "&apos;") // Escape apostrophes for XML
-      .replace(/[&]/g, "and")     // Replace ampersands
-      .replace(/[^a-zA-Z0-9\s?.!,&;]/g, ""); // Remove EVERYTHING else (dashes, quotes, symbols)
+      .replace(/['’]/g, "&apos;") 
+      .replace(/[&]/g, "and")     
+      .replace(/[^a-zA-Z0-9\s?.!,;]/g, ""); 
 
-    const tunedVoice = `<speak><prosody rate="112%" pitch="-1%">${safeText}</prosody></speak>`;
+    const tunedVoice = "<speak><prosody rate='112%' pitch='-1%'>" + safeText + "</prosody></speak>";
 
-    // --- LOGGING ---
-    console.log(`[Turn] Rep said: "${transcript}"`);
-    console.log(`[Turn] AI Response: "${safeText}"`);
+    // Clean Console Logs
+    if (agentResult.summary_data && agentResult.summary_data.next_steps) {
+        console.log("Account: " + agentResult.current_account);
+        console.log("Health: " + agentResult.summary_data.deal_health);
+        console.log("Next: " + agentResult.summary_data.next_steps);
+    }
 
-    // --- RESPONSE TO TWILIO ---
+    // Return JSON with new_history key to match Twilio Studio
     res.json({
       next_question: tunedVoice,
       end_of_call: agentResult.end_of_call || false,
       summary_data: agentResult.summary_data || {},
-      updated_history: messages // This variable name must match your Twilio 'history' parameter
+      new_history: messages 
     });
 
   } catch (err) {
-    console.error("FATAL ERROR:", err.message);
+    console.error("Error message: ", err.message);
     res.status(500).json({ 
         next_question: "Sorry, I hit a snag. Let's try that again.", 
-        end_of_call: false 
+        end_of_call: false,
+        new_history: [] 
     });
   }
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Stable Sales Leader Server on port ${PORT}`));
+app.listen(PORT, () => console.log("Server listening on port " + PORT));
