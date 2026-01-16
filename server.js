@@ -85,9 +85,10 @@ app.post("/agent", async (req, res) => {
 
     let messages = [...history];
 
-    // --- TURN 1: CONTEXT INJECTION (3 Deals + Greeting) ---    if (messages.length === 0) {
+    // --- TURN 1: CONTEXT INJECTION (3 Deals + Greeting) ---
+    if (messages.length === 0) {
       const dealList = deals.map(d => `- ${d.account}: ${d.opportunityName} (${d.forecastCategory})`).join("\n");
-      const initialContext = `CONVERSATION START: Reviewing 3 deals for ${deals[0].repName}.
+      const initialContext = `CONVERSATION START: Reviewing 3 deals for ${deals[0].repName}...`;
 DEALS TO REVIEW:
 ${dealList}
 
