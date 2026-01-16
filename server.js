@@ -5,10 +5,10 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-console.log("Server file loaded - High-Speed OpenAI Mode");
+console.log("Server live - High-Speed Pro Mode");
 
 // ======================================================
-// MOCK CRM DATA
+// MOCK CRM DATA (Your "Spreadsheet")
 // ======================================================
 const deals = [
   {
@@ -23,14 +23,14 @@ const deals = [
 ];
 
 // ======================================================
-// SYSTEM PROMPT
+// SYSTEM PROMPT GENERATOR
 // ======================================================
-function agentSystemPrompt() {
+function agentSystemPrompt(repName, accountName) {
   return `You are the SalesForecast.io Forecast Confidence Agent.
 Your mission:
+- You are calling ${repName} to discuss the ${accountName} deal.
 - Ask one MEDDPICC-aligned question at a time.
-- Score each answer (0–3).
-- Identify risks and uncertainties.
+- Score each answer (0–3) for MEDDPICC confidence.
 - Coach like a real sales leader: conversational, probing, clarifying.
 - Produce JSON only.
 
@@ -38,11 +38,9 @@ REQUIRED JSON FORMAT:
 {
   "next_question": "string",
   "score_update": { "metric": "string", "score": 0-3 },
-  "state": { "updated_state": true },
-  "risk_flags": [],
   "end_of_call": false
 }
-Rules: No markdown, no backticks, no prose outside the JSON.`;
+Rules: No markdown, no backticks, no prose.`;
 }
 
 // ======================================================
@@ -51,24 +49,24 @@ Rules: No markdown, no backticks, no prose outside the JSON.`;
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
-    // Ensure history is an array
     let messages = Array.isArray(req.body.history) ? req.body.history : [];
-    const currentDeal = deals[0];
+    
+    // Pick the deal context
+    const currentDeal = deals[0]; 
+    const repName = currentDeal.repName;
+    const account = currentDeal.account;
 
-    console.log(`--- REQUEST RECEIVED ---`);
-    console.log(`Incoming Transcript: "${transcript}"`);
-    console.log(`History length before processing: ${messages.length}`);
+    console.log(`--- CALL TURN RECEIVED ---`);
+    console.log(`Rep: ${repName} | History: ${messages.length} turns`);
 
-    // 1. ADD USER TRANSCRIPT TO HISTORY FIRST
-    // This ensures OpenAI sees what the rep just said.
+    // 1. ADD REP'S RESPONSE TO HISTORY
     if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     }
 
-    // 2. INJECT INITIAL CONTEXT IF HISTORY IS STILL EMPTY
+    // 2. INJECT INITIAL CONTEXT IF BRAND NEW CALL
     if (messages.length === 0) {
-      console.log("Status: First Turn - Injecting Context");
-      const initialContext = `CONVERSATION START: You are the Virtual VP calling ${currentDeal.repName} about the ${currentDeal.account} deal (${currentDeal.opportunityName}). Start with a greeting and a MEDDPICC question.`;
+      const initialContext = `CONVERSATION START: You are the Virtual VP calling ${repName} about the ${account} deal. Start by saying 'Hi ${repName.split(' ')[0]}' and ask your first MEDDPICC question.`;
       messages.push({ role: "user", content: initialContext });
     }
 
@@ -78,7 +76,7 @@ app.post("/agent", async (req, res) => {
       {
         model: process.env.MODEL_NAME.trim(),
         messages: [
-          { role: "system", content: agentSystemPrompt() },
+          { role: "system", content: agentSystemPrompt(repName, account) },
           ...messages
         ],
         max_tokens: 800,
@@ -92,41 +90,38 @@ app.post("/agent", async (req, res) => {
       }
     );
 
-    // 4. PARSE AI RESPONSE
+    // 4. CLEAN AND PARSE AI RESPONSE
     let rawText = response.data.choices[0].message.content.trim();
-    
-    // Clean code fences if necessary
     if (rawText.startsWith("```")) {
       rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim();
     }
 
     const agentResult = JSON.parse(rawText);
 
-    // 5. ADD AI'S RESPONSE TO HISTORY
-    // We do this so the memory is ready for the NEXT turn.
+    // 5. UPDATE HISTORY WITH AI'S QUESTION
     messages.push({ role: "assistant", content: agentResult.next_question });
 
-    console.log(`Success: History length now ${messages.length}`);
-
-    // 6. RETURN RESULT + UPDATED HISTORY TO TWILIO
+    // 6. RETURN SYNCED DATA TO TWILIO FUNCTION
+    console.log("Sending response to Twilio...");
     res.json({
-      ...agentResult,
+      next_question: agentResult.next_question,
+      end_of_call: agentResult.end_of_call,
+      score_update: agentResult.score_update,
       updated_history: messages 
     });
 
   } catch (err) {
-    console.error("OPENAI ERROR:", err.response?.data || err.message);
-    
+    console.error("AGENT ERROR:", err.message);
     res.status(500).json({ 
-      next_question: "I'm having a technical glitch. Let's touch base later.", 
-      error_detail: err.message,
-      end_of_call: true 
+      next_question: "I'm having a technical glitch. Let's talk later.", 
+      end_of_call: true,
+      updated_history: []
     });
   }
 });
 
 // ======================================================
-// SERVER START
+// START SERVER
 // ======================================================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
