@@ -145,8 +145,25 @@ let rawText = response.data.choices[0].message.content.trim();
     console.log(`>>> EVALUATION_END <<<\n`);
     // ======================================================
 
-// 1. Agent Voice: Scrub, then wrap in Speed & Pitch control let rawQuestion = agentResult.next_question .replace(/[&<>"']/g, "") .replace(/<[^>]*>/g, ""); // USE THIS: 95% is measured/authoritative. Use 115% only if you want him to sound rushed. const cleanQuestion = `<speak><prosody rate="110%" pitch="-2st">${rawQuestion}</prosody></speak>`; 
+// --- 4. VOICE PROCESSING (SCORB & SSML) ---
+    // Extract the question from the AI result
+    const rawQuestion = agentResult.next_question
+        .replace(/[&<>"']/g, "")
+        .replace(/<[^>]*>/g, ""); 
 
+    // Define cleanQuestion clearly so the res.json can see it
+    const cleanQuestion = `<speak><prosody rate="110%" pitch="-2st">${rawQuestion}</prosody></speak>`;
+
+    // --- 5. UPDATE AND RETURN ---
+    // Save the AI's response to the conversation history
+    messages.push({ role: "assistant", content: rawText });
+
+    // IMPORTANT: Make sure the key is 'next_question' and the value is 'cleanQuestion'
+    res.json({
+        ...agentResult,
+        next_question: cleanQuestion, 
+        new_history: JSON.stringify(messages)
+    });
 // 2. Memory Persistence: Store the AI's response in the history array messages.push({ role: "assistant", content: rawText });
     // 3. Final Payload: Send text and the stringified history back to Twilio
     res.json({
@@ -165,4 +182,3 @@ let rawText = response.data.choices[0].message.content.trim();
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
-
