@@ -138,15 +138,21 @@ app.post("/agent", async (req, res) => {
     console.log(`>>> EVALUATION_END <<<\n`);
     // ======================================================
 
-    // Clean text for TTS and update history
-    agentResult.next_question = agentResult.next_question.replace(/[&<>"']/g, "");
+// 1. Matthew-Neural Safety: Strip special chars & accidental AI tags
+    // This prevents Twilio Studio from hanging up on malformed SSML
+    let cleanQuestion = agentResult.next_question
+        .replace(/[&<>"']/g, "")
+        .replace(/<[^>]*>/g, ""); 
+
+    // 2. Memory Persistence: Store the AI's response in the history array
     messages.push({ role: "assistant", content: rawText });
-    
+
+    // 3. Final Payload: Send text and the stringified history back to Twilio
     res.json({
         ...agentResult,
+        next_question: cleanQuestion,
         new_history: JSON.stringify(messages)
     });
-
   } catch (err) {
     console.error("AGENT ERROR:", err.response?.data || err.message);
     res.status(500).json({ 
