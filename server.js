@@ -40,30 +40,62 @@ const deals = [
     closeDate: "2026-03-20"
   }
 ];
-
 // ======================================================
 // 2. SYSTEM PROMPT (Coaching, MEDDPICC, & JSON Logic)
 // ======================================================
 function agentSystemPrompt() {
+  // Define dealList inside so the function can see it
+  const dealList = deals.map(d => `- ${d.account}: ${d.opportunityName} (${d.forecastCategory})`).join("\n");
+  
   return `You are the SalesForecast.io Virtual VP of Sales. 
 Your mission:
-- Conduct a high-stakes MEDDPICC deal review for the provided deals.
+- Conduct a high-stakes MEDDPICC deal review for the following deals:
+${dealList}
 - Ask ONLY ONE probing question at a time to uncover risk.
 - After the rep answers, provide brief coaching (e.g., "Good, but we need the Economic Buyer sign-off").
 - Score the response (0-3) on the specific MEDDPICC metric discussed.
 - Identify risk_flags (e.g., "No Champion", "Vague Metrics").
 - Move through the deals methodically.
-- Produce JSON only. No prose, no markdown backticks.
 
+OUTPUT RULE: You must produce valid JSON ONLY. No prose, no markdown backticks.
 REQUIRED JSON FORMAT:
 {
- "next_question": "Your coaching + your next question",
- "score_update": { "metric": "string", "score": 0-3 },
- "risk_flags": [],
- "end_of_call": false
+  "next_question": "Your question here",
+  "coaching_tip": "Your feedback here",
+  "score": 0-3,
+  "risk_flags": ["flag1", "flag2"]
 }`;
 }
 
+const agentResult = JSON.parse(rawText);
+
+// ======================================================
+    // HOOK: DEAL_EVALUATION_START
+    // ======================================================
+    
+    // We use a "DATA_MARKER" so you can search logs for this specific string later
+    const DATA_MARKER = ">>> CRM_UPDATE_REQUIRED <<<";
+    
+    const dealHealth = agentResult.score >= 2 ? "HEALTHY" : "RISK";
+    
+    // This block is your "Pre-built" database entry
+    const summaryPayload = {
+        marker: DATA_MARKER,
+        account: agentResult.account_name || "GlobalTech Industries",
+        meddpicc_score: agentResult.score,
+        health: dealHealth,
+        risks: agentResult.risk_flags,
+        coaching: agentResult.coaching_tip,
+        timestamp: new Date().toISOString()
+    };
+
+    // LOGGING WITH MARKERS for easy grep/search in Render
+    console.log(`\n${DATA_MARKER}`);
+    console.log(`DEAL: ${summaryPayload.account}`);
+    console.log(`SCORE: ${summaryPayload.meddpicc_score}`);
+    console.log(`SUMMARY: ${summaryPayload.coaching}`);
+    console.log(`>>> EVALUATION_END <<<\n`);
+    
 // ======================================================
 // 3. AGENT ENDPOINT
 // ======================================================
@@ -85,23 +117,26 @@ app.post("/agent", async (req, res) => {
 
     let messages = [...history];
 
-   // --- TURN 1: CONTEXT INJECTION (3 Deals + Greeting) ---
+   // --- TURN 1: CONTEXT INJECTION ---
     if (messages.length === 0) {
-      const dealList = deals.map(d => `- ${d.account}: ${d.opportunityName} (${d.forecastCategory})`).join("\n");
-      
-      const initialContext = `CONVERSATION START: Reviewing 3 deals for ${deals[0].repName}.
-DEALS TO REVIEW:
-${dealList}`;
-
-      // This pushes the context as a "system" or "developer" instruction
-      messages.push({ role: "system", content: initialContext });
-    }
-Start by greeting the rep and starting the MEDDPICC review for GlobalTech Industries.`;
-      
-      messages.push({ role: "user", content: initialContext });
+      // Just push a clean starting point; the agentSystemPrompt handles the deals
+      messages.push({ 
+        role: "user", 
+        content: "I'm ready for my forecast review. Let's start with GlobalTech Industries." 
+      });
     } else if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     }
+
+// ======================================================
+    // 10-TURN MEMORY CAP (INSERT HERE)
+    // ======================================================
+    if (messages.length > 11) {
+      console.log("[MEMORY] Trimming history to 10 turns for cost and speed.");
+      // We keep messages[0] because it contains the System Prompt (the rules)
+      messages = [messages[0], ...messages.slice(-10)];
+    }
+    // ======================================================
 
     // --- CALL OPENAI (Using your secure env variables) ---
     const response = await axios.post(
