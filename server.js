@@ -31,10 +31,10 @@ app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
     
-    // Specifically looking for 'history' key from Twilio
+    // Specifically looking for 'history' key from your Twilio Studio Widget
     let messages = Array.isArray(req.body.history) ? req.body.history : [];
     
-    // Manage Memory for speed
+    // Manage Memory: Keep last 10 turns to maintain low latency
     if (messages.length > 10) {
         messages = messages.slice(-10);
     }
@@ -51,6 +51,7 @@ app.post("/agent", async (req, res) => {
       });
     }
 
+    // Call AI Model
     const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
       {
@@ -97,22 +98,23 @@ app.post("/agent", async (req, res) => {
 
     messages.push({ role: "assistant", content: questionText });
 
-    // --- SSML SANITIZER (Double Quote Version) ---
+    // --- SSML SANITIZER ---
+    // Cleans symbols that crash Polly Matthew-Neural
     const safeText = questionText
       .replace(/['’]/g, "&apos;") 
       .replace(/[&]/g, "and")     
       .replace(/[^a-zA-Z0-9\s?.!,;]/g, ""); 
 
-    // Twilio Voice attributes MUST use double quotes for maximum stability
-    const tunedVoice = `<speak><prosody rate="112%" pitch="-1%">${safeText}</prosody></speak>`;
+    // NAKED SSML: Removed outer <speak> tags to prevent Twilio Studio Application Errors
+    const tunedVoice = `<prosody rate="112%" pitch="-1%">${safeText}</prosody>`;
 
-    // Log recap to Render console (No emojis)
-    if (agentResult.summary_data && agentResult.summary_data.next_steps) {
+    // Log recap to Render console
+    if (agentResult.summary_data && (agentResult.summary_data.next_steps || agentResult.summary_data.deal_health)) {
         console.log("Account: " + (agentResult.current_account || "Update"));
         console.log("Health: " + (agentResult.summary_data.deal_health || "In progress"));
     }
 
-    // Final Response to Twilio
+    // Final Response to Twilio matching your widget variable: new_history
     res.json({
       next_question: tunedVoice,
       end_of_call: agentResult.end_of_call || false,
@@ -123,7 +125,7 @@ app.post("/agent", async (req, res) => {
   } catch (err) {
     console.error("Internal Error: ", err.message);
     res.status(500).json({ 
-        next_question: "<speak>I had a slight connection issue. Could you repeat that?</speak>", 
+        next_question: "I had a slight connection issue. Could you repeat that?", 
         end_of_call: false,
         new_history: [] 
     });
