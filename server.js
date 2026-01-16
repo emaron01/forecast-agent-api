@@ -5,7 +5,7 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-console.log("Server file loaded - OpenAI Mode");
+console.log("Server file loaded - High-Speed OpenAI Mode");
 
 // ======================================================
 // MOCK CRM DATA
@@ -51,39 +51,28 @@ Rules: No markdown, no backticks, no prose outside the JSON.`;
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
-    // Ensure history is an array even if Twilio sends null
-    const history = Array.isArray(req.body.history) ? req.body.history : [];
-    
-    let messages = [...history];
+    // Ensure history is an array
+    let messages = Array.isArray(req.body.history) ? req.body.history : [];
     const currentDeal = deals[0];
 
-    // DEBUG: See what is coming from Twilio
-    console.log(`--- NEW REQUEST ---`);
-    console.log(`History length received: ${history.length}`);
-    console.log(`Transcript: "${transcript}"`);
+    console.log(`--- REQUEST RECEIVED ---`);
+    console.log(`Incoming Transcript: "${transcript}"`);
+    console.log(`History length before processing: ${messages.length}`);
 
-    // ======================================================
-    // TURN LOGIC
-    // ======================================================
-    if (messages.length === 0) {
-      // TURN 1: Brand new conversation
-      console.log("Logic: Handling Turn 1 (Injection)");
-      const initialContext = `CONVERSATION START: You are the Virtual VP calling ${currentDeal.repName} about the ${currentDeal.account} deal (${currentDeal.opportunityName}). Start with a greeting and a MEDDPICC question.`;
-      
-      const combinedContent = transcript.trim() 
-        ? `${initialContext}\n\nRep says: "${transcript}"` 
-        : initialContext;
-
-      messages.push({ role: "user", content: combinedContent });
-    } else {
-      // TURN 2+: Conversation is already in progress
-      console.log(`Logic: Handling Turn ${messages.length + 1}`);
-      if (transcript.trim()) {
-        messages.push({ role: "user", content: transcript });
-      }
+    // 1. ADD USER TRANSCRIPT TO HISTORY FIRST
+    // This ensures OpenAI sees what the rep just said.
+    if (transcript.trim()) {
+      messages.push({ role: "user", content: transcript });
     }
 
-    // --- CALL OPENAI ---
+    // 2. INJECT INITIAL CONTEXT IF HISTORY IS STILL EMPTY
+    if (messages.length === 0) {
+      console.log("Status: First Turn - Injecting Context");
+      const initialContext = `CONVERSATION START: You are the Virtual VP calling ${currentDeal.repName} about the ${currentDeal.account} deal (${currentDeal.opportunityName}). Start with a greeting and a MEDDPICC question.`;
+      messages.push({ role: "user", content: initialContext });
+    }
+
+    // 3. CALL OPENAI
     const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
       {
@@ -103,22 +92,33 @@ app.post("/agent", async (req, res) => {
       }
     );
 
-    // --- PARSE RESPONSE ---
+    // 4. PARSE AI RESPONSE
     let rawText = response.data.choices[0].message.content.trim();
     
+    // Clean code fences if necessary
     if (rawText.startsWith("```")) {
       rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim();
     }
 
-    console.log("AI Response:", rawText);
     const agentResult = JSON.parse(rawText);
-    res.json(agentResult);
+
+    // 5. ADD AI'S RESPONSE TO HISTORY
+    // We do this so the memory is ready for the NEXT turn.
+    messages.push({ role: "assistant", content: agentResult.next_question });
+
+    console.log(`Success: History length now ${messages.length}`);
+
+    // 6. RETURN RESULT + UPDATED HISTORY TO TWILIO
+    res.json({
+      ...agentResult,
+      updated_history: messages 
+    });
 
   } catch (err) {
     console.error("OPENAI ERROR:", err.response?.data || err.message);
     
     res.status(500).json({ 
-      next_question: "Connection issue with the AI brain.", 
+      next_question: "I'm having a technical glitch. Let's touch base later.", 
       error_detail: err.message,
       end_of_call: true 
     });
