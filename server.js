@@ -86,19 +86,24 @@ app.post("/agent", async (req, res) => {
     const messages = sessions[callSid];
     messages.push({ role: "user", content: userSpeech || "(no speech detected)" });
 
-    // DEBUG: This confirms the code is looking at your specific Render Key
-    console.log(`[DEBUG] Attempting call. Key: ${process.env.MODEL_API_KEY ? "FOUND" : "NULL"} | Model: ${process.env.MODEL_NAME}`);
+    // CRITICAL: We create apiMessages to inject the System Prompt (the instructions) 
+    // at the start of every single API call.
+    const apiMessages = [
+      { role: "system", content: agentSystemPrompt() },
+      ...messages
+    ];
+
+    console.log(`[DEBUG] Attempting call. Key: ${process.env.MODEL_API_KEY ? "FOUND" : "NULL"} | Model: ${process.env.MODEL_NAME || "gpt-4o-mini"}`);
 
     const response = await axios.post(
       process.env.MODEL_API_URL || "https://api.openai.com/v1/chat/completions",
       {
-        model: process.env.MODEL_NAME || "gpt-4o", 
-        messages: messages,
+        model: process.env.MODEL_NAME || "gpt-4o-mini", 
+        messages: apiMessages, // <--- Use the one with the system prompt!
         response_format: { type: "json_object" }
       },
       { 
         headers: { 
-          // THIS IS THE CRITICAL CHANGE: Matching your Render Key name
           Authorization: `Bearer ${process.env.MODEL_API_KEY}` 
         } 
       }
@@ -155,4 +160,3 @@ app.post("/agent", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
-
