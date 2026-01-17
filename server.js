@@ -29,40 +29,7 @@ const deals = [
 ];
 
 // --- 4. SYSTEM PROMPT (Optimized for Speed & Flow) ---
-function agentSystemPrompt() {
-  return `### ROLE
-You are a supportive, high-level Sales Forecasting Agent (Matthew). 
-You are skeptical in your analysis but professional. You want the rep to succeed.
-
-### RULES
-- EVIDENCE-BASED GRADING: Do not accept "feelings." Look for concrete actions.
-- NEUTRALITY CHECK (CHAMPION TEST): Verify if a Champion is a true advocate for OUR solution specifically.
-- PROBING: If an answer is vague, probe deeper ONCE. After that move on.
-- SMART SKIPPING: If the user already answered a category, DO NOT ask about it again.
-- FLOW: Start with IDENTIFY PAIN. Then move to Metrics -> Champion -> Economic Buyer -> Decision Criteria -> Decision Process -> Paper Process -> Competition.
-- CONCISE: Keep questions under 20 words. No conversational filler.
-
-### RESPONSE FORMAT
-Return ONLY JSON.
-If 'end_of_call' is false:
-{
-  "next_question": "Your question here",
-  "end_of_call": false
-}
-
-If 'end_of_call' is true:
-{
-  "next_question": "Review complete.",
-  "total_score": 19,
-  "end_of_call": true,
-  "summary": {
-    "total_deal_score": 19,
-    "number_one_risk": "Identify the biggest gap.",
-    "one_clear_next_step": "One specific action.",
-    "closing": "Good luck, Erik. Goodbye."
-  }
-}`;
-}
+function agentSystemPrompt() { return `### ROLE You are a supportive, high-level Sales Forecasting Agent (Matthew). You are skeptical in your analysis but professional. You want the rep to succeed. ### RULES - EVIDENCE-BASED GRADING: Do not accept "feelings." Look for concrete actions. If evidence is missing, you MUST assume the category is a RISK. - SKEPTICISM (Jan 17): Do not assume a category is "strong" unless specific evidence (names, dates, metrics) is provided. If the rep is vague, assume it is a RISK and probe deeper once. - NEUTRALITY CHECK (CHAMPION TEST): Verify if a Champion is a true advocate for OUR solution specifically. If they help all partners equally, they are a RISK. - PROBING: If an answer is vague or lacks evidence, probe deeper ONCE. After that—regardless of the answer—move on to maintain momentum. - SMART SKIPPING: If the user has already answered a future category (e.g., they explained the Pain in their greeting), DO NOT ask about it again. Validate it and move to the next letter. - FLOW: Start with IDENTIFY PAIN. Then move to Metrics -> Champion -> Economic Buyer -> Decision Criteria -> Decision Process -> Paper Process -> Competition. - CONCISE: Keep questions under 20 words. No conversational filler. ### RESPONSE FORMAT Return ONLY JSON. If 'end_of_call' is false: { "next_question": "Your question here", "end_of_call": false } If 'end_of_call' is true: { "next_question": "Review complete.", "total_score": 19, "end_of_call": true, "summary": { "total_deal_score": 19, "number_one_risk": "Identify the biggest gap.", "one_clear_next_step": "One specific action.", "closing": "Good luck, Erik. Goodbye." } }`; }
 
 // --- 5. AGENT ENDPOINT ---
 app.post("/agent", async (req, res) => {
@@ -84,35 +51,36 @@ app.post("/agent", async (req, res) => {
       return res.send(twiml);
     }
 
-    // B. SUBSEQUENT TURNS (AI Processing)
-    const messages = sessions[callSid];
-    messages.push({ role: "user", content: userSpeech || "(no speech detected)" });
-
-    const apiMessages = [
-      { role: "system", content: agentSystemPrompt() },
-      ...messages
-    ];
-
+// B. SUBSEQUENT TURNS (Anthropic Haiku Logic)
     const response = await axios.post(
-      process.env.MODEL_API_URL || "https://api.openai.com/v1/chat/completions",
+      "https://api.anthropic.com/v1/messages",
       {
-        model: process.env.MODEL_NAME || "gpt-4o-mini", 
-        messages: apiMessages,
-        response_format: { type: "json_object" }
+        model: "claude-3-haiku-20240307", // The Speed King
+        max_tokens: 1000,
+        system: agentSystemPrompt(), // Anthropic expects system prompt here
+        messages: messages, // Only the 'user' and 'assistant' roles
       },
-      { headers: { Authorization: `Bearer ${process.env.MODEL_API_KEY}` } }
+      {
+        headers: {
+          "x-api-key": process.env.ANTHROPIC_API_KEY, // Use your Claude key
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json"
+        }
+      }
     );
 
-    // C. PARSE RESPONSE
-    let rawText = response.data.choices[0].message.content.trim();
-    rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+    // C. PARSE RESPONSE (Anthropic Style)
+    let rawText = response.data.content[0].text.trim();
     
+    // Safety check: Claude sometimes wraps JSON in markdown blocks
+    rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+
     let agentResult;
     try {
       agentResult = JSON.parse(rawText);
     } catch (e) {
-      console.error("JSON Parse Error", rawText);
-      agentResult = { next_question: "Could you repeat that?", end_of_call: false };
+      console.error("Haiku JSON Parse Error", rawText);
+      agentResult = { next_question: "I missed that, Erik. Can you say it again?", end_of_call: false };
     }
 
     // D. SAVE TO MEMORY
