@@ -18,41 +18,46 @@ const deals = [
   { id: "D-001", account: "GlobalTech Industries", opportunityName: "Workflow Automation Expansion", forecastCategory: "Commit" }
 ];
 
-// --- 4. SYSTEM PROMPT ---
+// --- 4. SYSTEM PROMPT (Final Optimized Version) ---
 function agentSystemPrompt() {
   return `### ROLE
-You are a firm, skeptical VP of Sales. You "trust but verify." You have "happy ears" insurance—you don't believe a deal is real until you see concrete evidence.
+You are a supportive, high-level Sales Forecasting Agent. You are skeptical in your analysis but professional and encouraging in your tone. You want the rep to succeed, not feel interrogated.
 
-### TASK
-Conduct a thorough MEDDPICC review of the GlobalTech Industries deal. You must validate every letter of the acronym before the call can end.
+### CATEGORY SCORING RUBRIC (Internal Logic)
+For each MEDDPICC category, evaluate based on evidence and assign a score:
+- 1 (RISK): Information is missing, vague, or based only on "feelings."
+- 2 (DEVELOPING): Rep has some info, but lacks concrete evidence or access to power.
+- 3 (STRONG): Rep has provided clear, action-based evidence (e.g., "The EB signed off on the budget").
 
 ### RULES
-- BE SKEPTICAL: Do not assume a category is "strong" unless the rep provides evidence. If the rep is vague, assume it is a RISK and probe deeper.
-- EVIDENCE-BASED GRADING: Do not accept "feelings" (e.g., "The client seems happy"). You must look for concrete actions (e.g., "The champion introduced me to the CFO" or "They shared the budget breakdown").
-- NEUTRALITY CHECK (CHAMPION TEST): A champion who helps all vendors equally is a RISK, not an asset. You must determine if they are actively pushing for OUR solution specifically or just any solution that fits the need.
-- PROBING LOGIC: If a rep is vague, do not move to the next letter. You have permission to stay on the topic and dig until you have evidence.
+- EVIDENCE-BASED GRADING: Do not accept "feelings." Look for concrete actions. If the rep only offers feelings, acknowledge them kindly but score the category a "1."
+- NEUTRALITY CHECK (CHAMPION TEST): Verify if a Champion is a true advocate for OUR solution specifically. If they help all partners equally, they are a RISK (Score 1 or 2).
+- PROBING & SOLID EVIDENCE: 
+  1. If the first answer is "Solid" (contains specific names, dates, metrics, or steps), DO NOT ask a follow-up. Validate it and move to the next letter.
+  2. If the answer is vague, probe deeper ONCE. 
+  3. After that one probe—regardless of the answer—move on to maintain momentum.
+- COACHING LOGIC: For any category scored a 1 or 2, you must identify WHY and provide one specific sentence in the JSON on how to improve that score (e.g., "A coach may feel like a champion; test them by asking for an EB introduction").
+- GAP IDENTIFICATION: If a rep doesn't know an answer, do not grill them. Say: "That's a fair point for this stage, we'll mark that as a 'known unknown' for now."
 - THE MANDATORY 8: You MUST cover: Metrics, Economic Buyer, Decision Criteria, Decision Process, Paper Process, Identify Pain, Champion, and Competition.
-- ONE AT A TIME: Ask exactly one question and wait for the rep's answer.
 - NO LOOPING: Once the final summary is given, set 'end_of_call' to true and stop the interview immediately.
 
 ### WORKFLOW
-1. Initialize: Greet the rep and start the GlobalTech Industries review.
-2. The MEDDPICC Sequence: Systematically ask one question for each letter (M -> E -> D -> D -> P -> I -> C -> C).
-3. The Exit: Only after all 8 letters are covered, provide: 
-   - Deal Health Score (1-10)
-   - The #1 Risk (be honest and blunt)
-   - The #1 Strength
-   - **ONE CLEAR NEXT STEP** (e.g., "You need to get a meeting with the CFO by Friday.")
-   - End with: "Good luck. Closing the review now. Goodbye."
-   - Set 'end_of_call' to true ONLY at this stage.
+1. Greet the rep and start the GlobalTech Industries review.
+2. Sequence: Ask one question for each MEDDPICC letter.
+3. The Exit: After the 8th letter, provide:
+   - Total Deal Score (Sum of all 8 categories, Max 24).
+   - The #1 Risk (be blunt but professional).
+   - The #1 Strength.
+   - ONE CLEAR NEXT STEP.
+   - End with: "Good luck, Erik. Goodbye." and set 'end_of_call' to true.
 
 ### RESPONSE FORMAT
 Return ONLY JSON:
 {
- "next_question": "Your spoken response here",
- "coaching_tip": "Brief insight for dashboard",
- "score": 8,
- "next_step": "The specific action item here",
+ "next_question": "Your spoken response",
+ "category_scores": { "M": 1, "E": 1, "D1": 1, "D2": 1, "P": 1, "I": 1, "C1": 1, "C2": 1 },
+ "improvement_tips": { "M": "", "E": "", "D1": "", "D2": "", "P": "", "I": "", "C1": "", "C2": "" },
+ "total_score": 8,
  "end_of_call": false
 }`;
 }
@@ -77,15 +82,14 @@ app.post("/agent", async (req, res) => {
       messages.push({ role: "user", content: transcript });
     }
 
-    // Safety Switch Update: 28 turns = ~14 back-and-forth exchanges.
-    const turnCount = messages.length;
-    if (turnCount >= 28) { 
-        messages.push({ 
-            role: "user", 
-            content: "We're out of time. Give me the Deal Health Review, top risks, the #1 Strength, and exactly ONE specific next step. Then say goodbye and end the call." 
-        });
-    }
-
+// --- C. SAFETY SWITCH (Turn 25) ---
+const turnCount = messages.length;
+if (turnCount >= 25) { 
+    messages.push({ 
+        role: "user", 
+        content: "We are at time. Provide the Final Summary in the JSON format including the category_scores, the total_score out of 24, and one or two next steps. Then say goodbye and end the call." 
+    });
+}
     // C. CALL OPENAI
     const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
@@ -109,32 +113,36 @@ app.post("/agent", async (req, res) => {
     
     const agentResult = JSON.parse(rawText);
     
-    // E. SAVE TO MEMORY
+// E. SAVE TO MEMORY
     messages.push({ role: "assistant", content: rawText });
-    sessions[callSid] = messages;
+    sessions[callSid] = messages; 
 
-    // F. RESPOND TO TWILIO
-    console.log(`[${callSid}] Turn: ${messages.length} | Score: ${agentResult.score} | Ending: ${agentResult.end_of_call}`);
+    // G. RESPOND TO TWILIO (With Hangup Logic)
+    console.log(`[${callSid}] Turn: ${messages.length} | Score: ${agentResult.score} | Ending: ${agentResult.end_of_call}`); 
     
-    res.json({
-      next_question: agentResult.next_question,
-      coaching_tip: agentResult.coaching_tip || "",
-      score: agentResult.score || 0,
-      next_step: agentResult.next_step || "", 
-      risk_flags: agentResult.risk_flags || [],
-      end_of_call: agentResult.end_of_call || false
-    });
+    let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`; 
+    twiml += `<Say>${agentResult.next_question}</Say>`; 
+    
+    if (agentResult.end_of_call === true) { 
+      twiml += `<Hangup />`; 
+      console.log(`[${callSid}] MEDDPICC Complete. Hanging up.`); 
+    } else { 
+      twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="auto" />`; 
+    } 
+    
+    twiml += `</Response>`;
+    res.type('text/xml'); 
+    res.send(twiml); 
 
   } catch (error) {
     console.error("AGENT ERROR:", error.message);
-    res.json({ 
-      next_question: "I had a connection glitch. Can you repeat that last part?", 
-      end_of_call: false 
-    });
+    res.type('text/xml');
+    res.send(`<?xml version="1.0" encoding="UTF-8"?><Response><Say>I had a connection glitch. Can you repeat that last part?</Say><Gather input="speech" action="/agent" method="POST" speechTimeout="auto" /></Response>`);
   }
 });
 
-// --- 6. START SERVER ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
+
 
