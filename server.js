@@ -67,24 +67,18 @@ app.post("/agent", async (req, res) => {
     const callSid = req.body.CallSid || "test_session";
     const userSpeech = req.body.SpeechResult || "";
 
-// A. INITIAL GREETING (If session doesn't exist)
+// A. INITIAL GREETING
     if (!sessions[callSid]) {
-      console.log(`[${callSid}] New Session Started`);
-      
-      const introText = "Hi Erik, I'm Atlas, your virtual Forecasting Partner. Let's look at your GlobalTech Industries opportunity that is in Commit for a Server Migration Project. To start, what are the key Metrics or business outcomes the customer is looking to achieve?";
-      
-      // Initialize memory with System Prompt and our first spoken question
-      sessions[callSid] = [
-        { role: "system", content: agentSystemPrompt() },
-        { role: "assistant", content: JSON.stringify({ next_question: introText, total_score: 8 }) }
-      ];
+      const introText = "Hi Erik, let's review the Global Tech deal in commit for $84,00 for a migration opportunity. Tell me about the Metrics.";
+      sessions[callSid] = [{ role: "assistant", content: introText }];
 
       let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
-      // Updated with Matthew-Neural voice
       twiml += `<Say voice="Polly.Matthew-Neural">${introText}</Say>`;
-      twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="2" />`;
-      twiml += `</Response>`;
       
+      // ONLY ONE GATHER LINE HERE
+      twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="2" />`;
+      
+      twiml += `</Response>`;
       res.type('text/xml');
       return res.send(twiml);
     }
@@ -141,15 +135,24 @@ app.post("/agent", async (req, res) => {
       twiml += `<Say voice="Polly.Matthew-Neural">${finalSpeech}</Say>`;
       twiml += `<Hangup />`;
       console.log(`[${callSid}] Summary spoken. Hanging up.`);
-    } else {
+} else {
+      // 1. Matthew speaks the question provided by the AI
       twiml += `<Say voice="Polly.Matthew-Neural">${agentResult.next_question}</Say>`;
-      // Increased timeout to 2 seconds to prevent interruptions
+      
+      // 2. Matthew listens for your answer (Waiting 2 seconds before cutting you off)
       twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="2" />`;
-    }
-    
+    }    
     twiml += `</Response>`;
     res.type('text/xml');
     res.send(twiml);
 
+  } catch (error) {
+    console.error("AGENT ERROR:", error.message);
+    res.type('text/xml');
+    res.send("<Response><Say voice='Polly.Matthew-Neural'>I'm sorry, I hit a snag. Please try again later.</Say></Response>");
+  }
+}); // This closes the app.post
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
