@@ -40,6 +40,48 @@ REQUIRED JSON FORMAT:
 }`;
 }
 
+require("dotenv").config();
+const express = require("express");
+const axios = require("axios");
+
+const app = express();
+
+// --- 2. MIDDLEWARE ---
+// Handles Twilio's form-encoded data (Required for the 400 error fix)
+app.use(express.urlencoded({ extended: true })); 
+// Handles standard JSON payloads
+app.use(express.json());
+
+console.log("Final Verified Server - MEDDPICC Coaching Engine Live");
+
+// 1. MOCK CRM DATA
+const deals = [
+  { id: "D-001", repName: "Erik Thompson", account: "GlobalTech Industries", opportunityName: "Workflow Automation Expansion", product: "SalesForecast.io Enterprise", forecastCategory: "Commit", closeDate: "2026-02-15" },
+  { id: "D-002", repName: "Erik Thompson", account: "CyberShield Solutions", opportunityName: "Security Infrastructure Upgrade", product: "SalesForecast.io Security Suite", forecastCategory: "Best Case", closeDate: "2026-03-01" },
+  { id: "D-003", repName: "Erik Thompson", account: "DataStream Corp", opportunityName: "Analytics Platform Migration", product: "SalesForecast.io Analytics", forecastCategory: "Pipeline", closeDate: "2026-03-20" }
+];
+
+// 2. SYSTEM PROMPT
+function agentSystemPrompt() {
+  return `You are the SalesForecast.io Virtual VP of Sales. 
+Your mission:
+- TURN 1 RULE: Start by presenting the deal details (Account, Name, Category) and then ask the first MEDDPICC question. 
+- MISSION: Conduct a high-stakes MEDDPICC deal review. 
+- Ask ONLY ONE probing question at a time.
+- After the rep answers, provide brief coaching.
+- Produce JSON only. No prose, no markdown backticks.
+
+REQUIRED JSON FORMAT:
+{
+ "account_name": "The account currently being discussed",
+ "next_question": "Your next MEDDPICC question",
+ "coaching_tip": "Short coaching feedback",
+ "score": 0,
+ "risk_flags": ["flag1"],
+ "end_of_call": false
+}`;
+}
+
 // --- 3. AGENT ENDPOINT ---
 app.post("/agent", async (req, res) => {
   try {
@@ -47,27 +89,28 @@ app.post("/agent", async (req, res) => {
     let rawHistory = req.body.history || "[]";
     let messages = [];
 
-    // 1. ADVANCED CLEAN HISTORY (The fix for the 400/Syntax errors)
+// 1. DEEP CLEAN HISTORY
     try {
-      if (typeof rawHistory === 'string' && rawHistory !== "[]") {
-        let cleaned = rawHistory; // Only declare this ONCE
-
-        // Remove wrapping quotes if Twilio added them
+      if (typeof rawHistory === 'string' && rawHistory.length > 5) {
+        let cleaned = rawHistory.trim();
+        // Remove outer quotes added by Twilio
         if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
           cleaned = cleaned.substring(1, cleaned.length - 1);
         }
-
-        // Unescape backslashes and quotes
-        // This converts \" to " and \\n to \n
-        cleaned = cleaned.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+        // Use regex to fix double and triple escaped quotes and newlines
+        cleaned = cleaned.replace(/\\"/g, '"')
+                         .replace(/\\\\"/g, '"')
+                         .replace(/\\n/g, " ")
+                         .replace(/\\\\/g, '\\');
 
         messages = JSON.parse(cleaned);
-      } else if (Array.isArray(rawHistory)) {
-        messages = rawHistory;
+      } else {
+        messages = Array.isArray(rawHistory) ? rawHistory : [];
       }
     } catch (e) {
-      console.log("[SERVER] History parse error:", e.message); // Only one log needed
-      messages = [];
+      console.log(`[SERVER] History parse failed. Attempting recovery...`);
+      // Emergency recovery: keep the conversation moving even if history breaks
+      messages = [{ role: "user", content: "Continue review. Last rep response: " + transcript }];
     }
 
     // 2. INITIALIZE CONTEXT OR ADD REP RESPONSE
@@ -97,14 +140,15 @@ app.post("/agent", async (req, res) => {
       }
     );
 
-    // 4. PARSE & CLEANUP
+// 4. PARSE & CLEANUP
     let rawText = response.data.choices[0].message.content.trim();
-    if (rawText.startsWith("```")) {
-      rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim();
-    }
+    rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
     
     const agentResult = JSON.parse(rawText);
-    messages.push({ role: "assistant", content: rawText });
+    
+    // Stringify the agentResult specifically to ensure quotes are escaped 
+    // correctly before adding to the messages array
+    messages.push({ role: "assistant", content: JSON.stringify(agentResult) });
 
     // 5. RESPOND TO TWILIO
     console.log(`[SERVER] Success. History Turn Count: ${messages.length}`);
@@ -130,5 +174,7 @@ app.post("/agent", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
+
 
 
