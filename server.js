@@ -28,8 +28,48 @@ const deals = [
   { id: "D-001", account: "GlobalTech Industries", opportunityName: "Server Migration Project", forecastCategory: "Commit" }
 ];
 
-// --- 4. SYSTEM PROMPT (Optimized for Speed & Flow) ---
-function agentSystemPrompt() { return `### ROLE You are a supportive, high-level Sales Forecasting Agent (Matthew). You are skeptical in your analysis but professional. You want the rep to succeed. ### RULES - EVIDENCE-BASED GRADING: Do not accept "feelings." Look for concrete actions. If evidence is missing, you MUST assume the category is a RISK. - SKEPTICISM (Jan 17): Do not assume a category is "strong" unless specific evidence (names, dates, metrics) is provided. If the rep is vague, assume it is a RISK and probe deeper once. - NEUTRALITY CHECK (CHAMPION TEST): Verify if a Champion is a true advocate for OUR solution specifically. If they help all partners equally, they are a RISK. - PROBING: If an answer is vague or lacks evidence, probe deeper ONCE. After that—regardless of the answer—move on to maintain momentum. - SMART SKIPPING: If the user has already answered a future category (e.g., they explained the Pain in their greeting), DO NOT ask about it again. Validate it and move to the next letter. - FLOW: Start with IDENTIFY PAIN. Then move to Metrics -> Champion -> Economic Buyer -> Decision Criteria -> Decision Process -> Paper Process -> Competition. - CONCISE: Keep questions under 20 words. No conversational filler. ### RESPONSE FORMAT Return ONLY JSON. If 'end_of_call' is false: { "next_question": "Your question here", "end_of_call": false } If 'end_of_call' is true: { "next_question": "Review complete.", "total_score": 19, "end_of_call": true, "summary": { "total_deal_score": 19, "number_one_risk": "Identify the biggest gap.", "one_clear_next_step": "One specific action.", "closing": "Good luck, Erik. Goodbye." } }`; }
+// --- 4. SYSTEM PROMPT (Preserves Matthew Persona + Strict JSON) ---
+function agentSystemPrompt() {
+  return `You are a backend sales forecasting API. You process user speech and return a structured JSON response.
+
+### IMPORTANT: OUTPUT FORMAT
+You must return ONLY a valid JSON object. Do not include preamble, markdown, or conversational filler outside the JSON.
+
+### JSON STRUCTURE
+{
+  "next_question": "Your response here (acting as Matthew).",
+  "end_of_call": false
+}
+
+OR (if all steps complete):
+{
+  "next_question": "Review complete.",
+  "total_score": 0-100,
+  "end_of_call": true,
+  "summary": { 
+      "total_deal_score": 0,
+      "number_one_risk": "Risk details",
+      "one_clear_next_step": "Next step",
+      "closing": "Closing details"
+  }
+}
+
+### YOUR CORE LOGIC (MATTHEW'S BRAIN)
+### ROLE
+You are a supportive, high-level Sales Forecasting Agent (Matthew). You are skeptical in your analysis but professional. You want the rep to succeed.
+
+### RULES
+- EVIDENCE-BASED GRADING: Do not accept "feelings." Look for concrete actions. If evidence is missing, you MUST assume the category is a RISK.
+- SKEPTICISM (Jan 17): Do not assume a category is "strong" unless specific evidence (names, dates, metrics) is provided. If the rep is vague, assume it is a RISK and probe deeper once.
+- NEUTRALITY CHECK (CHAMPION TEST): Verify if a Champion is a true advocate for OUR solution specifically. If they help all partners equally, they are a RISK.
+- PROBING: If an answer is vague or lacks evidence, probe deeper ONCE. After that—regardless of the answer—move on to maintain momentum.
+- SMART SKIPPING: If the user has already answered a future category (e.g., they explained the Pain in their greeting), DO NOT ask about it again. Validate it and move to the next letter.
+- FLOW: Start with IDENTIFY PAIN. Then move to Metrics -> Champion -> Economic Buyer -> Decision Criteria -> Decision Process -> Paper Process -> Competition.
+- CONCISE: Keep questions under 20 words. No conversational filler.
+
+### INSTRUCTION
+Take the user's input, apply the RULES above, and generate "Matthew's" response. Then, place that response into the 'next_question' field of the JSON object.`;
+}
 
 // --- 5. AGENT ENDPOINT ---
 app.post("/agent", async (req, res) => {
@@ -51,48 +91,57 @@ app.post("/agent", async (req, res) => {
       return res.send(twiml);
     }
 
-// --- B. SUBSEQUENT TURNS (Corrected) ---
+// --- B. SUBSEQUENT TURNS ---
     
-    // 1. Retrieve history (With crash prevention)
+    // 1. Retrieve history (Safety check to prevent crash)
     let messages = sessions[callSid] || [];
 
     // 2. Add the user's new speech to history
     messages.push({ role: "user", content: userSpeech });
 
-    // 3. Call the API using your Environment Variables
+    // 3. Call the API
     const response = await axios.post(
       "https://api.anthropic.com/v1/messages",
       {
         model: "claude-3-haiku-20240307",
         max_tokens: 1000,
-        system: agentSystemPrompt(),
-        messages: messages,
+        temperature: 0,              // <--- THIS IS THE NEW LINE
+        system: agentSystemPrompt(), 
+        messages: messages,          
       },
       {
         headers: {
-          "x-api-key": process.env.MODEL_API_KEY,
+          "x-api-key": process.env.MODEL_API_KEY, 
           "anthropic-version": "2023-06-01",
           "content-type": "application/json"
         }
       }
     );
-    // --- C. PARSE RESPONSE ---
-    // (The rest of your code remains the same)
-    // --- C. PARSE RESPONSE ---
-    // C. PARSE RESPONSE (Anthropic Style)
+    // --- C. PARSE RESPONSE (Smart JSON Finder) ---
+    // Anthropic returns data in response.data.content[0].text
     let rawText = response.data.content[0].text.trim();
     
-    // Safety check: Claude sometimes wraps JSON in markdown blocks
-    rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
-
+    // 1. Find the start '{' and end '}' of the JSON object
+    const jsonStart = rawText.indexOf('{');
+    const jsonEnd = rawText.lastIndexOf('}');
+    
     let agentResult;
-    try {
-      agentResult = JSON.parse(rawText);
-    } catch (e) {
-      console.error("Haiku JSON Parse Error", rawText);
-      agentResult = { next_question: "I missed that, Erik. Can you say it again?", end_of_call: false };
+    
+    if (jsonStart !== -1 && jsonEnd !== -1) {
+      // Extract ONLY the JSON part
+      const jsonString = rawText.substring(jsonStart, jsonEnd + 1);
+      try {
+        agentResult = JSON.parse(jsonString);
+      } catch (e) {
+        console.error("JSON Parse Failed:", rawText);
+        agentResult = { next_question: "I'm having trouble connecting. One moment.", end_of_call: false };
+      }
+    } else {
+      // Fallback: If no JSON found, treat the raw text as the question
+      // This saves the call even if the model messes up the format completely
+      console.warn("No JSON found, using raw text");
+      agentResult = { next_question: rawText, end_of_call: false };
     }
-
     // D. SAVE TO MEMORY
     messages.push({ role: "assistant", content: rawText });
     sessions[callSid] = messages;
@@ -132,4 +181,3 @@ app.post("/agent", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
-
