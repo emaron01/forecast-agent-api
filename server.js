@@ -92,7 +92,8 @@ app.post("/agent", async (req, res) => {
     const messages = sessions[callSid];
     messages.push({ role: "user", content: userSpeech || "(no speech detected)" });
 
-/ PASTE THE DEBUG LINE HERE: console.log(`[DEBUG] Attempting OpenAI call. Key starts with: ${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.substring(0, 7) : "NULL"}`);
+// PASTE THE DEBUG LINE HERE: 
+console.log(`[DEBUG] Attempting OpenAI call. Key starts with: ${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.substring(0, 7) : "NULL"}`);
 
     const response = await axios.post(
       "https://api.openai.com/v1/chat/completions",
@@ -140,6 +141,7 @@ app.post("/agent", async (req, res) => {
 });
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
 
 
 
