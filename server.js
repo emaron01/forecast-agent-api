@@ -47,19 +47,26 @@ app.post("/agent", async (req, res) => {
     let rawHistory = req.body.history || "[]";
     let messages = [];
 
-    // 1. CLEAN HISTORY (Magic Step)
+    // 1. ADVANCED CLEAN HISTORY (The fix for the 400/Syntax errors)
     try {
       if (typeof rawHistory === 'string' && rawHistory !== "[]") {
-        let cleaned = rawHistory.replace(/\\"/g, '"');
+        let cleaned = rawHistory;
+
+        // Remove wrapping quotes if Twilio added them
         if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
           cleaned = cleaned.substring(1, cleaned.length - 1);
         }
+
+        // Unescape backslashes and quotes
+        // This converts \" to " and \\n to \n
+        cleaned = cleaned.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+
         messages = JSON.parse(cleaned);
       } else if (Array.isArray(rawHistory)) {
         messages = rawHistory;
       }
     } catch (e) {
-      console.log("[SERVER] History parse error, starting fresh.");
+      console.log("[SERVER] History parse failed, starting fresh.");
       messages = [];
     }
 
@@ -73,7 +80,7 @@ app.post("/agent", async (req, res) => {
 
     console.log(`[SERVER] Processing. History Count: ${messages.length}`);
 
-    // 3. CALL OPENAI (Crucial: This defines 'response')
+    // 3. CALL OPENAI
     const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
       {
@@ -114,12 +121,13 @@ app.post("/agent", async (req, res) => {
     console.error("AGENT ERROR:", error.response?.data || error.message);
     if (!res.headersSent) {
       res.status(500).json({ 
-        next_question: "Connection issue with AI.", 
-        end_of_call: true 
+        next_question: "I'm having a connection issue. One moment.", 
+        end_of_call: false 
       });
     }
   }
 });
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
 
