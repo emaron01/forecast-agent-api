@@ -129,34 +129,34 @@ app.post("/agent", async (req, res) => {
     messages.push({ role: "assistant", content: rawText });
     sessions[callSid] = messages;
 
-    // E. RESPOND TO TWILIO
+// E. RESPOND TO TWILIO
     let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
     
     if (agentResult.end_of_call === true) {
-      // Build a spoken summary string from the JSON data
-      const summary = agentResult.summary;
-      const finalSpeech = `Great work Erik. Your total deal score is ${summary.total_deal_score}. The biggest risk is ${summary.number_one_risk}. Your next step is ${summary.one_clear_next_step}. ${summary.closing}`;
+      // 1. Check if the AI provided a structured summary object
+      const s = agentResult.summary;
+      let finalSpeech = "";
+
+      if (s && s.total_deal_score) {
+        finalSpeech = `Review complete. Your total score is ${s.total_deal_score}. The top risk is ${s.number_one_risk}. Your next step is ${s.one_clear_next_step}. ${s.closing}`;
+      } else {
+        // FALLBACK: If the AI put everything in next_question, use that instead!
+        finalSpeech = agentResult.next_question || "The review is complete. Good luck, Erik.";
+      }
       
       twiml += `<Say voice="Polly.Matthew-Neural">${finalSpeech}</Say>`;
       twiml += `<Hangup />`;
       console.log(`[${callSid}] Summary spoken. Hanging up.`);
-} else {
+    } else {
       // 1. Matthew speaks the question provided by the AI
       twiml += `<Say voice="Polly.Matthew-Neural">${agentResult.next_question}</Say>`;
       
-      // 2. Matthew listens for your answer (Waiting 2 seconds before cutting you off)
+      // 2. Matthew listens for your answer
       twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="2" />`;
     }    
+
     twiml += `</Response>`;
     res.type('text/xml');
     res.send(twiml);
-
   } catch (error) {
     console.error("AGENT ERROR:", error.message);
-    res.type('text/xml');
-    res.send("<Response><Say voice='Polly.Matthew-Neural'>I'm sorry, I hit a snag. Please try again later.</Say></Response>");
-  }
-}); // This closes the app.post
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
