@@ -64,97 +64,12 @@ Return ONLY JSON:
 // --- 5. AGENT ENDPOINT ---
 app.post("/agent", async (req, res) => {
   try {
-    // Unique ID from Twilio for this specific call
     const callSid = req.body.CallSid || "test_session";
-    const transcript = req.body.transcript || req.body.SpeechResult || "";
+    const userSpeech = req.body.SpeechResult || "";
 
-    // A. RETRIEVE OR CREATE HISTORY
+    // A. INITIAL GREETING (If session doesn't exist)
     if (!sessions[callSid]) {
-      const initialContext = `CONVERSATION START: Reviewing GlobalTech Industries (Commit) with Erik Thompson. Start the call and ask the first MEDDPICC question.`;
-      sessions[callSid] = [{ role: "user", content: initialContext }];
-      console.log(`[SERVER] New Session: ${callSid}`);
-    }
+      console.log(`[${callSid}] New Session Started`);
+      
+      const introText = "Hi Erik, I'm Gemini, your Forecasting Partner. Let's look at GlobalTech Industries. To start, what are the key Metrics or business outcomes the customer is looking to achieve?";
 
-    let messages = sessions[callSid];
-
-    // B. ADD USER INPUT
-    if (transcript.trim()) {
-      messages.push({ role: "user", content: transcript });
-    }
-
-// --- C. SAFETY SWITCH (Turn 25) ---
-const turnCount = messages.length;
-if (turnCount >= 25) { 
-    messages.push({ 
-        role: "user", 
-        content: "We are at time. Provide the Final Summary in the JSON format including the category_scores, the total_score out of 24, and one or two next steps. Then say goodbye and end the call." 
-    });
-}
-    // C. CALL OPENAI
-    const response = await axios.post(
-      process.env.MODEL_API_URL.trim(),
-      {
-        model: "gpt-4o-mini", 
-        messages: [{ role: "system", content: agentSystemPrompt() }, ...messages],
-        max_tokens: 400, // Increased to 400 to ensure summary isn't cut off
-        temperature: 0.2
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.MODEL_API_KEY.trim()}`
-        }
-      }
-    );
-
-// D. PARSE RESPONSE
-    let rawText = response.data.choices[0].message.content.trim();
-    // Clean potential Markdown formatting
-    rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
-    
-    let agentResult;
-    try {
-        agentResult = JSON.parse(rawText);
-    } catch (e) {
-        console.error(`[${callSid}] JSON Parse Error:`, rawText);
-        // Fallback object to prevent the app from crashing
-        agentResult = { 
-            next_question: "I'm sorry, I had a technical glitch. Could you repeat that?", 
-            total_score: 0, 
-            end_of_call: false 
-        };
-    }
-    
-    // E. SAVE TO MEMORY
-    messages.push({ role: "assistant", content: rawText });
-    sessions[callSid] = messages; 
-
-    // G. RESPOND TO TWILIO (With Hangup Logic)
-    // Updated to reference .total_score to match your prompt
-    console.log(`[${callSid}] Turn: ${messages.length} | Score: ${agentResult.total_score} | Ending: ${agentResult.end_of_call}`); 
-    
-    let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`; 
-    
-    // Safety check: ensure next_question is a string
-    const speechText = agentResult.next_question || "I missed that, can you say it again?";
-    twiml += `<Say>${speechText}</Say>`; 
-    
-    if (agentResult.end_of_call === true) { 
-      twiml += `<Hangup />`; 
-      console.log(`[${callSid}] MEDDPICC Complete. Hanging up.`); 
-    } else { 
-      twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="auto" />`; 
-    } 
-    
-    twiml += `</Response>`;
-    res.type('text/xml'); 
-    res.send(twiml);
-  } catch (error) {
-    console.error("AGENT ERROR:", error.message);
-    res.type('text/xml');
-    res.send(`<?xml version="1.0" encoding="UTF-8"?><Response><Say>I had a connection glitch. Can you repeat that last part?</Say><Gather input="speech" action="/agent" method="POST" speechTimeout="auto" /></Response>`);
-  }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
