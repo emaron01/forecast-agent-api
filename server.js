@@ -79,21 +79,21 @@ app.post("/agent", async (req, res) => {
       }
     );
 
-// --- 5. PARSE & SSML CLEANUP ---
+// --- 5. PARSE & CLEANUP ---
     let rawText = response.data.choices[0].message.content.trim();
     
-    // Clean markdown backticks if present (prevents JSON.parse errors)
+    // KEEP THIS: It prevents the server from crashing if the AI uses markdown
     if (rawText.startsWith("```")) {
       rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim();
     }
 
-    // Parse the AI's JSON response
+    // KEEP THIS: This turns the AI's string into a readable object
     const agentResult = JSON.parse(rawText);
     
-    // Wrap ONLY the next_question in SSML for the voice engine
-    const cleanQuestion = `<speak><prosody rate="115%" pitch="-2st">${agentResult.next_question}</prosody></speak>`;
-
-    // --- 6. THE LOOP BREAKER (Update History) ---
+    // CHANGE THIS: We removed the <speak> and <prosody> tags
+    const cleanQuestion = agentResult.next_question;
+  
+  // --- 6. THE LOOP BREAKER (Update History) ---
     // This adds the AI's current response to the history array
     messages.push({ role: "assistant", content: rawText });
 
@@ -122,3 +122,4 @@ app.post("/agent", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
