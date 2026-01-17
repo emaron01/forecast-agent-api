@@ -50,7 +50,7 @@ app.post("/agent", async (req, res) => {
     // 1. ADVANCED CLEAN HISTORY (The fix for the 400/Syntax errors)
     try {
       if (typeof rawHistory === 'string' && rawHistory !== "[]") {
-        let cleaned = rawHistory;
+        let cleaned = rawHistory; // Only declare this ONCE
 
         // Remove wrapping quotes if Twilio added them
         if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
@@ -66,7 +66,7 @@ app.post("/agent", async (req, res) => {
         messages = rawHistory;
       }
     } catch (e) {
-      console.log("[SERVER] History parse failed, starting fresh.");
+      console.log("[SERVER] History parse error:", e.message); // Only one log needed
       messages = [];
     }
 
@@ -130,4 +130,5 @@ app.post("/agent", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
 
