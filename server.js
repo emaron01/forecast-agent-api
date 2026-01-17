@@ -82,7 +82,7 @@ app.post("/agent", async (req, res) => {
       let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
       // Updated with Matthew-Neural voice
       twiml += `<Say voice="Polly.Matthew-Neural">${introText}</Say>`;
-      twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="auto" />`;
+      twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="2" />`;
       twiml += `</Response>`;
       
       res.type('text/xml');
@@ -131,29 +131,25 @@ app.post("/agent", async (req, res) => {
     sessions[callSid] = messages;
 
     // E. RESPOND TO TWILIO
-    console.log(`[${callSid}] Turn: ${messages.length} | Score: ${agentResult.total_score} | Ending: ${agentResult.end_of_call}`);
-    
     let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
     
-    // IMPORTANT: This line ensures Matthew keeps talking after the first turn
-    twiml += `<Say voice="Polly.Matthew-Neural">${agentResult.next_question}</Say>`;
-
     if (agentResult.end_of_call === true) {
+      // Build a spoken summary string from the JSON data
+      const summary = agentResult.summary;
+      const finalSpeech = `Great work Erik. Your total deal score is ${summary.total_deal_score}. The biggest risk is ${summary.number_one_risk}. Your next step is ${summary.one_clear_next_step}. ${summary.closing}`;
+      
+      twiml += `<Say voice="Polly.Matthew-Neural">${finalSpeech}</Say>`;
       twiml += `<Hangup />`;
-      console.log(`[${callSid}] MEDDPICC Complete. Hanging up.`);
+      console.log(`[${callSid}] Summary spoken. Hanging up.`);
     } else {
-      twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="auto" />`;
+      twiml += `<Say voice="Polly.Matthew-Neural">${agentResult.next_question}</Say>`;
+      // Increased timeout to 2 seconds to prevent interruptions
+      twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="2" />`;
     }
     
     twiml += `</Response>`;
     res.type('text/xml');
     res.send(twiml);
 
-  } catch (error) {
-    console.error("AGENT ERROR:", error.message);
-    res.type('text/xml');
-    res.send("<Response><Say>I'm sorry, I hit a snag. Please try again later.</Say></Response>");
-  }
-});
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
