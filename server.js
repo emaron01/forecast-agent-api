@@ -51,24 +51,34 @@ app.post("/agent", async (req, res) => {
       return res.send(twiml);
     }
 
-// B. SUBSEQUENT TURNS (Anthropic Haiku Logic)
+// --- B. SUBSEQUENT TURNS (Corrected) ---
+    
+    // 1. Retrieve history (With crash prevention)
+    let messages = sessions[callSid] || [];
+
+    // 2. Add the user's new speech to history
+    messages.push({ role: "user", content: userSpeech });
+
+    // 3. Call the API using your Environment Variables
     const response = await axios.post(
       "https://api.anthropic.com/v1/messages",
       {
-        model: "claude-3-haiku-20240307", // The Speed King
+        model: "claude-3-haiku-20240307",
         max_tokens: 1000,
-        system: agentSystemPrompt(), // Anthropic expects system prompt here
-        messages: messages, // Only the 'user' and 'assistant' roles
+        system: agentSystemPrompt(),
+        messages: messages,
       },
       {
         headers: {
-          "x-api-key": process.env.ANTHROPIC_API_KEY, // Use your Claude key
+          "x-api-key": process.env.MODEL_API_KEY,
           "anthropic-version": "2023-06-01",
           "content-type": "application/json"
         }
       }
     );
-
+    // --- C. PARSE RESPONSE ---
+    // (The rest of your code remains the same)
+    // --- C. PARSE RESPONSE ---
     // C. PARSE RESPONSE (Anthropic Style)
     let rawText = response.data.content[0].text.trim();
     
@@ -122,3 +132,4 @@ app.post("/agent", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
