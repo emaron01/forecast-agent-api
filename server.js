@@ -3,8 +3,12 @@ const express = require("express");
 const axios = require("axios");
 
 const app = express();
-app.use(express.json());
+
+// --- 2. MIDDLEWARE ---
+// Handles Twilio's form-encoded data (Required for the 400 error fix)
 app.use(express.urlencoded({ extended: true })); 
+// Handles standard JSON payloads
+app.use(express.json());
 
 console.log("Final Verified Server - MEDDPICC Coaching Engine Live");
 
@@ -39,57 +43,41 @@ REQUIRED JSON FORMAT:
 // --- 3. AGENT ENDPOINT ---
 app.post("/agent", async (req, res) => {
   try {
-    const transcript = req.body.transcript || "";
+    // 1. EXTRACT (Handles both 'transcript' and 'SpeechResult' names)
+    const transcript = req.body.transcript || req.body.SpeechResult || "";
     let rawHistory = req.body.history || "[]";
     let messages = [];
 
-    // --- 1. BULLETPROOF HISTORY PARSING ---
+    // 2. RAW PARSE & CLEAN (The "Magic" Step)
     try {
       if (typeof rawHistory === 'string' && rawHistory !== "[]") {
-        // Sanitize Twilio's backslashes
-        const sanitized = rawHistory.replace(/\\"/g, '"').replace(/^"/, '').replace(/"$/, '');
-        messages = JSON.parse(sanitized);
+        let cleaned = rawHistory;
+        
+        // Remove surrounding quotes if Twilio wrapped the whole array
+        if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+          cleaned = cleaned.substring(1, cleaned.length - 1);
+        }
+        
+        // Fix the backslashes (e.g., \" becomes ")
+        cleaned = cleaned.replace(/\\"/g, '"');
+        
+        messages = JSON.parse(cleaned);
       } else {
         messages = Array.isArray(rawHistory) ? rawHistory : [];
       }
     } catch (e) {
-      console.log("[SERVER] History parse failed, starting fresh.");
+      console.log("[SERVER] History parse failed, starting fresh context.");
       messages = [];
     }
 
-    // Keep history manageable
-    if (messages.length > 11) {
-      messages = [messages[0], ...messages.slice(-10)];
-    }
-
-    // --- 2. CONTEXT INJECTION & USER INPUT ---
-    if (messages.length === 0) {
-      // Hardcoded Opportunity Data
-      const initialContext = `CONVERSATION START: Reviewing 3 deals with Erik Thompson.\nDEALS:\n- GlobalTech Industries: Workflow Automation Expansion (Commit)\n- CyberShield Solutions: Security Infrastructure Upgrade (Best Case)\n- DataStream Corp: Analytics Platform Migration (Pipeline)\nStart with GlobalTech Industries.`;
-      messages.push({ role: "user", content: initialContext });
-    } else if (transcript && transcript.trim()) {
+    // 3. ADD REP'S ANSWER
+    if (transcript && transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     }
 
-    console.log(`[SERVER] Processing turn. History Count: ${messages.length}`);
-
-    // --- 3. CALL OPENAI ---
-    const response = await axios.post(
-      process.env.MODEL_API_URL.trim(),
-      {
-        model: process.env.MODEL_NAME.trim(),
-        messages: [{ role: "system", content: agentSystemPrompt() }, ...messages],
-        max_tokens: 500,
-        temperature: 0.2
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${process.env.MODEL_API_KEY.trim()}`
-        }
-      }
-    );
-
+    console.log(`[SERVER] Success. History Turn Count: ${messages.length}`);
+    
+    // ... Proceed to Section 5 (OpenAI Call)
     // --- 4. PARSE & CLEANUP ---
     let rawText = response.data.choices[0].message.content.trim();
     if (rawText.startsWith("```")) {
