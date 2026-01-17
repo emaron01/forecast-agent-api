@@ -43,76 +43,83 @@ REQUIRED JSON FORMAT:
 // --- 3. AGENT ENDPOINT ---
 app.post("/agent", async (req, res) => {
   try {
-    // 1. EXTRACT (Handles both 'transcript' and 'SpeechResult' names)
     const transcript = req.body.transcript || req.body.SpeechResult || "";
     let rawHistory = req.body.history || "[]";
     let messages = [];
 
-    // 2. RAW PARSE & CLEAN (The "Magic" Step)
+    // 1. CLEAN HISTORY (Magic Step)
     try {
       if (typeof rawHistory === 'string' && rawHistory !== "[]") {
-        let cleaned = rawHistory;
-        
-        // Remove surrounding quotes if Twilio wrapped the whole array
+        let cleaned = rawHistory.replace(/\\"/g, '"');
         if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
           cleaned = cleaned.substring(1, cleaned.length - 1);
         }
-        
-        // Fix the backslashes (e.g., \" becomes ")
-        cleaned = cleaned.replace(/\\"/g, '"');
-        
         messages = JSON.parse(cleaned);
-      } else {
-        messages = Array.isArray(rawHistory) ? rawHistory : [];
+      } else if (Array.isArray(rawHistory)) {
+        messages = rawHistory;
       }
     } catch (e) {
-      console.log("[SERVER] History parse failed, starting fresh context.");
+      console.log("[SERVER] History parse error, starting fresh.");
       messages = [];
     }
 
-    // 3. ADD REP'S ANSWER
-    if (transcript && transcript.trim()) {
+    // 2. INITIALIZE CONTEXT OR ADD REP RESPONSE
+    if (messages.length === 0) {
+      const initialContext = `CONVERSATION START: Reviewing 3 deals with Erik Thompson.\nDEALS:\n- GlobalTech Industries: Workflow Automation Expansion (Commit)\n- CyberShield Solutions: Security Infrastructure Upgrade (Best Case)\n- DataStream Corp: Analytics Platform Migration (Pipeline)\nStart with GlobalTech Industries.`;
+      messages.push({ role: "user", content: initialContext });
+    } else if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     }
 
-    console.log(`[SERVER] Success. History Turn Count: ${messages.length}`);
-    
-    // ... Proceed to Section 5 (OpenAI Call)
-    // --- 4. PARSE & CLEANUP ---
+    console.log(`[SERVER] Processing. History Count: ${messages.length}`);
+
+    // 3. CALL OPENAI (Crucial: This defines 'response')
+    const response = await axios.post(
+      process.env.MODEL_API_URL.trim(),
+      {
+        model: process.env.MODEL_NAME.trim(),
+        messages: [{ role: "system", content: agentSystemPrompt() }, ...messages],
+        max_tokens: 500,
+        temperature: 0.2
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.MODEL_API_KEY.trim()}`
+        }
+      }
+    );
+
+    // 4. PARSE & CLEANUP
     let rawText = response.data.choices[0].message.content.trim();
     if (rawText.startsWith("```")) {
       rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim();
     }
-
+    
     const agentResult = JSON.parse(rawText);
-    const cleanQuestion = agentResult.next_question;
-
-    // --- 5. THE LOOP BREAKER (Update History) ---
-    // Add the AI's current response to the array so it's remembered next turn
     messages.push({ role: "assistant", content: rawText });
 
-    // --- 6. FINAL RESPONSE TO TWILIO ---
+    // 5. RESPOND TO TWILIO
     console.log(`[SERVER] Success. History Turn Count: ${messages.length}`);
-    
-    return res.json({
-      next_question: cleanQuestion,
+    res.json({
+      next_question: agentResult.next_question,
       coaching_tip: agentResult.coaching_tip || "",
       score: agentResult.score || 0,
       risk_flags: agentResult.risk_flags || [],
       end_of_call: agentResult.end_of_call || false,
-      new_history: JSON.stringify(messages) // History is now "packed" for Twilio
+      new_history: JSON.stringify(messages)
     });
 
-  } catch (err) {
-    console.error("AGENT ERROR:", err.response?.data || err.message);
+  } catch (error) {
+    console.error("AGENT ERROR:", error.response?.data || error.message);
     if (!res.headersSent) {
-      return res.status(500).json({ 
-        next_question: "I'm having trouble connecting. Let's try again in a moment.", 
+      res.status(500).json({ 
+        next_question: "Connection issue with AI.", 
         end_of_call: true 
       });
     }
   }
 });
-
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
