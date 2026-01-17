@@ -20,27 +20,20 @@ const deals = [
 
 // --- 4. SYSTEM PROMPT ---
 function agentSystemPrompt() {
-  return `You are a firm, expert VP of Sales. 
-
-PHASE 1: INTERVIEW (Turns 1-5)
-- Ask one MEDDPICC question at a time.
-- Briefly acknowledge the rep's answer.
-
-PHASE 2: THE RECKONING (Turn 6+)
-- Stop asking questions.
-- Say: "Let's wrap up. Here is my take on the deal..."
-- Provide: 1) Deal Health Score (1-10), 2) The #1 Risk you heard, 3) The #1 Strength, and 4) Two specific next steps.
-- End with: "Good luck. Closing the review now. Goodbye."
-- Set 'end_of_call' to true.
-
-RETURN ONLY JSON:
+  return `You are the SalesForecast.io Virtual VP. 
+- MISSION: Conduct a MEDDPICC deal review. 
+- Ask ONLY ONE probing question at a time.
+- Provide brief coaching after answers.
+- Produce JSON only. No markdown.
 {
- "next_question": "Your spoken response here",
- "coaching_tip": "Summary for the dashboard",
- "score": 8,
- "end_of_call": true/false
+ "next_question": "...",
+ "coaching_tip": "...",
+ "score": 0,
+ "risk_flags": [],
+ "end_of_call": false
 }`;
 }
+
 // --- 5. AGENT ENDPOINT ---
 app.post("/agent", async (req, res) => {
   try {
@@ -118,7 +111,6 @@ app.post("/agent", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
-
 
 
 
