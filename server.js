@@ -76,7 +76,7 @@ app.post("/agent", async (req, res) => {
       twiml += `<Say voice="Polly.Matthew-Neural">${introText}</Say>`;
       
       // ONLY ONE GATHER LINE HERE
-      twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="2" />`;
+twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="auto" speechModel="phone_call" enhanced="true" />`;
       
       twiml += `</Response>`;
       res.type('text/xml');
@@ -133,15 +133,12 @@ app.post("/agent", async (req, res) => {
     let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
 
     if (agentResult.end_of_call === true) {
-      // Check if the AI provided a structured summary object
       const s = agentResult.summary;
       let finalSpeech = "";
 
       if (s && s.total_deal_score) {
-        // Use the structured summary if it exists
         finalSpeech = `Review complete. Your total score is ${s.total_deal_score}. The top risk is ${s.number_one_risk}. Your next step is ${s.one_clear_next_step}. ${s.closing}`;
       } else {
-        // FALLBACK: If the AI put everything in next_question, use that instead
         finalSpeech = agentResult.next_question || "The review is complete. Good luck, Erik.";
       }
 
@@ -149,11 +146,18 @@ app.post("/agent", async (req, res) => {
       twiml += `<Hangup />`;
       console.log(`[${callSid}] Summary spoken. Hanging up.`);
     } else {
-      // 1. Matthew speaks the question provided by the AI
+      // 1. Matthew speaks the question
       twiml += `<Say voice="Polly.Matthew-Neural">${agentResult.next_question}</Say>`;
 
-      // 2. Matthew listens for your answer (2 second timeout)
-      twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="2" />`;
+      // 2. Matthew listens for your answer - OPTIMIZED
+      twiml += `<Gather 
+          input="speech" 
+          action="/agent" 
+          method="POST" 
+          speechTimeout="auto" 
+          speechModel="phone_call" 
+          enhanced="true" 
+      />`;
     }
 
     twiml += `</Response>`;
@@ -169,3 +173,4 @@ app.post("/agent", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
