@@ -107,21 +107,37 @@ if (turnCount >= 25) {
       }
     );
 
-    // D. PARSE RESPONSE
+// D. PARSE RESPONSE
     let rawText = response.data.choices[0].message.content.trim();
+    // Clean potential Markdown formatting
     rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
     
-    const agentResult = JSON.parse(rawText);
+    let agentResult;
+    try {
+        agentResult = JSON.parse(rawText);
+    } catch (e) {
+        console.error(`[${callSid}] JSON Parse Error:`, rawText);
+        // Fallback object to prevent the app from crashing
+        agentResult = { 
+            next_question: "I'm sorry, I had a technical glitch. Could you repeat that?", 
+            total_score: 0, 
+            end_of_call: false 
+        };
+    }
     
-// E. SAVE TO MEMORY
+    // E. SAVE TO MEMORY
     messages.push({ role: "assistant", content: rawText });
     sessions[callSid] = messages; 
 
     // G. RESPOND TO TWILIO (With Hangup Logic)
-    console.log(`[${callSid}] Turn: ${messages.length} | Score: ${agentResult.score} | Ending: ${agentResult.end_of_call}`); 
+    // Updated to reference .total_score to match your prompt
+    console.log(`[${callSid}] Turn: ${messages.length} | Score: ${agentResult.total_score} | Ending: ${agentResult.end_of_call}`); 
     
     let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`; 
-    twiml += `<Say>${agentResult.next_question}</Say>`; 
+    
+    // Safety check: ensure next_question is a string
+    const speechText = agentResult.next_question || "I missed that, can you say it again?";
+    twiml += `<Say>${speechText}</Say>`; 
     
     if (agentResult.end_of_call === true) { 
       twiml += `<Hangup />`; 
@@ -132,8 +148,7 @@ if (turnCount >= 25) {
     
     twiml += `</Response>`;
     res.type('text/xml'); 
-    res.send(twiml); 
-
+    res.send(twiml);
   } catch (error) {
     console.error("AGENT ERROR:", error.message);
     res.type('text/xml');
@@ -143,6 +158,3 @@ if (turnCount >= 25) {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
-
-
-
