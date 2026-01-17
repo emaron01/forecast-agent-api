@@ -15,7 +15,7 @@ console.log("MEDDPICC Agent: Session-Based Memory Active");
 
 // --- 3. MOCK CRM DATA ---
 const deals = [
-  { id: "D-001", account: "GlobalTech Industries", opportunityName: "Workflow Automation Expansion", forecastCategory: "Commit" }
+  { id: "D-001", account: "GlobalTech Industries", opportunityName: "Server Migration Project", forecastCategory: "Commit" }
 ];
 
 // --- 4. SYSTEM PROMPT (Final Optimized Version) ---
@@ -71,7 +71,7 @@ app.post("/agent", async (req, res) => {
     if (!sessions[callSid]) {
       console.log(`[${callSid}] New Session Started`);
       
-      const introText = "Hi Erik, I'm Gemini, your Forecasting Partner. Let's look at GlobalTech Industries. To start, what are the key Metrics or business outcomes the customer is looking to achieve?";
+      const introText = "Hi Erik, I'm Atlas, your virtual Forecasting Partner. Let's look at your GlobalTech Industries opportunity that is in Commit for a Server Migration Project. To start, what are the key Metrics or business outcomes the customer is looking to achieve?";
       
       // Initialize memory with System Prompt and our first spoken question
       sessions[callSid] = [
@@ -88,29 +88,45 @@ app.post("/agent", async (req, res) => {
       res.type('text/xml');
       return res.send(twiml);
     }
-    // B. SUBSEQUENT TURNS (AI Processing)
+// B. SUBSEQUENT TURNS (AI Processing)
     const messages = sessions[callSid];
     messages.push({ role: "user", content: userSpeech || "(no speech detected)" });
 
-// PASTE THE DEBUG LINE HERE: 
-console.log(`[DEBUG] Attempting OpenAI call. Key starts with: ${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.substring(0, 7) : "NULL"}`);
+    // DEBUG: This confirms the code is looking at your specific Render Key
+    console.log(`[DEBUG] Attempting call. Key: ${process.env.MODEL_API_KEY ? "FOUND" : "NULL"} | Model: ${process.env.MODEL_NAME}`);
 
     const response = await axios.post(
-      "https://api.openai.com/v1/chat/completions",
+      process.env.MODEL_API_URL || "https://api.openai.com/v1/chat/completions",
       {
-        model: "gpt-4-turbo-preview",
+        model: process.env.MODEL_NAME || "gpt-4o", 
         messages: messages,
         response_format: { type: "json_object" }
       },
-      { headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` } }
+      { 
+        headers: { 
+          // THIS IS THE CRITICAL CHANGE: Matching your Render Key name
+          Authorization: `Bearer ${process.env.MODEL_API_KEY}` 
+        } 
+      }
     );
-
     // C. PARSE RESPONSE
     let rawText = response.data.choices[0].message.content.trim();
-    rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
-    const agentResult = JSON.parse(rawText);
+    console.log(`[${callSid}] Raw AI Output:`, rawText); // See exactly what the AI said in your logs
 
-    // D. SAVE TO MEMORY
+    rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+    
+    let agentResult;
+    try {
+        agentResult = JSON.parse(rawText);
+    } catch (e) {
+        console.error("JSON Parse Error. Raw text was:", rawText);
+        // Fallback so the call doesn't crash
+        agentResult = { 
+            next_question: "I'm sorry, I had a momentary lapse in thought. Could you repeat that?", 
+            total_score: 8, 
+            end_of_call: false 
+        };
+    }    // D. SAVE TO MEMORY
     messages.push({ role: "assistant", content: rawText });
     sessions[callSid] = messages;
 
@@ -141,7 +157,3 @@ console.log(`[DEBUG] Attempting OpenAI call. Key starts with: ${process.env.OPEN
 });
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
-
-
-
-
