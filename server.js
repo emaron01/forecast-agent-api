@@ -36,40 +36,46 @@ REQUIRED JSON FORMAT:
 }`;
 }
 
-// 3. AGENT ENDPOINT
+// --- 3. AGENT ENDPOINT ---
 app.post("/agent", async (req, res) => {
   try {
     const transcript = req.body.transcript || "";
-    const history = req.body.history || "[]";
-
+    let rawHistory = req.body.history || "[]";
     let messages = [];
+
+    // --- BULLETPROOF HISTORY PARSING (Fixes the SyntaxError) ---
     try {
-      messages = (typeof history === 'string' && history !== "[]") 
-        ? JSON.parse(history) 
-        : (Array.isArray(history) ? history : []);
+      if (typeof rawHistory === 'string' && rawHistory !== "[]") {
+        // Remove Twilio's extra escape characters before parsing
+        const sanitized = rawHistory.replace(/\\"/g, '"').replace(/^"/, '').replace(/"$/, '');
+        messages = JSON.parse(sanitized);
+      } else {
+        messages = Array.isArray(rawHistory) ? rawHistory : [];
+      }
     } catch (e) {
+      console.log("[SERVER] History parse failed, starting fresh.");
       messages = [];
     }
 
-    if (messages.length > 11) {
-      messages = [messages[0], ...messages.slice(-10)];
-    }
-
+    // --- 4. CONTEXT INJECTION ---
     if (messages.length === 0) {
-      const dealList = deals.map(d => `- ${d.account}: ${d.opportunityName} (${d.forecastCategory})`).join("\n");
-      const initialContext = `CONVERSATION START: Reviewing 3 deals with ${deals[0].repName}.\nDEALS:\n${dealList}\nStart with GlobalTech Industries.`;
+      // Hardcoded deals logic you had earlier
+      const initialContext = `CONVERSATION START: Reviewing 3 deals with Erik Thompson.\nDEALS:\n- GlobalTech Industries: Workflow Automation Expansion (Commit)\n- CyberShield Solutions: Security Infrastructure Upgrade (Best Case)\n- DataStream Corp: Analytics Platform Migration (Pipeline)\nStart with GlobalTech Industries.`;
       messages.push({ role: "user", content: initialContext });
     } else if (transcript && transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     }
 
+    console.log(`[SERVER] Processing turn. History Count: ${messages.length}`);
+
+    // --- 5. CALL OPENAI ---
     const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
       {
         model: process.env.MODEL_NAME.trim(),
         messages: [{ role: "system", content: agentSystemPrompt() }, ...messages],
         max_tokens: 500,
-        temperature: 0.2 
+        temperature: 0.2
       },
       {
         headers: {
@@ -79,20 +85,36 @@ app.post("/agent", async (req, res) => {
       }
     );
 
-// --- 5. PARSE & CLEANUP ---
+    // --- 6. PARSE & CLEANUP ---
     let rawText = response.data.choices[0].message.content.trim();
     
-    // KEEP THIS: It prevents the server from crashing if the AI uses markdown
+    // Remove markdown code blocks if the AI included them
     if (rawText.startsWith("```")) {
       rawText = rawText.replace(/^```json/, "").replace(/```$/, "").trim();
     }
-
-    // KEEP THIS: This turns the AI's string into a readable object
+    
+    // Parse the AI's string into a readable object
     const agentResult = JSON.parse(rawText);
     
-    // CHANGE THIS: We removed the <speak> and <prosody> tags
+    // Get the plain text question (No SSML tags here)
     const cleanQuestion = agentResult.next_question;
-  
+
+    // Send everything back to Twilio
+    res.json({
+      next_question: cleanQuestion,
+      coaching_tip: agentResult.coaching_tip || "",
+      score: agentResult.score || 0,
+      risk_flags: agentResult.risk_flags || [],
+      end_of_call: agentResult.end_of_call || false,
+      // This sends the updated conversation history back to Twilio
+      new_history: JSON.stringify(messages.concat({ role: "assistant", content: rawText }))
+    });
+
+  } catch (error) {
+    console.error("AGENT ERROR:", error);
+    res.status(500).json({ error: "Failed to process agent request" });
+  }
+});  
   // --- 6. THE LOOP BREAKER (Update History) ---
     // This adds the AI's current response to the history array
     messages.push({ role: "assistant", content: rawText });
@@ -122,4 +144,3 @@ app.post("/agent", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
-
