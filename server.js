@@ -68,7 +68,7 @@ app.post("/agent", async (req, res) => {
       {
         model: process.env.MODEL_NAME.trim(),
         messages: [{ role: "system", content: agentSystemPrompt() }, ...messages],
-        max_tokens: 800,
+        max_tokens: 500,
         temperature: 0.2 
       },
       {
@@ -111,7 +111,4 @@ app.post("/agent", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
-
-
-
 
