@@ -115,25 +115,16 @@ if (turnCount >= 28) {
     messages.push({ role: "assistant", content: rawText });
     sessions[callSid] = messages;
 
-    // 5. RESPOND TO TWILIO (The "Summary-Ready" Version)
-    console.log(`[${callSid}] Turn: ${messages.length} | Score: ${agentResult.score} | Ending: ${agentResult.end_of_call}`);
-    
-    res.json({
-      next_question: agentResult.next_question,
-      coaching_tip: agentResult.coaching_tip || "",
-      score: agentResult.score || 0,
-      risk_flags: agentResult.risk_flags || [],
-      end_of_call: agentResult.end_of_call || false
-      // Reminder: history is no longer sent back to Twilio!
-    });
-  } catch (error) {
-    console.error("AGENT ERROR:", error.message);
+    // 5. RESPOND TO TWILIO (The "Summary-Ready" Version) console.log(`[${callSid}] Turn: ${messages.length} | Score: ${agentResult.score} | Ending: ${agentResult.end_of_call}`); res.json({ next_question: agentResult.next_question, coaching_tip: agentResult.coaching_tip || "", score: agentResult.score || 0, next_step: agentResult.next_step 
+
+|| "", // <--- PASTE IT HERE risk_flags: agentResult.risk_flags || [], end_of_call: agentResult.end_of_call || false }); } catch (error) {    console.error("AGENT ERROR:", error.message);
     res.json({ 
       next_question: "I had a connection glitch. Can you repeat that last part?", 
       end_of_call: false 
     });
-  }
-});
+  });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
+
