@@ -67,9 +67,76 @@ app.post("/agent", async (req, res) => {
     const callSid = req.body.CallSid || "test_session";
     const userSpeech = req.body.SpeechResult || "";
 
-    // A. INITIAL GREETING (If session doesn't exist)
+// A. INITIAL GREETING (If session doesn't exist)
     if (!sessions[callSid]) {
       console.log(`[${callSid}] New Session Started`);
       
       const introText = "Hi Erik, I'm Gemini, your Forecasting Partner. Let's look at GlobalTech Industries. To start, what are the key Metrics or business outcomes the customer is looking to achieve?";
+      
+      // Initialize memory with System Prompt and our first spoken question
+      sessions[callSid] = [
+        { role: "system", content: agentSystemPrompt() },
+        { role: "assistant", content: JSON.stringify({ next_question: introText, total_score: 8 }) }
+      ];
+
+      let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
+      // Updated with Matthew-Neural voice
+      twiml += `<Say voice="Polly.Matthew-Neural">${introText}</Say>`;
+      twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="auto" />`;
+      twiml += `</Response>`;
+      
+      res.type('text/xml');
+      return res.send(twiml);
+    }
+    // B. SUBSEQUENT TURNS (AI Processing)
+    const messages = sessions[callSid];
+    messages.push({ role: "user", content: userSpeech || "(no speech detected)" });
+
+    const response = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-4-turbo-preview",
+        messages: messages,
+        response_format: { type: "json_object" }
+      },
+      { headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` } }
+    );
+
+    // C. PARSE RESPONSE
+    let rawText = response.data.choices[0].message.content.trim();
+    rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+    const agentResult = JSON.parse(rawText);
+
+    // D. SAVE TO MEMORY
+    messages.push({ role: "assistant", content: rawText });
+    sessions[callSid] = messages;
+
+    // E. RESPOND TO TWILIO
+    console.log(`[${callSid}] Turn: ${messages.length} | Score: ${agentResult.total_score} | Ending: ${agentResult.end_of_call}`);
+    
+    let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
+    
+    // IMPORTANT: This line ensures Matthew keeps talking after the first turn
+    twiml += `<Say voice="Polly.Matthew-Neural">${agentResult.next_question}</Say>`;
+
+    if (agentResult.end_of_call === true) {
+      twiml += `<Hangup />`;
+      console.log(`[${callSid}] MEDDPICC Complete. Hanging up.`);
+    } else {
+      twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="auto" />`;
+    }
+    
+    twiml += `</Response>`;
+    res.type('text/xml');
+    res.send(twiml);
+
+  } catch (error) {
+    console.error("AGENT ERROR:", error.message);
+    res.type('text/xml');
+    res.send("<Response><Say>I'm sorry, I hit a snag. Please try again later.</Say></Response>");
+  }
+});
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
 
