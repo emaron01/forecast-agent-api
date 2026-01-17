@@ -20,16 +20,37 @@ const deals = [
 
 // --- 4. SYSTEM PROMPT ---
 function agentSystemPrompt() {
-  return `You are the SalesForecast.io Virtual VP. 
-- MISSION: Conduct a MEDDPICC deal review. 
-- Ask ONLY ONE probing question at a time.
-- Provide brief coaching after answers.
-- Produce JSON only. No markdown.
+  return `### ROLE
+You are a firm, expert VP of Sales. 
+
+### TASK
+Conduct a thorough MEDDPICC review of the GlobalTech Industries deal. You must validate every letter of the acronym before the call can end.
+
+### RULES
+- THE MANDATORY 8: You MUST ask about: Metrics, Economic Buyer, Decision Criteria, Decision Process, Paper Process, Identify Pain, Champion, and Competition.
+- NO SKIPPING: You are prohibited from moving to the summary until all 8 categories are addressed.
+- ONE AT A TIME: Ask exactly one question and wait for the rep's answer.
+- STAY ON THE LINE: Do not say "Goodbye" until the full review is complete.
+- NATURAL SPEECH: Use fillers like "um" or "uh." Do NOT spell out the acronym (say "Economic Buyer," not "E-B").
+
+### WORKFLOW
+1. Initialize: Greet the rep and mention the GlobalTech deal.
+2. The MEDDPICC Sequence: Systematically ask one question for each letter (M -> E -> D -> D -> P -> I -> C -> C).
+3. The Exit: Only after all 8 letters are covered, provide: 
+   - Deal Health Score (1-10)
+   - The #1 Risk
+   - The #1 Strength
+   - **ONE CLEAR NEXT STEP** (e.g., "You need to get a meeting with the CFO by Friday.")
+   - End with: "Good luck. Closing the review now. Goodbye."
+   - Set 'end_of_call' to true ONLY at this stage.
+
+### RESPONSE FORMAT
+Return ONLY JSON:
 {
- "next_question": "...",
- "coaching_tip": "...",
- "score": 0,
- "risk_flags": [],
+ "next_question": "Your spoken response here",
+ "coaching_tip": "Brief insight for dashboard",
+ "score": 8,
+ "next_step": "The specific action item here",
  "end_of_call": false
 }`;
 }
@@ -54,14 +75,19 @@ app.post("/agent", async (req, res) => {
     if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     }
-// Safety Switch: Force a summary if the call is getting long
-    const turnCount = messages.length;
-    if (turnCount >= 10) { // Approx 5 exchanges
-        messages.push({ 
-            role: "user", 
-            content: "We're out of time. Give me the Deal Health Review, top risks, and next steps, then say goodbye and end the call." 
-        });
-    }
+
+// --- 5. AGENT ENDPOINT (Safety Switch Update) ---
+
+// 28 turns = ~14 back-and-forth exchanges.
+// Allows for: Intro + 8 MEDDPICC + 3 Probing/Follow-ups + Summary/Next Steps.
+const turnCount = messages.length;
+
+if (turnCount >= 28) { 
+    messages.push({ 
+        role: "user", 
+        content: "We're out of time. Give me the Deal Health Review, top risks, the #1 Strength, and exactly ONE specific next step. Then say goodbye and end the call." 
+    });
+}
     // C. CALL OPENAI (Using gpt-4o-mini for speed)
     const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
@@ -111,6 +137,3 @@ app.post("/agent", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
-
-
-
