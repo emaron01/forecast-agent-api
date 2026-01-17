@@ -10,78 +10,78 @@ app.use(express.json());
 
 // --- 2. SESSION STORAGE (Critical: Must be outside the endpoint) ---
 const sessions = {}; 
-
-console.log("MEDDPICC Agent: Session-Based Memory Active");
+// Helper to fix currency/number pronunciation for Matthew
+const makeFriendlyForMatthew = (text) => {
+  if (!text) return "";
+  return text
+    .replace(/\$/g, " dollars ") 
+    .replace(/%/g, " percent ")
+    // Removes the comma from numbers (e.g., 84,000 becomes 84000) so TTS doesn't say "comma"
+    .replace(/(\d),(\d)/g, "$1$2") 
+    .replace(/\b(\d+)k\b/gi, "$1 thousand");
+};console.log("MEDDPICC Agent: Session-Based Memory Active");
 
 // --- 3. MOCK CRM DATA ---
 const deals = [
   { id: "D-001", account: "GlobalTech Industries", opportunityName: "Server Migration Project", forecastCategory: "Commit" }
 ];
 
-// --- 4. SYSTEM PROMPT (Final Optimized Version) ---
+// --- 4. SYSTEM PROMPT (Final Optimized - Pain First & Lean Turn) ---
 function agentSystemPrompt() {
   return `### ROLE
-You are a supportive, high-level Sales Forecasting Agent. You are skeptical in your analysis but professional and encouraging in your tone. You want the rep to succeed, not feel interrogated.
+You are a supportive, high-level Sales Forecasting Agent (Matthew). 
+You are skeptical in your analysis but professional. You want the rep to succeed, not feel interrogated.
 
 ### CATEGORY SCORING RUBRIC (Internal Logic)
-For each MEDDPICC category, evaluate based on evidence and assign a score:
 - 1 (RISK): Information is missing, vague, or based only on "feelings."
 - 2 (DEVELOPING): Rep has some info, but lacks concrete evidence or access to power.
-- 3 (STRONG): Rep has provided clear, action-based evidence (e.g., "The EB signed off on the budget").
+- 3 (STRONG): Rep has provided clear, action-based evidence.
 
 ### RULES
-- EVIDENCE-BASED GRADING: Do not accept "feelings." Look for concrete actions. If the rep only offers feelings, acknowledge them kindly but score the category a "1."
-- NEUTRALITY CHECK (CHAMPION TEST): Verify if a Champion is a true advocate for OUR solution specifically. If they help all partners equally, they are a RISK (Score 1 or 2).
-- PROBING & SOLID EVIDENCE: 
-  1. If the first answer is "Solid" (contains specific names, dates, metrics, or steps), DO NOT ask a follow-up. Validate it and move to the next letter.
-  2. If the answer is vague, probe deeper ONCE. 
-  3. After that one probe—regardless of the answer—move on to maintain momentum.
-- COACHING LOGIC: For any category scored a 1 or 2, you must identify WHY and provide one specific sentence in the JSON on how to improve that score (e.g., "A coach may feel like a champion; test them by asking for an EB introduction").
-- GAP IDENTIFICATION: If a rep doesn't know an answer, do not grill them. Say: "That's a fair point for this stage, we'll mark that as a 'known unknown' for now."
-- THE MANDATORY 8: You MUST cover: Metrics, Economic Buyer, Decision Criteria, Decision Process, Paper Process, Identify Pain, Champion, and Competition.
-- NO LOOPING: Once the final summary is given, set 'end_of_call' to true and stop the interview immediately.
-
-### WORKFLOW
-1. Greet the rep and start the GlobalTech Industries review.
-2. Sequence: Ask one question for each MEDDPICC letter.
-3. The Exit: After the 8th letter, provide:
-   - Total Deal Score (Sum of all 8 categories, Max 24).
-   - The #1 Risk (be blunt but professional).
-   - The #1 Strength.
-   - ONE CLEAR NEXT STEP.
-   - End with: "Good luck, Erik. Goodbye." and set 'end_of_call' to true.
+- EVIDENCE-BASED GRADING: Do not accept "feelings." If the rep only offers feelings, acknowledge kindly but score a "1" internally.
+- NEUTRALITY CHECK (CHAMPION TEST): Verify if a Champion is a true advocate for OUR solution specifically. If they help all partners equally, they are a RISK.
+- PROBING: If an answer is vague, probe deeper ONCE. After that one probe—regardless of the answer—move on to maintain momentum.
+- SMART SKIPPING: If the user has already answered a category (e.g., they explained the Pain in their greeting), DO NOT ask about it again. Validate it and move to the next letter.
+- FLOW: Start with IDENTIFY PAIN. Then move to Metrics -> Champion -> Economic Buyer -> Decision Criteria -> Decision Process -> Paper Process -> Competition.
+- CONCISE: Keep questions under 20 words. No conversational filler.
 
 ### RESPONSE FORMAT
-Return ONLY JSON:
+Return ONLY JSON.
+If 'end_of_call' is false:
 {
- "next_question": "Your spoken response",
- "category_scores": { "M": 1, "E": 1, "D1": 1, "D2": 1, "P": 1, "I": 1, "C1": 1, "C2": 1 },
- "improvement_tips": { "M": "", "E": "", "D1": "", "D2": "", "P": "", "I": "", "C1": "", "C2": "" },
- "total_score": 8,
- "end_of_call": false
+  "next_question": "Your question here",
+  "end_of_call": false
+}
+
+If 'end_of_call' is true:
+{
+  "next_question": "Review complete.",
+  "total_score": 19,
+  "end_of_call": true,
+  "summary": {
+    "total_deal_score": 19,
+    "number_one_risk": "Identify the biggest gap from the talk.",
+    "one_clear_next_step": "One specific action for the rep.",
+    "closing": "Good luck, Erik. Goodbye."
+  }
 }`;
 }
-// --- 5. AGENT ENDPOINT ---
-app.post("/agent", async (req, res) => {
-  try {
-    const callSid = req.body.CallSid || "test_session";
-    const userSpeech = req.body.SpeechResult || "";
 
 // A. INITIAL GREETING
-    if (!sessions[callSid]) {
-      const introText = "Hi Erik, let's review the Global Tech deal in commit for $84,00 for a migration opportunity. Tell me about the Metrics.";
-      sessions[callSid] = [{ role: "assistant", content: introText }];
+if (!sessions[callSid]) {
+  const introText = "Hi Erik, let's review the Global Tech deal in commit for $84,000. To start, what specific pain or business challenge is driving this migration?";
+  sessions[callSid] = [{ role: "assistant", content: introText }];
 
-      let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
-      twiml += `<Say voice="Polly.Matthew-Neural">${introText}</Say>`;
-      
-      // ONLY ONE GATHER LINE HERE
-twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="auto" speechModel="phone_call" enhanced="true" />`;
-      
-      twiml += `</Response>`;
-      res.type('text/xml');
-      return res.send(twiml);
-    }
+  let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
+// A. INITIAL GREETING - Pronunciation Fix
+twiml += `<Say voice="Polly.Matthew-Neural">${makeFriendlyForMatthew(introText)}</Say>`;  
+  // High-performance Gather with 1s timeout to prevent interruption
+  twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="1" speechModel="phone_call" enhanced="true" />`;
+  
+  twiml += `</Response>`;
+  res.type('text/xml');
+  return res.send(twiml); }
+
 // B. SUBSEQUENT TURNS (AI Processing)
     const messages = sessions[callSid];
     messages.push({ role: "user", content: userSpeech || "(no speech detected)" });
@@ -108,24 +108,22 @@ twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="au
         } 
       }
     );
-    // C. PARSE RESPONSE
+// C. PARSE RESPONSE
     let rawText = response.data.choices[0].message.content.trim();
-    console.log(`[${callSid}] Raw AI Output:`, rawText); // See exactly what the AI said in your logs
-
     rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
     
     let agentResult;
     try {
         agentResult = JSON.parse(rawText);
     } catch (e) {
-        console.error("JSON Parse Error. Raw text was:", rawText);
-        // Fallback so the call doesn't crash
-        agentResult = { 
-            next_question: "I'm sorry, I had a momentary lapse in thought. Could you repeat that?", 
-            total_score: 8, 
-            end_of_call: false 
-        };
-    }    // D. SAVE TO MEMORY
+        console.error("JSON Parse Error", rawText);
+        agentResult = { next_question: "Could you repeat that?", end_of_call: false };
+    }
+
+    // DEBUG: Log speed
+    console.log(`[${callSid}] Turn complete. End of call: ${agentResult.end_of_call}`);
+
+// D. SAVE TO MEMORY
     messages.push({ role: "assistant", content: rawText });
     sessions[callSid] = messages;
 
@@ -139,31 +137,30 @@ twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="au
       if (s && s.total_deal_score) {
         finalSpeech = `Review complete. Your total score is ${s.total_deal_score}. The top risk is ${s.number_one_risk}. Your next step is ${s.one_clear_next_step}. ${s.closing}`;
       } else {
-        finalSpeech = agentResult.next_question || "The review is complete. Good luck, Erik.";
+        const score = agentResult.total_score || "calculated";
+        finalSpeech = `Review complete. Your total score is ${score}. I recommend reviewing your gaps. Good luck, Erik.`;
       }
 
-      twiml += `<Say voice="Polly.Matthew-Neural">${finalSpeech}</Say>`;
+      twiml += `<Say voice="Polly.Matthew-Neural">${makeFriendlyForMatthew(finalSpeech)}</Say>`;
       twiml += `<Hangup />`;
       console.log(`[${callSid}] Summary spoken. Hanging up.`);
     } else {
-      // 1. Matthew speaks the question
-      twiml += `<Say voice="Polly.Matthew-Neural">${agentResult.next_question}</Say>`;
+      const speech = makeFriendlyForMatthew(agentResult.next_question);
+      twiml += `<Say voice="Polly.Matthew-Neural">${speech || "Moving on..."}</Say>`;
 
-      // 2. Matthew listens for your answer - OPTIMIZED
       twiml += `<Gather 
           input="speech" 
           action="/agent" 
           method="POST" 
-          speechTimeout="auto" 
+          speechTimeout="1" 
           speechModel="phone_call" 
           enhanced="true" 
       />`;
     }
 
-    twiml += `</Response>`;
+    twiml += `</Response>`; 
     res.type('text/xml');
-    res.send(twiml);
-
+    res.send(twiml); 
   } catch (error) {
     console.error("AGENT ERROR:", error.message);
     res.type('text/xml');
@@ -173,4 +170,5 @@ twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="au
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
 
