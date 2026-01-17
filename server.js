@@ -83,8 +83,8 @@ app.post("/agent", async (req, res) => {
       sessions[callSid] = [{ role: "assistant", content: introText }];
 
       let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
-      twiml += `<Say voice="Polly.Matthew-Neural">${makeFriendlyForMatthew(introText)}</Say>`;
-      twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="1" speechModel="phone_call" enhanced="true" />`;
+      // Rate="110%" makes him faster/more energetic. // Pitch="-5%" tries to lower the voice (Neural might ignore this). twiml += `<Say voice="Polly.Matthew-Neural"> <prosody rate="110%" pitch="-5%"> ${makeFriendlyForMatthew(introText)} </prosody> </Say>`;
+twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="1" speechModel="phone_call" enhanced="true" />`;
       twiml += `</Response>`;
 
       res.type('text/xml');
@@ -146,8 +146,12 @@ app.post("/agent", async (req, res) => {
     messages.push({ role: "assistant", content: rawText });
     sessions[callSid] = messages;
 
-    // E. RESPOND TO TWILIO
+    // --- E. RESPOND TO TWILIO ---
     let twiml = `<?xml version="1.0" encoding="UTF-8"?><Response>`;
+
+    // Voice Settings: Speed 110%, Pitch -5%
+    const PROSODY = '<prosody rate="110%" pitch="-5%">';
+    const PROSODY_END = '</prosody>';
 
     if (agentResult.end_of_call === true) {
       const s = agentResult.summary;
@@ -160,11 +164,13 @@ app.post("/agent", async (req, res) => {
         finalSpeech = `Review complete. Your total score is ${score}. I recommend reviewing your gaps. Good luck, Erik.`;
       }
 
-      twiml += `<Say voice="Polly.Matthew-Neural">${makeFriendlyForMatthew(finalSpeech)}</Say>`;
+      twiml += `<Say voice="Polly.Matthew-Neural">${PROSODY}${makeFriendlyForMatthew(finalSpeech)}${PROSODY_END}</Say>`;
       twiml += `<Hangup />`;
     } else {
       const speech = makeFriendlyForMatthew(agentResult.next_question);
-      twiml += `<Say voice="Polly.Matthew-Neural">${speech || "Moving on..."}</Say>`;
+      
+      twiml += `<Say voice="Polly.Matthew-Neural">${PROSODY}${speech || "Moving on..."}${PROSODY_END}</Say>`;
+      
       twiml += `<Gather input="speech" action="/agent" method="POST" speechTimeout="1" speechModel="phone_call" enhanced="true" />`;
     }
 
