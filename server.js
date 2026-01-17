@@ -76,25 +76,22 @@ app.post("/agent", async (req, res) => {
       messages.push({ role: "user", content: transcript });
     }
 
-// --- 5. AGENT ENDPOINT (Safety Switch Update) ---
+    // Safety Switch Update: 28 turns = ~14 back-and-forth exchanges.
+    const turnCount = messages.length;
+    if (turnCount >= 28) { 
+        messages.push({ 
+            role: "user", 
+            content: "We're out of time. Give me the Deal Health Review, top risks, the #1 Strength, and exactly ONE specific next step. Then say goodbye and end the call." 
+        });
+    }
 
-// 28 turns = ~14 back-and-forth exchanges.
-// Allows for: Intro + 8 MEDDPICC + 3 Probing/Follow-ups + Summary/Next Steps.
-const turnCount = messages.length;
-
-if (turnCount >= 28) { 
-    messages.push({ 
-        role: "user", 
-        content: "We're out of time. Give me the Deal Health Review, top risks, the #1 Strength, and exactly ONE specific next step. Then say goodbye and end the call." 
-    });
-}
-    // C. CALL OPENAI (Using gpt-4o-mini for speed)
+    // C. CALL OPENAI
     const response = await axios.post(
       process.env.MODEL_API_URL.trim(),
       {
         model: "gpt-4o-mini", 
         messages: [{ role: "system", content: agentSystemPrompt() }, ...messages],
-        max_tokens: 300,
+        max_tokens: 400, // Increased to 400 to ensure summary isn't cut off
         temperature: 0.2
       },
       {
@@ -115,16 +112,27 @@ if (turnCount >= 28) {
     messages.push({ role: "assistant", content: rawText });
     sessions[callSid] = messages;
 
-    // 5. RESPOND TO TWILIO (The "Summary-Ready" Version) console.log(`[${callSid}] Turn: ${messages.length} | Score: ${agentResult.score} | Ending: ${agentResult.end_of_call}`); res.json({ next_question: agentResult.next_question, coaching_tip: agentResult.coaching_tip || "", score: agentResult.score || 0, next_step: agentResult.next_step 
+    // F. RESPOND TO TWILIO
+    console.log(`[${callSid}] Turn: ${messages.length} | Score: ${agentResult.score} | Ending: ${agentResult.end_of_call}`);
+    
+    res.json({
+      next_question: agentResult.next_question,
+      coaching_tip: agentResult.coaching_tip || "",
+      score: agentResult.score || 0,
+      next_step: agentResult.next_step || "", 
+      risk_flags: agentResult.risk_flags || [],
+      end_of_call: agentResult.end_of_call || false
+    });
 
-|| "", // <--- PASTE IT HERE risk_flags: agentResult.risk_flags || [], end_of_call: agentResult.end_of_call || false }); } catch (error) {    console.error("AGENT ERROR:", error.message);
+  } catch (error) {
+    console.error("AGENT ERROR:", error.message);
     res.json({ 
       next_question: "I had a connection glitch. Can you repeat that last part?", 
       end_of_call: false 
     });
-  });
+  }
+});
 
+// --- 6. START SERVER ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
-
-
