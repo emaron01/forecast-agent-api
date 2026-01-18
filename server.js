@@ -38,8 +38,7 @@ RETURN ONLY JSON:
  "end_of_call": false
 }`;
 }
-
-// --- 4. AGENT ENDPOINT (CLAUDE + MATTHEW NEURAL TUNED) ---
+// --- 4. AGENT ENDPOINT (CLAUDE + MATTHEW NEURAL FIXED) ---
 app.post("/agent", async (req, res) => {
   try {
     const callSid = req.body.CallSid || "test_session";
@@ -48,20 +47,24 @@ app.post("/agent", async (req, res) => {
     // IMPORTANT: We must return XML for your Redirect Widget
     res.type('text/xml');
 
-    // Helper to wrap text in the specific voice tags
-    const speak = (text) => `
+    // Helper to format voice (Pitch removed to prevent crash)
+    const speak = (text) => {
+        // Sanitize text to prevent XML errors
+        const safeText = text.replace(/&/g, "and").replace(/</g, "").replace(/>/g, "");
+        return `
         <Say voice="Polly.Matthew-Neural">
-            <prosody rate="115%" pitch="+2%">
-                ${text}
+            <prosody rate="115%">
+                ${safeText}
             </prosody>
         </Say>
-    `;
+        `;
+    };
 
-    // A. INSTANT GREETING (WITH VOICE TUNING)
+    // A. INSTANT GREETING
     if (!sessions[callSid]) {
       console.log(`[SERVER] New Session: ${callSid}`);
       
-      // Initialize History (Empty for Claude, prompt is sent separately)
+      // Initialize History
       sessions[callSid] = [
         { role: "assistant", content: "Hey Erik. Let's review the GlobalTech deal. To start, what metrics are they measuring and do we have a baseline?" }
       ];
@@ -108,7 +111,7 @@ app.post("/agent", async (req, res) => {
       },
       {
         headers: {
-          "x-api-key": process.env.MODEL_API_KEY.trim(), // Ensure this is your sk-ant key
+          "x-api-key": process.env.MODEL_API_KEY.trim(),
           "anthropic-version": "2023-06-01",
           "content-type": "application/json"
         }
@@ -131,7 +134,6 @@ app.post("/agent", async (req, res) => {
             agentResult = { next_question: rawText, end_of_call: false };
         }
     } else {
-        // Fallback if Haiku replies with just text
         agentResult = { next_question: rawText, end_of_call: false };
     }
 
@@ -143,7 +145,6 @@ app.post("/agent", async (req, res) => {
     let twimlResponse = "";
     
     if (agentResult.end_of_call) {
-        // End Call Logic
         let finalSpeech = agentResult.next_question;
         if (finalSpeech.length < 50 && agentResult.coaching_tip) {
              finalSpeech = `${finalSpeech}. Summary: ${agentResult.coaching_tip}`;
@@ -155,7 +156,6 @@ app.post("/agent", async (req, res) => {
           </Response>
         `;
     } else {
-        // Continue Logic
         twimlResponse = `
           <Response>
             <Gather input="speech" action="/agent" method="POST" speechTimeout="1.0" enhanced="false">
