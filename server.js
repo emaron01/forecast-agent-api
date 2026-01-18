@@ -39,26 +39,32 @@ RETURN ONLY JSON:
 }`;
 }
 
-// --- 4. AGENT ENDPOINT (CLAUDE 3 HAIKU VERSION) ---
+// --- 4. AGENT ENDPOINT (CLAUDE + TWIML VERSION) ---
 app.post("/agent", async (req, res) => {
   try {
     const callSid = req.body.CallSid || "test_session";
     const transcript = req.body.transcript || req.body.SpeechResult || "";
+    
+    // IMPORTANT: We must return XML for your Redirect Widget
+    res.type('text/xml');
 
-    // A. INSTANT GREETING (0 Latency Fix)
+    // A. INSTANT GREETING
     if (!sessions[callSid]) {
       console.log(`[SERVER] New Session: ${callSid}`);
       
-      // ANTHROPIC SPECIFIC: We do NOT put the System Prompt in the messages array.
-      // We only start with the Assistant's first greeting in history.
+      // Initialize History (Empty for Claude, prompt is sent separately)
       sessions[callSid] = [
         { role: "assistant", content: "Hey Erik. Let's review the GlobalTech deal. To start, what metrics are they measuring and do we have a baseline?" }
       ];
       
-      return res.json({
-        next_question: "Hey Erik. Let's review the GlobalTech deal. To start, what metrics are they measuring and do we have a baseline?",
-        end_of_call: false
-      });
+      // Return XML Greeting
+      return res.send(`
+        <Response>
+          <Gather input="speech" action="/agent" method="POST" speechTimeout="1.0" enhanced="false">
+             <Say>Hey Erik. Let's review the GlobalTech deal. To start, what metrics are they measuring and do we have a baseline?</Say>
+          </Gather>
+        </Response>
+      `);
     }
 
     // B. HANDLE USER INPUT
@@ -66,7 +72,14 @@ app.post("/agent", async (req, res) => {
     if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     } else {
-      return res.json({ next_question: "I missed that. Say again?", end_of_call: false });
+      // If user stayed silent, ask again
+      return res.send(`
+        <Response>
+          <Gather input="speech" action="/agent" method="POST" speechTimeout="1.0" enhanced="false">
+             <Say>I didn't catch that. Could you say it again?</Say>
+          </Gather>
+        </Response>
+      `);
     }
 
     // C. EMERGENCY SAFETY SWITCH (Turn 30)
@@ -78,10 +91,10 @@ app.post("/agent", async (req, res) => {
     const response = await axios.post(
       "https://api.anthropic.com/v1/messages",
       {
-        model: "claude-3-haiku-20240307", // The Fast Model
-        max_tokens: 150,                   // Keep it snappy
+        model: "claude-3-haiku-20240307", 
+        max_tokens: 150,                   
         temperature: 0,
-        system: agentSystemPrompt(),       // System prompt goes here for Claude
+        system: agentSystemPrompt(),       
         messages: messages
       },
       {
@@ -93,14 +106,10 @@ app.post("/agent", async (req, res) => {
       }
     );
 
-    // E. PARSE ANTHROPIC RESPONSE
-    // Anthropic returns the text in: data.content[0].text
+    // E. PARSE RESPONSE
     let rawText = response.data.content[0].text.trim();
-    
-    // Clean up if Haiku adds markdown code blocks
     rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
     
-    // Extract JSON safely
     let agentResult = {};
     const jsonStart = rawText.indexOf('{');
     const jsonEnd = rawText.lastIndexOf('}');
@@ -110,37 +119,52 @@ app.post("/agent", async (req, res) => {
             agentResult = JSON.parse(rawText.substring(jsonStart, jsonEnd + 1));
         } catch (e) {
             console.error("JSON PARSE ERROR", rawText);
-            agentResult = { next_question: rawText, end_of_call: false, score: 0 };
+            agentResult = { next_question: rawText, end_of_call: false };
         }
     } else {
-        // Fallback if no JSON brackets found
-        agentResult = { next_question: rawText, end_of_call: false, score: 0 };
+        // Fallback if Haiku replies with just text
+        agentResult = { next_question: rawText, end_of_call: false };
     }
 
-    // F. SAVE TO MEMORY
+    // F. SAVE HISTORY
     messages.push({ role: "assistant", content: rawText });
     sessions[callSid] = messages;
 
-    // G. SUMMARY SAFETY CHECK
-    let finalSpeech = agentResult.next_question;
-    if (agentResult.end_of_call && finalSpeech.length < 50 && agentResult.coaching_tip) {
-         finalSpeech = `${finalSpeech}. Here is the summary: ${agentResult.coaching_tip}`;
+    // G. GENERATE TWIML (XML) RESPONSE
+    let twimlResponse = "";
+    
+    if (agentResult.end_of_call) {
+        // End Call Logic
+        let finalSpeech = agentResult.next_question;
+        if (finalSpeech.length < 50 && agentResult.coaching_tip) {
+             finalSpeech = `${finalSpeech}. Summary: ${agentResult.coaching_tip}`;
+        }
+        twimlResponse = `
+          <Response>
+            <Say>${finalSpeech}</Say>
+            <Hangup/>
+          </Response>
+        `;
+    } else {
+        // Continue Logic
+        twimlResponse = `
+          <Response>
+            <Gather input="speech" action="/agent" method="POST" speechTimeout="1.0" enhanced="false">
+               <Say>${agentResult.next_question}</Say>
+            </Gather>
+          </Response>
+        `;
     }
-
-    console.log(`[${callSid}] Turn: ${messages.length} | Score: ${agentResult.score} | Ending: ${agentResult.end_of_call}`);
-
-    res.json({
-      next_question: finalSpeech,
-      score: agentResult.score || 0,
-      end_of_call: agentResult.end_of_call || false
-    });
+    
+    console.log(`[${callSid}] Turn: ${messages.length} | Ending: ${agentResult.end_of_call}`);
+    
+    // Send XML back to Twilio
+    res.send(twimlResponse);
 
   } catch (error) {
     console.error("SERVER ERROR:", error.message);
-    if (error.response) {
-        console.error("Anthropic Data:", error.response.data);
-    }
-    res.json({ next_question: "System error. Try again.", end_of_call: true });
+    if (error.response) console.error("Anthropic Error:", error.response.data);
+    res.type('text/xml').send(`<Response><Say>System error. Please try again.</Say><Hangup/></Response>`);
   }
 });
 
