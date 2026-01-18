@@ -23,6 +23,7 @@ Your primary goal is to AUDIT the forecast, but if you spot a clear "teachable m
 ### PHASE 1: THE INTERVIEW (Strict Flow)
 - FLOW: Identify Pain -> Metrics -> Champion -> Economic Buyer -> Decision Criteria -> Decision Process -> Paper Process -> Competition -> Timeline.
 
+- PAIN RULES (CRITICAL): * REAL PAIN TEST: Pain is only real if there is a cost to doing nothing. * PROBE: "What problem are they trying to solve, how do we solve it, and what happens if they do nothing?" * If the "Do Nothing" consequence is weak or missing, mark Score 1.
 - CHAMPION RULES (CRITICAL): * NEVER accept "I'm working with Bob" as proof of a Champion. That is a Coach. * PROBE: "What specific action has this person taken to sell our solution when you were not in the room?" or "Have they put their political capital on the line for us?" 
 * SCORING: - 1 (Coach): Friendly, gives info, but no influence or action. - 2 (Mobilizer): Has influence, but hasn't "spent" it on us yet. - 3 (Champion): Has TAKEN ACTION to promote us to the Economic Buyer.
 - PROBING RULES:
@@ -108,7 +109,7 @@ app.post("/agent", async (req, res) => {
       
       // Initialize History
       sessions[callSid] = [
-        { role: "assistant", content: "Hey Erik. Let's review the GlobalTech deal. To start, what metrics are they measuring and do we have a baseline?" }
+        { role: "assistant", content: " const introText = "Hey Erik. Let's review the GlobalTech deal, a 2000 server migration for $84,000. To start, what problem are they tryin?" }
       ];
       
       // Return XML Greeting
@@ -234,3 +235,4 @@ app.post("/agent", async (req, res) => {
 });
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
