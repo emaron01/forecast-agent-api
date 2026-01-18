@@ -11,24 +11,7 @@ app.use(express.json());
 // --- 2. SESSION STORAGE ---
 const sessions = {}; 
 
-// Helper to fix currency/number pronunciation for Matthew
-const makeFriendlyForMatthew = (text) => {
-  if (!text) return "";
-  return text
-    .replace(/\$/g, " dollars ") 
-    .replace(/%/g, " percent ")
-    .replace(/(\d),(\d)/g, "$1$2") 
-    .replace(/\b(\d+)k\b/gi, "$1 thousand");
-};
-
-console.log("MEDDPICC Agent: Session-Based Memory Active");
-
-// --- 3. MOCK CRM DATA ---
-const deals = [
-  { id: "D-001", account: "GlobalTech Industries", opportunityName: "Server Migration Project", forecastCategory: "Commit" }
-];
-
-// --- 4. SYSTEM PROMPT (SMART MEDDPICC PROCESS) ---
+// --- 3. SYSTEM PROMPT (SMART MEDDPICC PROCESS) ---
 function agentSystemPrompt() {
   return `You are a firm, expert VP of Sales (Matthew).
 
@@ -56,7 +39,7 @@ RETURN ONLY JSON:
 }`;
 }
 
-// --- 5. AGENT ENDPOINT (SMART MEDDPICC VERSION) ---
+// --- 4. AGENT ENDPOINT (CLAUDE 3 HAIKU VERSION) ---
 app.post("/agent", async (req, res) => {
   try {
     const callSid = req.body.CallSid || "test_session";
@@ -65,10 +48,13 @@ app.post("/agent", async (req, res) => {
     // A. INSTANT GREETING (0 Latency Fix)
     if (!sessions[callSid]) {
       console.log(`[SERVER] New Session: ${callSid}`);
+      
+      // ANTHROPIC SPECIFIC: We do NOT put the System Prompt in the messages array.
+      // We only start with the Assistant's first greeting in history.
       sessions[callSid] = [
-        { role: "system", content: agentSystemPrompt() },
         { role: "assistant", content: "Hey Erik. Let's review the GlobalTech deal. To start, what metrics are they measuring and do we have a baseline?" }
       ];
+      
       return res.json({
         next_question: "Hey Erik. Let's review the GlobalTech deal. To start, what metrics are they measuring and do we have a baseline?",
         end_of_call: false
@@ -88,22 +74,54 @@ app.post("/agent", async (req, res) => {
        messages.push({ role: "user", content: "Out of time. Give me the verbal summary and score, then say Goodbye." });
     }
 
-    // D. CALL OPENAI (Pro Settings: Fast & Strict)
-    const response = await axios.post(process.env.MODEL_API_URL.trim(), {
-        model: "gpt-4o-mini",
-        messages: messages,
-        max_tokens: 150,
+    // D. CALL ANTHROPIC API (HAIKU)
+    const response = await axios.post(
+      "https://api.anthropic.com/v1/messages",
+      {
+        model: "claude-3-haiku-20240307", // The Fast Model
+        max_tokens: 150,                   // Keep it snappy
         temperature: 0,
-        stream: false
-    }, { headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.MODEL_API_KEY.trim()}` } });
+        system: agentSystemPrompt(),       // System prompt goes here for Claude
+        messages: messages
+      },
+      {
+        headers: {
+          "x-api-key": process.env.MODEL_API_KEY.trim(), // Ensure this is your sk-ant key
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json"
+        }
+      }
+    );
 
-    // E. PARSE & SAVE TO MEMORY
-    let rawText = response.data.choices[0].message.content.trim().replace(/```json/g, "").replace(/```/g, "").trim();
-    let agentResult = JSON.parse(rawText);
+    // E. PARSE ANTHROPIC RESPONSE
+    // Anthropic returns the text in: data.content[0].text
+    let rawText = response.data.content[0].text.trim();
+    
+    // Clean up if Haiku adds markdown code blocks
+    rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
+    
+    // Extract JSON safely
+    let agentResult = {};
+    const jsonStart = rawText.indexOf('{');
+    const jsonEnd = rawText.lastIndexOf('}');
+    
+    if (jsonStart !== -1 && jsonEnd !== -1) {
+        try {
+            agentResult = JSON.parse(rawText.substring(jsonStart, jsonEnd + 1));
+        } catch (e) {
+            console.error("JSON PARSE ERROR", rawText);
+            agentResult = { next_question: rawText, end_of_call: false, score: 0 };
+        }
+    } else {
+        // Fallback if no JSON brackets found
+        agentResult = { next_question: rawText, end_of_call: false, score: 0 };
+    }
+
+    // F. SAVE TO MEMORY
     messages.push({ role: "assistant", content: rawText });
     sessions[callSid] = messages;
 
-    // F. SUMMARY SAFETY CHECK
+    // G. SUMMARY SAFETY CHECK
     let finalSpeech = agentResult.next_question;
     if (agentResult.end_of_call && finalSpeech.length < 50 && agentResult.coaching_tip) {
          finalSpeech = `${finalSpeech}. Here is the summary: ${agentResult.coaching_tip}`;
@@ -119,6 +137,13 @@ app.post("/agent", async (req, res) => {
 
   } catch (error) {
     console.error("SERVER ERROR:", error.message);
+    if (error.response) {
+        console.error("Anthropic Data:", error.response.data);
+    }
     res.json({ next_question: "System error. Try again.", end_of_call: true });
   }
 });
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
