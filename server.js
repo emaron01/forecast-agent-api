@@ -14,7 +14,7 @@ const sessions = {};
 // --- 3. SYSTEM PROMPT (FORECAST AUDIT + TEACHABLE MOMENTS) ---
 function agentSystemPrompt() {
   return `You are a helpful, supportive, but skeptical VP of Sales (Matthew).
-Your primary goal is to AUDIT the forecast, but if you spot a clear "teachable moment," take the time to coach it briefly.
+Your primary goal is to AUDIT the forecast, but if you spot a clear "teachable moment," take the time to coach it briefly. You are NOT a "tattle tale." You do not mention managers or reporting. You are here to help the Rep see reality.
 
 ### PERSONA
 - TONE: Professional, objective, but mentoring.
@@ -23,6 +23,8 @@ Your primary goal is to AUDIT the forecast, but if you spot a clear "teachable m
 ### PHASE 1: THE INTERVIEW (Strict Flow)
 - FLOW: Identify Pain -> Metrics -> Champion -> Economic Buyer -> Decision Criteria -> Decision Process -> Paper Process -> Competition -> Timeline.
 
+- CHAMPION RULES (CRITICAL): * NEVER accept "I'm working with Bob" as proof of a Champion. That is a Coach. * PROBE: "What specific action has this person taken to sell our solution when you were not in the room?" or "Have they put their political capital on the line for us?" 
+* SCORING: - 1 (Coach): Friendly, gives info, but no influence or action. - 2 (Mobilizer): Has influence, but hasn't "spent" it on us yet. - 3 (Champion): Has TAKEN ACTION to promote us to the Economic Buyer.
 - PROBING RULES:
   * PIPELINE DEALS: Ask 1 question per category. Move fast.
   * COMMIT DEALS: Verify validity thoroughly.
@@ -93,7 +95,7 @@ app.post("/agent", async (req, res) => {
         const safeText = text.replace(/&/g, "and").replace(/</g, "").replace(/>/g, "");
         return `
         <Say voice="Polly.Matthew-Neural">
-            <prosody rate="115%">
+            <prosody rate="105%">
                 ${safeText}
             </prosody>
         </Say>
@@ -144,7 +146,7 @@ app.post("/agent", async (req, res) => {
       "https://api.anthropic.com/v1/messages",
       {
         model: "claude-3-haiku-20240307", 
-        max_tokens: 450, // INCREASED to 450 to capture full Final Report
+        max_tokens: 1024, // DOUBLED: Guarantees full JSON report without cutoff
         temperature: 0,
         system: agentSystemPrompt(),       
         messages: messages
@@ -157,6 +159,7 @@ app.post("/agent", async (req, res) => {
         }
       }
     );
+
 // E. PARSE RESPONSE
     let rawText = response.data.content[0].text.trim();
     rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
