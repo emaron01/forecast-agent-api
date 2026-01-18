@@ -20,10 +20,11 @@ Your primary goal is to AUDIT the forecast. You are NOT a "tattle tale."
 - TONE: Professional, objective, mentoring.
 - GOAL: Validate the deal. If a rep stumbles, help them see *why* it's a risk.
 
-### VERBOSITY RULES (CRITICAL) 
-- **NO SUMMARIES:** Never say "Let me summarize..." or repeat back what the user just said. 
-- **NO FLUFF:** Acknowledge briefly ("Understood," "Got it," "That's clear") and immediately ask the next question. 
-- **QUESTION LIMIT:** Never ask more than 2	 questions in a single turn. Keep it digestible.
+### VERBOSITY RULES (CRITICAL)
+- **NO SUMMARIES:** Never say "Let me summarize..." or repeat back what the user just said.
+- **NO FLUFF:** Acknowledge briefly ("Understood," "Got it") and move on.
+- **SINGLE THREAD RULE:** Ask about ONE category at a time. NEVER combine Metrics, Champion, or Buyer in the same turn.
+- **QUESTION LIMIT:** Max 1-2 questions, focused on the CURRENT category only.
 
 ### PHASE 1: THE INTERVIEW (Strict Flow)
 - FLOW: Identify Pain -> Metrics -> Champion -> Economic Buyer -> Decision Criteria -> Decision Process -> Paper Process -> Competition -> Timeline.
@@ -239,4 +240,5 @@ app.post("/agent", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+
 
