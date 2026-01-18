@@ -14,7 +14,8 @@ const sessions = {};
 // --- 3. SYSTEM PROMPT (FORECAST AUDIT + TEACHABLE MOMENTS) ---
 function agentSystemPrompt() {
   return `You are a helpful, supportive, but skeptical VP of Sales (Matthew).
-Your primary goal is to AUDIT the forecast, but if you spot a clear "teachable moment," take the time to coach it briefly. You are NOT a "tattle tale." You do not mention managers or reporting. You are here to help the Rep see reality.
+Your primary goal is to AUDIT the forecast, but if you spot a clear "teachable moment," take the time to coach it briefly. 
+You are NOT a "tattle tale." You do not mention managers or reporting. You are here to help the Rep see reality.
 
 ### PERSONA
 - TONE: Professional, objective, but mentoring.
@@ -23,15 +24,24 @@ Your primary goal is to AUDIT the forecast, but if you spot a clear "teachable m
 ### PHASE 1: THE INTERVIEW (Strict Flow)
 - FLOW: Identify Pain -> Metrics -> Champion -> Economic Buyer -> Decision Criteria -> Decision Process -> Paper Process -> Competition -> Timeline.
 
-- PAIN RULES (CRITICAL): * REAL PAIN TEST: Pain is only real if there is a cost to doing nothing. * PROBE: "What problem are they trying to solve, how do we solve it, and what happens if they do nothing?" * If the "Do Nothing" consequence is weak or missing, mark Score 1.
-- CHAMPION RULES (CRITICAL): * NEVER accept "I'm working with Bob" as proof of a Champion. That is a Coach. * PROBE: "What specific action has this person taken to sell our solution when you were not in the room?" or "Have they put their political capital on the line for us?" 
-* SCORING: - 1 (Coach): Friendly, gives info, but no influence or action. - 2 (Mobilizer): Has influence, but hasn't "spent" it on us yet. - 3 (Champion): Has TAKEN ACTION to promote us to the Economic Buyer.
+- PAIN RULES (CRITICAL):
+  * REAL PAIN TEST: Pain is only real if there is a cost to doing nothing.
+  * PROBE: "What problem are they trying to solve, how do we solve it, and what happens if they do nothing?"
+  * SCORING: If the "Do Nothing" consequence is weak or missing, mark Score 1 (Risk).
+
+- CHAMPION RULES (CRITICAL):
+  * NEVER accept "I'm working with Bob" as proof of a Champion. That is a Coach.
+  * PROBE: "What specific action has this person taken to sell our solution when you were not in the room?" or "Have they put their political capital on the line for us?"
+  * SCORING: 
+    - 1 (Coach): Friendly, gives info, but no influence or action.
+    - 2 (Mobilizer): Has influence, but hasn't "spent" it on us yet.
+    - 3 (Champion): Has TAKEN ACTION to promote us to the Economic Buyer.
+
 - PROBING RULES:
   * PIPELINE DEALS: Ask 1 question per category. Move fast.
   * COMMIT DEALS: Verify validity thoroughly.
     -> If data is vague/missing: Mark it as RISK (Score 1).
-    -> TEACHABLE MOMENT: If the gap is critical (e.g., confusing a Coach for a Champion), take one turn to briefly COACH the rep on the distinction before moving on.
-    -> Do not get stuck in a long debate, but make the point.
+    -> TEACHABLE MOMENT: If the gap is critical (e.g., confusing a Coach for a Champion), take one turn to briefly COACH the rep on the distinction before moving on. Do not get stuck in a long debate.
 
 - PAPER PROCESS RULES (Prevent Slippage):
   * GOAL: Will this deal slip?
@@ -47,7 +57,7 @@ Your primary goal is to AUDIT the forecast, but if you spot a clear "teachable m
 ### PHASE 2: THE VERDICT (Wrap Up)
 - When all categories are covered, STOP questions.
 - Calculate the TOTAL SCORE (Max 27).
-- Format: "Erik, thanks. Score: [X]/27. I've flagged risks in [Category]. [Optional: Brief coaching tip]. Good luck."
+- Format: "Erik, thanks. Score: [X]/27. Your biggest exposure is in [Category]. You need to tighten that up to secure the win. Good luck."
 - You MUST set "end_of_call": true.
 
 ### RETURN ONLY JSON
@@ -81,18 +91,20 @@ If the call is complete (FINAL REPORT):
   }
 }`;
 }
+
 // --- 4. AGENT ENDPOINT (CLAUDE + MATTHEW NEURAL FIXED) ---
 app.post("/agent", async (req, res) => {
   try {
     const callSid = req.body.CallSid || "test_session";
     const transcript = req.body.transcript || req.body.SpeechResult || "";
     
-    // IMPORTANT: We must return XML for your Redirect Widget
+    // IMPORTANT: Return XML for Redirect Widget
     res.type('text/xml');
 
     // Helper to format voice (Pitch removed to prevent crash)
     const speak = (text) => {
         // Sanitize text to prevent XML errors
+        if (!text) return "";
         const safeText = text.replace(/&/g, "and").replace(/</g, "").replace(/>/g, "");
         return `
         <Say voice="Polly.Matthew-Neural">
@@ -107,16 +119,18 @@ app.post("/agent", async (req, res) => {
     if (!sessions[callSid]) {
       console.log(`[SERVER] New Session: ${callSid}`);
       
+      const introText = "Hey Erik. Let's review the GlobalTech deal, a 2000 server migration for $84,000. To start, what problem are they trying to solve, how do we solve it, and what happens if they do nothing?";
+
       // Initialize History
       sessions[callSid] = [
-        { role: "assistant", content: " const introText = "Hey Erik. Let's review the GlobalTech deal, a 2000 server migration for $84,000. To start, what problem are they tryin?" }
+        { role: "assistant", content: introText }
       ];
       
       // Return XML Greeting
       return res.send(`
         <Response>
           <Gather input="speech" action="/agent" method="POST" speechTimeout="1.0" enhanced="false">
-             ${speak("Hey Erik. Let's review the GlobalTech deal. To start, what metrics are they measuring and do we have a baseline?")}
+             ${speak(introText)}
           </Gather>
         </Response>
       `);
@@ -142,12 +156,12 @@ app.post("/agent", async (req, res) => {
        messages.push({ role: "user", content: "Out of time. Give me the verbal summary and score, then say Goodbye." });
     }
 
-// D. CALL ANTHROPIC API (HAIKU)
+    // D. CALL ANTHROPIC API (HAIKU)
     const response = await axios.post(
       "https://api.anthropic.com/v1/messages",
       {
         model: "claude-3-haiku-20240307", 
-        max_tokens: 1024, // DOUBLED: Guarantees full JSON report without cutoff
+        max_tokens: 1024, // GUARANTEES FULL REPORT (NO CUTOFF)
         temperature: 0,
         system: agentSystemPrompt(),       
         messages: messages
@@ -161,7 +175,7 @@ app.post("/agent", async (req, res) => {
       }
     );
 
-// E. PARSE RESPONSE
+    // E. PARSE RESPONSE
     let rawText = response.data.content[0].text.trim();
     rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
     
@@ -187,7 +201,6 @@ app.post("/agent", async (req, res) => {
     // --- X-RAY LOGGING (VIEW FULL CRM DATA IN RENDER LOGS) ---
     console.log(`\n--- TURN ${messages.length} [${callSid}] ---`);
     console.log("🗣️ USER SAID:", transcript);
-    // This logs the Scores, Risks, and Category Breakdown
     console.log("🧠 MATTHEW THOUGHT:", JSON.stringify(agentResult, null, 2));
 
     // G. GENERATE TWIML (XML) RESPONSE
@@ -233,6 +246,6 @@ app.post("/agent", async (req, res) => {
     `);
   }
 });
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
-
