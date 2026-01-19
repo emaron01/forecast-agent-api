@@ -64,7 +64,7 @@ const speak = (text) => {
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${safeText}</prosody></Say>`;
 };
 
-// --- 3. SYSTEM PROMPT (THE COMPLETE BRAIN) ---
+// --- 3. SYSTEM PROMPT (THE CONTEXT-FIRST AUDITOR) ---
 function agentSystemPrompt(deal, ageInDays, daysToClose) {
   const avgSize = deal?.seller_avg_deal_size || 10000;
   const productContext = deal?.seller_product_rules || "You are a generic sales coach.";
@@ -72,13 +72,13 @@ function agentSystemPrompt(deal, ageInDays, daysToClose) {
   // HISTORY LOGIC
   const isNewDeal = deal.initial_score == null;
   const historyContext = !isNewDeal 
-    ? `PREVIOUS SCORE: ${deal.current_score}/27. GAPS: "${deal.last_summary}". PENDING: "${deal.next_steps}".`
+    ? `PREVIOUS SCORE: ${deal.current_score}/27. PREVIOUS SUMMARY: "${deal.last_summary}". PENDING ACTION: "${deal.next_steps}".`
     : "NO HISTORY. Fresh qualification.";
 
   // MODE SWITCHING
   const goalInstruction = isNewDeal
     ? "**GOAL:** NEW DEAL. Audit all 9 points."
-    : "**GOAL:** GAP REVIEW. Focus ONLY on risks from History.";
+    : "**GOAL:** GAP REVIEW. Focus ONLY on the Gaps/Risks from History. Assume other areas are valid.";
 
   let timeContext = "Timeline is healthy.";
   if (daysToClose < 0) timeContext = "WARNING: Deal is past due date in CRM.";
@@ -99,7 +99,7 @@ ${productContext}
 - **HISTORY:** ${historyContext}
 
 ### RULES OF ENGAGEMENT (STRICT)
-1. **RECAP STRATEGY (PAIN ONLY):** - **IF** user just explained Pain/Solution: Summarize it briefly to show empathy (e.g. "So they lose $500k. Got it.").
+1. **RECAP STRATEGY (PAIN ONLY):** - **IF** user just explained Pain/Solution: Summarize it briefly (e.g. "So they lose $500k. Got it.").
    - **ALL OTHER QUESTIONS:** Do NOT summarize. Just ask the next question immediately.
 2. **NO LISTS:** Do NOT use numbered lists. Speak in full, conversational sentences.
 3. **GAP REPORTER:** Only summarize if there is a **GAP** (Missing info). 
@@ -147,7 +147,7 @@ ${productContext}
 OR (If finished):
 {
   "end_of_call": true,
-  "next_question": "Review complete. I scored this deal a 18 out of 27. I deducted points because we lack a verified Economic Buyer. Moving to next deal...",
+  "next_question": "Understood. Given those gaps, here is my verdict: I scored this deal a 18 out of 27. I deducted points because we lack a verified Economic Buyer. Moving to next deal...",
   "final_report": {
       "score": 18, 
       "summary": "Deal has strong technical fit but is risky due to unverified Economic Buyer.",
@@ -179,7 +179,7 @@ app.post("/agent", async (req, res) => {
     const ageInDays = Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24));
     const daysToClose = Math.floor((closeDate - new Date()) / (1000 * 60 * 60 * 24));
 
-    // A. INSTANT GREETING (CONTEXT AWARE)
+    // A. INSTANT GREETING (CONTEXT FIRST)
     if (!sessions[callSid]) {
         console.log(`[SERVER] New Session: ${callSid}`);
         const fullName = deal.rep_name || "Sales Rep";
@@ -195,11 +195,17 @@ app.post("/agent", async (req, res) => {
         let openingQuestion = "";
 
         if (isNewDeal) {
+            // Scenario 1: New Deal
             openingQuestion = "This is our first review for this deal. To start, what is the specific solution we are selling, and what problem does it solve?";
         } else {
-            openingQuestion = `We scored this a ${deal.current_score} out of 27 last time. The pending step was to ${deal.next_steps}. What is the latest update on that?`;
+            // Scenario 2: Gap Review (Context First)
+            const summary = deal.last_summary || "we identified some risks";
+            const lastStep = deal.next_steps || "advance the deal";
+            // "Last time we noted: [Summary]. The pending step was [Step]. Update?"
+            openingQuestion = `Last time, we noted: ${summary}. The pending action was to ${lastStep}. What is the latest update on that?`;
         }
 
+        // Standard Context Preamble + The Specific Question
         const finalGreeting = `Hi ${firstName}, this is Matthew from Sales Forecaster. Let's look at ${account}, ${oppName}, in ${stage} for ${amountSpeech}, closing ${closeDateSpeech}. ${openingQuestion}`;
 
         sessions[callSid] = [{ role: "assistant", content: finalGreeting }];
@@ -284,7 +290,6 @@ app.post("/agent", async (req, res) => {
                 </Response>
              `);
         } else {
-             // FALLBACK
              finalSpeech += " That was the last deal in your forecast. Good luck.";
              return res.send(`<Response>${speak(finalSpeech)}<Hangup/></Response>`);
         }
