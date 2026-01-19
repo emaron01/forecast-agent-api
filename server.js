@@ -30,12 +30,10 @@ async function incrementRunCount(oppId) {
     }
 }
 
-// --- ANALYTICS ENGINE (Restored) ---
+// --- ANALYTICS ENGINE ---
 async function saveCallResults(oppId, report) {
     try {
         const { score, summary, next_steps } = report;
-        
-        // LOGIC: Preserves "Initial Score" for history, updates "Current Score" for now.
         const query = `
             UPDATE opportunities 
             SET 
@@ -45,7 +43,6 @@ async function saveCallResults(oppId, report) {
                 next_steps = $3
             WHERE id = $4
         `;
-        
         await pool.query(query, [score, summary, next_steps, oppId]);
         console.log(`💾 Analytics Saved for Deal ${oppId}: Score ${score}/27`);
     } catch (err) {
@@ -56,14 +53,17 @@ async function saveCallResults(oppId, report) {
 // --- HELPER: SPEAK ---
 const speak = (text) => {
     if (!text) return "";
-    const safeText = text.replace(/&/g, "and").replace(/</g, "").replace(/>/g, "");
+    // Remove Markdown bullets that sound robotic
+    const safeText = text.replace(/&/g, "and")
+                         .replace(/</g, "")
+                         .replace(/>/g, "")
+                         .replace(/\*\*/g, "") // Remove bolding stars
+                         .replace(/^\s*[-*]\s+/gm, ""); // Remove list bullets
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${safeText}</prosody></Say>`;
 };
 
-// --- 3. SYSTEM PROMPT (THE MASTER AUDITOR) ---
+// --- 3. SYSTEM PROMPT (THE INTERNAL CONTRACTOR) ---
 function agentSystemPrompt(deal, ageInDays, daysToClose) {
-  // Database Mapping: Matches your schema (avg_sales_cycle)
-  const avgCycle = deal?.avg_sales_cycle || 90;
   const avgSize = deal?.seller_avg_deal_size || 10000;
   const productContext = deal?.seller_product_rules || "You are a generic sales coach.";
   
@@ -71,29 +71,25 @@ function agentSystemPrompt(deal, ageInDays, daysToClose) {
   if (daysToClose < 0) timeContext = "WARNING: Deal is past due date in CRM.";
   else if (daysToClose < 30) timeContext = "CRITICAL: CRM says deal closes in less than 30 days.";
 
-  return `You are "Matthew," a VP of Sales. 
+  return `You are "Matthew," a VP of Sales at Sales Forecaster.
 **JOB:** Qualify the deal HARD using MEDDPICC.
 **GOAL:** Do NOT move to the next checklist item until the current one is FULLY VALIDATED.
 
-### INTERNAL TRUTHS (PRODUCT KNOWLEDGE)
+### INTERNAL TRUTHS (Product Knowledge)
 ${productContext}
 
 ### LIVE DEAL CONTEXT
 - Prospect: ${deal?.account_name}
 - Value: $${deal?.amount} (Avg: $${avgSize})
 - Age: ${ageInDays} days
-- CRM Close Date (PO Date): ${daysToClose} days from now (${timeContext})
+- CRM Close Date: ${daysToClose} days from now (${timeContext})
 
 ### RULES OF ENGAGEMENT (STRICT)
-1. **ONE QUESTION RULE:** Ask for one missing piece of evidence at a time.
-2. **THE "WHY" RULE:** If the user admits they don't know something, explain the risk before moving on.
-   - *Example:* "That's a major risk. Without a Champion, we have no one to defend us when Procurement pushes back. Let's flag that."
-3. **PAIN RULES:** Pain is only real if there is a **cost to doing nothing**. Probe: "What happens if they do nothing?"
-4. **CHAMPION RULES:** - *1 (Coach):* Friendly, shares info, but no power.
-   - *2 (Mobilizer):* Has influence, but hasn't acted yet.
-   - *3 (Champion):* Actively sells for us when we aren't there.
-5. **STALLING / HESITATION:** - If user says "um", "uh", or pauses: **DO NOT SKIP.**
-   - Response: "Take your time. Do you actually have visibility into this?"
+1. **IDENTITY RULE:** You are an internal auditor. Always refer to the product as "**our solution**" or "**our platform**". Never say "your solution".
+2. **NO ROBOTIC LISTS:** Speak naturally. **NEVER use bullet points** in your output. Max 2 sentences at a time.
+3. **ONE QUESTION RULE:** Ask for one missing piece of evidence at a time.
+4. **THE "WHY" RULE:** If the user admits they don't know something, explain the risk before moving on.
+5. **PAIN RULES:** Pain is only real if there is a **cost to doing nothing**.
 6. **PRODUCT POLICE:** If they claim a fake feature (checking Internal Truths), correct them immediately.
 
 ### SCORING RUBRIC (0-3 Scale)
@@ -116,14 +112,13 @@ ${productContext}
 ### PHASE 2: THE VERDICT (FINAL REPORT)
 - **TRIGGER:** Only after Paper Process is discussed.
 - **OUTPUT:** You MUST return a "final_report" object inside the JSON.
-- **SCORING:** Calculate the SUM of the 9 categories above (Max Score = 27). 
-   - *Note: If a category was skipped or unknown, Score = 0.*
+- **SCORING:** Calculate the SUM of the 9 categories (0-3 scale, Max 27).
 - **SUMMARY:** 2 sentences on the state of the deal.
 - **NEXT STEPS:** The 1 most critical action item.
 
 ### RETURN ONLY JSON
 { 
-  "next_question": "Your response here.", 
+  "next_question": "Your short conversational response here.", 
   "end_of_call": false 
 }
 OR (If finished):
@@ -137,7 +132,7 @@ OR (If finished):
   }
 }
 
-**FORMATTING:** Output valid, single-line JSON only.`;
+**FORMATTING:** Output valid, single-line JSON only. NO BULLET POINTS.`;
 }
 
 // --- 4. AGENT ENDPOINT ---
@@ -152,26 +147,21 @@ app.post("/agent", async (req, res) => {
         await incrementRunCount(currentOppId);
     }
 
-    // 2. Fetch Deal Data
     const dbResult = await pool.query('SELECT * FROM opportunities WHERE id = $1', [currentOppId]);
     const deal = dbResult.rows[0];
 
-    // Dates & Logic
     const now = new Date();
     const createdDate = new Date(deal.opp_created_date);
     const closeDate = deal.close_date ? new Date(deal.close_date) : new Date(now.setDate(now.getDate() + 30)); 
     const ageInDays = Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24));
     const daysToClose = Math.floor((closeDate - new Date()) / (1000 * 60 * 60 * 24));
 
-    // A. INSTANT GREETING (HIGH CONTEXT RESTORED)
+    // A. INSTANT GREETING (HIGH CONTEXT)
     if (!sessions[callSid]) {
         console.log(`[SERVER] New Session: ${callSid}`);
         
-        // 1. Personalization
         const fullName = deal.rep_name || "Sales Rep";
         const firstName = fullName.split(' ')[0];
-
-        // 2. Deal Details (Restored Opportunity Name & Stage)
         const account = deal.account_name || "Unknown Account";
         const oppName = deal.opportunity_name || "the deal";
         const stage = deal.deal_stage || "Open";
@@ -180,12 +170,11 @@ app.post("/agent", async (req, res) => {
         const dateOptions = { month: 'long', day: 'numeric', year: 'numeric' };
         const closeDateSpeech = closeDate.toLocaleDateString('en-US', dateOptions);
 
-        // 3. THE GREETING SCRIPT
+        // THE GREETING: Hardcoded "Sales Forecaster" + High Context Data
         const finalGreeting = `Hi ${firstName}, this is Matthew from Sales Forecaster. Let's jump into your forecast by discussing ${account}, ${oppName}, in ${stage} for ${amountSpeech}, with a close date of ${closeDateSpeech}. To start, what is the specific solution we are selling, and what problem does it solve?`;
 
         sessions[callSid] = [{ role: "assistant", content: finalGreeting }];
         
-        // Timeout set to 2.5s to prevent interruptions
         return res.send(`
             <Response>
                 <Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="2.5" enhanced="false">
@@ -195,7 +184,7 @@ app.post("/agent", async (req, res) => {
         `);
     }
 
-    // B. HANDLE USER INPUT
+    // B. HANDLE INPUT
     let messages = sessions[callSid];
     if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
@@ -209,7 +198,7 @@ app.post("/agent", async (req, res) => {
       `);
     }
 
-    // C. CALL AI
+    // C. AI CALL
     const response = await axios.post(
       "https://api.anthropic.com/v1/messages",
       {
@@ -244,24 +233,21 @@ app.post("/agent", async (req, res) => {
     console.log("🗣️ USER:", transcript);
     console.log("🧠 MATTHEW:", agentResult.next_question);
 
-    // --- E. END OF CALL & SAVE ANALYTICS ---
+    // E. OUTPUT
     if (agentResult.end_of_call) {
         let finalSpeech = agentResult.next_question;
         
-        // 1. SAVE THE DATA
         if (agentResult.final_report) {
             console.log("📊 Saving Final Report...", agentResult.final_report);
             await saveCallResults(currentOppId, agentResult.final_report);
         }
 
-        // 2. FIND NEXT DEAL (Loop Logic Restored)
         const nextDealResult = await pool.query('SELECT id, account_name FROM opportunities WHERE id > $1 ORDER BY id ASC LIMIT 1', [currentOppId]);
         
         if (nextDealResult.rows.length > 0) {
              const nextOpp = nextDealResult.rows[0];
              const transitionSpeech = `${finalSpeech} Moving on to the next deal: ${nextOpp.account_name}. Stand by.`;
              delete sessions[callSid]; 
-
              return res.send(`
                 <Response>
                     ${speak(transitionSpeech)}
@@ -272,7 +258,6 @@ app.post("/agent", async (req, res) => {
              finalSpeech += " That was the last deal in your forecast. Good luck.";
              return res.send(`<Response>${speak(finalSpeech)}<Hangup/></Response>`);
         }
-
     } else {
         return res.send(`
             <Response>
