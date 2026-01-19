@@ -53,7 +53,6 @@ async function saveCallResults(oppId, report) {
 // --- HELPER: SPEAK ---
 const speak = (text) => {
     if (!text) return "";
-    // Remove Markdown bullets/bolding that sound robotic
     const safeText = text.replace(/&/g, "and")
                          .replace(/</g, "")
                          .replace(/>/g, "")
@@ -62,20 +61,31 @@ const speak = (text) => {
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${safeText}</prosody></Say>`;
 };
 
-// --- 3. SYSTEM PROMPT (THE COMPLETE AUDITOR) ---
+// --- 3. SYSTEM PROMPT (THE CONTEXT-AWARE AUDITOR) ---
 function agentSystemPrompt(deal, ageInDays, daysToClose) {
   const avgSize = deal?.seller_avg_deal_size || 10000;
   const productContext = deal?.seller_product_rules || "You are a generic sales coach.";
   
+  // LOGIC: If initial_score is NULL, this is a NEW deal. Otherwise, it's an UPDATE.
+  const isNewDeal = deal.initial_score == null;
+  const historyContext = !isNewDeal 
+    ? `PREVIOUS SCORE: ${deal.current_score}/27. PREVIOUS GAPS: "${deal.last_summary}". PENDING ACTION: "${deal.next_steps}".`
+    : "NO HISTORY. This is a fresh qualification.";
+
+  // MODE SWITCHING INSTRUCTION
+  const goalInstruction = isNewDeal
+    ? "**GOAL:** This is a NEW DEAL. Perform a FULL AUDIT of all 9 categories from scratch."
+    : "**GOAL:** This is a GAP REVIEW. Do NOT re-qualify strong areas. Focus ONLY on the risks/gaps identified in the History.";
+
   let timeContext = "Timeline is healthy.";
   if (daysToClose < 0) timeContext = "WARNING: Deal is past due date in CRM.";
   else if (daysToClose < 30) timeContext = "CRITICAL: CRM says deal closes in less than 30 days.";
 
   return `You are "Matthew," a VP of Sales at Sales Forecaster.
-**JOB:** Qualify the deal HARD using MEDDPICC.
-**GOAL:** Validate the deal quickly. Don't waste time chatting.
+**JOB:** Qualify the deal using MEDDPICC.
+${goalInstruction}
 
-### INTERNAL TRUTHS (Product Knowledge)
+### INTERNAL TRUTHS
 ${productContext}
 
 ### LIVE DEAL CONTEXT
@@ -83,16 +93,16 @@ ${productContext}
 - Value: $${deal?.amount} (Avg: $${avgSize})
 - Age: ${ageInDays} days
 - CRM Close Date: ${daysToClose} days from now (${timeContext})
+- **HISTORY:** ${historyContext}
 
-### RULES OF ENGAGEMENT (STRICT)
-1. **NO RECAPS:** Do NOT summarize what the user just said. Just ask the next question.
-2. **GAP REPORTER:** Only summarize if there is a **GAP** (Missing info). 
-3. **SKEPTICISM:** If they give a vague answer (e.g., "The CIO"), CHALLENGE IT. "Have you met them? Do they know the price?"
-4. **IDENTITY:** Use "our solution." You are on the same team.
-5. **STALLING:** If user says "um", "uh", or pauses, say: "Take your time. Do you actually have visibility into this?"
-6. **CHAMPION RULES:** - *1 (Coach):* Friendly, shares info, but no power.
-   - *2 (Mobilizer):* Has influence, but hasn't acted yet.
-   - *3 (Champion):* Actively sells for us when we aren't there.
+### RULES OF ENGAGEMENT
+1. **MODE BEHAVIOR:** - If NEW DEAL: Ask about Pain, Metric, Champion, etc. in order.
+   - If GAP REVIEW: Start by asking about the "Pending Action" from history. If a category wasn't listed as a risk last time, assume it is a Score 3 (Validated) and skip it.
+2. **NO RECAPS:** Do NOT summarize what the user just said. Just ask the next question.
+3. **GAP REPORTER:** Only summarize if there is a **GAP** (Missing info). 
+4. **SKEPTICISM:** If they give a vague answer (e.g., "The CIO"), CHALLENGE IT. "Have you met them? Do they know the price?"
+5. **IDENTITY:** Use "our solution." You are on the same team.
+6. **STALLING:** If user says "um", "uh", or pauses, say: "Take your time. Do you actually have visibility into this?"
 
 ### SCORING RUBRIC (0-3 Scale)
 - **0 = Missing** (No info provided)
@@ -100,22 +110,27 @@ ${productContext}
 - **2 = Gathering / Incomplete** (Needs work)
 - **3 = Validated / Complete** (Solid evidence)
 
-### THE AUDIT CHECKLIST (MEDDPICC - 9 Points)
-1. **PAIN & SOLUTION:** What broken process are we fixing, and what is the Cost of Inaction?
-2. **METRICS:** ROI / Business Case?
-3. **CHAMPION:** Who sells for us? (Score using Champion Rules 1-3).
-4. **ECONOMIC BUYER:** Who signs? (Score based on access/awareness).
-5. **DECISION CRITERIA:** Technical/Business requirements?
-6. **DECISION PROCESS:** Steps to win?
-7. **COMPETITION:** Who are we up against?
-8. **TIMELINE:** Work backwards from the Close Date.
-9. **PAPER PROCESS:** Legal/Procurement steps?
+### CHAMPION DEFINITIONS
+- **1 (Coach):** Friendly, shares info, but no power.
+- **2 (Mobilizer):** Has influence, but hasn't acted yet.
+- **3 (Champion):** Actively sells for us when we aren't there.
 
-### PHASE 2: THE VERDICT (FINAL REPORT)
-- **TRIGGER:** Only after Paper Process is discussed.
+### AUDIT CHECKLIST (MEDDPICC - 9 Points)
+1. **PAIN & SOLUTION:** Cost of Inaction?
+2. **METRICS:** ROI?
+3. **CHAMPION:** Who sells for us? (Score using Champion Definitions).
+4. **ECONOMIC BUYER:** Who signs? (Access/Awareness).
+5. **DECISION CRITERIA:** Requirements?
+6. **DECISION PROCESS:** Steps?
+7. **COMPETITION:** Who are we up against?
+8. **TIMELINE:** Work backwards from Close Date.
+9. **PAPER PROCESS:** Legal/Procurement?
+
+### PHASE 2: THE VERDICT
+- **TRIGGER:** Only after Gaps are checked.
 - **OUTPUT:** You MUST return a "final_report" object.
 - **SCORING:** Calculate SUM of the 9 categories (0-3 scale, Max 27).
-- **SUMMARY:** 1 sentence explaining *why* the score is high or low.
+- **SUMMARY:** 1 sentence explaining the score.
 - **NEXT STEPS:** The 1 most critical action item.
 
 ### RETURN ONLY JSON
@@ -126,7 +141,7 @@ ${productContext}
 OR (If finished):
 {
   "end_of_call": true,
-  "next_question": "Review complete. I scored this deal a 18 out of 27. I deducted points because we lack a verified Economic Buyer. The next step is to get a meeting with the CIO. Moving to next deal...",
+  "next_question": "Review complete. I scored this deal a 18 out of 27. I deducted points because we lack a verified Economic Buyer. Moving to next deal...",
   "final_report": {
       "score": 18, 
       "summary": "Deal has strong technical fit but is risky due to unverified Economic Buyer.",
@@ -158,7 +173,7 @@ app.post("/agent", async (req, res) => {
     const ageInDays = Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24));
     const daysToClose = Math.floor((closeDate - new Date()) / (1000 * 60 * 60 * 24));
 
-    // A. INSTANT GREETING
+    // A. INSTANT GREETING (CONTEXT AWARE)
     if (!sessions[callSid]) {
         console.log(`[SERVER] New Session: ${callSid}`);
         const fullName = deal.rep_name || "Sales Rep";
@@ -170,7 +185,19 @@ app.post("/agent", async (req, res) => {
         const dateOptions = { month: 'long', day: 'numeric', year: 'numeric' };
         const closeDateSpeech = closeDate.toLocaleDateString('en-US', dateOptions);
 
-        const finalGreeting = `Hi ${firstName}, this is Matthew from Sales Forecaster. Let's jump into your forecast by discussing ${account}, ${oppName}, in ${stage} for ${amountSpeech}, with a close date of ${closeDateSpeech}. To start, what is the specific solution we are selling, and what problem does it solve?`;
+        // --- MODE SWITCHER ---
+        const isNewDeal = deal.initial_score == null;
+        let openingQuestion = "";
+
+        if (isNewDeal) {
+            // Scenario 1: New Deal
+            openingQuestion = "This is our first review for this deal. To start, what is the specific solution we are selling, and what problem does it solve?";
+        } else {
+            // Scenario 2: Gap Review
+            openingQuestion = `We scored this a ${deal.current_score} out of 27 last time. The pending step was to ${deal.next_steps}. What is the latest update on that?`;
+        }
+
+        const finalGreeting = `Hi ${firstName}, this is Matthew from Sales Forecaster. Let's look at ${account}, ${oppName}, in ${stage} for ${amountSpeech}, closing ${closeDateSpeech}. ${openingQuestion}`;
 
         sessions[callSid] = [{ role: "assistant", content: finalGreeting }];
         
@@ -254,6 +281,7 @@ app.post("/agent", async (req, res) => {
                 </Response>
              `);
         } else {
+             // FALLBACK
              finalSpeech += " That was the last deal in your forecast. Good luck.";
              return res.send(`<Response>${speak(finalSpeech)}<Hangup/></Response>`);
         }
