@@ -37,46 +37,48 @@ const speak = (text) => {
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${safeText}</prosody></Say>`;
 };
 
-// --- 3. SYSTEM PROMPT (YOUR EXACT BRAIN LOGIC) ---
+// --- 3. SYSTEM PROMPT (THE VIRTUAL VP) ---
 function agentSystemPrompt(deal, ageInDays) {
-  return `You are "The Verdict," a skeptical sales auditor. 
+  // 1. Get the Benchmarks (The Physics)
+  const avgCycle = deal?.seller_avg_cycle || 90;
+  const avgSize = deal?.seller_avg_deal_size || 10000;
   
-### LIVE DEAL CONTEXT:
-- Account: ${deal?.account_name || "Unknown"}
-- Run Count: ${deal?.run_count || 0}
-- Deal Age: ${ageInDays} days
-- CRM Gaps: Champion ${deal?.c_champions}/10, Paper ${deal?.p_paper_process}/10.
+  // 2. Get the Product Knowledge (The Truth)
+  const productContext = deal?.seller_product_rules || "You are a generic sales coach.";
 
-### SKEPTICISM RULES:
-- If Age > 180 days, be AGGRESSIVE about "Deal Rot."
-- If Run Count > 0, do not let them repeat previous answers.
+  return `You are "Matthew," the VP of Sales for ${deal?.seller_website || "our company"}.
+  
+### YOUR KNOWLEDGE BASE (THE TRUTH)
+${productContext}
+*INSTRUCTION: Use the knowledge above to validate what the rep says. If they claim a benefit or feature that contradicts the text above, politely challenge them.*
 
-### CRITICAL RULES (VIOLATION = FAIL)
-1. **SCORING CLAMP:** Scores are strictly 0, 1, 2, or 3. NEVER give a 4.
-2. **ZERO TOLERANCE:** If the user says "I don't know," "Unsure," or has not identified the person/metric, the Score is **0**. Do NOT give a "1" just for participation.
-3. **FRAGMENT HANDLING:** If the user's answer is a sentence fragment, assume it completes their *previous* sentence.
-4. **AUDIO SAFETY:** Do NOT use symbols like '$' or 'k'. Write words ("600 thousand dollars").
+### LIVE DEAL CONTEXT
+- Prospect: ${deal?.account_name}
+- Value: $${deal?.amount} (Our Avg: $${avgSize})
+- Age: ${ageInDays} days (Our Cycle: ${avgCycle} days)
 
-### SMART CONTEXT & SKIPPING
-- **CROSS-CATEGORY LISTENING:** If User says "We need to move by Dec 31 to avoid a 600k penalty" -> They have answered **Timeline** AND **Metrics**. Mark BOTH as "Discussed."
-- **NO REDUNDANT QUESTIONS:** Check: "Did the user already say this?" If yes, SKIP.
+### YOUR PERSONALITY
+- **VP Level Insight:** You know the product. If a rep says "Migration takes 1 minute" and you know it takes an hour, flag it.
+- **Upbeat & Collaborative:** "Help me understand..." not "You are wrong."
 
-### PHASE 1: THE INTERVIEW
+### CRITICAL RULES
+1. **SCORING:** Keep the 0-3 scale for your internal tracking, but don't say the score out loud unless asked.
+2. **ZERO TOLERANCE ON FACTS:** If they don't know a detail, gently press: "That's a key detail we need. Who can we ask to find that out?"
+3. **AUDIO SAFETY:** Write numbers as words ("two hundred days").
+
+### PHASE 1: THE STRATEGY SESSION
 - FLOW: Identify Pain -> Metrics -> Champion -> Economic Buyer -> Decision Criteria -> Decision Process -> Paper Process -> Competition -> Timeline.
-- **PAIN STEP (MANDATORY RECAP):** Summarize Pain back to build trust.
-- **ALL OTHER STEPS (NO ECHO):** Just say "Noted" and move on.
-- CHAMPION RULES: Probe for examples. Score 0 (Unknown) to 3 (Champion).
-- AUDIT PROTOCOL: 1 Question per category. Move fast.
+- **Goal:** Find the gaps so we can help them close.
+- **Product Validation:** When they discuss "Metrics" or "Decision Criteria," compare it against your KNOWLEDGE BASE. 
+  - *Example:* If they say "Customer wants Feature X," and your Knowledge Base says we don't do Feature X, ask: "I thought we deprecated Feature X last year. How are we handling that?"
+- **Champion Check:** If the Champion score is low, ask: "Do we have anyone else who can advocate for us when we aren't in the room?"
 
-### PHASE 2: THE VERDICT
-- **COMPLETION CHECK:** Score ALL 9 categories.
-- **IF COMPLETE:** Calculate TOTAL SCORE (Max 27).
-- **OUTPUT FORMAT:** "Erik, thanks. Score: [X]/27. Your Key Risk is [Category]. Tighten that up. Good luck."
-- **CRITICAL:** Set "end_of_call": true.
+### PHASE 2: THE SUMMARY
+- If complete, give a encouraging summary: "Great job on [Strongest Area]. To get this across the line, let's focus on [Weakest Area]. I'll send you the notes. Good luck!"
+- Set "end_of_call": true.
 
 ### RETURN ONLY JSON
-If ongoing: { "next_question": "...", "end_of_call": false }
-If complete: { "next_question": "...", "end_of_call": true, "final_report": { ... } }`;
+{ "next_question": "...", "end_of_call": false }`;
 }
 
 // --- 4. AGENT ENDPOINT ---
@@ -94,19 +96,51 @@ app.post("/agent", async (req, res) => {
     // --- 5. DATA RETRIEVAL ---
     const dbResult = await pool.query('SELECT * FROM opportunities WHERE id = $1', [oppId]);
     const deal = dbResult.rows[0];
+
+    // Calculate Age
     const ageInDays = deal ? Math.floor((new Date() - new Date(deal.opp_created_date)) / (1000 * 60 * 60 * 24)) : 0;
-
-    res.type('text/xml');
-
-    // A. INSTANT GREETING
+    
+   // A. INSTANT GREETING (PROFESSIONAL BROADCAST FLOW)
     if (!sessions[callSid]) {
-        const introText = `This is The Verdict. I'm looking at the ${deal?.account_name || "GlobalTech"} deal. It's been on the books for ${ageInDays} days. Why is this still in the forecast?`;
-        sessions[callSid] = [{ role: "assistant", content: introText }];
+        console.log(`[SERVER] New Session: ${callSid} for Opp ID: ${oppId}`);
+
+        const repName = deal.rep_name || "Sales Rep";
+        
+        // --- CONTEXT LOGIC ---
+        const benchmarkCycle = deal.seller_avg_cycle || 90; 
+        const benchmarkSize = deal.seller_avg_deal_size || 10000;
+        const isWhale = deal.amount > (benchmarkSize * 1.5);
+        const isStuck = ageInDays > (benchmarkCycle * 1.2);
+
+        // Format amount for speech
+        const amountSpeech = deal.amount ? `${deal.amount} dollars` : "undisclosed value";
+
+        // 1. The Intro & Agenda
+        const introPart = `Hi ${repName}, This is Matthew from Sales Forecast. We will jump right into our forecast.`;
+        
+        // 2. The Anchor (Account & Money)
+        const contextPart = `Let's start with the ${deal?.account_name || "Unknown"} deal, an opportunity for ${amountSpeech}.`;
+
+        // 3. The Launch (Context-Aware Transition)
+        let transition = "To kick things off,";
+        if (isWhale) {
+            transition = "This is a key deal, so let's be thorough. To kick things off,";
+        } else if (isStuck) {
+            transition = "It's been open a while, so let's unblock it. To kick things off,";
+        }
+
+        // Combine them
+        const finalGreeting = `${introPart} ${contextPart} ${transition} what is the main problem they are trying to solve?`;
+
+        // Initialize History
+        sessions[callSid] = [
+            { role: "assistant", content: finalGreeting }
+        ];
         
         return res.send(`
             <Response>
                 <Gather input="speech" action="/agent?oppId=${oppId}" method="POST" speechTimeout="1.0" enhanced="false">
-                    ${speak(introText)}
+                    ${speak(finalGreeting)}
                 </Gather>
             </Response>
         `);
@@ -117,6 +151,7 @@ app.post("/agent", async (req, res) => {
     if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     } else {
+      // If user stayed silent, ask again
       return res.send(`
         <Response>
           <Gather input="speech" action="/agent?oppId=${oppId}" method="POST" speechTimeout="1.0" enhanced="false">
@@ -158,19 +193,25 @@ app.post("/agent", async (req, res) => {
     // F. SAVE HISTORY
     messages.push({ role: "assistant", content: rawText });
     sessions[callSid] = messages;
+    
+    // Log the interaction
+    console.log(`\n--- TURN ${messages.length} ---`);
+    console.log("🗣️ USER:", transcript);
+    console.log("🧠 MATTHEW:", agentResult.next_question);
 
     // --- G. GENERATE RESPONSE ---
     let twimlResponse = "";
     if (agentResult.end_of_call) {
         let finalSpeech = agentResult.next_question;
         if ((!finalSpeech || finalSpeech.length < 10) && agentResult.final_report?.summary) {
-            finalSpeech = `Review complete. ${agentResult.final_report.summary}`;
+           finalSpeech = `Review complete. ${agentResult.final_report.summary}`;
         }
         twimlResponse = `<Response>${speak(finalSpeech)}<Hangup/></Response>`;
     } else {
         twimlResponse = `<Response><Gather input="speech" action="/agent?oppId=${oppId}" method="POST" speechTimeout="1.0" enhanced="false">${speak(agentResult.next_question)}</Gather></Response>`;
     }
 
+    res.type('text/xml');
     res.send(twimlResponse);
 
   } catch (error) {
