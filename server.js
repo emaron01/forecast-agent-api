@@ -30,14 +30,12 @@ async function incrementRunCount(oppId) {
     }
 }
 
-// --- ANALYTICS ENGINE ---
+// --- ANALYTICS ENGINE (Restored) ---
 async function saveCallResults(oppId, report) {
     try {
         const { score, summary, next_steps } = report;
         
-        // LOGIC: 
-        // 1. Always update 'current_score' (The latest health).
-        // 2. Only update 'initial_score' if it is currently NULL (The baseline).
+        // LOGIC: Preserves "Initial Score" for history, updates "Current Score" for now.
         const query = `
             UPDATE opportunities 
             SET 
@@ -49,7 +47,7 @@ async function saveCallResults(oppId, report) {
         `;
         
         await pool.query(query, [score, summary, next_steps, oppId]);
-        console.log(`💾 Analytics Saved for Deal ${oppId}: Score ${score}/100`);
+        console.log(`💾 Analytics Saved for Deal ${oppId}: Score ${score}/27`);
     } catch (err) {
         console.error("❌ Failed to save analytics:", err);
     }
@@ -62,8 +60,10 @@ const speak = (text) => {
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${safeText}</prosody></Say>`;
 };
 
-// --- 3. SYSTEM PROMPT (THE SKEPTICAL ANALYST) ---
+// --- 3. SYSTEM PROMPT (THE MASTER AUDITOR) ---
 function agentSystemPrompt(deal, ageInDays, daysToClose) {
+  // Database Mapping: Matches your schema (avg_sales_cycle)
+  const avgCycle = deal?.avg_sales_cycle || 90;
   const avgSize = deal?.seller_avg_deal_size || 10000;
   const productContext = deal?.seller_product_rules || "You are a generic sales coach.";
   
@@ -72,7 +72,7 @@ function agentSystemPrompt(deal, ageInDays, daysToClose) {
   else if (daysToClose < 30) timeContext = "CRITICAL: CRM says deal closes in less than 30 days.";
 
   return `You are "Matthew," a VP of Sales. 
-**JOB:** Qualify the deal HARD. Do not accept surface-level answers.
+**JOB:** Qualify the deal HARD using MEDDPICC.
 **GOAL:** Do NOT move to the next checklist item until the current one is FULLY VALIDATED.
 
 ### INTERNAL TRUTHS (PRODUCT KNOWLEDGE)
@@ -84,28 +84,40 @@ ${productContext}
 - Age: ${ageInDays} days
 - CRM Close Date (PO Date): ${daysToClose} days from now (${timeContext})
 
-### RULES OF ENGAGEMENT
-1. **NO INTERRUPTIONS:** Listen fully. 
-2. **SKEPTICISM (MANDATORY):**
-   - **CHAMPION:** If they give a Name/Title, ASK: "Have you tested them? Do they have a personal win in this?"
-   - **ECONOMIC BUYER:** If they say "The CIO," ASK: "Have we met the CIO? Do they know the price?"
-3. **ONE QUESTION RULE:** Ask for one missing piece of evidence at a time.
-4. **THE "WHY" RULE:** If the user admits they don't know something, explain the risk.
+### RULES OF ENGAGEMENT (STRICT)
+1. **ONE QUESTION RULE:** Ask for one missing piece of evidence at a time.
+2. **THE "WHY" RULE:** If the user admits they don't know something, explain the risk before moving on.
+   - *Example:* "That's a major risk. Without a Champion, we have no one to defend us when Procurement pushes back. Let's flag that."
+3. **PAIN RULES:** Pain is only real if there is a **cost to doing nothing**. Probe: "What happens if they do nothing?"
+4. **CHAMPION RULES:** - *1 (Coach):* Friendly, shares info, but no power.
+   - *2 (Mobilizer):* Has influence, but hasn't acted yet.
+   - *3 (Champion):* Actively sells for us when we aren't there.
+5. **STALLING / HESITATION:** - If user says "um", "uh", or pauses: **DO NOT SKIP.**
+   - Response: "Take your time. Do you actually have visibility into this?"
+6. **PRODUCT POLICE:** If they claim a fake feature (checking Internal Truths), correct them immediately.
 
-### THE AUDIT CHECKLIST (STRICT ORDER)
+### SCORING RUBRIC (0-3 Scale)
+- **0 = Missing** (No info provided)
+- **1 = Unknown / Assumed** (High Risk)
+- **2 = Gathering / Incomplete** (Needs work)
+- **3 = Validated / Complete** (Solid evidence)
+
+### THE AUDIT CHECKLIST (MEDDPICC - 9 Points)
 1. **PAIN & SOLUTION:** What broken process are we fixing, and what is the Cost of Inaction?
 2. **METRICS:** ROI / Business Case?
-3. **CHAMPION:** Who sells for us? (MUST VALIDATE: Access? Influence? Tested?)
-4. **ECONOMIC BUYER:** Who signs? (MUST VALIDATE: Met them? Aware of price?)
-5. **DECISION PROCESS:** Steps to win?
-6. **COMPETITION:** Who are we up against?
-7. **TIMELINE:** Work backwards from the Close Date.
-8. **PAPER PROCESS:** Legal/Procurement steps?
+3. **CHAMPION:** Who sells for us? (Score using Champion Rules 1-3).
+4. **ECONOMIC BUYER:** Who signs? (Score based on access/awareness).
+5. **DECISION CRITERIA:** Technical/Business requirements?
+6. **DECISION PROCESS:** Steps to win?
+7. **COMPETITION:** Who are we up against?
+8. **TIMELINE:** Work backwards from the Close Date.
+9. **PAPER PROCESS:** Legal/Procurement steps?
 
 ### PHASE 2: THE VERDICT (FINAL REPORT)
 - **TRIGGER:** Only after Paper Process is discussed.
 - **OUTPUT:** You MUST return a "final_report" object inside the JSON.
-- **SCORING:** 0-100 Health Score (0=Dead, 100=Signed).
+- **SCORING:** Calculate the SUM of the 9 categories above (Max Score = 27). 
+   - *Note: If a category was skipped or unknown, Score = 0.*
 - **SUMMARY:** 2 sentences on the state of the deal.
 - **NEXT STEPS:** The 1 most critical action item.
 
@@ -119,9 +131,9 @@ OR (If finished):
   "end_of_call": true,
   "next_question": "Great job. I've updated the forecast. Moving to next deal...",
   "final_report": {
-      "score": 75,
-      "summary": "Deal is strong technically but lacks Economic Buyer access.",
-      "next_steps": "Schedule meeting with CIO to confirm budget."
+      "score": 18, 
+      "summary": "Strong technical fit but Economic Buyer is a risk.",
+      "next_steps": "Validate budget with CIO."
   }
 }
 
@@ -131,7 +143,6 @@ OR (If finished):
 // --- 4. AGENT ENDPOINT ---
 app.post("/agent", async (req, res) => {
   try {
-    // 1. Get Setup
     const currentOppId = parseInt(req.query.oppId || 4); 
     const callSid = req.body.CallSid || "test_session";
     const transcript = req.body.transcript || req.body.SpeechResult || "";
@@ -145,26 +156,36 @@ app.post("/agent", async (req, res) => {
     const dbResult = await pool.query('SELECT * FROM opportunities WHERE id = $1', [currentOppId]);
     const deal = dbResult.rows[0];
 
-    // Dates
+    // Dates & Logic
     const now = new Date();
     const createdDate = new Date(deal.opp_created_date);
     const closeDate = deal.close_date ? new Date(deal.close_date) : new Date(now.setDate(now.getDate() + 30)); 
     const ageInDays = Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24));
     const daysToClose = Math.floor((closeDate - new Date()) / (1000 * 60 * 60 * 24));
 
-    // A. INSTANT GREETING (PERSONALIZED)
+    // A. INSTANT GREETING (HIGH CONTEXT RESTORED)
     if (!sessions[callSid]) {
         console.log(`[SERVER] New Session: ${callSid}`);
         
-        // PULL REP NAME FROM DB
-        const repName = deal.rep_name || "Sales Rep"; 
-        const amountSpeech = deal.amount ? `${deal.amount} dollars` : "undisclosed value";
+        // 1. Personalization
+        const fullName = deal.rep_name || "Sales Rep";
+        const firstName = fullName.split(' ')[0];
+
+        // 2. Deal Details (Restored Opportunity Name & Stage)
+        const account = deal.account_name || "Unknown Account";
+        const oppName = deal.opportunity_name || "the deal";
+        const stage = deal.deal_stage || "Open";
+        const amountSpeech = deal.amount ? `${deal.amount} dollars` : "undisclosed revenue";
         
-        const finalGreeting = `Hi ${repName}, this is Matthew. Let's forecast the ${deal?.account_name} deal for ${amountSpeech}. To start, what is the specific solution we are selling, and what problem does it solve?`;
+        const dateOptions = { month: 'long', day: 'numeric', year: 'numeric' };
+        const closeDateSpeech = closeDate.toLocaleDateString('en-US', dateOptions);
+
+        // 3. THE GREETING SCRIPT
+        const finalGreeting = `Hi ${firstName}, this is Matthew from Sales Forecaster. Let's jump into your forecast by discussing ${account}, ${oppName}, in ${stage} for ${amountSpeech}, with a close date of ${closeDateSpeech}. To start, what is the specific solution we are selling, and what problem does it solve?`;
 
         sessions[callSid] = [{ role: "assistant", content: finalGreeting }];
         
-        // 2.5s Timeout for "Human-like" listening
+        // Timeout set to 2.5s to prevent interruptions
         return res.send(`
             <Response>
                 <Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="2.5" enhanced="false">
@@ -233,7 +254,7 @@ app.post("/agent", async (req, res) => {
             await saveCallResults(currentOppId, agentResult.final_report);
         }
 
-        // 2. FIND NEXT DEAL
+        // 2. FIND NEXT DEAL (Loop Logic Restored)
         const nextDealResult = await pool.query('SELECT id, account_name FROM opportunities WHERE id > $1 ORDER BY id ASC LIMIT 1', [currentOppId]);
         
         if (nextDealResult.rows.length > 0) {
