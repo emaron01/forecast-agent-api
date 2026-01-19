@@ -53,29 +53,32 @@ async function saveCallResults(oppId, report) {
 // --- HELPER: SPEAK ---
 const speak = (text) => {
     if (!text) return "";
+    // Aggressive cleanup: Removes numbered lists, bullets, and markdown
     const safeText = text.replace(/&/g, "and")
                          .replace(/</g, "")
                          .replace(/>/g, "")
                          .replace(/\*\*/g, "") 
-                         .replace(/^\s*[-*]\s+/gm, ""); 
+                         .replace(/^\s*[-*]\s+/gm, "") 
+                         .replace(/\d+\)\s/g, "") 
+                         .replace(/\d+\.\s/g, ""); 
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${safeText}</prosody></Say>`;
 };
 
-// --- 3. SYSTEM PROMPT (THE CONTEXT-AWARE AUDITOR) ---
+// --- 3. SYSTEM PROMPT (THE COMPLETE BRAIN) ---
 function agentSystemPrompt(deal, ageInDays, daysToClose) {
   const avgSize = deal?.seller_avg_deal_size || 10000;
   const productContext = deal?.seller_product_rules || "You are a generic sales coach.";
   
-  // LOGIC: If initial_score is NULL, this is a NEW deal. Otherwise, it's an UPDATE.
+  // HISTORY LOGIC
   const isNewDeal = deal.initial_score == null;
   const historyContext = !isNewDeal 
-    ? `PREVIOUS SCORE: ${deal.current_score}/27. PREVIOUS GAPS: "${deal.last_summary}". PENDING ACTION: "${deal.next_steps}".`
-    : "NO HISTORY. This is a fresh qualification.";
+    ? `PREVIOUS SCORE: ${deal.current_score}/27. GAPS: "${deal.last_summary}". PENDING: "${deal.next_steps}".`
+    : "NO HISTORY. Fresh qualification.";
 
-  // MODE SWITCHING INSTRUCTION
+  // MODE SWITCHING
   const goalInstruction = isNewDeal
-    ? "**GOAL:** This is a NEW DEAL. Perform a FULL AUDIT of all 9 categories from scratch."
-    : "**GOAL:** This is a GAP REVIEW. Do NOT re-qualify strong areas. Focus ONLY on the risks/gaps identified in the History.";
+    ? "**GOAL:** NEW DEAL. Audit all 9 points."
+    : "**GOAL:** GAP REVIEW. Focus ONLY on risks from History.";
 
   let timeContext = "Timeline is healthy.";
   if (daysToClose < 0) timeContext = "WARNING: Deal is past due date in CRM.";
@@ -95,25 +98,28 @@ ${productContext}
 - CRM Close Date: ${daysToClose} days from now (${timeContext})
 - **HISTORY:** ${historyContext}
 
-### RULES OF ENGAGEMENT
-1. **MODE BEHAVIOR:** - If NEW DEAL: Ask about Pain, Metric, Champion, etc. in order.
-   - If GAP REVIEW: Start by asking about the "Pending Action" from history. If a category wasn't listed as a risk last time, assume it is a Score 3 (Validated) and skip it.
-2. **NO RECAPS:** Do NOT summarize what the user just said. Just ask the next question.
+### RULES OF ENGAGEMENT (STRICT)
+1. **RECAP STRATEGY (PAIN ONLY):** - **IF** user just explained Pain/Solution: Summarize it briefly to show empathy (e.g. "So they lose $500k. Got it.").
+   - **ALL OTHER QUESTIONS:** Do NOT summarize. Just ask the next question immediately.
+2. **NO LISTS:** Do NOT use numbered lists. Speak in full, conversational sentences.
 3. **GAP REPORTER:** Only summarize if there is a **GAP** (Missing info). 
 4. **SKEPTICISM:** If they give a vague answer (e.g., "The CIO"), CHALLENGE IT. "Have you met them? Do they know the price?"
 5. **IDENTITY:** Use "our solution." You are on the same team.
 6. **STALLING:** If user says "um", "uh", or pauses, say: "Take your time. Do you actually have visibility into this?"
+7. **PRODUCT POLICE:** Check [INTERNAL TRUTHS]. If they claim a feature we don't have, correct them immediately.
+8. **THE "WHY" RULE:** If they don't know an answer, explain the RISK before moving on (e.g., "That is a risk because...").
+9. **ONE QUESTION RULE:** Ask for one missing piece of evidence at a time.
 
 ### SCORING RUBRIC (0-3 Scale)
-- **0 = Missing** (No info provided)
+- **0 = Missing** (No info)
 - **1 = Unknown / Assumed** (High Risk)
 - **2 = Gathering / Incomplete** (Needs work)
 - **3 = Validated / Complete** (Solid evidence)
 
 ### CHAMPION DEFINITIONS
-- **1 (Coach):** Friendly, shares info, but no power.
-- **2 (Mobilizer):** Has influence, but hasn't acted yet.
-- **3 (Champion):** Actively sells for us when we aren't there.
+- **1 (Coach):** Friendly, no power.
+- **2 (Mobilizer):** Influence, hasn't acted.
+- **3 (Champion):** Actively sells for us.
 
 ### AUDIT CHECKLIST (MEDDPICC - 9 Points)
 1. **PAIN & SOLUTION:** Cost of Inaction?
@@ -185,15 +191,12 @@ app.post("/agent", async (req, res) => {
         const dateOptions = { month: 'long', day: 'numeric', year: 'numeric' };
         const closeDateSpeech = closeDate.toLocaleDateString('en-US', dateOptions);
 
-        // --- MODE SWITCHER ---
         const isNewDeal = deal.initial_score == null;
         let openingQuestion = "";
 
         if (isNewDeal) {
-            // Scenario 1: New Deal
             openingQuestion = "This is our first review for this deal. To start, what is the specific solution we are selling, and what problem does it solve?";
         } else {
-            // Scenario 2: Gap Review
             openingQuestion = `We scored this a ${deal.current_score} out of 27 last time. The pending step was to ${deal.next_steps}. What is the latest update on that?`;
         }
 
