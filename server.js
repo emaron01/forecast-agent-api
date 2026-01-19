@@ -30,55 +30,53 @@ async function incrementRunCount(oppId) {
     }
 }
 
-// --- HELPER: SPEAK (REQUIRED TO PREVENT CRASH) ---
+// --- HELPER: SPEAK ---
 const speak = (text) => {
     if (!text) return "";
     const safeText = text.replace(/&/g, "and").replace(/</g, "").replace(/>/g, "");
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${safeText}</prosody></Say>`;
 };
 
-// --- 3. SYSTEM PROMPT (THE VIRTUAL VP) ---
+// --- 3. SYSTEM PROMPT (NATURAL & CONVERSATIONAL) ---
 function agentSystemPrompt(deal, ageInDays) {
-  // 1. Get the Benchmarks (The Physics)
   const avgCycle = deal?.seller_avg_cycle || 90;
   const avgSize = deal?.seller_avg_deal_size || 10000;
-  
-  // 2. Get the Product Knowledge (The Truth)
   const productContext = deal?.seller_product_rules || "You are a generic sales coach.";
 
   return `You are "Matthew," the VP of Sales for ${deal?.seller_website || "our company"}.
   
-### YOUR KNOWLEDGE BASE (THE TRUTH)
+### INTERNAL TRUTHS (DO NOT REFERENCE EXPLICITLY)
 ${productContext}
-*INSTRUCTION: Use the knowledge above to validate what the rep says. If they claim a benefit or feature that contradicts the text above, politely challenge them.*
+
+### STYLE & TONE RULES (CRITICAL)
+1. **NO ROBOT TALK:** NEVER say "My knowledge base indicates" or "Our records show."
+2. **BE NATURAL:** If the rep is wrong, just correct them casually.
+   - *Bad:* "My knowledge base says we don't do Azure."
+   - *Good:* "Wait, I thought we only supported AWS? When did we start doing Azure?"
+   - *Bad:* "The minimum time is 4 hours."
+   - *Good:* "That sounds fast. Usually, a migration like that takes us at least 4 hours."
+3. **AUDIO SAFETY:** Write numbers as words ("four hours", "fifty thousand").
 
 ### LIVE DEAL CONTEXT
 - Prospect: ${deal?.account_name}
-- Value: $${deal?.amount} (Our Avg: $${avgSize})
-- Age: ${ageInDays} days (Our Cycle: ${avgCycle} days)
-
-### YOUR PERSONALITY
-- **VP Level Insight:** You know the product. If a rep says "Migration takes 1 minute" and you know it takes an hour, flag it.
-- **Upbeat & Collaborative:** "Help me understand..." not "You are wrong."
-
-### CRITICAL RULES
-1. **SCORING:** Keep the 0-3 scale for your internal tracking, but don't say the score out loud unless asked.
-2. **ZERO TOLERANCE ON FACTS:** If they don't know a detail, gently press: "That's a key detail we need. Who can we ask to find that out?"
-3. **AUDIO SAFETY:** Write numbers as words ("two hundred days").
+- Value: $${deal?.amount} (Avg: $${avgSize})
+- Age: ${ageInDays} days (Avg Cycle: ${avgCycle} days)
 
 ### PHASE 1: THE STRATEGY SESSION
 - FLOW: Identify Pain -> Metrics -> Champion -> Economic Buyer -> Decision Criteria -> Decision Process -> Paper Process -> Competition -> Timeline.
 - **Goal:** Find the gaps so we can help them close.
-- **Product Validation:** When they discuss "Metrics" or "Decision Criteria," compare it against your KNOWLEDGE BASE. 
-  - *Example:* If they say "Customer wants Feature X," and your Knowledge Base says we don't do Feature X, ask: "I thought we deprecated Feature X last year. How are we handling that?"
-- **Champion Check:** If the Champion score is low, ask: "Do we have anyone else who can advocate for us when we aren't in the room?"
+- **Product Validation:** If they mention a metric or feature that conflicts with your INTERNAL TRUTHS, politely challenge it.
+  - *Example:* "Hold on, I thought we deprecated that feature. How are we handling that?"
+- **Champion Check:** If the Champion score is low, ask: "Who else is batting for us?"
 
 ### PHASE 2: THE SUMMARY
-- If complete, give a encouraging summary: "Great job on [Strongest Area]. To get this across the line, let's focus on [Weakest Area]. I'll send you the notes. Good luck!"
+- If complete, give a encouraging summary.
 - Set "end_of_call": true.
 
 ### RETURN ONLY JSON
-{ "next_question": "...", "end_of_call": false }`;
+{ "next_question": "Your natural response here...", "end_of_call": false }
+
+**FORMATTING:** Do NOT use bullet points or real line breaks in the JSON. Use full sentences.`;
 }
 
 // --- 4. AGENT ENDPOINT ---
@@ -96,8 +94,6 @@ app.post("/agent", async (req, res) => {
     // --- 5. DATA RETRIEVAL ---
     const dbResult = await pool.query('SELECT * FROM opportunities WHERE id = $1', [oppId]);
     const deal = dbResult.rows[0];
-
-    // Calculate Age
     const ageInDays = deal ? Math.floor((new Date() - new Date(deal.opp_created_date)) / (1000 * 60 * 60 * 24)) : 0;
     
    // A. INSTANT GREETING (PROFESSIONAL BROADCAST FLOW)
@@ -105,14 +101,10 @@ app.post("/agent", async (req, res) => {
         console.log(`[SERVER] New Session: ${callSid} for Opp ID: ${oppId}`);
 
         const repName = deal.rep_name || "Sales Rep";
-        
-        // --- CONTEXT LOGIC ---
         const benchmarkCycle = deal.seller_avg_cycle || 90; 
         const benchmarkSize = deal.seller_avg_deal_size || 10000;
         const isWhale = deal.amount > (benchmarkSize * 1.5);
         const isStuck = ageInDays > (benchmarkCycle * 1.2);
-
-        // Format amount for speech
         const amountSpeech = deal.amount ? `${deal.amount} dollars` : "undisclosed value";
 
         // 1. The Intro & Agenda
@@ -121,21 +113,14 @@ app.post("/agent", async (req, res) => {
         // 2. The Anchor (Account & Money)
         const contextPart = `Let's start with the ${deal?.account_name || "Unknown"} deal, an opportunity for ${amountSpeech}.`;
 
-        // 3. The Launch (Context-Aware Transition)
+        // 3. The Launch
         let transition = "To kick things off,";
-        if (isWhale) {
-            transition = "This is a key deal, so let's be thorough. To kick things off,";
-        } else if (isStuck) {
-            transition = "It's been open a while, so let's unblock it. To kick things off,";
-        }
+        if (isWhale) transition = "This is a key deal, so let's be thorough. To kick things off,";
+        else if (isStuck) transition = "It's been open a while, so let's unblock it. To kick things off,";
 
-        // Combine them
         const finalGreeting = `${introPart} ${contextPart} ${transition} what is the main problem they are trying to solve?`;
 
-        // Initialize History
-        sessions[callSid] = [
-            { role: "assistant", content: finalGreeting }
-        ];
+        sessions[callSid] = [{ role: "assistant", content: finalGreeting }];
         
         return res.send(`
             <Response>
@@ -151,7 +136,6 @@ app.post("/agent", async (req, res) => {
     if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     } else {
-      // If user stayed silent, ask again
       return res.send(`
         <Response>
           <Gather input="speech" action="/agent?oppId=${oppId}" method="POST" speechTimeout="1.0" enhanced="false">
@@ -179,22 +163,37 @@ app.post("/agent", async (req, res) => {
       { headers: { "x-api-key": process.env.MODEL_API_KEY.trim(), "anthropic-version": "2023-06-01", "content-type": "application/json" } }
     );
 
-    // E. PARSE RESPONSE
-    let rawText = response.data.content[0].text.trim().replace(/```json/g, "").replace(/```/g, "").trim();
-    let agentResult = { next_question: rawText, end_of_call: false };
+    // E. ROBUST PARSE RESPONSE (FIXED JSON CRASH)
+    let rawText = response.data.content[0].text.trim();
+    rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
     
-    const jsonStart = rawText.indexOf('{');
-    const jsonEnd = rawText.lastIndexOf('}');
-    if (jsonStart !== -1 && jsonEnd !== -1) {
-        try { agentResult = JSON.parse(rawText.substring(jsonStart, jsonEnd + 1)); } 
-        catch (e) { console.error("JSON PARSE ERROR", rawText); }
+    let agentResult = { next_question: "", end_of_call: false };
+    
+    try {
+        // Attempt 1: Standard Parse
+        agentResult = JSON.parse(rawText);
+    } catch (e) {
+        console.error("⚠️ JSON PARSE FAILED. Attempting Regex Fallback...");
+        // Attempt 2: Regex Extraction (The Life Saver)
+        const questionMatch = rawText.match(/"next_question"\s*:\s*"([^"]*)"/);
+        const endMatch = rawText.match(/"end_of_call"\s*:\s*(true|false)/);
+        
+        if (questionMatch) {
+            agentResult.next_question = questionMatch[1];
+        } else {
+            // Worst case: The AI outputted pure text
+            agentResult.next_question = rawText; 
+        }
+
+        if (endMatch) {
+            agentResult.end_of_call = endMatch[1] === "true";
+        }
     }
 
     // F. SAVE HISTORY
     messages.push({ role: "assistant", content: rawText });
     sessions[callSid] = messages;
     
-    // Log the interaction
     console.log(`\n--- TURN ${messages.length} ---`);
     console.log("🗣️ USER:", transcript);
     console.log("🧠 MATTHEW:", agentResult.next_question);
