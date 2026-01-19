@@ -78,7 +78,7 @@ function escapeXml(unsafe) {
 const speak = (text) => {
     if (!text) return "";
     
-    // 1. Logic Cleanup (Remove Markdown/Lists)
+    // 1. Logic Cleanup
     let cleanText = text.replace(/\*\*/g, "") 
                          .replace(/^\s*[-*]\s+/gm, "") 
                          .replace(/\d+\)\s/g, "") 
@@ -96,7 +96,7 @@ const speak = (text) => {
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${safeXml}</prosody></Say>`;
 };
 
-// --- 3. SYSTEM PROMPT (FULL LOGIC RESTORED) ---
+// --- 3. SYSTEM PROMPT (AUTHORITY PATCH) ---
 function agentSystemPrompt(deal, ageInDays, daysToClose) {
   const avgSize = deal?.seller_avg_deal_size || 10000;
   const productContext = deal?.seller_product_rules || "You are a generic sales coach.";
@@ -129,14 +129,15 @@ ${productContext}
 - **HISTORY:** ${historyContext}
 
 ### RULES OF ENGAGEMENT (STRICT)
-1. **INVISIBLE SCORING:** Do NOT speak scores. Keep math internal.
-2. **CONNECT THE DOTS:** If user mentions a fact, mark it VALIDATED silently.
-3. **GAP MODE:** If GAP REVIEW, do **NOT** ask about verified categories (Pain/Metrics/Champion) unless they are listed as Gaps in HISTORY.
-4. **NON-ANSWERS:** If user says "Okay" or "Sure", **RE-ASK** the question.
-5. **PRODUCT POLICE:** Check [INTERNAL TRUTHS]. If they claim a feature we don't have, correct them immediately.
-6. **RECAP STRATEGY:** Summarize Pain briefly for empathy. Do NOT summarize anything else.
-7. **NO LISTS:** Speak in full conversational sentences.
-8. **SKEPTICISM:** Challenge vague answers.
+1. **AUTHORITY (CRITICAL):** You are the AUDITOR. **NEVER** ask the user to score a category (e.g., "How would you score this?"). YOU decide the score based on the evidence.
+2. **HANDLING CORRECTIONS:** If the user corrects you (e.g. "I said Procurement, not Government"), accept it immediately ("Got it, Procurement.") and move to the next question. Do NOT ask them to confirm your summary.
+3. **INVISIBLE SCORING:** Do NOT speak scores. Keep math internal.
+4. **CONNECT THE DOTS:** If user mentions a fact, mark it VALIDATED silently.
+5. **GAP MODE:** If GAP REVIEW, do **NOT** ask about verified categories unless they are Gaps.
+6. **NON-ANSWERS:** If user says "Okay", **RE-ASK** the question.
+7. **PRODUCT POLICE:** Check [INTERNAL TRUTHS]. Correct lies immediately.
+8. **RECAP STRATEGY:** Summarize Pain briefly. Do NOT summarize anything else.
+9. **NO LISTS:** Speak in full conversational sentences.
 
 ### CHAMPION DEFINITIONS (USE FOR SCORING)
 - **1 (Coach):** Friendly, but no power to sign or spend.
@@ -152,7 +153,7 @@ ${productContext}
 ### PHASE 2: THE VERDICT
 - **TRIGGER:** Only after Gaps are checked.
 - **OUTPUT:** You MUST return a "final_report" object.
-- **DETAILS:** You MUST extract specific names (Champion, EB) and score each category individually in the JSON.
+- **DETAILS:** Extract specific names and score each category individually in the JSON.
 
 ### RETURN ONLY JSON
 { 
@@ -260,7 +261,7 @@ app.post("/agent", async (req, res) => {
       `);
     }
 
-    // C. AI CALL (800 Token Limit / 12s Timeout)
+    // C. AI CALL
     try {
         const response = await axios.post(
           "https://api.anthropic.com/v1/messages",
