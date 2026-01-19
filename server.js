@@ -37,7 +37,7 @@ async function saveCallResults(oppId, report) {
         const summary = report.summary || "No summary provided.";
         const next_steps = report.next_steps || "Review deal manually.";
         
-        // JSON TYPE SAFETY: Ensure details is an object or null
+        // JSON TYPE SAFETY
         let audit_details = report.audit_details || null;
         if (typeof audit_details === 'string') {
              try { audit_details = JSON.parse(audit_details); } catch(e) { audit_details = null; }
@@ -60,7 +60,7 @@ async function saveCallResults(oppId, report) {
     }
 }
 
-// --- HELPER: XML ESCAPE (The Armor) ---
+// --- HELPER: XML ESCAPE ---
 function escapeXml(unsafe) {
     if (!unsafe) return "";
     return unsafe.replace(/[<>&'"]/g, function (c) {
@@ -84,38 +84,65 @@ const speak = (text) => {
                          .replace(/\d+\)\s/g, "") 
                          .replace(/\d+\.\s/g, "");
     
-    // 2. Safety Truncation (800 chars / ~4 mins)
+    // 2. Safety Truncation
     if (cleanText.length > 800) {
         console.log("⚠️ Truncating long response for audio safety.");
         cleanText = cleanText.substring(0, 800) + "...";
     }
 
-    // 3. XML Escape (Final Armor)
+    // 3. XML Escape
     const safeXml = escapeXml(cleanText);
     
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${safeXml}</prosody></Say>`;
 };
 
-// --- 3. SYSTEM PROMPT (AUTHORITY PATCH) ---
+// --- 3. SYSTEM PROMPT (STAGE AWARENESS & STEALTH PROTOCOL) ---
 function agentSystemPrompt(deal, ageInDays, daysToClose) {
   const avgSize = deal?.seller_avg_deal_size || 10000;
   const productContext = deal?.seller_product_rules || "You are a generic sales coach.";
+  const stage = deal?.deal_stage || "Discovery";
   
+  // STAGE DEFINITIONS
+  const isEarlyStage = ["Discovery", "Pipeline", "Qualification", "Prospecting"].includes(stage);
+  const isMidStage = ["Best Case", "Upside", "Solution Validation"].includes(stage);
+  const isLateStage = ["Commit", "Closing", "Negotiation"].includes(stage);
+
+  // HISTORY LOGIC
   const isNewDeal = deal.initial_score == null;
   const historyContext = !isNewDeal 
     ? `PREVIOUS SCORE: ${deal.current_score}/27. GAPS: "${deal.last_summary}". PENDING: "${deal.next_steps}".`
     : "NO HISTORY. Fresh qualification.";
 
+  // DYNAMIC INSTRUCTIONS BASED ON STAGE
+  let stageInstructions = "";
+  if (isEarlyStage) {
+      stageInstructions = `
+      **CURRENT STAGE: EARLY (${stage}).**
+      - **FOCUS:** Is the pain real? Do we have a Champion?
+      - **SKIP:** Do NOT ask about Paper Process, Procurement, or deep Timeline details. It is too early.
+      - **EXPECTATION:** Scores will be lower (10-15 is okay). Don't force a high score.`;
+  } else if (isMidStage) {
+      stageInstructions = `
+      **CURRENT STAGE: MID (${stage}).**
+      - **FOCUS:** Can we win? (Economic Buyer, Decision Criteria).
+      - **CHECK:** Start asking lightly about the Decision Process.`;
+  } else {
+      stageInstructions = `
+      **CURRENT STAGE: LATE (${stage}).**
+      - **FOCUS:** When will it close? (Strict Audit on Paper Process & Timeline).
+      - **EXPECTATION:** Scores must be high (20+). Grill the user on any gaps.`;
+  }
+
   const goalInstruction = isNewDeal
-    ? "**GOAL:** NEW DEAL. Audit all 9 points."
-    : "**GOAL:** GAP REVIEW. Focus ONLY on risks from History. Assume other areas are valid.";
+    ? `**GOAL:** NEW DEAL. Audit based on ${stage} rules.`
+    : "**GOAL:** GAP REVIEW. Focus ONLY on risks from History.";
 
   let timeContext = "Timeline is healthy.";
   if (daysToClose < 0) timeContext = "WARNING: Deal is past due date in CRM.";
   else if (daysToClose < 30) timeContext = "CRITICAL: CRM says deal closes in less than 30 days.";
 
   return `You are "Matthew," a VP of Sales at Sales Forecaster.
-**JOB:** Qualify the deal using MEDDPICC.
+**JOB:** Qualify the deal based on its STAGE.
 ${goalInstruction}
 
 ### INTERNAL TRUTHS
@@ -123,26 +150,30 @@ ${productContext}
 
 ### LIVE DEAL CONTEXT
 - Prospect: ${deal?.account_name}
+- Stage: ${stage}
 - Value: $${deal?.amount} (Avg: $${avgSize})
 - Age: ${ageInDays} days
 - CRM Close Date: ${daysToClose} days from now (${timeContext})
 - **HISTORY:** ${historyContext}
 
-### RULES OF ENGAGEMENT (STRICT)
-1. **AUTHORITY (CRITICAL):** You are the AUDITOR. **NEVER** ask the user to score a category (e.g., "How would you score this?"). YOU decide the score based on the evidence.
-2. **HANDLING CORRECTIONS:** If the user corrects you (e.g. "I said Procurement, not Government"), accept it immediately ("Got it, Procurement.") and move to the next question. Do NOT ask them to confirm your summary.
-3. **INVISIBLE SCORING:** Do NOT speak scores. Keep math internal.
+### STAGE RULES (CRITICAL)
+${stageInstructions}
+
+### RULES OF ENGAGEMENT (STEALTH PROTOCOL)
+1. **FORBIDDEN WORDS:** Do NOT use words like "MEDDPICC", "Audit", "Category", "Score", or "Rubric" in speech.
+2. **NO ROBOT LABELS:** Do NOT say "Next is Economic Buyer." Just ask the question naturally (e.g., "Who signs the check?").
+3. **INVISIBLE MATH:** Calculate scores silently. Never speak them.
 4. **CONNECT THE DOTS:** If user mentions a fact, mark it VALIDATED silently.
-5. **GAP MODE:** If GAP REVIEW, do **NOT** ask about verified categories unless they are Gaps.
-6. **NON-ANSWERS:** If user says "Okay", **RE-ASK** the question.
+5. **GAP MODE:** If GAP REVIEW, do **NOT** ask about things we already know. Only target the Gaps.
+6. **NON-ANSWERS:** If user says "Okay" or "Sure", **RE-ASK** the question.
 7. **PRODUCT POLICE:** Check [INTERNAL TRUTHS]. Correct lies immediately.
-8. **RECAP STRATEGY:** Summarize Pain briefly. Do NOT summarize anything else.
+8. **RECAP STRATEGY:** Summarize Pain briefly for empathy. Do NOT summarize anything else.
 9. **NO LISTS:** Speak in full conversational sentences.
 
 ### CHAMPION DEFINITIONS (USE FOR SCORING)
-- **1 (Coach):** Friendly, but no power to sign or spend.
-- **2 (Mobilizer):** Has influence/power, but hasn't taken action for us yet.
-- **3 (Champion):** Has Power AND is actively selling for us (e.g. got us access to EB).
+- **1 (Coach):** Friendly, but no power.
+- **2 (Mobilizer):** Has influence, but hasn't acted.
+- **3 (Champion):** Has Power AND is actively selling for us.
 
 ### SCORING RUBRIC (0-3 Scale)
 - **0 = Missing** (No info)
@@ -163,22 +194,22 @@ ${productContext}
 OR (If finished):
 {
   "end_of_call": true,
-  "next_question": "Understood. Verdict: 24/27. Risk is Paper Process. Moving to next deal...",
+  "next_question": "Understood. Verdict: 12/27. Good start for a Discovery deal. Moving to next deal...",
   "final_report": {
-      "score": 24, 
-      "summary": "Strong deal, unknown Paper Process.",
-      "next_steps": "Send contract.",
+      "score": 12, 
+      "summary": "Early stage deal. Pain is clear, but Paper Process is (correctly) unknown.",
+      "next_steps": "Secure meeting with EB.",
       "audit_details": {
           "champion_name": "Bob",
           "economic_buyer_name": "Susan",
           "pain_score": 3,
           "metrics_score": 3,
           "champion_score": 3,
-          "economic_buyer_score": 3,
-          "decision_criteria_score": 2,
-          "decision_process_score": 2,
-          "competition_score": 3,
-          "timeline_score": 3,
+          "economic_buyer_score": 1,
+          "decision_criteria_score": 1,
+          "decision_process_score": 1,
+          "competition_score": 0,
+          "timeline_score": 0,
           "paper_process_score": 0
       }
   }
@@ -190,7 +221,9 @@ OR (If finished):
 // --- 4. AGENT ENDPOINT ---
 app.post("/agent", async (req, res) => {
   try {
-    const currentOppId = parseInt(req.query.oppId || 4); 
+    const currentOppId = parseInt(req.query.oppId || 4);
+    const isTransition = req.query.transition === 'true'; // CHECK TRANSITION FLAG
+    
     const callSid = req.body.CallSid || "test_session";
     const transcript = req.body.transcript || req.body.SpeechResult || "";
 
@@ -223,16 +256,21 @@ app.post("/agent", async (req, res) => {
         let openingQuestion = "";
 
         if (isNewDeal) {
-            openingQuestion = "This is our first review for this deal. To start, what is the specific solution we are selling, and what problem does it solve?";
+            openingQuestion = "To start, what is the specific solution we are selling, and what problem does it solve?";
         } else {
             let summary = deal.last_summary || "we identified some risks";
-            // SMART TRUNCATION
             if (summary.length > 400) { summary = summary.substring(0, 400) + "..."; }
             const lastStep = deal.next_steps || "advance the deal";
             openingQuestion = `Last time we noted: ${summary}. The pending action was to ${lastStep}. What is the latest update on that?`;
         }
 
-        const finalGreeting = `Hi ${firstName}, this is Matthew from Sales Forecaster. Let's look at ${account}, ${oppName}, in ${stage} for ${amountSpeech}, closing ${closeDateSpeech}. ${openingQuestion}`;
+        // --- TRANSITION LOGIC ---
+        let greetingPreamble = `Hi ${firstName}, this is Matthew from Sales Forecaster.`;
+        if (isTransition) {
+            greetingPreamble = "Okay, moving on."; 
+        }
+
+        const finalGreeting = `${greetingPreamble} Let's look at ${account}, ${oppName}, in ${stage} for ${amountSpeech}, closing ${closeDateSpeech}. ${openingQuestion}`;
 
         sessions[callSid] = [{ role: "assistant", content: finalGreeting }];
         
@@ -319,10 +357,11 @@ app.post("/agent", async (req, res) => {
                  const nextOpp = nextDealResult.rows[0];
                  const transitionSpeech = `${finalSpeech} Moving on to the next deal: ${nextOpp.account_name}. Stand by.`;
                  delete sessions[callSid]; 
+                 // PASSING TRANSITION FLAG
                  const twiml = `
                     <Response>
                         ${speak(transitionSpeech)}
-                        <Redirect method="POST">/agent?oppId=${nextOpp.id}</Redirect>
+                        <Redirect method="POST">/agent?oppId=${nextOpp.id}&amp;transition=true</Redirect>
                     </Response>
                  `;
                  return res.send(twiml);
