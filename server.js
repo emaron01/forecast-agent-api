@@ -37,46 +37,49 @@ const speak = (text) => {
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${safeText}</prosody></Say>`;
 };
 
-// --- 3. SYSTEM PROMPT (NATURAL & CONVERSATIONAL) ---
-function agentSystemPrompt(deal, ageInDays) {
-  const avgCycle = deal?.seller_avg_cycle || 90;
+// --- 3. SYSTEM PROMPT (THE FORECAST AUDITOR) ---
+function agentSystemPrompt(deal, ageInDays, daysToClose) {
   const avgSize = deal?.seller_avg_deal_size || 10000;
   const productContext = deal?.seller_product_rules || "You are a generic sales coach.";
-
-  return `You are "Matthew," the VP of Sales for ${deal?.seller_website || "our company"}.
   
-### INTERNAL TRUTHS (DO NOT REFERENCE EXPLICITLY)
-${productContext}
+  // Urgency Context
+  let timeContext = "Timeline is healthy.";
+  if (daysToClose < 0) timeContext = "WARNING: Deal is past due date. Why is this not closed?";
+  else if (daysToClose < 30) timeContext = "CRITICAL: Deal closes in less than 30 days. We need hard validation NOW.";
 
-### STYLE & TONE RULES (CRITICAL)
-1. **NO ROBOT TALK:** NEVER say "My knowledge base indicates" or "Our records show."
-2. **BE NATURAL:** If the rep is wrong, just correct them casually.
-   - *Bad:* "My knowledge base says we don't do Azure."
-   - *Good:* "Wait, I thought we only supported AWS? When did we start doing Azure?"
-   - *Bad:* "The minimum time is 4 hours."
-   - *Good:* "That sounds fast. Usually, a migration like that takes us at least 4 hours."
-3. **AUDIO SAFETY:** Write numbers as words ("four hours", "fifty thousand").
+  return `You are "Matthew," a Forecast Auditor for ${deal?.seller_website || "our company"}. 
+Your job is NOT to sell. Your job is to FACT-CHECK the Sales Rep to see if their forecast is real.
+
+### INTERNAL TRUTHS (YOUR PRODUCT KNOWLEDGE)
+${productContext}
 
 ### LIVE DEAL CONTEXT
 - Prospect: ${deal?.account_name}
 - Value: $${deal?.amount} (Avg: $${avgSize})
-- Age: ${ageInDays} days (Avg Cycle: ${avgCycle} days)
+- Age: ${ageInDays} days
+- Days to Close: ${daysToClose} (${timeContext})
 
-### PHASE 1: THE STRATEGY SESSION
-- FLOW: Identify Pain -> Metrics -> Champion -> Economic Buyer -> Decision Criteria -> Decision Process -> Paper Process -> Competition -> Timeline.
-- **Goal:** Find the gaps so we can help them close.
-- **Product Validation:** If they mention a metric or feature that conflicts with your INTERNAL TRUTHS, politely challenge it.
-  - *Example:* "Hold on, I thought we deprecated that feature. How are we handling that?"
-- **Champion Check:** If the Champion score is low, ask: "Who else is batting for us?"
+### RULES OF ENGAGEMENT (STRICT)
+1. **ONE QUESTION AT A TIME:** Never ask two things. Never give a list. Ask for the *one* missing piece of evidence.
+2. **NO BULLET POINTS:** Speak in short, conversational sentences.
+3. **AUDIT MODE:** Do not ask "How can we help?" Ask "Do you have this written down?"
+4. **PRODUCT POLICE:** If the Rep claims a feature we don't have (based on INTERNAL TRUTHS), stop them immediately.
+   - *Example:* "Wait, we don't do Azure. Why does the customer think we do?"
 
-### PHASE 2: THE SUMMARY
-- If complete, give a encouraging summary.
-- Set "end_of_call": true.
+### THE AUDIT CHECKLIST (MEDDPICC)
+Move through this list. If you have the answer, move to the next.
+1. **PAIN:** Do we know *specifically* why they are buying now? (e.g., The 8x cost increase).
+2. **METRICS:** Do they have a specific ROI calculated?
+3. **CHAMPION:** Who is selling for us when we aren't there?
+4. **DECISION PROCESS:** Do we know the specific steps to get a signature by the Close Date?
+5. **PAPER PROCESS:** Are legal/procurement aware of this deal?
+
+### BEHAVIOR
+- If the user gives a long answer, acknowledge it briefly ("Okay, that makes sense regarding the Pain.") and immediately pivot to the next missing item ("But who is the Champion pushing this through?").
+- **DO NOT summarize their story back to them.** Just audit the facts.
 
 ### RETURN ONLY JSON
-{ "next_question": "Your natural response here...", "end_of_call": false }
-
-**FORMATTING:** Do NOT use bullet points or real line breaks in the JSON. Use full sentences.`;
+{ "next_question": "Your short, punchy question here.", "end_of_call": false }`;
 }
 
 // --- 4. AGENT ENDPOINT ---
@@ -94,31 +97,29 @@ app.post("/agent", async (req, res) => {
     // --- 5. DATA RETRIEVAL ---
     const dbResult = await pool.query('SELECT * FROM opportunities WHERE id = $1', [oppId]);
     const deal = dbResult.rows[0];
-    const ageInDays = deal ? Math.floor((new Date() - new Date(deal.opp_created_date)) / (1000 * 60 * 60 * 24)) : 0;
     
-   // A. INSTANT GREETING (PROFESSIONAL BROADCAST FLOW)
+    // Calculate Dates
+    const now = new Date();
+    const createdDate = new Date(deal.opp_created_date);
+    const closeDate = deal.close_date ? new Date(deal.close_date) : new Date(now.setDate(now.getDate() + 30)); // Default 30 days out if null
+    
+    const ageInDays = Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24));
+    const daysToClose = Math.floor((closeDate - new Date()) / (1000 * 60 * 60 * 24));
+
+   // A. INSTANT GREETING (AUDIT MODE)
     if (!sessions[callSid]) {
         console.log(`[SERVER] New Session: ${callSid} for Opp ID: ${oppId}`);
 
         const repName = deal.rep_name || "Sales Rep";
-        const benchmarkCycle = deal.seller_avg_cycle || 90; 
-        const benchmarkSize = deal.seller_avg_deal_size || 10000;
-        const isWhale = deal.amount > (benchmarkSize * 1.5);
-        const isStuck = ageInDays > (benchmarkCycle * 1.2);
         const amountSpeech = deal.amount ? `${deal.amount} dollars` : "undisclosed value";
 
-        // 1. The Intro & Agenda
-        const introPart = `Hi ${repName}, This is Matthew from Sales Forecast. We will jump right into our forecast.`;
-        
-        // 2. The Anchor (Account & Money)
-        const contextPart = `Let's start with the ${deal?.account_name || "Unknown"} deal, an opportunity for ${amountSpeech}.`;
+        // Dynamic Urgency Intro
+        let urgency = "";
+        if (daysToClose < 0) urgency = `We are past the close date of ${closeDate.toISOString().split('T')[0]}.`;
+        else if (daysToClose < 30) urgency = `We have ${daysToClose} days left to close.`;
+        else urgency = `We are targeting a close in ${daysToClose} days.`;
 
-        // 3. The Launch
-        let transition = "To kick things off,";
-        if (isWhale) transition = "This is a key deal, so let's be thorough. To kick things off,";
-        else if (isStuck) transition = "It's been open a while, so let's unblock it. To kick things off,";
-
-        const finalGreeting = `${introPart} ${contextPart} ${transition} what is the main problem they are trying to solve?`;
+        const finalGreeting = `Hi ${repName}, this is Matthew from Forecast. Let's validate the ${deal?.account_name} deal for ${amountSpeech}. ${urgency} To start, what is the specific pain driving this purchase?`;
 
         sessions[callSid] = [{ role: "assistant", content: finalGreeting }];
         
@@ -157,31 +158,29 @@ app.post("/agent", async (req, res) => {
         model: "claude-3-haiku-20240307", 
         max_tokens: 1024, 
         temperature: 0,
-        system: agentSystemPrompt(deal, ageInDays), 
+        // Pass the new Close Date Logic
+        system: agentSystemPrompt(deal, ageInDays, daysToClose), 
         messages: messages
       },
       { headers: { "x-api-key": process.env.MODEL_API_KEY.trim(), "anthropic-version": "2023-06-01", "content-type": "application/json" } }
     );
 
-    // E. ROBUST PARSE RESPONSE (FIXED JSON CRASH)
+    // E. ROBUST PARSE RESPONSE
     let rawText = response.data.content[0].text.trim();
     rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
     
     let agentResult = { next_question: "", end_of_call: false };
     
     try {
-        // Attempt 1: Standard Parse
         agentResult = JSON.parse(rawText);
     } catch (e) {
         console.error("⚠️ JSON PARSE FAILED. Attempting Regex Fallback...");
-        // Attempt 2: Regex Extraction (The Life Saver)
         const questionMatch = rawText.match(/"next_question"\s*:\s*"([^"]*)"/);
         const endMatch = rawText.match(/"end_of_call"\s*:\s*(true|false)/);
         
         if (questionMatch) {
             agentResult.next_question = questionMatch[1];
         } else {
-            // Worst case: The AI outputted pure text
             agentResult.next_question = rawText; 
         }
 
