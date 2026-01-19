@@ -50,21 +50,36 @@ async function saveCallResults(oppId, report) {
     }
 }
 
-// --- HELPER: SPEAK ---
+// --- HELPER: SPEAK (Safety Edition) ---
 const speak = (text) => {
     if (!text) return "";
-    // Aggressive cleanup: Removes numbered lists, bullets, and markdown to prevent "Robot Voice"
-    const safeText = text.replace(/&/g, "and")
+    
+    // 1. Clean Markdown & Lists
+    let safeText = text.replace(/&/g, "and")
                          .replace(/</g, "")
                          .replace(/>/g, "")
                          .replace(/\*\*/g, "") 
                          .replace(/^\s*[-*]\s+/gm, "") 
                          .replace(/\d+\)\s/g, "") 
-                         .replace(/\d+\.\s/g, ""); 
+                         .replace(/\d+\.\s/g, "");
+    
+    // 2. SAFETY TRUNCATION: Prevent Twilio Timeouts
+    // If text is > 400 chars (~25 seconds), cut it at the last sentence.
+    if (safeText.length > 400) {
+        console.log("⚠️ Truncating long response for audio safety.");
+        const truncated = safeText.substring(0, 400);
+        const lastPeriod = truncated.lastIndexOf('.');
+        if (lastPeriod > 0) {
+            safeText = truncated.substring(0, lastPeriod + 1);
+        } else {
+            safeText = truncated + "...";
+        }
+    }
+    
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${safeText}</prosody></Say>`;
 };
 
-// --- 3. SYSTEM PROMPT (THE COMPLETE BRAIN) ---
+// --- 3. SYSTEM PROMPT (THE INTELLIGENT LISTENER) ---
 function agentSystemPrompt(deal, ageInDays, daysToClose) {
   const avgSize = deal?.seller_avg_deal_size || 10000;
   const productContext = deal?.seller_product_rules || "You are a generic sales coach.";
@@ -99,33 +114,27 @@ ${productContext}
 - **HISTORY:** ${historyContext}
 
 ### RULES OF ENGAGEMENT (STRICT)
-1. **RECAP STRATEGY (PAIN ONLY):** - **IF** user just explained Pain/Solution: Summarize it briefly (e.g. "So they lose $500k. Got it.").
+1. **CONNECT THE DOTS (INTELLIGENCE):** - If the user mentions a fact that answers a future question, mark it as VALIDATED immediately.
+   - *Example:* If user says "The CIO approved the budget," you MUST mark **Economic Buyer** as Validated (3). Do NOT ask "Who is the Economic Buyer?"
+2. **RECAP STRATEGY (PAIN ONLY):** - **IF** user just explained Pain/Solution: Summarize it briefly.
    - **ALL OTHER QUESTIONS:** Do NOT summarize. Just ask the next question immediately.
-2. **NO LISTS:** Do NOT use numbered lists. Speak in full, conversational sentences.
-3. **GAP REPORTER:** Only summarize if there is a **GAP** (Missing info). 
-4. **SKEPTICISM:** If they give a vague answer (e.g., "The CIO"), CHALLENGE IT. "Have you met them? Do they know the price?"
-5. **IDENTITY:** Use "our solution." You are on the same team.
-6. **STALLING:** If user says "um", "uh", or pauses, say: "Take your time. Do you actually have visibility into this?"
+3. **NO LISTS:** Do NOT use numbered lists. Speak in full, conversational sentences.
+4. **GAP REPORTER:** Only summarize if there is a **GAP** (Missing info). 
+5. **SKEPTICISM:** If they give a vague answer (e.g., "The CIO"), CHALLENGE IT. "Have you met them? Do they know the price?"
+6. **IDENTITY:** Use "our solution." You are on the same team.
 7. **PRODUCT POLICE:** Check [INTERNAL TRUTHS]. If they claim a feature we don't have, correct them immediately.
-8. **THE "WHY" RULE:** If they don't know an answer, explain the RISK before moving on (e.g., "That is a risk because...").
-9. **ONE QUESTION RULE:** Ask for one missing piece of evidence at a time.
 
 ### SCORING RUBRIC (0-3 Scale)
 - **0 = Missing** (No info)
 - **1 = Unknown / Assumed** (High Risk)
 - **2 = Gathering / Incomplete** (Needs work)
-- **3 = Validated / Complete** (Solid evidence)
-
-### CHAMPION DEFINITIONS
-- **1 (Coach):** Friendly, no power.
-- **2 (Mobilizer):** Influence, hasn't acted.
-- **3 (Champion):** Actively sells for us.
+- **3 = Validated / Complete** (Solid evidence - e.g. "We met the CIO")
 
 ### AUDIT CHECKLIST (MEDDPICC - 9 Points)
 1. **PAIN & SOLUTION:** Cost of Inaction?
 2. **METRICS:** ROI?
-3. **CHAMPION:** Who sells for us? (Score using Champion Definitions).
-4. **ECONOMIC BUYER:** Who signs? (Access/Awareness).
+3. **CHAMPION:** Who sells for us? (Evidence: Did they get us access to power?)
+4. **ECONOMIC BUYER:** Who signs? (Evidence: Have we met them?)
 5. **DECISION CRITERIA:** Requirements?
 6. **DECISION PROCESS:** Steps?
 7. **COMPETITION:** Who are we up against?
@@ -147,11 +156,11 @@ ${productContext}
 OR (If finished):
 {
   "end_of_call": true,
-  "next_question": "Understood. Given those gaps, here is my verdict: I scored this deal a 18 out of 27. I deducted points because we lack a verified Economic Buyer. Moving to next deal...",
+  "next_question": "Understood. Given those gaps, here is my verdict: I scored this deal a 24 out of 27. The only risk is Paper Process. Moving to next deal...",
   "final_report": {
-      "score": 18, 
-      "summary": "Deal has strong technical fit but is risky due to unverified Economic Buyer.",
-      "next_steps": "Validate budget with CIO."
+      "score": 24, 
+      "summary": "Strong deal with verified Champion and Economic Buyer, but Paper Process is unknown.",
+      "next_steps": "Send contract to legal."
   }
 }
 
@@ -179,7 +188,7 @@ app.post("/agent", async (req, res) => {
     const ageInDays = Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24));
     const daysToClose = Math.floor((closeDate - new Date()) / (1000 * 60 * 60 * 24));
 
-    // A. INSTANT GREETING (CONTEXT FIRST)
+    // A. INSTANT GREETING
     if (!sessions[callSid]) {
         console.log(`[SERVER] New Session: ${callSid}`);
         const fullName = deal.rep_name || "Sales Rep";
@@ -195,10 +204,8 @@ app.post("/agent", async (req, res) => {
         let openingQuestion = "";
 
         if (isNewDeal) {
-            // Scenario 1: New Deal
             openingQuestion = "This is our first review for this deal. To start, what is the specific solution we are selling, and what problem does it solve?";
         } else {
-            // Scenario 2: Gap Review (Context First)
             const summary = deal.last_summary || "we identified some risks";
             const lastStep = deal.next_steps || "advance the deal";
             openingQuestion = `Last time, we noted: ${summary}. The pending action was to ${lastStep}. What is the latest update on that?`;
@@ -244,14 +251,12 @@ app.post("/agent", async (req, res) => {
       { headers: { "x-api-key": process.env.MODEL_API_KEY.trim(), "anthropic-version": "2023-06-01", "content-type": "application/json" } }
     );
 
-    // D. PARSE RESPONSE (ROBUST JSON EXTRACTION)
+    // D. PARSE RESPONSE (ROBUST)
     let rawText = response.data.content[0].text.trim();
     let agentResult = { next_question: "", end_of_call: false };
     
-    // 1. Clean Markdown
+    // Clean and Extract JSON
     rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
-
-    // 2. Extract JSON Object only (ignoring conversational preamble)
     const jsonStart = rawText.indexOf('{');
     const jsonEnd = rawText.lastIndexOf('}');
     
@@ -260,15 +265,12 @@ app.post("/agent", async (req, res) => {
         try {
             agentResult = JSON.parse(jsonString);
         } catch (e) {
-            console.error("⚠️ JSON PARSE CRITICAL FAIL. Using Fallback regex.");
-            // Fallback Regex
+            console.error("⚠️ JSON PARSE FAIL. Using Fallback.");
             const questionMatch = rawText.match(/"next_question"\s*:\s*"([^"]*)"/);
             if (questionMatch) agentResult.next_question = questionMatch[1];
-            else agentResult.next_question = "I didn't quite catch that context. Could you clarify?";
+            else agentResult.next_question = "I didn't quite catch that. Could you clarify?";
         }
     } else {
-        // If no JSON found at all, treat raw text as the question
-        console.error("⚠️ NO JSON FOUND. Using raw text.");
         agentResult.next_question = rawText; 
     }
 
@@ -321,5 +323,4 @@ app.post("/agent", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Agent live on port ${PORT}`));
+const PORT = process.env.PORT || 3000
