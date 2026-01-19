@@ -1,9 +1,24 @@
 require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
+const { Pool } = require("pg");
 
 const app = express();
 
+// Initialize the Database Connection Pool
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  // This logic allows you to connect locally (SSL off) or on Render (SSL on)
+  ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes("render.com") 
+       ? { rejectUnauthorized: false } 
+       : false
+});
+
+// Basic check to ensure the connection is alive
+pool.query('SELECT NOW()', (err, res) => {
+  if (err) console.error("❌ Database connection error:", err);
+  else console.log("✅ Database connected successfully at:", res.rows[0].now);
+});
 // --- 1. MIDDLEWARE ---
 app.use(express.urlencoded({ extended: true })); 
 app.use(express.json());
