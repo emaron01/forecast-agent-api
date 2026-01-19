@@ -53,16 +53,16 @@ async function saveCallResults(oppId, report) {
 // --- HELPER: SPEAK ---
 const speak = (text) => {
     if (!text) return "";
-    // Remove Markdown bullets that sound robotic
+    // Remove Markdown bullets/bolding that sound robotic
     const safeText = text.replace(/&/g, "and")
                          .replace(/</g, "")
                          .replace(/>/g, "")
-                         .replace(/\*\*/g, "") // Remove bolding stars
-                         .replace(/^\s*[-*]\s+/gm, ""); // Remove list bullets
+                         .replace(/\*\*/g, "") 
+                         .replace(/^\s*[-*]\s+/gm, ""); 
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${safeText}</prosody></Say>`;
 };
 
-// --- 3. SYSTEM PROMPT (THE INTERNAL CONTRACTOR) ---
+// --- 3. SYSTEM PROMPT (THE COMPLETE AUDITOR) ---
 function agentSystemPrompt(deal, ageInDays, daysToClose) {
   const avgSize = deal?.seller_avg_deal_size || 10000;
   const productContext = deal?.seller_product_rules || "You are a generic sales coach.";
@@ -73,7 +73,7 @@ function agentSystemPrompt(deal, ageInDays, daysToClose) {
 
   return `You are "Matthew," a VP of Sales at Sales Forecaster.
 **JOB:** Qualify the deal HARD using MEDDPICC.
-**GOAL:** Do NOT move to the next checklist item until the current one is FULLY VALIDATED.
+**GOAL:** Validate the deal quickly. Don't waste time chatting.
 
 ### INTERNAL TRUTHS (Product Knowledge)
 ${productContext}
@@ -85,12 +85,14 @@ ${productContext}
 - CRM Close Date: ${daysToClose} days from now (${timeContext})
 
 ### RULES OF ENGAGEMENT (STRICT)
-1. **IDENTITY RULE:** You are an internal auditor. Always refer to the product as "**our solution**" or "**our platform**". Never say "your solution".
-2. **NO ROBOTIC LISTS:** Speak naturally. **NEVER use bullet points** in your output. Max 2 sentences at a time.
-3. **ONE QUESTION RULE:** Ask for one missing piece of evidence at a time.
-4. **THE "WHY" RULE:** If the user admits they don't know something, explain the risk before moving on.
-5. **PAIN RULES:** Pain is only real if there is a **cost to doing nothing**.
-6. **PRODUCT POLICE:** If they claim a fake feature (checking Internal Truths), correct them immediately.
+1. **NO RECAPS:** Do NOT summarize what the user just said. Just ask the next question.
+2. **GAP REPORTER:** Only summarize if there is a **GAP** (Missing info). 
+3. **SKEPTICISM:** If they give a vague answer (e.g., "The CIO"), CHALLENGE IT. "Have you met them? Do they know the price?"
+4. **IDENTITY:** Use "our solution." You are on the same team.
+5. **STALLING:** If user says "um", "uh", or pauses, say: "Take your time. Do you actually have visibility into this?"
+6. **CHAMPION RULES:** - *1 (Coach):* Friendly, shares info, but no power.
+   - *2 (Mobilizer):* Has influence, but hasn't acted yet.
+   - *3 (Champion):* Actively sells for us when we aren't there.
 
 ### SCORING RUBRIC (0-3 Scale)
 - **0 = Missing** (No info provided)
@@ -111,23 +113,23 @@ ${productContext}
 
 ### PHASE 2: THE VERDICT (FINAL REPORT)
 - **TRIGGER:** Only after Paper Process is discussed.
-- **OUTPUT:** You MUST return a "final_report" object inside the JSON.
-- **SCORING:** Calculate the SUM of the 9 categories (0-3 scale, Max 27).
-- **SUMMARY:** 2 sentences on the state of the deal.
+- **OUTPUT:** You MUST return a "final_report" object.
+- **SCORING:** Calculate SUM of the 9 categories (0-3 scale, Max 27).
+- **SUMMARY:** 1 sentence explaining *why* the score is high or low.
 - **NEXT STEPS:** The 1 most critical action item.
 
 ### RETURN ONLY JSON
 { 
-  "next_question": "Your short conversational response here.", 
+  "next_question": "Your short response here.", 
   "end_of_call": false 
 }
 OR (If finished):
 {
   "end_of_call": true,
-  "next_question": "Great job. I've updated the forecast. Moving to next deal...",
+  "next_question": "Review complete. I scored this deal a 18 out of 27. I deducted points because we lack a verified Economic Buyer. The next step is to get a meeting with the CIO. Moving to next deal...",
   "final_report": {
       "score": 18, 
-      "summary": "Strong technical fit but Economic Buyer is a risk.",
+      "summary": "Deal has strong technical fit but is risky due to unverified Economic Buyer.",
       "next_steps": "Validate budget with CIO."
   }
 }
@@ -156,21 +158,18 @@ app.post("/agent", async (req, res) => {
     const ageInDays = Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24));
     const daysToClose = Math.floor((closeDate - new Date()) / (1000 * 60 * 60 * 24));
 
-    // A. INSTANT GREETING (HIGH CONTEXT)
+    // A. INSTANT GREETING
     if (!sessions[callSid]) {
         console.log(`[SERVER] New Session: ${callSid}`);
-        
         const fullName = deal.rep_name || "Sales Rep";
         const firstName = fullName.split(' ')[0];
         const account = deal.account_name || "Unknown Account";
         const oppName = deal.opportunity_name || "the deal";
         const stage = deal.deal_stage || "Open";
         const amountSpeech = deal.amount ? `${deal.amount} dollars` : "undisclosed revenue";
-        
         const dateOptions = { month: 'long', day: 'numeric', year: 'numeric' };
         const closeDateSpeech = closeDate.toLocaleDateString('en-US', dateOptions);
 
-        // THE GREETING: Hardcoded "Sales Forecaster" + High Context Data
         const finalGreeting = `Hi ${firstName}, this is Matthew from Sales Forecaster. Let's jump into your forecast by discussing ${account}, ${oppName}, in ${stage} for ${amountSpeech}, with a close date of ${closeDateSpeech}. To start, what is the specific solution we are selling, and what problem does it solve?`;
 
         sessions[callSid] = [{ role: "assistant", content: finalGreeting }];
@@ -233,7 +232,7 @@ app.post("/agent", async (req, res) => {
     console.log("🗣️ USER:", transcript);
     console.log("🧠 MATTHEW:", agentResult.next_question);
 
-    // E. OUTPUT
+    // E. OUTPUT & REDIRECT
     if (agentResult.end_of_call) {
         let finalSpeech = agentResult.next_question;
         
