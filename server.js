@@ -30,20 +30,26 @@ async function incrementRunCount(oppId) {
     }
 }
 
-// --- ANALYTICS ENGINE ---
+// --- ANALYTICS ENGINE (PARANOIA PROOF) ---
 async function saveCallResults(oppId, report) {
     try {
-        const { score, summary, next_steps } = report;
+        // NULL SAFETY: Default to null if AI forgets a field to prevent crash
+        const score = report.score !== undefined ? report.score : null;
+        const summary = report.summary || "No summary provided.";
+        const next_steps = report.next_steps || "Review deal manually.";
+        const audit_details = report.audit_details || null;
+        
         const query = `
             UPDATE opportunities 
             SET 
                 current_score = $1,
                 initial_score = COALESCE(initial_score, $1), 
                 last_summary = $2,
-                next_steps = $3
-            WHERE id = $4
+                next_steps = $3,
+                audit_details = $4
+            WHERE id = $5
         `;
-        await pool.query(query, [score, summary, next_steps, oppId]);
+        await pool.query(query, [score, summary, next_steps, audit_details, oppId]);
         console.log(`💾 Analytics Saved for Deal ${oppId}: Score ${score}/27`);
     } catch (err) {
         console.error("❌ Failed to save analytics:", err);
@@ -63,23 +69,16 @@ const speak = (text) => {
                          .replace(/\d+\)\s/g, "") 
                          .replace(/\d+\.\s/g, "");
     
-    // 2. SAFETY TRUNCATION: Prevent Twilio Timeouts
-    // If text is > 400 chars (~25 seconds), cut it at the last sentence.
-    if (safeText.length > 400) {
+    // 2. SAFETY TRUNCATION (Global Emergency Brake)
+    if (safeText.length > 800) {
         console.log("⚠️ Truncating long response for audio safety.");
-        const truncated = safeText.substring(0, 400);
-        const lastPeriod = truncated.lastIndexOf('.');
-        if (lastPeriod > 0) {
-            safeText = truncated.substring(0, lastPeriod + 1);
-        } else {
-            safeText = truncated + "...";
-        }
+        safeText = safeText.substring(0, 800) + "...";
     }
     
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${safeText}</prosody></Say>`;
 };
 
-// --- 3. SYSTEM PROMPT (THE INTELLIGENT LISTENER) ---
+// --- 3. SYSTEM PROMPT (THE DATA MINER) ---
 function agentSystemPrompt(deal, ageInDays, daysToClose) {
   const avgSize = deal?.seller_avg_deal_size || 10000;
   const productContext = deal?.seller_product_rules || "You are a generic sales coach.";
@@ -115,14 +114,14 @@ ${productContext}
 
 ### RULES OF ENGAGEMENT (STRICT)
 1. **CONNECT THE DOTS (INTELLIGENCE):** - If the user mentions a fact that answers a future question, mark it as VALIDATED immediately.
-   - *Example:* If user says "The CIO approved the budget," you MUST mark **Economic Buyer** as Validated (3). Do NOT ask "Who is the Economic Buyer?"
-2. **RECAP STRATEGY (PAIN ONLY):** - **IF** user just explained Pain/Solution: Summarize it briefly.
-   - **ALL OTHER QUESTIONS:** Do NOT summarize. Just ask the next question immediately.
-3. **NO LISTS:** Do NOT use numbered lists. Speak in full, conversational sentences.
-4. **GAP REPORTER:** Only summarize if there is a **GAP** (Missing info). 
-5. **SKEPTICISM:** If they give a vague answer (e.g., "The CIO"), CHALLENGE IT. "Have you met them? Do they know the price?"
-6. **IDENTITY:** Use "our solution." You are on the same team.
-7. **PRODUCT POLICE:** Check [INTERNAL TRUTHS]. If they claim a feature we don't have, correct them immediately.
+   - *Example:* "The CIO approved the budget" -> Mark **Economic Buyer** as Validated (3).
+2. **GAP MODE BEHAVIOR:** If this is a GAP REVIEW, do **NOT** ask about Pain/Metrics/Champion unless they are specifically listed in **HISTORY** as Gaps.
+3. **NON-ANSWERS:** If user says "Okay", "Sure", or "I don't know" to an update question, **RE-ASK IT**. Do not move on until you get the update.
+4. **RECAP STRATEGY (PAIN ONLY):** Summarize Pain briefly for empathy. Do NOT summarize anything else.
+5. **NO LISTS:** Do NOT use numbered lists. Speak in full, conversational sentences.
+6. **SKEPTICISM:** If they give a vague answer (e.g., "The CIO"), CHALLENGE IT. "Have you met them? Do they know the price?"
+7. **IDENTITY:** Use "our solution." You are on the same team.
+8. **PRODUCT POLICE:** Check [INTERNAL TRUTHS]. If they claim a feature we don't have, correct them immediately.
 
 ### SCORING RUBRIC (0-3 Scale)
 - **0 = Missing** (No info)
@@ -145,8 +144,7 @@ ${productContext}
 - **TRIGGER:** Only after Gaps are checked.
 - **OUTPUT:** You MUST return a "final_report" object.
 - **SCORING:** Calculate SUM of the 9 categories (0-3 scale, Max 27).
-- **SUMMARY:** 1 sentence explaining the score.
-- **NEXT STEPS:** The 1 most critical action item.
+- **DETAILS:** You MUST extract specific names (Champion, EB) and score each category individually.
 
 ### RETURN ONLY JSON
 { 
@@ -160,11 +158,24 @@ OR (If finished):
   "final_report": {
       "score": 24, 
       "summary": "Strong deal with verified Champion and Economic Buyer, but Paper Process is unknown.",
-      "next_steps": "Send contract to legal."
+      "next_steps": "Send contract to legal.",
+      "audit_details": {
+          "champion_name": "Bob Smith",
+          "economic_buyer_name": "Susan (CIO)",
+          "pain_score": 3,
+          "metrics_score": 3,
+          "champion_score": 3,
+          "economic_buyer_score": 3,
+          "decision_criteria_score": 2,
+          "decision_process_score": 2,
+          "competition_score": 3,
+          "timeline_score": 3,
+          "paper_process_score": 0
+      }
   }
 }
 
-**FORMATTING:** Output ONLY valid JSON. No conversational filler outside the JSON block.`;
+**FORMATTING:** Output ONLY valid JSON. No conversational filler.`;
 }
 
 // --- 4. AGENT ENDPOINT ---
@@ -188,7 +199,7 @@ app.post("/agent", async (req, res) => {
     const ageInDays = Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24));
     const daysToClose = Math.floor((closeDate - new Date()) / (1000 * 60 * 60 * 24));
 
-    // A. INSTANT GREETING
+    // A. INSTANT GREETING (SMART TRUNCATION)
     if (!sessions[callSid]) {
         console.log(`[SERVER] New Session: ${callSid}`);
         const fullName = deal.rep_name || "Sales Rep";
@@ -206,9 +217,18 @@ app.post("/agent", async (req, res) => {
         if (isNewDeal) {
             openingQuestion = "This is our first review for this deal. To start, what is the specific solution we are selling, and what problem does it solve?";
         } else {
-            const summary = deal.last_summary || "we identified some risks";
+            // 1. Get Summary
+            let summary = deal.last_summary || "we identified some risks";
+            
+            // 2. Chop Summary ONLY (Leaving 400 chars is plenty context)
+            if (summary.length > 400) {
+                summary = summary.substring(0, 400) + "...";
+            }
+            
             const lastStep = deal.next_steps || "advance the deal";
-            openingQuestion = `Last time, we noted: ${summary}. The pending action was to ${lastStep}. What is the latest update on that?`;
+            
+            // 3. Attach Question (Guaranteed safe)
+            openingQuestion = `Last time we noted: ${summary}. The pending action was to ${lastStep}. What is the latest update on that?`;
         }
 
         const finalGreeting = `Hi ${firstName}, this is Matthew from Sales Forecaster. Let's look at ${account}, ${oppName}, in ${stage} for ${amountSpeech}, closing ${closeDateSpeech}. ${openingQuestion}`;
@@ -251,7 +271,7 @@ app.post("/agent", async (req, res) => {
       { headers: { "x-api-key": process.env.MODEL_API_KEY.trim(), "anthropic-version": "2023-06-01", "content-type": "application/json" } }
     );
 
-    // D. PARSE RESPONSE (ROBUST)
+    // D. PARSE RESPONSE
     let rawText = response.data.content[0].text.trim();
     let agentResult = { next_question: "", end_of_call: false };
     
