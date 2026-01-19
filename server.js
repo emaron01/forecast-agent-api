@@ -96,45 +96,55 @@ const speak = (text) => {
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${safeXml}</prosody></Say>`;
 };
 
-// --- 3. SYSTEM PROMPT (STAGE AWARENESS & STEALTH PROTOCOL) ---
+// --- 3. SYSTEM PROMPT (PERSONALITY & LOGIC UPGRADE) ---
 function agentSystemPrompt(deal, ageInDays, daysToClose) {
   const avgSize = deal?.seller_avg_deal_size || 10000;
-  const productContext = deal?.seller_product_rules || "You are a generic sales coach.";
-  const stage = deal?.deal_stage || "Discovery";
+  // Product Logic: Use DB value or fallback
+  const productContext = deal?.seller_product_rules || "PRODUCT: Unknown. Ask the user what they are selling.";
+  // We use 'deal_stage' column as Forecast Category
+  const category = deal?.deal_stage || "Pipeline";
   
-  // STAGE DEFINITIONS
-  const isEarlyStage = ["Discovery", "Pipeline", "Qualification", "Prospecting"].includes(stage);
-  const isMidStage = ["Best Case", "Upside", "Solution Validation"].includes(stage);
-  const isLateStage = ["Commit", "Closing", "Negotiation"].includes(stage);
-
-  // HISTORY LOGIC
+  const isPipeline = ["Pipeline", "Discovery", "Qualification", "Prospecting"].includes(category);
+  const isBestCase = ["Best Case", "Upside", "Solution Validation"].includes(category);
+  const isCommit = ["Commit", "Closing", "Negotiation"].includes(category);
+  
   const isNewDeal = deal.initial_score == null;
   const historyContext = !isNewDeal 
-    ? `PREVIOUS SCORE: ${deal.current_score}/27. GAPS: "${deal.last_summary}". PENDING: "${deal.next_steps}".`
+    ? `PREVIOUS SCORE: ${deal.current_score}/27. HISTORY SUMMARY: "${deal.last_summary}".`
     : "NO HISTORY. Fresh qualification.";
 
-  // DYNAMIC INSTRUCTIONS BASED ON STAGE
-  let stageInstructions = "";
-  if (isEarlyStage) {
-      stageInstructions = `
-      **CURRENT STAGE: EARLY (${stage}).**
-      - **FOCUS:** Is the pain real? Do we have a Champion?
-      - **SKIP:** Do NOT ask about Paper Process, Procurement, or deep Timeline details. It is too early.
-      - **EXPECTATION:** Scores will be lower (10-15 is okay). Don't force a high score.`;
-  } else if (isMidStage) {
-      stageInstructions = `
-      **CURRENT STAGE: MID (${stage}).**
-      - **FOCUS:** Can we win? (Economic Buyer, Decision Criteria).
-      - **CHECK:** Start asking lightly about the Decision Process.`;
+  let instructions = "";
+  
+  if (isPipeline) {
+      instructions = `
+      **FORECAST: PIPELINE (The Enthusiastic Hunter).** - **TONE:** Polite, enthusiastic, encouraging.
+      - **FOCUS:** Broad questions ("What problem are we solving?", "Who is the Champion?").
+      - **FORBIDDEN:** Do NOT ask about Paper Process, Legal, or Redlines. It is too early.
+      - **GOAL:** Validate that the deal is *real*, not that it is closing.`;
+      
+  } else if (isBestCase) {
+      instructions = `
+      **FORECAST: BEST CASE (The Gap Hunter).**
+      - **TONE:** Professional, focused, efficient.
+      - **FOCUS:** Look at the [HISTORY]. If a category was previously a "3", IGNORE IT. Only attack the "1s" and "2s".
+      - **GOAL:** Find the missing link that prevents this from being a Commit.`;
+      
   } else {
-      stageInstructions = `
-      **CURRENT STAGE: LATE (${stage}).**
-      - **FOCUS:** When will it close? (Strict Audit on Paper Process & Timeline).
-      - **EXPECTATION:** Scores must be high (20+). Grill the user on any gaps.`;
+      // COMMIT LOGIC - Check for Score Mismatch
+      const scoreConcern = (deal.current_score && deal.current_score < 22) 
+        ? "WARNING: This deal is in COMMIT but the score is low (<22). Challenge the rep on why they are so confident." 
+        : "";
+
+      instructions = `
+      **FORECAST: COMMIT (The Closer).**
+      - **TONE:** Strict, direct, no-nonsense.
+      - **FOCUS:** Paper Process, Timeline, Signatures.
+      - **SPECIAL RULE:** ${scoreConcern}
+      - **GOAL:** Verify the close date is real. If they are vague, mark it down.`;
   }
 
   const goalInstruction = isNewDeal
-    ? `**GOAL:** NEW DEAL. Audit based on ${stage} rules.`
+    ? `**GOAL:** NEW DEAL. Audit based on ${category} rules.`
     : "**GOAL:** GAP REVIEW. Focus ONLY on risks from History.";
 
   let timeContext = "Timeline is healthy.";
@@ -142,36 +152,34 @@ function agentSystemPrompt(deal, ageInDays, daysToClose) {
   else if (daysToClose < 30) timeContext = "CRITICAL: CRM says deal closes in less than 30 days.";
 
   return `You are "Matthew," a VP of Sales at Sales Forecaster.
-**JOB:** Qualify the deal based on its STAGE.
+**JOB:** Qualify the deal based on its FORECAST CATEGORY.
 ${goalInstruction}
 
-### INTERNAL TRUTHS
+### PRODUCT CONTEXT (WHAT WE SELL)
 ${productContext}
 
 ### LIVE DEAL CONTEXT
 - Prospect: ${deal?.account_name}
-- Stage: ${stage}
+- Forecast Category: ${category}
 - Value: $${deal?.amount} (Avg: $${avgSize})
 - Age: ${ageInDays} days
 - CRM Close Date: ${daysToClose} days from now (${timeContext})
 - **HISTORY:** ${historyContext}
 
-### STAGE RULES (CRITICAL)
-${stageInstructions}
+### FORECAST RULES (CRITICAL)
+${instructions}
 
 ### RULES OF ENGAGEMENT (STEALTH PROTOCOL)
-1. **FORBIDDEN WORDS:** Do NOT use words like "MEDDPICC", "Audit", "Category", "Score", or "Rubric" in speech.
-2. **NO ROBOT LABELS:** Do NOT say "Next is Economic Buyer." Just ask the question naturally (e.g., "Who signs the check?").
+1. **NO PRE-SUMMARY:** Do NOT summarize the deal verbally. When finished, output the JSON immediately.
+2. **CLEAN ENDING:** In your final 'next_question', give the verdict ONLY. Do NOT say "Moving to next deal."
 3. **INVISIBLE MATH:** Calculate scores silently. Never speak them.
-4. **CONNECT THE DOTS:** If user mentions a fact, mark it VALIDATED silently.
-5. **GAP MODE:** If GAP REVIEW, do **NOT** ask about things we already know. Only target the Gaps.
-6. **NON-ANSWERS:** If user says "Okay" or "Sure", **RE-ASK** the question.
-7. **PRODUCT POLICE:** Check [INTERNAL TRUTHS]. Correct lies immediately.
-8. **RECAP STRATEGY:** Summarize Pain briefly for empathy. Do NOT summarize anything else.
-9. **NO LISTS:** Speak in full conversational sentences.
+4. **NO ROBOT LABELS:** Just ask the question naturally.
+5. **PRODUCT POLICE:** Check [PRODUCT CONTEXT]. Correct lies immediately.
+6. **NON-ANSWERS:** If user says "Okay", **RE-ASK** the question.
+7. **RECAP STRATEGY:** Summarize Pain briefly for empathy. Do NOT summarize anything else.
 
 ### CHAMPION DEFINITIONS (USE FOR SCORING)
-- **1 (Coach):** Friendly, but no power.
+- **1 (Coach):** Friendly, but no power to sign or spend.
 - **2 (Mobilizer):** Has influence, but hasn't acted.
 - **3 (Champion):** Has Power AND is actively selling for us.
 
@@ -182,7 +190,7 @@ ${stageInstructions}
 - **3 = Validated / Complete** (Solid evidence)
 
 ### PHASE 2: THE VERDICT
-- **TRIGGER:** Only after Gaps are checked.
+- **TRIGGER:** When you have checked the key areas for this Category.
 - **OUTPUT:** You MUST return a "final_report" object.
 - **DETAILS:** Extract specific names and score each category individually in the JSON.
 
@@ -194,23 +202,23 @@ ${stageInstructions}
 OR (If finished):
 {
   "end_of_call": true,
-  "next_question": "Understood. Verdict: 12/27. Good start for a Discovery deal. Moving to next deal...",
+  "next_question": "Understood. Verdict: 24/27. Solid Commit deal.",
   "final_report": {
-      "score": 12, 
-      "summary": "Early stage deal. Pain is clear, but Paper Process is (correctly) unknown.",
-      "next_steps": "Secure meeting with EB.",
+      "score": 24, 
+      "summary": "Commit deal. Only risk is Paper Process.",
+      "next_steps": "Close.",
       "audit_details": {
           "champion_name": "Bob",
           "economic_buyer_name": "Susan",
           "pain_score": 3,
           "metrics_score": 3,
           "champion_score": 3,
-          "economic_buyer_score": 1,
-          "decision_criteria_score": 1,
-          "decision_process_score": 1,
-          "competition_score": 0,
-          "timeline_score": 0,
-          "paper_process_score": 0
+          "economic_buyer_score": 3,
+          "decision_criteria_score": 3,
+          "decision_process_score": 3,
+          "competition_score": 3,
+          "timeline_score": 3,
+          "paper_process_score": 1
       }
   }
 }
@@ -222,7 +230,7 @@ OR (If finished):
 app.post("/agent", async (req, res) => {
   try {
     const currentOppId = parseInt(req.query.oppId || 4);
-    const isTransition = req.query.transition === 'true'; // CHECK TRANSITION FLAG
+    const isTransition = req.query.transition === 'true'; 
     
     const callSid = req.body.CallSid || "test_session";
     const transcript = req.body.transcript || req.body.SpeechResult || "";
@@ -248,12 +256,20 @@ app.post("/agent", async (req, res) => {
         const firstName = fullName.split(' ')[0];
         const account = deal.account_name || "Unknown Account";
         const oppName = deal.opportunity_name || "the deal";
-        const stage = deal.deal_stage || "Open";
+        // 'deal_stage' is now 'Forecast Category'
+        const category = deal.deal_stage || "Pipeline";
         const amountSpeech = deal.amount ? `${deal.amount} dollars` : "undisclosed revenue";
         const closeDateSpeech = closeDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
+        // COUNT DEALS FOR GREETING
+        const countRes = await pool.query('SELECT COUNT(*) FROM opportunities WHERE id >= $1', [currentOppId]);
+        const dealsLeft = countRes.rows[0].count;
+
         const isNewDeal = deal.initial_score == null;
         let openingQuestion = "";
+
+        // Check if we have product context
+        const productContext = deal.seller_product_rules ? "" : " (Note: I don't know what we sell yet)";
 
         if (isNewDeal) {
             openingQuestion = "To start, what is the specific solution we are selling, and what problem does it solve?";
@@ -264,19 +280,21 @@ app.post("/agent", async (req, res) => {
             openingQuestion = `Last time we noted: ${summary}. The pending action was to ${lastStep}. What is the latest update on that?`;
         }
 
-        // --- TRANSITION LOGIC ---
-        let greetingPreamble = `Hi ${firstName}, this is Matthew from Sales Forecaster.`;
+        // --- GREETING LOGIC ---
+        let finalGreeting = "";
+        
         if (isTransition) {
-            greetingPreamble = "Okay, moving on."; 
+            finalGreeting = `Okay, next up is ${account}, ${oppName}. This is in ${category} for ${amountSpeech}, closing ${closeDateSpeech}. ${openingQuestion}`;
+        } else {
+            finalGreeting = `Hi ${firstName}, this is Matthew from Sales Forecaster. We are going to review ${dealsLeft} deals today. Let's start with ${account}, ${oppName}. This is in ${category} for ${amountSpeech}, closing ${closeDateSpeech}. ${openingQuestion}`;
         }
-
-        const finalGreeting = `${greetingPreamble} Let's look at ${account}, ${oppName}, in ${stage} for ${amountSpeech}, closing ${closeDateSpeech}. ${openingQuestion}`;
 
         sessions[callSid] = [{ role: "assistant", content: finalGreeting }];
         
+        // INTERRUPT FIX: speechTimeout="auto"
         const twiml = `
             <Response>
-                <Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="2.5" enhanced="false" actionOnEmptyResult="true">
+                <Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="auto" enhanced="false" actionOnEmptyResult="true">
                     ${speak(finalGreeting)}
                 </Gather>
             </Response>
@@ -292,7 +310,7 @@ app.post("/agent", async (req, res) => {
       const lastBotMessage = messages[messages.length - 1].content;
       return res.send(`
         <Response>
-          <Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="2.5" enhanced="false" actionOnEmptyResult="true">
+          <Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="auto" enhanced="false" actionOnEmptyResult="true">
              ${speak("I didn't hear you. " + lastBotMessage)}
           </Gather>
         </Response>
@@ -355,9 +373,8 @@ app.post("/agent", async (req, res) => {
             
             if (nextDealResult.rows.length > 0) {
                  const nextOpp = nextDealResult.rows[0];
-                 const transitionSpeech = `${finalSpeech} Moving on to the next deal: ${nextOpp.account_name}. Stand by.`;
+                 const transitionSpeech = `${finalSpeech} Let's move to the next opportunity. Let me pull it up.`;
                  delete sessions[callSid]; 
-                 // PASSING TRANSITION FLAG
                  const twiml = `
                     <Response>
                         ${speak(transitionSpeech)}
@@ -366,13 +383,13 @@ app.post("/agent", async (req, res) => {
                  `;
                  return res.send(twiml);
             } else {
-                 finalSpeech += " That was the last deal. Good luck.";
+                 finalSpeech += " That was the last deal in your forecast. Good luck.";
                  return res.send(`<Response>${speak(finalSpeech)}<Hangup/></Response>`);
             }
         } else {
             const twiml = `
                 <Response>
-                    <Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="2.5" enhanced="false" actionOnEmptyResult="true">
+                    <Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="auto" enhanced="false" actionOnEmptyResult="true">
                         ${speak(agentResult.next_question)}
                     </Gather>
                 </Response>
@@ -384,7 +401,7 @@ app.post("/agent", async (req, res) => {
         console.error("⚠️ LLM TIMEOUT OR ERROR:", apiError.message);
         return res.send(`
             <Response>
-                <Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="2.5" enhanced="false" actionOnEmptyResult="true">
+                <Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="auto" enhanced="false" actionOnEmptyResult="true">
                     ${speak("I'm calculating the metrics. Let's move to the next step. What is your timeline?")}
                 </Gather>
             </Response>
