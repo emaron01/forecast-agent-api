@@ -30,6 +30,29 @@ async function incrementRunCount(oppId) {
     }
 }
 
+async function saveCallResults(oppId, report) {
+    try {
+        const { score, summary, next_steps } = report;
+        
+        // LOGIC: If initial_score is NULL, set it. Otherwise, keep it. Always update current_score.
+        // This preserves the "Starting Point" so you can show improvement in analytics.
+        const query = `
+            UPDATE opportunities 
+            SET 
+                current_score = $1,
+                initial_score = COALESCE(initial_score, $1), 
+                last_summary = $2,
+                next_steps = $3
+            WHERE id = $4
+        `;
+        
+        await pool.query(query, [score, summary, next_steps, oppId]);
+        console.log(`💾 Analytics Saved for Deal ${oppId}: Score ${score}/100`);
+    } catch (err) {
+        console.error("❌ Failed to save analytics:", err);
+    }
+}
+
 // --- HELPER: SPEAK ---
 const speak = (text) => {
     if (!text) return "";
@@ -37,22 +60,18 @@ const speak = (text) => {
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${safeText}</prosody></Say>`;
 };
 
-// --- 3. SYSTEM PROMPT (STRICT MEDDPICC FLOW) ---
+// --- 3. SYSTEM PROMPT (THE ANALYST) ---
 function agentSystemPrompt(deal, ageInDays, daysToClose) {
   const avgSize = deal?.seller_avg_deal_size || 10000;
   const productContext = deal?.seller_product_rules || "You are a generic sales coach.";
   
-  // Urgency Context
   let timeContext = "Timeline is healthy.";
   if (daysToClose < 0) timeContext = "WARNING: Deal is past due date in CRM.";
   else if (daysToClose < 30) timeContext = "CRITICAL: CRM says deal closes in less than 30 days.";
 
-  return `You are "Matthew," a VP of Sales and Strategic Coach for ${deal?.seller_website || "our company"}. 
-
-### YOUR GOAL
-Validate the forecast using a strict methodology.
-1. **Audit:** Find the gaps.
-2. **Educate:** If a rep misses a step, explain *why* it is a risk.
+  return `You are "Matthew," a VP of Sales. 
+**JOB:** Qualify the deal HARD. Do not accept surface-level answers.
+**GOAL:** Do NOT move to the next checklist item until the current one is FULLY VALIDATED.
 
 ### INTERNAL TRUTHS (PRODUCT KNOWLEDGE)
 ${productContext}
@@ -64,79 +83,89 @@ ${productContext}
 - CRM Close Date (PO Date): ${daysToClose} days from now (${timeContext})
 
 ### RULES OF ENGAGEMENT
-1. **INVISIBLE STRUCTURE:** Do NOT announce the category names (e.g., "Now let's move to Metrics"). Just ask the natural next question.
-2. **THE GAP TRAP (TIMELINE):** If the Close Date is NOW, but the Project Date is LATER (e.g., Next Year), be skeptical. Ask: "Why spend the money now if they don't need it until next year?"
+1. **NO INTERRUPTIONS:** Listen fully. If the answer is messy, ask a clarifying question.
+2. **SKEPTICISM (MANDATORY):**
+   - **CHAMPION:** If they give a Name/Title, ASK: "Have you tested them? Do they have a personal win in this?"
+   - **ECONOMIC BUYER:** If they say "The CIO," ASK: "Have we met the CIO? Do they know the price?"
 3. **ONE QUESTION RULE:** Ask for one missing piece of evidence at a time.
 4. **THE "WHY" RULE:** If the user admits they don't know something, explain the risk.
-5. **STALLING:** If user says "um", "uh", or pauses: "Take your time. Do you actually have visibility into this?"
-6. **PRODUCT POLICE:** If they claim a fake feature, correct them.
 
-### THE AUDIT CHECKLIST (Follow this exact order)
-1. **PAIN & SOLUTION:** What exactly are we selling them, and what specific problem does it solve? Why are they buying NOW? (Cost of Inaction).
+### THE AUDIT CHECKLIST (STRICT ORDER)
+1. **PAIN & SOLUTION:** What broken process are we fixing, and what is the Cost of Inaction?
 2. **METRICS:** ROI / Business Case?
-3. **CHAMPION:** Who is selling for us when we aren't there? (Score 1-3).
-4. **ECONOMIC BUYER:** Who owns the budget and signs the deal?
-5. **DECISION PROCESS:** What are the specific steps to win?
+3. **CHAMPION:** Who sells for us? (MUST VALIDATE: Access? Influence? Tested?)
+4. **ECONOMIC BUYER:** Who signs? (MUST VALIDATE: Met them? Aware of price?)
+5. **DECISION PROCESS:** Steps to win?
 6. **COMPETITION:** Who are we up against?
-7. **TIMELINE:** Work backwards from the Close Date vs. Project Date. (Check for Gap Trap).
-8. **PAPER PROCESS:** Procurement and Legal steps?
+7. **TIMELINE:** Work backwards from the Close Date.
+8. **PAPER PROCESS:** Legal/Procurement steps?
 
-### PHASE 2: THE VERDICT
+### PHASE 2: THE VERDICT (FINAL REPORT)
 - **TRIGGER:** Only after Paper Process is discussed.
-- **OUTPUT:** Give a summary score and the #1 Key Risk.
-- Set "end_of_call": true.
+- **OUTPUT:** You MUST return a "final_report" object.
+- **SCORING:** 0-100 Health Score (0=Dead, 100=Signed).
+- **SUMMARY:** 2 sentences on the state of the deal.
+- **NEXT STEPS:** The 1 most critical action item.
 
 ### RETURN ONLY JSON
-{ "next_question": "Your response here.", "end_of_call": false }
+{ 
+  "next_question": "Your response here.", 
+  "end_of_call": false 
+}
+OR (If finished):
+{
+  "end_of_call": true,
+  "next_question": "Great job. I've updated the forecast. Moving to next deal...",
+  "final_report": {
+      "score": 75,
+      "summary": "Deal is strong technically but lacks Economic Buyer access.",
+      "next_steps": "Schedule meeting with CIO to confirm budget."
+  }
+}
 
-**FORMATTING:** Output valid, single-line JSON only. Do NOT use newlines or bullet points inside the JSON.`;
+**FORMATTING:** Output valid, single-line JSON only.`;
 }
 
 // --- 4. AGENT ENDPOINT ---
 app.post("/agent", async (req, res) => {
   try {
-    const oppId = req.query.oppId || 4; 
+    // 1. Get Setup
+    const currentOppId = parseInt(req.query.oppId || 4); 
     const callSid = req.body.CallSid || "test_session";
     const transcript = req.body.transcript || req.body.SpeechResult || "";
 
     if (!transcript) {
-        console.log(`--- New Audit Session: Opp ID ${oppId} ---`);
-        await incrementRunCount(oppId);
+        console.log(`--- New Audit Session: Opp ID ${currentOppId} ---`);
+        await incrementRunCount(currentOppId);
     }
 
-    // --- 5. DATA RETRIEVAL ---
-    const dbResult = await pool.query('SELECT * FROM opportunities WHERE id = $1', [oppId]);
+    // 2. Fetch Deal Data
+    const dbResult = await pool.query('SELECT * FROM opportunities WHERE id = $1', [currentOppId]);
     const deal = dbResult.rows[0];
-    
-    // Calculate Dates
+
+    // Dates
     const now = new Date();
     const createdDate = new Date(deal.opp_created_date);
-    // Default Close Date Logic
     const closeDate = deal.close_date ? new Date(deal.close_date) : new Date(now.setDate(now.getDate() + 30)); 
-    
     const ageInDays = Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24));
     const daysToClose = Math.floor((closeDate - new Date()) / (1000 * 60 * 60 * 24));
 
-   // A. INSTANT GREETING (AUDIT MODE)
+    // A. INSTANT GREETING (PERSONALIZED)
     if (!sessions[callSid]) {
-        console.log(`[SERVER] New Session: ${callSid} for Opp ID: ${oppId}`);
-
-        const repName = deal.rep_name || "Sales Rep";
+        console.log(`[SERVER] New Session: ${callSid}`);
+        
+        // PULL REP NAME FROM DB
+        const repName = deal.rep_name || "Sales Rep"; 
         const amountSpeech = deal.amount ? `${deal.amount} dollars` : "undisclosed value";
-
-        // Dynamic Urgency Intro
-        let urgency = "";
-        if (daysToClose < 0) urgency = `We are past the close date.`;
-        else if (daysToClose < 30) urgency = `We have ${daysToClose} days left to close.`;
-        else urgency = `We are targeting a close in ${daysToClose} days.`;
-
-        const finalGreeting = `Hi ${repName}, this is Matthew from Forecast. Let's validate the ${deal?.account_name} deal for ${amountSpeech}. ${urgency} To start, what is the specific solution we are selling, and what problem does it solve for them?`;
+        
+        const finalGreeting = `Hi ${repName}, this is Matthew. Let's forecast the ${deal?.account_name} deal for ${amountSpeech}. To start, what is the specific solution we are selling, and what problem does it solve?`;
 
         sessions[callSid] = [{ role: "assistant", content: finalGreeting }];
         
+        // 2.5s Timeout for "Human-like" listening
         return res.send(`
             <Response>
-                <Gather input="speech" action="/agent?oppId=${oppId}" method="POST" speechTimeout="1.0" enhanced="false">
+                <Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="2.5" enhanced="false">
                     ${speak(finalGreeting)}
                 </Gather>
             </Response>
@@ -150,19 +179,14 @@ app.post("/agent", async (req, res) => {
     } else {
       return res.send(`
         <Response>
-          <Gather input="speech" action="/agent?oppId=${oppId}" method="POST" speechTimeout="1.0" enhanced="false">
-             ${speak("I didn't catch that. Could you say it again?")}
+          <Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="2.5" enhanced="false">
+             ${speak("I was listening, but didn't catch that. Could you say it again?")}
           </Gather>
         </Response>
       `);
     }
 
-    // C. SAFETY SWITCH
-    if (messages.length >= 30 && !messages.some(m => m.content.includes("Out of time"))) {
-       messages.push({ role: "user", content: "Out of time. Give me the verbal summary and score, then say Goodbye." });
-    }
-
-    // D. CALL ANTHROPIC API
+    // C. CALL AI
     const response = await axios.post(
       "https://api.anthropic.com/v1/messages",
       {
@@ -175,31 +199,21 @@ app.post("/agent", async (req, res) => {
       { headers: { "x-api-key": process.env.MODEL_API_KEY.trim(), "anthropic-version": "2023-06-01", "content-type": "application/json" } }
     );
 
-    // E. ROBUST PARSE RESPONSE
-    let rawText = response.data.content[0].text.trim();
-    rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
-    
+    // D. PARSE RESPONSE
+    let rawText = response.data.content[0].text.trim().replace(/```json/g, "").replace(/```/g, "").trim();
     let agentResult = { next_question: "", end_of_call: false };
     
     try {
         agentResult = JSON.parse(rawText);
     } catch (e) {
-        console.error("⚠️ JSON PARSE FAILED. Attempting Regex Fallback...");
+        console.error("⚠️ JSON PARSE FAILED. Fallback...");
         const questionMatch = rawText.match(/"next_question"\s*:\s*"([^"]*)"/);
         const endMatch = rawText.match(/"end_of_call"\s*:\s*(true|false)/);
-        
-        if (questionMatch) {
-            agentResult.next_question = questionMatch[1];
-        } else {
-            agentResult.next_question = rawText; 
-        }
-
-        if (endMatch) {
-            agentResult.end_of_call = endMatch[1] === "true";
-        }
+        if (questionMatch) agentResult.next_question = questionMatch[1];
+        else agentResult.next_question = rawText; 
+        if (endMatch) agentResult.end_of_call = endMatch[1] === "true";
     }
 
-    // F. SAVE HISTORY
     messages.push({ role: "assistant", content: rawText });
     sessions[callSid] = messages;
     
@@ -207,20 +221,44 @@ app.post("/agent", async (req, res) => {
     console.log("🗣️ USER:", transcript);
     console.log("🧠 MATTHEW:", agentResult.next_question);
 
-    // --- G. GENERATE RESPONSE ---
-    let twimlResponse = "";
+    // --- E. END OF CALL & SAVE ANALYTICS ---
     if (agentResult.end_of_call) {
         let finalSpeech = agentResult.next_question;
-        if ((!finalSpeech || finalSpeech.length < 10) && agentResult.final_report?.summary) {
-           finalSpeech = `Review complete. ${agentResult.final_report.summary}`;
+        
+        // 1. SAVE THE DATA
+        if (agentResult.final_report) {
+            console.log("📊 Saving Final Report...", agentResult.final_report);
+            await saveCallResults(currentOppId, agentResult.final_report);
         }
-        twimlResponse = `<Response>${speak(finalSpeech)}<Hangup/></Response>`;
-    } else {
-        twimlResponse = `<Response><Gather input="speech" action="/agent?oppId=${oppId}" method="POST" speechTimeout="1.0" enhanced="false">${speak(agentResult.next_question)}</Gather></Response>`;
-    }
 
-    res.type('text/xml');
-    res.send(twimlResponse);
+        // 2. FIND NEXT DEAL
+        const nextDealResult = await pool.query('SELECT id, account_name FROM opportunities WHERE id > $1 ORDER BY id ASC LIMIT 1', [currentOppId]);
+        
+        if (nextDealResult.rows.length > 0) {
+             const nextOpp = nextDealResult.rows[0];
+             const transitionSpeech = `${finalSpeech} Moving on to the next deal: ${nextOpp.account_name}. Stand by.`;
+             delete sessions[callSid]; 
+
+             return res.send(`
+                <Response>
+                    ${speak(transitionSpeech)}
+                    <Redirect method="POST">/agent?oppId=${nextOpp.id}</Redirect>
+                </Response>
+             `);
+        } else {
+             finalSpeech += " That was the last deal in your forecast. Good luck.";
+             return res.send(`<Response>${speak(finalSpeech)}<Hangup/></Response>`);
+        }
+
+    } else {
+        return res.send(`
+            <Response>
+                <Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="2.5" enhanced="false">
+                    ${speak(agentResult.next_question)}
+                </Gather>
+            </Response>
+        `);
+    }
 
   } catch (error) {
     console.error("SERVER ERROR:", error.message);
