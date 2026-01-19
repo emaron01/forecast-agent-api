@@ -33,7 +33,7 @@ async function incrementRunCount(oppId) {
 // --- ANALYTICS ENGINE (PARANOIA PROOF) ---
 async function saveCallResults(oppId, report) {
     try {
-        // NULL SAFETY: Default to null if AI forgets a field to prevent crash
+        // NULL SAFETY: Default to null/text if AI forgets a field to prevent crash
         const score = report.score !== undefined ? report.score : null;
         const summary = report.summary || "No summary provided.";
         const next_steps = report.next_steps || "Review deal manually.";
@@ -70,6 +70,7 @@ const speak = (text) => {
                          .replace(/\d+\.\s/g, "");
     
     // 2. SAFETY TRUNCATION (Global Emergency Brake)
+    // Limits total audio to ~50 seconds to prevent Twilio timeout.
     if (safeText.length > 800) {
         console.log("⚠️ Truncating long response for audio safety.");
         safeText = safeText.substring(0, 800) + "...";
@@ -78,7 +79,7 @@ const speak = (text) => {
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${safeText}</prosody></Say>`;
 };
 
-// --- 3. SYSTEM PROMPT (THE DATA MINER) ---
+// --- 3. SYSTEM PROMPT (SILENT SCORER & DATA MINER) ---
 function agentSystemPrompt(deal, ageInDays, daysToClose) {
   const avgSize = deal?.seller_avg_deal_size || 10000;
   const productContext = deal?.seller_product_rules || "You are a generic sales coach.";
@@ -113,21 +114,20 @@ ${productContext}
 - **HISTORY:** ${historyContext}
 
 ### RULES OF ENGAGEMENT (STRICT)
-1. **CONNECT THE DOTS (INTELLIGENCE):** - If the user mentions a fact that answers a future question, mark it as VALIDATED immediately.
-   - *Example:* "The CIO approved the budget" -> Mark **Economic Buyer** as Validated (3).
-2. **GAP MODE BEHAVIOR:** If this is a GAP REVIEW, do **NOT** ask about Pain/Metrics/Champion unless they are specifically listed in **HISTORY** as Gaps.
-3. **NON-ANSWERS:** If user says "Okay", "Sure", or "I don't know" to an update question, **RE-ASK IT**. Do not move on until you get the update.
-4. **RECAP STRATEGY (PAIN ONLY):** Summarize Pain briefly for empathy. Do NOT summarize anything else.
-5. **NO LISTS:** Do NOT use numbered lists. Speak in full, conversational sentences.
-6. **SKEPTICISM:** If they give a vague answer (e.g., "The CIO"), CHALLENGE IT. "Have you met them? Do they know the price?"
-7. **IDENTITY:** Use "our solution." You are on the same team.
-8. **PRODUCT POLICE:** Check [INTERNAL TRUTHS]. If they claim a feature we don't have, correct them immediately.
+1. **INVISIBLE SCORING (CRITICAL):** Do NOT speak the score of a category during the conversation. Keep the math internal. Only announce the Total Score at the very end.
+2. **CONNECT THE DOTS:** If user mentions a fact that answers a future question, mark it as VALIDATED silently.
+3. **GAP MODE BEHAVIOR:** If this is a GAP REVIEW, do **NOT** ask about Pain/Metrics/Champion unless they are specifically listed in **HISTORY** as Gaps.
+4. **NON-ANSWERS:** If user says "Okay", "Sure", or "I don't know" to an update question, **RE-ASK IT**. Do not move on until you get the update.
+5. **RECAP STRATEGY:** Summarize Pain briefly for empathy. Do NOT summarize anything else.
+6. **NO LISTS:** Do NOT use numbered lists. Speak in full, conversational sentences.
+7. **SKEPTICISM:** If they give a vague answer, CHALLENGE IT.
+8. **IDENTITY:** Use "our solution." You are on the same team.
 
 ### SCORING RUBRIC (0-3 Scale)
 - **0 = Missing** (No info)
 - **1 = Unknown / Assumed** (High Risk)
 - **2 = Gathering / Incomplete** (Needs work)
-- **3 = Validated / Complete** (Solid evidence - e.g. "We met the CIO")
+- **3 = Validated / Complete** (Solid evidence)
 
 ### AUDIT CHECKLIST (MEDDPICC - 9 Points)
 1. **PAIN & SOLUTION:** Cost of Inaction?
@@ -144,7 +144,7 @@ ${productContext}
 - **TRIGGER:** Only after Gaps are checked.
 - **OUTPUT:** You MUST return a "final_report" object.
 - **SCORING:** Calculate SUM of the 9 categories (0-3 scale, Max 27).
-- **DETAILS:** You MUST extract specific names (Champion, EB) and score each category individually.
+- **DETAILS:** Extract specific names (Champion, EB) and score each category individually in the JSON.
 
 ### RETURN ONLY JSON
 { 
