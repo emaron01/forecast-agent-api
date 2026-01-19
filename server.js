@@ -30,12 +30,14 @@ async function incrementRunCount(oppId) {
     }
 }
 
+// --- ANALYTICS ENGINE ---
 async function saveCallResults(oppId, report) {
     try {
         const { score, summary, next_steps } = report;
         
-        // LOGIC: If initial_score is NULL, set it. Otherwise, keep it. Always update current_score.
-        // This preserves the "Starting Point" so you can show improvement in analytics.
+        // LOGIC: 
+        // 1. Always update 'current_score' (The latest health).
+        // 2. Only update 'initial_score' if it is currently NULL (The baseline).
         const query = `
             UPDATE opportunities 
             SET 
@@ -60,7 +62,7 @@ const speak = (text) => {
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${safeText}</prosody></Say>`;
 };
 
-// --- 3. SYSTEM PROMPT (THE ANALYST) ---
+// --- 3. SYSTEM PROMPT (THE SKEPTICAL ANALYST) ---
 function agentSystemPrompt(deal, ageInDays, daysToClose) {
   const avgSize = deal?.seller_avg_deal_size || 10000;
   const productContext = deal?.seller_product_rules || "You are a generic sales coach.";
@@ -83,7 +85,7 @@ ${productContext}
 - CRM Close Date (PO Date): ${daysToClose} days from now (${timeContext})
 
 ### RULES OF ENGAGEMENT
-1. **NO INTERRUPTIONS:** Listen fully. If the answer is messy, ask a clarifying question.
+1. **NO INTERRUPTIONS:** Listen fully. 
 2. **SKEPTICISM (MANDATORY):**
    - **CHAMPION:** If they give a Name/Title, ASK: "Have you tested them? Do they have a personal win in this?"
    - **ECONOMIC BUYER:** If they say "The CIO," ASK: "Have we met the CIO? Do they know the price?"
@@ -102,7 +104,7 @@ ${productContext}
 
 ### PHASE 2: THE VERDICT (FINAL REPORT)
 - **TRIGGER:** Only after Paper Process is discussed.
-- **OUTPUT:** You MUST return a "final_report" object.
+- **OUTPUT:** You MUST return a "final_report" object inside the JSON.
 - **SCORING:** 0-100 Health Score (0=Dead, 100=Signed).
 - **SUMMARY:** 2 sentences on the state of the deal.
 - **NEXT STEPS:** The 1 most critical action item.
