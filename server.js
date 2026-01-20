@@ -7,52 +7,63 @@ const cors = require("cors");
 const app = express();
 
 // --- 1. MIDDLEWARE (The Gatekeepers) ---
-app.use(cors()); // Allows your local dashboard to talk to Render
-app.use(express.urlencoded({ extended: true })); // Handles Twilio POST data
-app.use(express.json()); // Handles JSON data
+app.use(cors()); 
+app.use(express.urlencoded({ extended: true })); 
+app.use(express.json()); 
 
 // --- 2. DATABASE CONNECTION ---
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false } // Required for Render DBs
+  ssl: { rejectUnauthorized: false } 
 });
 
 // --- 3. SESSION STORAGE ---
-// Critical: Keeps the conversation memory alive between phone turns
 const sessions = {}; 
 
 // --- 4. DATABASE UTILITIES ---
 async function incrementRunCount(oppId) {
     try {
         await pool.query(`UPDATE opportunities SET run_count = run_count + 1, last_agent_run = CURRENT_TIMESTAMP WHERE id = $1`, [oppId]);
-        console.log(`✅ Run count incremented for Opp ID: ${oppId}`);
-    } catch (err) {
-        console.error("❌ Database Update Error:", err);
-    }
+    } catch (err) { console.error("DB Error:", err); }
 }
 
+// [UPDATED] Save Logic with Stage Change Support
 async function saveCallResults(oppId, report) {
     try {
         const score = report.score !== undefined ? report.score : null;
         const summary = report.summary || "No summary provided.";
         const next_steps = report.next_steps || "Review deal manually.";
         
-        // SAFE JSON PARSING (Prevents crashes if Agent sends bad JSON)
+        // NEW: Check if agent wants to move the deal (e.g., Pipeline -> Best Case)
+        const new_stage = report.new_forecast_category || null;
+
+        // Safe JSON Parsing
         let audit_details = report.audit_details || null;
         if (typeof audit_details === 'string') {
              try { audit_details = JSON.parse(audit_details); } catch(e) { audit_details = null; }
         }
         
-        const query = `
+        let query = `
             UPDATE opportunities
             SET current_score = $1, initial_score = COALESCE(initial_score, $1), 
                 last_summary = $2, next_steps = $3, audit_details = $4
-            WHERE id = $5
         `;
-        await pool.query(query, [score, summary, next_steps, audit_details, oppId]);
-        console.log(`💾 Analytics Saved for Deal ${oppId}: Score ${score}/27`);
+        const params = [score, summary, next_steps, audit_details];
+        
+        // If the agent recommended a stage change, update it in the DB
+        if (new_stage && new_stage !== "No Change") {
+            query += `, deal_stage = $5 WHERE id = $6`;
+            params.push(new_stage, oppId);
+            console.log(`🔄 DEAL MOVED TO: ${new_stage}`);
+        } else {
+            query += ` WHERE id = $5`;
+            params.push(oppId);
+        }
+
+        await pool.query(query, params);
+        console.log(`💾 Saved Deal ${oppId}: Score ${score}/27`);
     } catch (err) {
-        console.error("❌ Failed to save analytics:", err);
+        console.error("❌ Save Error:", err);
     }
 }
 
@@ -61,11 +72,7 @@ function escapeXml(unsafe) {
     if (!unsafe) return "";
     return unsafe.replace(/[<>&'"]/g, (c) => {
         switch (c) {
-            case '<': return '&lt;';
-            case '>': return '&gt;';
-            case '&': return '&amp;';
-            case '\'': return '&apos;';
-            case '"': return '&quot;';
+            case '<': return '&lt;'; case '>': return '&gt;'; case '&': return '&amp;'; case '\'': return '&apos;'; case '"': return '&quot;';
         }
     });
 }
@@ -73,135 +80,117 @@ function escapeXml(unsafe) {
 const speak = (text) => {
     if (!text) return "";
     let cleanText = text.replace(/\*\*/g, "").replace(/^\s*[-*]\s+/gm, "").replace(/\d+\)\s/g, "").replace(/\d+\.\s/g, "");
-    if (cleanText.length > 800) {
-        console.log("⚠️ Truncating long response for audio safety.");
-        cleanText = cleanText.substring(0, 800) + "...";
-    }
+    if (cleanText.length > 800) cleanText = cleanText.substring(0, 800) + "...";
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${escapeXml(cleanText)}</prosody></Say>`;
 };
 
-// --- 6. SYSTEM PROMPT (THE LOGIC CORE) ---
+// --- 6. SYSTEM PROMPT (THE FINAL MERGE) ---
 function agentSystemPrompt(deal, ageInDays, daysToClose) {
   const avgSize = deal?.seller_avg_deal_size || 10000;
-  const productContext = deal?.seller_product_rules || "PRODUCT: Unknown. Ask the user what they are selling.";
+  const productContext = deal?.seller_product_rules || "PRODUCT: Unknown.";
   const category = deal?.deal_stage || "Pipeline";
   
+  // Logic Flags
   const isPipeline = ["Pipeline", "Discovery", "Qualification", "Prospecting"].includes(category);
   const isBestCase = ["Best Case", "Upside", "Solution Validation"].includes(category);
   const isCommit = ["Commit", "Closing", "Negotiation"].includes(category);
-  
   const isNewDeal = deal.initial_score == null;
-  const historyContext = !isNewDeal 
-     ? `PREVIOUS SCORE: ${deal.current_score}/27. HISTORY SUMMARY: "${deal.last_summary}".` 
-     : "NO HISTORY. Fresh qualification.";
 
+  // [RESTORED & UPGRADED] Forecast Rules
   let instructions = "";
+  let bannedTopics = "None.";
+  
   if (isPipeline) {
      instructions = `
-     **FORECAST: PIPELINE (The Enthusiastic Hunter).** - **TONE:** Polite, enthusiastic, encouraging.
-     - **FOCUS:** Broad questions ("What problem are we solving?", "Who is the Champion?").
-     - **FORBIDDEN:** Do NOT ask about Paper Process, Legal, or Redlines. It is too early.
-     - **GOAL:** Validate that the deal is *real*, not that it is closing.`;
+     **MODE: PIPELINE (The Skeptic)**
+     - **STRICT CEILING:** This deal CANNOT score > 15. If you score it higher, you are hallucinating.
+     - **FOCUS:** Pain, Metrics, Champion.
+     - **AUTO-FAIL:** If they don't know the Pain, the score is 0.
+     - **IGNORED SCORES:** Paper Process and Decision Process are ALWAYS 0/3.`;
+     bannedTopics = "Do NOT ask about: Legal, Procurement, Signatures, Redlines, Close Date specifics.";
   } else if (isBestCase) {
      instructions = `
-     **FORECAST: BEST CASE (The Gap Hunter).**
-     - **TONE:** Professional, focused, efficient.
-     - **FOCUS:** Look at the [HISTORY]. If a category was previously a "3", IGNORE IT. Only attack the "1s" and "2s".
-     - **GOAL:** Find the missing link that prevents this from being a Commit.`;
+     **MODE: BEST CASE (The Gap Hunter)**
+     - **GOAL:** Find the missing link preventing Commit.
+     - **LOGIC:** Look at [HISTORY]. If a category is '3', DO NOT ASK about it. Attack the '1s'.`;
   } else {
-     // COMMIT LOGIC
+     // Commit Logic
      const scoreConcern = (deal.current_score && deal.current_score < 22) 
-        ? "WARNING: This deal is in COMMIT but the score is low (<22). Challenge the rep on why they are so confident." 
+        ? "WARNING: Deal is in COMMIT but score is <22. Challenge confidence." 
         : "";
      instructions = `
-     **FORECAST: COMMIT (The Closer).**
-     - **TONE:** Strict, direct, no-nonsense.
+     **MODE: COMMIT (The Closer)**
+     - **GOAL:** Protect the forecast.
      - **FOCUS:** Paper Process, Timeline, Signatures.
-     - **SPECIAL RULE:** ${scoreConcern}
-     - **GOAL:** Verify the close date is real. If they are vague, mark it down.`;
+     - **SPECIAL RULE:** ${scoreConcern}`;
   }
 
-  const goalInstruction = isNewDeal
-    ? `**GOAL:** NEW DEAL. Audit based on ${category} rules.`
-    : "**GOAL:** GAP REVIEW. Focus ONLY on risks from History.";
+  const goalInstruction = isNewDeal ? `**GOAL:** New Deal Audit.` : "**GOAL:** Gap Review (Check History).";
+  const historyContext = !isNewDeal ? `PREVIOUS SCORE: ${deal.current_score}/27. SUMMARY: "${deal.last_summary}".` : "NO HISTORY.";
 
-  let timeContext = "Timeline is healthy.";
-  if (daysToClose < 0) timeContext = "WARNING: Deal is past due date in CRM.";
-  else if (daysToClose < 30) timeContext = "CRITICAL: CRM says deal closes in less than 30 days.";
-
-  return `You are "Matthew," a VP of Sales at Sales Forecaster.
-  **JOB:** Qualify the deal based on its FORECAST CATEGORY.
+  return `You are "Matthew," a VP of Sales Auditor. You are cynical, direct, and data-driven.
   ${goalInstruction}
 
-  ### PRODUCT CONTEXT (WHAT WE SELL)
-  ${productContext}
-
-  ### LIVE DEAL CONTEXT
+  ### DEAL CONTEXT
   - Prospect: ${deal?.account_name}
-  - Forecast Category: ${category}
+  - Stage: ${category}
   - Value: $${deal?.amount} (Avg: $${avgSize})
-  - Age: ${ageInDays} days
-  - CRM Close Date: ${daysToClose} days from now (${timeContext})
+  - Age: ${ageInDays} days (Close in: ${daysToClose} days)
   - **HISTORY:** ${historyContext}
 
-  ### FORECAST RULES (CRITICAL)
+  ### PRODUCT CONTEXT (Use for "Product Police")
+  ${productContext}
+
+  ### AUDIT INSTRUCTIONS
   ${instructions}
 
-  ### RULES OF ENGAGEMENT (STEALTH PROTOCOL)
-  1. **NO PRE-SUMMARY:** Do NOT summarize the deal verbally. When finished, output the JSON immediately.
-  2. **CLEAN ENDING:** In your final 'next_question', give the verdict ONLY. Do NOT say "Moving to next deal."
-  3. **INVISIBLE MATH:** Calculate scores silently. Never speak them.
-  4. **NO ROBOT LABELS:** Just ask the question naturally.
-  5. **PRODUCT POLICE:** Check [PRODUCT CONTEXT]. Correct lies immediately.
-  6. **NON-ANSWERS:** If user says "Okay", **RE-ASK** the question.
-  7. **RECAP STRATEGY:** Summarize Pain briefly for empathy. Do NOT summarize anything else.
-  8. **THE NO-COACH RULE:** NEVER ask for feedback. Never say "Does that sound good?". 
-  9. **ZERO NARRATION:** Do not explain why you are asking a question.
+  ### RULES OF ENGAGEMENT (STRICT)
+  1. **NO SUMMARIES:** Do not summarize what the user just said. Just ask the next question.
+  2. **INVISIBLE MATH:** Calculate scores silently. Never speak them.
+  3. **PRODUCT POLICE:** Check [PRODUCT CONTEXT]. If the user lies about features, correct them immediately.
+  4. **NON-ANSWERS:** If user says "Okay" or is vague, treat it as a RISK (Score 1) and probe deeper.
+  5. **BANNED TOPICS:** ${bannedTopics}
+  6. **THE NO-COACH RULE:** Never ask for feedback. Never explain your logic.
+  7. **RECAP STRATEGY:** You may briefly echo the specific answer (e.g. "Got it, 4 servers") but DO NOT recap the whole deal.
 
-  ### CHAMPION DEFINITIONS (USE FOR SCORING)
-  - **1 (Coach):** Friendly, but no power to sign or spend.
-  - **2 (Mobilizer):** Has influence, but hasn't acted.
-  - **3 (Champion):** Has Power AND is actively selling for us.
+  ### CHAMPION DEFINITIONS
+  - **1 (Coach):** Friendly, no power.
+  - **2 (Mobilizer):** Has influence, hasn't acted.
+  - **3 (Champion):** Power AND is selling for us.
 
-  ### SCORING RUBRIC (0-3 Scale)
-  - **0 = Missing** (No info)
-  - **1 = Unknown / Assumed** (High Risk)
-  - **2 = Gathering / Incomplete** (Needs work)
-  - **3 = Validated / Complete** (Solid evidence)
+  ### SCORING RUBRIC (0-3)
+  - **0 = Missing**
+  - **1 = Unknown/Assumed** (High Risk)
+  - **2 = Gathering**
+  - **3 = Validated**
 
   ### PHASE 2: THE VERDICT
-  - **TRIGGER:** When you have checked the key areas for this Category.
+  - **TRIGGER:** When you have checked the key areas for this Stage.
   - **OUTPUT:** You MUST return a "final_report" object.
-  - **DETAILS:** Extract specific names and score each category individually in the JSON.
 
   ### RETURN ONLY JSON
-  { "next_question": "Your short response here.", "end_of_call": false }
-  OR (If finished):
+  { "next_question": "Your short question.", "end_of_call": false }
+  
+  OR IF AUDIT COMPLETE:
   {
     "end_of_call": true,
-    "next_question": "Understood. Verdict: 24/27. Solid Commit deal.",
+    "next_question": "Verdict: [Score]/27. [One sentence reason].",
     "final_report": {
-        "score": 24,
-        "summary": "Commit deal. Only risk is Paper Process.",
-        "next_steps": "Close.",
+        "score": [0-27],
+        "new_forecast_category": "No Change" | "Pipeline" | "Best Case" | "Commit",
+        "summary": "Brief summary.",
+        "next_steps": "Action item.",
         "audit_details": {
-            "champion_name": "Bob",
-            "economic_buyer_name": "Susan",
-            "pain_score": 3,
-            "metrics_score": 3,
-            "champion_score": 3,
-            "economic_buyer_score": 3,
-            "decision_criteria_score": 3,
-            "decision_process_score": 3,
-            "competition_score": 3,
-            "paper_process_score": 1
+            "metrics_score": 0-3, "economic_buyer_score": 0-3, "decision_criteria_score": 0-3,
+            "decision_process_score": 0-3, "paper_process_score": 0-3, "pain_score": 0-3,
+            "champion_score": 0-3, "competition_score": 0-3,
+            "champion_name": "Name or null", "economic_buyer_name": "Name or null"
         }
     }
-  }
-  **FORMATTING:** Output ONLY valid JSON. No conversational filler.`;
+  }`;
 }
 
-// --- 7. NEW UI DASHBOARD ROUTE (GET) ---
+// --- 7. UI DASHBOARD ROUTE (GET) ---
 app.get("/get-deal", async (req, res) => {
   const { oppId } = req.query;
   try {
@@ -211,33 +200,23 @@ app.get("/get-deal", async (req, res) => {
     const deal = result.rows[0];
     res.json({
       account_name: deal.account_name,
-      forecast_category: deal.deal_stage, // Map DB 'deal_stage' to UI 'forecast_category'
+      forecast_category: deal.deal_stage, 
       amount: deal.amount,
       summary: deal.last_summary || deal.summary,
       seller_product_rules: deal.seller_product_rules,
-      audit_details: deal.audit_details || { // Default 0s if null to prevent UI errors
-        metrics_score: 0, economic_buyer_score: 0, decision_criteria_score: 0,
-        decision_process_score: 0, paper_process_score: 0, pain_score: 0,
-        champion_score: 0, competition_score: 0
-      },
+      audit_details: deal.audit_details || { metrics_score: 0, pain_score: 0 },
       close_date: deal.close_date,
       rep_name: deal.rep_name
     });
-  } catch (err) {
-    console.error("Dashboard Fetch Error:", err);
-    res.status(500).send("DB Error");
-  }
+  } catch (err) { console.error("Dash Error:", err); res.status(500).send("DB Error"); }
 });
 
-// --- 8. HELPER: LIST ALL DEALS FOR DROPDOWN ---
+// --- 8. HELPER: LIST ALL DEALS ---
 app.get("/get-all-opps", async (req, res) => {
     try {
         const result = await pool.query("SELECT id, account_name FROM opportunities ORDER BY id ASC");
         res.json(result.rows);
-    } catch (err) {
-        console.error("Fetch All Opps Error:", err);
-        res.status(500).json([]);
-    }
+    } catch (err) { res.status(500).json([]); }
 });
 
 // --- 9. THE AGENT ROUTE (POST) ---
@@ -245,66 +224,48 @@ app.post("/agent", async (req, res) => {
   try {
     const currentOppId = parseInt(req.query.oppId || 4);
     const isTransition = req.query.transition === 'true';
-    
     const callSid = req.body.CallSid || "test_session";
     const transcript = req.body.transcript || req.body.SpeechResult || "";
 
     if (!transcript) {
-        console.log(`--- New Audit Session: Opp ID ${currentOppId} ---`);
+        console.log(`--- New Session: Opp ${currentOppId} ---`);
         await incrementRunCount(currentOppId);
     }
 
     const dbResult = await pool.query('SELECT * FROM opportunities WHERE id = $1', [currentOppId]);
     const deal = dbResult.rows[0];
 
-    // Date Logic (Preserved)
     const now = new Date();
     const createdDate = new Date(deal.opp_created_date);
     const closeDate = deal.close_date ? new Date(deal.close_date) : new Date(now.setDate(now.getDate() + 30));
     const ageInDays = Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24));
     const daysToClose = Math.floor((closeDate - new Date()) / (1000 * 60 * 60 * 24));
 
-    // A. INSTANT GREETING
+    // A. GREETING
     if (!sessions[callSid]) {
-        console.log(`[SERVER] New Session: ${callSid}`);
-        const fullName = deal.rep_name || "Sales Rep";
-        const firstName = fullName.split(' ')[0];
-        const account = deal.account_name || "Unknown Account";
+        console.log(`[SERVER] Start: ${callSid}`);
+        const firstName = (deal.rep_name || "Rep").split(' ')[0];
         const category = deal.deal_stage || "Pipeline";
-        const amountSpeech = deal.amount ? `${deal.amount} dollars` : "undisclosed revenue";
-        const closeDateSpeech = closeDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+        const isNewDeal = deal.initial_score == null;
         
         const countRes = await pool.query('SELECT COUNT(*) FROM opportunities WHERE id >= $1', [currentOppId]);
         const dealsLeft = countRes.rows[0].count;
-        const isNewDeal = deal.initial_score == null;
 
         let openingQuestion = "";
         if (isNewDeal) {
-            openingQuestion = "To start, what is the specific solution we are selling, and what problem does it solve?";
+            openingQuestion = "To start, what are we selling and what problem does it solve?";
         } else {
-            let summary = deal.last_summary || "we identified some risks";
-            if (summary.length > 400) { summary = summary.substring(0, 400) + "..."; }
-            const lastStep = deal.next_steps || "advance the deal";
-            openingQuestion = `Last time we noted: ${summary}. The pending action was to ${lastStep}. What is the latest update on that?`;
+            let summary = deal.last_summary || "we identified risks";
+            if (summary.length > 300) summary = summary.substring(0, 300) + "...";
+            openingQuestion = `Last time: ${summary}. What is the update?`;
         }
 
-        let finalGreeting = "";
-        if (isTransition) {
-            finalGreeting = `Okay, next up is ${account}. This is in ${category} for ${amountSpeech}, closing ${closeDateSpeech}. ${openingQuestion}`;
-        } else {
-            finalGreeting = `Hi ${firstName}, this is Matthew from Sales Forecaster. We are going to review ${dealsLeft} deals today. Let's start with ${account}. This is in ${category} for ${amountSpeech}, closing ${closeDateSpeech}. ${openingQuestion}`;
-        }
+        const finalGreeting = isTransition 
+            ? `Next up: ${deal.account_name}. It's in ${category}. ${openingQuestion}`
+            : `Hi ${firstName}, Matthew here. Reviewing ${dealsLeft} deals. Starting with ${deal.account_name} in ${category}. ${openingQuestion}`;
 
         sessions[callSid] = [{ role: "assistant", content: finalGreeting }];
-        
-        const twiml = `
-            <Response>
-                <Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="auto" enhanced="false" actionOnEmptyResult="true">
-                    ${speak(finalGreeting)}
-                </Gather>
-            </Response>
-        `;
-        return res.send(twiml);
+        return res.send(`<Response><Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="auto">${speak(finalGreeting)}</Gather></Response>`);
     }
 
     // B. HANDLE INPUT
@@ -312,14 +273,7 @@ app.post("/agent", async (req, res) => {
     if (transcript.trim()) {
       messages.push({ role: "user", content: transcript });
     } else {
-      const lastBotMessage = messages[messages.length - 1].content;
-      return res.send(`
-        <Response>
-          <Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="auto" enhanced="false" actionOnEmptyResult="true">
-             ${speak("I didn't hear you. " + lastBotMessage)}
-          </Gather>
-        </Response>
-      `);
+      return res.send(`<Response><Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="auto">${speak("I didn't hear you. Say that again?")}</Gather></Response>`);
     }
 
     // C. AI CALL
@@ -333,32 +287,22 @@ app.post("/agent", async (req, res) => {
             system: agentSystemPrompt(deal, ageInDays, daysToClose),
             messages: messages
           },
-          {
-               headers: { "x-api-key": process.env.MODEL_API_KEY.trim(), "anthropic-version": "2023-06-01", "content-type": "application/json" },
-               timeout: 12000
-           }
+          { headers: { "x-api-key": process.env.MODEL_API_KEY.trim(), "anthropic-version": "2023-06-01" }, timeout: 12000 }
         );
 
         // D. PARSE RESPONSE
-        let rawText = response.data.content[0].text.trim();
+        let rawText = response.data.content[0].text.trim().replace(/```json/g, "").replace(/```/g, "");
         let agentResult = { next_question: "", end_of_call: false };
         
-        rawText = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
-        const jsonStart = rawText.indexOf('{');
-        const jsonEnd = rawText.lastIndexOf('}');
-        
-        if (jsonStart !== -1 && jsonEnd !== -1) {
-            const jsonString = rawText.substring(jsonStart, jsonEnd + 1);
-            try {
-                agentResult = JSON.parse(jsonString);
-            } catch (e) {
-                const questionMatch = rawText.match(/"next_question"\s*:\s*"([^"]*)"/);
-                if (questionMatch) agentResult.next_question = questionMatch[1];
-                else agentResult.next_question = "I didn't quite catch that. Could you clarify?";
+        try {
+            const jsonStart = rawText.indexOf('{');
+            const jsonEnd = rawText.lastIndexOf('}');
+            if (jsonStart !== -1) {
+                agentResult = JSON.parse(rawText.substring(jsonStart, jsonEnd + 1));
+            } else {
+                agentResult.next_question = rawText;
             }
-        } else {
-            agentResult.next_question = rawText;
-         }
+        } catch (e) { agentResult.next_question = rawText; }
 
         messages.push({ role: "assistant", content: rawText });
         sessions[callSid] = messages;
@@ -367,52 +311,27 @@ app.post("/agent", async (req, res) => {
         console.log("🗣️ USER:", transcript);
         console.log("🧠 MATTHEW:", agentResult.next_question);
 
-        // E. OUTPUT & TRANSITION LOGIC
+        // E. OUTPUT & TRANSITION
         if (agentResult.end_of_call) {
-            let finalSpeech = agentResult.next_question;
             if (agentResult.final_report) {
-                console.log("📊 Saving Final Report...", agentResult.final_report);
+                console.log("📊 Saving Report...");
                 await saveCallResults(currentOppId, agentResult.final_report);
             }
 
-            const nextDealResult = await pool.query('SELECT id, account_name FROM opportunities WHERE id > $1 ORDER BY id ASC LIMIT 1', [currentOppId]);
-            
-            if (nextDealResult.rows.length > 0) {
-                 const nextOpp = nextDealResult.rows[0];
-                 const transitionSpeech = `${finalSpeech} Let's move to the next opportunity. Let me pull it up.`;
-                 delete sessions[callSid]; // Clear session for clean start on next deal
-                 const twiml = `
-                    <Response>
-                        ${speak(transitionSpeech)}
-                        <Redirect method="POST">/agent?oppId=${nextOpp.id}&amp;transition=true</Redirect>
-                    </Response>
-                 `;
-                 return res.send(twiml);
+            const nextDeal = await pool.query('SELECT id FROM opportunities WHERE id > $1 ORDER BY id ASC LIMIT 1', [currentOppId]);
+            if (nextDeal.rows.length > 0) {
+                 delete sessions[callSid]; 
+                 return res.send(`<Response>${speak(agentResult.next_question + " Moving to next deal.")}<Redirect method="POST">/agent?oppId=${nextDeal.rows[0].id}&amp;transition=true</Redirect></Response>`);
             } else {
-                 finalSpeech += " That was the last deal in your forecast. Good luck.";
-                 return res.send(`<Response>${speak(finalSpeech)}<Hangup/></Response>`);
+                 return res.send(`<Response>${speak(agentResult.next_question + " That was the last deal. Goodbye.")}<Hangup/></Response>`);
             }
-
         } else {
-            const twiml = `
-                <Response>
-                    <Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="auto" enhanced="false" actionOnEmptyResult="true">
-                        ${speak(agentResult.next_question)}
-                    </Gather>
-                </Response>
-            `;
-            return res.send(twiml);
+            return res.send(`<Response><Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="auto">${speak(agentResult.next_question)}</Gather></Response>`);
         }
 
     } catch (apiError) {
-        console.error("⚠️ LLM TIMEOUT OR ERROR:", apiError.message);
-        return res.send(`
-            <Response>
-                <Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="auto" enhanced="false" actionOnEmptyResult="true">
-                    ${speak("I'm calculating the metrics. Let's move to the next step. What is your timeline?")}
-                </Gather>
-            </Response>
-        `);
+        console.error("LLM Error:", apiError.message);
+        return res.send(`<Response><Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="auto">${speak("I'm calculating metrics. What's the timeline?")}</Gather></Response>`);
     }
 
   } catch (error) {
