@@ -2,71 +2,23 @@ require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
 const { Pool } = require("pg");
-const cors = require("cors");
 
 const app = express();
 
-// --- 1. MIDDLEWARE ---
-app.use(cors()); // Critical: Allows your local dashboard to talk to Render
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// --- 2. DATABASE CONNECTION ---
+// --- DATABASE CONNECTION ---
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false } // Required for Render DBs
+  ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes("render.com") 
+       ? { rejectUnauthorized: false } 
+       : false
 });
 
-// --- 3. SESSION STORAGE ---
-// Keeps track of user conversations (declared once at the top)
+// --- 1. MIDDLEWARE ---
+app.use(express.urlencoded({ extended: true })); 
+app.use(express.json());
+
+// --- 2. SESSION STORAGE ---
 const sessions = {}; 
-
-// --- 4. UI DASHBOARD ROUTE (GET) ---
-app.get("/get-deal", async (req, res) => {
-  const { oppId } = req.query;
-  try {
-    const result = await pool.query("SELECT * FROM opportunities WHERE id = $1", [oppId]);
-    if (result.rows.length === 0) return res.status(404).json({ error: "Not found" });
-    
-    const deal = result.rows[0];
-    res.json({
-      account_name: deal.account_name,
-      forecast_category: deal.forecast_category,
-      amount: deal.amount,
-      summary: deal.last_summary || deal.summary,
-      seller_product_rules: deal.seller_product_rules,
-      audit_details: {
-        metrics_score: deal.metrics_score || 0,
-        economic_buyer_score: deal.eb_score || 0,
-        decision_criteria_score: deal.dc_score || 0,
-        decision_process_score: deal.dp_score || 0,
-        paper_process_score: deal.pp_score || 0,
-        pain_score: deal.pain_score || 0,
-        champion_score: deal.champion_score || 0,
-        competition_score: deal.comp_score || 0,
-        champion_name: deal.champion_name,
-        economic_buyer_name: deal.eb_name
-      },
-      close_date: deal.close_date,
-      rep_name: deal.rep_name
-    });
-  } catch (err) {
-    console.error("Dashboard Fetch Error:", err);
-    res.status(500).send("DB Error");
-  }
-});
-
-// --- 5. YOUR AGENT ROUTE (POST) ---
-app.post("/agent", async (req, res) => {
-    // Matthew logic goes here
-    // Must end with updating 'opportunities' table so UI sees changes
-});
-
-// --- 6. SERVER START ---
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log(`Audit Server live on port ${PORT}`);
-});
 
 // --- DATABASE UTILITIES ---
 async function incrementRunCount(oppId) {
