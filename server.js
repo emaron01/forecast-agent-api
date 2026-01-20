@@ -61,7 +61,7 @@ async function saveCallResults(oppId, report) {
         }
 
         await pool.query(query, params);
-        console.log(`💾 Saved Deal ${oppId}: Score ${score}/27`);
+        console.log(`💾 Saved Deal ${oppId}: Score ${score}/24`);
     } catch (err) {
         console.error("❌ Save Error:", err);
     }
@@ -126,7 +126,7 @@ function agentSystemPrompt(deal, ageInDays, daysToClose) {
   }
 
   const goalInstruction = isNewDeal ? `**GOAL:** New Deal Audit.` : "**GOAL:** Gap Review (Check History).";
-  const historyContext = !isNewDeal ? `PREVIOUS SCORE: ${deal.current_score}/27. SUMMARY: "${deal.last_summary}".` : "NO HISTORY.";
+  const historyContext = !isNewDeal ? `PREVIOUS SCORE: ${deal.current_score}/24. SUMMARY: "${deal.last_summary}".` : "NO HISTORY.";
 
   return `You are "Matthew," a VP of Sales Auditor. You are cynical, direct, and data-driven.
   ${goalInstruction}
@@ -174,9 +174,9 @@ function agentSystemPrompt(deal, ageInDays, daysToClose) {
   OR IF AUDIT COMPLETE:
   {
     "end_of_call": true,
-    "next_question": "Verdict: [Score]/27. [One sentence reason].",
+    "next_question": "Verdict: [Score]/24. [One sentence reason].",
     "final_report": {
-        "score": [0-27],
+        "score": [0-24],
         "new_forecast_category": "No Change" | "Pipeline" | "Best Case" | "Commit",
         "summary": "Brief summary.",
         "next_steps": "Action item.",
