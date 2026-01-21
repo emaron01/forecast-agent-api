@@ -12,8 +12,8 @@ const MODEL_URL = process.env.MODEL_URL || "wss://api.openai.com/v1/realtime";
 const MODEL_NAME = process.env.MODEL_NAME || "gpt-4o-mini-realtime-preview-2024-12-17"; 
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
 });
 
 const app = express();
@@ -26,43 +26,55 @@ const wss = new WebSocket.Server({ server });
 
 // --- 1. TOOL DEFINITION ---
 const DATABASE_TOOL = {
-  type: "function",
-  name: "update_opportunity",
-  description: "Updates the CRM data. Call this IMMEDIATELY when the user provides new facts.",
-  parameters: {
-    type: "object",
-    properties: {
-      pain_score: { type: "integer", description: "Score 0-3" },
-      metrics_score: { type: "integer", description: "Score 0-3" },
-      champion_score: { type: "integer", description: "Score 0-3" },
-      economic_buyer_score: { type: "integer", description: "Score 0-3" },
-      decision_process_score: { type: "integer", description: "Score 0-3" },
-      decision_criteria_score: { type: "integer", description: "Score 0-3" },
-      paper_process_score: { type: "integer", description: "Score 0-3" },
-      timeline_score: { type: "integer", description: "Score 0-3" },
-      competition_score: { type: "integer", description: "Score 0-3" },
-      champion_name: { type: "string" },
-      champion_title: { type: "string" },
-      economic_buyer_name: { type: "string" },
-      economic_buyer_title: { type: "string" },
-      competitor_name: { type: "string" },
-      next_steps: { type: "string" },
-      summary: { type: "string" },
-      forecast_stage: { type: "string", enum: ["Pipeline", "Best Case", "Commit"] }
-    },
-    required: [] 
-  }
+    type: "function",
+    name: "update_opportunity",
+    description: "Updates the CRM data. Call this IMMEDIATELY when the user provides new facts.",
+    parameters: {
+        type: "object",
+        properties: {
+            pain_score: { type: "integer", description: "Score 0-3" },
+            metrics_score: { type: "integer", description: "Score 0-3" },
+            champion_score: { type: "integer", description: "Score 0-3" },
+            economic_buyer_score: { type: "integer", description: "Score 0-3" },
+            decision_process_score: { type: "integer", description: "Score 0-3" },
+            decision_criteria_score: { type: "integer", description: "Score 0-3" },
+            paper_process_score: { type: "integer", description: "Score 0-3" },
+            timeline_score: { type: "integer", description: "Score 0-3" },
+            competition_score: { type: "integer", description: "Score 0-3" },
+            champion_name: { type: "string" },
+            champion_title: { type: "string" },
+            economic_buyer_name: { type: "string" },
+            economic_buyer_title: { type: "string" },
+            competitor_name: { type: "string" },
+            next_steps: { type: "string" },
+            summary: { type: "string" },
+            forecast_stage: { type: "string", enum: ["Pipeline", "Best Case", "Commit"] }
+        },
+        required: [] 
+    }
 };
 
 // --- 2. THE GOLD STANDARD SYSTEM PROMPT ---
-function getSystemPrompt(deal) {
+function getSystemPrompt(deal, repName, dealsLeft) {
     const category = deal.forecast_stage || "Pipeline";
     const hasHistory = (deal.last_summary && deal.last_summary.length > 10);
-    const amountStr = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(deal.amount || 0);
-    
-    const GOLD_STANDARD = `
-    ### ROLE & IDENTITY
-    You are a Forecasting Auditor, not a coach. Your sole objective is to extract verifiable deal data to determine forecast accuracy. Filter out rep optimism; focus exclusively on objective evidence.
+    const amountStr = new Intl.NumberFormat('en-US', { 
+        style: 'currency', 
+        currency: 'USD', 
+        maximumFractionDigits: 0 
+    }).format(deal.amount || 0);
+
+    const intro = `Hi ${repName}, this is Matthew. Reviewing ${dealsLeft} deals, starting with ${deal.account_name} for ${amountStr} in ${category}.`;
+    const hook = hasHistory ? `Last update: "${deal.last_summary}". What's changed?` : "This is a new deal. What's the specific Pain?";
+
+    // THIS IS THE FIXED RETURN STRING
+    return `
+    ### MANDATORY OPENING: START HERE
+    You MUST open the call with this exact script: "${intro} ${hook}"
+    Do not say "How can I help you" or "I am here to assist."
+
+    ### ROLE & IDENTITY 
+    You are Matthew, a VP of Sales and Forecasting Auditor. You are professional, data-driven, and direct. You DO NOT do small talk. Your sole objective is to extract verifiable deal data to determine forecast accuracy. Filter out rep optimism; focus exclusively on objective evidence.
 
     • THE "NO-COACHING" MANDATE: Do not offer advice or selling tips. If asked for help, redirect: "My role is to qualify the deal. I suggest working with your manager on this. Let's look at the next item..."
     • THE "WHY" RULE: If a rep lacks evidence, state the specific risk (e.g., "Without an EB, the deal cannot be signed") and move on.
@@ -90,7 +102,16 @@ function getSystemPrompt(deal) {
     ### OPERATING RULES
     • One Question at a Time: Ask one question, then wait for response.
     • The Evidence Probe: If an answer is vague, probe ONCE. If still vague, score as 1, state the risk, and move to the next item.
-    • No Labels: Do not use category names (e.g., "Moving to Metrics").
+    • No Labels: Do not use category names.
+
+    ### DEAL CONTEXT
+    - Account: ${deal.account_name}
+    - Amount: ${amountStr}
+    - Stage: ${category}
+    - History: ${hasHistory ? "Reviewed Before. Focus ONLY on what has changed since: " + deal.last_summary : "NEW DEAL. Validate from scratch."}
+    
+    ### INTERNAL TRUTHS (PRODUCT POLICE)
+    ${deal.org_product_data || "Verify capabilities against company documentation."}
 
     ### FINAL OUTPUT: THE AUDIT REPORT
     Provide ONLY this section. No intro, outro, or Pain summary.
@@ -100,21 +121,8 @@ function getSystemPrompt(deal) {
     • Factual Risks: A bulleted list of evidence gaps/risks following the audit sequence. Use clinical language.
     • Immediate Next Steps: List only specific data points missing.
     `;
-
-    const context = `
-    ### CURRENT DEAL CONTEXT
-    - Auditor Persona: "Matthew" (VP of Sales, direct, no small talk).
-    - Account: ${deal.account_name}
-    - Amount: ${amountStr}
-    - Stage: ${category}
-    - History: ${hasHistory ? "Reviewed Before. Focus ONLY on what has changed since: " + deal.last_summary : "NEW DEAL. Validate from scratch."}
-    
-    ### INTERNAL TRUTHS (PRODUCT POLICE)
-    ${deal.org_product_data || "Verify capabilities against company documentation."}
-    `;
-
-    return GOLD_STANDARD + context;
 }
+
 // --- 3. HELPER: DB UPDATE ---
 async function updateDatabase(oppId, args) {
     try {
@@ -146,6 +154,7 @@ async function updateDatabase(oppId, args) {
         return { success: false, error: e.message };
     }
 }
+
 // --- 4. WEBSOCKET ROUTE ---
 wss.on("connection", (ws, req) => {
     const urlParams = new URLSearchParams(req.url.replace('/','')); 
@@ -161,24 +170,10 @@ wss.on("connection", (ws, req) => {
     const triggerGreeting = async () => {
         if (openAIReady && twilioReady && deal && !greetingSent) {
             greetingSent = true;
-            const countRes = await pool.query('SELECT COUNT(*) FROM opportunities WHERE id >= $1', [oppId]);
-            const dealsLeft = countRes.rows[0].count;
-            
-            let repName = (deal.rep_name || "Rep").split(' ')[0];
-            const amountStr = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(deal.amount);
-            const hasHistory = (deal.last_summary && deal.last_summary.length > 10);
-            const stage = deal.forecast_stage || "Pipeline";
-
-            const intro = `Hi ${repName}, this is Matthew. Reviewing ${dealsLeft} deals, starting with ${deal.account_name} for ${amountStr} in ${stage}.`;
-            let hook = hasHistory ? `Last update: "${deal.last_summary}". What's changed?` : "This is a new deal. What's the specific Pain?";
-
-            // COMMAND: Direct execution of the script only.
+            // Response trigger follows the mandatory session instructions
             openAIWs.send(JSON.stringify({
                 type: "response.create",
-                response: { 
-                    modalities: ["text", "audio"], 
-                    instructions: `Execute this opening script verbatim: "${intro} ${hook}"` 
-                }
+                response: { modalities: ["text", "audio"] }
             }));
         }
     };
@@ -192,15 +187,23 @@ wss.on("connection", (ws, req) => {
         const dbRes = await pool.query("SELECT * FROM opportunities WHERE id = $1", [oppId]);
         deal = dbRes.rows[0];
 
-        // SESSION UPDATE: Hard-coding the Gold Standard and tightening the temperature.
+        const countRes = await pool.query('SELECT COUNT(*) FROM opportunities WHERE id >= $1', [oppId]);
+        const dealsLeft = countRes.rows[0].count;
+        const repName = (deal.rep_name || "Rep").split(' ')[0];
+
         openAIWs.send(JSON.stringify({
             type: "session.update",
             session: {
                 modalities: ["text", "audio"],
-                instructions: getSystemPrompt(deal),
+                instructions: getSystemPrompt(deal, repName, dealsLeft),
                 voice: "ash", 
-                temperature: 0.6, // Ensures factual adherence over creative "assistant" chatter
-                turn_detection: { type: "server_vad" },
+                temperature: 0.6,
+                turn_detection: { 
+                    type: "server_vad",
+                    threshold: 0.8,
+                    prefix_padding_ms: 300,
+                    silence_duration_ms: 800
+                },
                 tools: [DATABASE_TOOL],
                 tool_choice: "auto"
             }
@@ -212,18 +215,12 @@ wss.on("connection", (ws, req) => {
 
     openAIWs.on("message", (data) => {
         const event = JSON.parse(data);
-
-        // A. Handle Audio Output
         if (event.type === "response.audio.delta" && streamSid) {
             ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: event.delta } }));
         }
-
-        // B. Handle Interruption
         if (event.type === "input_audio_buffer.speech_started" && streamSid) {
             ws.send(JSON.stringify({ event: "clear", streamSid }));
         }
-
-        // C. Handle CRM Tool Call
         if (event.type === "response.function_call_arguments.done") {
             (async () => {
                 const args = JSON.parse(event.arguments);
