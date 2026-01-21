@@ -178,12 +178,12 @@ function getSystemPrompt(deal, repName, dealsLeft) {
 
 // --- [BLOCK 4: TWILIO WEBHOOK] ---
 app.post("/agent", (req, res) => {
-    const oppId = req.query.oppId || "4";
-    console.log(`[TWILIO] Incoming Call for Opp ${oppId}`);
+    // Note: We ignore oppId now because we run the whole playlist
+    console.log(`[TWILIO] Incoming Call - Starting Playlist`);
     res.type("text/xml").send(`
         <Response>
             <Connect>
-                <Stream url="wss://${req.headers.host}/?oppId=${oppId}" />
+                <Stream url="wss://${req.headers.host}/" />
             </Connect>
         </Response>
     `);
@@ -191,11 +191,13 @@ app.post("/agent", (req, res) => {
 
 // --- [BLOCK 5: WEBSOCKET CORE] ---
 wss.on('connection', (ws, req) => {
-    // 1. SAFE ID EXTRACTION
-    const oppId = new URL(req.url, 'http://localhost').searchParams.get('oppId') || "4";
-    console.log(`\n[CONNECTION] 📞 New Stream for Opp: ${oppId}`);
-
+    console.log(`\n[CONNECTION] 📞 New Stream Started`);
     let streamSid = null;
+    
+    // --- STATE MANAGEMENT (THE PLAYLIST) ---
+    let dealQueue = [];
+    let currentDealIndex = 0;
+    let isSaving = false; // Prevent double triggers
 
     const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
         headers: {
@@ -206,29 +208,30 @@ wss.on('connection', (ws, req) => {
 
     // --- [SUB-BLOCK 5.A: OPENAI SESSION INIT] ---
     openAiWs.on('open', async () => {
-        // A. FETCH DYNAMIC DATA
-        let dealData = { account_name: "Unknown Account", amount: 0, forecast_stage: "Pipeline", last_summary: null };
-        let dealsLeft = 0;
-
+        // A. FETCH ALL ACTIVE DEALS (DYNAMIC PLAYLIST)
         try {
-            const dealResult = await pool.query('SELECT * FROM opportunities WHERE id = $1', [oppId]);
-            const countResult = await pool.query("SELECT COUNT(*) FROM opportunities WHERE forecast_stage NOT IN ('Closed Won', 'Closed Lost')");
-            dealsLeft = parseInt(countResult.rows[0].count);
-
-            if (dealResult.rows.length > 0) {
-                dealData = dealResult.rows[0];
+            // "Not in Closed Won or Closed Lost" means active deals only
+            const result = await pool.query("SELECT * FROM opportunities WHERE forecast_stage NOT IN ('Closed Won', 'Closed Lost') ORDER BY id ASC");
+            dealQueue = result.rows;
+            console.log(`📋 PLAYLIST LOADED: ${dealQueue.length} Active Deals`);
+            
+            if (dealQueue.length === 0) {
+                console.log("⚠️ No active deals found.");
+                // Handle edge case (maybe just say hello and hang up)
             }
         } catch (e) {
             console.error("❌ DB ERROR:", e.message);
         }
 
+        // B. LOAD FIRST DEAL
+        const currentDeal = dealQueue[currentDealIndex];
+        const dealsRemaining = dealQueue.length - 1 - currentDealIndex;
+        
         console.log("------------------------------------------");
-        console.log(`🤖 [MATTHEW BRAIN]: ${dealData.account_name} | $${dealData.amount}`);
-        console.log(`📝 [CONTEXT]: ${(dealData.last_summary) ? "Update Mode" : "Discovery Mode"}`);
+        console.log(`🤖 [MATTHEW STARTING]: ${currentDeal.account_name} | $${currentDeal.amount}`);
         console.log("------------------------------------------");
 
-        // B. GENERATE PROMPT
-        const instructions = getSystemPrompt(dealData, "Erik", dealsLeft);
+        const instructions = getSystemPrompt(currentDeal, "Erik", dealsRemaining);
 
         // C. CONFIGURE SESSION
         const sessionUpdate = {
@@ -267,42 +270,31 @@ wss.on('connection', (ws, req) => {
             }));
         }
 
-        // --- [SUB-BLOCK 5.C: RICH ANALYTICS PARSER] ---
+        // --- [SUB-BLOCK 5.C: RICH ANALYTICS & PLAYLIST MANAGER] ---
         if (response.type === 'response.audio_transcript.done') {
             const transcript = response.transcript;
             
-            if (transcript.includes("DATABASE_DATA:")) {
+            if (transcript.includes("DATABASE_DATA:") && !isSaving) {
+                isSaving = true; // Lock to prevent double processing
                 console.log("\n🎯 RICH ANALYTICS DETECTED");
-                console.log(`📝 RAW AI OUTPUT: ${transcript}`); // Log exact text for debugging
+                console.log(`📝 RAW AI OUTPUT: ${transcript}`); 
 
                 try {
-                    // ROBUST EXTRACTOR: Handles commas, newlines, or end of text
+                    // 1. EXTRACT DATA
                     const extract = (label) => {
-                        // Regex looks for: Label -> Number -> Pipe -> Text -> (stops at comma, newline, or end)
                         const regex = new RegExp(`${label}:\\s*(\\d)\\|\\s*([^,]+?)(?=(?:,|$|\\n))`, 'i');
                         const match = transcript.match(regex);
-                        if (match) {
-                            // Clean up trailing periods or whitespace
-                            return { score: parseInt(match[1]), text: match[2].trim().replace(/\.$/, '') };
-                        }
+                        if (match) return { score: parseInt(match[1]), text: match[2].trim().replace(/\.$/, '') };
                         return { score: 0, text: "No data provided" };
                     };
 
                     const auditDetails = {
-                        pain: extract("Pain"),
-                        metrics: extract("Metrics"),
-                        champion: extract("Champion"),
-                        eb: extract("EB"),
-                        criteria: extract("Criteria"),
-                        process: extract("Process"),
-                        competition: extract("Competition"),
-                        paper: extract("Paper"),
-                        timing: extract("Timing")
+                        pain: extract("Pain"), metrics: extract("Metrics"), champion: extract("Champion"),
+                        eb: extract("EB"), criteria: extract("Criteria"), process: extract("Process"),
+                        competition: extract("Competition"), paper: extract("Paper"), timing: extract("Timing")
                     };
 
-                    // CALCULATE SCORE & STAGE
                     const totalScore = Object.values(auditDetails).reduce((acc, curr) => acc + curr.score, 0);
-                    
                     let newStage = "Pipeline";
                     if (totalScore >= 24) newStage = "Closed Won";
                     else if (totalScore >= 20) newStage = "Commit";
@@ -310,28 +302,69 @@ wss.on('connection', (ws, req) => {
 
                     console.log(`📊 PARSED SCORE: ${totalScore}/27 | MOVING TO: ${newStage}`);
 
-                    // DATABASE UPDATE (With Run Counter)
+                    // 2. UPDATE DATABASE
                     const updateQuery = `
                         UPDATE opportunities 
-                        SET 
-                            last_summary = $1, 
-                            audit_details = $2, 
-                            forecast_stage = $3, 
-                            updated_at = NOW(),
-                            run_count = COALESCE(run_count, 0) + 1
+                        SET last_summary = $1, audit_details = $2, forecast_stage = $3, updated_at = NOW(), run_count = COALESCE(run_count, 0) + 1
                         WHERE id = $4
                     `;
+                    const currentDeal = dealQueue[currentDealIndex];
                     
-                    // Execute Query
-                    pool.query(updateQuery, [transcript, JSON.stringify(auditDetails), newStage, oppId])
-                        .then(() => console.log(`✅ DB SAVE SUCCESS: Opp ${oppId} updated.`))
+                    pool.query(updateQuery, [transcript, JSON.stringify(auditDetails), newStage, currentDeal.id])
+                        .then(() => {
+                            console.log(`✅ DEAL SAVED: ${currentDeal.account_name}`);
+                            
+                            // 3. ADVANCE PLAYLIST (THE LOOP)
+                            currentDealIndex++; // Move to next deal
+                            
+                            if (currentDealIndex < dealQueue.length) {
+                                // --- NEXT DEAL EXISTS ---
+                                const nextDeal = dealQueue[currentDealIndex];
+                                const dealsRemaining = dealQueue.length - 1 - currentDealIndex;
+                                console.log(`⏩ MOVING TO NEXT DEAL: ${nextDeal.account_name}`);
+
+                                // Generate New Prompt
+                                const nextInstructions = getSystemPrompt(nextDeal, "Erik", dealsRemaining);
+                                
+                                // Update Session Context
+                                openAiWs.send(JSON.stringify({
+                                    type: "session.update",
+                                    session: { instructions: nextInstructions }
+                                }));
+
+                                // Trigger AI to Speak Immediately (Transition Phrase)
+                                openAiWs.send(JSON.stringify({
+                                    type: "response.create",
+                                    response: {
+                                        modalities: ["text", "audio"],
+                                        instructions: `Say exactly: "Okay, I've logged that. Moving on to ${nextDeal.account_name}. This is a ${new Intl.NumberFormat('en-US', {style:'currency',currency:'USD'}).format(nextDeal.amount)} opportunity in ${nextDeal.forecast_stage || 'Pipeline'}." Then immediately ask the opening question defined in your instructions.`
+                                    }
+                                }));
+                                isSaving = false; // Unlock
+
+                            } else {
+                                // --- END OF PLAYLIST ---
+                                console.log("🏁 PLAYLIST FINISHED");
+                                openAiWs.send(JSON.stringify({
+                                    type: "response.create",
+                                    response: {
+                                        modalities: ["text", "audio"],
+                                        instructions: "Say exactly: 'That concludes the review of all active deals. I have updated the forecast. Good luck out there.' Then end the call."
+                                    }
+                                }));
+                                // Optional: Close socket after a delay
+                            }
+                        })
                         .catch(err => console.error("❌ DB SAVE ERROR:", err.message));
 
                 } catch (err) {
                     console.error("❌ PARSING ERROR:", err.message);
+                    isSaving = false;
                 }
             }
         }
+    });
+
     // --- [SUB-BLOCK 5.D: TWILIO TO AI (INPUT)] ---
     ws.on('message', (message) => {
         const msg = JSON.parse(message);
@@ -350,21 +383,14 @@ wss.on('connection', (ws, req) => {
 
 // --- [BLOCK 6: DASHBOARD API] ---
 app.get("/get-deal", async (req, res) => {
+    // This API is now mostly for debugging specific deals via browser
     const oppId = req.query.oppId;
-    const staticFallback = {
-        id: oppId,
-        account_name: "Loading...",
-        amount: 0,
-        forecast_stage: "Pipeline",
-        last_summary: "Connecting..."
-    };
-
+    const staticFallback = { id: oppId, account_name: "Loading...", amount: 0, forecast_stage: "Pipeline", last_summary: "Connecting..." };
     try {
         const result = await pool.query('SELECT * FROM opportunities WHERE id = $1', [oppId]);
         res.json(result.rows[0] || staticFallback);
-    } catch (err) {
-        res.json(staticFallback);
-    }
+    } catch (err) { res.json(staticFallback); }
 });
 
 server.listen(PORT, () => console.log(`🚀 Server live on ${PORT}`));
+
