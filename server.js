@@ -1,100 +1,78 @@
 require("dotenv").config();
 const express = require("express");
-const axios = require("axios");
 const { Pool } = require("pg");
 const cors = require("cors");
+const WebSocket = require("ws");
+const http = require("http");
 
-const app = express();
+// --- CONFIGURATION ---
+const PORT = process.env.PORT || 10000;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY; 
 
-// --- 1. MIDDLEWARE ---
-app.use(cors()); 
-app.use(express.urlencoded({ extended: true })); 
-app.use(express.json()); 
-
-// --- 2. DATABASE CONNECTION ---
+// --- DATABASE CONNECTION ---
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false } 
+  ssl: { rejectUnauthorized: false }
 });
 
-// --- 3. SESSION STORAGE ---
-const sessions = {}; 
+// --- EXPRESS APP SETUP ---
+const app = express();
+app.use(cors());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
-// --- 4. DATABASE UTILITIES ---
-async function incrementRunCount(oppId) {
-    try {
-        await pool.query(`UPDATE opportunities SET run_count = run_count + 1, last_agent_run = CURRENT_TIMESTAMP WHERE id = $1`, [oppId]);
-    } catch (err) { console.error("DB Error:", err); }
-}
+// --- SERVER SETUP (HTTP + WS) ---
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
-async function saveCallResults(oppId, report) {
-    try {
-        const score = report.score !== undefined ? report.score : null;
-        const summary = report.summary || "No summary provided.";
-        const next_steps = report.next_steps || "Review deal manually.";
-        const new_stage = report.new_forecast_category || null;
-
-        // Safe JSON Parsing
-        let audit_details = report.audit_details || null;
-        if (typeof audit_details === 'string') {
-             try { audit_details = JSON.parse(audit_details); } catch(e) { audit_details = null; }
-        }
-        
-        let query = `
-            UPDATE opportunities
-            SET current_score = $1, initial_score = COALESCE(initial_score, $1), 
-                last_summary = $2, next_steps = $3, audit_details = $4
-        `;
-        const params = [score, summary, next_steps, audit_details];
-        
-        // UPDATE: Writing to 'forecast_stage'
-        if (new_stage && new_stage !== "No Change") {
-            query += `, forecast_stage = $5 WHERE id = $6`;
-            params.push(new_stage, oppId);
-            console.log(`🔄 FORECAST MOVED TO: ${new_stage}`);
-        } else {
-            query += ` WHERE id = $5`;
-            params.push(oppId);
-        }
-
-        await pool.query(query, params);
-        console.log(`💾 Saved Deal ${oppId}: Score ${score}/27`);
-    } catch (err) {
-        console.error("❌ Save Error:", err);
-    }
-}
-
-// --- 5. AGENT HELPER FUNCTIONS ---
-function escapeXml(unsafe) {
-    if (!unsafe) return "";
-    return unsafe.replace(/[<>&'"]/g, (c) => {
-        switch (c) {
-            case '<': return '&lt;'; case '>': return '&gt;'; case '&': return '&amp;'; case '\'': return '&apos;'; case '"': return '&quot;';
-        }
-    });
-}
-
-const speak = (text) => {
-    if (!text) return "";
-    let cleanText = text.replace(/\*\*/g, "").replace(/^\s*[-*]\s+/gm, "").replace(/\d+\)\s/g, "").replace(/\d+\.\s/g, "");
-    if (cleanText.length > 800) cleanText = cleanText.substring(0, 800) + "...";
-    return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${escapeXml(cleanText)}</prosody></Say>`;
+// --- 1. TOOL DEFINITION (The "Sniper" Logic) ---
+const DATABASE_TOOL = {
+  type: "function",
+  name: "update_opportunity",
+  description: "Updates the CRM data. Call this IMMEDIATELY when the user provides new facts. Do not wait.",
+  parameters: {
+    type: "object",
+    properties: {
+      pain_score: { type: "integer", description: "Score 0-3 for Identify Pain" },
+      metrics_score: { type: "integer", description: "Score 0-3 for Metrics" },
+      champion_score: { type: "integer", description: "Score 0-3 for Champion" },
+      economic_buyer_score: { type: "integer", description: "Score 0-3 for Economic Buyer" },
+      decision_process_score: { type: "integer", description: "Score 0-3 for Decision Process" },
+      decision_criteria_score: { type: "integer", description: "Score 0-3 for Decision Criteria" },
+      paper_process_score: { type: "integer", description: "Score 0-3 for Paper Process" },
+      timeline_score: { type: "integer", description: "Score 0-3 for Timeline" },
+      competition_score: { type: "integer", description: "Score 0-3 for Competition" },
+      champion_name: { type: "string", description: "Full name of the Champion" },
+      champion_title: { type: "string", description: "Job title of the Champion" },
+      economic_buyer_name: { type: "string", description: "Full name of the Economic Buyer" },
+      economic_buyer_title: { type: "string", description: "Job title of the Economic Buyer" },
+      competitor_name: { type: "string", description: "Name of the competitor" },
+      next_steps: { type: "string", description: "Specific action items agreed upon" },
+      summary: { type: "string", description: "Brief summary of the latest update" },
+      forecast_stage: { type: "string", enum: ["Pipeline", "Best Case", "Commit"], description: "Update stage if criteria met" }
+    },
+    required: [] 
+  }
 };
 
-// --- 6. SYSTEM PROMPT (ALL SECTIONS RESTORED) ---
-function agentSystemPrompt(deal, ageInDays, daysToClose) {
-  const avgSize = deal?.seller_avg_deal_size || 10000;
-  const productContext = deal?.seller_product_rules || "PRODUCT: Unknown.";
+// --- 2. SYSTEM PROMPT (The "Lost" Logic Restored) ---
+function getSystemPrompt(deal) {
+  // A. Calculate Context (Age, etc)
+  const now = new Date();
+  const createdDate = new Date(deal.opp_created_date);
+  const closeDate = deal.close_date ? new Date(deal.close_date) : new Date(now.setDate(now.getDate() + 30));
+  const ageInDays = Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24));
+  const daysToClose = Math.floor((closeDate - new Date()) / (1000 * 60 * 60 * 24));
   
-  // UPDATE: Reading from 'forecast_stage'
-  const category = deal?.forecast_stage || "Pipeline";
+  const avgSize = deal.seller_avg_deal_size || 10000;
+  const productContext = deal.seller_product_rules || "PRODUCT: Unknown.";
+  const category = deal.forecast_stage || "Pipeline";
   
+  // B. Determine Mode
   const isPipeline = ["Pipeline", "Discovery", "Qualification", "Prospecting"].includes(category);
   const isBestCase = ["Best Case", "Upside", "Solution Validation"].includes(category);
-  const isCommit = ["Commit", "Closing", "Negotiation"].includes(category);
-  const isNewDeal = deal.initial_score == null;
+  // const isCommit = ["Commit", "Closing", "Negotiation"].includes(category); // Implied else
 
-  // Forecast Rules
   let instructions = "";
   let bannedTopics = "None.";
   
@@ -122,82 +100,231 @@ function agentSystemPrompt(deal, ageInDays, daysToClose) {
      - **SPECIAL RULE:** ${scoreConcern}`;
   }
 
-  const goalInstruction = isNewDeal ? `**GOAL:** New Deal Audit.` : "**GOAL:** Gap Review (Check History).";
-  const historyContext = !isNewDeal ? `PREVIOUS SCORE: ${deal.current_score}/27. SUMMARY: "${deal.last_summary}".` : "NO HISTORY.";
+  // C. Assemble Prompt
+  return `
+    You are "Matthew," a VP of Sales Auditor. You are cynical, direct, and data-driven.
+    Your voice should be fast, professional, but slightly impatient.
 
-  return `You are "Matthew," a VP of Sales Auditor. You are cynical, direct, and data-driven.
-  ${goalInstruction}
+    ### DEAL CONTEXT
+    - Account: ${deal.account_name}
+    - Stage: ${category}
+    - Value: $${deal.amount} (Avg: $${avgSize})
+    - Age: ${ageInDays} days (Close in: ${daysToClose} days)
+    - History: ${deal.last_summary || "None"}
+    - Current Health: ${deal.current_score || 0}/27
 
-  ### DEAL CONTEXT
-  - Prospect: ${deal?.account_name}
-  - Forecast Stage: ${category}
-  - Value: $${deal?.amount} (Avg: $${avgSize})
-  - Age: ${ageInDays} days (Close in: ${daysToClose} days)
-  - **HISTORY:** ${historyContext}
+    ### PRODUCT CONTEXT
+    ${productContext}
 
-  ### PRODUCT CONTEXT
-  ${productContext}
+    ### AUDIT INSTRUCTIONS
+    ${instructions}
 
-  ### AUDIT INSTRUCTIONS
-  ${instructions}
+    ### RULES OF ENGAGEMENT
+    1. **INTERRUPTIBLE:** Speak concisely. If interrupted, stop immediately.
+    2. **LIVE UPDATES:** As soon as you hear a fact (e.g., "The pain is high costs"), call 'update_opportunity' INSTANTLY. Do not wait for end of thought.
+    3. **NO FLUFF:** Don't say "Got it" or "Understood." Just ask the next hard question.
+    4. **SKEPTICISM:** If the user is vague, challenge them. Treat vagueness as RISK (Score 1).
+    5. **BANNED TOPICS:** ${bannedTopics}
+    6. **NO COACHING:** Never ask for feedback.
 
-  ### RULES OF ENGAGEMENT
-  1. **NO SUMMARIES:** Do not summarize. Just ask the next question.
-  2. **INVISIBLE MATH:** Calculate scores silently. Never speak them.
-  3. **PRODUCT POLICE:** Correct users if they lie about product features.
-  4. **NON-ANSWERS:** If user is vague, treat it as RISK (Score 1).
-  5. **BANNED TOPICS:** ${bannedTopics}
-  6. **NO COACHING:** Never ask for feedback.
-  7. **DATA EXTRACTION:** Extract Full Names and Job Titles.
+    ### CHAMPION DEFINITIONS (CRITICAL)
+    - **1 (Coach):** Friendly, no power.
+    - **2 (Mobilizer):** Has influence, hasn't acted.
+    - **3 (Champion):** Power AND is selling for us.
 
-  ### CHAMPION DEFINITIONS (CRITICAL)
-  - **1 (Coach):** Friendly, no power.
-  - **2 (Mobilizer):** Has influence, hasn't acted.
-  - **3 (Champion):** Power AND is selling for us.
-
-  ### SCORING RUBRIC (0-3)
-  - **0 = Missing**
-  - **1 = Unknown/Assumed** (High Risk)
-  - **2 = Gathering**
-  - **3 = Validated**
-
-  ### RETURN ONLY JSON
-  { "next_question": "Your short question.", "end_of_call": false }
-  
-  OR IF AUDIT COMPLETE:
-  {
-    "end_of_call": true,
-    "next_question": "Verdict: [Score]/27. [Reason].",
-    "final_report": {
-        "score": [0-27],
-        "new_forecast_category": "No Change" | "Pipeline" | "Best Case" | "Commit",
-        "summary": "Brief summary.",
-        "next_steps": "Action item.",
-        "audit_details": {
-            "metrics_score": 0-3, "economic_buyer_score": 0-3, "decision_criteria_score": 0-3,
-            "decision_process_score": 0-3, "paper_process_score": 0-3, "pain_score": 0-3,
-            "champion_score": 0-3, "competition_score": 0-3, "timeline_score": 0-3,
-            "champion_name": "Full Name", "champion_title": "Job Title",
-            "economic_buyer_name": "Full Name", "economic_buyer_title": "Job Title",
-            "competitor_name": "Company"
-        }
-    }
-  }`;
+    ### SCORING RUBRIC (0-3)
+    0=Missing, 1=Weak, 2=Gathering, 3=Validated.
+  `;
 }
 
-// --- 7. UI DASHBOARD ROUTE (The Firehose) ---
+// --- 3. HELPER: DB UPDATE ---
+async function updateDatabase(oppId, args) {
+    try {
+        console.log(`⚡ UPDATING DB for Opp ${oppId}:`, args);
+        
+        // 1. Fetch current JSON to merge
+        const res = await pool.query("SELECT audit_details FROM opportunities WHERE id = $1", [oppId]);
+        let currentDetails = res.rows[0]?.audit_details || {};
+        
+        // 2. Merge new scores/names into JSON
+        const keys = Object.keys(args);
+        keys.forEach(key => {
+            if (key.includes("_score") || key.includes("_name") || key.includes("_title") || key.includes("competitor")) {
+                currentDetails[key] = args[key];
+            }
+        });
+
+        // 3. Build SQL Update
+        let query = "UPDATE opportunities SET audit_details = $1, last_updated = NOW()";
+        const params = [currentDetails];
+        let paramIdx = 2;
+
+        if (args.summary) {
+            query += `, last_summary = $${paramIdx}`;
+            params.push(args.summary);
+            paramIdx++;
+        }
+        if (args.next_steps) {
+            query += `, next_steps = $${paramIdx}`;
+            params.push(args.next_steps);
+            paramIdx++;
+        }
+        if (args.forecast_stage) {
+            query += `, forecast_stage = $${paramIdx}`;
+            params.push(args.forecast_stage);
+            paramIdx++;
+        }
+
+        query += ` WHERE id = $${paramIdx}`;
+        params.push(oppId);
+
+        await pool.query(query, params);
+        return { success: true, message: "CRM Updated" };
+    } catch (e) {
+        console.error("DB Error:", e);
+        return { success: false, error: e.message };
+    }
+}
+
+// --- 4. WEBSOCKET ROUTE (The Realtime Stream) ---
+wss.on("connection", (ws, req) => {
+    console.log("Client Connected");
+    
+    // Extract OppId from URL params (passed from Twilio)
+    const urlParams = new URLSearchParams(req.url.replace('/','')); 
+    const oppId = urlParams.get('oppId') || '4';
+
+    let openAIWs = null;
+    let streamSid = null;
+
+    // A. Connect to OpenAI Realtime
+    const url = "wss://api.openai.com/v1/realtime?model=gpt-4o-mini-realtime-preview-2024-12-17";
+    openAIWs = new WebSocket(url, {
+        headers: {
+            "Authorization": `Bearer ${OPENAI_API_KEY}`,
+            "OpenAI-Beta": "realtime=v1"
+        }
+    });
+
+    // B. Handle OpenAI Events
+    openAIWs.on("open", async () => {
+        console.log("✅ Connected to OpenAI Realtime");
+        
+        // Load Deal Context
+        const dbRes = await pool.query("SELECT * FROM opportunities WHERE id = $1", [oppId]);
+        const deal = dbRes.rows[0];
+
+        // Send Session Config
+        const sessionConfig = {
+            type: "session.update",
+            session: {
+                modalities: ["text", "audio"],
+                instructions: getSystemPrompt(deal),
+                voice: "alloy", // "alloy" is deep/professional. "echo" is softer.
+                input_audio_format: "g711_ulaw",
+                output_audio_format: "g711_ulaw",
+                turn_detection: { type: "server_vad" },
+                tools: [DATABASE_TOOL],
+                tool_choice: "auto"
+            }
+        };
+        openAIWs.send(JSON.stringify(sessionConfig));
+        
+        // Trigger the first greeting
+        openAIWs.send(JSON.stringify({
+            type: "response.create",
+            response: {
+                modalities: ["text", "audio"],
+                instructions: `Greet the user by reading the summary: "${deal.last_summary || 'No update'}" and asking for the latest.`
+            }
+        }));
+    });
+
+    openAIWs.on("message", async (data) => {
+        const event = JSON.parse(data);
+
+        // 1. Audio Delta (Agent Speaking) -> Send to Twilio
+        if (event.type === "response.audio.delta" && event.delta) {
+            const audioPayload = {
+                event: "media",
+                streamSid: streamSid,
+                media: { payload: event.delta }
+            };
+            ws.send(JSON.stringify(audioPayload));
+        }
+
+        // 2. Function Call (Agent wants to save data)
+        if (event.type === "response.function_call_arguments.done") {
+            const args = JSON.parse(event.arguments);
+            const callId = event.call_id;
+            
+            // Execute DB Update
+            const result = await updateDatabase(oppId, args);
+
+            // Tell OpenAI it's done
+            openAIWs.send(JSON.stringify({
+                type: "conversation.item.create",
+                item: {
+                    type: "function_call_output",
+                    call_id: callId,
+                    output: JSON.stringify(result)
+                }
+            }));
+            
+            // Trigger a response so he acknowledges it naturally
+            openAIWs.send(JSON.stringify({ type: "response.create" }));
+        }
+    });
+
+    // C. Handle Twilio Events
+    ws.on("message", (message) => {
+        const data = JSON.parse(message);
+
+        if (data.event === "start") {
+            streamSid = data.start.streamSid;
+            console.log(`📞 Stream Started: ${streamSid}`);
+        } else if (data.event === "media") {
+            // Send audio to OpenAI
+            if (openAIWs.readyState === WebSocket.OPEN) {
+                openAIWs.send(JSON.stringify({
+                    type: "input_audio_buffer.append",
+                    audio: data.media.payload
+                }));
+            }
+        } else if (data.event === "stop") {
+            console.log("Call Ended");
+            if (openAIWs.readyState === WebSocket.OPEN) openAIWs.close();
+        }
+    });
+
+    ws.on("close", () => {
+        if (openAIWs.readyState === WebSocket.OPEN) openAIWs.close();
+    });
+});
+
+// --- 5. INITIAL HTTP ROUTE (Twilio hits this first) ---
+app.post("/agent", (req, res) => {
+    const oppId = req.query.oppId || "4";
+    // TwiML to start the WebSocket Stream
+    const twiml = `
+    <Response>
+        <Connect>
+            <Stream url="wss://${req.headers.host}/?oppId=${oppId}" />
+        </Connect>
+    </Response>
+    `;
+    res.type("text/xml").send(twiml);
+});
+
+// --- 6. DASHBOARD ROUTE (Unchanged) ---
 app.get("/get-deal", async (req, res) => {
   const { oppId } = req.query;
   try {
     const result = await pool.query("SELECT * FROM opportunities WHERE id = $1", [oppId]);
     if (result.rows.length === 0) return res.status(404).json({ error: "Not found" });
-    
     const deal = result.rows[0];
-    
-    // SEND EVERYTHING: Spread (...deal) ensures every DB column is sent.
-    // We also overwrite specific keys to ensure UI compatibility.
     res.json({
-      ...deal, // <--- THE MAGIC FIX. Sends org_id, user_id, timestamps, everything.
+      ...deal, 
       forecast_category: deal.forecast_stage, 
       summary: deal.last_summary || deal.summary,
       next_steps: deal.next_steps,
@@ -206,134 +333,5 @@ app.get("/get-deal", async (req, res) => {
   } catch (err) { console.error("Dash Error:", err); res.status(500).send("DB Error"); }
 });
 
-// --- 8. HELPER: LIST ALL DEALS ---
-app.get("/get-all-opps", async (req, res) => {
-    try {
-        const result = await pool.query("SELECT id, account_name FROM opportunities ORDER BY id ASC");
-        res.json(result.rows);
-    } catch (err) { res.status(500).json([]); }
-});
-
-// --- 9. THE AGENT ROUTE (POST) ---
-app.post("/agent", async (req, res) => {
-  try {
-    const currentOppId = parseInt(req.query.oppId || 4);
-    const isTransition = req.query.transition === 'true';
-    const callSid = req.body.CallSid || "test_session";
-    const transcript = req.body.transcript || req.body.SpeechResult || "";
-
-    if (!transcript) {
-        console.log(`--- New Session: Opp ${currentOppId} ---`);
-        await incrementRunCount(currentOppId);
-    }
-
-    const dbResult = await pool.query('SELECT * FROM opportunities WHERE id = $1', [currentOppId]);
-    const deal = dbResult.rows[0];
-
-    const now = new Date();
-    const createdDate = new Date(deal.opp_created_date);
-    const closeDate = deal.close_date ? new Date(deal.close_date) : new Date(now.setDate(now.getDate() + 30));
-    const ageInDays = Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24));
-    const daysToClose = Math.floor((closeDate - new Date()) / (1000 * 60 * 60 * 24));
-
-    // A. GREETING
-    if (!sessions[callSid]) {
-        console.log(`[SERVER] Start: ${callSid}`);
-        const firstName = (deal.rep_name || "Rep").split(' ')[0];
-        // UPDATE: Reading 'forecast_stage'
-        const category = deal.forecast_stage || "Pipeline";
-        const isNewDeal = deal.initial_score == null;
-        
-        const countRes = await pool.query('SELECT COUNT(*) FROM opportunities WHERE id >= $1', [currentOppId]);
-        const dealsLeft = countRes.rows[0].count;
-
-        let openingQuestion = "";
-        if (isNewDeal) {
-            openingQuestion = "To start, what are we selling and what problem does it solve?";
-        } else {
-            let summary = deal.last_summary || "we identified risks";
-            if (summary.length > 300) summary = summary.substring(0, 300) + "...";
-            openingQuestion = `Last time: ${summary}. What is the update?`;
-        }
-
-        const finalGreeting = isTransition 
-            ? `Next up: ${deal.account_name}. It's in ${category}. ${openingQuestion}`
-            : `Hi ${firstName}, Matthew here. Reviewing ${dealsLeft} deals. Starting with ${deal.account_name} in ${category}. ${openingQuestion}`;
-
-        sessions[callSid] = [{ role: "assistant", content: finalGreeting }];
-        return res.send(`<Response><Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="auto">${speak(finalGreeting)}</Gather></Response>`);
-    }
-
-    // B. HANDLE INPUT
-    let messages = sessions[callSid];
-    if (transcript.trim()) {
-      messages.push({ role: "user", content: transcript });
-    } else {
-      return res.send(`<Response><Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="auto">${speak("I didn't hear you. Say that again?")}</Gather></Response>`);
-    }
-
-    // C. AI CALL
-    try {
-        const response = await axios.post(
-          "https://api.anthropic.com/v1/messages",
-          {
-            model: "claude-3-haiku-20240307",
-            max_tokens: 800,
-            temperature: 0,
-            system: agentSystemPrompt(deal, ageInDays, daysToClose),
-            messages: messages
-          },
-          { headers: { "x-api-key": process.env.MODEL_API_KEY.trim(), "anthropic-version": "2023-06-01" }, timeout: 12000 }
-        );
-
-        let rawText = response.data.content[0].text.trim().replace(/```json/g, "").replace(/```/g, "");
-        let agentResult = { next_question: "", end_of_call: false };
-        
-        try {
-            const jsonStart = rawText.indexOf('{');
-            const jsonEnd = rawText.lastIndexOf('}');
-            if (jsonStart !== -1) {
-                agentResult = JSON.parse(rawText.substring(jsonStart, jsonEnd + 1));
-            } else {
-                agentResult.next_question = rawText;
-            }
-        } catch (e) { agentResult.next_question = rawText; }
-
-        messages.push({ role: "assistant", content: rawText });
-        sessions[callSid] = messages;
-        
-        console.log(`\n--- TURN ${messages.length} ---`);
-        console.log("🗣️ USER:", transcript);
-        console.log("🧠 MATTHEW:", agentResult.next_question);
-
-        // E. OUTPUT & TRANSITION
-        if (agentResult.end_of_call) {
-            if (agentResult.final_report) {
-                console.log("📊 Saving Report...");
-                await saveCallResults(currentOppId, agentResult.final_report);
-            }
-
-            const nextDeal = await pool.query('SELECT id FROM opportunities WHERE id > $1 ORDER BY id ASC LIMIT 1', [currentOppId]);
-            if (nextDeal.rows.length > 0) {
-                 delete sessions[callSid]; 
-                 return res.send(`<Response>${speak(agentResult.next_question + " Moving to next deal.")}<Redirect method="POST">/agent?oppId=${nextDeal.rows[0].id}&amp;transition=true</Redirect></Response>`);
-            } else {
-                 return res.send(`<Response>${speak(agentResult.next_question + " That was the last deal. Goodbye.")}<Hangup/></Response>`);
-            }
-        } else {
-            return res.send(`<Response><Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="auto">${speak(agentResult.next_question)}</Gather></Response>`);
-        }
-
-    } catch (apiError) {
-        console.error("LLM Error:", apiError.message);
-        return res.send(`<Response><Gather input="speech" action="/agent?oppId=${currentOppId}" method="POST" speechTimeout="auto">${speak("I'm calculating metrics. What's the timeline?")}</Gather></Response>`);
-    }
-
-  } catch (error) {
-    console.error("SERVER ERROR:", error.message);
-    res.type('text/xml').send(`<Response><Say>System error.</Say><Hangup/></Response>`);
-  }
-});
-
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`🚀 Audit Server live on port ${PORT}`));
+// --- START SERVER ---
+server.listen(PORT, () => console.log(`🚀 Realtime Server live on port ${PORT}`));
