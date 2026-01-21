@@ -81,7 +81,8 @@ Investigate in this EXACT ORDER. Do not name categories or provide mid-call scor
 
     ### OPERATING RULES
 •	One Question at a Time: Ask one question, then wait for response.
-•	he Evidence Probe: If an answer is vague, probe ONCE. If still vague, score as 1, state the risk, and move to the next item.
+•	The Evidence Probe: If an answer is vague, probe ONCE. If still vague, score as 1, state the risk, and move to the next item.
+•	DO NOT summarize the user's responses; move directly to the next evidence probe or the final report.
 •	No Labels: Do not use category names.
 
     ### DEAL CONTEXT
@@ -103,7 +104,7 @@ Investigate in this EXACT ORDER. Do not name categories or provide mid-call scor
     `;
 }
 
-// --- [BLOCK 3: TWILIO WEBHOOK] ---
+// --- [BLOCK 4: TWILIO WEBHOOK] ---
 app.post("/agent", (req, res) => {
     const oppId = req.query.oppId || "4";
     console.log(`[TWILIO] Incoming Call for Opp ${oppId}`);
@@ -116,11 +117,11 @@ app.post("/agent", (req, res) => {
     `);
 });
 
-// --- [BLOCK 4: WEBSOCKET CORE] ---
+// --- [BLOCK 5: WEBSOCKET CORE] ---
 wss.on('connection', (ws, req) => {
     // 1. SAFE ID EXTRACTION
     const oppId = new URL(req.url, 'http://localhost').searchParams.get('oppId') || "4";
-    console.log(`\n[CONNECTION] 📞 Incoming Call for Opp: ${oppId}`);
+    console.log(`\n[CONNECTION] 📞 New Stream for Opp: ${oppId}`);
 
     let streamSid = null;
 
@@ -131,45 +132,37 @@ wss.on('connection', (ws, req) => {
         }
     });
 
-    // --- [SUB-BLOCK 4.A: OPENAI SESSION INIT] ---
+    // --- [SUB-BLOCK 5.A: OPENAI SESSION INIT] ---
     openAiWs.on('open', async () => {
-        // A. FETCH DYNAMIC DATA (No more hardcoding)
+        // A. FETCH DYNAMIC DATA
         let dealData = { account_name: "Unknown Account", amount: 0, forecast_stage: "Pipeline", last_summary: null };
         let dealsLeft = 0;
 
         try {
             // Query 1: The Target Deal
             const dealResult = await pool.query('SELECT * FROM opportunities WHERE id = $1', [oppId]);
-            
-            // Query 2: The Context (How many other active deals?)
-            // We exclude closed deals so he doesn't nag about dead/won leads
+            // Query 2: The Context (Active Deals Only)
             const countResult = await pool.query("SELECT COUNT(*) FROM opportunities WHERE forecast_stage NOT IN ('Closed Won', 'Closed Lost')");
             dealsLeft = parseInt(countResult.rows[0].count);
 
             if (dealResult.rows.length > 0) {
                 dealData = dealResult.rows[0];
             } else {
-                console.log(`⚠️ Opp ${oppId} not found. Using Ghost Data.`);
+                console.log(`⚠️ Opp ${oppId} not found. Using defaults.`);
             }
         } catch (e) {
             console.error("❌ DB ERROR:", e.message);
         }
 
-        // --- [DATA DEBUGGER] ---
-        // This lets you see EXACTLY what the Agent sees
         console.log("------------------------------------------");
-        console.log("🤖 [AGENT BRAIN DATA]");
-        console.log(`• Account: ${dealData.account_name}`);
-        console.log(`• Amount:  $${dealData.amount}`);
-        console.log(`• Stage:   ${dealData.forecast_stage}`);
-        console.log(`• Mode:    ${(dealData.last_summary && dealData.last_summary.length > 10) ? "REVIEW (Update Mode)" : "NEW DEAL (Discovery Mode)"}`);
-        console.log(`• Queue:   ${dealsLeft} deals remaining`);
+        console.log(`🤖 [MATTHEW BRAIN]: ${dealData.account_name} | $${dealData.amount}`);
+        console.log(`📝 [CONTEXT]: ${(dealData.last_summary) ? "Update Mode" : "Discovery Mode"}`);
         console.log("------------------------------------------");
 
         // B. GENERATE PROMPT
         const instructions = getSystemPrompt(dealData, "Erik", dealsLeft);
 
-        // C. CONFIGURE SESSION
+        // C. CONFIGURE SESSION (WITH POLITE VAD)
         const sessionUpdate = {
             type: "session.update",
             session: {
@@ -178,18 +171,24 @@ wss.on('connection', (ws, req) => {
                 voice: "verse", // Deep, professional voice
                 input_audio_format: "g711_ulaw",
                 output_audio_format: "g711_ulaw",
-                turn_detection: { type: "server_vad" }
+                // --- TUNED VAD SETTINGS ---
+                turn_detection: { 
+                    type: "server_vad",
+                    threshold: 0.6, // Higher = Harder to interrupt
+                    prefix_padding_ms: 300, 
+                    silence_duration_ms: 1000 // Waits 1s silence before replying
+                }
             }
         };
         openAiWs.send(JSON.stringify(sessionUpdate));
 
-        // D. FORCE SPEAK (The "Hello" kicker)
+        // D. FORCE SPEAK
         setTimeout(() => {
             openAiWs.send(JSON.stringify({ type: "response.create" }));
         }, 250);
     });
 
-    // --- [SUB-BLOCK 4.B: AI TO TWILIO (OUTPUT)] ---
+    // --- [SUB-BLOCK 5.B: AI TO TWILIO (OUTPUT)] ---
     openAiWs.on('message', (data) => {
         const response = JSON.parse(data);
 
@@ -202,13 +201,10 @@ wss.on('connection', (ws, req) => {
             }));
         }
 
-        // --- [SUB-BLOCK 4.C: DATA CAPTURE & DB WRITE] ---
+        // --- [SUB-BLOCK 5.C: DATA CAPTURE] ---
         if (response.type === 'response.audio_transcript.done') {
             const transcript = response.transcript;
             
-            // Log what he thinks, so we can debug his "ears"
-            // console.log(`[🗣️]: ${transcript}`);
-
             if (transcript.includes("Deal Summary:") || transcript.includes("Final Health Score:")) {
                 console.log("\n🎯 FINAL AUDIT DETECTED - PARSING...");
                 try {
@@ -219,14 +215,13 @@ wss.on('connection', (ws, req) => {
                     if (totalScore >= 20) newStage = "Commit";
                     else if (totalScore >= 12) newStage = "Best Case";
 
-                    // The "Update" Logic
                     const updateQuery = `
                         UPDATE opportunities 
                         SET last_summary = $1, forecast_stage = $2, updated_at = NOW() 
                         WHERE id = $3
                     `;
                     pool.query(updateQuery, [transcript, newStage, oppId]);
-                    console.log(`✅ DATABASE UPDATED: ${newStage} (Score: ${totalScore}/27)`);
+                    console.log(`✅ DB UPDATED: ${newStage} (Score: ${totalScore})`);
                 } catch (dbErr) {
                     console.error("❌ DB UPDATE FAILED:", dbErr.message);
                 }
@@ -234,7 +229,7 @@ wss.on('connection', (ws, req) => {
         }
     });
 
-    // --- [SUB-BLOCK 4.D: TWILIO TO AI (INPUT)] ---
+    // --- [SUB-BLOCK 5.D: TWILIO TO AI (INPUT)] ---
     ws.on('message', (message) => {
         const msg = JSON.parse(message);
         
@@ -250,15 +245,27 @@ wss.on('connection', (ws, req) => {
     });
 
     ws.on('close', () => openAiWs.close());
-});// --- [BLOCK 5: DASHBOARD API] ---
+});
+
+// --- [BLOCK 6: DASHBOARD API] ---
 app.get("/get-deal", async (req, res) => {
     const oppId = req.query.oppId;
+    // Safety Fallback (Prevents Disco)
+    const staticFallback = {
+        id: oppId,
+        account_name: "Loading...",
+        amount: 0,
+        forecast_stage: "Pipeline",
+        last_summary: "Connecting..."
+    };
+
     try {
         const result = await pool.query('SELECT * FROM opportunities WHERE id = $1', [oppId]);
-        res.json(result.rows[0] || { message: "Deal not found" });
+        res.json(result.rows[0] || staticFallback);
     } catch (err) {
-        res.status(500).send("Database connection error");
+        // Return JSON even on error to keep Dashboard green
+        res.json(staticFallback);
     }
 });
 
-server.listen(PORT, () => console.log(`🚀 Master Server live on ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Server live on ${PORT}`));
