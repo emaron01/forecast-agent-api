@@ -7,9 +7,9 @@ const cors = require('cors');
 
 // --- [BLOCK 1: CONFIGURATION & ENV] ---
 const PORT = process.env.PORT || 10000;
-const OPENAI_API_KEY = process.env.MODEL_API_KEY; 
+const OPENAI_API_KEY = process.env.MODEL_API_KEY;
 const MODEL_URL = process.env.MODEL_URL || "wss://api.openai.com/v1/realtime";
-const MODEL_NAME = process.env.MODEL_NAME || "gpt-4o-mini-realtime-preview-2024-12-17"; 
+const MODEL_NAME = process.env.MODEL_NAME || "gpt-4o-mini-realtime-preview-2024-12-17";
 
 // --- [BLOCK 2: DB CONNECTION] ---
 const pool = new Pool({
@@ -81,8 +81,7 @@ Investigate in this EXACT ORDER. Do not name categories or provide mid-call scor
 
     ### OPERATING RULES
 •	One Question at a Time: Ask one question, then wait for response.
-•	The Evidence Probe: If an answer is vague, probe ONCE. If still vague, score as 1, state the risk, and move to the next item.
-•	DO NOT summarize the user's responses; move directly to the next evidence probe or the final report.
+•	he Evidence Probe: If an answer is vague, probe ONCE. If still vague, score as 1, state the risk, and move to the next item.
 •	No Labels: Do not use category names.
 
     ### DEAL CONTEXT
@@ -105,7 +104,6 @@ Investigate in this EXACT ORDER. Do not name categories or provide mid-call scor
 DATABASE_DATA: Pain: [score]| [Short summary of pain], Metrics: [score]| [Short summary of metrics], Champion: [score]| [Name/Title], EB: [score]| [Name/Title], Criteria: [score]| [Detail], Process: [score]| [Detail], Competition: [score]| [Name], Paper: [score]| [Detail], Timing: [score]| [Detail] 
  `;
 }
-
 
 // --- [BLOCK 4: TWILIO WEBHOOK] ---
 app.post("/agent", (req, res) => {
@@ -205,47 +203,49 @@ wss.on('connection', (ws, req) => {
         }
 
         // --- [SUB-BLOCK 5.C: RICH ANALYTICS PARSER] ---
-if (response.type === 'response.audio_transcript.done') {
-    const transcript = response.transcript;
-    
-    if (transcript.includes("DATABASE_DATA:")) {
-        console.log("\n🎯 RICH ANALYTICS DETECTED");
-        try {
-            // Helper function to extract "Score|Text" for each category
-            const extract = (label) => {
-                const regex = new RegExp(`${label}: (\\d)\\|\\s*([^,]+)`);
-                const match = transcript.match(regex);
-                return match ? { score: parseInt(match[1]), text: match[2].trim() } : { score: 0, text: "No data provided" };
-            };
+        if (response.type === 'response.audio_transcript.done') {
+            const transcript = response.transcript;
+            
+            if (transcript.includes("DATABASE_DATA:")) {
+                console.log("\n🎯 RICH ANALYTICS DETECTED");
+                try {
+                    // Helper function to extract "Score|Text" for each category
+                    const extract = (label) => {
+                        const regex = new RegExp(`${label}: (\\d)\\|\\s*([^,]+)`);
+                        const match = transcript.match(regex);
+                        return match ? { score: parseInt(match[1]), text: match[2].trim() } : { score: 0, text: "No data provided" };
+                    };
 
-            const auditDetails = {
-                pain: extract("Pain"),
-                metrics: extract("Metrics"),
-                champion: extract("Champion"),
-                eb: extract("EB"),
-                criteria: extract("Criteria"),
-                process: extract("Process"),
-                competition: extract("Competition"),
-                paper: extract("Paper"),
-                timing: extract("Timing")
-            };
+                    const auditDetails = {
+                        pain: extract("Pain"),
+                        metrics: extract("Metrics"),
+                        champion: extract("Champion"),
+                        eb: extract("EB"),
+                        criteria: extract("Criteria"),
+                        process: extract("Process"),
+                        competition: extract("Competition"),
+                        paper: extract("Paper"),
+                        timing: extract("Timing")
+                    };
 
-            // Calculate Overall Score and Stage
-            const totalScore = Object.values(auditDetails).reduce((acc, curr) => acc + curr.score, 0);
-            let newStage = totalScore >= 20 ? "Commit" : (totalScore >= 12 ? "Best Case" : "Pipeline");
+                    // Calculate Overall Score and Stage
+                    const totalScore = Object.values(auditDetails).reduce((acc, curr) => acc + curr.score, 0);
+                    let newStage = totalScore >= 20 ? "Commit" : (totalScore >= 12 ? "Best Case" : "Pipeline");
 
-            const updateQuery = `
-                UPDATE opportunities 
-                SET last_summary = $1, audit_details = $2, forecast_stage = $3, updated_at = NOW() 
-                WHERE id = $4
-            `;
-            pool.query(updateQuery, [transcript, JSON.stringify(auditDetails), newStage, oppId]);
-            console.log(`✅ RICH DATA SAVED: ${totalScore}/27`);
-        } catch (err) {
-            console.error("❌ PARSING ERROR:", err.message);
+                    const updateQuery = `
+                        UPDATE opportunities 
+                        SET last_summary = $1, audit_details = $2, forecast_stage = $3, updated_at = NOW() 
+                        WHERE id = $4
+                    `;
+                    pool.query(updateQuery, [transcript, JSON.stringify(auditDetails), newStage, oppId]);
+                    console.log(`✅ RICH DATA SAVED: ${totalScore}/27`);
+                } catch (err) {
+                    console.error("❌ PARSING ERROR:", err.message);
+                }
+            }
         }
-    }
-}
+    });
+
     // --- [SUB-BLOCK 5.D: TWILIO TO AI (INPUT)] ---
     ws.on('message', (message) => {
         const msg = JSON.parse(message);
@@ -267,7 +267,7 @@ if (response.type === 'response.audio_transcript.done') {
 // --- [BLOCK 6: DASHBOARD API] ---
 app.get("/get-deal", async (req, res) => {
     const oppId = req.query.oppId;
-    // Safety Fallback (Prevents Disco)
+    // Safety Fallback
     const staticFallback = {
         id: oppId,
         account_name: "Loading...",
@@ -280,7 +280,6 @@ app.get("/get-deal", async (req, res) => {
         const result = await pool.query('SELECT * FROM opportunities WHERE id = $1', [oppId]);
         res.json(result.rows[0] || staticFallback);
     } catch (err) {
-        // Return JSON even on error to keep Dashboard green
         res.json(staticFallback);
     }
 });
