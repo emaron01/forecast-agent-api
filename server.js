@@ -9,7 +9,7 @@ const http = require("http");
 const PORT = process.env.PORT || 10000;
 const OPENAI_API_KEY = process.env.MODEL_API_KEY; 
 const MODEL_URL = process.env.MODEL_URL || "wss://api.openai.com/v1/realtime";
-const MODEL_NAME = process.env.MODEL_NAME || "gpt-4o-realtime-preview-2024-10-01";
+const MODEL_NAME = process.env.MODEL_NAME || "gpt-4o-mini-realtime-preview-2024-12-17"; 
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -54,16 +54,16 @@ const DATABASE_TOOL = {
   }
 };
 
-// --- 2. SYSTEM PROMPT ---
+// --- 2. SYSTEM PROMPT (ALL GUARDS RESTORED) ---
 function getSystemPrompt(deal) {
   const now = new Date();
   const createdDate = new Date(deal.opp_created_date);
   const closeDate = deal.close_date ? new Date(deal.close_date) : new Date(now.setDate(now.getDate() + 30));
   const ageInDays = Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24));
   const daysToClose = Math.floor((closeDate - new Date()) / (1000 * 60 * 60 * 24));
-  const productContext = deal.seller_product_rules || "PRODUCT: General SaaS.";
   const category = deal.forecast_stage || "Pipeline";
   const d = deal.audit_details || {};
+  const productContext = deal.seller_product_rules || "PRODUCT: General SaaS.";
 
   const scorecardContext = `
     [CURRENT MEDDPICC SCORES]
@@ -78,44 +78,50 @@ function getSystemPrompt(deal) {
     - Timeline: ${d.timeline_score || 0}/3
   `;
 
-  const isPipeline = ["Pipeline", "Discovery", "Qualification", "Prospecting"].includes(category);
-  const isBestCase = ["Best Case", "Upside", "Solution Validation"].includes(category);
-
   let instructions = "";
   let bannedTopics = "None.";
   
-  if (isPipeline) {
-     instructions = `**MODE: PIPELINE** Strict Ceiling: 15. Focus on Pain/Metrics. Auto-fail if Pain is 0. Ignore Paper Process.`;
-     bannedTopics = "Do NOT ask about: Legal, Procurement, Signatures, Redlines.";
-  } else if (isBestCase) {
-     instructions = `**MODE: BEST CASE** Attack categories with score '0' or '1'. Find the gap.`;
+  if (["Pipeline", "Discovery", "Prospecting"].includes(category)) {
+     instructions = `**MODE: SKEPTIC (Pipeline).** Strict Ceiling: 15. Focus on Pain/Metrics. Auto-fail if Pain is 0. Ignore Paper Process.`;
+     bannedTopics = "Do NOT ask about: Legal, Procurement, Signatures, Redlines, Close Date specifics.";
+  } else if (["Best Case", "Upside"].includes(category)) {
+     instructions = `**MODE: GAP HUNTER (Best Case).** Attack categories with score '0' or '1'. Find the missing link.`;
   } else {
-     const scoreConcern = (deal.current_score && deal.current_score < 22) ? "WARNING: Score <22." : "";
-     instructions = `**MODE: COMMIT** Protect forecast. Focus on Timeline/Signatures. ${scoreConcern}`;
+     const scoreConcern = (deal.current_score && deal.current_score < 22) ? "WARNING: Score <22. Challenge confidence." : "";
+     instructions = `**MODE: CLOSER (Commit).** Protect forecast. Focus on Timeline/Signatures. ${scoreConcern}`;
   }
 
   return `
-    You are "Matthew," a VP of Sales Auditor. Voice: cynical, fast, direct.
+    You are "Matthew," a VP of Sales Auditor. 
+    **PERSONA:** Cynical, data-driven, direct, fast. You help the rep win by finding holes in their deal.
     
     ### DEAL CONTEXT
-    - Account: ${deal.account_name} ($${deal.amount})
+    - Account: ${deal.account_name}
     - Stage: ${category}
-    - Age: ${ageInDays} days
+    - Age: ${ageInDays} days (Close in: ${daysToClose})
     - Last Summary: ${deal.last_summary || "None"}
     ${scorecardContext}
 
-    ### PRODUCT
+    ### PRODUCT CONTEXT
     ${productContext}
 
     ### INSTRUCTIONS
     ${instructions}
 
     ### RULES
-    1. **Speak concisely.** Stop immediately if interrupted.
+    1. **SCRIPT COMPLIANCE:** For the first turn, read the provided greeting script VERBATIM.
     2. **LIVE UPDATES:** Call 'update_opportunity' INSTANTLY when hearing facts.
-    3. **NO FLUFF.** Just ask the hard question.
+    3. **NO FLUFF:** Don't say "Got it." Just ask the next hard question.
     4. **BANNED TOPICS:** ${bannedTopics}
-    5. **CHAMPION:** 1=Coach, 2=Mobilizer, 3=Power+Selling.
+    5. **NO COACHING:** You are an auditor, not a sales trainer.
+
+    ### CHAMPION DEFINITIONS (Strict)
+    - 1 (Coach): Friendly, no power.
+    - 2 (Mobilizer): Has influence, hasn't acted.
+    - 3 (Champion): Power AND is selling for us when we aren't there.
+
+    ### SCORING RUBRIC (0-3)
+    0=Missing, 1=Weak, 2=Gathering, 3=Validated.
   `;
 }
 
@@ -151,7 +157,7 @@ async function updateDatabase(oppId, args) {
     }
 }
 
-// --- 4. WEBSOCKET ROUTE (DOUBLE-LOCK FIX) ---
+// --- 4. WEBSOCKET ROUTE ---
 wss.on("connection", (ws, req) => {
     console.log("Client Connected");
     const urlParams = new URLSearchParams(req.url.replace('/','')); 
@@ -160,38 +166,41 @@ wss.on("connection", (ws, req) => {
     let openAIWs = null;
     let streamSid = null;
     let deal = null;
-    
-    // THE "DOUBLE LOCK" FLAGS
     let openAIReady = false; 
     let twilioReady = false; 
-    let greetingSent = false; // The Fail-Safe
+    let greetingSent = false;
 
-    // Trigger Greeting Only Once (When both locks are open)
+    // --- THE FIXED GREETING LOGIC ---
     const triggerGreeting = async () => {
         if (openAIReady && twilioReady && deal && !greetingSent) {
-            greetingSent = true; // Lock it instantly
+            greetingSent = true;
             console.log("🗣️ BOTH READY -> Triggering Greeting...");
             
             const countRes = await pool.query('SELECT COUNT(*) FROM opportunities WHERE id >= $1', [oppId]);
             const dealsLeft = countRes.rows[0].count;
-            const firstName = (deal.rep_name || "Rep").split(' ')[0];
-            const isNewDeal = deal.initial_score == null;
+            
+            let repName = (deal.rep_name || "Rep").split(' ')[0];
+            if (repName.toLowerCase() === "matthew") repName = "Rep"; 
 
-            let greeting = "";
+            const isNewDeal = deal.initial_score == null;
+            
+            let script = "";
             if (isNewDeal) {
-               greeting = `Hi ${firstName}, Matthew here. Reviewing ${dealsLeft} deals. Starting with ${deal.account_name}. I see no data. What are we selling?`;
+               script = `Hi ${repName}, this is Matthew. I am reviewing your forecast. You have ${dealsLeft} deals left. Let's start with ${deal.account_name}. I see no data here. What are we selling?`;
             } else {
-               greeting = `Hi ${firstName}, Matthew here. Reviewing ${dealsLeft} deals. Starting with ${deal.account_name}. Last update: ${deal.last_summary || 'brief'}. What's the latest?`;
+               script = `Hi ${repName}, this is Matthew. I am reviewing your forecast. You have ${dealsLeft} deals left. Let's start with ${deal.account_name}. The last update was: "${deal.last_summary || 'brief'}". What is the latest?`;
             }
             
             openAIWs.send(JSON.stringify({
                 type: "response.create",
-                response: { modalities: ["text", "audio"], instructions: greeting }
+                response: { 
+                    modalities: ["text", "audio"], 
+                    instructions: `You must say exactly this phrase word-for-word: "${script}"` 
+                }
             }));
         }
     };
 
-    // CONNECT TO OPENAI
     const fullUrl = `${MODEL_URL}?model=${MODEL_NAME}`;
     openAIWs = new WebSocket(fullUrl, {
         headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "OpenAI-Beta": "realtime=v1" }
@@ -217,7 +226,6 @@ wss.on("connection", (ws, req) => {
         };
         openAIWs.send(JSON.stringify(sessionConfig));
         
-        // CHECKPOINT 1: OpenAI is ready
         openAIReady = true;
         triggerGreeting(); 
     });
@@ -237,12 +245,8 @@ wss.on("connection", (ws, req) => {
 
     ws.on("message", async (message) => {
         const data = JSON.parse(message);
-
         if (data.event === "start") {
             streamSid = data.start.streamSid;
-            console.log(`📞 Stream Started: ${streamSid}`);
-            
-            // CHECKPOINT 2: Twilio is ready
             twilioReady = true;
             triggerGreeting();
         } 
