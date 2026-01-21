@@ -118,7 +118,11 @@ app.post("/agent", (req, res) => {
 
 // --- [BLOCK 4: WEBSOCKET CORE] ---
 wss.on('connection', (ws, req) => {
-    const oppId = new URL(req.url, `http://${req.headers.host}`).searchParams.get('oppId');
+    // 1. SAFE ID EXTRACTION (Fixes "Opp null")
+    // We use 'http://localhost' as a dummy base to ensure the relative URL parses correctly
+    const oppId = new URL(req.url, 'http://localhost').searchParams.get('oppId') || "4";
+    console.log(`[CONNECTION] New Stream for Opp: ${oppId}`);
+
     let streamSid = null;
 
     const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
@@ -130,36 +134,42 @@ wss.on('connection', (ws, req) => {
 
     // --- [SUB-BLOCK 4.A: OPENAI SESSION INIT] ---
     openAiWs.on('open', async () => {
-        // 1. Fetch deal data (With Safety Fallback)
+        // A. Fetch Deal Data
         let dealData = { account_name: "Unknown Account", amount: 0, forecast_stage: "Pipeline" };
-        
         try {
             const dealResult = await pool.query('SELECT * FROM opportunities WHERE id = $1', [oppId]);
             if (dealResult.rows.length > 0) {
                 dealData = dealResult.rows[0];
+                console.log(`✅ Loaded Data: ${dealData.account_name}`);
             } else {
-                console.log(`⚠️ Opp ${oppId} not found, using defaults.`);
+                console.log(`⚠️ Opp ${oppId} not found in DB.`);
             }
         } catch (e) {
             console.error("❌ DB Lookup Failed:", e.message);
         }
 
-        // 2. Generate the prompt using the Codified Function
+        // B. Generate Prompt
         const instructions = getSystemPrompt(dealData, "Erik", 1);
 
-        // 3. Send to OpenAI
+        // C. Configure Session
         const sessionUpdate = {
             type: "session.update",
             session: {
                 modalities: ["text", "audio"],
                 instructions: instructions,
-                voice: "alloy",
+                voice: "alloy", // "alloy" is the standard crisp voice. "echo" or "shimmer" are alternatives.
                 input_audio_format: "g711_ulaw",
                 output_audio_format: "g711_ulaw",
                 turn_detection: { type: "server_vad" }
             }
         };
         openAiWs.send(JSON.stringify(sessionUpdate));
+
+        // D. FORCE SPEAK (Fixes "Silence")
+        // This command tells OpenAI: "Generate audio immediately based on the instructions."
+        setTimeout(() => {
+            openAiWs.send(JSON.stringify({ type: "response.create" }));
+        }, 250);
     });
 
     // --- [SUB-BLOCK 4.B: AI TO TWILIO (OUTPUT)] ---
@@ -211,7 +221,6 @@ wss.on('connection', (ws, req) => {
             streamSid = msg.start.streamSid;
             console.log(`[STREAM] Sid: ${streamSid}`);
         } else if (msg.event === 'media' && openAiWs.readyState === WebSocket.OPEN) {
-            // This forwards your voice to OpenAI
             openAiWs.send(JSON.stringify({
                 type: "input_audio_buffer.append",
                 audio: msg.media.payload
@@ -221,7 +230,6 @@ wss.on('connection', (ws, req) => {
 
     ws.on('close', () => openAiWs.close());
 });
-
 // --- [BLOCK 5: DASHBOARD API] ---
 app.get("/get-deal", async (req, res) => {
     const oppId = req.query.oppId;
