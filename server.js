@@ -172,12 +172,12 @@ wss.on("connection", (ws, req) => {
             const intro = `Hi ${repName}, this is Matthew. Reviewing ${dealsLeft} deals, starting with ${deal.account_name} for ${amountStr} in ${stage}.`;
             let hook = hasHistory ? `Last update: "${deal.last_summary}". What's changed?` : "This is a new deal. What's the specific Pain?";
 
-            // CRITICAL FIX: Explicitly ban the assistant greeting in the response creation
+            // COMMAND: Direct execution of the script only.
             openAIWs.send(JSON.stringify({
                 type: "response.create",
                 response: { 
                     modalities: ["text", "audio"], 
-                    instructions: `Say this exactly: "${intro} ${hook}". DO NOT say "How can I help you today" or "I am here to assist." Speak only as Matthew, the direct VP Auditor.` 
+                    instructions: `Execute this opening script verbatim: "${intro} ${hook}"` 
                 }
             }));
         }
@@ -192,13 +192,14 @@ wss.on("connection", (ws, req) => {
         const dbRes = await pool.query("SELECT * FROM opportunities WHERE id = $1", [oppId]);
         deal = dbRes.rows[0];
 
-        // SESSION UPDATE: This hardcodes the "Soul" of the auditor into the session
+        // SESSION UPDATE: Hard-coding the Gold Standard and tightening the temperature.
         openAIWs.send(JSON.stringify({
             type: "session.update",
             session: {
                 modalities: ["text", "audio"],
                 instructions: getSystemPrompt(deal),
                 voice: "ash", 
+                temperature: 0.6, // Ensures factual adherence over creative "assistant" chatter
                 turn_detection: { type: "server_vad" },
                 tools: [DATABASE_TOOL],
                 tool_choice: "auto"
@@ -212,17 +213,17 @@ wss.on("connection", (ws, req) => {
     openAIWs.on("message", (data) => {
         const event = JSON.parse(data);
 
-        // Handle Audio Output
+        // A. Handle Audio Output
         if (event.type === "response.audio.delta" && streamSid) {
             ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: event.delta } }));
         }
 
-        // Handle Interruption
+        // B. Handle Interruption
         if (event.type === "input_audio_buffer.speech_started" && streamSid) {
             ws.send(JSON.stringify({ event: "clear", streamSid }));
         }
 
-        // Handle CRM Tool Call
+        // C. Handle CRM Tool Call
         if (event.type === "response.function_call_arguments.done") {
             (async () => {
                 const args = JSON.parse(event.arguments);
