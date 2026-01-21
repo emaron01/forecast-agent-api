@@ -185,7 +185,7 @@ function agentSystemPrompt(deal, ageInDays, daysToClose) {
   }`;
 }
 
-//// --- 7. UI DASHBOARD ROUTE (Fixed) ---
+// --- 7. UI DASHBOARD ROUTE (The Firehose) ---
 app.get("/get-deal", async (req, res) => {
   const { oppId } = req.query;
   try {
@@ -193,16 +193,15 @@ app.get("/get-deal", async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: "Not found" });
     
     const deal = result.rows[0];
+    
+    // SEND EVERYTHING: Spread (...deal) ensures every DB column is sent.
+    // We also overwrite specific keys to ensure UI compatibility.
     res.json({
-      account_name: deal.account_name,
-      forecast_category: deal.forecast_stage, // The "Stage"
-      amount: deal.amount,
+      ...deal, // <--- THE MAGIC FIX. Sends org_id, user_id, timestamps, everything.
+      forecast_category: deal.forecast_stage, 
       summary: deal.last_summary || deal.summary,
-      next_steps: deal.next_steps, // <--- ADDED THIS LINE (Fixes the blank box)
-      seller_product_rules: deal.seller_product_rules,
-      audit_details: deal.audit_details || { metrics_score: 0, pain_score: 0 },
-      close_date: deal.close_date,
-      rep_name: deal.rep_name
+      next_steps: deal.next_steps,
+      audit_details: deal.audit_details || { metrics_score: 0, pain_score: 0 }
     });
   } catch (err) { console.error("Dash Error:", err); res.status(500).send("DB Error"); }
 });
