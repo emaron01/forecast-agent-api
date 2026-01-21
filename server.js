@@ -118,10 +118,9 @@ app.post("/agent", (req, res) => {
 
 // --- [BLOCK 4: WEBSOCKET CORE] ---
 wss.on('connection', (ws, req) => {
-    // 1. SAFE ID EXTRACTION (Fixes "Opp null")
-    // We use 'http://localhost' as a dummy base to ensure the relative URL parses correctly
+    // 1. SAFE ID EXTRACTION
     const oppId = new URL(req.url, 'http://localhost').searchParams.get('oppId') || "4";
-    console.log(`[CONNECTION] New Stream for Opp: ${oppId}`);
+    console.log(`\n[CONNECTION] 📞 Incoming Call for Opp: ${oppId}`);
 
     let streamSid = null;
 
@@ -134,30 +133,49 @@ wss.on('connection', (ws, req) => {
 
     // --- [SUB-BLOCK 4.A: OPENAI SESSION INIT] ---
     openAiWs.on('open', async () => {
-        // A. Fetch Deal Data
-        let dealData = { account_name: "Unknown Account", amount: 0, forecast_stage: "Pipeline" };
+        // A. FETCH DYNAMIC DATA (No more hardcoding)
+        let dealData = { account_name: "Unknown Account", amount: 0, forecast_stage: "Pipeline", last_summary: null };
+        let dealsLeft = 0;
+
         try {
+            // Query 1: The Target Deal
             const dealResult = await pool.query('SELECT * FROM opportunities WHERE id = $1', [oppId]);
+            
+            // Query 2: The Context (How many other active deals?)
+            // We exclude closed deals so he doesn't nag about dead/won leads
+            const countResult = await pool.query("SELECT COUNT(*) FROM opportunities WHERE forecast_stage NOT IN ('Closed Won', 'Closed Lost')");
+            dealsLeft = parseInt(countResult.rows[0].count);
+
             if (dealResult.rows.length > 0) {
                 dealData = dealResult.rows[0];
-                console.log(`✅ Loaded Data: ${dealData.account_name}`);
             } else {
-                console.log(`⚠️ Opp ${oppId} not found in DB.`);
+                console.log(`⚠️ Opp ${oppId} not found. Using Ghost Data.`);
             }
         } catch (e) {
-            console.error("❌ DB Lookup Failed:", e.message);
+            console.error("❌ DB ERROR:", e.message);
         }
 
-        // B. Generate Prompt
-        const instructions = getSystemPrompt(dealData, "Erik", 1);
+        // --- [DATA DEBUGGER] ---
+        // This lets you see EXACTLY what the Agent sees
+        console.log("------------------------------------------");
+        console.log("🤖 [AGENT BRAIN DATA]");
+        console.log(`• Account: ${dealData.account_name}`);
+        console.log(`• Amount:  $${dealData.amount}`);
+        console.log(`• Stage:   ${dealData.forecast_stage}`);
+        console.log(`• Mode:    ${(dealData.last_summary && dealData.last_summary.length > 10) ? "REVIEW (Update Mode)" : "NEW DEAL (Discovery Mode)"}`);
+        console.log(`• Queue:   ${dealsLeft} deals remaining`);
+        console.log("------------------------------------------");
 
-        // C. Configure Session
+        // B. GENERATE PROMPT
+        const instructions = getSystemPrompt(dealData, "Erik", dealsLeft);
+
+        // C. CONFIGURE SESSION
         const sessionUpdate = {
             type: "session.update",
             session: {
                 modalities: ["text", "audio"],
                 instructions: instructions,
-                voice: "alloy", // "alloy" is the standard crisp voice. "echo" or "shimmer" are alternatives.
+                voice: "verse", // Deep, professional voice
                 input_audio_format: "g711_ulaw",
                 output_audio_format: "g711_ulaw",
                 turn_detection: { type: "server_vad" }
@@ -165,8 +183,7 @@ wss.on('connection', (ws, req) => {
         };
         openAiWs.send(JSON.stringify(sessionUpdate));
 
-        // D. FORCE SPEAK (Fixes "Silence")
-        // This command tells OpenAI: "Generate audio immediately based on the instructions."
+        // D. FORCE SPEAK (The "Hello" kicker)
         setTimeout(() => {
             openAiWs.send(JSON.stringify({ type: "response.create" }));
         }, 250);
@@ -176,7 +193,7 @@ wss.on('connection', (ws, req) => {
     openAiWs.on('message', (data) => {
         const response = JSON.parse(data);
 
-        // Audio Handling
+        // Audio Stream
         if (response.type === 'response.audio.delta' && response.delta) {
             ws.send(JSON.stringify({
                 event: 'media',
@@ -189,8 +206,11 @@ wss.on('connection', (ws, req) => {
         if (response.type === 'response.audio_transcript.done') {
             const transcript = response.transcript;
             
+            // Log what he thinks, so we can debug his "ears"
+            // console.log(`[🗣️]: ${transcript}`);
+
             if (transcript.includes("Deal Summary:") || transcript.includes("Final Health Score:")) {
-                console.log("🎯 FINAL AUDIT DETECTED");
+                console.log("\n🎯 FINAL AUDIT DETECTED - PARSING...");
                 try {
                     const scoreMatch = transcript.match(/Final Health Score:\s*\[?(\d+)\/27\]?/i);
                     const totalScore = scoreMatch ? parseInt(scoreMatch[1]) : null;
@@ -199,13 +219,14 @@ wss.on('connection', (ws, req) => {
                     if (totalScore >= 20) newStage = "Commit";
                     else if (totalScore >= 12) newStage = "Best Case";
 
+                    // The "Update" Logic
                     const updateQuery = `
                         UPDATE opportunities 
                         SET last_summary = $1, forecast_stage = $2, updated_at = NOW() 
                         WHERE id = $3
                     `;
                     pool.query(updateQuery, [transcript, newStage, oppId]);
-                    console.log(`✅ DB UPDATED: Opp ${oppId} -> ${newStage} (${totalScore})`);
+                    console.log(`✅ DATABASE UPDATED: ${newStage} (Score: ${totalScore}/27)`);
                 } catch (dbErr) {
                     console.error("❌ DB UPDATE FAILED:", dbErr.message);
                 }
@@ -219,7 +240,7 @@ wss.on('connection', (ws, req) => {
         
         if (msg.event === 'start') {
             streamSid = msg.start.streamSid;
-            console.log(`[STREAM] Sid: ${streamSid}`);
+            console.log(`[STREAM START] Sid: ${streamSid}`);
         } else if (msg.event === 'media' && openAiWs.readyState === WebSocket.OPEN) {
             openAiWs.send(JSON.stringify({
                 type: "input_audio_buffer.append",
@@ -229,8 +250,7 @@ wss.on('connection', (ws, req) => {
     });
 
     ws.on('close', () => openAiWs.close());
-});
-// --- [BLOCK 5: DASHBOARD API] ---
+});// --- [BLOCK 5: DASHBOARD API] ---
 app.get("/get-deal", async (req, res) => {
     const oppId = req.query.oppId;
     try {
