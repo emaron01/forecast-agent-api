@@ -9,6 +9,7 @@ const http = require("http");
 const PORT = process.env.PORT || 10000;
 const OPENAI_API_KEY = process.env.MODEL_API_KEY; 
 const MODEL_URL = process.env.MODEL_URL || "wss://api.openai.com/v1/realtime";
+// Using Mini for speed/cost, but reinforced with strict prompts
 const MODEL_NAME = process.env.MODEL_NAME || "gpt-4o-mini-realtime-preview-2024-12-17"; 
 
 const pool = new Pool({
@@ -54,17 +55,23 @@ const DATABASE_TOOL = {
   }
 };
 
-// --- 2. SYSTEM PROMPT (ALL GUARDS RESTORED) ---
+// --- 2. SYSTEM PROMPT (THE BRAIN) ---
 function getSystemPrompt(deal) {
   const now = new Date();
   const createdDate = new Date(deal.opp_created_date);
   const closeDate = deal.close_date ? new Date(deal.close_date) : new Date(now.setDate(now.getDate() + 30));
   const ageInDays = Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24));
   const daysToClose = Math.floor((closeDate - new Date()) / (1000 * 60 * 60 * 24));
-  const category = deal.forecast_stage || "Pipeline";
+  
+  // Normalize Stage
+  let category = deal.forecast_stage || "Pipeline";
+  if (category.toLowerCase().includes("upside")) category = "Best Case";
+
   const d = deal.audit_details || {};
   const productContext = deal.seller_product_rules || "PRODUCT: General SaaS.";
+  const hasHistory = (deal.last_summary && deal.last_summary.length > 10);
 
+  // Scorecard Injection
   const scorecardContext = `
     [CURRENT MEDDPICC SCORES]
     - Pain: ${d.pain_score || 0}/3
@@ -78,47 +85,71 @@ function getSystemPrompt(deal) {
     - Timeline: ${d.timeline_score || 0}/3
   `;
 
-  let instructions = "";
+  // --- STAGE LOGIC (SCRUB LEVEL) ---
+  let modeInstructions = "";
   let bannedTopics = "None.";
-  
-  if (["Pipeline", "Discovery", "Prospecting"].includes(category)) {
-     instructions = `**MODE: SKEPTIC (Pipeline).** Strict Ceiling: 15. Focus on Pain/Metrics. Auto-fail if Pain is 0. Ignore Paper Process.`;
-     bannedTopics = "Do NOT ask about: Legal, Procurement, Signatures, Redlines, Close Date specifics.";
-  } else if (["Best Case", "Upside"].includes(category)) {
-     instructions = `**MODE: GAP HUNTER (Best Case).** Attack categories with score '0' or '1'. Find the missing link.`;
+
+  if (["Commit", "Closing"].includes(category)) {
+     // HARD SCRUB
+     modeInstructions = `
+     **MODE: COMMIT (The Protector).**
+     - **Goal:** Protect the forecast. 
+     - **Tone:** Stern, urgent. 
+     - **Focus:** Attack Paper Process and Timeline. Ask "Why isn't this signed yet?"`;
+  } else if (["Best Case", "Upside", "Solution Validation"].includes(category)) {
+     // SOFT/STRATEGIC SCRUB
+     modeInstructions = `
+     **MODE: BEST CASE (The Gap Hunter).**
+     - **Goal:** Find the path to Commit.
+     - **Tone:** Collaborative but probing.
+     - **Focus:** Identify the ONE missing criteria (Scores of 0 or 1).`;
   } else {
-     const scoreConcern = (deal.current_score && deal.current_score < 22) ? "WARNING: Score <22. Challenge confidence." : "";
-     instructions = `**MODE: CLOSER (Commit).** Protect forecast. Focus on Timeline/Signatures. ${scoreConcern}`;
+     // PIPELINE/SKEPTIC SCRUB
+     modeInstructions = `
+     **MODE: PIPELINE (The Skeptic).**
+     - **Goal:** Disqualify early.
+     - **Tone:** Fast, impatient.
+     - **Focus:** PAIN and METRICS. If they don't exist, score is 0. 
+     - **Constraint:** Do NOT ask about legal/signatures (Banned).`;
+     bannedTopics = "Do NOT ask about: Legal, Procurement, Signatures, Redlines.";
+  }
+
+  // --- HISTORY LOGIC (RESTORED) ---
+  let historyInstructions = "";
+  if (hasHistory) {
+      historyInstructions = `**HISTORY RULE:** This deal has been reviewed before. Do NOT re-ask about established facts. Focus ONLY on what has changed since the "Last Summary".`;
+  } else {
+      historyInstructions = `**HISTORY RULE:** This is a NEW deal. Assume nothing. You must validate the core pillars (Pain/Champion) from scratch.`;
   }
 
   return `
-    You are "Matthew," a VP of Sales Auditor. 
-    **PERSONA:** Cynical, data-driven, direct, fast. You help the rep win by finding holes in their deal.
+    You are "Matthew," a VP of Sales Auditor with Sales Forecaster. 
+    **PERSONA:** Professional, data-driven, direct. You do not do small talk.
     
     ### DEAL CONTEXT
     - Account: ${deal.account_name}
     - Stage: ${category}
     - Age: ${ageInDays} days (Close in: ${daysToClose})
-    - Last Summary: ${deal.last_summary || "None"}
+    - History: ${hasHistory ? "Reviewed Before" : "New Deal"}
     ${scorecardContext}
 
     ### PRODUCT CONTEXT
     ${productContext}
 
     ### INSTRUCTIONS
-    ${instructions}
+    1. ${modeInstructions}
+    2. ${historyInstructions}
 
     ### RULES
-    1. **SCRIPT COMPLIANCE:** For the first turn, read the provided greeting script VERBATIM.
+    1. **SCRIPT:** Read the greeting script EXACTLY as provided in the first turn.
     2. **LIVE UPDATES:** Call 'update_opportunity' INSTANTLY when hearing facts.
-    3. **NO FLUFF:** Don't say "Got it." Just ask the next hard question.
+    3. **INTERRUPTIONS:** Stop speaking immediately if the user interrupts.
     4. **BANNED TOPICS:** ${bannedTopics}
-    5. **NO COACHING:** You are an auditor, not a sales trainer.
 
-    ### CHAMPION DEFINITIONS (Strict)
+    ### CHAMPION DEFINITIONS
     - 1 (Coach): Friendly, no power.
     - 2 (Mobilizer): Has influence, hasn't acted.
-    - 3 (Champion): Power AND is selling for us when we aren't there.
+    - 3 (Champion): Power AND is selling for us.
 
     ### SCORING RUBRIC (0-3)
     0=Missing, 1=Weak, 2=Gathering, 3=Validated.
@@ -170,32 +201,52 @@ wss.on("connection", (ws, req) => {
     let twilioReady = false; 
     let greetingSent = false;
 
-    // --- THE FIXED GREETING LOGIC ---
+    // --- THE DYNAMIC GREETING GENERATOR ---
     const triggerGreeting = async () => {
         if (openAIReady && twilioReady && deal && !greetingSent) {
             greetingSent = true;
             console.log("🗣️ BOTH READY -> Triggering Greeting...");
             
+            // 1. Fetch Stats
             const countRes = await pool.query('SELECT COUNT(*) FROM opportunities WHERE id >= $1', [oppId]);
             const dealsLeft = countRes.rows[0].count;
             
+            // 2. Format Variables
             let repName = (deal.rep_name || "Rep").split(' ')[0];
             if (repName.toLowerCase() === "matthew") repName = "Rep"; 
+            
+            const closeDateRaw = new Date(deal.close_date);
+            const closeDateStr = closeDateRaw.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+            const amountStr = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(deal.amount);
+            
+            // 3. Check History & Stage
+            const hasHistory = (deal.last_summary && deal.last_summary.length > 10);
+            let stage = deal.forecast_stage || "Pipeline";
+            if (stage.toLowerCase().includes("upside")) stage = "Best Case";
 
-            const isNewDeal = deal.initial_score == null;
-            
-            let script = "";
-            if (isNewDeal) {
-               script = `Hi ${repName}, this is Matthew. I am reviewing your forecast. You have ${dealsLeft} deals left. Let's start with ${deal.account_name}. I see no data here. What are we selling?`;
+            // 4. Construct Intro (Verbatim)
+            const intro = `Hi ${repName}, this is Matthew with Sales Forecaster. We will be reviewing ${dealsLeft} of your deals today, starting with ${deal.account_name}, ${deal.opportunity_name || 'the opportunity'}, for ${amountStr}, in ${stage} with a close date of ${closeDateStr}.`;
+
+            // 5. Construct Hook (Logic Based)
+            let hook = "";
+            if (hasHistory) {
+                hook = `Last time we noted: "${deal.last_summary}". What is the update?`;
             } else {
-               script = `Hi ${repName}, this is Matthew. I am reviewing your forecast. You have ${dealsLeft} deals left. Let's start with ${deal.account_name}. The last update was: "${deal.last_summary || 'brief'}". What is the latest?`;
+                if (["Commit", "Closing"].includes(stage)) {
+                    hook = "This is in Commit, but I haven't reviewed it. Why isn't this signed yet?";
+                } else if (["Best Case", "Upside"].includes(stage)) {
+                    hook = "This is in Best Case. What is the one thing preventing it from Committing?";
+                } else {
+                    hook = "This is early pipeline. What is the specific Pain you have identified?";
+                }
             }
-            
+
+            // 6. Send Command
             openAIWs.send(JSON.stringify({
                 type: "response.create",
                 response: { 
                     modalities: ["text", "audio"], 
-                    instructions: `You must say exactly this phrase word-for-word: "${script}"` 
+                    instructions: `You must say exactly this phrase word-for-word: "${intro} ${hook}"` 
                 }
             }));
         }
@@ -232,9 +283,19 @@ wss.on("connection", (ws, req) => {
 
     openAIWs.on("message", async (data) => {
         const event = JSON.parse(data);
+
+        // A. HANDLE AUDIO OUTPUT
         if (event.type === "response.audio.delta" && event.delta) {
             if (streamSid) ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: event.delta } }));
         }
+
+        // B. HANDLE INTERRUPTION
+        if (event.type === "input_audio_buffer.speech_started") {
+            console.log("⚡ Interrupt detected: Clearing Twilio buffer");
+            if (streamSid) ws.send(JSON.stringify({ event: "clear", streamSid: streamSid }));
+        }
+
+        // C. HANDLE DB UPDATES
         if (event.type === "response.function_call_arguments.done") {
             const args = JSON.parse(event.arguments);
             const result = await updateDatabase(oppId, args);
