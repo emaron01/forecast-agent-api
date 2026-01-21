@@ -273,11 +273,19 @@ wss.on('connection', (ws, req) => {
             
             if (transcript.includes("DATABASE_DATA:")) {
                 console.log("\n🎯 RICH ANALYTICS DETECTED");
+                console.log(`📝 RAW AI OUTPUT: ${transcript}`); // Log exact text for debugging
+
                 try {
+                    // ROBUST EXTRACTOR: Handles commas, newlines, or end of text
                     const extract = (label) => {
-                        const regex = new RegExp(`${label}: (\\d)\\|\\s*([^,]+)`);
+                        // Regex looks for: Label -> Number -> Pipe -> Text -> (stops at comma, newline, or end)
+                        const regex = new RegExp(`${label}:\\s*(\\d)\\|\\s*([^,]+?)(?=(?:,|$|\\n))`, 'i');
                         const match = transcript.match(regex);
-                        return match ? { score: parseInt(match[1]), text: match[2].trim() } : { score: 0, text: "No data provided" };
+                        if (match) {
+                            // Clean up trailing periods or whitespace
+                            return { score: parseInt(match[1]), text: match[2].trim().replace(/\.$/, '') };
+                        }
+                        return { score: 0, text: "No data provided" };
                     };
 
                     const auditDetails = {
@@ -292,10 +300,17 @@ wss.on('connection', (ws, req) => {
                         timing: extract("Timing")
                     };
 
+                    // CALCULATE SCORE & STAGE
                     const totalScore = Object.values(auditDetails).reduce((acc, curr) => acc + curr.score, 0);
-                    let newStage = totalScore >= 20 ? "Commit" : (totalScore >= 12 ? "Best Case" : "Pipeline");
+                    
+                    let newStage = "Pipeline";
+                    if (totalScore >= 24) newStage = "Closed Won";
+                    else if (totalScore >= 20) newStage = "Commit";
+                    else if (totalScore >= 12) newStage = "Best Case";
 
-                    // SQL: Added run_count increment here
+                    console.log(`📊 PARSED SCORE: ${totalScore}/27 | MOVING TO: ${newStage}`);
+
+                    // DATABASE UPDATE (With Run Counter)
                     const updateQuery = `
                         UPDATE opportunities 
                         SET 
@@ -306,15 +321,17 @@ wss.on('connection', (ws, req) => {
                             run_count = COALESCE(run_count, 0) + 1
                         WHERE id = $4
                     `;
-                    pool.query(updateQuery, [transcript, JSON.stringify(auditDetails), newStage, oppId]);
-                    console.log(`✅ RICH DATA SAVED | Score: ${totalScore}/27`);
+                    
+                    // Execute Query
+                    pool.query(updateQuery, [transcript, JSON.stringify(auditDetails), newStage, oppId])
+                        .then(() => console.log(`✅ DB SAVE SUCCESS: Opp ${oppId} updated.`))
+                        .catch(err => console.error("❌ DB SAVE ERROR:", err.message));
+
                 } catch (err) {
                     console.error("❌ PARSING ERROR:", err.message);
                 }
             }
         }
-    });
-
     // --- [SUB-BLOCK 5.D: TWILIO TO AI (INPUT)] ---
     ws.on('message', (message) => {
         const msg = JSON.parse(message);
