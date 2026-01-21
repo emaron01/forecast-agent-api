@@ -6,7 +6,7 @@ const cors = require("cors");
 
 const app = express();
 
-// --- 1. MIDDLEWARE (The Gatekeepers) ---
+// --- 1. MIDDLEWARE ---
 app.use(cors()); 
 app.use(express.urlencoded({ extended: true })); 
 app.use(express.json()); 
@@ -27,14 +27,11 @@ async function incrementRunCount(oppId) {
     } catch (err) { console.error("DB Error:", err); }
 }
 
-// [UPDATED] Save Logic with Stage Change Support
 async function saveCallResults(oppId, report) {
     try {
         const score = report.score !== undefined ? report.score : null;
         const summary = report.summary || "No summary provided.";
         const next_steps = report.next_steps || "Review deal manually.";
-        
-        // NEW: Check if agent wants to move the deal (e.g., Pipeline -> Best Case)
         const new_stage = report.new_forecast_category || null;
 
         // Safe JSON Parsing
@@ -50,18 +47,18 @@ async function saveCallResults(oppId, report) {
         `;
         const params = [score, summary, next_steps, audit_details];
         
-        // If the agent recommended a stage change, update it in the DB
+        // UPDATE: Writing to 'forecast_stage'
         if (new_stage && new_stage !== "No Change") {
-            query += `, deal_stage = $5 WHERE id = $6`;
+            query += `, forecast_stage = $5 WHERE id = $6`;
             params.push(new_stage, oppId);
-            console.log(`🔄 DEAL MOVED TO: ${new_stage}`);
+            console.log(`🔄 FORECAST MOVED TO: ${new_stage}`);
         } else {
             query += ` WHERE id = $5`;
             params.push(oppId);
         }
 
         await pool.query(query, params);
-        console.log(`💾 Saved Deal ${oppId}: Score ${score}/24`);
+        console.log(`💾 Saved Deal ${oppId}: Score ${score}/27`);
     } catch (err) {
         console.error("❌ Save Error:", err);
     }
@@ -84,28 +81,29 @@ const speak = (text) => {
     return `<Say voice="Polly.Matthew-Neural"><prosody rate="105%">${escapeXml(cleanText)}</prosody></Say>`;
 };
 
-// --- 6. SYSTEM PROMPT (THE FINAL MERGE) ---
+// --- 6. SYSTEM PROMPT (ALL SECTIONS RESTORED) ---
 function agentSystemPrompt(deal, ageInDays, daysToClose) {
   const avgSize = deal?.seller_avg_deal_size || 10000;
   const productContext = deal?.seller_product_rules || "PRODUCT: Unknown.";
-  const category = deal?.deal_stage || "Pipeline";
   
-  // Logic Flags
+  // UPDATE: Reading from 'forecast_stage'
+  const category = deal?.forecast_stage || "Pipeline";
+  
   const isPipeline = ["Pipeline", "Discovery", "Qualification", "Prospecting"].includes(category);
   const isBestCase = ["Best Case", "Upside", "Solution Validation"].includes(category);
   const isCommit = ["Commit", "Closing", "Negotiation"].includes(category);
   const isNewDeal = deal.initial_score == null;
 
-  // [RESTORED & UPGRADED] Forecast Rules
+  // Forecast Rules
   let instructions = "";
   let bannedTopics = "None.";
   
   if (isPipeline) {
      instructions = `
      **MODE: PIPELINE (The Skeptic)**
-     - **STRICT CEILING:** This deal CANNOT score > 15. If you score it higher, you are hallucinating.
+     - **STRICT CEILING:** This deal CANNOT score > 15.
      - **FOCUS:** Pain, Metrics, Champion.
-     - **AUTO-FAIL:** If they don't know the Pain, the score is 0.
+     - **AUTO-FAIL:** If they don't know the Pain, score is 0.
      - **IGNORED SCORES:** Paper Process and Decision Process are ALWAYS 0/3.`;
      bannedTopics = "Do NOT ask about: Legal, Procurement, Signatures, Redlines, Close Date specifics.";
   } else if (isBestCase) {
@@ -114,7 +112,6 @@ function agentSystemPrompt(deal, ageInDays, daysToClose) {
      - **GOAL:** Find the missing link preventing Commit.
      - **LOGIC:** Look at [HISTORY]. If a category is '3', DO NOT ASK about it. Attack the '1s'.`;
   } else {
-     // Commit Logic
      const scoreConcern = (deal.current_score && deal.current_score < 22) 
         ? "WARNING: Deal is in COMMIT but score is <22. Challenge confidence." 
         : "";
@@ -126,34 +123,34 @@ function agentSystemPrompt(deal, ageInDays, daysToClose) {
   }
 
   const goalInstruction = isNewDeal ? `**GOAL:** New Deal Audit.` : "**GOAL:** Gap Review (Check History).";
-  const historyContext = !isNewDeal ? `PREVIOUS SCORE: ${deal.current_score}/24. SUMMARY: "${deal.last_summary}".` : "NO HISTORY.";
+  const historyContext = !isNewDeal ? `PREVIOUS SCORE: ${deal.current_score}/27. SUMMARY: "${deal.last_summary}".` : "NO HISTORY.";
 
   return `You are "Matthew," a VP of Sales Auditor. You are cynical, direct, and data-driven.
   ${goalInstruction}
 
   ### DEAL CONTEXT
   - Prospect: ${deal?.account_name}
-  - Stage: ${category}
+  - Forecast Stage: ${category}
   - Value: $${deal?.amount} (Avg: $${avgSize})
   - Age: ${ageInDays} days (Close in: ${daysToClose} days)
   - **HISTORY:** ${historyContext}
 
-  ### PRODUCT CONTEXT (Use for "Product Police")
+  ### PRODUCT CONTEXT
   ${productContext}
 
   ### AUDIT INSTRUCTIONS
   ${instructions}
 
-  ### RULES OF ENGAGEMENT (STRICT)
-  1. **NO SUMMARIES:** Do not summarize what the user just said. Just ask the next question.
+  ### RULES OF ENGAGEMENT
+  1. **NO SUMMARIES:** Do not summarize. Just ask the next question.
   2. **INVISIBLE MATH:** Calculate scores silently. Never speak them.
-  3. **PRODUCT POLICE:** Check [PRODUCT CONTEXT]. If the user lies about features, correct them immediately.
-  4. **NON-ANSWERS:** If user says "Okay" or is vague, treat it as a RISK (Score 1) and probe deeper.
+  3. **PRODUCT POLICE:** Correct users if they lie about product features.
+  4. **NON-ANSWERS:** If user is vague, treat it as RISK (Score 1).
   5. **BANNED TOPICS:** ${bannedTopics}
-  6. **THE NO-COACH RULE:** Never ask for feedback. Never explain your logic.
-  7. **RECAP STRATEGY:** You may briefly echo the specific answer (e.g. "Got it, 4 servers") but DO NOT recap the whole deal.
+  6. **NO COACHING:** Never ask for feedback.
+  7. **DATA EXTRACTION:** Extract Full Names and Job Titles.
 
-  ### CHAMPION DEFINITIONS
+  ### CHAMPION DEFINITIONS (CRITICAL)
   - **1 (Coach):** Friendly, no power.
   - **2 (Mobilizer):** Has influence, hasn't acted.
   - **3 (Champion):** Power AND is selling for us.
@@ -164,33 +161,31 @@ function agentSystemPrompt(deal, ageInDays, daysToClose) {
   - **2 = Gathering**
   - **3 = Validated**
 
-  ### PHASE 2: THE VERDICT
-  - **TRIGGER:** When you have checked the key areas for this Stage.
-  - **OUTPUT:** You MUST return a "final_report" object.
-
   ### RETURN ONLY JSON
   { "next_question": "Your short question.", "end_of_call": false }
   
   OR IF AUDIT COMPLETE:
   {
     "end_of_call": true,
-    "next_question": "Verdict: [Score]/24. [One sentence reason].",
+    "next_question": "Verdict: [Score]/27. [Reason].",
     "final_report": {
-        "score": [0-24],
+        "score": [0-27],
         "new_forecast_category": "No Change" | "Pipeline" | "Best Case" | "Commit",
         "summary": "Brief summary.",
         "next_steps": "Action item.",
         "audit_details": {
             "metrics_score": 0-3, "economic_buyer_score": 0-3, "decision_criteria_score": 0-3,
             "decision_process_score": 0-3, "paper_process_score": 0-3, "pain_score": 0-3,
-            "champion_score": 0-3, "competition_score": 0-3,
-            "champion_name": "Name or null", "economic_buyer_name": "Name or null"
+            "champion_score": 0-3, "competition_score": 0-3, "timeline_score": 0-3,
+            "champion_name": "Full Name", "champion_title": "Job Title",
+            "economic_buyer_name": "Full Name", "economic_buyer_title": "Job Title",
+            "competitor_name": "Company"
         }
     }
   }`;
 }
 
-// --- 7. UI DASHBOARD ROUTE (GET) ---
+//// --- 7. UI DASHBOARD ROUTE (Fixed) ---
 app.get("/get-deal", async (req, res) => {
   const { oppId } = req.query;
   try {
@@ -200,9 +195,10 @@ app.get("/get-deal", async (req, res) => {
     const deal = result.rows[0];
     res.json({
       account_name: deal.account_name,
-      forecast_category: deal.deal_stage, 
+      forecast_category: deal.forecast_stage, // The "Stage"
       amount: deal.amount,
       summary: deal.last_summary || deal.summary,
+      next_steps: deal.next_steps, // <--- ADDED THIS LINE (Fixes the blank box)
       seller_product_rules: deal.seller_product_rules,
       audit_details: deal.audit_details || { metrics_score: 0, pain_score: 0 },
       close_date: deal.close_date,
@@ -245,7 +241,8 @@ app.post("/agent", async (req, res) => {
     if (!sessions[callSid]) {
         console.log(`[SERVER] Start: ${callSid}`);
         const firstName = (deal.rep_name || "Rep").split(' ')[0];
-        const category = deal.deal_stage || "Pipeline";
+        // UPDATE: Reading 'forecast_stage'
+        const category = deal.forecast_stage || "Pipeline";
         const isNewDeal = deal.initial_score == null;
         
         const countRes = await pool.query('SELECT COUNT(*) FROM opportunities WHERE id >= $1', [currentOppId]);
@@ -290,7 +287,6 @@ app.post("/agent", async (req, res) => {
           { headers: { "x-api-key": process.env.MODEL_API_KEY.trim(), "anthropic-version": "2023-06-01" }, timeout: 12000 }
         );
 
-        // D. PARSE RESPONSE
         let rawText = response.data.content[0].text.trim().replace(/```json/g, "").replace(/```/g, "");
         let agentResult = { next_question: "", end_of_call: false };
         
@@ -340,6 +336,5 @@ app.post("/agent", async (req, res) => {
   }
 });
 
-// --- 10. SERVER START ---
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`🚀 Audit Server live on port ${PORT}`)); 
+app.listen(PORT, () => console.log(`🚀 Audit Server live on port ${PORT}`));
