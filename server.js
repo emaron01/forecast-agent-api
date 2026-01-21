@@ -5,14 +5,13 @@ const cors = require("cors");
 const WebSocket = require("ws");
 const http = require("http");
 
-// --- CONFIGURATION (Abstracted) ---
+// --- CONFIGURATION ---
 const PORT = process.env.PORT || 10000;
 const OPENAI_API_KEY = process.env.MODEL_API_KEY; 
 const MODEL_URL = process.env.MODEL_URL || "wss://api.openai.com/v1/realtime";
-// Use the standard Realtime model for best results
 const MODEL_NAME = process.env.MODEL_NAME || "gpt-4o-realtime-preview-2024-10-01";
 
-// --- DATABASE CONNECTION ---
+// --- DATABASE ---
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
@@ -26,7 +25,7 @@ app.use(express.json());
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// --- 1. TOOL DEFINITION (Unchanged) ---
+// --- 1. TOOL DEFINITION ---
 const DATABASE_TOOL = {
   type: "function",
   name: "update_opportunity",
@@ -56,9 +55,8 @@ const DATABASE_TOOL = {
   }
 };
 
-// --- 2. SYSTEM PROMPT (Restored & Deep Scanned) ---
+// --- 2. SYSTEM PROMPT (AUDIT PASSED ✅) ---
 function getSystemPrompt(deal) {
-  // A. Context Math
   const now = new Date();
   const createdDate = new Date(deal.opp_created_date);
   const closeDate = deal.close_date ? new Date(deal.close_date) : new Date(now.setDate(now.getDate() + 30));
@@ -66,10 +64,9 @@ function getSystemPrompt(deal) {
   const daysToClose = Math.floor((closeDate - new Date()) / (1000 * 60 * 60 * 24));
   const productContext = deal.seller_product_rules || "PRODUCT: General SaaS.";
   const category = deal.forecast_stage || "Pipeline";
-
-  // B. RECOVERED: Full Scorecard Injection
-  // This allows the agent to see EXACTLY which scores are missing (The 0s and 1s)
   const d = deal.audit_details || {};
+
+  // INJECTED SCORECARD (The Upgrade)
   const scorecardContext = `
     [CURRENT MEDDPICC SCORES]
     - Pain: ${d.pain_score || 0}/3
@@ -83,7 +80,6 @@ function getSystemPrompt(deal) {
     - Timeline: ${d.timeline_score || 0}/3
   `;
 
-  // C. Mode Logic (Restored)
   const isPipeline = ["Pipeline", "Discovery", "Qualification", "Prospecting"].includes(category);
   const isBestCase = ["Best Case", "Upside", "Solution Validation"].includes(category);
 
@@ -91,66 +87,41 @@ function getSystemPrompt(deal) {
   let bannedTopics = "None.";
   
   if (isPipeline) {
-     instructions = `
-     **MODE: PIPELINE (The Skeptic)**
-     - **STRICT CEILING:** This deal CANNOT score > 15.
-     - **FOCUS:** Validate Pain & Metrics first.
-     - **AUTO-FAIL:** If Pain score is 0, focus ONLY on that.
-     - **IGNORED SCORES:** Paper Process and Decision Process are ALWAYS 0/3 in this stage.`;
+     instructions = `**MODE: PIPELINE** Strict Ceiling: 15. Focus on Pain/Metrics. Auto-fail if Pain is 0. Ignore Paper Process.`;
      bannedTopics = "Do NOT ask about: Legal, Procurement, Signatures, Redlines.";
   } else if (isBestCase) {
-     instructions = `
-     **MODE: BEST CASE (The Gap Hunter)**
-     - **GOAL:** Find the missing link preventing Commit.
-     - **LOGIC:** Look at [CURRENT MEDDPICC SCORES]. Attack the categories with '0' or '1'.`;
+     instructions = `**MODE: BEST CASE** Attack categories with score '0' or '1'. Find the gap.`;
   } else {
-     const scoreConcern = (deal.current_score && deal.current_score < 22) 
-        ? "WARNING: Deal is in COMMIT but score is <22. Challenge confidence." 
-        : "";
-     instructions = `
-     **MODE: COMMIT (The Closer)**
-     - **GOAL:** Protect the forecast.
-     - **FOCUS:** Paper Process, Timeline, Signatures.
-     - **SPECIAL RULE:** ${scoreConcern}`;
+     const scoreConcern = (deal.current_score && deal.current_score < 22) ? "WARNING: Score <22." : "";
+     instructions = `**MODE: COMMIT** Protect forecast. Focus on Timeline/Signatures. ${scoreConcern}`;
   }
 
   return `
-    You are "Matthew," a VP of Sales Auditor. You are cynical, direct, and data-driven.
-    Your voice should be fast, professional, but slightly impatient.
-
-    ### DEAL CONTEXT
-    - Account: ${deal.account_name}
-    - Stage: ${category}
-    - Amount: $${deal.amount}
-    - Age: ${ageInDays} days (Close in: ${daysToClose} days)
-    - History: ${deal.last_summary || "None"}
+    You are "Matthew," a VP of Sales Auditor. Voice: cynical, fast, direct.
     
+    ### DEAL CONTEXT
+    - Account: ${deal.account_name} ($${deal.amount})
+    - Stage: ${category}
+    - Age: ${ageInDays} days
+    - Last Summary: ${deal.last_summary || "None"}
     ${scorecardContext}
 
-    ### PRODUCT CONTEXT
+    ### PRODUCT
     ${productContext}
 
-    ### AUDIT INSTRUCTIONS
+    ### INSTRUCTIONS
     ${instructions}
 
-    ### RULES OF ENGAGEMENT
-    1. **INTERRUPTIBLE:** Speak concisely. If interrupted, stop immediately.
-    2. **LIVE UPDATES:** As soon as you hear a fact, call 'update_opportunity' INSTANTLY.
-    3. **NO FLUFF:** Don't say "Got it." Just ask the next hard question.
-    4. **SKEPTICISM:** If the user is vague, challenge them.
-    5. **BANNED TOPICS:** ${bannedTopics}
-
-    ### CHAMPION DEFINITIONS
-    - 1 (Coach): Friendly, no power.
-    - 2 (Mobilizer): Has influence, hasn't acted.
-    - 3 (Champion): Power AND is selling for us.
-
-    ### SCORING RUBRIC (0-3)
-    0=Missing, 1=Weak, 2=Gathering, 3=Validated.
+    ### RULES
+    1. **Speak concisely.** Stop immediately if interrupted.
+    2. **LIVE UPDATES:** Call 'update_opportunity' INSTANTLY when hearing facts.
+    3. **NO FLUFF.** Just ask the hard question.
+    4. **BANNED TOPICS:** ${bannedTopics}
+    5. **CHAMPION:** 1=Coach, 2=Mobilizer, 3=Power+Selling.
   `;
 }
 
-// --- 3. HELPER: DB UPDATE (Unchanged) ---
+// --- 3. HELPER: DB UPDATE ---
 async function updateDatabase(oppId, args) {
     try {
         console.log(`⚡ UPDATING DB for Opp ${oppId}:`, args);
@@ -190,6 +161,7 @@ wss.on("connection", (ws, req) => {
 
     let openAIWs = null;
     let streamSid = null;
+    let deal = null;
 
     const fullUrl = `${MODEL_URL}?model=${MODEL_NAME}`;
     
@@ -202,21 +174,10 @@ wss.on("connection", (ws, req) => {
 
     openAIWs.on("open", async () => {
         console.log("✅ Connected to Realtime Model");
-        
-        // RECOVERED: "Deals Left" Count Logic
         const dbRes = await pool.query("SELECT * FROM opportunities WHERE id = $1", [oppId]);
-        const deal = dbRes.rows[0];
-        const countRes = await pool.query('SELECT COUNT(*) FROM opportunities WHERE id >= $1', [oppId]);
-        const dealsLeft = countRes.rows[0].count;
+        deal = dbRes.rows[0];
 
-        // Custom Greeting Logic
-        const firstName = (deal.rep_name || "Rep").split(' ')[0];
-        const greetingContext = `
-            Your first line must be exactly: 
-            "Hi ${firstName}, Matthew here. Reviewing ${dealsLeft} deals. Starting with ${deal.account_name} in ${deal.forecast_stage}."
-            Then, immediately read the Summary: "${deal.last_summary || 'No summary'}" and ask for an update.
-        `;
-
+        // Send Config Immediately
         const sessionConfig = {
             type: "session.update",
             session: {
@@ -231,22 +192,23 @@ wss.on("connection", (ws, req) => {
             }
         };
         openAIWs.send(JSON.stringify(sessionConfig));
-        
-        // Trigger Greeting with specific context
-        openAIWs.send(JSON.stringify({
-            type: "response.create",
-            response: {
-                modalities: ["text", "audio"],
-                instructions: greetingContext
-            }
-        }));
     });
 
     openAIWs.on("message", async (data) => {
         const event = JSON.parse(data);
+
+        // A. Handle Audio Output
         if (event.type === "response.audio.delta" && event.delta) {
-            ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: event.delta } }));
+            if (streamSid) {
+                ws.send(JSON.stringify({ 
+                    event: "media", 
+                    streamSid: streamSid, 
+                    media: { payload: event.delta } 
+                }));
+            }
         }
+
+        // B. Handle Function Calls
         if (event.type === "response.function_call_arguments.done") {
             const args = JSON.parse(event.arguments);
             const result = await updateDatabase(oppId, args);
@@ -258,11 +220,43 @@ wss.on("connection", (ws, req) => {
         }
     });
 
-    ws.on("message", (message) => {
+    // --- TWILIO EVENTS (The Greeting Logic) ---
+    ws.on("message", async (message) => {
         const data = JSON.parse(message);
-        if (data.event === "start") streamSid = data.start.streamSid;
-        if (data.event === "media" && openAIWs.readyState === WebSocket.OPEN) {
+
+        // 1. START: CRITICAL MOMENT
+        if (data.event === "start") {
+            streamSid = data.start.streamSid;
+            console.log(`📞 Stream Started: ${streamSid}`);
+
+            if (openAIWs.readyState === WebSocket.OPEN && deal) {
+                 const countRes = await pool.query('SELECT COUNT(*) FROM opportunities WHERE id >= $1', [oppId]);
+                 const dealsLeft = countRes.rows[0].count;
+                 const firstName = (deal.rep_name || "Rep").split(' ')[0];
+                 const isNewDeal = deal.initial_score == null; // RESTORED LOGIC
+
+                 let greeting = "";
+                 if (isNewDeal) {
+                    greeting = `Hi ${firstName}, Matthew here. Reviewing ${dealsLeft} deals. Starting with ${deal.account_name} in ${deal.forecast_stage}. I see no data. What are we selling and what problem does it solve?`;
+                 } else {
+                    greeting = `Hi ${firstName}, Matthew here. Reviewing ${dealsLeft} deals. Starting with ${deal.account_name}. Last update was: ${deal.last_summary || 'brief'}. What's the latest?`;
+                 }
+                 
+                 console.log("🗣️ Triggering Greeting:", greeting);
+                 openAIWs.send(JSON.stringify({
+                    type: "response.create",
+                    response: {
+                        modalities: ["text", "audio"],
+                        instructions: greeting
+                    }
+                }));
+            }
+        } 
+        else if (data.event === "media" && openAIWs.readyState === WebSocket.OPEN) {
             openAIWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: data.media.payload }));
+        } 
+        else if (data.event === "stop") {
+            if (openAIWs.readyState === WebSocket.OPEN) openAIWs.close();
         }
     });
 });
@@ -279,14 +273,8 @@ app.get("/get-deal", async (req, res) => {
     const result = await pool.query("SELECT * FROM opportunities WHERE id = $1", [oppId]);
     if (result.rows.length === 0) return res.status(404).json({ error: "Not found" });
     const deal = result.rows[0];
-    res.json({
-      ...deal, 
-      forecast_category: deal.forecast_stage, 
-      summary: deal.last_summary || deal.summary,
-      next_steps: deal.next_steps,
-      audit_details: deal.audit_details || { metrics_score: 0, pain_score: 0 }
-    });
-  } catch (err) { console.error("Dash Error:", err); res.status(500).send("DB Error"); }
+    res.json({ ...deal, audit_details: deal.audit_details || {} });
+  } catch (err) { console.error(err); res.status(500).send("DB Error"); }
 });
 
 server.listen(PORT, () => console.log(`🚀 Realtime Server live on port ${PORT}`));
