@@ -11,7 +11,6 @@ const OPENAI_API_KEY = process.env.MODEL_API_KEY;
 const MODEL_URL = process.env.MODEL_URL || "wss://api.openai.com/v1/realtime";
 const MODEL_NAME = process.env.MODEL_NAME || "gpt-4o-realtime-preview-2024-10-01";
 
-// --- DATABASE ---
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
@@ -55,7 +54,7 @@ const DATABASE_TOOL = {
   }
 };
 
-// --- 2. SYSTEM PROMPT (AUDIT PASSED ✅) ---
+// --- 2. SYSTEM PROMPT ---
 function getSystemPrompt(deal) {
   const now = new Date();
   const createdDate = new Date(deal.opp_created_date);
@@ -66,7 +65,6 @@ function getSystemPrompt(deal) {
   const category = deal.forecast_stage || "Pipeline";
   const d = deal.audit_details || {};
 
-  // INJECTED SCORECARD (The Upgrade)
   const scorecardContext = `
     [CURRENT MEDDPICC SCORES]
     - Pain: ${d.pain_score || 0}/3
@@ -153,7 +151,7 @@ async function updateDatabase(oppId, args) {
     }
 }
 
-// --- 4. WEBSOCKET ROUTE ---
+// --- 4. WEBSOCKET ROUTE (DOUBLE-LOCK FIX) ---
 wss.on("connection", (ws, req) => {
     console.log("Client Connected");
     const urlParams = new URLSearchParams(req.url.replace('/','')); 
@@ -162,14 +160,41 @@ wss.on("connection", (ws, req) => {
     let openAIWs = null;
     let streamSid = null;
     let deal = null;
-
-    const fullUrl = `${MODEL_URL}?model=${MODEL_NAME}`;
     
-    openAIWs = new WebSocket(fullUrl, {
-        headers: {
-            "Authorization": `Bearer ${OPENAI_API_KEY}`,
-            "OpenAI-Beta": "realtime=v1"
+    // THE "DOUBLE LOCK" FLAGS
+    let openAIReady = false; 
+    let twilioReady = false; 
+    let greetingSent = false; // The Fail-Safe
+
+    // Trigger Greeting Only Once (When both locks are open)
+    const triggerGreeting = async () => {
+        if (openAIReady && twilioReady && deal && !greetingSent) {
+            greetingSent = true; // Lock it instantly
+            console.log("🗣️ BOTH READY -> Triggering Greeting...");
+            
+            const countRes = await pool.query('SELECT COUNT(*) FROM opportunities WHERE id >= $1', [oppId]);
+            const dealsLeft = countRes.rows[0].count;
+            const firstName = (deal.rep_name || "Rep").split(' ')[0];
+            const isNewDeal = deal.initial_score == null;
+
+            let greeting = "";
+            if (isNewDeal) {
+               greeting = `Hi ${firstName}, Matthew here. Reviewing ${dealsLeft} deals. Starting with ${deal.account_name}. I see no data. What are we selling?`;
+            } else {
+               greeting = `Hi ${firstName}, Matthew here. Reviewing ${dealsLeft} deals. Starting with ${deal.account_name}. Last update: ${deal.last_summary || 'brief'}. What's the latest?`;
+            }
+            
+            openAIWs.send(JSON.stringify({
+                type: "response.create",
+                response: { modalities: ["text", "audio"], instructions: greeting }
+            }));
         }
+    };
+
+    // CONNECT TO OPENAI
+    const fullUrl = `${MODEL_URL}?model=${MODEL_NAME}`;
+    openAIWs = new WebSocket(fullUrl, {
+        headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "OpenAI-Beta": "realtime=v1" }
     });
 
     openAIWs.on("open", async () => {
@@ -177,7 +202,6 @@ wss.on("connection", (ws, req) => {
         const dbRes = await pool.query("SELECT * FROM opportunities WHERE id = $1", [oppId]);
         deal = dbRes.rows[0];
 
-        // Send Config Immediately
         const sessionConfig = {
             type: "session.update",
             session: {
@@ -192,65 +216,35 @@ wss.on("connection", (ws, req) => {
             }
         };
         openAIWs.send(JSON.stringify(sessionConfig));
+        
+        // CHECKPOINT 1: OpenAI is ready
+        openAIReady = true;
+        triggerGreeting(); 
     });
 
     openAIWs.on("message", async (data) => {
         const event = JSON.parse(data);
-
-        // A. Handle Audio Output
         if (event.type === "response.audio.delta" && event.delta) {
-            if (streamSid) {
-                ws.send(JSON.stringify({ 
-                    event: "media", 
-                    streamSid: streamSid, 
-                    media: { payload: event.delta } 
-                }));
-            }
+            if (streamSid) ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: event.delta } }));
         }
-
-        // B. Handle Function Calls
         if (event.type === "response.function_call_arguments.done") {
             const args = JSON.parse(event.arguments);
             const result = await updateDatabase(oppId, args);
-            openAIWs.send(JSON.stringify({
-                type: "conversation.item.create",
-                item: { type: "function_call_output", call_id: event.call_id, output: JSON.stringify(result) }
-            }));
+            openAIWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: event.call_id, output: JSON.stringify(result) } }));
             openAIWs.send(JSON.stringify({ type: "response.create" }));
         }
     });
 
-    // --- TWILIO EVENTS (The Greeting Logic) ---
     ws.on("message", async (message) => {
         const data = JSON.parse(message);
 
-        // 1. START: CRITICAL MOMENT
         if (data.event === "start") {
             streamSid = data.start.streamSid;
             console.log(`📞 Stream Started: ${streamSid}`);
-
-            if (openAIWs.readyState === WebSocket.OPEN && deal) {
-                 const countRes = await pool.query('SELECT COUNT(*) FROM opportunities WHERE id >= $1', [oppId]);
-                 const dealsLeft = countRes.rows[0].count;
-                 const firstName = (deal.rep_name || "Rep").split(' ')[0];
-                 const isNewDeal = deal.initial_score == null; // RESTORED LOGIC
-
-                 let greeting = "";
-                 if (isNewDeal) {
-                    greeting = `Hi ${firstName}, Matthew here. Reviewing ${dealsLeft} deals. Starting with ${deal.account_name} in ${deal.forecast_stage}. I see no data. What are we selling and what problem does it solve?`;
-                 } else {
-                    greeting = `Hi ${firstName}, Matthew here. Reviewing ${dealsLeft} deals. Starting with ${deal.account_name}. Last update was: ${deal.last_summary || 'brief'}. What's the latest?`;
-                 }
-                 
-                 console.log("🗣️ Triggering Greeting:", greeting);
-                 openAIWs.send(JSON.stringify({
-                    type: "response.create",
-                    response: {
-                        modalities: ["text", "audio"],
-                        instructions: greeting
-                    }
-                }));
-            }
+            
+            // CHECKPOINT 2: Twilio is ready
+            twilioReady = true;
+            triggerGreeting();
         } 
         else if (data.event === "media" && openAIWs.readyState === WebSocket.OPEN) {
             openAIWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: data.media.payload }));
