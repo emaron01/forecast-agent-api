@@ -9,7 +9,6 @@ const http = require("http");
 const PORT = process.env.PORT || 10000;
 const OPENAI_API_KEY = process.env.MODEL_API_KEY; 
 const MODEL_URL = process.env.MODEL_URL || "wss://api.openai.com/v1/realtime";
-// Using Mini for speed/cost, but reinforced with strict prompts
 const MODEL_NAME = process.env.MODEL_NAME || "gpt-4o-mini-realtime-preview-2024-12-17"; 
 
 const pool = new Pool({
@@ -55,107 +54,67 @@ const DATABASE_TOOL = {
   }
 };
 
-// --- 2. SYSTEM PROMPT (THE BRAIN) ---
+// --- 2. THE GOLD STANDARD SYSTEM PROMPT ---
 function getSystemPrompt(deal) {
-  const now = new Date();
-  const createdDate = new Date(deal.opp_created_date);
-  const closeDate = deal.close_date ? new Date(deal.close_date) : new Date(now.setDate(now.getDate() + 30));
-  const ageInDays = Math.floor((new Date() - createdDate) / (1000 * 60 * 60 * 24));
-  const daysToClose = Math.floor((closeDate - new Date()) / (1000 * 60 * 60 * 24));
-  
-  // Normalize Stage
-  let category = deal.forecast_stage || "Pipeline";
-  if (category.toLowerCase().includes("upside")) category = "Best Case";
-
-  const d = deal.audit_details || {};
-  const productContext = deal.seller_product_rules || "PRODUCT: General SaaS.";
-  const hasHistory = (deal.last_summary && deal.last_summary.length > 10);
-
-  // Scorecard Injection
-  const scorecardContext = `
-    [CURRENT MEDDPICC SCORES]
-    - Pain: ${d.pain_score || 0}/3
-    - Metrics: ${d.metrics_score || 0}/3
-    - Champion: ${d.champion_score || 0}/3
-    - Econ Buyer: ${d.economic_buyer_score || 0}/3
-    - Paper Process: ${d.paper_process_score || 0}/3
-    - Decision Process: ${d.decision_process_score || 0}/3
-    - Decision Criteria: ${d.decision_criteria_score || 0}/3
-    - Competition: ${d.competition_score || 0}/3
-    - Timeline: ${d.timeline_score || 0}/3
-  `;
-
-  // --- STAGE LOGIC (SCRUB LEVEL) ---
-  let modeInstructions = "";
-  let bannedTopics = "None.";
-
-  if (["Commit", "Closing"].includes(category)) {
-     // HARD SCRUB
-     modeInstructions = `
-     **MODE: COMMIT (The Protector).**
-     - **Goal:** Protect the forecast. 
-     - **Tone:** Stern, urgent. 
-     - **Focus:** Attack Paper Process and Timeline. Ask "Why isn't this signed yet?"`;
-  } else if (["Best Case", "Upside", "Solution Validation"].includes(category)) {
-     // SOFT/STRATEGIC SCRUB
-     modeInstructions = `
-     **MODE: BEST CASE (The Gap Hunter).**
-     - **Goal:** Find the path to Commit.
-     - **Tone:** Collaborative but probing.
-     - **Focus:** Identify the ONE missing criteria (Scores of 0 or 1).`;
-  } else {
-     // PIPELINE/SKEPTIC SCRUB
-     modeInstructions = `
-     **MODE: PIPELINE (The Skeptic).**
-     - **Goal:** Disqualify early.
-     - **Tone:** Fast, impatient.
-     - **Focus:** PAIN and METRICS. If they don't exist, score is 0. 
-     - **Constraint:** Do NOT ask about legal/signatures (Banned).`;
-     bannedTopics = "Do NOT ask about: Legal, Procurement, Signatures, Redlines.";
-  }
-
-  // --- HISTORY LOGIC (RESTORED) ---
-  let historyInstructions = "";
-  if (hasHistory) {
-      historyInstructions = `**HISTORY RULE:** This deal has been reviewed before. Do NOT re-ask about established facts. Focus ONLY on what has changed since the "Last Summary".`;
-  } else {
-      historyInstructions = `**HISTORY RULE:** This is a NEW deal. Assume nothing. You must validate the core pillars (Pain/Champion) from scratch.`;
-  }
-
-  return `
-    You are "Matthew," a VP of Sales Auditor with Sales Forecaster. 
-    **PERSONA:** Professional, data-driven, direct. You do not do small talk.
+    const category = deal.forecast_stage || "Pipeline";
+    const hasHistory = (deal.last_summary && deal.last_summary.length > 10);
+    const amountStr = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(deal.amount || 0);
     
-    ### DEAL CONTEXT
+    const GOLD_STANDARD = `
+    ### ROLE & IDENTITY
+    You are a Forecasting Auditor, not a coach. Your sole objective is to extract verifiable deal data to determine forecast accuracy. Filter out rep optimism; focus exclusively on objective evidence.
+
+    • THE "NO-COACHING" MANDATE: Do not offer advice or selling tips. If asked for help, redirect: "My role is to qualify the deal. I suggest working with your manager on this. Let's look at the next item..."
+    • THE "WHY" RULE: If a rep lacks evidence, state the specific risk (e.g., "Without an EB, the deal cannot be signed") and move on.
+    • STALLING / HESITATION: If the rep says "um," "uh," or pauses, do not skip. Ask: "Take your time. Do you actually have visibility into this?"
+    • PRODUCT POLICE: Your "Internal Truths" are derived strictly from the Sales Rep’s own company website/documentation. If a rep claims a fake feature, correct them immediately.
+
+    ### INTERACTION PROTOCOL & SEQUENCE
+    Investigate in this EXACT ORDER. Do not name categories or provide mid-call scores.
+
+    1. IMPLICATE PAIN: Only real if there is a cost to doing nothing. Probe: "What happens if they do nothing?"
+       - CRITICAL: Summarize the "Cost of Inaction" immediately after the rep answers. (Example: "Understood. Because they lack [Feature], they are losing $50k/month. That is the cost of inaction.")
+       - Constraint: Do not summarize this again at the end. Do not summarize any other category.
+    2. METRICS
+    3. CHAMPION: Verify status. Probe for examples of them selling when you are not there.
+       - 1 (Coach): Friendly, no power.
+       - 2 (Mobilizer): Has influence, but hasn't acted yet.
+       - 3 (Champion): Actively sells for us/spends political capital.
+    4. ECONOMIC BUYER
+    5. DECISION CRITERIA
+    6. DECISION PROCESS
+    7. COMPETITION
+    8. PAPER PROCESS
+    9. TIMING: Assess if there is enough or too much time remaining.
+
+    ### OPERATING RULES
+    • One Question at a Time: Ask one question, then wait for response.
+    • The Evidence Probe: If an answer is vague, probe ONCE. If still vague, score as 1, state the risk, and move to the next item.
+    • No Labels: Do not use category names (e.g., "Moving to Metrics").
+
+    ### FINAL OUTPUT: THE AUDIT REPORT
+    Provide ONLY this section. No intro, outro, or Pain summary.
+    Deal Summary:
+    • Forecast Confidence: [Low/Med/High]
+    • Final Health Score: [Total numerical score/27]
+    • Factual Risks: A bulleted list of evidence gaps/risks following the audit sequence. Use clinical language.
+    • Immediate Next Steps: List only specific data points missing.
+    `;
+
+    const context = `
+    ### CURRENT DEAL CONTEXT
+    - Auditor Persona: "Matthew" (VP of Sales, direct, no small talk).
     - Account: ${deal.account_name}
+    - Amount: ${amountStr}
     - Stage: ${category}
-    - Age: ${ageInDays} days (Close in: ${daysToClose})
-    - History: ${hasHistory ? "Reviewed Before" : "New Deal"}
-    ${scorecardContext}
+    - History: ${hasHistory ? "Reviewed Before. Focus ONLY on what has changed since: " + deal.last_summary : "NEW DEAL. Validate from scratch."}
+    
+    ### INTERNAL TRUTHS (PRODUCT POLICE)
+    ${deal.org_product_data || "Verify capabilities against company documentation."}
+    `;
 
-    ### PRODUCT CONTEXT
-    ${productContext}
-
-    ### INSTRUCTIONS
-    1. ${modeInstructions}
-    2. ${historyInstructions}
-
-    ### RULES
-    1. **SCRIPT:** Read the greeting script EXACTLY as provided in the first turn.
-    2. **LIVE UPDATES:** Call 'update_opportunity' INSTANTLY when hearing facts.
-    3. **INTERRUPTIONS:** Stop speaking immediately if the user interrupts.
-    4. **BANNED TOPICS:** ${bannedTopics}
-
-    ### CHAMPION DEFINITIONS
-    - 1 (Coach): Friendly, no power.
-    - 2 (Mobilizer): Has influence, hasn't acted.
-    - 3 (Champion): Power AND is selling for us.
-
-    ### SCORING RUBRIC (0-3)
-    0=Missing, 1=Weak, 2=Gathering, 3=Validated.
-  `;
+    return GOLD_STANDARD + context;
 }
-
 // --- 3. HELPER: DB UPDATE ---
 async function updateDatabase(oppId, args) {
     try {
@@ -187,10 +146,8 @@ async function updateDatabase(oppId, args) {
         return { success: false, error: e.message };
     }
 }
-
 // --- 4. WEBSOCKET ROUTE ---
 wss.on("connection", (ws, req) => {
-    console.log("Client Connected");
     const urlParams = new URLSearchParams(req.url.replace('/','')); 
     const oppId = urlParams.get('oppId') || '4';
 
@@ -201,52 +158,26 @@ wss.on("connection", (ws, req) => {
     let twilioReady = false; 
     let greetingSent = false;
 
-    // --- THE DYNAMIC GREETING GENERATOR ---
     const triggerGreeting = async () => {
         if (openAIReady && twilioReady && deal && !greetingSent) {
             greetingSent = true;
-            console.log("🗣️ BOTH READY -> Triggering Greeting...");
-            
-            // 1. Fetch Stats
             const countRes = await pool.query('SELECT COUNT(*) FROM opportunities WHERE id >= $1', [oppId]);
             const dealsLeft = countRes.rows[0].count;
             
-            // 2. Format Variables
             let repName = (deal.rep_name || "Rep").split(' ')[0];
-            if (repName.toLowerCase() === "matthew") repName = "Rep"; 
-            
-            const closeDateRaw = new Date(deal.close_date);
-            const closeDateStr = closeDateRaw.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
             const amountStr = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(deal.amount);
-            
-            // 3. Check History & Stage
             const hasHistory = (deal.last_summary && deal.last_summary.length > 10);
-            let stage = deal.forecast_stage || "Pipeline";
-            if (stage.toLowerCase().includes("upside")) stage = "Best Case";
+            const stage = deal.forecast_stage || "Pipeline";
 
-            // 4. Construct Intro (Verbatim)
-            const intro = `Hi ${repName}, this is Matthew with Sales Forecaster. We will be reviewing ${dealsLeft} of your deals today, starting with ${deal.account_name}, ${deal.opportunity_name || 'the opportunity'}, for ${amountStr}, in ${stage} with a close date of ${closeDateStr}.`;
+            const intro = `Hi ${repName}, this is Matthew. Reviewing ${dealsLeft} deals, starting with ${deal.account_name} for ${amountStr} in ${stage}.`;
+            let hook = hasHistory ? `Last update: "${deal.last_summary}". What's changed?` : "This is a new deal. What's the specific Pain?";
 
-            // 5. Construct Hook (Logic Based)
-            let hook = "";
-            if (hasHistory) {
-                hook = `Last time we noted: "${deal.last_summary}". What is the update?`;
-            } else {
-                if (["Commit", "Closing"].includes(stage)) {
-                    hook = "This is in Commit, but I haven't reviewed it. Why isn't this signed yet?";
-                } else if (["Best Case", "Upside"].includes(stage)) {
-                    hook = "This is in Best Case. What is the one thing preventing it from Committing?";
-                } else {
-                    hook = "This is early pipeline. What is the specific Pain you have identified?";
-                }
-            }
-
-            // 6. Send Command
+            // CRITICAL FIX: Explicitly ban the assistant greeting in the response creation
             openAIWs.send(JSON.stringify({
                 type: "response.create",
                 response: { 
                     modalities: ["text", "audio"], 
-                    instructions: `You must say exactly this phrase word-for-word: "${intro} ${hook}"` 
+                    instructions: `Say this exactly: "${intro} ${hook}". DO NOT say "How can I help you today" or "I am here to assist." Speak only as Matthew, the direct VP Auditor.` 
                 }
             }));
         }
@@ -258,82 +189,68 @@ wss.on("connection", (ws, req) => {
     });
 
     openAIWs.on("open", async () => {
-        console.log("✅ Connected to Realtime Model");
         const dbRes = await pool.query("SELECT * FROM opportunities WHERE id = $1", [oppId]);
         deal = dbRes.rows[0];
 
-        const sessionConfig = {
+        // SESSION UPDATE: This hardcodes the "Soul" of the auditor into the session
+        openAIWs.send(JSON.stringify({
             type: "session.update",
             session: {
                 modalities: ["text", "audio"],
                 instructions: getSystemPrompt(deal),
                 voice: "ash", 
-                input_audio_format: "g711_ulaw",
-                output_audio_format: "g711_ulaw",
                 turn_detection: { type: "server_vad" },
                 tools: [DATABASE_TOOL],
                 tool_choice: "auto"
             }
-        };
-        openAIWs.send(JSON.stringify(sessionConfig));
+        }));
         
         openAIReady = true;
         triggerGreeting(); 
     });
 
-    openAIWs.on("message", async (data) => {
+    openAIWs.on("message", (data) => {
         const event = JSON.parse(data);
 
-        // A. HANDLE AUDIO OUTPUT
-        if (event.type === "response.audio.delta" && event.delta) {
-            if (streamSid) ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: event.delta } }));
+        // Handle Audio Output
+        if (event.type === "response.audio.delta" && streamSid) {
+            ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: event.delta } }));
         }
 
-        // B. HANDLE INTERRUPTION
-        if (event.type === "input_audio_buffer.speech_started") {
-            console.log("⚡ Interrupt detected: Clearing Twilio buffer");
-            if (streamSid) ws.send(JSON.stringify({ event: "clear", streamSid: streamSid }));
+        // Handle Interruption
+        if (event.type === "input_audio_buffer.speech_started" && streamSid) {
+            ws.send(JSON.stringify({ event: "clear", streamSid }));
         }
 
-        // C. HANDLE DB UPDATES
+        // Handle CRM Tool Call
         if (event.type === "response.function_call_arguments.done") {
-            const args = JSON.parse(event.arguments);
-            const result = await updateDatabase(oppId, args);
-            openAIWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: event.call_id, output: JSON.stringify(result) } }));
-            openAIWs.send(JSON.stringify({ type: "response.create" }));
+            (async () => {
+                const args = JSON.parse(event.arguments);
+                const result = await updateDatabase(oppId, args);
+                openAIWs.send(JSON.stringify({ 
+                    type: "conversation.item.create", 
+                    item: { type: "function_call_output", call_id: event.call_id, output: JSON.stringify(result) } 
+                }));
+                openAIWs.send(JSON.stringify({ type: "response.create" }));
+            })();
         }
     });
 
-    ws.on("message", async (message) => {
+    ws.on("message", (message) => {
         const data = JSON.parse(message);
         if (data.event === "start") {
             streamSid = data.start.streamSid;
             twilioReady = true;
             triggerGreeting();
-        } 
-        else if (data.event === "media" && openAIWs.readyState === WebSocket.OPEN) {
+        } else if (data.event === "media" && openAIWs.readyState === WebSocket.OPEN) {
             openAIWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: data.media.payload }));
-        } 
-        else if (data.event === "stop") {
-            if (openAIWs.readyState === WebSocket.OPEN) openAIWs.close();
         }
     });
 });
 
 app.post("/agent", (req, res) => {
     const oppId = req.query.oppId || "4";
-    const twiml = `<Response><Connect><Stream url="wss://${req.headers.host}/?oppId=${oppId}" /></Connect></Response>`;
-    res.type("text/xml").send(twiml);
+    res.type("text/xml").send(`<Response><Connect><Stream url="wss://${req.headers.host}/?oppId=${oppId}" /></Connect></Response>`);
 });
 
-app.get("/get-deal", async (req, res) => {
-  const { oppId } = req.query;
-  try {
-    const result = await pool.query("SELECT * FROM opportunities WHERE id = $1", [oppId]);
-    if (result.rows.length === 0) return res.status(404).json({ error: "Not found" });
-    const deal = result.rows[0];
-    res.json({ ...deal, audit_details: deal.audit_details || {} });
-  } catch (err) { console.error(err); res.status(500).send("DB Error"); }
-});
-
-server.listen(PORT, () => console.log(`🚀 Realtime Server live on port ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Server live on ${PORT}`));
