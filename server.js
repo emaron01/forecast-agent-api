@@ -393,4 +393,3 @@ app.get("/get-deal", async (req, res) => {
 });
 
 server.listen(PORT, () => console.log(`🚀 Server live on ${PORT}`));
-
