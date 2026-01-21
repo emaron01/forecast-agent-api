@@ -175,7 +175,6 @@ function getSystemPrompt(deal, repName, dealsLeft) {
     DATABASE_DATA: Pain: [score]| [Short summary of pain], Metrics: [score]| [Short summary of metrics], Champion: [score]| [Name/Title], EB: [score]| [Name/Title], Criteria: [score]| [Detail], Process: [score]| [Detail], Competition: [score]| [Name], Paper: [score]| [Detail], Timing: [score]| [Detail] 
     `;
 }
-
 // --- [BLOCK 4: TWILIO WEBHOOK] ---
 app.post("/agent", (req, res) => {
     // Note: We ignore oppId now because we run the whole playlist
@@ -217,45 +216,46 @@ wss.on('connection', (ws, req) => {
             
             if (dealQueue.length === 0) {
                 console.log("⚠️ No active deals found.");
-                // Handle edge case (maybe just say hello and hang up)
             }
         } catch (e) {
             console.error("❌ DB ERROR:", e.message);
         }
 
         // B. LOAD FIRST DEAL
-        const currentDeal = dealQueue[currentDealIndex];
-        const dealsRemaining = dealQueue.length - 1 - currentDealIndex;
-        
-        console.log("------------------------------------------");
-        console.log(`🤖 [MATTHEW STARTING]: ${currentDeal.account_name} | $${currentDeal.amount}`);
-        console.log("------------------------------------------");
+        if (dealQueue.length > 0) {
+            const currentDeal = dealQueue[currentDealIndex];
+            const dealsRemaining = dealQueue.length - 1 - currentDealIndex;
+            
+            console.log("------------------------------------------");
+            console.log(`🤖 [MATTHEW STARTING]: ${currentDeal.account_name} | $${currentDeal.amount}`);
+            console.log("------------------------------------------");
 
-        const instructions = getSystemPrompt(currentDeal, "Erik", dealsRemaining);
+            const instructions = getSystemPrompt(currentDeal, "Erik", dealsRemaining);
 
-        // C. CONFIGURE SESSION
-        const sessionUpdate = {
-            type: "session.update",
-            session: {
-                modalities: ["text", "audio"],
-                instructions: instructions,
-                voice: "verse",
-                input_audio_format: "g711_ulaw",
-                output_audio_format: "g711_ulaw",
-                turn_detection: { 
-                    type: "server_vad",
-                    threshold: 0.6,
-                    prefix_padding_ms: 300, 
-                    silence_duration_ms: 1000 
+            // C. CONFIGURE SESSION
+            const sessionUpdate = {
+                type: "session.update",
+                session: {
+                    modalities: ["text", "audio"],
+                    instructions: instructions,
+                    voice: "verse",
+                    input_audio_format: "g711_ulaw",
+                    output_audio_format: "g711_ulaw",
+                    turn_detection: { 
+                        type: "server_vad",
+                        threshold: 0.6,
+                        prefix_padding_ms: 300, 
+                        silence_duration_ms: 1000 
+                    }
                 }
-            }
-        };
-        openAiWs.send(JSON.stringify(sessionUpdate));
+            };
+            openAiWs.send(JSON.stringify(sessionUpdate));
 
-        // D. FORCE SPEAK
-        setTimeout(() => {
-            openAiWs.send(JSON.stringify({ type: "response.create" }));
-        }, 250);
+            // D. FORCE SPEAK
+            setTimeout(() => {
+                openAiWs.send(JSON.stringify({ type: "response.create" }));
+            }, 250);
+        }
     });
 
     // --- [SUB-BLOCK 5.B: AI TO TWILIO (OUTPUT)] ---
@@ -390,6 +390,16 @@ app.get("/get-deal", async (req, res) => {
         const result = await pool.query('SELECT * FROM opportunities WHERE id = $1', [oppId]);
         res.json(result.rows[0] || staticFallback);
     } catch (err) { res.json(staticFallback); }
+});
+
+// --- [NEW BLOCK 7: DEAL LIST API] ---
+app.get("/deals", async (req, res) => {
+    try {
+        const result = await pool.query("SELECT id, account_name FROM opportunities ORDER BY id ASC");
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json([]);
+    }
 });
 
 server.listen(PORT, () => console.log(`🚀 Server live on ${PORT}`));
