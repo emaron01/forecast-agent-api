@@ -101,8 +101,11 @@ Investigate in this EXACT ORDER. Do not name categories or provide mid-call scor
     • Final Health Score: [Total numerical score/27]
     • Factual Risks: A bulleted list of evidence gaps/risks following the audit sequence. Use clinical language.
     • Immediate Next Steps: List only specific data points missing.
-    `;
+
+DATABASE_DATA: Pain: [score]| [Short summary of pain], Metrics: [score]| [Short summary of metrics], Champion: [score]| [Name/Title], EB: [score]| [Name/Title], Criteria: [score]| [Detail], Process: [score]| [Detail], Competition: [score]| [Name], Paper: [score]| [Detail], Timing: [score]| [Detail] 
+ `;
 }
+
 
 // --- [BLOCK 4: TWILIO WEBHOOK] ---
 app.post("/agent", (req, res) => {
@@ -201,34 +204,48 @@ wss.on('connection', (ws, req) => {
             }));
         }
 
-        // --- [SUB-BLOCK 5.C: DATA CAPTURE] ---
-        if (response.type === 'response.audio_transcript.done') {
-            const transcript = response.transcript;
-            
-            if (transcript.includes("Deal Summary:") || transcript.includes("Final Health Score:")) {
-                console.log("\n🎯 FINAL AUDIT DETECTED - PARSING...");
-                try {
-                    const scoreMatch = transcript.match(/Final Health Score:\s*\[?(\d+)\/27\]?/i);
-                    const totalScore = scoreMatch ? parseInt(scoreMatch[1]) : null;
-                    
-                    let newStage = "Pipeline";
-                    if (totalScore >= 20) newStage = "Commit";
-                    else if (totalScore >= 12) newStage = "Best Case";
+        // --- [SUB-BLOCK 5.C: RICH ANALYTICS PARSER] ---
+if (response.type === 'response.audio_transcript.done') {
+    const transcript = response.transcript;
+    
+    if (transcript.includes("DATABASE_DATA:")) {
+        console.log("\n🎯 RICH ANALYTICS DETECTED");
+        try {
+            // Helper function to extract "Score|Text" for each category
+            const extract = (label) => {
+                const regex = new RegExp(`${label}: (\\d)\\|\\s*([^,]+)`);
+                const match = transcript.match(regex);
+                return match ? { score: parseInt(match[1]), text: match[2].trim() } : { score: 0, text: "No data provided" };
+            };
 
-                    const updateQuery = `
-                        UPDATE opportunities 
-                        SET last_summary = $1, forecast_stage = $2, updated_at = NOW() 
-                        WHERE id = $3
-                    `;
-                    pool.query(updateQuery, [transcript, newStage, oppId]);
-                    console.log(`✅ DB UPDATED: ${newStage} (Score: ${totalScore})`);
-                } catch (dbErr) {
-                    console.error("❌ DB UPDATE FAILED:", dbErr.message);
-                }
-            }
+            const auditDetails = {
+                pain: extract("Pain"),
+                metrics: extract("Metrics"),
+                champion: extract("Champion"),
+                eb: extract("EB"),
+                criteria: extract("Criteria"),
+                process: extract("Process"),
+                competition: extract("Competition"),
+                paper: extract("Paper"),
+                timing: extract("Timing")
+            };
+
+            // Calculate Overall Score and Stage
+            const totalScore = Object.values(auditDetails).reduce((acc, curr) => acc + curr.score, 0);
+            let newStage = totalScore >= 20 ? "Commit" : (totalScore >= 12 ? "Best Case" : "Pipeline");
+
+            const updateQuery = `
+                UPDATE opportunities 
+                SET last_summary = $1, audit_details = $2, forecast_stage = $3, updated_at = NOW() 
+                WHERE id = $4
+            `;
+            pool.query(updateQuery, [transcript, JSON.stringify(auditDetails), newStage, oppId]);
+            console.log(`✅ RICH DATA SAVED: ${totalScore}/27`);
+        } catch (err) {
+            console.error("❌ PARSING ERROR:", err.message);
         }
-    });
-
+    }
+}
     // --- [SUB-BLOCK 5.D: TWILIO TO AI (INPUT)] ---
     ws.on('message', (message) => {
         const msg = JSON.parse(message);
