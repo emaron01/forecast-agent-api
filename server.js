@@ -131,19 +131,25 @@ function getSystemPrompt(deal, repName, dealsLeft) {
 }
 // --- [BLOCK 4: TWILIO WEBHOOK] ---
 app.post("/agent", (req, res) => {
-    // Note: We ignore oppId now because we run the whole playlist
-    console.log(`[TWILIO] Incoming Call - Starting Playlist`);
+    // 1. Capture the org_id from the URL query
+    const orgId = req.query.org_id || 1; 
+    console.log(`[TWILIO] Incoming Call for Org: ${orgId}`);
+
     res.type("text/xml").send(`
         <Response>
             <Connect>
-                <Stream url="wss://${req.headers.host}/" />
+                <Stream url="wss://${req.headers.host}/?org_id=${orgId}" />
             </Connect>
         </Response>
     `);
-});
-// --- [BLOCK 5: WEBSOCKET CORE (HARDENED)] ---
+});// --- [BLOCK 5: WEBSOCKET CORE (SECURE MULTI-TENANT)] ---
 wss.on('connection', (ws, req) => {
-    console.log(`\n[CONNECTION] 📞 New Stream Started`);
+    // 1. EXTRACT ORG_ID FROM STREAM URL
+    // Twilio will send this via: wss://your-app.com/?org_id=1
+    const urlParams = new URLSearchParams(req.url.split('?')[1]);
+    const orgId = urlParams.get('org_id') || 1; 
+    
+    console.log(`\n[CONNECTION] 📞 Call Started for Organization ID: ${orgId}`);
     let streamSid = null;
     
     // --- STATE MANAGEMENT ---
@@ -158,22 +164,17 @@ wss.on('connection', (ws, req) => {
         }
     });
 
-    // --- HELPER: ADVANCE PLAYLIST (FAIL FORWARD LOGIC) ---
-    // Defined here so it can be called even if the DB Save fails
+    // --- HELPER: ADVANCE PLAYLIST ---
     const advanceToNextDeal = () => {
         currentDealIndex++; 
         
         if (currentDealIndex < dealQueue.length) {
             const nextDeal = dealQueue[currentDealIndex];
             const dealsRemaining = dealQueue.length - currentDealIndex;
-            
-            // LOGIC: Use "Team" if rep_name is missing, otherwise split "Erik M"
-            const fullName = nextDeal.rep_name || "Team";
-            const nextFirstName = fullName.split(' ')[0];
+            const nextFirstName = (nextDeal.rep_name || "Team").split(' ')[0];
 
             console.log(`⏩ ADVANCING: ${nextDeal.account_name} for ${nextFirstName}`);
             
-            // RE-GENERATE PROMPT WITH NEW DEAL DATA
             const nextInstructions = getSystemPrompt(nextDeal, nextFirstName, dealsRemaining);
             
             openAiWs.send(JSON.stringify({
@@ -181,16 +182,15 @@ wss.on('connection', (ws, req) => {
                 session: { instructions: nextInstructions }
             }));
 
-            // FORCE TRANSITION SPEECH
             openAiWs.send(JSON.stringify({
                 type: "response.create",
                 response: {
                     modalities: ["text", "audio"],
-                    instructions: `Say exactly: "Okay, moving on to ${nextDeal.account_name}." Then immediately ask the opening question defined in your prompt.`
+                    instructions: `Say exactly: "Okay, moving on to ${nextDeal.account_name}." Then immediately ask the opening question.`
                 }
             }));
             
-            isSaving = false; // Unlock
+            isSaving = false; 
         } else {
             console.log("🏁 PLAYLIST COMPLETE");
             openAiWs.send(JSON.stringify({
@@ -200,31 +200,29 @@ wss.on('connection', (ws, req) => {
         }
     };
 
-    // --- [SUB-BLOCK 5.A: OPENAI SESSION INIT] ---
+    // --- [SUB-BLOCK 5.A: SECURE SESSION INIT] ---
     openAiWs.on('open', async () => {
         try {
-            // 1. PLAYLIST QUERY (THE JOIN)
-            // Stitches Deal Evidence (Opportunities) with Product Truths (Organizations)
+            // SECURE QUERY: Filters by orgId to prevent data leakage between companies
             const result = await pool.query(`
                 SELECT o.*, org.product_truths AS org_product_data, org.name AS org_name
                 FROM opportunities o
                 JOIN organizations org ON o.org_id = org.id
-                WHERE o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') 
+                WHERE o.org_id = $1 
+                AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') 
                 ORDER BY o.id ASC
-            `);
+            `, [orgId]);
+
             dealQueue = result.rows;
-            console.log(`📋 PLAYLIST LOADED: ${dealQueue.length} Active Deals`);
+            console.log(`📋 PLAYLIST LOADED: ${dealQueue.length} Deals for Org ${orgId}`);
         } catch (e) {
             console.error("❌ DB ERROR:", e.message);
         }
 
-        // 2. START SESSION IF DEALS EXIST
         if (dealQueue.length > 0) {
             const currentDeal = dealQueue[currentDealIndex];
             const dealsRemaining = dealQueue.length - 1 - currentDealIndex;
-            
-            const fullName = currentDeal.rep_name || "Team";
-            const firstName = fullName.split(' ')[0]; 
+            const firstName = (currentDeal.rep_name || "Team").split(' ')[0]; 
 
             console.log("------------------------------------------");
             console.log(`🤖 [MATTHEW STARTING]: ${currentDeal.account_name} for ${firstName}`);
@@ -246,17 +244,16 @@ wss.on('connection', (ws, req) => {
             openAiWs.send(JSON.stringify(sessionUpdate));
             setTimeout(() => { openAiWs.send(JSON.stringify({ type: "response.create" })); }, 250);
         } else {
-            // 3. FAIL SAFE: DEAD AIR PREVENTION
-            console.log("⚠️ NO DEALS FOUND. ENDING CALL.");
+            console.log("⚠️ NO DEALS FOUND FOR THIS ORG.");
             openAiWs.send(JSON.stringify({
                 type: "session.update",
-                session: { instructions: "You are a system announcer. Say 'No active deals found for review. Please update your CRM.' and hang up." }
+                session: { instructions: "You are a system announcer. Say 'No active deals found for your organization.' and hang up." }
             }));
             setTimeout(() => { openAiWs.send(JSON.stringify({ type: "response.create" })); }, 250);
         }
     });
 
-    // --- [SUB-BLOCK 5.B: AI TO TWILIO (OUTPUT)] ---
+    // --- [SUB-BLOCK 5.B: AI TO TWILIO] ---
     openAiWs.on('message', (data) => {
         const response = JSON.parse(data);
 
@@ -266,18 +263,14 @@ wss.on('connection', (ws, req) => {
             }));
         }
 
-        // --- [SUB-BLOCK 5.C: SNIPER & TRANSITION] ---
+        // --- [SUB-BLOCK 5.C: SNIPER] ---
         if (response.type === 'response.audio_transcript.done') {
             const transcript = response.transcript;
             
             if (transcript.includes("DATABASE_DATA:") && !isSaving) {
                 isSaving = true; 
-                console.log("\n🎯 SNIPER: Trigger detected.");
+                console.log("\n🎯 SNIPER: Parsing Audit Result...");
 
-                // 1. DATA EXTRACTION
-                let auditDetails = {};
-                let newStage = "Pipeline";
-                
                 try {
                     const extract = (label) => {
                         const regex = new RegExp(`${label}:\\s*(\\d)\\|\\s*([^,]+?)(?=(?:,|$|\\n))`, 'i');
@@ -285,46 +278,45 @@ wss.on('connection', (ws, req) => {
                         if (match) return { score: parseInt(match[1]), text: match[2].trim() };
                         return { score: 0, text: "---" };
                     };
-                    auditDetails = {
+
+                    const auditDetails = {
                         pain: extract("Pain"), metrics: extract("Metrics"), champion: extract("Champion"),
                         eb: extract("EB"), criteria: extract("Criteria"), process: extract("Process"),
                         competition: extract("Competition"), paper: extract("Paper"), timing: extract("Timing")
                     };
-                    
-                    // AUTO-STAGE LOGIC
+
                     const totalScore = Object.values(auditDetails).reduce((acc, curr) => acc + curr.score, 0);
+                    let newStage = "Pipeline";
                     if (totalScore >= 24) newStage = "Closed Won";
                     else if (totalScore >= 20) newStage = "Commit";
                     else if (totalScore >= 12) newStage = "Best Case";
-                    
+
+                    const currentDeal = dealQueue[currentDealIndex];
+                    const updateQuery = `
+                        UPDATE opportunities 
+                        SET last_summary = $1, audit_details = $2, forecast_stage = $3, 
+                            updated_at = NOW(), run_count = COALESCE(run_count, 0) + 1
+                        WHERE id = $4
+                    `;
+
+                    pool.query(updateQuery, [transcript, JSON.stringify(auditDetails), newStage, currentDeal.id])
+                        .then(() => {
+                            console.log(`✅ SAVED: ${currentDeal.account_name} (Org: ${orgId})`);
+                            advanceToNextDeal();
+                        })
+                        .catch(err => {
+                            console.error("❌ DB SAVE FAIL:", err.message);
+                            advanceToNextDeal();
+                        });
                 } catch (err) {
-                    console.error("❌ PARSE FAIL (Recovering):", err.message);
-                    auditDetails = { note: "Automated parse failed. See raw transcript." };
+                    console.error("❌ PARSE FAIL:", err.message);
+                    advanceToNextDeal();
                 }
-
-                // 2. DATABASE UPDATE
-                const currentDeal = dealQueue[currentDealIndex];
-                const updateQuery = `
-                    UPDATE opportunities 
-                    SET last_summary = $1, audit_details = $2, forecast_stage = $3, 
-                        updated_at = NOW(), run_count = COALESCE(run_count, 0) + 1
-                    WHERE id = $4
-                `;
-
-                pool.query(updateQuery, [transcript, JSON.stringify(auditDetails), newStage, currentDeal.id])
-                    .then(() => {
-                        console.log(`✅ SAVED: ${currentDeal.account_name}`);
-                        advanceToNextDeal(); // SUCCESS PATH
-                    })
-                    .catch(err => {
-                        console.error("❌ DB SAVE FAIL (Forcing Advance):", err.message);
-                        advanceToNextDeal(); // FAIL FORWARD PATH
-                    });
             }
         }
     });
 
-    // --- [SUB-BLOCK 5.D: TWILIO TO AI (INPUT)] ---
+    // --- [SUB-BLOCK 5.D: TWILIO TO AI] ---
     ws.on('message', (message) => {
         const msg = JSON.parse(message);
         if (msg.event === 'start') {
@@ -349,8 +341,9 @@ app.get("/get-deal", async (req, res) => {
 });
 
 app.get("/deals", async (req, res) => {
+    const orgId = req.query.org_id || 1; 
     try {
-        const result = await pool.query("SELECT id, account_name, forecast_stage, run_count FROM opportunities ORDER BY id ASC");
+        const result = await pool.query("SELECT id, account_name, forecast_stage, run_count FROM opportunities WHERE org_id = $1 ORDER BY id ASC", [orgId]);
         res.json(result.rows);
     } catch (err) { res.status(500).json([]); }
 });
