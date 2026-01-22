@@ -1,4 +1,3 @@
-
 require('dotenv').config();
 const http = require('http');
 const express = require('express');
@@ -130,15 +129,16 @@ function getSystemPrompt(deal, repName, dealsLeft) {
     `;
 }
 
-// --- [BLOCK 4: SMART GATEKEEPER WEBHOOK] ---
+/ /--- [BLOCK 4: SMART GATEKEEPER WEBHOOK] ---
 app.post("/agent", async (req, res) => {
     const callerPhone = req.body.From; // e.g., '+12153533849'
     console.log(`\n📞 Incoming call from: ${callerPhone}`);
 
     try {
         // Look up the Org ID based on the phone number
+        // FIXED: Using backticks ` ` for multi-line SQL
         const result = await pool.query(
-            "SELECT org_id FROM opportunities WHERE rep_phone = $1 LIMIT 1", 
+            `SELECT org_id FROM opportunities WHERE rep_phone = $1 LIMIT 1`, 
             [callerPhone]
         );
 
@@ -162,7 +162,6 @@ app.post("/agent", async (req, res) => {
         `);
     }
 });
-
 //--- [BLOCK 5: WEBSOCKET CORE (SECURE MULTI-TENANT)] ---
 wss.on('connection', (ws, req) => {
     // 1. EXTRACT ORG_ID FROM STREAM URL
@@ -364,10 +363,14 @@ app.get("/get-deal", async (req, res) => {
 app.get("/deals", async (req, res) => {
     const orgId = req.query.org_id || 1; 
     try {
-        const result = await pool.query("SELECT id, account_name, forecast_stage, run_count FROM opportunities WHERE org_id = $1 ORDER BY id ASC", [orgId]);
+        // FIXED: Using backticks ` ` for multi-line SQL
+        const result = await pool.query(`
+            SELECT id, account_name, forecast_stage, run_count 
+            FROM opportunities 
+            WHERE org_id = $1 
+            ORDER BY id ASC
+        `, [orgId]);
         res.json(result.rows);
     } catch (err) { res.status(500).json([]); }
 });
-
 server.listen(PORT, () => console.log(`🚀 Matthew Live on ${PORT}`));
-
