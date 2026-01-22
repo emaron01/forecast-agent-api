@@ -33,60 +33,31 @@ function getSystemPrompt(deal, repName, dealsLeft) {
         style: 'currency', currency: 'USD', maximumFractionDigits: 0 
     }).format(deal.amount || 0);
 
-    // [NEW PART 1] LOGIC & PERSONA SWITCH
-    // 1. EXTRACT SCORES (Safe fallback to 0)
+    // 1. EXTRACT SCORES
     const details = deal.audit_details || {};
     const scores = {
-        pain: details.pain?.score || 0,
-        metrics: details.metrics?.score || 0,
-        champion: details.champion?.score || 0,
-        eb: details.eb?.score || 0,
-        process: details.process?.score || 0,
-        paper: details.paper?.score || 0,
+        pain: details.pain?.score || 0, metrics: details.metrics?.score || 0,
+        champion: details.champion?.score || 0, eb: details.eb?.score || 0,
+        process: details.process?.score || 0, paper: details.paper?.score || 0,
         timing: details.timing?.score || 0
     };
     
-    // 2. CREATE CONTEXT STRING (Feeds into Branch B)
-    const scoreContext = `
-    EXISTING DATA (Do not ask again if Score is 3):
-    - Pain: ${scores.pain}/3
-    - Metrics: ${scores.metrics}/3
-    - Champion: ${scores.champion}/3
-    - EB: ${scores.eb}/3
-    - Process: ${scores.process}/3
-    - Paper: ${scores.paper}/3
-    - Timing: ${scores.timing}/3
-    `;
+    // 2. DEFINE CONTEXT VARIABLES
+    const scoreContext = `EXISTING DATA: [Pain:${scores.pain}, Metrics:${scores.metrics}, Champ:${scores.champion}, EB:${scores.eb}, Process:${scores.process}, Paper:${scores.paper}, Timing:${scores.timing}]`;
 
-    // 3. STAGE LOGIC (The "Persona" Toggle)
     let stageInstructions = "";
     if (category.includes("Commit")) {
-        stageInstructions = `
-        MODE: CLOSING PARTNER (Commit). 
-        • Tone: Professional, precise, urgent but supportive. 
-        • Goal: "Let's secure the win." 
-        • Focus: Identify the final blockers (Legal/Signatures).
-        `;
+        stageInstructions = `MODE: CLOSING PARTNER (Commit). • Tone: Professional, precise, urgent but supportive. • Goal: "Let's secure the win." • Focus: Identify final blockers (Legal/Signatures).`;
     } else if (category.includes("Best Case")) {
-        stageInstructions = `
-        MODE: DEAL ARCHITECT (Best Case). 
-        • Tone: Strategic and curious.
-        • Goal: "Let's strengthen our case."
-        • Focus: Verify the Champion is strong enough to sell for us.
-        `;
+        stageInstructions = `MODE: DEAL ARCHITECT (Best Case). • Tone: Strategic and curious. • Goal: "Let's strengthen our case." • Focus: Verify the Champion is strong enough to sell for us.`;
     } else {
-        stageInstructions = `
-        MODE: PIPELINE SCANNER (Pipeline). 
-        • Tone: Casual, low-pressure, collaborative. 
-        • Goal: "Let's map out what we know so far." 
-        • Strategy: Ask "What can you tell me about this opportunity?" and simply map their answer to the categories.
-        • Rule: 1 Question per topic. Do not dig. Identify the gap and move on.
-        `;
+        stageInstructions = `MODE: PIPELINE SCANNER (Pipeline). • Tone: Casual, low-pressure, collaborative. • Goal: "Let's map out what we know so far." • Strategy: Ask "What can you tell me about this opportunity?" and map answers to categories. • Rule: 1 Question per topic. Do not dig.`;
     }
 
-    const intro = `Hi ${repName}, this is Matthew. Reviewing ${dealsLeft} deals, starting with ${deal.account_name} for ${amountStr} in ${category}.`;
+    const intro = `Hi ${repName}, this is Matthew. Reviewing ${dealsLeft + 1} deals, starting with ${deal.account_name} for ${amountStr} in ${category}.`;
     const hook = hasHistory ? `Last update: "${deal.last_summary}". What's the latest?` : "What can you tell me about this opportunity?";
 
+    // 3. THE FULL UNABRIDGED RETURN
     return `
     ### MANDATORY OPENING
     You MUST open the call with this exact script: "${intro} ${hook}"
@@ -94,6 +65,7 @@ function getSystemPrompt(deal, repName, dealsLeft) {
 
     ### ROLE & IDENTITY 
     You are Matthew, a VP of Sales. You are professional, data-driven, and direct. 
+    NO HALLUCINATION: The customer is "${deal.account_name}". Never say "Acme".
     ${stageInstructions}
 
     [CORE RULES]
@@ -111,38 +83,22 @@ function getSystemPrompt(deal, repName, dealsLeft) {
 
     ### SMART CONTEXT (THE ANTI-ROBOT BRAIN)
     • CROSS-CATEGORY LISTENING: If the rep answers a future category early, MARK IT as answered and SKIP later.
-    • MEMORY: Check "EXISTING DATA" below. If a score is 3, DO NOT ASK about it unless the user indicates a change.
+    • MEMORY: Check "${scoreContext}". If a score is 3, DO NOT ASK about it unless the user indicates a change.
 
     ### INTERACTION PROTOCOL (LOGIC BRANCH)
     
     [BRANCH A: THE CLOSING SHORTCUT]
-    *Trigger ONLY if user mentions: "PO", "Contract", "SOW", "Paperwork", "Procurement"*
-    
-    1. SCENARIO: "SIGNED / DONE" 
-       - VERIFY: "Do we have the clean PDF in hand?"
-       - IF YES: Score 27/27. Say: "That is huge. Great work. I'm moving this to Closed Won."
-       - GENERATE SUMMARY.
-
-    2. SCENARIO: "WORKING ON IT" 
-       - SKIP Pain, Metrics, Champion (Assume done).
-       - EXECUTE "LEGAL CHECK": "Are all legal documents fully executed? Or is there still redlining?"
-       - EXECUTE "DATE CHECK": "When do you think the PO hits? Let's get a precise date."
-       - GENERATE SUMMARY.
+    *Trigger ONLY if user mentions: "PO", "Contract", "SOW", "Paperwork", "Procurement", "Signed", "Done"*
+    1. SCENARIO: "SIGNED / DONE": VERIFY: "Do we have the clean PDF in hand?" IF YES: Score 27/27. Say: "That is huge. Great work. I'm moving this to Closed Won."
+    2. SCENARIO: "WORKING ON IT": SKIP Pain, Metrics, Champion. EXECUTE "LEGAL CHECK" (Redlining?) and "DATE CHECK" (Precise PO date).
 
     [BRANCH B: STANDARD MEDDPICC]
-    *If NO closing keywords, audit MISSING items based on stage:*
-    
+    *Investigate in this EXACT ORDER. Do not name categories or provide mid-call scores.*
     ${scoreContext}
-
-    Investigate in this EXACT ORDER. Do not name categories or provide mid-call scores.
     1. IMPLICATE PAIN: Only real if there is a cost to doing nothing. Probe: "What happens if they do nothing?"
-       - CRITICAL: Summarize the "Cost of Inaction" immediately after the rep answers.
-       - Constraint: Do not summarize this again at the end.
+       - CRITICAL: Summarize the "Cost of Inaction" immediately after the rep answers. Do not summarize again at the end.
     2. METRICS
-    3. CHAMPION: Verify status.
-       - 1 (Coach): Friendly, no power.
-       - 2 (Mobilizer): Has influence, but hasn't acted yet.
-       - 3 (Champion): Actively sells for us/spends political capital.
+    3. CHAMPION: Verify status: 1 (Coach): Friendly, no power. 2 (Mobilizer): Has influence, but hasn't acted yet. 3 (Champion): Actively sells for us/spends political capital.
     4. ECONOMIC BUYER
     5. DECISION CRITERIA
     6. DECISION PROCESS
@@ -156,23 +112,20 @@ function getSystemPrompt(deal, repName, dealsLeft) {
     • No Labels: Do not use category names.
 
     ### DEAL CONTEXT
-    - Account: ${deal.account_name}
-    - Amount: ${amountStr}
-    - Stage: ${category}
+    - Account: ${deal.account_name} | Amount: ${amountStr} | Stage: ${category}
     - History: ${hasHistory ? "Reviewed Before. Focus ONLY on what has changed since: " + deal.last_summary : "NEW DEAL. Validate from scratch."}
     
     ### INTERNAL TRUTHS (PRODUCT POLICE)
     ${deal.org_product_data || "Verify capabilities against company documentation."}
 
-    ### FINAL OUTPUT: THE AUDIT REPORT
-    Provide ONLY this section. No intro, outro, or Pain summary.
+    ### FINAL OUTPUT: THE AUDIT REPORT & DATABASE SNIPE
     Deal Summary:
     • Forecast Confidence: [Low/Med/High]
     • Final Health Score: [Total numerical score/27]
     • Factual Risks: A bulleted list of evidence gaps/risks following the audit sequence. Use clinical language.
     • Immediate Next Steps: List only specific data points missing.
 
-    DATABASE_DATA: Pain: [score]| [Short summary of pain], Metrics: [score]| [Short summary of metrics], Champion: [score]| [Name/Title], EB: [score]| [Name/Title], Criteria: [score]| [Detail], Process: [score]| [Detail], Competition: [score]| [Name], Paper: [score]| [Detail], Timing: [score]| [Detail] 
+    DATABASE_DATA: Pain: [score]| [note], Metrics: [score]| [note], Champion: [score]| [note], EB: [score]| [note], Criteria: [score]| [note], Process: [score]| [note], Competition: [score]| [note], Paper: [score]| [note], Timing: [score]| [note]
     `;
 }
 // --- [BLOCK 4: TWILIO WEBHOOK] ---
@@ -187,16 +140,15 @@ app.post("/agent", (req, res) => {
         </Response>
     `);
 });
-
-// --- [BLOCK 5: WEBSOCKET CORE] ---
+// --- [BLOCK 5: WEBSOCKET CORE (HARDENED)] ---
 wss.on('connection', (ws, req) => {
     console.log(`\n[CONNECTION] 📞 New Stream Started`);
     let streamSid = null;
     
-    // --- STATE MANAGEMENT (THE PLAYLIST) ---
+    // --- STATE MANAGEMENT ---
     let dealQueue = [];
     let currentDealIndex = 0;
-    let isSaving = false; // Prevent double triggers
+    let isSaving = false; 
 
     const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
         headers: {
@@ -205,34 +157,80 @@ wss.on('connection', (ws, req) => {
         }
     });
 
+    // --- HELPER: ADVANCE PLAYLIST (FAIL FORWARD LOGIC) ---
+    // Defined here so it can be called even if the DB Save fails
+    const advanceToNextDeal = () => {
+        currentDealIndex++; 
+        
+        if (currentDealIndex < dealQueue.length) {
+            const nextDeal = dealQueue[currentDealIndex];
+            const dealsRemaining = dealQueue.length - currentDealIndex;
+            
+            // LOGIC: Use "Team" if rep_name is missing, otherwise split "Erik M"
+            const fullName = nextDeal.rep_name || "Team";
+            const nextFirstName = fullName.split(' ')[0];
+
+            console.log(`⏩ ADVANCING: ${nextDeal.account_name} for ${nextFirstName}`);
+            
+            // RE-GENERATE PROMPT WITH NEW DEAL DATA
+            const nextInstructions = getSystemPrompt(nextDeal, nextFirstName, dealsRemaining);
+            
+            openAiWs.send(JSON.stringify({
+                type: "session.update",
+                session: { instructions: nextInstructions }
+            }));
+
+            // FORCE TRANSITION SPEECH
+            openAiWs.send(JSON.stringify({
+                type: "response.create",
+                response: {
+                    modalities: ["text", "audio"],
+                    instructions: `Say exactly: "Okay, moving on to ${nextDeal.account_name}." Then immediately ask the opening question defined in your prompt.`
+                }
+            }));
+            
+            isSaving = false; // Unlock
+        } else {
+            console.log("🏁 PLAYLIST COMPLETE");
+            openAiWs.send(JSON.stringify({
+                type: "response.create",
+                response: { instructions: "Say: 'That concludes the review. Database updated. Goodbye.' then hang up." }
+            }));
+        }
+    };
+
     // --- [SUB-BLOCK 5.A: OPENAI SESSION INIT] ---
     openAiWs.on('open', async () => {
-        // A. FETCH ALL ACTIVE DEALS (DYNAMIC PLAYLIST)
         try {
-            // "Not in Closed Won or Closed Lost" means active deals only
-            const result = await pool.query("SELECT * FROM opportunities WHERE forecast_stage NOT IN ('Closed Won', 'Closed Lost') ORDER BY id ASC");
+            // 1. PLAYLIST QUERY (THE JOIN)
+            // Stitches Deal Evidence (Opportunities) with Product Truths (Organizations)
+            const result = await pool.query(`
+                SELECT o.*, org.product_truths AS org_product_data, org.name AS org_name
+                FROM opportunities o
+                JOIN organizations org ON o.org_id = org.id
+                WHERE o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') 
+                ORDER BY o.id ASC
+            `);
             dealQueue = result.rows;
             console.log(`📋 PLAYLIST LOADED: ${dealQueue.length} Active Deals`);
-            
-            if (dealQueue.length === 0) {
-                console.log("⚠️ No active deals found.");
-            }
         } catch (e) {
             console.error("❌ DB ERROR:", e.message);
         }
 
-        // B. LOAD FIRST DEAL
+        // 2. START SESSION IF DEALS EXIST
         if (dealQueue.length > 0) {
             const currentDeal = dealQueue[currentDealIndex];
             const dealsRemaining = dealQueue.length - 1 - currentDealIndex;
             
+            const fullName = currentDeal.rep_name || "Team";
+            const firstName = fullName.split(' ')[0]; 
+
             console.log("------------------------------------------");
-            console.log(`🤖 [MATTHEW STARTING]: ${currentDeal.account_name} | $${currentDeal.amount}`);
+            console.log(`🤖 [MATTHEW STARTING]: ${currentDeal.account_name} for ${firstName}`);
             console.log("------------------------------------------");
 
-            const instructions = getSystemPrompt(currentDeal, "Erik", dealsRemaining);
+            const instructions = getSystemPrompt(currentDeal, firstName, dealsRemaining);
 
-            // C. CONFIGURE SESSION
             const sessionUpdate = {
                 type: "session.update",
                 session: {
@@ -241,20 +239,19 @@ wss.on('connection', (ws, req) => {
                     voice: "verse",
                     input_audio_format: "g711_ulaw",
                     output_audio_format: "g711_ulaw",
-                    turn_detection: { 
-                        type: "server_vad",
-                        threshold: 0.6,
-                        prefix_padding_ms: 300, 
-                        silence_duration_ms: 1000 
-                    }
+                    turn_detection: { type: "server_vad", threshold: 0.6, silence_duration_ms: 1000 }
                 }
             };
             openAiWs.send(JSON.stringify(sessionUpdate));
-
-            // D. FORCE SPEAK
-            setTimeout(() => {
-                openAiWs.send(JSON.stringify({ type: "response.create" }));
-            }, 250);
+            setTimeout(() => { openAiWs.send(JSON.stringify({ type: "response.create" })); }, 250);
+        } else {
+            // 3. FAIL SAFE: DEAD AIR PREVENTION
+            console.log("⚠️ NO DEALS FOUND. ENDING CALL.");
+            openAiWs.send(JSON.stringify({
+                type: "session.update",
+                session: { instructions: "You are a system announcer. Say 'No active deals found for review. Please update your CRM.' and hang up." }
+            }));
+            setTimeout(() => { openAiWs.send(JSON.stringify({ type: "response.create" })); }, 250);
         }
     });
 
@@ -264,103 +261,64 @@ wss.on('connection', (ws, req) => {
 
         if (response.type === 'response.audio.delta' && response.delta) {
             ws.send(JSON.stringify({
-                event: 'media',
-                streamSid: streamSid,
-                media: { payload: response.delta }
+                event: 'media', streamSid: streamSid, media: { payload: response.delta }
             }));
         }
 
-        // --- [SUB-BLOCK 5.C: RICH ANALYTICS & PLAYLIST MANAGER] ---
+        // --- [SUB-BLOCK 5.C: SNIPER & TRANSITION] ---
         if (response.type === 'response.audio_transcript.done') {
             const transcript = response.transcript;
             
             if (transcript.includes("DATABASE_DATA:") && !isSaving) {
-                isSaving = true; // Lock to prevent double processing
-                console.log("\n🎯 RICH ANALYTICS DETECTED");
-                console.log(`📝 RAW AI OUTPUT: ${transcript}`); 
+                isSaving = true; 
+                console.log("\n🎯 SNIPER: Trigger detected.");
 
+                // 1. DATA EXTRACTION
+                let auditDetails = {};
+                let newStage = "Pipeline";
+                
                 try {
-                    // 1. EXTRACT DATA
                     const extract = (label) => {
                         const regex = new RegExp(`${label}:\\s*(\\d)\\|\\s*([^,]+?)(?=(?:,|$|\\n))`, 'i');
                         const match = transcript.match(regex);
-                        if (match) return { score: parseInt(match[1]), text: match[2].trim().replace(/\.$/, '') };
-                        return { score: 0, text: "No data provided" };
+                        if (match) return { score: parseInt(match[1]), text: match[2].trim() };
+                        return { score: 0, text: "---" };
                     };
-
-                    const auditDetails = {
+                    auditDetails = {
                         pain: extract("Pain"), metrics: extract("Metrics"), champion: extract("Champion"),
                         eb: extract("EB"), criteria: extract("Criteria"), process: extract("Process"),
                         competition: extract("Competition"), paper: extract("Paper"), timing: extract("Timing")
                     };
-
+                    
+                    // AUTO-STAGE LOGIC
                     const totalScore = Object.values(auditDetails).reduce((acc, curr) => acc + curr.score, 0);
-                    let newStage = "Pipeline";
                     if (totalScore >= 24) newStage = "Closed Won";
                     else if (totalScore >= 20) newStage = "Commit";
                     else if (totalScore >= 12) newStage = "Best Case";
-
-                    console.log(`📊 PARSED SCORE: ${totalScore}/27 | MOVING TO: ${newStage}`);
-
-                    // 2. UPDATE DATABASE
-                    const updateQuery = `
-                        UPDATE opportunities 
-                        SET last_summary = $1, audit_details = $2, forecast_stage = $3, updated_at = NOW(), run_count = COALESCE(run_count, 0) + 1
-                        WHERE id = $4
-                    `;
-                    const currentDeal = dealQueue[currentDealIndex];
                     
-                    pool.query(updateQuery, [transcript, JSON.stringify(auditDetails), newStage, currentDeal.id])
-                        .then(() => {
-                            console.log(`✅ DEAL SAVED: ${currentDeal.account_name}`);
-                            
-                            // 3. ADVANCE PLAYLIST (THE LOOP)
-                            currentDealIndex++; // Move to next deal
-                            
-                            if (currentDealIndex < dealQueue.length) {
-                                // --- NEXT DEAL EXISTS ---
-                                const nextDeal = dealQueue[currentDealIndex];
-                                const dealsRemaining = dealQueue.length - 1 - currentDealIndex;
-                                console.log(`⏩ MOVING TO NEXT DEAL: ${nextDeal.account_name}`);
-
-                                // Generate New Prompt
-                                const nextInstructions = getSystemPrompt(nextDeal, "Erik", dealsRemaining);
-                                
-                                // Update Session Context
-                                openAiWs.send(JSON.stringify({
-                                    type: "session.update",
-                                    session: { instructions: nextInstructions }
-                                }));
-
-                                // Trigger AI to Speak Immediately (Transition Phrase)
-                                openAiWs.send(JSON.stringify({
-                                    type: "response.create",
-                                    response: {
-                                        modalities: ["text", "audio"],
-                                        instructions: `Say exactly: "Okay, I've logged that. Moving on to ${nextDeal.account_name}. This is a ${new Intl.NumberFormat('en-US', {style:'currency',currency:'USD'}).format(nextDeal.amount)} opportunity in ${nextDeal.forecast_stage || 'Pipeline'}." Then immediately ask the opening question defined in your instructions.`
-                                    }
-                                }));
-                                isSaving = false; // Unlock
-
-                            } else {
-                                // --- END OF PLAYLIST ---
-                                console.log("🏁 PLAYLIST FINISHED");
-                                openAiWs.send(JSON.stringify({
-                                    type: "response.create",
-                                    response: {
-                                        modalities: ["text", "audio"],
-                                        instructions: "Say exactly: 'That concludes the review of all active deals. I have updated the forecast. Good luck out there.' Then end the call."
-                                    }
-                                }));
-                                // Optional: Close socket after a delay
-                            }
-                        })
-                        .catch(err => console.error("❌ DB SAVE ERROR:", err.message));
-
                 } catch (err) {
-                    console.error("❌ PARSING ERROR:", err.message);
-                    isSaving = false;
+                    console.error("❌ PARSE FAIL (Recovering):", err.message);
+                    auditDetails = { note: "Automated parse failed. See raw transcript." };
                 }
+
+                // 2. DATABASE UPDATE
+                const currentDeal = dealQueue[currentDealIndex];
+                const updateQuery = `
+                    UPDATE opportunities 
+                    SET last_summary = $1, audit_details = $2, forecast_stage = $3, 
+                        updated_at = NOW(), run_count = COALESCE(run_count, 0) + 1
+                    WHERE id = $4
+                `;
+
+                pool.query(updateQuery, [transcript, JSON.stringify(auditDetails), newStage, currentDeal.id])
+                    .then(() => {
+                        console.log(`✅ SAVED: ${currentDeal.account_name}`);
+                        advanceToNextDeal(); // SUCCESS PATH
+                    })
+                    .catch(err => {
+                        console.error("❌ DB SAVE FAIL (Forcing Advance):", err.message);
+                        advanceToNextDeal(); // FAIL FORWARD PATH
+                    });
             }
         }
     });
@@ -381,25 +339,19 @@ wss.on('connection', (ws, req) => {
     ws.on('close', () => openAiWs.close());
 });
 
-// --- [BLOCK 6: DASHBOARD API] ---
+// --- [BLOCK 6 & 7: API ENDPOINTS] ---
 app.get("/get-deal", async (req, res) => {
-    // This API is now mostly for debugging specific deals via browser
-    const oppId = req.query.oppId;
-    const staticFallback = { id: oppId, account_name: "Loading...", amount: 0, forecast_stage: "Pipeline", last_summary: "Connecting..." };
     try {
-        const result = await pool.query('SELECT * FROM opportunities WHERE id = $1', [oppId]);
-        res.json(result.rows[0] || staticFallback);
-    } catch (err) { res.json(staticFallback); }
+        const result = await pool.query('SELECT * FROM opportunities WHERE id = $1', [req.query.oppId]);
+        res.json(result.rows[0] || {});
+    } catch (err) { res.json({}); }
 });
 
-// --- [NEW BLOCK 7: DEAL LIST API] ---
 app.get("/deals", async (req, res) => {
     try {
-        const result = await pool.query("SELECT id, account_name FROM opportunities ORDER BY id ASC");
+        const result = await pool.query("SELECT id, account_name, forecast_stage, run_count FROM opportunities ORDER BY id ASC");
         res.json(result.rows);
-    } catch (err) {
-        res.status(500).json([]);
-    }
+    } catch (err) { res.status(500).json([]); }
 });
 
-server.listen(PORT, () => console.log(`🚀 Server live on ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Matthew Live on ${PORT}`));
