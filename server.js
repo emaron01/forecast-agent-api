@@ -434,7 +434,10 @@ app.get("/deals", async (req, res) => {
             ORDER BY id ASC
         `, [orgId]);
         res.json(result.rows);
+   // ... (previous API endpoints) ...
+
     } catch (err) { res.status(500).json([]); }
 });
 
+// MAKE SURE THIS LINE APPEARS ONLY ONCE:
 server.listen(PORT, () => console.log(`🚀 Matthew Live on ${PORT}`));
