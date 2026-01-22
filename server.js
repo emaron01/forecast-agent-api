@@ -45,10 +45,10 @@ function getSystemPrompt(deal, repName, dealsLeft) {
         historyHook = `Last time we flagged: "${lastSummary}". How is that looking now?`;
     }
 
-    // 4. FLATTENED READ LOGIC (The Fix)
-    // We check the new DB Column first. If 0 or null, we check the old JSON.
-    const details = deal.audit_details || {}; 
-
+    // 4. HYBRID DATA READ (Columns First, Fallback to JSON)
+    const details = deal.audit_details || {};
+    
+    // Note: We are reading specifically from your new flattened columns here
     const scoreContext = `
     PRIOR SNAPSHOT:
     • Pain: ${deal.pain_score || details.pain_score || "?"}/3
@@ -62,7 +62,7 @@ function getSystemPrompt(deal, repName, dealsLeft) {
     • Timing: ${deal.timing_score || details.timing_score || "?"}/3
     `;
 
-    // 5. STAGE STRATEGY
+    // 5. STAGE STRATEGY (The Gap Hunter)
     let stageInstructions = "";
     if (category.includes("Commit")) {
         stageInstructions = `MODE: CLOSING ASSISTANT (Commit). 
@@ -83,10 +83,9 @@ function getSystemPrompt(deal, repName, dealsLeft) {
         • Constraint: **IGNORE PAPERWORK & LEGAL.** Do not ask about contracts. If Pain/Metrics are 0-2, the deal is not real—move on.`;
     }
 
-    // 6. INTRO
     const intro = `Hi ${repName}, this is Matthew from Sales Forecaster. Today we will be reviewing ${dealsLeft + 1} deals, starting with ${deal.account_name} for ${amountStr} in ${category}.`;
 
-    // 7. THE MASTER PROMPT (Restored in Full)
+    // 6. THE MASTER PROMPT
     return `
     ### MANDATORY OPENING
     You MUST open exactly with: "${intro} ${historyHook}"
