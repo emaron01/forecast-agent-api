@@ -129,20 +129,41 @@ function getSystemPrompt(deal, repName, dealsLeft) {
     DATABASE_DATA: Pain: [score]| [note], Metrics: [score]| [note], Champion: [score]| [note], EB: [score]| [note], Criteria: [score]| [note], Process: [score]| [note], Competition: [score]| [note], Paper: [score]| [note], Timing: [score]| [note]
     `;
 }
-// --- [BLOCK 4: TWILIO WEBHOOK] ---
-app.post("/agent", (req, res) => {
-    // 1. Capture the org_id from the URL query
-    const orgId = req.query.org_id || 1; 
-    console.log(`[TWILIO] Incoming Call for Org: ${orgId}`);
 
-    res.type("text/xml").send(`
-        <Response>
-            <Connect>
-                <Stream url="wss://${req.headers.host}/?org_id=${orgId}" />
-            </Connect>
-        </Response>
-    `);
-});// --- [BLOCK 5: WEBSOCKET CORE (SECURE MULTI-TENANT)] ---
+// --- [BLOCK 4: SMART GATEKEEPER WEBHOOK] ---
+app.post("/agent", async (req, res) => {
+    const callerPhone = req.body.From; // e.g., '+12153533849'
+    console.log(`\n📞 Incoming call from: ${callerPhone}`);
+
+    try {
+        // Look up the Org ID based on the phone number
+        const result = await pool.query(
+            "SELECT org_id FROM opportunities WHERE rep_phone = $1 LIMIT 1", 
+            [callerPhone]
+        );
+
+        // If recognized, use their ID. If unknown, default to Org 1 for testing.
+        const orgId = result.rows.length > 0 ? result.rows[0].org_id : 1;
+        
+        console.log(`🎯 Identified Caller! Routing to Org ID: ${orgId}`);
+
+        res.type("text/xml").send(`
+            <Response>
+                <Connect>
+                    <Stream url="wss://${req.headers.host}/?org_id=${orgId}" />
+                </Connect>
+            </Response>
+        `);
+    } catch (err) {
+        console.error("❌ Gatekeeper Lookup Error:", err.message);
+        // Fallback to Org 1 so the call doesn't just die
+        res.type("text/xml").send(`
+            <Response><Connect><Stream url="wss://${req.headers.host}/?org_id=1" /></Connect></Response>
+        `);
+    }
+});
+
+//--- [BLOCK 5: WEBSOCKET CORE (SECURE MULTI-TENANT)] ---
 wss.on('connection', (ws, req) => {
     // 1. EXTRACT ORG_ID FROM STREAM URL
     // Twilio will send this via: wss://your-app.com/?org_id=1
@@ -349,3 +370,4 @@ app.get("/deals", async (req, res) => {
 });
 
 server.listen(PORT, () => console.log(`🚀 Matthew Live on ${PORT}`));
+
