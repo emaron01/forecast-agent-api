@@ -5,25 +5,49 @@ const { Pool } = require("pg");
 const WebSocket = require("ws");
 const cors = require("cors");
 
-// --- EXPRESS APP (MUST BE HERE, BEFORE ANY ROUTES) ---
-const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static("public"));
+// --- [BLOCK 1: CONFIGURATION] ---
+const PORT = process.env.PORT || 10000;
+const OPENAI_API_KEY = process.env.MODEL_API_KEY;
+const MODEL_URL = process.env.MODEL_URL || "wss://api.openai.com/v1/realtime";
+const MODEL_NAME =
+    process.env.MODEL_NAME || "gpt-4o-mini-realtime-preview-2024-12-17";
 
-// --- DATABASE (MUST BE HERE, BEFORE ANY ROUTES) ---
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+if (!OPENAI_API_KEY) {
+    console.error("❌ Missing MODEL_API_KEY in environment");
+    process.exit(1);
+}
+
+// --- [BLOCK 2: SERVER CONFIGURATION] ---
+const app = express();
+
+// 1. CORS MIDDLEWARE
+app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    next();
 });
 
-// --- SERVER + WEBSOCKET (MUST BE HERE, BEFORE BLOCK 5) ---
+// 2. STANDARD MIDDLEWARE
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+
+// 3. STATIC FILES
+app.use(express.static("public"));
+
+// --- [BLOCK DB: POSTGRES POOL — REQUIRED BEFORE ANY DB CALLS] ---
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
+
+// --- [BLOCK X: SERVER + WEBSOCKET INIT] ---
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 // --- [BLOCK 3: SYSTEM PROMPT (THE MASTER STRATEGIST)] ---
 function getSystemPrompt(deal, repName, dealsLeft) {
-    // 1. DATA SANITIZATION
+    // your full Block 3 content stays exactly as-is
+}    // 1. DATA SANITIZATION
     let category = deal.forecast_stage || "Pipeline";
     if (category === "Null" || category.trim() === "") category = "Pipeline";
 
