@@ -42,7 +42,6 @@ function getSystemPrompt(deal, repName, dealsLeft) {
 
     const details = deal.audit_details || {}; 
     
-    // UNROLLED SCORE CONTEXT (9 Clear Lines)
     const scoreContext = `
     PRIOR SNAPSHOT:
     • Pain: ${deal.pain_score || details.pain_score || "?"}/3
@@ -58,20 +57,11 @@ function getSystemPrompt(deal, repName, dealsLeft) {
 
     let stageInstructions = "";
     if (category.includes("Commit")) {
-       stageInstructions = `MODE: CLOSING ASSISTANT (Commit). 
-        • Goal: Protect the Forecast (De-risk).
-        • Logic: Scan for ANY category scored 0-2. Ask: "Why is this in Commit if [Category] is still a gap?"
-        • Focus: Verify Signature Authority (EB) and Paper Process are a solid 3. If they aren't, the deal is a lie.`;
+       stageInstructions = `MODE: CLOSING ASSISTANT (Commit). Goal: De-risk. Focus on EB signature and Paper Process.`;
     } else if (category.includes("Best Case")) {
-       stageInstructions = `MODE: DEAL STRATEGIST (Best Case). 
-        • Goal: Validate the Upside.
-        • Logic: "Test the Gaps." Look for 0-2 scores preventing a move to Commit.
-        • Focus: Is the Champion strong enough to accelerate the Paperwork? If not, leave it in Best Case.`;
+       stageInstructions = `MODE: DEAL STRATEGIST (Best Case). Goal: Validate Upside. Focus on Champion power level.`;
     } else {
-       stageInstructions = `MODE: PIPELINE ANALYST (Pipeline). 
-        • Goal: Qualify or Disqualify.
-        • Logic: FOUNDATION FIRST. Validate Pain, Metrics, and Champion.
-        • Constraint: **IGNORE PAPERWORK & LEGAL.** Do not ask about contracts. If Pain/Metrics are 0-2, the deal is not real—move on.`;
+       stageInstructions = `MODE: PIPELINE ANALYST (Pipeline). Goal: Qualify. Validate Pain/Metrics.`;
     }
 
     const intro = `Hi ${repName}, this is Matthew from Sales Forecaster. Today we will be reviewing ${dealsLeft + 1} deals, starting with ${deal.account_name} for ${amountStr} in ${category}.`;
@@ -82,79 +72,30 @@ function getSystemPrompt(deal, repName, dealsLeft) {
 
     ### ROLE & IDENTITY
     You are Matthew, a Deal Strategy AI. You are professional, high-IQ, and direct.
-    NO HALLUCINATION: The customer is "${deal.account_name}". Never say "Acme".
+    The customer is "${deal.account_name}".
     ${stageInstructions}
 
     [CORE RULES]
-    • NO SMALL TALK. Your sole objective is to extract verifiable deal data.
-    • **TURN-BASED PACING:** Ask only ONE category at a time. You MUST wait for the rep to finish speaking before moving to the next.
-    • ZERO TOLERANCE: If the rep lacks an answer or evidence, the score is 0. 
-    • PRODUCT POLICE: Your "Internal Truths" are your Bible. If a rep claims a feature NOT in the truths, INTERRUPT and correct them immediately.
+    • **TURN-BASED PACING:** Ask only ONE category at a time. You MUST wait for the rep to answer before moving to the next.
+    • NO SMALL TALK. Stay focused on verifiable deal data.
+    • PRODUCT POLICE: Correct the rep immediately if they claim features not in Internal Truths.
 
-    [FORECAST RULES]
-    • MOMENTUM CHECK: Is this deal STALLED or PROGRESSING? 
-    • IF STALLED: Ask "What is the specific blocker?" and log it. 
-    • IF PROGRESSING: Validate the velocity (e.g., "What is the immediate next step?"). 
+    ### INTERACTION PROTOCOL (MEDDPICC)
+    1. **PAIN (0-3):** What is the specific cost of doing nothing? *Wait for answer.*
+    2. **METRICS (0-3):** Has their finance team validated the ROI? *Wait for answer.*
+    3. **CHAMPION (0-3):** 1: Coach, 2: Mobilizer, 3: Champion. *Wait for answer.*
+    4. **ECONOMIC BUYER (0-3):** Signature authority access? *Wait for answer.*
+    5. **DECISION CRITERIA/PROCESS:** Approval hurdles? *Wait for answer.*
+    6. **PAPER PROCESS (0-3):** Contract status? *Wait for answer.*
+    7. **TIMING (0-3):** Compelling event? *Wait for answer.*
 
-    ### SMART CONTEXT (THE ANTI-ROBOT BRAIN)
-    • CROSS-CATEGORY LISTENING: If the rep answers a future category early, MARK IT as answered and SKIP it later.
-    • MEMORY: Check "${scoreContext}". If a score is 3, DO NOT ASK about it unless the rep implies a change.
-
-    ### INTERACTION PROTOCOL (LOGIC BRANCH)
-    
-    [BRANCH A: THE CLOSING SHORTCUT]
-    *Trigger ONLY if user mentions: "PO", "Contract", "Signed", "Done"*
-    1. SCENARIO "SIGNED": VERIFY: "Do we have the clean PDF in hand?" IF YES: Score 27/27. -> Finish.
-    2. SCENARIO "WORKING ON IT": SKIP Pain. EXECUTE "LEGAL CHECK" and "DATE CHECK".
-
-    [BRANCH B: STANDARD MEDDPICC AUDIT]
-    Investigate in this EXACT order. *Wait for answer* after every category.
-
-    1. **PAIN (0-3):** What is the specific cost of doing nothing? 
-       - 0: None. 1: Latent. 2: Admitted. 3: Vision for a solution.
-       *Wait for answer.* If Score < 3, challenge: "Why buy now if they aren't bleeding?"
-
-    2. **METRICS (0-3):** Has the prospect's finance team validated the ROI? 
-       - 0: None. 1: Internal estimate. 2: Rep-led ROI. 3: CFO-validated.
-       *Wait for answer.*
-
-    3. **CHAMPION (0-3):** Verify the "Power Level."
-       - 1 (Coach): Friendly, but no power.
-       - 2 (Mobilizer): Influential, but hasn't acted.
-       - 3 (Champion): Actively selling for us.
-       - *THE TEST:* "Give me an example of them spending political capital for us."
-       *Wait for answer.*
-
-    4. **ECONOMIC BUYER (0-3):** Do we have a direct line to signature authority?
-       - 0: No access. 1: Identified. 2: Indirect influence. 3: Direct contact/Signer.
-       *Wait for answer.*
-
-    5. **DECISION CRITERIA (0-3):** Technical requirements vs. our solution.
-       - *TEST:* Call out gaps vs. Internal Truths.
-       *Wait for answer.*
-
-    6. **DECISION PROCESS (0-3):** Who exactly is in the approval chain?
-       *Wait for answer.*
-
-    7. **COMPETITION (0-3):** Who else are they looking at? Do not accept "Nobody."
-       *Wait for answer.*
-
-    8. **PAPER PROCESS (0-3):** *SKIP IF PIPELINE.*
-       - 1: Drafted. 2: In Legal/Procurement. 3: Signed.
-       *Wait for answer.*
-
-    9. **TIMING (0-3):** Is there a Compelling Event or just a target date?
-       *Wait for answer.*
-
-    ### INTERNAL TRUTHS (PRODUCT POLICE)
+    ### INTERNAL TRUTHS
     ${deal.org_product_data || "Verify capabilities against company documentation."}
 
     ### COMPLETION PROTOCOL
-    When you have gathered the data, perform this EXACT sequence:
-    1. **Silent Analysis:** Formulate a coaching tip for each category and a date-driven NEXT STEP.
-    2. **Verbal Confirmation:** Say exactly: "Based on today's discussion, this opportunity's Health Score is [Total] out of 27. Just one moment while I update and add feedback to your opportunity scorecard."
-    3. **Transition:** Say: "Okay, let's move to the next opportunity."
-    4. **Action:** Immediately trigger the save_deal_data tool.
+    1. **Verbal Confirmation:** "Health Score is [Total] out of 27. Updating your scorecard now."
+    2. **Transition:** "Moving to the next opportunity."
+    3. **Action:** Immediately trigger save_deal_data.
     `;
 }
 
@@ -162,10 +103,7 @@ function getSystemPrompt(deal, repName, dealsLeft) {
 app.post("/agent", async (req, res) => {
     const callerPhone = req.body.From;
     try {
-        const result = await pool.query(
-            "SELECT org_id, rep_name FROM opportunities WHERE rep_phone = $1 LIMIT 1", 
-            [callerPhone]
-        );
+        const result = await pool.query("SELECT org_id, rep_name FROM opportunities WHERE rep_phone = $1 LIMIT 1", [callerPhone]);
         const orgId = result.rows.length > 0 ? result.rows[0].org_id : 1;
         const repName = result.rows.length > 0 ? result.rows[0].rep_name : "Team";
         res.type("text/xml").send(`
@@ -199,7 +137,7 @@ wss.on('connection', (ws, req) => {
             const nextDeal = dealQueue[currentDealIndex];
             const nextInstructions = getSystemPrompt(nextDeal, repName.split(' ')[0], dealQueue.length - currentDealIndex);
             openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: nextInstructions } }));
-            openAiWs.send(JSON.stringify({ type: "response.create", response: { modalities: ["text", "audio"], instructions: `Say exactly: "Pulling up ${nextDeal.account_name}."` } }));
+            openAiWs.send(JSON.stringify({ type: "response.create", response: { modalities: ["text", "audio"], instructions: `Say: "Pulling up ${nextDeal.account_name}."` } }));
         } else {
             openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: "Say: 'Review complete. Great work today. Goodbye.' then hang up." } }));
         }
@@ -235,8 +173,7 @@ wss.on('connection', (ws, req) => {
                                 competition_score: { type: "number" }, competition_tip: { type: "string" },
                                 paper_score: { type: "number" }, paper_tip: { type: "string" },
                                 timing_score: { type: "number" }, timing_tip: { type: "string" },
-                                risk_summary: { type: "string" },
-                                next_steps: { type: "string" }
+                                risk_summary: { type: "string" }, next_steps: { type: "string" }
                             },
                             required: ["pain_score", "pain_tip", "metrics_score", "metrics_tip", "champion_score", "champion_tip", "eb_score", "eb_tip", "criteria_score", "criteria_tip", "process_score", "process_tip", "competition_score", "competition_tip", "paper_score", "paper_tip", "timing_score", "timing_tip", "risk_summary", "next_steps"]
                         }
@@ -265,24 +202,16 @@ wss.on('connection', (ws, req) => {
 
             pool.query(`
                 UPDATE opportunities 
-                SET 
-                    previous_total_score = (COALESCE(pain_score,0) + COALESCE(metrics_score,0) + COALESCE(champion_score,0) + COALESCE(eb_score,0) + COALESCE(criteria_score,0) + COALESCE(process_score,0) + COALESCE(competition_score,0) + COALESCE(paper_score,0) + COALESCE(timing_score,0)),
+                SET previous_total_score = (COALESCE(pain_score,0) + COALESCE(metrics_score,0) + COALESCE(champion_score,0) + COALESCE(eb_score,0) + COALESCE(criteria_score,0) + COALESCE(process_score,0) + COALESCE(competition_score,0) + COALESCE(paper_score,0) + COALESCE(timing_score,0)),
                     previous_updated_at = updated_at,
                     last_summary = $1, audit_details = $2, forecast_stage = $3, updated_at = NOW(), run_count = COALESCE(run_count, 0) + 1,
                     pain_score = $5, metrics_score = $6, champion_score = $7, eb_score = $8,
                     criteria_score = $9, process_score = $10, competition_score = $11, paper_score = $12, timing_score = $13,
-                    pain_tip = $14, metrics_tip = $15, champion_tip = $16, eb_tip = $17, 
-                    criteria_tip = $18, process_tip = $19, competition_tip = $20, paper_tip = $21, timing_tip = $22,
+                    pain_tip = $14, metrics_tip = $15, champion_tip = $16, eb_tip = $17, criteria_tip = $18, process_tip = $19, competition_tip = $20, paper_tip = $21, timing_tip = $22,
                     next_steps = $23
                 WHERE id = $4
-            `, [
-                args.risk_summary, JSON.stringify(args), newStage, dealToSave.id,
-                args.pain_score, args.metrics_score, args.champion_score, args.eb_score,
-                args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score,
-                args.pain_tip, args.metrics_tip, args.champion_tip, args.eb_tip, 
-                args.criteria_tip, args.process_tip, args.competition_tip, args.paper_tip, args.timing_tip,
-                args.next_steps
-            ]).catch(err => console.error("❌ DB UPDATE FAILED:", err.message));
+            `, [args.risk_summary, JSON.stringify(args), newStage, dealToSave.id, args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score, args.pain_tip, args.metrics_tip, args.champion_tip, args.eb_tip, args.criteria_tip, args.process_tip, args.competition_tip, args.paper_tip, args.timing_tip, args.next_steps])
+            .catch(err => console.error("❌ DB UPDATE FAILED:", err.message));
         }
     });
 
@@ -293,6 +222,7 @@ wss.on('connection', (ws, req) => {
             openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
         }
     });
+
     ws.on('close', () => openAiWs.close());
 });
 
