@@ -159,124 +159,49 @@ app.post("/agent", async (req, res) => {
   }
 });
 
-// --- [BLOCK 5: SURGICAL MESSAGE LISTENER UPDATE] ---
-    openAiWs.on('message', (data) => {
-        const event = JSON.parse(data);
+// --- [BLOCK 5: WEBSOCKET CORE] ---
+wss.on('connection', (ws, req) => {
+    let orgId = 1; let repName = "Erik"; 
+    try {
+        const urlObj = new URL(req.url, `https://${req.headers.host}`);
+        orgId = parseInt(urlObj.searchParams.get('org_id')) || 1;
+        const queryName = urlObj.searchParams.get('rep_name');
+        if (queryName) repName = decodeURIComponent(queryName);
+    } catch (err) { console.error("⚠️ Handshake Error:", err.message); }
 
-        // A. Handle Audio Stream to Twilio
-        if (event.type === 'response.audio.delta' && event.delta) {
-            ws.send(JSON.stringify({ event: 'media', streamSid: streamSid, media: { payload: event.delta } }));
-        }
+    let streamSid = null; let dealQueue = []; let currentDealIndex = 0;
 
-        // B. Handle the Save & Advance Logic
-        if (event.type === 'response.done' && event.response.output) {
-            event.response.output.forEach(output => {
-                if (output.type === 'function_call' && output.name === 'save_deal_data') {
-                    const args = JSON.parse(output.arguments);
-                    const dealToSave = dealQueue[currentDealIndex];
-
-                    console.log(`💾 Detected Tool Call: Saving ${dealToSave.account_name}...`);
-
-                    // 1. Calculate Score & Stage Ranking
-                    const scores = [
-                        args.pain_score, args.metrics_score, args.champion_score, 
-                        args.eb_score, args.criteria_score, args.process_score, 
-                        args.competition_score, args.paper_score, args.timing_score
-                    ];
-                    const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
-                    let newStage = totalScore >= 25 ? "Closed Won" : (totalScore >= 20 ? "Commit" : (totalScore >= 12 ? "Best Case" : "Pipeline"));
-
-                    // 2. Execute Postgres Update
-                    pool.query(`
-                        UPDATE opportunities 
-                        SET previous_total_score = (COALESCE(pain_score,0) + COALESCE(metrics_score,0) + COALESCE(champion_score,0) + COALESCE(eb_score,0) + COALESCE(criteria_score,0) + COALESCE(process_score,0) + COALESCE(competition_score,0) + COALESCE(paper_score,0) + COALESCE(timing_score,0)),
-                            previous_updated_at = updated_at,
-                            last_summary = $1, audit_details = $2, forecast_stage = $3, updated_at = NOW(), run_count = COALESCE(run_count, 0) + 1,
-                            pain_score = $5, metrics_score = $6, champion_score = $7, eb_score = $8,
-                            criteria_score = $9, process_score = $10, competition_score = $11, paper_score = $12, timing_score = $13,
-                            pain_tip = $14, metrics_tip = $15, champion_tip = $16, eb_tip = $17, 
-                            criteria_tip = $18, process_tip = $19, competition_tip = $20, paper_tip = $21, timing_tip = $22,
-                            next_steps = $23
-                        WHERE id = $4
-                    `, [
-                        args.risk_summary, JSON.stringify(args), newStage, dealToSave.id,
-                        args.pain_score, args.metrics_score, args.champion_score, args.eb_score,
-                        args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score,
-                        args.pain_tip, args.metrics_tip, args.champion_tip, args.eb_tip, 
-                        args.criteria_tip, args.process_tip, args.competition_tip, args.paper_tip, args.timing_tip,
-                        args.next_steps
-                    ])
-                    .then(() => {
-                        console.log(`✅ ${dealToSave.account_name} synced to DB. Score: ${totalScore}`);
-                        // Advance to the next deal ONLY after the DB write succeeds
-                        advanceToNextDeal();
-                    })
-                    .catch(err => console.error("❌ DB SAVE FAILED:", err.message));
-                }
-            });
-        }
+    // THE VARIABLE IS DEFINED HERE (Inside the 'connection' block)
+    const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
+        headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "OpenAI-Beta": "realtime=v1" }
     });
-    // 4. LOGIC: ADVANCE TO NEXT DEAL
+
     const advanceToNextDeal = () => {
         currentDealIndex++;
         if (currentDealIndex < dealQueue.length) {
             const nextDeal = dealQueue[currentDealIndex];
-            // Pass the verified repName into the prompt generator
             const nextInstructions = getSystemPrompt(nextDeal, repName.split(' ')[0], dealQueue.length - currentDealIndex);
-            
-            openAiWs.send(JSON.stringify({ 
-                type: "session.update", 
-                session: { instructions: nextInstructions } 
-            }));
-            
-            openAiWs.send(JSON.stringify({ 
-                type: "response.create", 
-                response: { 
-                    modalities: ["text", "audio"], 
-                    instructions: `Say exactly: "Pulling up ${nextDeal.account_name}."` 
-                }
-            }));
+            openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: nextInstructions } }));
+            openAiWs.send(JSON.stringify({ type: "response.create", response: { modalities: ["text", "audio"], instructions: `Say: "Pulling up ${nextDeal.account_name}."` } }));
         } else {
-            openAiWs.send(JSON.stringify({ 
-                type: "response.create", 
-                response: { 
-                    instructions: `Say: "Review complete. Great work today, ${repName.split(' ')[0]}. Goodbye." then hang up.` 
-                }
-            }));
+            openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: "Review complete. Goodbye ${repName.split(' ')[0]}."` } }));
         }
     };
 
-    // 5. ON CONNECTION OPEN: FETCH DEALS
     openAiWs.on('open', async () => {
-        console.log(`📡 OpenAI Stream Active for ${repName}`);
-        
-        const result = await pool.query(`
-            SELECT o.*, org.product_truths AS org_product_data 
-            FROM opportunities o
-            JOIN organizations org ON o.org_id = org.id
-            WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') 
-            ORDER BY o.id ASC
-        `, [orgId]);
-        
+        console.log(`📡 Stream Active: ${repName}`);
+        const result = await pool.query("SELECT o.*, org.product_truths AS org_product_data FROM opportunities o JOIN organizations org ON o.org_id = org.id WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') ORDER BY o.id ASC", [orgId]);
         dealQueue = result.rows;
-
         if (dealQueue.length > 0) {
-            // This is the first greeting of the call
             const instructions = getSystemPrompt(dealQueue[0], repName.split(' ')[0], dealQueue.length - 1);
-            
-            const sessionUpdate = {
+            openAiWs.send(JSON.stringify({
                 type: "session.update",
                 session: {
-                    modalities: ["text", "audio"],
-                    instructions: instructions,
-                    voice: "verse",
-                    input_audio_format: "g711_ulaw",
-                    output_audio_format: "g711_ulaw",
+                    modalities: ["text", "audio"], instructions: instructions, voice: "verse",
+                    input_audio_format: "g711_ulaw", output_audio_format: "g711_ulaw",
                     turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
                     tools: [{
-                        type: "function",
-                        name: "save_deal_data",
-                        description: "Saves scores, tips, and next steps.",
+                        type: "function", name: "save_deal_data", description: "Saves scores and feedback.",
                         parameters: {
                             type: "object",
                             properties: {
@@ -289,99 +214,58 @@ app.post("/agent", async (req, res) => {
                                 competition_score: { type: "number" }, competition_tip: { type: "string" },
                                 paper_score: { type: "number" }, paper_tip: { type: "string" },
                                 timing_score: { type: "number" }, timing_tip: { type: "string" },
-                                risk_summary: { type: "string" },
-                                next_steps: { type: "string" }
+                                risk_summary: { type: "string" }, next_steps: { type: "string" }
                             },
                             required: ["pain_score", "pain_tip", "metrics_score", "metrics_tip", "champion_score", "champion_tip", "eb_score", "eb_tip", "criteria_score", "criteria_tip", "process_score", "process_tip", "competition_score", "competition_tip", "paper_score", "paper_tip", "timing_score", "timing_tip", "risk_summary", "next_steps"]
                         }
-                    }],
-                    tool_choice: "auto"
+                    }]
                 }
-            };
-            openAiWs.send(JSON.stringify(sessionUpdate));
+            }));
             setTimeout(() => { openAiWs.send(JSON.stringify({ type: "response.create" })); }, 250);
         }
     });
 
-    // 6. CONSOLIDATED MESSAGE HANDLING (MATTHEW TALKS / DATA SAVES)
+    // --- [CONSOLIDATED MESSAGE LISTENER MUST BE INSIDE HERE] ---
     openAiWs.on('message', (data) => {
         const response = JSON.parse(data);
-
-        // A. Pass Matthew's Audio to Twilio
         if (response.type === 'response.audio.delta' && response.delta) {
             ws.send(JSON.stringify({ event: 'media', streamSid: streamSid, media: { payload: response.delta } }));
         }
-
-        // B. Handle the Tool Call (The Save & Advance Logic)
         if (response.type === 'response.done' && response.response.output) {
             response.response.output.forEach(output => {
                 if (output.type === 'function_call' && output.name === 'save_deal_data') {
                     const args = JSON.parse(output.arguments);
                     const dealToSave = dealQueue[currentDealIndex];
-
-                    console.log(`💾 Tool Call Received: Saving ${dealToSave.account_name}...`);
-
-                    // Calculate Score & Stage Ranking
                     const scores = [args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score];
                     const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
                     let newStage = totalScore >= 25 ? "Closed Won" : (totalScore >= 20 ? "Commit" : (totalScore >= 12 ? "Best Case" : "Pipeline"));
 
-                    // Postgres Update
-                    pool.query(`
-                        UPDATE opportunities 
-                        SET previous_total_score = (COALESCE(pain_score,0) + COALESCE(metrics_score,0) + COALESCE(champion_score,0) + COALESCE(eb_score,0) + COALESCE(criteria_score,0) + COALESCE(process_score,0) + COALESCE(competition_score,0) + COALESCE(paper_score,0) + COALESCE(timing_score,0)),
-                            previous_updated_at = updated_at,
-                            last_summary = $1, audit_details = $2, forecast_stage = $3, updated_at = NOW(), run_count = COALESCE(run_count, 0) + 1,
-                            pain_score = $5, metrics_score = $6, champion_score = $7, eb_score = $8,
-                            criteria_score = $9, process_score = $10, competition_score = $11, paper_score = $12, timing_score = $13,
-                            pain_tip = $14, metrics_tip = $15, champion_tip = $16, eb_tip = $17, 
-                            criteria_tip = $18, process_tip = $19, competition_tip = $20, paper_tip = $21, timing_tip = $22,
-                            next_steps = $23
-                        WHERE id = $4
-                    `, [
-                        args.risk_summary, JSON.stringify(args), newStage, dealToSave.id,
-                        args.pain_score, args.metrics_score, args.champion_score, args.eb_score,
-                        args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score,
-                        args.pain_tip, args.metrics_tip, args.champion_tip, args.eb_tip, 
-                        args.criteria_tip, args.process_tip, args.competition_tip, args.paper_tip, args.timing_tip,
-                        args.next_steps
-                    ])
+                    pool.query(`UPDATE opportunities SET previous_total_score = (COALESCE(pain_score,0) + COALESCE(metrics_score,0) + COALESCE(champion_score,0) + COALESCE(eb_score,0) + COALESCE(criteria_score,0) + COALESCE(process_score,0) + COALESCE(competition_score,0) + COALESCE(paper_score,0) + COALESCE(timing_score,0)), previous_updated_at = updated_at, last_summary = $1, audit_details = $2, forecast_stage = $3, updated_at = NOW(), run_count = COALESCE(run_count, 0) + 1, pain_score = $5, metrics_score = $6, champion_score = $7, eb_score = $8, criteria_score = $9, process_score = $10, competition_score = $11, paper_score = $12, timing_score = $13, pain_tip = $14, metrics_tip = $15, champion_tip = $16, eb_tip = $17, criteria_tip = $18, process_tip = $19, competition_tip = $20, paper_tip = $21, timing_tip = $22, next_steps = $23 WHERE id = $4`, 
+                    [args.risk_summary, JSON.stringify(args), newStage, dealToSave.id, args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score, args.pain_tip, args.metrics_tip, args.champion_tip, args.eb_tip, args.criteria_tip, args.process_tip, args.competition_tip, args.paper_tip, args.timing_tip, args.next_steps])
                     .then(() => {
-                        console.log(`✅ ${dealToSave.account_name} synced. Score: ${totalScore}`);
-                        
-                        // Acknowledge the tool to OpenAI
-                        openAiWs.send(JSON.stringify({ 
-                            type: "conversation.item.create", 
-                            item: { type: "function_call_output", call_id: output.call_id, output: JSON.stringify({ success: true }) } 
-                        }));
-
-                        // MOVE TO NEXT DEAL ONLY AFTER SUCCESSFUL DB SYNC
+                        console.log(`✅ ${dealToSave.account_name} synced.`);
+                        openAiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: output.call_id, output: JSON.stringify({ success: true }) } }));
                         advanceToNextDeal();
-                    })
-                    .catch(err => console.error("❌ DB UPDATE FAILED:", err.message));
+                    }).catch(err => console.error("❌ DB ERROR:", err.message));
                 }
             });
         }
     });
 
-    // 7. THE MISSING PIPE: TWILIO TO OPENAI (REP TALKS / MATTHEW LISTENS)
+    // --- [AUDIO PIPE MUST BE INSIDE HERE] ---
     ws.on('message', (message) => {
         const msg = JSON.parse(message);
-        if (msg.event === 'start') {
-            streamSid = msg.start.streamSid;
-            console.log(`🚀 Stream Started. SID: ${streamSid}`);
-        } else if (msg.event === 'media' && openAiWs.readyState === WebSocket.OPEN) {
-            // This sends your voice payload to the AI
+        if (msg.event === 'start') streamSid = msg.start.streamSid;
+        else if (msg.event === 'media' && openAiWs.readyState === WebSocket.OPEN) {
             openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
         }
     });
 
-    ws.on('close', () => {
-        console.log("🔌 Call Closed.");
-        openAiWs.close();
-    });
+    ws.on('close', () => { console.log("🔌 Closed."); openAiWs.close(); });
+}); // <--- THIS BRACE CLOSES THE CONNECTION BLOCK. DO NOT PUT openAiWs LOGIC BELOW THIS.
 
-// --- [BLOCK 7: SERVER INITIALIZATION] ---
-server.listen(PORT, () =>
-    console.log(`🚀 Matthew God-Mode Live on ${PORT}`)
-);
+// --- [BLOCK 6: API ENDPOINTS] ---
+app.get("/deals", async (req, res) => { /* ... */ });
+
+// --- [BLOCK 7: SERVER] ---
+server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on ${PORT}`));
