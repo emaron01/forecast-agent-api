@@ -160,378 +160,187 @@ app.post("/agent", async (req, res) => {
 });
 
 // --- [BLOCK 5: WEBSOCKET CORE & SAVE ENGINE] ---
-wss.on("connection", (ws, req) => {
-    let orgId = 1;
-    let repName = "Team";
+wss.on('connection', (ws, req) => {
+    // 1. DEFAULT IDENTITY
+    let orgId = 1; 
+    let repName = "Erik"; 
 
+    // 2. EXTRACT IDENTITY FROM THE TWILIO HANDSHAKE
     try {
-        const urlObj = new URL(req.url, `http://${req.headers.host}`);
-        orgId = parseInt(urlObj.searchParams.get("org_id"), 10) || 1;
-        repName = urlObj.searchParams.get("rep_name") || "Team";
+        const urlObj = new URL(req.url, `https://${req.headers.host}`);
+        orgId = parseInt(urlObj.searchParams.get('org_id')) || 1;
+        
+        // Catch the escaped name we passed from Block 4
+        const queryName = urlObj.searchParams.get('rep_name');
+        if (queryName) {
+            repName = decodeURIComponent(queryName);
+        }
+        
+        console.log(`🔌 WebSocket Handshake: Identity verified as ${repName} for Org ${orgId}`);
     } catch (err) {
-        console.error("❌ URL parse failed:", err.message);
+        console.error("⚠️ Identity Handshake Failed:", err.message);
     }
-
-    const safeRepName = (repName || "Team").trim().split(/\s+/)[0];
 
     let streamSid = null;
     let dealQueue = [];
     let currentDealIndex = 0;
 
+    // 3. CONNECT TO OPENAI REALTIME
     const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
-        headers: {
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
-            "OpenAI-Beta": "realtime=v1"
+        headers: { 
+            "Authorization": `Bearer ${OPENAI_API_KEY}`, 
+            "OpenAI-Beta": "realtime=v1" 
         }
     });
 
+    // 4. LOGIC: ADVANCE TO NEXT DEAL
     const advanceToNextDeal = () => {
         currentDealIndex++;
-        if (!dealQueue.length || currentDealIndex >= dealQueue.length) {
-            openAiWs.send(
-                JSON.stringify({
-                    type: "response.create",
-                    response: {
-                        instructions:
-                            "Say: 'Review complete. Great work today. Goodbye.' then hang up."
-                    }
-                })
-            );
-            return;
-        }
-
-        const nextDeal = dealQueue[currentDealIndex];
-        const nextInstructions = getSystemPrompt(
-            nextDeal,
-            safeRepName,
-            dealQueue.length - currentDealIndex
-        );
-
-        openAiWs.send(
-            JSON.stringify({
-                type: "session.update",
-                session: { instructions: nextInstructions }
-            })
-        );
-        openAiWs.send(
-            JSON.stringify({
-                type: "response.create",
-                response: {
-                    modalities: ["text", "audio"],
-                    instructions: `Say: "Pulling up ${nextDeal.account_name}."`
+        if (currentDealIndex < dealQueue.length) {
+            const nextDeal = dealQueue[currentDealIndex];
+            // Pass the verified repName into the prompt generator
+            const nextInstructions = getSystemPrompt(nextDeal, repName.split(' ')[0], dealQueue.length - currentDealIndex);
+            
+            openAiWs.send(JSON.stringify({ 
+                type: "session.update", 
+                session: { instructions: nextInstructions } 
+            }));
+            
+            openAiWs.send(JSON.stringify({ 
+                type: "response.create", 
+                response: { 
+                    modalities: ["text", "audio"], 
+                    instructions: `Say exactly: "Pulling up ${nextDeal.account_name}."` 
                 }
-            })
-        );
+            }));
+        } else {
+            openAiWs.send(JSON.stringify({ 
+                type: "response.create", 
+                response: { 
+                    instructions: `Say: "Review complete. Great work today, ${repName.split(' ')[0]}. Goodbye." then hang up.` 
+                }
+            }));
+        }
     };
 
-    openAiWs.on("open", async () => {
-        try {
-            const result = await pool.query(
-                `SELECT o.*, org.product_truths AS org_product_data
-                 FROM opportunities o
-                 JOIN organizations org ON o.org_id = org.id
-                 WHERE o.org_id = $1
-                   AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost')
-                 ORDER BY o.id ASC`,
-                [orgId]
-            );
+    // 5. ON CONNECTION OPEN: FETCH DEALS
+    openAiWs.on('open', async () => {
+        console.log(`📡 OpenAI Stream Active for ${repName}`);
+        
+        const result = await pool.query(`
+            SELECT o.*, org.product_truths AS org_product_data 
+            FROM opportunities o
+            JOIN organizations org ON o.org_id = org.id
+            WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') 
+            ORDER BY o.id ASC
+        `, [orgId]);
+        
+        dealQueue = result.rows;
 
-            dealQueue = result.rows;
-
-            if (!dealQueue.length) {
-                openAiWs.send(
-                    JSON.stringify({
-                        type: "response.create",
-                        response: {
-                            instructions:
-                                "Say: 'No active opportunities found for your org. Goodbye.' then hang up."
+        if (dealQueue.length > 0) {
+            // This is the first greeting of the call
+            const instructions = getSystemPrompt(dealQueue[0], repName.split(' ')[0], dealQueue.length - 1);
+            
+            const sessionUpdate = {
+                type: "session.update",
+                session: {
+                    modalities: ["text", "audio"],
+                    instructions: instructions,
+                    voice: "verse",
+                    input_audio_format: "g711_ulaw",
+                    output_audio_format: "g711_ulaw",
+                    turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
+                    tools: [{
+                        type: "function",
+                        name: "save_deal_data",
+                        description: "Saves scores, tips, and next steps.",
+                        parameters: {
+                            type: "object",
+                            properties: {
+                                pain_score: { type: "number" }, pain_tip: { type: "string" },
+                                metrics_score: { type: "number" }, metrics_tip: { type: "string" },
+                                champion_score: { type: "number" }, champion_tip: { type: "string" },
+                                eb_score: { type: "number" }, eb_tip: { type: "string" },
+                                criteria_score: { type: "number" }, criteria_tip: { type: "string" },
+                                process_score: { type: "number" }, process_tip: { type: "string" },
+                                competition_score: { type: "number" }, competition_tip: { type: "string" },
+                                paper_score: { type: "number" }, paper_tip: { type: "string" },
+                                timing_score: { type: "number" }, timing_tip: { type: "string" },
+                                risk_summary: { type: "string" },
+                                next_steps: { type: "string" }
+                            },
+                            required: ["pain_score", "pain_tip", "metrics_score", "metrics_tip", "champion_score", "champion_tip", "eb_score", "eb_tip", "criteria_score", "criteria_tip", "process_score", "process_tip", "competition_score", "competition_tip", "paper_score", "paper_tip", "timing_score", "timing_tip", "risk_summary", "next_steps"]
                         }
-                    })
-                );
-                return;
-            }
-
-            const firstDeal = dealQueue[0];
-            const instructions = getSystemPrompt(
-                firstDeal,
-                safeRepName,
-                dealQueue.length - 1
-            );
-
-            openAiWs.send(
-                JSON.stringify({
-                    type: "session.update",
-                    session: {
-                        modalities: ["text", "audio"],
-                        instructions,
-                        voice: "verse",
-                        input_audio_format: "g711_ulaw",
-                        output_audio_format: "g711_ulaw",
-                        turn_detection: {
-                            type: "server_vad",
-                            threshold: 0.5,
-                            silence_duration_ms: 1000
-                        },
-                        tools: [
-                            {
-                                type: "function",
-                                name: "save_deal_data",
-                                description: "Saves scores and tips.",
-                                parameters: {
-                                    type: "object",
-                                    properties: {
-                                        pain_score: { type: "number" },
-                                        pain_tip: { type: "string" },
-                                        metrics_score: { type: "number" },
-                                        metrics_tip: { type: "string" },
-                                        champion_score: { type: "number" },
-                                        champion_tip: { type: "string" },
-                                        eb_score: { type: "number" },
-                                        eb_tip: { type: "string" },
-                                        criteria_score: { type: "number" },
-                                        criteria_tip: { type: "string" },
-                                        process_score: { type: "number" },
-                                        process_tip: { type: "string" },
-                                        competition_score: { type: "number" },
-                                        competition_tip: { type: "string" },
-                                        paper_score: { type: "number" },
-                                        paper_tip: { type: "string" },
-                                        timing_score: { type: "number" },
-                                        timing_tip: { type: "string" },
-                                        risk_summary: { type: "string" },
-                                        next_steps: { type: "string" }
-                                    },
-                                    required: [
-                                        "pain_score",
-                                        "pain_tip",
-                                        "metrics_score",
-                                        "metrics_tip",
-                                        "champion_score",
-                                        "champion_tip",
-                                        "eb_score",
-                                        "eb_tip",
-                                        "criteria_score",
-                                        "criteria_tip",
-                                        "process_score",
-                                        "process_tip",
-                                        "competition_score",
-                                        "competition_tip",
-                                        "paper_score",
-                                        "paper_tip",
-                                        "timing_score",
-                                        "timing_tip",
-                                        "risk_summary",
-                                        "next_steps"
-                                    ]
-                                }
-                            }
-                        ],
-                        tool_choice: "auto"
-                    }
-                })
-            );
-
-            setTimeout(() => {
-                openAiWs.send(JSON.stringify({ type: "response.create" }));
-            }, 250);
-        } catch (err) {
-            console.error("❌ Deal load failed:", err.message);
-            openAiWs.send(
-                JSON.stringify({
-                    type: "response.create",
-                    response: {
-                        instructions:
-                            "Say: 'I had trouble loading your deals. Please try again later.' then hang up."
-                    }
-                })
-            );
+                    }],
+                    tool_choice: "auto"
+                }
+            };
+            openAiWs.send(JSON.stringify(sessionUpdate));
+            setTimeout(() => { openAiWs.send(JSON.stringify({ type: "response.create" })); }, 250);
         }
     });
 
-    openAiWs.on("message", data => {
-        let response;
-        try {
-            response = JSON.parse(data);
-        } catch {
-            return;
+    // 6. MESSAGE HANDLING (THE DELTA SAVE)
+    openAiWs.on('message', (data) => {
+        const response = JSON.parse(data);
+
+        if (response.type === 'response.audio.delta' && response.delta) {
+            ws.send(JSON.stringify({ event: 'media', streamSid: streamSid, media: { payload: response.delta } }));
         }
 
-        if (response.type === "response.audio.delta" && response.delta) {
-            ws.send(
-                JSON.stringify({
-                    event: "media",
-                    streamSid,
-                    media: { payload: response.delta }
-                })
-            );
-        }
-
-        if (
-            response.type === "response.function_call_arguments.done" &&
-            response.name === "save_deal_data"
-        ) {
-            let args;
-            try {
-                args = JSON.parse(response.arguments);
-            } catch {
-                console.error("❌ Failed to parse function args");
-                return;
-            }
-
-            if (!args || typeof args !== "object") return;
+        if (response.type === 'response.function_call_arguments.done' && response.name === 'save_deal_data') {
+            const args = JSON.parse(response.arguments);
             const dealToSave = dealQueue[currentDealIndex];
-            if (!dealToSave) {
-                console.error("❌ No deal to save at index", currentDealIndex);
-                return;
-            }
+            
+            openAiWs.send(JSON.stringify({ 
+                type: "conversation.item.create", 
+                item: { type: "function_call_output", call_id: response.call_id, output: JSON.stringify({ success: true }) } 
+            }));
+            
+            advanceToNextDeal();
 
-            openAiWs.send(
-                JSON.stringify({
-                    type: "conversation.item.create",
-                    item: {
-                        type: "function_call_output",
-                        call_id: response.call_id,
-                        output: JSON.stringify({ success: true })
-                    }
-                })
-            );
-
-            const scores = [
-                args.pain_score,
-                args.metrics_score,
-                args.champion_score,
-                args.eb_score,
-                args.criteria_score,
-                args.process_score,
-                args.competition_score,
-                args.paper_score,
-                args.timing_score
-            ].map(v => Number(v) || 0);
-
+            const scores = [args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score];
             const totalScore = scores.reduce((a, b) => a + b, 0);
-            const newStage =
-                totalScore >= 25
-                    ? "Closed Won"
-                    : totalScore >= 20
-                    ? "Commit"
-                    : totalScore >= 12
-                    ? "Best Case"
-                    : "Pipeline";
+            
+            let newStage = totalScore >= 25 ? "Closed Won" : (totalScore >= 20 ? "Commit" : (totalScore >= 12 ? "Best Case" : "Pipeline"));
 
-            pool
-                .query(
-                    `
+            pool.query(`
                 UPDATE opportunities 
-                SET previous_total_score = (
-                        COALESCE(pain_score,0) + COALESCE(metrics_score,0) +
-                        COALESCE(champion_score,0) + COALESCE(eb_score,0) +
-                        COALESCE(criteria_score,0) + COALESCE(process_score,0) +
-                        COALESCE(competition_score,0) + COALESCE(paper_score,0) +
-                        COALESCE(timing_score,0)
-                    ),
+                SET 
+                    previous_total_score = (COALESCE(pain_score,0) + COALESCE(metrics_score,0) + COALESCE(champion_score,0) + COALESCE(eb_score,0) + COALESCE(criteria_score,0) + COALESCE(process_score,0) + COALESCE(competition_score,0) + COALESCE(paper_score,0) + COALESCE(timing_score,0)),
                     previous_updated_at = updated_at,
-                    last_summary = $1,
-                    audit_details = $2,
-                    forecast_stage = $3,
-                    updated_at = NOW(),
-                    run_count = COALESCE(run_count, 0) + 1,
-                    pain_score = $5,
-                    metrics_score = $6,
-                    champion_score = $7,
-                    eb_score = $8,
-                    criteria_score = $9,
-                    process_score = $10,
-                    competition_score = $11,
-                    paper_score = $12,
-                    timing_score = $13,
-                    pain_tip = $14,
-                    metrics_tip = $15,
-                    champion_tip = $16,
-                    eb_tip = $17,
-                    criteria_tip = $18,
-                    process_tip = $19,
-                    competition_tip = $20,
-                    paper_tip = $21,
-                    timing_tip = $22,
+                    last_summary = $1, audit_details = $2, forecast_stage = $3, updated_at = NOW(), run_count = COALESCE(run_count, 0) + 1,
+                    pain_score = $5, metrics_score = $6, champion_score = $7, eb_score = $8,
+                    criteria_score = $9, process_score = $10, competition_score = $11, paper_score = $12, timing_score = $13,
+                    pain_tip = $14, metrics_tip = $15, champion_tip = $16, eb_tip = $17, 
+                    criteria_tip = $18, process_tip = $19, competition_tip = $20, paper_tip = $21, timing_tip = $22,
                     next_steps = $23
                 WHERE id = $4
-            `,
-                    [
-                        args.risk_summary,
-                        JSON.stringify(args),
-                        newStage,
-                        dealToSave.id,
-                        args.pain_score,
-                        args.metrics_score,
-                        args.champion_score,
-                        args.eb_score,
-                        args.criteria_score,
-                        args.process_score,
-                        args.competition_score,
-                        args.paper_score,
-                        args.timing_score,
-                        args.pain_tip,
-                        args.metrics_tip,
-                        args.champion_tip,
-                        args.eb_tip,
-                        args.criteria_tip,
-                        args.process_tip,
-                        args.competition_tip,
-                        args.paper_tip,
-                        args.timing_tip,
-                        args.next_steps
-                    ]
-                )
-                .catch(err =>
-                    console.error("❌ DB UPDATE FAILED:", err.message)
-                );
-
-            advanceToNextDeal();
+            `, [
+                args.risk_summary, JSON.stringify(args), newStage, dealToSave.id,
+                args.pain_score, args.metrics_score, args.champion_score, args.eb_score,
+                args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score,
+                args.pain_tip, args.metrics_tip, args.champion_tip, args.eb_tip, 
+                args.criteria_tip, args.process_tip, args.competition_tip, args.paper_tip, args.timing_tip,
+                args.next_steps
+            ]).then(() => console.log(`✅ DATABASE SYNC COMPLETE`))
+              .catch(err => console.error("❌ DB UPDATE FAILED:", err.message));
         }
     });
 
-    openAiWs.on("close", () => {
-        console.log("🔌 OpenAI WS closed");
-        try {
-            ws.close();
-        } catch {}
-    });
-
-    openAiWs.on("error", err => {
-        console.error("❌ OpenAI WS error:", err.message);
-    });
-
-    ws.on("message", message => {
-        let msg;
-        try {
-            msg = JSON.parse(message);
-        } catch {
-            return;
-        }
-
-        if (msg.event === "start") {
-            streamSid = msg.start?.streamSid;
-        } else if (
-            msg.event === "media" &&
-            msg.media?.payload &&
-            openAiWs.readyState === WebSocket.OPEN
-        ) {
-            openAiWs.send(
-                JSON.stringify({
-                    type: "input_audio_buffer.append",
-                    audio: msg.media.payload
-                })
-            );
+    ws.on('message', (message) => {
+        const msg = JSON.parse(message);
+        if (msg.event === 'start') streamSid = msg.start.streamSid;
+        else if (msg.event === 'media' && openAiWs.readyState === WebSocket.OPEN) {
+            openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
         }
     });
 
-    ws.on("close", () => {
-        try {
-            openAiWs.close();
-        } catch {}
+    ws.on('close', () => {
+        console.log("🔌 Call Closed.");
+        openAiWs.close();
     });
 });
-
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/get-deal", async (req, res) => {
     try {
