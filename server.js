@@ -590,7 +590,9 @@ wss.on("connection", async (ws, req) => {
 });
 
 
-// --- [BLOCK 6: API ENDPOINTS — UNCHANGED] ---
+// --- [BLOCK 6: API ENDPOINTS — DEBUG CODE RIGHT BELOW] ---
+app.get("/debug/opportunities", async (req, res) => { try { const orgId = parseInt(req.query.org_id) || 1; const result = await pool.query( `SELECT id, account_name, forecast_stage, run_count, pain_score, metrics_score, champion_score, eb_score, criteria_score, process_score, competition_score, paper_score, timing_score, next_steps, last_summary, updated_at FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC`, [orgId] ); res.json(result.rows); } catch (err) { console.error("❌ Debug endpoint error:", err.message); res.status(500).json({ error: "Debug query failed" }); } });
+
 // (Your existing endpoints remain exactly as they were)
 
 
