@@ -303,11 +303,11 @@ app.post("/agent", async (req, res) => {
         }
     });
 
-    // 6. CONSOLIDATED MESSAGE HANDLING
+    // 6. CONSOLIDATED MESSAGE HANDLING (MATTHEW TALKS / DATA SAVES)
     openAiWs.on('message', (data) => {
         const response = JSON.parse(data);
 
-        // A. Pass Audio to Twilio
+        // A. Pass Matthew's Audio to Twilio
         if (response.type === 'response.audio.delta' && response.delta) {
             ws.send(JSON.stringify({ event: 'media', streamSid: streamSid, media: { payload: response.delta } }));
         }
@@ -349,19 +349,36 @@ app.post("/agent", async (req, res) => {
                     .then(() => {
                         console.log(`✅ ${dealToSave.account_name} synced. Score: ${totalScore}`);
                         
-                        // Tell OpenAI the tool finished
+                        // Acknowledge the tool to OpenAI
                         openAiWs.send(JSON.stringify({ 
                             type: "conversation.item.create", 
                             item: { type: "function_call_output", call_id: output.call_id, output: JSON.stringify({ success: true }) } 
                         }));
 
-                        // ADVANCE ONLY AFTER SUCCESSFUL SAVE
+                        // MOVE TO NEXT DEAL ONLY AFTER SUCCESSFUL DB SYNC
                         advanceToNextDeal();
                     })
                     .catch(err => console.error("❌ DB UPDATE FAILED:", err.message));
                 }
             });
         }
+    });
+
+    // 7. THE MISSING PIPE: TWILIO TO OPENAI (REP TALKS / MATTHEW LISTENS)
+    ws.on('message', (message) => {
+        const msg = JSON.parse(message);
+        if (msg.event === 'start') {
+            streamSid = msg.start.streamSid;
+            console.log(`🚀 Stream Started. SID: ${streamSid}`);
+        } else if (msg.event === 'media' && openAiWs.readyState === WebSocket.OPEN) {
+            // This sends your voice payload to the AI
+            openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
+        }
+    });
+
+    ws.on('close', () => {
+        console.log("🔌 Call Closed.");
+        openAiWs.close();
     });
 
 // --- [BLOCK 7: SERVER INITIALIZATION] ---
