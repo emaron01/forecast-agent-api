@@ -39,80 +39,136 @@ app.use(express.json());
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// --- [BLOCK 3: SYSTEM PROMPT CP (MASTER STRATEGIST, POWER VERSION)] ---
+// --- [BLOCK 3: SYSTEM PROMPT (THE MASTER STRATEGIST)] ---
 function getSystemPrompt(deal, repName, dealsLeft) {
+    // 1. DATA SANITIZATION
     let category = deal.forecast_stage || "Pipeline";
     if (category === "Null" || category.trim() === "") category = "Pipeline";
 
-    const amountStr = new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: "USD",
-        maximumFractionDigits: 0
+    // 2. DATA FORMATTING
+    const amountStr = new Intl.NumberFormat('en-US', { 
+        style: 'currency', currency: 'USD', maximumFractionDigits: 0 
     }).format(deal.amount || 0);
 
+    // 3. HISTORY EXTRACTION
     const lastSummary = deal.last_summary || "";
-    const historyHook =
-        lastSummary.length > 5
-            ? `Last time we flagged: "${lastSummary}". How is that looking now?`
-            : "What's the latest update on this account?";
+    const hasHistory = lastSummary.length > 5;
+    const historyHook = hasHistory 
+        ? `Last time we flagged: "${lastSummary}". How is that looking now?` 
+        : "What's the latest update on this account?";
 
-    const details = deal.audit_details || {};
-
+    // 4. FLATTENED READ LOGIC (SCORE SNAPSHOT)
+    const details = deal.audit_details || {}; 
     const scoreContext = `
-PRIOR SNAPSHOT:
-• Pain: ${deal.pain_score || details.pain_score || "?"}/3
-• Metrics: ${deal.metrics_score || details.metrics_score || "?"}/3
-• Champion: ${deal.champion_score || details.champion_score || "?"}/3
-• Economic Buyer: ${deal.eb_score || details.eb_score || "?"}/3
-• Decision Criteria: ${deal.criteria_score || details.criteria_score || "?"}/3
-• Decision Process: ${deal.process_score || details.process_score || "?"}/3
-• Competition: ${deal.competition_score || details.competition_score || "?"}/3
-• Paper Process: ${deal.paper_score || details.paper_score || "?"}/3
-• Timing: ${deal.timing_score || details.timing_score || "?"}/3
-`;
+    PRIOR SNAPSHOT:
+    • Pain: ${deal.pain_score || details.pain_score || "?"}/3 | Metrics: ${deal.metrics_score || details.metrics_score || "?"}/3
+    • Champion: ${deal.champion_score || details.champion_score || "?"}/3 | EB: ${deal.eb_score || details.eb_score || "?"}/3
+    • Decision Criteria: ${deal.criteria_score || details.criteria_score || "?"}/3 | Decision Process: ${deal.process_score || details.process_score || "?"}/3
+    • Competition: ${deal.competition_score || details.competition_score || "?"}/3 | Paper Process: ${deal.paper_score || details.paper_score || "?"}/3
+    • Timing: ${deal.timing_score || details.timing_score || "?"}/3
+    `;
 
-    const stageMap = {
-        Commit: `MODE: CLOSING ASSISTANT (Commit). Goal: De-risk. Focus on EB signature and Paper Process.`,
-        "Best Case": `MODE: DEAL STRATEGIST (Best Case). Goal: Validate Upside. Focus on Champion power level.`,
-        Pipeline: `MODE: PIPELINE ANALYST (Pipeline). Goal: Qualify. Validate Pain/Metrics.`
-    };
+    // 5. STAGE STRATEGY (DETAILED)
+    let stageInstructions = "";
+    if (category.includes("Commit")) {
+       stageInstructions = `MODE: CLOSING ASSISTANT (Commit). 
+        • Goal: Protect the Forecast (De-risk).
+        • Logic: Scan for ANY category scored 0-2. Ask: "Why is this in Commit if [Category] is still a gap?"
+        • Focus: Verify Signature Authority (EB) and Paper Process are a solid 3. If they aren't, the deal is a lie.`;
+    } else if (category.includes("Best Case")) {
+       stageInstructions = `MODE: DEAL STRATEGIST (Best Case). 
+        • Goal: Validate the Upside.
+        • Logic: "Test the Gaps." Look for 0-2 scores preventing a move to Commit.
+        • Focus: Is the Champion strong enough to accelerate the Paperwork? If not, leave it in Best Case.`;
+    } else {
+       stageInstructions = `MODE: PIPELINE ANALYST (Pipeline). 
+        • Goal: Qualify or Disqualify.
+        • Logic: FOUNDATION FIRST. Validate Pain, Metrics, and Champion.
+        • Constraint: **IGNORE PAPERWORK & LEGAL.** Do not ask about contracts. If Pain/Metrics are 0-2, the deal is not real—move on.`;
+    }
 
-    const stageInstructions =
-        stageMap[category] ||
-        stageMap[
-            Object.keys(stageMap).find(k => category.includes(k)) || "Pipeline"
-        ];
+    // 6. INTRO
+    const intro = `Hi ${repName}, this is Matthew from Sales Forecaster. Today we will be reviewing ${dealsLeft + 1} deals, starting with ${deal.account_name} for ${amountStr} in ${category}.`;
 
-    const intro = `Hi ${repName}, this is Matthew from Sales Forecaster. Today we will be reviewing ${
-        dealsLeft + 1
-    } deals, starting with ${deal.account_name} for ${amountStr} in ${category}.`;
-
+    // 7. THE MASTER PROMPT
     return `
-### MANDATORY OPENING
-You MUST open exactly with: "${intro} ${historyHook}"
+    ### MANDATORY OPENING
+    You MUST open exactly with: "${intro} ${historyHook}"
 
-### ROLE & IDENTITY
-You are Matthew, a Deal Strategy AI. You are professional, high-IQ, and direct.
-The customer is "${deal.account_name}".
-${stageInstructions}
+    ### ROLE & IDENTITY
+    You are Matthew, a Deal Strategy AI. You are professional, high-IQ, and direct.
+    NO HALLUCINATION: The customer is "${deal.account_name}". Never say "Acme".
+    ${stageInstructions}
 
-### INTERACTION PROTOCOL (MEDDPICC)
-1. PAIN (0-3): What is the specific cost of doing nothing?
-2. METRICS (0-3): Has their finance team validated the ROI?
-3. CHAMPION (0-3): 1 = Coach, 2 = Mobilizer, 3 = Champion.
-4. ECONOMIC BUYER (0-3): Signature authority access?
-5. DECISION CRITERIA/PROCESS: Approval hurdles?
-6. PAPER PROCESS (0-3): Contract status?
-7. TIMING (0-3): Compelling event?
+    [CORE RULES]
+    • NO SMALL TALK. Your sole objective is to extract verifiable deal data.
+    • **TURN-BASED PACING:** Ask only ONE category at a time. You MUST wait for the rep to finish speaking before moving to the next.
+    • ZERO TOLERANCE: If the rep lacks an answer or evidence, the score is 0. 
+    • PRODUCT POLICE: Your "Internal Truths" are your Bible. If a rep claims a feature NOT in the truths, INTERRUPT and correct them immediately.
 
-### INTERNAL TRUTHS
-${deal.org_product_data || "Verify capabilities against company documentation."}
+    [FORECAST RULES]
+    • MOMENTUM CHECK: Is this deal STALLED or PROGRESSING? 
+    • IF STALLED: Ask "What is the specific blocker?" and log it. 
+    • IF PROGRESSING: Validate the velocity (e.g., "What is the immediate next step?"). 
+
+    ### SMART CONTEXT (THE ANTI-ROBOT BRAIN)
+    • CROSS-CATEGORY LISTENING: If the rep answers a future category early, MARK IT as answered and SKIP it later.
+    • MEMORY: Check "${scoreContext}". If a score is 3, DO NOT ASK about it unless the rep implies a change.
+
+    ### INTERACTION PROTOCOL (LOGIC BRANCH)
+    
+    [BRANCH A: THE CLOSING SHORTCUT]
+    *Trigger ONLY if user mentions: "PO", "Contract", "Signed", "Done"*
+    1. SCENARIO "SIGNED": VERIFY: "Do we have the clean PDF in hand?" IF YES: Score 27/27. -> Finish.
+    2. SCENARIO "WORKING ON IT": SKIP Pain. EXECUTE "LEGAL CHECK" and "DATE CHECK".
+
+    [BRANCH B: STANDARD MEDDPICC AUDIT]
+    Investigate in this EXACT order. *Wait for answer* after every category.
+
+    1. **PAIN (0-3):** What is the specific cost of doing nothing? 
+       - 0: None. 1: Latent. 2: Admitted. 3: Vision for a solution.
+       *Wait for answer.* If Score < 3, challenge: "Why buy now if they aren't bleeding?"
+
+    2. **METRICS (0-3):** Has the prospect's finance team validated the ROI? 
+       - 0: None. 1: Internal estimate. 2: Rep-led ROI. 3: CFO-validated.
+       *Wait for answer.*
+
+    3. **CHAMPION (0-3):** Verify the "Power Level."
+       - 1 (Coach): Friendly, but no power.
+       - 2 (Mobilizer): Influential, but hasn't acted.
+       - 3 (Champion): Actively selling for us.
+       - *THE TEST:* "Give me an example of them spending political capital for us."
+       *Wait for answer.*
+
+    4. **ECONOMIC BUYER (0-3):** Do we have a direct line to signature authority?
+       - 0: No access. 1: Identified. 2: Indirect influence. 3: Direct contact/Signer.
+       *Wait for answer.*
+
+    5. **DECISION CRITERIA (0-3):** Technical requirements vs. our solution.
+       - *TEST:* Call out gaps vs. Internal Truths.
+       *Wait for answer.*
+
+    6. **DECISION PROCESS (0-3):** Who exactly is in the approval chain?
+       *Wait for answer.*
+
+    7. **COMPETITION (0-3):** Who else are they looking at? Do not accept "Nobody."
+       *Wait for answer.*
+
+    8. **PAPER PROCESS (0-3):** *SKIP IF PIPELINE.*
+       - 1: Drafted. 2: In Legal/Procurement. 3: Signed.
+       *Wait for answer.*
+
+    9. **TIMING (0-3):** Is there a Compelling Event or just a target date?
+       *Wait for answer.*
+
+    ### INTERNAL TRUTHS (PRODUCT POLICE)
+    ${deal.org_product_data || "Verify capabilities against company documentation."}
 
 ### COMPLETION PROTOCOL
-1. "Health Score is [Total] out of 27. Updating your scorecard now."
-2. "Moving to the next opportunity."
-3. Trigger save_deal_data.
-`;
+    When you have gathered the data, perform this EXACT sequence:
+    1. **Verbal Confirmation:** Say exactly: "Based on today's discussion, this opportunity's Health Score is [Total] out of 27. Just one moment while I update your scorecard."
+    2. **Trigger Tool:** Immediately trigger the save_deal_data tool. 
+    3. **Final Hand-off:** After the tool triggers, say: "Okay, moving to the next opportunity."    `;
 }
 // --- [BLOCK 4: THE SMART RECEPTIONIST] ---
 app.post("/agent", async (req, res) => {
@@ -159,7 +215,7 @@ app.post("/agent", async (req, res) => {
   }
 });
 
-// --- [BLOCK 5: WEBSOCKET CORE] ---
+// --- [BLOCK 5: WEBSOCKET CORE & SAVE ENGINE] ---
 wss.on('connection', (ws, req) => {
     let orgId = 1; let repName = "Erik"; 
     try {
@@ -171,7 +227,6 @@ wss.on('connection', (ws, req) => {
 
     let streamSid = null; let dealQueue = []; let currentDealIndex = 0;
 
-    // THE VARIABLE IS DEFINED HERE (Inside the 'connection' block)
     const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
         headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "OpenAI-Beta": "realtime=v1" }
     });
@@ -181,27 +236,51 @@ wss.on('connection', (ws, req) => {
         if (currentDealIndex < dealQueue.length) {
             const nextDeal = dealQueue[currentDealIndex];
             const nextInstructions = getSystemPrompt(nextDeal, repName.split(' ')[0], dealQueue.length - currentDealIndex);
-            openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: nextInstructions } }));
-            openAiWs.send(JSON.stringify({ type: "response.create", response: { modalities: ["text", "audio"], instructions: `Say: "Pulling up ${nextDeal.account_name}."` } }));
+            
+            // UPDATE SESSION FOR NEXT DEAL
+            openAiWs.send(JSON.stringify({ 
+                type: "session.update", 
+                session: { instructions: nextInstructions } 
+            }));
+            
+            // TRIGGER GREETING
+            openAiWs.send(JSON.stringify({ 
+                type: "response.create", 
+                response: { 
+                    modalities: ["text", "audio"], 
+                    instructions: `Say exactly: "Pulling up ${nextDeal.account_name}."` 
+                } 
+            }));
         } else {
-            openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: "Review complete. Goodbye ${repName.split(' ')[0]}."` } }));
+            openAiWs.send(JSON.stringify({ 
+                type: "response.create", 
+                response: { instructions: `Say: "Review complete. Goodbye ${repName.split(' ')[0]}."` } 
+            }));
         }
     };
 
     openAiWs.on('open', async () => {
-        console.log(`📡 Stream Active: ${repName}`);
+        console.log(`📡 OpenAI Stream Active for ${repName}`);
         const result = await pool.query("SELECT o.*, org.product_truths AS org_product_data FROM opportunities o JOIN organizations org ON o.org_id = org.id WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') ORDER BY o.id ASC", [orgId]);
         dealQueue = result.rows;
+
         if (dealQueue.length > 0) {
             const instructions = getSystemPrompt(dealQueue[0], repName.split(' ')[0], dealQueue.length - 1);
-            openAiWs.send(JSON.stringify({
+            
+            // --- [CRITICAL CONFIGURATION START] ---
+            const sessionUpdate = {
                 type: "session.update",
                 session: {
-                    modalities: ["text", "audio"], instructions: instructions, voice: "verse",
-                    input_audio_format: "g711_ulaw", output_audio_format: "g711_ulaw",
+                    modalities: ["text", "audio"],
+                    instructions: instructions,
+                    voice: "verse",
+                    input_audio_format: "g711_ulaw",
+                    output_audio_format: "g711_ulaw",
                     turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
                     tools: [{
-                        type: "function", name: "save_deal_data", description: "Saves scores and feedback.",
+                        type: "function",
+                        name: "save_deal_data",
+                        description: "Saves scores, tips, and next steps to the database.",
                         parameters: {
                             type: "object",
                             properties: {
@@ -218,24 +297,35 @@ wss.on('connection', (ws, req) => {
                             },
                             required: ["pain_score", "pain_tip", "metrics_score", "metrics_tip", "champion_score", "champion_tip", "eb_score", "eb_tip", "criteria_score", "criteria_tip", "process_score", "process_tip", "competition_score", "competition_tip", "paper_score", "paper_tip", "timing_score", "timing_tip", "risk_summary", "next_steps"]
                         }
-                    }]
+                    }],
+                    tool_choice: "auto" // <--- THIS WAS MISSING IN YOUR PASTE. IT IS REQUIRED.
                 }
-            }));
-            setTimeout(() => { openAiWs.send(JSON.stringify({ type: "response.create" })); }, 250);
+            };
+            // --- [CRITICAL CONFIGURATION END] ---
+
+            openAiWs.send(JSON.stringify(sessionUpdate));
+            setTimeout(() => { openAiWs.send(JSON.stringify({ type: "response.create" })); }, 500);
         }
     });
 
-    // --- [CONSOLIDATED MESSAGE LISTENER MUST BE INSIDE HERE] ---
+    // --- [CONSOLIDATED MESSAGE LISTENER] ---
     openAiWs.on('message', (data) => {
         const response = JSON.parse(data);
+
+        // A. Audio Bridge (Matthew -> Twilio)
         if (response.type === 'response.audio.delta' && response.delta) {
             ws.send(JSON.stringify({ event: 'media', streamSid: streamSid, media: { payload: response.delta } }));
         }
+
+        // B. Tool Handling (The Save & Advance Logic)
         if (response.type === 'response.done' && response.response.output) {
             response.response.output.forEach(output => {
                 if (output.type === 'function_call' && output.name === 'save_deal_data') {
                     const args = JSON.parse(output.arguments);
                     const dealToSave = dealQueue[currentDealIndex];
+                    
+                    console.log(`💾 Tool Call: Saving ${dealToSave.account_name}...`);
+
                     const scores = [args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score];
                     const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
                     let newStage = totalScore >= 25 ? "Closed Won" : (totalScore >= 20 ? "Commit" : (totalScore >= 12 ? "Best Case" : "Pipeline"));
@@ -243,16 +333,17 @@ wss.on('connection', (ws, req) => {
                     pool.query(`UPDATE opportunities SET previous_total_score = (COALESCE(pain_score,0) + COALESCE(metrics_score,0) + COALESCE(champion_score,0) + COALESCE(eb_score,0) + COALESCE(criteria_score,0) + COALESCE(process_score,0) + COALESCE(competition_score,0) + COALESCE(paper_score,0) + COALESCE(timing_score,0)), previous_updated_at = updated_at, last_summary = $1, audit_details = $2, forecast_stage = $3, updated_at = NOW(), run_count = COALESCE(run_count, 0) + 1, pain_score = $5, metrics_score = $6, champion_score = $7, eb_score = $8, criteria_score = $9, process_score = $10, competition_score = $11, paper_score = $12, timing_score = $13, pain_tip = $14, metrics_tip = $15, champion_tip = $16, eb_tip = $17, criteria_tip = $18, process_tip = $19, competition_tip = $20, paper_tip = $21, timing_tip = $22, next_steps = $23 WHERE id = $4`, 
                     [args.risk_summary, JSON.stringify(args), newStage, dealToSave.id, args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score, args.pain_tip, args.metrics_tip, args.champion_tip, args.eb_tip, args.criteria_tip, args.process_tip, args.competition_tip, args.paper_tip, args.timing_tip, args.next_steps])
                     .then(() => {
-                        console.log(`✅ ${dealToSave.account_name} synced.`);
+                        console.log(`✅ ${dealToSave.account_name} synced. Score: ${totalScore}`);
                         openAiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: output.call_id, output: JSON.stringify({ success: true }) } }));
-                        advanceToNextDeal();
-                    }).catch(err => console.error("❌ DB ERROR:", err.message));
+                        advanceToNextDeal(); // <--- CRITICAL: ONLY ADVANCE AFTER SAVE
+                    })
+                    .catch(err => console.error("❌ DB ERROR:", err.message));
                 }
             });
         }
     });
 
-    // --- [AUDIO PIPE MUST BE INSIDE HERE] ---
+    // --- [AUDIO PIPE (Twilio -> Matthew)] ---
     ws.on('message', (message) => {
         const msg = JSON.parse(message);
         if (msg.event === 'start') streamSid = msg.start.streamSid;
@@ -261,9 +352,8 @@ wss.on('connection', (ws, req) => {
         }
     });
 
-    ws.on('close', () => { console.log("🔌 Closed."); openAiWs.close(); });
-}); // <--- THIS BRACE CLOSES THE CONNECTION BLOCK. DO NOT PUT openAiWs LOGIC BELOW THIS.
-
+    ws.on('close', () => { console.log("🔌 Call Closed."); openAiWs.close(); });
+});
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/deals", async (req, res) => { /* ... */ });
 
