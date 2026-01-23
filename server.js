@@ -33,6 +33,9 @@ app.use(express.json());
 
 // 3. STATIC FILES (Enables the Public Dashboard URL)
 app.use(express.static("public"));
+// --- [BLOCK X: SERVER + WEBSOCKET INIT] ---
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
 // --- [BLOCK 3: SYSTEM PROMPT (THE MASTER STRATEGIST)] ---
 function getSystemPrompt(deal, repName, dealsLeft) {
@@ -165,6 +168,7 @@ function getSystemPrompt(deal, repName, dealsLeft) {
     2. **Trigger Tool:** Immediately trigger the save_deal_data tool. 
     3. **Final Hand-off:** After the tool triggers, say: "Okay, moving to the next opportunity."    `;
 }
+
 // --- [BLOCK 4: SMART RECEPTIONIST — SAFE VERSION] ---
 app.post("/agent", async (req, res) => {
   try {
