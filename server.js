@@ -114,8 +114,50 @@ CLOSE:
 - Call the tool: save_deal_data with all scores, tips, risk_summary, and next_steps.
 `;
 }
-// --- [BLOCK 4: THE SMART RECEPTIONIST] --- app.post("/agent", async (req, res) => { try { const callerPhone = req.body.From || null; console.log("📞 Incoming call from:", callerPhone); // Lookup rep by phone const result = await pool.query( "SELECT org_id, rep_name FROM opportunities WHERE rep_phone = $1 LIMIT 1", [callerPhone] ); const orgId = result.rows.length > 0 ? result.rows[0].org_id : 1; const repName = result.rows.length > 0 ? result.rows[0].rep_name : "Team"; // Build the WebSocket URL const streamUrl = `wss://${req.headers.host}/?org_id=${orgId}&rep_name=${encodeURIComponent(repName)}`; // Escape XML-sensitive characters const escapedUrl = streamUrl.replace(/&/g, "&amp;"); // Return valid TwiML res.type("text/xml").send( `<Response> <Connect> <Stream url="${escapedUrl}" /> </Connect> </Response>` ); } catch (err) { console.error("❌ /agent lookup failed:", err.message); // Safe fallback TwiML const fallbackUrl = `wss://${req.headers.host}/?org_id=1&rep_name=Team`.replace(/&/g, "&amp;"); res.type("text/xml").send( `<Response> <Connect> <Stream url="${fallbackUrl}" /> </Connect> </Response>` ); } });
+// --- [BLOCK 4: THE SMART RECEPTIONIST] ---
+app.post("/agent", async (req, res) => {
+  try {
+    const callerPhone = req.body.From || null;
+    console.log("📞 Incoming call from:", callerPhone);
 
+    // Lookup rep by phone
+    const result = await pool.query(
+      "SELECT org_id, rep_name FROM opportunities WHERE rep_phone = $1 LIMIT 1",
+      [callerPhone]
+    );
+
+    const orgId = result.rows.length > 0 ? result.rows[0].org_id : 1;
+    const repName = result.rows.length > 0 ? result.rows[0].rep_name : "Team";
+
+    // Build the WebSocket URL
+    const streamUrl = `wss://${req.headers.host}/?org_id=${orgId}&rep_name=${encodeURIComponent(repName)}`;
+
+    // Escape XML-sensitive characters
+    const escapedUrl = streamUrl.replace(/&/g, "&amp;");
+
+    // Return valid TwiML
+    res.type("text/xml").send(
+`<Response>
+  <Connect>
+    <Stream url="${escapedUrl}" />
+  </Connect>
+</Response>`
+    );
+  } catch (err) {
+    console.error("❌ /agent error:", err.message);
+
+    // Safe fallback TwiML
+    const fallbackUrl = `wss://${req.headers.host}/?org_id=1&rep_name=Team`.replace(/&/g, "&amp;");
+
+    res.type("text/xml").send(
+`<Response>
+  <Connect>
+    <Stream url="${fallbackUrl}" />
+  </Connect>
+</Response>`
+    );
+  }
+});
 
 // --- [BLOCK 5: WEBSOCKET CORE & SAVE ENGINE] ---
 wss.on("connection", (ws, req) => {
