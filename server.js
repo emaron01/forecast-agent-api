@@ -217,7 +217,7 @@ app.post("/agent", async (req, res) => {
 
 // --- [BLOCK 5: WEBSOCKET CORE & SAVE ENGINE] ---
 wss.on('connection', (ws, req) => {
-    let orgId = 1; let repName = "Erik"; 
+    let orgId = 1; let repName = "System_Fail"; 
     try {
         const urlObj = new URL(req.url, `https://${req.headers.host}`);
         orgId = parseInt(urlObj.searchParams.get('org_id')) || 1;
