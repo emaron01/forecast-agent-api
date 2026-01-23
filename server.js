@@ -1,4 +1,25 @@
-require("dotenv").config(); const http = require("http"); const express = require("express"); const { Pool } = require("pg"); const WebSocket = require("ws"); const cors = require("cors"); // --- EXPRESS APP --- const app = express(); app.use(express.json()); app.use(express.urlencoded({ extended: true })); app.use(express.static("public")); // --- DATABASE (THIS MUST BE HERE) --- const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } }); // --- SERVER + WEBSOCKET --- const server = http.createServer(app); const wss = new WebSocket.Server({ server });
+require("dotenv").config();
+const http = require("http");
+const express = require("express");
+const { Pool } = require("pg");
+const WebSocket = require("ws");
+const cors = require("cors");
+
+// --- EXPRESS APP (MUST BE HERE, BEFORE ANY ROUTES) ---
+const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static("public"));
+
+// --- DATABASE (MUST BE HERE, BEFORE ANY ROUTES) ---
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
+// --- SERVER + WEBSOCKET (MUST BE HERE, BEFORE BLOCK 5) ---
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
 // --- [BLOCK 3: SYSTEM PROMPT (THE MASTER STRATEGIST)] ---
 function getSystemPrompt(deal, repName, dealsLeft) {
