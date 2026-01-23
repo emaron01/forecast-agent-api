@@ -46,8 +46,8 @@ const wss = new WebSocket.Server({ server });
 
 // --- [BLOCK 3: SYSTEM PROMPT (THE MASTER STRATEGIST)] ---
 function getSystemPrompt(deal, repName, dealsLeft) {
-    // your full Block 3 content stays exactly as-is
-}    // 1. DATA SANITIZATION
+
+    // 1. DATA SANITIZATION
     let category = deal.forecast_stage || "Pipeline";
     if (category === "Null" || category.trim() === "") category = "Pipeline";
 
@@ -77,17 +77,17 @@ function getSystemPrompt(deal, repName, dealsLeft) {
     // 5. STAGE STRATEGY (DETAILED)
     let stageInstructions = "";
     if (category.includes("Commit")) {
-       stageInstructions = `MODE: CLOSING ASSISTANT (Commit). 
+        stageInstructions = `MODE: CLOSING ASSISTANT (Commit). 
         • Goal: Protect the Forecast (De-risk).
         • Logic: Scan for ANY category scored 0-2. Ask: "Why is this in Commit if [Category] is still a gap?"
         • Focus: Verify Signature Authority (EB) and Paper Process are a solid 3. If they aren't, the deal is a lie.`;
     } else if (category.includes("Best Case")) {
-       stageInstructions = `MODE: DEAL STRATEGIST (Best Case). 
+        stageInstructions = `MODE: DEAL STRATEGIST (Best Case). 
         • Goal: Validate the Upside.
         • Logic: "Test the Gaps." Look for 0-2 scores preventing a move to Commit.
         • Focus: Is the Champion strong enough to accelerate the Paperwork? If not, leave it in Best Case.`;
     } else {
-       stageInstructions = `MODE: PIPELINE ANALYST (Pipeline). 
+        stageInstructions = `MODE: PIPELINE ANALYST (Pipeline). 
         • Goal: Qualify or Disqualify.
         • Logic: FOUNDATION FIRST. Validate Pain, Metrics, and Champion.
         • Constraint: **IGNORE PAPERWORK & LEGAL.** Do not ask about contracts. If Pain/Metrics are 0-2, the deal is not real—move on.`;
@@ -98,7 +98,7 @@ function getSystemPrompt(deal, repName, dealsLeft) {
 
     // 7. THE MASTER PROMPT
     return `
-    ### MANDATORY OPENING
+### MANDATORY OPENING
     You MUST open exactly with: "${intro} ${historyHook}"
 
     ### ROLE & IDENTITY
