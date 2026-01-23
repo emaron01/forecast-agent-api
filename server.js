@@ -1,41 +1,4 @@
-require("dotenv").config();
-const http = require("http");
-const express = require("express");
-const { Pool } = require("pg");
-const WebSocket = require("ws");
-const cors = require("cors");
-
-// --- [BLOCK 1: CONFIGURATION] ---
-const PORT = process.env.PORT || 10000;
-const OPENAI_API_KEY = process.env.MODEL_API_KEY;
-const MODEL_URL = process.env.MODEL_URL || "wss://api.openai.com/v1/realtime";
-const MODEL_NAME =
-    process.env.MODEL_NAME || "gpt-4o-mini-realtime-preview-2024-12-17";
-
-if (!OPENAI_API_KEY) {
-    console.error("❌ Missing MODEL_API_KEY in environment");
-    process.exit(1);
-}
-
-// --- [BLOCK 2: SERVER CONFIGURATION] ---
-const app = express();
-
-// 1. CORS MIDDLEWARE (The "Open Door" for your Local Dashboard)
-app.use((req, res, next) => {
-    res.header("Access-Control-Allow-Origin", "*"); // <--- This allows your laptop file to connect
-    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
-    next();
-});
-
-// 2. STANDARD MIDDLEWARE (Data Parsing)
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
-
-// 3. STATIC FILES (Enables the Public Dashboard URL)
-app.use(express.static("public"));
-// --- [BLOCK X: SERVER + WEBSOCKET INIT] ---
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+require("dotenv").config(); const http = require("http"); const express = require("express"); const { Pool } = require("pg"); const WebSocket = require("ws"); const cors = require("cors"); // --- EXPRESS APP --- const app = express(); app.use(express.json()); app.use(express.urlencoded({ extended: true })); app.use(express.static("public")); // --- DATABASE (THIS MUST BE HERE) --- const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } }); // --- SERVER + WEBSOCKET --- const server = http.createServer(app); const wss = new WebSocket.Server({ server });
 
 // --- [BLOCK 3: SYSTEM PROMPT (THE MASTER STRATEGIST)] ---
 function getSystemPrompt(deal, repName, dealsLeft) {
