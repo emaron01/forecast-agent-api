@@ -166,29 +166,34 @@ function getSystemPrompt(deal, repName, dealsLeft) {
 }
 
 
-// --- [BLOCK 4: SMART RECEPTIONIST] ---
+// --- [BLOCK 4: SMART RECEPTIONIST (DEBUG MODE)] ---
 app.post("/agent", async (req, res) => {
   try {
     const callerPhone = req.body.From || null;
     console.log("📞 Incoming call from:", callerPhone);
 
-    // Try to find rep by phone number
+    // 1. LOOKUP (Using the 'opportunities' hack as requested)
     const result = await pool.query(
       "SELECT org_id, rep_name FROM opportunities WHERE rep_phone = $1 LIMIT 1",
       [callerPhone]
     );
 
     let orgId = 1;
-    let repName = "Guest";
+    let repName = "Lookup_Failed"; // <--- DEBUG FLAG 1
 
     if (result.rows.length > 0) {
       orgId = result.rows[0].org_id;
       repName = result.rows[0].rep_name || "Rep";
+      console.log(`✅ Found Rep: ${repName}`);
+    } else {
+      console.log(`⚠️ Lookup Failed for ${callerPhone}. Defaulting to org 1.`);
     }
 
-    // Build WebSocket URL
+    // 2. CONSTRUCT URL
+    // We are logging this to see if the URL is built correctly in the Render logs
     const wsUrl = `wss://${req.headers.host}/?org_id=${orgId}&rep_name=${encodeURIComponent(repName)}`;
-    
+    console.log("🔗 Generated TwiML URL:", wsUrl);
+
     res.type("text/xml").send(
       `<Response>
          <Connect>
@@ -198,7 +203,8 @@ app.post("/agent", async (req, res) => {
     );
   } catch (err) {
     console.error("❌ /agent error:", err.message);
-    const fallbackUrl = `wss://${req.headers.host}/?org_id=1&rep_name=Guest`.replace(/&/g, "&amp;");
+    // Fallback
+    const fallbackUrl = `wss://${req.headers.host}/?org_id=1&rep_name=Crash_Recovery`.replace(/&/g, "&amp;");
     res.type("text/xml").send(
       `<Response><Connect><Stream url="${fallbackUrl}" /></Connect></Response>`
     );
@@ -209,21 +215,31 @@ app.post("/agent", async (req, res) => {
 wss.on("connection", async (ws, req) => {
   console.log("🔥 Twilio WebSocket connected:", req.url);
 
-  // 1. SAFE HANDSHAKE
+  // 1. SAFE HANDSHAKE (DEBUG MODE)
   let orgId = 1;
-  let repName = "System_Fail";
+  let repName = "URL_Missing"; // <--- DEBUG FLAG 2
 
   try {
     const urlObj = new URL(req.url, "http://localhost");
-    orgId = parseInt(urlObj.searchParams.get("org_id")) || 1;
+    
+    // Check if params exist
+    if (urlObj.searchParams.get("org_id")) {
+        orgId = parseInt(urlObj.searchParams.get("org_id"));
+    }
+    
     const queryName = urlObj.searchParams.get("rep_name");
-    if (queryName) repName = decodeURIComponent(queryName);
-    console.log("🔎 Handshake Success:", { orgId, repName });
+    if (queryName) {
+        repName = decodeURIComponent(queryName);
+    }
+    
+    console.log("🔎 Handshake Resolved To:", { orgId, repName });
   } catch (err) {
     console.error("⚠️ Handshake Warning:", err.message);
   }
 
-  const repIsValid = repName !== "System_Fail";
+  // NOTE: We REMOVED the "repIsValid" check. 
+  // We want the call to proceed even if it is "System_Fail" so you can hear the name.
+
   let streamSid = null;
   let dealQueue = [];
   let currentDealIndex = 0;
@@ -258,12 +274,12 @@ wss.on("connection", async (ws, req) => {
     }));
   };
 
-  // 4. OPENAI SESSION SETUP (RACE CONDITION FIX APPLIED)
+  // 4. OPENAI SESSION SETUP (RACE CONDITION FIX)
   openAiWs.on("open", async () => {
     console.log(`📡 OpenAI Stream Active for rep: ${repName}`);
 
     // A. INSTANT CONFIG + SILENCE
-    // We send this FIRST to ensure the model knows to use G711 and waits for us.
+    // "Act as a silent listener" prevents the "How can I help you" hallucination.
     openAiWs.send(JSON.stringify({
       type: "session.update",
       session: {
@@ -271,7 +287,7 @@ wss.on("connection", async (ws, req) => {
         output_audio_format: "g711_ulaw",
         voice: "verse",
         turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
-        instructions: "Act as a silent listener. Do not speak until specifically instructed." // <--- THE GAG ORDER
+        instructions: "Act as a silent listener. Do not speak until specifically instructed." 
       }
     }));
 
@@ -292,21 +308,20 @@ wss.on("connection", async (ws, req) => {
       dealQueue = [];
     }
 
-    // C. VALIDATE & START
-    if (!repIsValid || dealQueue.length === 0) {
-       const msg = !repIsValid ? "I could not verify your identity." : "No active deals found.";
-       openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: '${msg}'` } }));
+    // C. START INTERVIEW
+    // Even if no deals, we tell the user.
+    if (dealQueue.length === 0) {
+       openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: 'Hello ${repName}. I connected successfully, but I found zero active deals for Org ID ${orgId}.'` } }));
        return;
     }
 
-    // D. START INTERVIEW (OVERWRITE THE SILENCE)
     const firstDeal = dealQueue[0];
     const realInstructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1);
 
     const logicUpdate = {
       type: "session.update",
       session: {
-        instructions: realInstructions, // <--- NOW we give him the brain
+        instructions: realInstructions, // <--- UN-GAG: Give him the brain
         tools: [{
             type: "function",
             name: "save_deal_data",
@@ -334,22 +349,18 @@ wss.on("connection", async (ws, req) => {
 
     openAiWs.send(JSON.stringify(logicUpdate));
     
-    // E. TRIGGER THE FIRST WORD (with a slight delay to ensure the brain is loaded)
+    // E. TRIGGER FIRST WORD (Manual Trigger)
     setTimeout(() => { 
         openAiWs.send(JSON.stringify({ type: "response.create" })); 
     }, 250);
   });
 
-  // 5. INCOMING MESSAGE HANDLER (Tool Calls & Audio)
+  // 5. INCOMING MESSAGE HANDLER
   openAiWs.on("message", (data) => {
     const response = JSON.parse(data);
-
-    // Audio Output
     if (response.type === "response.audio.delta" && response.delta) {
       ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
     }
-
-    // Tool Execution
     if (response.type === "response.done" && response.response?.output) {
       response.response.output.forEach((output) => {
         if (output.type === "function_call" && output.name === "save_deal_data") {
@@ -379,12 +390,11 @@ wss.on("connection", async (ws, req) => {
     }
   });
 
-  // 6. TWILIO AUDIO BRIDGE (TRUE PASSTHROUGH)
+  // 6. TWILIO AUDIO BRIDGE
   ws.on("message", (message) => {
     const msg = JSON.parse(message);
     if (msg.event === "start") { streamSid = msg.start.streamSid; return; }
     if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
-      // ⚡ DIRECT PASSTHROUGH (No Buffer = No Static)
       openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
     }
   });
@@ -413,4 +423,4 @@ app.get("/debug/opportunities", async (req, res) => {
 });
 
 // --- [SERVER LISTEN] ---
-server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`)); 
+server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`));
