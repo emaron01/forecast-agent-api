@@ -9,12 +9,11 @@ const cors = require("cors");
 const PORT = process.env.PORT || 10000;
 const OPENAI_API_KEY = process.env.MODEL_API_KEY;
 const MODEL_URL = process.env.MODEL_URL || "wss://api.openai.com/v1/realtime";
-const MODEL_NAME =
-    process.env.MODEL_NAME || "gpt-4o-mini-realtime-preview-2024-12-17";
+const MODEL_NAME = process.env.MODEL_NAME || "gpt-4o-mini-realtime-preview-2024-12-17";
 
 if (!OPENAI_API_KEY) {
-    console.error("❌ Missing MODEL_API_KEY in environment");
-    process.exit(1);
+  console.error("❌ Missing MODEL_API_KEY in environment");
+  process.exit(1);
 }
 
 // --- [BLOCK 2: SERVER CONFIGURATION] ---
@@ -166,7 +165,8 @@ function getSystemPrompt(deal, repName, dealsLeft) {
     3. **Final Hand-off:** After the tool triggers, say: "Okay, moving to the next opportunity."    `;
 }
 
-// --- [BLOCK 4: SMART RECEPTIONIST — SAFE VERSION] ---
+
+// --- [BLOCK 4: SMART RECEPTIONIST] ---
 app.post("/agent", async (req, res) => {
   try {
     const callerPhone = req.body.From || null;
@@ -179,38 +179,28 @@ app.post("/agent", async (req, res) => {
     );
 
     let orgId = 1;
-    let repName = "System_Fail";
+    let repName = "Guest";
 
     if (result.rows.length > 0) {
       orgId = result.rows[0].org_id;
       repName = result.rows[0].rep_name || "Rep";
-    } else {
-      console.log("⚠️ Rep lookup failed — using safe fallback.");
     }
 
     // Build WebSocket URL
     const wsUrl = `wss://${req.headers.host}/?org_id=${orgId}&rep_name=${encodeURIComponent(repName)}`;
-    const escapedUrl = wsUrl.replace(/&/g, "&amp;");
-
-    // Return valid TwiML
+    
     res.type("text/xml").send(
-`<Response>
-  <Connect>
-    <Stream url="${escapedUrl}" />
-  </Connect>
-</Response>`
+      `<Response>
+         <Connect>
+           <Stream url="${wsUrl.replace(/&/g, "&amp;")}" />
+         </Connect>
+       </Response>`
     );
   } catch (err) {
     console.error("❌ /agent error:", err.message);
-
-    const fallbackUrl = `wss://${req.headers.host}/?org_id=1&rep_name=System_Fail`.replace(/&/g, "&amp;");
-
+    const fallbackUrl = `wss://${req.headers.host}/?org_id=1&rep_name=Guest`.replace(/&/g, "&amp;");
     res.type("text/xml").send(
-`<Response>
-  <Connect>
-    <Stream url="${fallbackUrl}" />
-  </Connect>
-</Response>`
+      `<Response><Connect><Stream url="${fallbackUrl}" /></Connect></Response>`
     );
   }
 });
@@ -219,20 +209,15 @@ app.post("/agent", async (req, res) => {
 wss.on("connection", async (ws, req) => {
   console.log("🔥 Twilio WebSocket connected:", req.url);
 
-  // 1. SAFE HANDSHAKE (Fixes "Phone number not recognized")
+  // 1. SAFE HANDSHAKE
   let orgId = 1;
   let repName = "System_Fail";
 
   try {
-    // We use 'http://localhost' as a dummy base. 
-    // We only care about the search parameters, not the domain.
     const urlObj = new URL(req.url, "http://localhost");
-    
     orgId = parseInt(urlObj.searchParams.get("org_id")) || 1;
-    
     const queryName = urlObj.searchParams.get("rep_name");
     if (queryName) repName = decodeURIComponent(queryName);
-
     console.log("🔎 Handshake Success:", { orgId, repName });
   } catch (err) {
     console.error("⚠️ Handshake Warning:", err.message);
@@ -273,12 +258,12 @@ wss.on("connection", async (ws, req) => {
     }));
   };
 
-  // 4. OPENAI SESSION SETUP (Fixes Static Race Condition)
+  // 4. OPENAI SESSION SETUP (STATIC FIX APPLIED)
   openAiWs.on("open", async () => {
     console.log(`📡 OpenAI Stream Active for rep: ${repName}`);
 
-    // A. FAST CONFIG: Kill static by setting format IMMEDIATELY
-    const configUpdate = {
+    // A. FAST CONFIG (Fixes Static)
+    openAiWs.send(JSON.stringify({
       type: "session.update",
       session: {
         input_audio_format: "g711_ulaw",
@@ -286,8 +271,7 @@ wss.on("connection", async (ws, req) => {
         voice: "verse",
         turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 }
       }
-    };
-    openAiWs.send(JSON.stringify(configUpdate));
+    }));
 
     // B. LOAD DATABASE
     try {
@@ -307,14 +291,10 @@ wss.on("connection", async (ws, req) => {
     }
 
     // C. VALIDATE & START
-    if (!repIsValid) {
-       openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: "Say: 'I could not verify your identity. Please call from a registered number.'" } }));
+    if (!repIsValid || dealQueue.length === 0) {
+       const msg = !repIsValid ? "I could not verify your identity." : "No active deals found.";
+       openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: '${msg}'` } }));
        return;
-    }
-
-    if (dealQueue.length === 0) {
-      openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: "Say: 'No active deals found for your org.'" } }));
-      return;
     }
 
     // D. START INTERVIEW
@@ -354,7 +334,7 @@ wss.on("connection", async (ws, req) => {
     setTimeout(() => { openAiWs.send(JSON.stringify({ type: "response.create" })); }, 500);
   });
 
-  // 5. INCOMING MESSAGE HANDLER (Tool Calls & Audio)
+  // 5. INCOMING MESSAGE HANDLER
   openAiWs.on("message", (data) => {
     const response = JSON.parse(data);
 
@@ -398,6 +378,7 @@ wss.on("connection", async (ws, req) => {
     const msg = JSON.parse(message);
     if (msg.event === "start") { streamSid = msg.start.streamSid; return; }
     if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
+      // ⚡ DIRECT PASSTHROUGH (No Buffer = No Static)
       openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
     }
   });
@@ -408,3 +389,22 @@ wss.on("connection", async (ws, req) => {
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
 });
+
+// --- [BLOCK 6: API ENDPOINTS] ---
+app.get("/", (req, res) => res.send("Forecast Agent API is Online 🤖"));
+
+app.get("/debug/opportunities", async (req, res) => {
+  try {
+    const orgId = parseInt(req.query.org_id) || 1;
+    const result = await pool.query(
+      `SELECT id, account_name, forecast_stage, run_count, updated_at FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC`,
+      [orgId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- [SERVER LISTEN] ---
+server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`));
