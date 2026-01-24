@@ -35,8 +35,9 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 // --- [BLOCK 3: SYSTEM PROMPT] ---
-function getSystemPrompt(...) { ... }
-    // 1. DATA SANITIZATION
+function getSystemPrompt(deal, repName, dealsLeft) {
+
+// 1. DATA SANITIZATION
     let category = deal.forecast_stage || "Pipeline";
     if (category === "Null" || category.trim() === "") category = "Pipeline";
 
