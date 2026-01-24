@@ -36,8 +36,7 @@ const wss = new WebSocket.Server({ server });
 
 // --- [BLOCK 3: SYSTEM PROMPT] ---
 function getSystemPrompt(deal, repName, dealsLeft) {
-
-// 1. DATA SANITIZATION
+    // 1. DATA SANITIZATION
     let category = deal.forecast_stage || "Pipeline";
     if (category === "Null" || category.trim() === "") category = "Pipeline";
 
@@ -568,38 +567,34 @@ wss.on("connection", async (ws, req) => {
     }
   });
 
-  // --- Twilio → OpenAI Audio (STATIC FIX APPLIED) ---
+// --- Twilio → OpenAI Audio (TRUE PASSTHROUGH) ---
   ws.on("message", (message) => {
     const msg = JSON.parse(message);
 
     if (msg.event === "start") {
       streamSid = msg.start.streamSid;
+      console.log(`🎤 Stream Started: ${streamSid}`);
       return;
     }
 
     if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
-      try {
-        const rawMuLaw = Buffer.from(msg.media.payload, "base64");
-        const openAiBase64 = rawMuLaw.toString("base64");
+      // ⚡ DIRECT PASSTHROUGH: No Buffer conversion. This kills the static.
+      const audioPayload = msg.media.payload;
 
-        openAiWs.send(
-          JSON.stringify({
-            type: "input_audio_buffer.append",
-            audio: openAiBase64,
-          })
-        );
-      } catch (err) {
-        console.error("❌ Audio decode error:", err);
-      }
+      openAiWs.send(
+        JSON.stringify({
+          type: "input_audio_buffer.append",
+          audio: audioPayload,
+        })
+      );
     }
   });
 
   ws.on("close", () => {
     console.log("🔌 Call Closed.");
-    openAiWs.close();
+    if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
-});
-
+}); // <--- Closes the main wss.on connection
 // --- [BLOCK 6: API ENDPOINTS — UNCHANGED] ---
 // (your existing endpoints here)
 
