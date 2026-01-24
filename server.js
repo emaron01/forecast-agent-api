@@ -298,6 +298,20 @@ wss.on("connection", async (ws, req) => {
   openAiWs.on("open", async () => {
     console.log(`📡 OpenAI Stream Active for rep: ${repName}`);
 
+    // 1. FAST CONFIG: Tell OpenAI to use G711 IMMEDIATELY
+    // This prevents the "Static Scream" caused by the format mismatch race condition.
+    const configUpdate = {
+      type: "session.update",
+      session: {
+        input_audio_format: "g711_ulaw",
+        output_audio_format: "g711_ulaw",
+        voice: "verse",
+        turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 }
+      }
+    };
+    openAiWs.send(JSON.stringify(configUpdate));
+
+    // 2. NOW Load the Database (While OpenAI adjusts its ears)
     try {
       const result = await pool.query(
         `SELECT o.*, org.product_truths AS org_product_data
@@ -316,62 +330,34 @@ wss.on("connection", async (ws, req) => {
       dealQueue = [];
     }
 
+    // 3. LOGIC UPDATE: Now send the Instructions & Tools
     if (!repIsValid) {
-      openAiWs.send(
-        JSON.stringify({
-          type: "session.update",
-          session: {
-            modalities: ["text", "audio"],
-            instructions: `Say exactly: "Your phone number is not registered. Please contact your administrator."`,
-            voice: "verse",
-          },
-        })
-      );
-
-      openAiWs.send(JSON.stringify({ type: "response.create" }));
-      return;
+      // ... (Your Invalid Rep Logic) ...
+       openAiWs.send(JSON.stringify({
+         type: "response.create",
+         response: { instructions: "Say: 'Phone number not recognized.'" }
+       }));
+       return;
     }
 
     if (dealQueue.length === 0) {
-      openAiWs.send(
-        JSON.stringify({
-          type: "session.update",
-          session: {
-            modalities: ["text", "audio"],
-            instructions: `Say exactly: "No active opportunities found for your org. Goodbye ${repName.split(
-              " "
-            )[0]}."`,
-            voice: "verse",
-          },
-        })
-      );
-
-      openAiWs.send(JSON.stringify({ type: "response.create" }));
+      // ... (Your No Deals Logic) ...
+      openAiWs.send(JSON.stringify({
+         type: "response.create",
+         response: { instructions: "Say: 'No active deals found.'" }
+      }));
       return;
     }
 
+    // 4. Start the Interview
     const firstDeal = dealQueue[0];
     const remaining = dealQueue.length - 1;
+    const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], remaining);
 
-    const instructions = getSystemPrompt(
-      firstDeal,
-      repName.split(" ")[0],
-      remaining
-    );
-
-    const sessionUpdate = {
+    const logicUpdate = {
       type: "session.update",
       session: {
-        modalities: ["text", "audio"],
-        instructions,
-        voice: "verse",
-        input_audio_format: "g711_ulaw",
-        output_audio_format: "g711_ulaw",
-        turn_detection: {
-          type: "server_vad",
-          threshold: 0.5,
-          silence_duration_ms: 1000,
-        },
+        instructions: instructions,
         tools: [
           {
             type: "function",
@@ -380,49 +366,18 @@ wss.on("connection", async (ws, req) => {
             parameters: {
               type: "object",
               properties: {
-                pain_score: { type: "number" },
-                pain_tip: { type: "string" },
-                metrics_score: { type: "number" },
-                metrics_tip: { type: "string" },
-                champion_score: { type: "number" },
-                champion_tip: { type: "string" },
-                eb_score: { type: "number" },
-                eb_tip: { type: "string" },
-                criteria_score: { type: "number" },
-                criteria_tip: { type: "string" },
-                process_score: { type: "number" },
-                process_tip: { type: "string" },
-                competition_score: { type: "number" },
-                competition_tip: { type: "string" },
-                paper_score: { type: "number" },
-                paper_tip: { type: "string" },
-                timing_score: { type: "number" },
-                timing_tip: { type: "string" },
-                risk_summary: { type: "string" },
-                next_steps: { type: "string" },
+                pain_score: { type: "number" }, pain_tip: { type: "string" },
+                metrics_score: { type: "number" }, metrics_tip: { type: "string" },
+                champion_score: { type: "number" }, champion_tip: { type: "string" },
+                eb_score: { type: "number" }, eb_tip: { type: "string" },
+                criteria_score: { type: "number" }, criteria_tip: { type: "string" },
+                process_score: { type: "number" }, process_tip: { type: "string" },
+                competition_score: { type: "number" }, competition_tip: { type: "string" },
+                paper_score: { type: "number" }, paper_tip: { type: "string" },
+                timing_score: { type: "number" }, timing_tip: { type: "string" },
+                risk_summary: { type: "string" }, next_steps: { type: "string" },
               },
-              required: [
-                "pain_score",
-                "pain_tip",
-                "metrics_score",
-                "metrics_tip",
-                "champion_score",
-                "champion_tip",
-                "eb_score",
-                "eb_tip",
-                "criteria_score",
-                "criteria_tip",
-                "process_score",
-                "process_tip",
-                "competition_score",
-                "competition_tip",
-                "paper_score",
-                "paper_tip",
-                "timing_score",
-                "timing_tip",
-                "risk_summary",
-                "next_steps",
-              ],
+              required: ["pain_score", "pain_tip", "metrics_score", "metrics_tip", "champion_score", "champion_tip", "eb_score", "eb_tip", "criteria_score", "criteria_tip", "process_score", "process_tip", "competition_score", "competition_tip", "paper_score", "paper_tip", "timing_score", "timing_tip", "risk_summary", "next_steps"],
             },
           },
         ],
@@ -430,13 +385,11 @@ wss.on("connection", async (ws, req) => {
       },
     };
 
-    openAiWs.send(JSON.stringify(sessionUpdate));
-
+    openAiWs.send(JSON.stringify(logicUpdate));
     setTimeout(() => {
       openAiWs.send(JSON.stringify({ type: "response.create" }));
     }, 500);
   });
-
   // --- OpenAI → Twilio Audio ---
   openAiWs.on("message", (data) => {
     const response = JSON.parse(data);
