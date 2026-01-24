@@ -566,7 +566,6 @@ wss.on("connection", async (ws, req) => {
       });
     }
   });
-
 // --- Twilio → OpenAI Audio (TRUE PASSTHROUGH) ---
   ws.on("message", (message) => {
     const msg = JSON.parse(message);
@@ -578,7 +577,8 @@ wss.on("connection", async (ws, req) => {
     }
 
     if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
-      // ⚡ DIRECT PASSTHROUGH: No Buffer conversion. This kills the static.
+      // ⚡ DIRECT PASSTHROUGH ONLY
+      // No Buffer.from(), no double encoding. Static killed.
       const audioPayload = msg.media.payload;
 
       openAiWs.send(
@@ -590,32 +590,37 @@ wss.on("connection", async (ws, req) => {
     }
   });
 
+  // --- Connection Cleanup ---
   ws.on("close", () => {
     console.log("🔌 Call Closed.");
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
-}); // <--- Closes the main wss.on connection
-// --- [BLOCK 6: API ENDPOINTS — UNCHANGED] ---
-// (your existing endpoints here)
+
+}); // <--- CRITICAL: This closes the main wss.on("connection") block!
 
 
-// --- [DEBUG ENDPOINT: LIVE OPPORTUNITY VIEWER] ---
+// --- [BLOCK 6: API ENDPOINTS] ---
+
+// Basic Health Check
+app.get("/", (req, res) => {
+  res.send("Forecast Agent API is Online 🤖");
+});
+
+// Debug Endpoint: See what is inside the DB
 app.get("/debug/opportunities", async (req, res) => {
   try {
     const orgId = parseInt(req.query.org_id) || 1;
-
     const result = await pool.query(
-      `SELECT id, account_name, forecast_stage, run_count,
-              pain_score, metrics_score, champion_score, eb_score,
-              criteria_score, process_score, competition_score,
+      `SELECT id, account_name, forecast_stage, run_count, 
+              pain_score, metrics_score, champion_score, eb_score, 
+              criteria_score, process_score, competition_score, 
               paper_score, timing_score,
               next_steps, last_summary, updated_at
-       FROM opportunities
-       WHERE org_id = $1
+       FROM opportunities 
+       WHERE org_id = $1 
        ORDER BY updated_at DESC`,
       [orgId]
     );
-
     res.json(result.rows);
   } catch (err) {
     console.error("❌ Debug endpoint error:", err);
