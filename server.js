@@ -166,85 +166,62 @@ function getSystemPrompt(deal, repName, dealsLeft) {
 }
 
 
-// --- [BLOCK 4: SMART RECEPTIONIST (DEBUG MODE)] ---
+
+// --- [BLOCK 4: SMART RECEPTIONIST (PARAMETER MODE)] ---
 app.post("/agent", async (req, res) => {
   try {
     const callerPhone = req.body.From || null;
     console.log("📞 Incoming call from:", callerPhone);
 
-    // 1. LOOKUP (Using the 'opportunities' hack as requested)
+    // 1. DATABASE LOOKUP
     const result = await pool.query(
       "SELECT org_id, rep_name FROM opportunities WHERE rep_phone = $1 LIMIT 1",
       [callerPhone]
     );
 
     let orgId = 1;
-    let repName = "Lookup_Failed"; // <--- DEBUG FLAG 1
+    let repName = "Guest";
 
     if (result.rows.length > 0) {
       orgId = result.rows[0].org_id;
       repName = result.rows[0].rep_name || "Rep";
-      console.log(`✅ Found Rep: ${repName}`);
+      console.log(`✅ Identified Rep: ${repName}`);
     } else {
-      console.log(`⚠️ Lookup Failed for ${callerPhone}. Defaulting to org 1.`);
+      console.log("⚠️ Number not found. Defaulting to Guest.");
     }
 
-    // 2. CONSTRUCT URL
-    // We are logging this to see if the URL is built correctly in the Render logs
-    const wsUrl = `wss://${req.headers.host}/?org_id=${orgId}&rep_name=${encodeURIComponent(repName)}`;
-    console.log("🔗 Generated TwiML URL:", wsUrl);
+    // 2. SEND TWIML WITH PARAMETERS (The Enterprise Fix)
+    // We pass data in <Parameter> tags instead of the URL to prevent stripping.
+    const wsUrl = `wss://${req.headers.host}/`;
 
     res.type("text/xml").send(
       `<Response>
          <Connect>
-           <Stream url="${wsUrl.replace(/&/g, "&amp;")}" />
+           <Stream url="${wsUrl}">
+             <Parameter name="org_id" value="${orgId}" />
+             <Parameter name="rep_name" value="${repName}" />
+           </Stream>
          </Connect>
        </Response>`
     );
   } catch (err) {
     console.error("❌ /agent error:", err.message);
-    // Fallback
-    const fallbackUrl = `wss://${req.headers.host}/?org_id=1&rep_name=Crash_Recovery`.replace(/&/g, "&amp;");
-    res.type("text/xml").send(
-      `<Response><Connect><Stream url="${fallbackUrl}" /></Connect></Response>`
-    );
+    res.type("text/xml").send(`<Response><Connect><Stream url="wss://${req.headers.host}/" /></Connect></Response>`);
   }
 });
 
-// --- [BLOCK 5: WEBSOCKET CORE & SAVE ENGINE] ---
-wss.on("connection", async (ws, req) => {
-  console.log("🔥 Twilio WebSocket connected:", req.url);
+// --- [BLOCK 5: WEBSOCKET CORE (DATA EXTRACTION)] ---
+wss.on("connection", async (ws) => {
+  console.log("🔥 Twilio WebSocket connected");
 
-  // 1. SAFE HANDSHAKE (DEBUG MODE)
-  let orgId = 1;
-  let repName = "URL_Missing"; // <--- DEBUG FLAG 2
-
-  try {
-    const urlObj = new URL(req.url, "http://localhost");
-    
-    // Check if params exist
-    if (urlObj.searchParams.get("org_id")) {
-        orgId = parseInt(urlObj.searchParams.get("org_id"));
-    }
-    
-    const queryName = urlObj.searchParams.get("rep_name");
-    if (queryName) {
-        repName = decodeURIComponent(queryName);
-    }
-    
-    console.log("🔎 Handshake Resolved To:", { orgId, repName });
-  } catch (err) {
-    console.error("⚠️ Handshake Warning:", err.message);
-  }
-
-  // NOTE: We REMOVED the "repIsValid" check. 
-  // We want the call to proceed even if it is "System_Fail" so you can hear the name.
-
+  // State Variables
   let streamSid = null;
   let dealQueue = [];
   let currentDealIndex = 0;
+  let repName = "Unknown";
+  let orgId = 1;
 
-  // 2. CONNECT TO OPENAI
+  // 1. CONNECT TO OPENAI
   const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
     headers: {
       Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -252,34 +229,74 @@ wss.on("connection", async (ws, req) => {
     },
   });
 
-  // 3. HELPER: MOVE TO NEXT DEAL
-  const advanceToNextDeal = () => {
-    currentDealIndex++;
-    if (currentDealIndex >= dealQueue.length) {
-      openAiWs.send(JSON.stringify({
-        type: "response.create",
-        response: { instructions: `Say exactly: "Review complete. Goodbye ${repName.split(" ")[0]}."` }
-      }));
-      return;
-    }
+  // 2. HELPER: LOAD & START DEAL
+  const loadAndStart = async () => {
+      // Load Data
+      try {
+        const result = await pool.query(
+          `SELECT o.*, org.product_truths AS org_product_data
+           FROM opportunities o
+           JOIN organizations org ON o.org_id = org.id
+           WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost')
+           ORDER BY o.id ASC`,
+          [orgId]
+        );
+        dealQueue = result.rows;
+        console.log(`📊 Loaded ${dealQueue.length} deals for ${repName}`);
+      } catch (err) {
+        console.error("❌ DB Load Error:", err.message);
+      }
 
-    const nextDeal = dealQueue[currentDealIndex];
-    const remaining = dealQueue.length - currentDealIndex - 1;
-    const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], remaining);
+      // Check Queue
+      if (dealQueue.length === 0) {
+          openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: 'Hello ${repName}. I could not find any active deals for your organization.'` } }));
+          return;
+      }
 
-    openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: nextInstructions } }));
-    openAiWs.send(JSON.stringify({
-      type: "response.create",
-      response: { instructions: `Say exactly: "Pulling up ${nextDeal.account_name}."` }
-    }));
+      // Start First Deal
+      const firstDeal = dealQueue[0];
+      const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1);
+      
+      const logicUpdate = {
+        type: "session.update",
+        session: {
+          instructions: instructions,
+          tools: [{
+              type: "function",
+              name: "save_deal_data",
+              description: "Saves scores, tips, and next steps to the database.",
+              parameters: {
+                type: "object",
+                properties: {
+                  pain_score: { type: "number" }, pain_tip: { type: "string" },
+                  metrics_score: { type: "number" }, metrics_tip: { type: "string" },
+                  champion_score: { type: "number" }, champion_tip: { type: "string" },
+                  eb_score: { type: "number" }, eb_tip: { type: "string" },
+                  criteria_score: { type: "number" }, criteria_tip: { type: "string" },
+                  process_score: { type: "number" }, process_tip: { type: "string" },
+                  competition_score: { type: "number" }, competition_tip: { type: "string" },
+                  paper_score: { type: "number" }, paper_tip: { type: "string" },
+                  timing_score: { type: "number" }, timing_tip: { type: "string" },
+                  risk_summary: { type: "string" }, next_steps: { type: "string" },
+                },
+                required: ["pain_score", "pain_tip", "metrics_score", "metrics_tip", "champion_score", "champion_tip", "eb_score", "eb_tip", "criteria_score", "criteria_tip", "process_score", "process_tip", "competition_score", "competition_tip", "paper_score", "paper_tip", "timing_score", "timing_tip", "risk_summary", "next_steps"],
+              },
+          }],
+          tool_choice: "auto",
+        },
+      };
+
+      openAiWs.send(JSON.stringify(logicUpdate));
+      
+      // Trigger Speech
+      setTimeout(() => { 
+        openAiWs.send(JSON.stringify({ type: "response.create" })); 
+      }, 500);
   };
 
-  // 4. OPENAI SESSION SETUP (RACE CONDITION FIX)
+  // 3. OPENAI SESSION SETUP (Immediate Silence)
   openAiWs.on("open", async () => {
-    console.log(`📡 OpenAI Stream Active for rep: ${repName}`);
-
-    // A. INSTANT CONFIG + SILENCE
-    // "Act as a silent listener" prevents the "How can I help you" hallucination.
+    // Send "Silent" config immediately to prevent hallucinations
     openAiWs.send(JSON.stringify({
       type: "session.update",
       session: {
@@ -287,80 +304,49 @@ wss.on("connection", async (ws, req) => {
         output_audio_format: "g711_ulaw",
         voice: "verse",
         turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
-        instructions: "Act as a silent listener. Do not speak until specifically instructed." 
+        instructions: "Act as a silent listener. Do not speak until specifically instructed."
       }
     }));
-
-    // B. LOAD DATABASE
-    try {
-      const result = await pool.query(
-        `SELECT o.*, org.product_truths AS org_product_data
-         FROM opportunities o
-         JOIN organizations org ON o.org_id = org.id
-         WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost')
-         ORDER BY o.id ASC`,
-        [orgId]
-      );
-      dealQueue = result.rows;
-      console.log(`📊 Loaded ${dealQueue.length} deals`);
-    } catch (err) {
-      console.error("❌ DB Load Error:", err.message);
-      dealQueue = [];
-    }
-
-    // C. START INTERVIEW
-    // Even if no deals, we tell the user.
-    if (dealQueue.length === 0) {
-       openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: 'Hello ${repName}. I connected successfully, but I found zero active deals for Org ID ${orgId}.'` } }));
-       return;
-    }
-
-    const firstDeal = dealQueue[0];
-    const realInstructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1);
-
-    const logicUpdate = {
-      type: "session.update",
-      session: {
-        instructions: realInstructions, // <--- UN-GAG: Give him the brain
-        tools: [{
-            type: "function",
-            name: "save_deal_data",
-            description: "Saves scores, tips, and next steps to the database.",
-            parameters: {
-              type: "object",
-              properties: {
-                pain_score: { type: "number" }, pain_tip: { type: "string" },
-                metrics_score: { type: "number" }, metrics_tip: { type: "string" },
-                champion_score: { type: "number" }, champion_tip: { type: "string" },
-                eb_score: { type: "number" }, eb_tip: { type: "string" },
-                criteria_score: { type: "number" }, criteria_tip: { type: "string" },
-                process_score: { type: "number" }, process_tip: { type: "string" },
-                competition_score: { type: "number" }, competition_tip: { type: "string" },
-                paper_score: { type: "number" }, paper_tip: { type: "string" },
-                timing_score: { type: "number" }, timing_tip: { type: "string" },
-                risk_summary: { type: "string" }, next_steps: { type: "string" },
-              },
-              required: ["pain_score", "pain_tip", "metrics_score", "metrics_tip", "champion_score", "champion_tip", "eb_score", "eb_tip", "criteria_score", "criteria_tip", "process_score", "process_tip", "competition_score", "competition_tip", "paper_score", "paper_tip", "timing_score", "timing_tip", "risk_summary", "next_steps"],
-            },
-        }],
-        tool_choice: "auto",
-      },
-    };
-
-    openAiWs.send(JSON.stringify(logicUpdate));
-    
-    // E. TRIGGER FIRST WORD (Manual Trigger)
-    setTimeout(() => { 
-        openAiWs.send(JSON.stringify({ type: "response.create" })); 
-    }, 250);
   });
 
-  // 5. INCOMING MESSAGE HANDLER
+  // 4. TWILIO AUDIO BRIDGE (With Parameter Extraction)
+  ws.on("message", (message) => {
+    const msg = JSON.parse(message);
+
+    // A. START EVENT: This is where the Parameters hide!
+    if (msg.event === "start") {
+      streamSid = msg.start.streamSid;
+      const params = msg.start.customParameters; // <--- THE FIX
+      
+      if (params) {
+          orgId = parseInt(params.org_id) || 1;
+          repName = params.rep_name || "Guest";
+          console.log(`🔎 Start Event Params: ${repName} (Org ${orgId})`);
+          
+          // Now that we know who it is, load the DB and start talking
+          if (openAiWs.readyState === WebSocket.OPEN) {
+              loadAndStart();
+          }
+      }
+      return;
+    }
+
+    // B. MEDIA EVENT: Pass Audio
+    if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
+      openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
+    }
+  });
+
+  // 5. INCOMING MESSAGE HANDLER (Tools & Output)
   openAiWs.on("message", (data) => {
     const response = JSON.parse(data);
+
+    // Audio Output
     if (response.type === "response.audio.delta" && response.delta) {
       ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
     }
+
+    // Tool Execution
     if (response.type === "response.done" && response.response?.output) {
       response.response.output.forEach((output) => {
         if (output.type === "function_call" && output.name === "save_deal_data") {
@@ -383,23 +369,24 @@ wss.on("connection", async (ws, req) => {
           ).then(() => {
             console.log(`✅ Saved: ${deal.account_name}`);
             openAiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: output.call_id, output: JSON.stringify({ success: true }) } }));
-            advanceToNextDeal();
+            
+            // Advance Queue
+            currentDealIndex++;
+            if (currentDealIndex >= dealQueue.length) {
+              openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say exactly: "Review complete. Goodbye ${repName.split(" ")[0]}."` } }));
+            } else {
+              const nextDeal = dealQueue[currentDealIndex];
+              const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - currentDealIndex - 1);
+              openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: nextInstructions } }));
+              openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say exactly: "Pulling up ${nextDeal.account_name}."` } }));
+            }
           }).catch((err) => console.error("❌ DB ERROR:", err.message));
         }
       });
     }
   });
 
-  // 6. TWILIO AUDIO BRIDGE
-  ws.on("message", (message) => {
-    const msg = JSON.parse(message);
-    if (msg.event === "start") { streamSid = msg.start.streamSid; return; }
-    if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
-      openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
-    }
-  });
-
-  // 7. CLEANUP
+  // 6. CLEANUP
   ws.on("close", () => {
     console.log("🔌 Call Closed.");
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
@@ -408,7 +395,6 @@ wss.on("connection", async (ws, req) => {
 
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/", (req, res) => res.send("Forecast Agent API is Online 🤖"));
-
 app.get("/debug/opportunities", async (req, res) => {
   try {
     const orgId = parseInt(req.query.org_id) || 1;
@@ -422,5 +408,4 @@ app.get("/debug/opportunities", async (req, res) => {
   }
 });
 
-// --- [SERVER LISTEN] ---
 server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`));
