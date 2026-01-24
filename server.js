@@ -413,4 +413,4 @@ app.get("/debug/opportunities", async (req, res) => {
 });
 
 // --- [SERVER LISTEN] ---
-server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`)); 
