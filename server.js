@@ -258,18 +258,20 @@ wss.on("connection", async (ws, req) => {
     }));
   };
 
-  // 4. OPENAI SESSION SETUP (STATIC FIX APPLIED)
+  // 4. OPENAI SESSION SETUP (RACE CONDITION FIX APPLIED)
   openAiWs.on("open", async () => {
     console.log(`📡 OpenAI Stream Active for rep: ${repName}`);
 
-    // A. FAST CONFIG (Fixes Static)
+    // A. INSTANT CONFIG + SILENCE
+    // We send this FIRST to ensure the model knows to use G711 and waits for us.
     openAiWs.send(JSON.stringify({
       type: "session.update",
       session: {
         input_audio_format: "g711_ulaw",
         output_audio_format: "g711_ulaw",
         voice: "verse",
-        turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 }
+        turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
+        instructions: "Act as a silent listener. Do not speak until specifically instructed." // <--- THE GAG ORDER
       }
     }));
 
@@ -297,14 +299,14 @@ wss.on("connection", async (ws, req) => {
        return;
     }
 
-    // D. START INTERVIEW
+    // D. START INTERVIEW (OVERWRITE THE SILENCE)
     const firstDeal = dealQueue[0];
-    const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1);
+    const realInstructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1);
 
     const logicUpdate = {
       type: "session.update",
       session: {
-        instructions: instructions,
+        instructions: realInstructions, // <--- NOW we give him the brain
         tools: [{
             type: "function",
             name: "save_deal_data",
@@ -331,10 +333,14 @@ wss.on("connection", async (ws, req) => {
     };
 
     openAiWs.send(JSON.stringify(logicUpdate));
-    setTimeout(() => { openAiWs.send(JSON.stringify({ type: "response.create" })); }, 500);
+    
+    // E. TRIGGER THE FIRST WORD (with a slight delay to ensure the brain is loaded)
+    setTimeout(() => { 
+        openAiWs.send(JSON.stringify({ type: "response.create" })); 
+    }, 250);
   });
 
-  // 5. INCOMING MESSAGE HANDLER
+  // 5. INCOMING MESSAGE HANDLER (Tool Calls & Audio)
   openAiWs.on("message", (data) => {
     const response = JSON.parse(data);
 
