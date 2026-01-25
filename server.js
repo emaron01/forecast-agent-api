@@ -189,7 +189,9 @@ function getSystemPrompt(deal, repName, dealsLeft) {
        - **SUMMARY RULES:** You MUST start the summary with the Score Label (e.g., "Score 1: Soft Benefits only"). Then explain the gap.
        - **TIP RULES (THE COACH):** - If Score is 3: Tip is "None". 
          - If Score < 3: You MUST write the specific coaching advice you held back during the call. Tell the rep exactly what action to take to get a 3.
-    3. **Ending:** Say "Okay, moving to the next deal."
+    3. **Ending:** Say "Okay, moving to the next deal." 
+`;
+ }
 
 
 // --- [BLOCK 4: SMART RECEPTIONIST] ---
