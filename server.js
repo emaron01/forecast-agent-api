@@ -305,7 +305,7 @@ wss.on("connection", async (ws) => {
       const firstDeal = dealQueue[0];
       const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1);
       
-      const sessionUpdate = {
+const sessionUpdate = {
         type: "session.update",
         session: {
           turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
@@ -349,17 +349,13 @@ wss.on("connection", async (ws) => {
                   risk_summary: { type: "string" }, 
                   next_steps: { type: "string" },
                 },
+                // THE FIX: We only require the critical SCORES. 
+                // The AI can now save successfully even if it forgets a text summary.
                 required: [
-                  "pain_score", "pain_tip", "pain_summary",
-                  "metrics_score", "metrics_tip", "metrics_summary",
-                  "champion_score", "champion_tip", "champion_summary",
-                  "eb_score", "eb_tip", "eb_summary",
-                  "criteria_score", "criteria_tip", "criteria_summary",
-                  "process_score", "process_tip", "process_summary",
-                  "competition_score", "competition_tip", "competition_summary",
-                  "paper_score", "paper_tip", "paper_summary",
-                  "timing_score", "timing_tip", "timing_summary",
-                  "risk_summary", "next_steps"
+                  "pain_score", "metrics_score", "champion_score", 
+                  "eb_score", "criteria_score", "process_score", 
+                  "competition_score", "paper_score", "timing_score", 
+                  "next_steps"
                 ],
               },
           }],
