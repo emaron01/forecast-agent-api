@@ -246,6 +246,7 @@ app.post("/agent", async (req, res) => {
   }
 });
 
+
 // --- [BLOCK 5: WEBSOCKET CORE] ---
 wss.on("connection", async (ws) => {
   console.log("🔥 Twilio WebSocket connected");
@@ -305,7 +306,7 @@ wss.on("connection", async (ws) => {
       const firstDeal = dealQueue[0];
       const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1);
       
-const sessionUpdate = {
+      const sessionUpdate = {
         type: "session.update",
         session: {
           turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
@@ -349,12 +350,18 @@ const sessionUpdate = {
                   risk_summary: { type: "string" }, 
                   next_steps: { type: "string" },
                 },
-                // THE FIX: We only require the critical SCORES. 
-                // The AI can now save successfully even if it forgets a text summary.
+                // THE FIX 1: We PUT TIPS BACK into Required. 
+                // We keep Summaries optional (Safe), but force Tips (Data Quality).
                 required: [
-                  "pain_score", "metrics_score", "champion_score", 
-                  "eb_score", "criteria_score", "process_score", 
-                  "competition_score", "paper_score", "timing_score", 
+                  "pain_score", "pain_tip",
+                  "metrics_score", "metrics_tip",
+                  "champion_score", "champion_tip",
+                  "eb_score", "eb_tip",
+                  "criteria_score", "criteria_tip",
+                  "process_score", "process_tip",
+                  "competition_score", "competition_tip",
+                  "paper_score", "paper_tip",
+                  "timing_score", "timing_tip",
                   "next_steps"
                 ],
               },
@@ -414,9 +421,7 @@ const sessionUpdate = {
     }
   });
 
-
-
-// 5. INCOMING MESSAGE HANDLER (Tools)
+  // 5. INCOMING MESSAGE HANDLER (Tools)
   openAiWs.on("message", (data) => {
     const response = JSON.parse(data);
 
@@ -435,7 +440,7 @@ const sessionUpdate = {
           const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
           const newStage = totalScore >= 25 ? "Closed Won" : totalScore >= 20 ? "Commit" : totalScore >= 12 ? "Best Case" : "Pipeline";
 
-          // SAFEGUARDS: Default to empty string if AI skips a summary
+          // DEFAULTS
           const riskSummary = args.risk_summary || "Deal progressed.";
           const painSum = args.pain_summary || "No notes.";
           const metricsSum = args.metrics_summary || "No notes.";
@@ -460,11 +465,11 @@ const sessionUpdate = {
 
              WHERE id = $4 AND org_id = $24`,
             [
-              riskSummary, JSON.stringify(args), newStage, deal.id, // 1-4
-              args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score, // 5-13
-              args.pain_tip, args.metrics_tip, args.champion_tip, args.eb_tip, args.criteria_tip, args.process_tip, args.competition_tip, args.paper_tip, args.timing_tip, // 14-22
-              args.next_steps, orgId, // 23-24
-              painSum, metricsSum, champSum, ebSum, critSum, procSum, compSum, paperSum, timeSum // 25-33
+              riskSummary, JSON.stringify(args), newStage, deal.id, 
+              args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score, 
+              args.pain_tip, args.metrics_tip, args.champion_tip, args.eb_tip, args.criteria_tip, args.process_tip, args.competition_tip, args.paper_tip, args.timing_tip, 
+              args.next_steps, orgId, 
+              painSum, metricsSum, champSum, ebSum, critSum, procSum, compSum, paperSum, timeSum 
             ]
           ).then(() => {
             console.log(`✅ Saved: ${deal.account_name}`);
@@ -476,7 +481,7 @@ const sessionUpdate = {
             currentDealIndex++;
             
             if (currentDealIndex >= dealQueue.length) {
-              console.log("🏁 Queue Finished. Saying Goodbye.");
+              console.log("🏁 Queue Finished.");
               openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say exactly: "Review complete. Goodbye ${repName.split(" ")[0]}."` } }));
             } else {
               const nextDeal = dealQueue[currentDealIndex];
@@ -484,19 +489,29 @@ const sessionUpdate = {
               
               const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - currentDealIndex - 1);
               
-              // 3. Update Instructions (Memory Wipe)
-              openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: nextInstructions } }));
+              // 3. THE FIX 2: CONTEXT NUKE. We use a "System" marker to force the brain switch.
+              openAiWs.send(JSON.stringify({ 
+                  type: "session.update", 
+                  session: { 
+                      instructions: `*** IMPORTANT: PREVIOUS DEAL CLOSED. NEW DEAL STARTED. ***\n\nIGNORE ALL PREVIOUS CONTEXT about ${deal.account_name}.\n\n` + nextInstructions 
+                  } 
+              }));
               
-              // 4. Force Speech (With tiny delay to ensure Memory Wipe takes effect)
+              // 4. Force Speech with a "Clearing" opening line
               setTimeout(() => {
-                  openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say exactly: "Okay, I've updated the scorecard. Pulling up ${nextDeal.account_name}..."` } }));
-              }, 200);
+                  openAiWs.send(JSON.stringify({ 
+                      type: "response.create", 
+                      response: { 
+                          instructions: `Say exactly: "Okay, I've filed that away. Now pulling up ${nextDeal.account_name} for $${nextDeal.amount}. What is the latest update here?"` 
+                      } 
+                  }));
+              }, 250);
             }
           }).catch((err) => console.error("❌ DB ERROR:", err.message));
         }
       });
     }
-  });// <--- THIS WAS MISSING BEFORE
+  });
 
   // 6. CLEANUP
   ws.on("close", () => {
@@ -504,7 +519,6 @@ const sessionUpdate = {
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
 });
-
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/", (req, res) => res.send("Forecast Agent API is Online 🤖"));
 
