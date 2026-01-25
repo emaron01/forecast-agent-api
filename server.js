@@ -414,7 +414,9 @@ const sessionUpdate = {
     }
   });
 
-  // 5. INCOMING MESSAGE HANDLER (Tools)
+
+
+// 5. INCOMING MESSAGE HANDLER (Tools)
   openAiWs.on("message", (data) => {
     const response = JSON.parse(data);
 
@@ -433,6 +435,18 @@ const sessionUpdate = {
           const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
           const newStage = totalScore >= 25 ? "Closed Won" : totalScore >= 20 ? "Commit" : totalScore >= 12 ? "Best Case" : "Pipeline";
 
+          // SAFEGUARDS: Default to empty string if AI skips a summary
+          const riskSummary = args.risk_summary || "Deal progressed.";
+          const painSum = args.pain_summary || "No notes.";
+          const metricsSum = args.metrics_summary || "No notes.";
+          const champSum = args.champion_summary || "No notes.";
+          const ebSum = args.eb_summary || "No notes.";
+          const critSum = args.criteria_summary || "No notes.";
+          const procSum = args.process_summary || "No notes.";
+          const compSum = args.competition_summary || "No notes.";
+          const paperSum = args.paper_summary || "No notes.";
+          const timeSum = args.timing_summary || "No notes.";
+
           pool.query(
             `UPDATE opportunities SET 
              previous_total_score = (COALESCE(pain_score,0) + COALESCE(metrics_score,0) + COALESCE(champion_score,0) + COALESCE(eb_score,0) + COALESCE(criteria_score,0) + COALESCE(process_score,0) + COALESCE(competition_score,0) + COALESCE(paper_score,0) + COALESCE(timing_score,0)),
@@ -446,31 +460,43 @@ const sessionUpdate = {
 
              WHERE id = $4 AND org_id = $24`,
             [
-              args.risk_summary, JSON.stringify(args), newStage, deal.id, // 1-4
+              riskSummary, JSON.stringify(args), newStage, deal.id, // 1-4
               args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score, // 5-13
               args.pain_tip, args.metrics_tip, args.champion_tip, args.eb_tip, args.criteria_tip, args.process_tip, args.competition_tip, args.paper_tip, args.timing_tip, // 14-22
               args.next_steps, orgId, // 23-24
-              args.pain_summary, args.metrics_summary, args.champion_summary, args.eb_summary, args.criteria_summary, args.process_summary, args.competition_summary, args.paper_summary, args.timing_summary // 25-33
+              painSum, metricsSum, champSum, ebSum, critSum, procSum, compSum, paperSum, timeSum // 25-33
             ]
           ).then(() => {
             console.log(`✅ Saved: ${deal.account_name}`);
+            
+            // 1. Tell AI the save worked
             openAiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: output.call_id, output: JSON.stringify({ success: true }) } }));
             
-            // Advance Queue
+            // 2. Advance Queue
             currentDealIndex++;
+            
             if (currentDealIndex >= dealQueue.length) {
+              console.log("🏁 Queue Finished. Saying Goodbye.");
               openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say exactly: "Review complete. Goodbye ${repName.split(" ")[0]}."` } }));
             } else {
               const nextDeal = dealQueue[currentDealIndex];
+              console.log(`👉 Moving to next deal: ${nextDeal.account_name}`);
+              
               const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - currentDealIndex - 1);
+              
+              // 3. Update Instructions (Memory Wipe)
               openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: nextInstructions } }));
-              openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say exactly: "Pulling up ${nextDeal.account_name}."` } }));
+              
+              // 4. Force Speech (With tiny delay to ensure Memory Wipe takes effect)
+              setTimeout(() => {
+                  openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say exactly: "Okay, I've updated the scorecard. Pulling up ${nextDeal.account_name}..."` } }));
+              }, 200);
             }
           }).catch((err) => console.error("❌ DB ERROR:", err.message));
         }
       });
     }
-  }); // <--- THIS WAS MISSING BEFORE
+  });// <--- THIS WAS MISSING BEFORE
 
   // 6. CLEANUP
   ws.on("close", () => {
