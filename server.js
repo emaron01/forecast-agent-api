@@ -51,15 +51,45 @@ function getSystemPrompt(deal, repName, dealsLeft) {
         ? `Last time we flagged: "${lastSummary}". How is that looking now?` 
         : "What's the latest update on this account?";
 
-    // 4. FLATTENED READ LOGIC (SCORE SNAPSHOT)
+// 4. FLATTENED READ LOGIC (FULL MEMORY: SCORE + TIP + REASONING)
     const details = deal.audit_details || {}; 
     const scoreContext = `
-    PRIOR SNAPSHOT:
-    • Pain: ${deal.pain_score || details.pain_score || "?"}/3 | Metrics: ${deal.metrics_score || details.metrics_score || "?"}/3
-    • Champion: ${deal.champion_score || details.champion_score || "?"}/3 | EB: ${deal.eb_score || details.eb_score || "?"}/3
-    • Decision Criteria: ${deal.criteria_score || details.criteria_score || "?"}/3 | Decision Process: ${deal.process_score || details.process_score || "?"}/3
-    • Competition: ${deal.competition_score || details.competition_score || "?"}/3 | Paper Process: ${deal.paper_score || details.paper_score || "?"}/3
-    • Timing: ${deal.timing_score || details.timing_score || "?"}/3
+    PRIOR SNAPSHOT (MEMORY):
+    • Pain: ${deal.pain_score || details.pain_score || "?"}/3 
+      > Last Tip: "${deal.pain_tip || "None"}"
+      > Last Reasoning: ${deal.pain_summary || "No notes yet."}
+      
+    • Metrics: ${deal.metrics_score || details.metrics_score || "?"}/3 
+      > Last Tip: "${deal.metrics_tip || "None"}"
+      > Last Reasoning: ${deal.metrics_summary || "No notes yet."}
+      
+    • Champion: ${deal.champion_score || details.champion_score || "?"}/3 
+      > Last Tip: "${deal.champion_tip || "None"}"
+      > Last Reasoning: ${deal.champion_summary || "No notes yet."}
+      
+    • Economic Buyer: ${deal.eb_score || details.eb_score || "?"}/3 
+      > Last Tip: "${deal.eb_tip || "None"}"
+      > Last Reasoning: ${deal.eb_summary || "No notes yet."}
+      
+    • Criteria: ${deal.criteria_score || details.criteria_score || "?"}/3 
+      > Last Tip: "${deal.criteria_tip || "None"}"
+      > Last Reasoning: ${deal.criteria_summary || "No notes yet."}
+      
+    • Process: ${deal.process_score || details.process_score || "?"}/3 
+      > Last Tip: "${deal.process_tip || "None"}"
+      > Last Reasoning: ${deal.process_summary || "No notes yet."}
+      
+    • Competition: ${deal.competition_score || details.competition_score || "?"}/3 
+      > Last Tip: "${deal.competition_tip || "None"}"
+      > Last Reasoning: ${deal.competition_summary || "No notes yet."}
+      
+    • Paper Process: ${deal.paper_score || details.paper_score || "?"}/3 
+      > Last Tip: "${deal.paper_tip || "None"}"
+      > Last Reasoning: ${deal.paper_summary || "No notes yet."}
+      
+    • Timing: ${deal.timing_score || details.timing_score || "?"}/3 
+      > Last Tip: "${deal.timing_tip || "None"}"
+      > Last Reasoning: ${deal.timing_summary || "No notes yet."}
     `;
 
     // 5. STAGE STRATEGY (DETAILED)
@@ -155,15 +185,28 @@ function getSystemPrompt(deal, repName, dealsLeft) {
     9. **TIMING (0-3):** Is there a Compelling Event or just a target date?
        *Wait for answer.*
 
-    ### INTERNAL TRUTHS (PRODUCT POLICE)
+### INTERNAL TRUTHS (PRODUCT POLICE)
     ${deal.org_product_data || "Verify capabilities against company documentation."}
 
 ### COMPLETION PROTOCOL
     When you have gathered the data, perform this EXACT sequence:
+
     1. **Verbal Confirmation:** Say exactly: "Based on today's discussion, this opportunity's Health Score is [Total] out of 27. Just one moment while I update your scorecard."
+
     2. **Trigger Tool:** Immediately trigger the save_deal_data tool. 
-    3. **Final Hand-off:** After the tool triggers, say: "Okay, moving to the next opportunity."    `;
+       **CRITICAL SCORING LOGIC:**
+       - **IF SCORE IS 3:** The [category]_tip MUST be "None". Do not invent advice for a perfect category.
+       - **IF SCORE IS < 3:** The [category]_tip is MANDATORY. Give a specific instruction on how to get to 3.
+       
+       **Required Fields per Category:**
+       - [category]_score: The 0-3 rating.
+       - [category]_tip: Actionable instruction (or "None" if score is 3).
+       - [category]_summary: The evidence/reasoning (Always required).
+
+    3. **Final Hand-off:** After the tool triggers, say: "Okay, moving to the next opportunity."
+    `;
 }
+
 
 
 // --- [BLOCK 4: SMART RECEPTIONIST] ---
@@ -211,7 +254,7 @@ wss.on("connection", async (ws) => {
   let streamSid = null;
   let dealQueue = [];
   let currentDealIndex = 0;
-  let repName = null; // Null means "We don't know who this is yet"
+  let repName = null; 
   let orgId = 1;
   let openAiReady = false;
 
@@ -223,9 +266,9 @@ wss.on("connection", async (ws) => {
     },
   });
 
-  // 2. HELPER: LAUNCHER (Runs only when BOTH connections are ready)
+  // 2. HELPER: LAUNCHER
   const attemptLaunch = async () => {
-      if (!repName || !openAiReady) return; // Wait for the other half
+      if (!repName || !openAiReady) return; 
 
       console.log(`🚀 Launching Session for ${repName}`);
 
@@ -270,22 +313,54 @@ wss.on("connection", async (ws) => {
           tools: [{
               type: "function",
               name: "save_deal_data",
-              description: "Saves scores, tips, and next steps to the database.",
+              description: "Saves scores, tips, and reasoning summaries to the database.",
               parameters: {
                 type: "object",
                 properties: {
-                  pain_score: { type: "number" }, pain_tip: { type: "string" },
+                  // PAIN
+                  pain_score: { type: "number" }, pain_tip: { type: "string" }, 
+                  pain_summary: { type: "string", description: "Reasoning for Pain score" },
+                  // METRICS
                   metrics_score: { type: "number" }, metrics_tip: { type: "string" },
+                  metrics_summary: { type: "string", description: "Reasoning for Metrics score" },
+                  // CHAMPION
                   champion_score: { type: "number" }, champion_tip: { type: "string" },
+                  champion_summary: { type: "string", description: "Reasoning for Champion score" },
+                  // EB
                   eb_score: { type: "number" }, eb_tip: { type: "string" },
+                  eb_summary: { type: "string", description: "Reasoning for EB score" },
+                  // CRITERIA
                   criteria_score: { type: "number" }, criteria_tip: { type: "string" },
+                  criteria_summary: { type: "string", description: "Reasoning for Criteria score" },
+                  // PROCESS
                   process_score: { type: "number" }, process_tip: { type: "string" },
+                  process_summary: { type: "string", description: "Reasoning for Process score" },
+                  // COMPETITION
                   competition_score: { type: "number" }, competition_tip: { type: "string" },
+                  competition_summary: { type: "string", description: "Reasoning for Competition score" },
+                  // PAPER
                   paper_score: { type: "number" }, paper_tip: { type: "string" },
+                  paper_summary: { type: "string", description: "Reasoning for Paper score" },
+                  // TIMING
                   timing_score: { type: "number" }, timing_tip: { type: "string" },
-                  risk_summary: { type: "string" }, next_steps: { type: "string" },
+                  timing_summary: { type: "string", description: "Reasoning for Timing score" },
+
+                  // GENERAL
+                  risk_summary: { type: "string" }, 
+                  next_steps: { type: "string" },
                 },
-                required: ["pain_score", "pain_tip", "metrics_score", "metrics_tip", "champion_score", "champion_tip", "eb_score", "eb_tip", "criteria_score", "criteria_tip", "process_score", "process_tip", "competition_score", "competition_tip", "paper_score", "paper_tip", "timing_score", "timing_tip", "risk_summary", "next_steps"],
+                required: [
+                  "pain_score", "pain_tip", "pain_summary",
+                  "metrics_score", "metrics_tip", "metrics_summary",
+                  "champion_score", "champion_tip", "champion_summary",
+                  "eb_score", "eb_tip", "eb_summary",
+                  "criteria_score", "criteria_tip", "criteria_summary",
+                  "process_score", "process_tip", "process_summary",
+                  "competition_score", "competition_tip", "competition_summary",
+                  "paper_score", "paper_tip", "paper_summary",
+                  "timing_score", "timing_tip", "timing_summary",
+                  "risk_summary", "next_steps"
+                ],
               },
           }],
           tool_choice: "auto",
@@ -332,7 +407,7 @@ wss.on("connection", async (ws) => {
           orgId = parseInt(params.org_id) || 1;
           repName = params.rep_name || "Guest";
           console.log(`🔎 Params Received: ${repName}`);
-          attemptLaunch(); // Check if OpenAI is already waiting
+          attemptLaunch(); 
       }
       return;
     }
@@ -366,10 +441,21 @@ wss.on("connection", async (ws) => {
             `UPDATE opportunities SET 
              previous_total_score = (COALESCE(pain_score,0) + COALESCE(metrics_score,0) + COALESCE(champion_score,0) + COALESCE(eb_score,0) + COALESCE(criteria_score,0) + COALESCE(process_score,0) + COALESCE(competition_score,0) + COALESCE(paper_score,0) + COALESCE(timing_score,0)),
              previous_updated_at = updated_at, last_summary = $1, audit_details = $2, forecast_stage = $3, updated_at = NOW(), run_count = COALESCE(run_count, 0) + 1,
+             
              pain_score = $5, metrics_score = $6, champion_score = $7, eb_score = $8, criteria_score = $9, process_score = $10, competition_score = $11, paper_score = $12, timing_score = $13,
-             pain_tip = $14, metrics_tip = $15, champion_tip = $16, eb_tip = $17, criteria_tip = $18, process_tip = $19, competition_tip = $20, paper_tip = $21, timing_tip = $22, next_steps = $23
+             pain_tip = $14, metrics_tip = $15, champion_tip = $16, eb_tip = $17, criteria_tip = $18, process_tip = $19, competition_tip = $20, paper_tip = $21, timing_tip = $22,
+             next_steps = $23,
+             
+             pain_summary = $25, metrics_summary = $26, champion_summary = $27, eb_summary = $28, criteria_summary = $29, process_summary = $30, competition_summary = $31, paper_summary = $32, timing_summary = $33
+
              WHERE id = $4 AND org_id = $24`,
-            [args.risk_summary, JSON.stringify(args), newStage, deal.id, args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score, args.pain_tip, args.metrics_tip, args.champion_tip, args.eb_tip, args.criteria_tip, args.process_tip, args.competition_tip, args.paper_tip, args.timing_tip, args.next_steps, orgId]
+            [
+              args.risk_summary, JSON.stringify(args), newStage, deal.id, // 1-4
+              args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score, // 5-13
+              args.pain_tip, args.metrics_tip, args.champion_tip, args.eb_tip, args.criteria_tip, args.process_tip, args.competition_tip, args.paper_tip, args.timing_tip, // 14-22
+              args.next_steps, orgId, // 23-24
+              args.pain_summary, args.metrics_summary, args.champion_summary, args.eb_summary, args.criteria_summary, args.process_summary, args.competition_summary, args.paper_summary, args.timing_summary // 25-33
+            ]
           ).then(() => {
             console.log(`✅ Saved: ${deal.account_name}`);
             openAiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: output.call_id, output: JSON.stringify({ success: true }) } }));
@@ -388,7 +474,7 @@ wss.on("connection", async (ws) => {
         }
       });
     }
-  });
+  }); // <--- THIS WAS MISSING BEFORE
 
   // 6. CLEANUP
   ws.on("close", () => {
@@ -399,15 +485,20 @@ wss.on("connection", async (ws) => {
 
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/", (req, res) => res.send("Forecast Agent API is Online 🤖"));
+
 app.get("/debug/opportunities", async (req, res) => {
   try {
     const orgId = parseInt(req.query.org_id) || 1;
+    
+    // Changing the specific list to '*' unlocks every column in your DB
     const result = await pool.query(
-      `SELECT id, account_name, forecast_stage, run_count, updated_at FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC`,
+      `SELECT * FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC`,
       [orgId]
     );
+    
     res.json(result.rows);
   } catch (err) {
+    console.error("Dashboard Fetch Error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
