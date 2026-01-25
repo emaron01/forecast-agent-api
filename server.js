@@ -1,37 +1,24 @@
-require("dotenv").config();
-const http = require("http");
+
 const express = require("express");
+const { WebSocket } = require("ws");
 const { Pool } = require("pg");
-const WebSocket = require("ws");
-const cors = require("cors");
+require("dotenv").config();
 
-// --- [BLOCK 1: CONFIGURATION] ---
-const PORT = process.env.PORT || 10000;
-const OPENAI_API_KEY = process.env.MODEL_API_KEY;
-const MODEL_URL = process.env.MODEL_URL || "wss://api.openai.com/v1/realtime";
-const MODEL_NAME = process.env.MODEL_NAME || "gpt-4o-mini-realtime-preview-2024-12-17";
-
-if (!OPENAI_API_KEY) {
-  console.error("❌ Missing MODEL_API_KEY in environment");
-  process.exit(1);
-}
-
-// --- [BLOCK 2: SERVER CONFIGURATION] ---
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(cors());
-app.use(express.static("public"));
+const port = process.env.PORT || 3000;
 
-// --- [BLOCK DB: POSTGRES POOL] ---
+// --- [BLOCK 1: DATABASE & CONFIG] ---
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
-// --- [BLOCK X: SERVER + WEBSOCKET INIT] ---
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const MODEL_NAME = "gpt-4o-realtime-preview-2024-10-01";
+const MODEL_URL = "wss://api.openai.com/v1/realtime";
+
+// Middleware to parse URL-encoded bodies (for Twilio)
+app.use(express.urlencoded({ extended: true }));
 
 // --- [BLOCK 3: SYSTEM PROMPT] ---
 function getSystemPrompt(deal, repName, dealsLeft) {
@@ -174,7 +161,7 @@ function getSystemPrompt(deal, repName, dealsLeft) {
        - **SUMMARY RULES:** You MUST start the summary with the Score Label (e.g., "Score 1: Soft Benefits only"). Then explain the gap.
        - **TIP RULES (THE COACH):** - If Score is 3: Tip is "None". 
          - If Score < 3: You MUST write the specific coaching advice you held back during the call. Tell the rep exactly what action to take to get a 3.
-3. **Ending:** Say "Okay, moving to the next deal."
+    3. **Ending:** Say "Okay, moving to the next deal."
     `;
 }
 
@@ -236,6 +223,18 @@ app.post("/agent", async (req, res) => {
 });
 
 // --- [BLOCK 5: WEBSOCKET CORE] ---
+const wss = new WebSocket.Server({ noServer: true });
+
+app.server = app.listen(port, () => {
+  console.log(`🚀 Server running on port ${port}`);
+});
+
+app.server.on("upgrade", (request, socket, head) => {
+  wss.handleUpgrade(request, socket, head, (ws) => {
+    wss.emit("connection", ws, request);
+  });
+});
+
 wss.on("connection", async (ws) => {
   console.log("🔥 Twilio WebSocket connected");
 
@@ -356,24 +355,118 @@ wss.on("connection", async (ws) => {
           // SAVE TO DB
           await pool.query(
             `UPDATE opportunities SET 
-              pain_score=$1// --- [BLOCK 6: API ENDPOINTS] ---
-app.get("/", (req, res) => res.send("Forecast Agent API is Online 🤖"));
+              pain_score=$1, pain_tip=$2, pain_summary=$3,
+              metrics_score=$4, metrics_tip=$5, metrics_summary=$6,
+              champion_score=$7, champion_tip=$8, champion_summary=$9,
+              eb_score=$10, eb_tip=$11, eb_summary=$12,
+              criteria_score=$13, criteria_tip=$14, criteria_summary=$15,
+              process_score=$16, process_tip=$17, process_summary=$18,
+              competition_score=$19, competition_tip=$20, competition_summary=$21,
+              paper_score=$22, paper_tip=$23, paper_summary=$24,
+              timing_score=$25, timing_tip=$26, timing_summary=$27,
+              last_summary=$28, next_steps=$29,
+              forecast_stage=$30,
+              run_count = run_count + 1,
+              updated_at = NOW()
+             WHERE id = $31`,
+            [
+              args.pain_score, args.pain_tip, args.pain_summary,
+              args.metrics_score, args.metrics_tip, args.metrics_summary,
+              args.champion_score, args.champion_tip, args.champion_summary,
+              args.eb_score, args.eb_tip, args.eb_summary,
+              args.criteria_score, args.criteria_tip, args.criteria_summary,
+              args.process_score, args.process_tip, args.process_summary,
+              args.competition_score, args.competition_tip, args.competition_summary,
+              args.paper_score, args.paper_tip, args.paper_summary,
+              args.timing_score, args.timing_tip, args.timing_summary,
+              args.risk_summary, args.next_steps, 
+              newStage,
+              deal.id
+            ]
+          );
+          console.log(`✅ Saved: ${deal.account_name}`);
 
-app.get("/debug/opportunities", async (req, res) => {
-  try {
-    const orgId = parseInt(req.query.org_id) || 1;
-    
-    // Changing the specific list to '*' unlocks every column in your DB
-    const result = await pool.query(
-      `SELECT * FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC`,
-      [orgId]
-    );
-    
-    res.json(result.rows);
-  } catch (err) {
-    console.error("Dashboard Fetch Error:", err.message);
-    res.status(500).json({ error: err.message });
-  }
+          // MOVE TO NEXT DEAL
+          currentDealIndex++;
+
+          if (currentDealIndex >= dealQueue.length) {
+             console.log("🏁 All deals finished.");
+             openAiWs.send(JSON.stringify({
+                type: "response.create",
+                response: { instructions: "Say: 'That concludes the review. Great work today.' and then hang up." }
+             }));
+             setTimeout(() => process.exit(0), 5000); 
+          } else {
+             const nextDeal = dealQueue[currentDealIndex];
+             console.log(`➡️ Moving to next: ${nextDeal.account_name}`);
+             
+             const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - 1 - currentDealIndex);
+             
+             // UPDATE BRAIN (Context Nuke)
+             openAiWs.send(JSON.stringify({
+                type: "session.update",
+                session: { instructions: nextInstructions }
+             }));
+             
+             // FORCE SPEAKING
+             openAiWs.send(JSON.stringify({
+                type: "response.create",
+                response: { instructions: `Say: 'Okay, saved. Next up is ${nextDeal.account_name}. What is the latest there?'` }
+             }));
+          }
+      } catch (err) {
+          console.error("❌ Save Failed:", err);
+      }
+  };
+
+  // 4. OPENAI EVENT LISTENER
+  openAiWs.on("open", async () => {
+    console.log("📡 OpenAI Connected");
+    openAiReady = true;
+    openAiWs.send(JSON.stringify({
+      type: "session.update",
+      session: { turn_detection: null, input_audio_format: "g711_ulaw", output_audio_format: "g711_ulaw", voice: "verse" }
+    }));
+    attemptLaunch();
+  });
+
+  openAiWs.on("message", (data) => {
+    const response = JSON.parse(data);
+
+    // Speak
+    if (response.type === "response.audio.delta" && response.delta) {
+      ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
+    }
+
+    // LISTENING FOR TOOL CALLS (The Fix)
+    if (response.type === "response.function_call_arguments.done") {
+        if (response.name === "save_deal_data") {
+            const args = JSON.parse(response.arguments);
+            handleFunctionCall(args);
+        }
+    }
+  });
+
+  // 5. TWILIO EVENT LISTENER
+  ws.on("message", (message) => {
+    const msg = JSON.parse(message);
+    if (msg.event === "start") {
+      streamSid = msg.start.streamSid;
+      const params = msg.start.customParameters;
+      if (params) {
+          orgId = parseInt(params.org_id) || 1;
+          repName = params.rep_name || "Guest";
+          console.log(`🔎 Params Received: ${repName}`);
+          attemptLaunch(); 
+      }
+    }
+    if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
+      openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
+    }
+  });
+
+  ws.on("close", () => {
+    console.log("🔌 Call Closed.");
+    if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
+  });
 });
-
-server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`));
