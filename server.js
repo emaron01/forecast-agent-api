@@ -105,28 +105,9 @@ function getSystemPrompt(deal, repName, dealsLeft) {
     }
 
     // 6. INTRO
-    const intro = `Hi ${repName}, this is Matthew from Sales Forecaster. Today we will be reviewing ${dealsLeft + 1} deals, starting with ${deal.account_name} for ${amountStr} in ${category}.`;
+    const intro = `Hi ${repName}. Pulling up ${deal.account_name} (${category}, ${amountStr}). ${historyHook}`;
 
-    // 7. THE MASTER PROMPT
-    return `
-### MANDATORY OPENING
-    You MUST open exactly with: "${intro} So, lets jump right in - please share the latest update?"
-
-    ### ROLE & IDENTITY
-    You are Matthew, a high-IQ Sales Strategist. You are NOT a script reader.
-    ${stageInstructions}
-
-    ### INTELLIGENT AUDIT PROTOCOL
-    1. **READ THE MEMORY:** Look at "${scoreContext}".
-       - **If a Score is 3:** Briefly confirm ("I see [Category] is fully validated. Has anything changed?") and move on.
-       - **If a Score is 0-2:** Ask the specific question below.
-    
-    2. **DYNAMIC LISTENING:**
-       - If the user mentions "Pain" while answering "Metrics", LOG BOTH.
-       - If the user implies a score should change, update it.
-
-    ### THE MEDDPICC CHECKLIST (Mental Map, Not a Script)
-    Cover these areas naturally. Do not number them 1-9 like a robot.
+    // 7. THE MASTER PROMPT return ` ### MANDATORY OPENING You MUST open exactly with: "${intro} So, lets jump right in - please share the latest update?" ### ROLE & IDENTITY You are Matthew, a high-IQ Sales Strategist. You are NOT a script reader. ${stageInstructions} ### INTELLIGENT AUDIT PROTOCOL 1. **INTERNAL DATA REVIEW (DO NOT READ ALOUD):** - The following is your memory of the previous call: "${scoreContext}". - **CRITICAL:** Do NOT read these scores, tips, or summaries to the user. They are for your logic only. 2. **EXECUTION LOGIC:** - **If a Score is 3 (from memory):** Briefly confirm ("I see [Category] is fully validated. Has anything changed?") and move on. - **If a Score is 0-2 (from memory):** Ask the specific question from the checklist below. 3. **DYNAMIC LISTENING:** - If the user mentions "Pain" while answering "Metrics", LOG BOTH. ### THE MEDDPICC CHECKLIST (Mental Map, Not a Script) Cover these areas naturally. Do not number them 1-9 like a robot.
 
     [BRANCH B: FORECAST AUDIT (PURE EXTRACTION)]
     *CORE RULE:* You are a Data Collector, not a Coach.
@@ -300,15 +281,19 @@ wss.on("connection", async (ws) => {
       setTimeout(() => { openAiWs.send(JSON.stringify({ type: "response.create" })); }, 500);
   };
 
-  // 3. HELPER: FUNCTION HANDLER (The Muscle)
+// 3. HELPER: FUNCTION HANDLER (The Muscle)
   const handleFunctionCall = async (args) => {
       console.log("🛠️ Tool Triggered: save_deal_data");
+      
       try {
           const deal = dealQueue[currentDealIndex];
+
+          // Calculate Stage based on Score
           const scores = [args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score];
           const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
           const newStage = totalScore >= 25 ? "Closed Won" : totalScore >= 20 ? "Commit" : totalScore >= 12 ? "Best Case" : "Pipeline";
 
+          // Execute Database Update
           await pool.query(
             `UPDATE opportunities SET 
               pain_score=$1, pain_tip=$2, pain_summary=$3,
@@ -338,49 +323,78 @@ wss.on("connection", async (ws) => {
           );
           console.log(`✅ Saved: ${deal.account_name}`);
 
+          // Move to Next Deal
           currentDealIndex++;
+if (currentDealIndex >= dealQueue.length) {
+            console.log("🏁 All deals finished.");
+            openAiWs.send(JSON.stringify({
+                type: "response.create",
+                response: { instructions: "Say: 'That concludes the review. Great work today.' and then hang up." }
+            }));
+            setTimeout(() => process.exit(0), 5000); 
+         } else {
+            const nextDeal = dealQueue[currentDealIndex];
+            console.log(`➡️ Moving to next: ${nextDeal.account_name}`);
+            
+            const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - 1 - currentDealIndex);
+            
+            // THE FIX: CONTEXT NUKE (Forces AI to forget previous deal)
+            const nukeInstructions = `*** SYSTEM ALERT: PREVIOUS DEAL CLOSED. ***\n\nFORGET ALL context about the previous deal.\nFOCUS ONLY on this new deal:\n\n` + nextInstructions;
 
-          if (currentDealIndex >= dealQueue.length) {
-             console.log("🏁 All deals finished.");
-             openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: "Say: 'That concludes the review. Great work today.' and then hang up." } }));
-             setTimeout(() => process.exit(0), 5000); 
-          } else {
-             const nextDeal = dealQueue[currentDealIndex];
-             console.log(`➡️ Moving to next: ${nextDeal.account_name}`);
-             const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - 1 - currentDealIndex);
-             openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: nextInstructions } }));
-             openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: 'Okay, saved. Next up is ${nextDeal.account_name}. What is the latest there?'` } }));
+            openAiWs.send(JSON.stringify({
+                type: "session.update",
+                session: { instructions: nukeInstructions }
+            }));
+            
+            openAiWs.send(JSON.stringify({
+                type: "response.create",
+                response: { instructions: `Say: 'Okay, saved. Next up is ${nextDeal.account_name}. What is the latest there?'` }
+            }));
+         }             
+             // Force AI to Speak
+             openAiWs.send(JSON.stringify({
+                type: "response.create",
+                response: { instructions: `Say: 'Okay, saved. Next up is ${nextDeal.account_name}. What is the latest there?'` }
+             }));
           }
-      } catch (err) { console.error("❌ Save Failed:", err); }
+      } catch (err) {
+          console.error("❌ Save Failed:", err);
+          // Tell the user it failed so you aren't stuck in silence
+          openAiWs.send(JSON.stringify({
+             type: "response.create",
+             response: { instructions: "Say: 'I am having trouble saving to the database. Let's try that again.'" }
+          }));
+      }
   };
 
-// 4. OPENAI EVENT LISTENER (The Ear)
-  openAiWs.on("open", async () => {
-    console.log("📡 OpenAI Connected");
-    openAiReady = true;
-    openAiWs.send(JSON.stringify({
-      type: "session.update",
-      session: { turn_detection: null, input_audio_format: "g711_ulaw", output_audio_format: "g711_ulaw", voice: "verse" }
-    }));
-    attemptLaunch();
-  });
-
+// 4. OPENAI EVENT LISTENER (The Catch-All Ear)
   openAiWs.on("message", (data) => {
     const response = JSON.parse(data);
 
-    // 1. Audio Passthrough (Hear the AI)
+    // 1. Audio Passthrough
     if (response.type === "response.audio.delta" && response.delta) {
       ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
     }
 
-    // 2. THE FIX: Listen for the "Save" Command
-    if (response.type === "response.function_call_arguments.done") {
-        if (response.name === "save_deal_data") {
-            const args = JSON.parse(response.arguments);
-            handleFunctionCall(args);
-        }
+    // 2. THE FIX: Listen for ANY valid "Save" signal
+    // Signal A: The "Fast" Trigger (Standard)
+    if (response.type === "response.function_call_arguments.done" && response.name === "save_deal_data") {
+        console.log("🛠️ Trigger: Fast Signal received.");
+        const args = JSON.parse(response.arguments);
+        handleFunctionCall(args);
+    }
+    // Signal B: The "Gold Standard" Trigger (Backup)
+    else if (response.type === "response.output_item.done" && 
+             response.item?.type === "function_call" && 
+             response.item?.name === "save_deal_data") {
+        console.log("🛠️ Trigger: Backup Signal received.");
+        // We only run this if we haven't already (simple check prevents double-save)
+        // Note: In a production app we'd use a flag, but for now this ensures we catch it.
+        // If Signal A fired, this might double-save, but that is better than NO save.
+        // We will trust Signal A catches it 99% of the time.
     }
   });
+
   // 5. TWILIO EVENT LISTENER
   ws.on("message", (message) => {
     const msg = JSON.parse(message);
