@@ -274,20 +274,20 @@ wss.on("connection", async (ws) => {
         dealQueue = result.rows;
         console.log(`📊 Loaded ${dealQueue.length} deals`);
       } catch (err) {
-        console.error("❌ DB Load Error:", err.message);
+       console.error("❌ DB Load Error:", err.message);
       }
 
       // B. Handle Empty Queue
       if (dealQueue.length === 0) {
-          openAiWs.send(JSON.stringify({
+         openAiWs.send(JSON.stringify({
             type: "session.update",
             session: {
-               turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
-               instructions: "System Message."
+              turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
+              instructions: "System Message."
             }
           }));
-          openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: 'Hello ${repName}. I connected, but I found zero active deals.'` } }));
-          return;
+         openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: 'Hello ${repName}. I connected, but I found zero active deals.'` } }));
+         return;
       }
 
       // C. Inject Auditor Persona
@@ -302,55 +302,32 @@ wss.on("connection", async (ws) => {
           tools: [{
               type: "function",
               name: "save_deal_data",
-              description: "Saves scores, tips, and reasoning summaries to the database.",
+              description: "Saves scores, tips, and summaries. ALL FIELDS ARE REQUIRED.",
               parameters: {
                 type: "object",
                 properties: {
-                  // PAIN
-                  pain_score: { type: "number" }, pain_tip: { type: "string" }, 
-                  pain_summary: { type: "string", description: "Reasoning for Pain score" },
-                  // METRICS
-                  metrics_score: { type: "number" }, metrics_tip: { type: "string" },
-                  metrics_summary: { type: "string", description: "Reasoning for Metrics score" },
-                  // CHAMPION
-                  champion_score: { type: "number" }, champion_tip: { type: "string" },
-                  champion_summary: { type: "string", description: "Reasoning for Champion score" },
-                  // EB
-                  eb_score: { type: "number" }, eb_tip: { type: "string" },
-                  eb_summary: { type: "string", description: "Reasoning for EB score" },
-                  // CRITERIA
-                  criteria_score: { type: "number" }, criteria_tip: { type: "string" },
-                  criteria_summary: { type: "string", description: "Reasoning for Criteria score" },
-                  // PROCESS
-                  process_score: { type: "number" }, process_tip: { type: "string" },
-                  process_summary: { type: "string", description: "Reasoning for Process score" },
-                  // COMPETITION
-                  competition_score: { type: "number" }, competition_tip: { type: "string" },
-                  competition_summary: { type: "string", description: "Reasoning for Competition score" },
-                  // PAPER
-                  paper_score: { type: "number" }, paper_tip: { type: "string" },
-                  paper_summary: { type: "string", description: "Reasoning for Paper score" },
-                  // TIMING
-                  timing_score: { type: "number" }, timing_tip: { type: "string" },
-                  timing_summary: { type: "string", description: "Reasoning for Timing score" },
-
-                  // GENERAL
-                  risk_summary: { type: "string" }, 
-                  next_steps: { type: "string" },
+                  pain_score: { type: "number" }, pain_tip: { type: "string" }, pain_summary: { type: "string" },
+                  metrics_score: { type: "number" }, metrics_tip: { type: "string" }, metrics_summary: { type: "string" },
+                  champion_score: { type: "number" }, champion_tip: { type: "string" }, champion_summary: { type: "string" },
+                  eb_score: { type: "number" }, eb_tip: { type: "string" }, eb_summary: { type: "string" },
+                  criteria_score: { type: "number" }, criteria_tip: { type: "string" }, criteria_summary: { type: "string" },
+                  process_score: { type: "number" }, process_tip: { type: "string" }, process_summary: { type: "string" },
+                  competition_score: { type: "number" }, competition_tip: { type: "string" }, competition_summary: { type: "string" },
+                  paper_score: { type: "number" }, paper_tip: { type: "string" }, paper_summary: { type: "string" },
+                  timing_score: { type: "number" }, timing_tip: { type: "string" }, timing_summary: { type: "string" },
+                  risk_summary: { type: "string" }, next_steps: { type: "string" },
                 },
-                // THE FIX 1: We PUT TIPS BACK into Required. 
-                // We keep Summaries optional (Safe), but force Tips (Data Quality).
                 required: [
-                  "pain_score", "pain_tip",
-                  "metrics_score", "metrics_tip",
-                  "champion_score", "champion_tip",
-                  "eb_score", "eb_tip",
-                  "criteria_score", "criteria_tip",
-                  "process_score", "process_tip",
-                  "competition_score", "competition_tip",
-                  "paper_score", "paper_tip",
-                  "timing_score", "timing_tip",
-                  "next_steps"
+                  "pain_score", "pain_tip", "pain_summary",
+                  "metrics_score", "metrics_tip", "metrics_summary",
+                  "champion_score", "champion_tip", "champion_summary",
+                  "eb_score", "eb_tip", "eb_summary",
+                  "criteria_score", "criteria_tip", "criteria_summary",
+                  "process_score", "process_tip", "process_summary",
+                  "competition_score", "competition_tip", "competition_summary",
+                  "paper_score", "paper_tip", "paper_summary",
+                  "timing_score", "timing_tip", "timing_summary",
+                  "risk_summary", "next_steps"
                 ],
               },
           }],
@@ -366,31 +343,114 @@ wss.on("connection", async (ws) => {
       }, 500);
   };
 
-  // 3. OPENAI CONNECTED
+  // 3. HELPER: FUNCTION HANDLER (The Muscles)
+  const handleFunctionCall = async (args) => {
+      console.log("🛠️ Tool Triggered: save_deal_data");
+      
+      try {
+          const deal = dealQueue[currentDealIndex];
+          const scores = [args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score];
+          const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
+          const newStage = totalScore >= 25 ? "Closed Won" : totalScore >= 20 ? "Commit" : totalScore >= 12 ? "Best Case" : "Pipeline";
+
+          // SAVE TO DB
+          await pool.query(
+            `UPDATE opportunities SET 
+              pain_score=$1, pain_tip=$2, pain_summary=$3,
+              metrics_score=$4, metrics_tip=$5, metrics_summary=$6,
+              champion_score=$7, champion_tip=$8, champion_summary=$9,
+              eb_score=$10, eb_tip=$11, eb_summary=$12,
+              criteria_score=$13, criteria_tip=$14, criteria_summary=$15,
+              process_score=$16, process_tip=$17, process_summary=$18,
+              competition_score=$19, competition_tip=$20, competition_summary=$21,
+              paper_score=$22, paper_tip=$23, paper_summary=$24,
+              timing_score=$25, timing_tip=$26, timing_summary=$27,
+              last_summary=$28, next_steps=$29,
+              forecast_stage=$30,
+              run_count = run_count + 1,
+              updated_at = NOW()
+             WHERE id = $31`,
+            [
+              args.pain_score, args.pain_tip, args.pain_summary,
+              args.metrics_score, args.metrics_tip, args.metrics_summary,
+              args.champion_score, args.champion_tip, args.champion_summary,
+              args.eb_score, args.eb_tip, args.eb_summary,
+              args.criteria_score, args.criteria_tip, args.criteria_summary,
+              args.process_score, args.process_tip, args.process_summary,
+              args.competition_score, args.competition_tip, args.competition_summary,
+              args.paper_score, args.paper_tip, args.paper_summary,
+              args.timing_score, args.timing_tip, args.timing_summary,
+              args.risk_summary, args.next_steps, 
+              newStage,
+              deal.id
+            ]
+          );
+          console.log(`✅ Saved: ${deal.account_name}`);
+
+          // MOVE TO NEXT DEAL
+          currentDealIndex++;
+
+          if (currentDealIndex >= dealQueue.length) {
+             console.log("🏁 All deals finished.");
+             openAiWs.send(JSON.stringify({
+                type: "response.create",
+                response: { instructions: "Say: 'That concludes the review. Great work today.' and then hang up." }
+             }));
+             setTimeout(() => process.exit(0), 5000); 
+          } else {
+             const nextDeal = dealQueue[currentDealIndex];
+             console.log(`➡️ Moving to next: ${nextDeal.account_name}`);
+             
+             const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - 1 - currentDealIndex);
+             
+             // UPDATE BRAIN (Context Nuke)
+             openAiWs.send(JSON.stringify({
+                type: "session.update",
+                session: { instructions: nextInstructions }
+             }));
+             
+             // FORCE SPEAKING
+             openAiWs.send(JSON.stringify({
+                type: "response.create",
+                response: { instructions: `Say: 'Okay, saved. Next up is ${nextDeal.account_name}. What is the latest there?'` }
+             }));
+          }
+      } catch (err) {
+          console.error("❌ Save Failed:", err);
+      }
+  };
+
+  // 4. OPENAI EVENT LISTENER
   openAiWs.on("open", async () => {
     console.log("📡 OpenAI Connected");
     openAiReady = true;
-    
-    // Disable Ears Initially
     openAiWs.send(JSON.stringify({
       type: "session.update",
-      session: {
-        turn_detection: null, 
-        input_audio_format: "g711_ulaw",
-        output_audio_format: "g711_ulaw",
-        voice: "verse"
-      }
+      session: { turn_detection: null, input_audio_format: "g711_ulaw", output_audio_format: "g711_ulaw", voice: "verse" }
     }));
-
-    // Check if Twilio is already waiting
     attemptLaunch();
   });
 
-  // 4. TWILIO AUDIO BRIDGE
+  openAiWs.on("message", (data) => {
+    const response = JSON.parse(data);
+
+    // Speak
+    if (response.type === "response.audio.delta" && response.delta) {
+      ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
+    }
+
+    // LISTENING FOR TOOL CALLS (The Fix)
+    if (response.type === "response.function_call_arguments.done") {
+        if (response.name === "save_deal_data") {
+            const args = JSON.parse(response.arguments);
+            handleFunctionCall(args);
+        }
+    }
+  });
+
+  // 5. TWILIO EVENT LISTENER
   ws.on("message", (message) => {
     const msg = JSON.parse(message);
-
-    // A. Start Event (Get Rep Name)
     if (msg.event === "start") {
       streamSid = msg.start.streamSid;
       const params = msg.start.customParameters;
@@ -400,113 +460,18 @@ wss.on("connection", async (ws) => {
           console.log(`🔎 Params Received: ${repName}`);
           attemptLaunch(); 
       }
-      return;
     }
-
-    // B. Media (Passthrough)
     if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
       openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
     }
   });
 
-  // 5. INCOMING MESSAGE HANDLER (Tools)
-  openAiWs.on("message", (data) => {
-    const response = JSON.parse(data);
-
-    if (response.type === "response.audio.delta" && response.delta) {
-      ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
-    }
-
-    if (response.type === "response.done" && response.response?.output) {
-      response.response.output.forEach((output) => {
-        if (output.type === "function_call" && output.name === "save_deal_data") {
-          const args = JSON.parse(output.arguments);
-          const deal = dealQueue[currentDealIndex];
-          console.log(`💾 Saving deal: ${deal.account_name}`);
-
-          const scores = [args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score];
-          const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
-          const newStage = totalScore >= 25 ? "Closed Won" : totalScore >= 20 ? "Commit" : totalScore >= 12 ? "Best Case" : "Pipeline";
-
-          // DEFAULTS
-          const riskSummary = args.risk_summary || "Deal progressed.";
-          const painSum = args.pain_summary || "No notes.";
-          const metricsSum = args.metrics_summary || "No notes.";
-          const champSum = args.champion_summary || "No notes.";
-          const ebSum = args.eb_summary || "No notes.";
-          const critSum = args.criteria_summary || "No notes.";
-          const procSum = args.process_summary || "No notes.";
-          const compSum = args.competition_summary || "No notes.";
-          const paperSum = args.paper_summary || "No notes.";
-          const timeSum = args.timing_summary || "No notes.";
-
-          pool.query(
-            `UPDATE opportunities SET 
-             previous_total_score = (COALESCE(pain_score,0) + COALESCE(metrics_score,0) + COALESCE(champion_score,0) + COALESCE(eb_score,0) + COALESCE(criteria_score,0) + COALESCE(process_score,0) + COALESCE(competition_score,0) + COALESCE(paper_score,0) + COALESCE(timing_score,0)),
-             previous_updated_at = updated_at, last_summary = $1, audit_details = $2, forecast_stage = $3, updated_at = NOW(), run_count = COALESCE(run_count, 0) + 1,
-             
-             pain_score = $5, metrics_score = $6, champion_score = $7, eb_score = $8, criteria_score = $9, process_score = $10, competition_score = $11, paper_score = $12, timing_score = $13,
-             pain_tip = $14, metrics_tip = $15, champion_tip = $16, eb_tip = $17, criteria_tip = $18, process_tip = $19, competition_tip = $20, paper_tip = $21, timing_tip = $22,
-             next_steps = $23,
-             
-             pain_summary = $25, metrics_summary = $26, champion_summary = $27, eb_summary = $28, criteria_summary = $29, process_summary = $30, competition_summary = $31, paper_summary = $32, timing_summary = $33
-
-             WHERE id = $4 AND org_id = $24`,
-            [
-              riskSummary, JSON.stringify(args), newStage, deal.id, 
-              args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score, 
-              args.pain_tip, args.metrics_tip, args.champion_tip, args.eb_tip, args.criteria_tip, args.process_tip, args.competition_tip, args.paper_tip, args.timing_tip, 
-              args.next_steps, orgId, 
-              painSum, metricsSum, champSum, ebSum, critSum, procSum, compSum, paperSum, timeSum 
-            ]
-          ).then(() => {
-            console.log(`✅ Saved: ${deal.account_name}`);
-            
-            // 1. Tell AI the save worked
-            openAiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: output.call_id, output: JSON.stringify({ success: true }) } }));
-            
-            // 2. Advance Queue
-            currentDealIndex++;
-            
-            if (currentDealIndex >= dealQueue.length) {
-              console.log("🏁 Queue Finished.");
-              openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say exactly: "Review complete. Goodbye ${repName.split(" ")[0]}."` } }));
-            } else {
-              const nextDeal = dealQueue[currentDealIndex];
-              console.log(`👉 Moving to next deal: ${nextDeal.account_name}`);
-              
-              const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - currentDealIndex - 1);
-              
-              // 3. THE FIX 2: CONTEXT NUKE. We use a "System" marker to force the brain switch.
-              openAiWs.send(JSON.stringify({ 
-                  type: "session.update", 
-                  session: { 
-                      instructions: `*** IMPORTANT: PREVIOUS DEAL CLOSED. NEW DEAL STARTED. ***\n\nIGNORE ALL PREVIOUS CONTEXT about ${deal.account_name}.\n\n` + nextInstructions 
-                  } 
-              }));
-              
-              // 4. Force Speech with a "Clearing" opening line
-              setTimeout(() => {
-                  openAiWs.send(JSON.stringify({ 
-                      type: "response.create", 
-                      response: { 
-                          instructions: `Say exactly: "Okay, I've filed that away. Now pulling up ${nextDeal.account_name} for $${nextDeal.amount}. What is the latest update here?"` 
-                      } 
-                  }));
-              }, 250);
-            }
-          }).catch((err) => console.error("❌ DB ERROR:", err.message));
-        }
-      });
-    }
-  });
-
-  // 6. CLEANUP
   ws.on("close", () => {
     console.log("🔌 Call Closed.");
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
 });
+
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/", (req, res) => res.send("Forecast Agent API is Online 🤖"));
 
