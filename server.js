@@ -354,20 +354,26 @@ wss.on("connection", async (ws) => {
       } catch (err) { console.error("❌ Save Failed:", err); }
   };
 
-  // 4. OPENAI EVENT LISTENER (The Ear)
+// 4. OPENAI EVENT LISTENER (The Ear)
   openAiWs.on("open", async () => {
     console.log("📡 OpenAI Connected");
     openAiReady = true;
-    openAiWs.send(JSON.stringify({ type: "session.update", session: { turn_detection: null, input_audio_format: "g711_ulaw", output_audio_format: "g711_ulaw", voice: "verse" } }));
+    openAiWs.send(JSON.stringify({
+      type: "session.update",
+      session: { turn_detection: null, input_audio_format: "g711_ulaw", output_audio_format: "g711_ulaw", voice: "verse" }
+    }));
     attemptLaunch();
   });
 
   openAiWs.on("message", (data) => {
     const response = JSON.parse(data);
+
+    // 1. Audio Passthrough (Hear the AI)
     if (response.type === "response.audio.delta" && response.delta) {
       ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
     }
-    // CRITICAL FIX: Listening for the correct function call event
+
+    // 2. THE FIX: Listen for the "Save" Command
     if (response.type === "response.function_call_arguments.done") {
         if (response.name === "save_deal_data") {
             const args = JSON.parse(response.arguments);
@@ -375,7 +381,6 @@ wss.on("connection", async (ws) => {
         }
     }
   });
-
   // 5. TWILIO EVENT LISTENER
   ws.on("message", (message) => {
     const msg = JSON.parse(message);
