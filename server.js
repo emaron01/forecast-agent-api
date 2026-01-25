@@ -183,13 +183,40 @@ app.post("/agent", async (req, res) => {
   try {
     console.log("📞 Incoming Call...");
     
-    // Parse the parameters
-    const repName = req.query.rep_name || "Guest";
-    const orgId = req.query.org_id || 1;
+    // 1. Try to get name from URL
+    let repName = req.query.rep_name;
+    let orgId = req.query.org_id || 1;
 
-        console.log(`✅ Identified Rep: ${repName}`);
+    // 2. If no name in URL, try "Caller ID" Lookup
+    if (!repName) {
+        const callerPhone = req.body.From; // Twilio Caller ID
+        console.log(`🔎 Looking up Caller ID: ${callerPhone}`);
+        
+        try {
+            // Find the Rep associated with this phone number
+            const userCheck = await pool.query(
+                `SELECT rep_name, org_id FROM opportunities 
+                 WHERE rep_phone = $1 LIMIT 1`, 
+                [callerPhone]
+            );
+            
+            if (userCheck.rows.length > 0) {
+                repName = userCheck.rows[0].rep_name;
+                orgId = userCheck.rows[0].org_id;
+                console.log(`🎉 Found Rep in DB: ${repName}`);
+            } else {
+                console.log("⚠️ Number not found in DB, defaulting to Guest.");
+                repName = "Guest";
+            }
+        } catch (dbErr) {
+            console.error("❌ DB Lookup Failed:", dbErr.message);
+            repName = "Guest";
+        }
+    }
 
-    // Return TwiML to connect to the Stream
+    console.log(`✅ Identified Rep: ${repName}`);
+
+    // 3. Connect to WebSocket
     const streamUrl = `wss://${req.headers.host}/`;
     res.type("text/xml");
     res.send(`
@@ -207,6 +234,7 @@ app.post("/agent", async (req, res) => {
     res.status(500).send("Server Error");
   }
 });
+
 // --- [BLOCK 5: WEBSOCKET CORE] ---
 wss.on("connection", async (ws) => {
   console.log("🔥 Twilio WebSocket connected");
