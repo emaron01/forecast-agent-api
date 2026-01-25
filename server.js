@@ -153,8 +153,11 @@ function getSystemPrompt(deal, repName, dealsLeft) {
        - 0: None. 1: Latent. 2: Admitted. 3: Vision for a solution.
        *Wait for answer.* If Score < 3, challenge: "Why buy now if they aren't bleeding?"
 
-    2. **METRICS (0-3):** Has the prospect's finance team validated the ROI? 
-       - 0: None. 1: Internal estimate. 2: Rep-led ROI. 3: CFO-validated.
+2. **METRICS (0-3):** How exactly will they measure the success of this project? (Financial, Operational, or Technical)
+       - 0: No metrics / Vague.
+       - 1: Soft benefits (e.g. "better efficiency", "faster").
+       - 2: Hard numbers (KPIs) defined by Rep.
+       - 3: Economic Impact/Business Value validated by the Customer.
        *Wait for answer.*
 
     3. **CHAMPION (0-3):** Verify the "Power Level."
