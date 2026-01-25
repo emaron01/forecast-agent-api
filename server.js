@@ -105,7 +105,7 @@ function getSystemPrompt(deal, repName, dealsLeft) {
     }
 
     // 6. INTRO
-    const intro = `Hi ${repName}. Pulling up ${deal.account_name} (${category}, ${amountStr}). ${historyHook}`;
+    const intro = `Hi ${repName}, this is Matthew from Sales Forecaster. Today we will be reviewing ${dealsLeft + 1} deals, starting with ${deal.account_name} for ${amountStr} in ${category}.`;
 
     // 7. THE MASTER PROMPT
     return `
