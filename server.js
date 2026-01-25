@@ -174,47 +174,39 @@ function getSystemPrompt(deal, repName, dealsLeft) {
        - **SUMMARY RULES:** You MUST start the summary with the Score Label (e.g., "Score 1: Soft Benefits only"). Then explain the gap.
        - **TIP RULES (THE COACH):** - If Score is 3: Tip is "None". 
          - If Score < 3: You MUST write the specific coaching advice you held back during the call. Tell the rep exactly what action to take to get a 3.
-    3. **Ending:** Say "Okay, moving to the next deal."
+3. **Ending:** Say "Okay, moving to the next deal."
     `;
 }
+
 // --- [BLOCK 4: SMART RECEPTIONIST] ---
 app.post("/agent", async (req, res) => {
   try {
-    const callerPhone = req.body.From || null;
-    console.log("📞 Incoming call from:", callerPhone);
+    console.log("📞 Incoming Call...");
+    
+    // Parse the parameters
+    const repName = req.query.rep_name || "Guest";
+    const orgId = req.query.org_id || 1;
 
-    const result = await pool.query(
-      "SELECT org_id, rep_name FROM opportunities WHERE rep_phone = $1 LIMIT 1",
-      [callerPhone]
-    );
+        console.log(`✅ Identified Rep: ${repName}`);
 
-    let orgId = 1;
-    let repName = "Guest";
-
-    if (result.rows.length > 0) {
-      orgId = result.rows[0].org_id;
-      repName = result.rows[0].rep_name || "Rep";
-      console.log(`✅ Identified Rep: ${repName}`);
-    }
-
-    const wsUrl = `wss://${req.headers.host}/`;
-    res.type("text/xml").send(
-      `<Response>
-         <Connect>
-           <Stream url="${wsUrl}">
-             <Parameter name="org_id" value="${orgId}" />
-             <Parameter name="rep_name" value="${repName}" />
-           </Stream>
-         </Connect>
-       </Response>`
-    );
+    // Return TwiML to connect to the Stream
+    const streamUrl = `wss://${req.headers.host}/`;
+    res.type("text/xml");
+    res.send(`
+      <Response>
+        <Connect>
+          <Stream url="${streamUrl}">
+            <Parameter name="rep_name" value="${repName}" />
+            <Parameter name="org_id" value="${orgId}" />
+          </Stream>
+        </Connect>
+      </Response>
+    `);
   } catch (err) {
-    console.error("❌ /agent error:", err.message);
-    res.type("text/xml").send(`<Response><Connect><Stream url="wss://${req.headers.host}/" /></Connect></Response>`);
+    console.error("❌ Error in /agent route:", err);
+    res.status(500).send("Server Error");
   }
 });
-
-
 // --- [BLOCK 5: WEBSOCKET CORE] ---
 wss.on("connection", async (ws) => {
   console.log("🔥 Twilio WebSocket connected");
