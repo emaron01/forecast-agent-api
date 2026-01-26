@@ -241,6 +241,9 @@ wss.on("connection", async (ws) => {
   let repName = null;
   let orgId = 1;
   let openAiReady = false;
+  
+  // NEW: The Audio Gate (Closed by default)
+  let isSessionInitialized = false; 
 
   const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
     headers: {
@@ -250,18 +253,22 @@ wss.on("connection", async (ws) => {
   });
 
   // 1. OPEN EVENT (THE MUZZLE)
-  // Immediately stops the AI from speaking the default greeting
   openAiWs.on("open", () => {
     console.log("📡 OpenAI Connected");
+    
+    // Muzzle: Set voice immediately and tell it to shut up.
     openAiWs.send(JSON.stringify({
       type: "session.update",
       session: {
         modalities: ["text", "audio"],
-        instructions: "You are a silent assistant waiting for instructions. Do not speak yet.",
+        instructions: "You are Matthew. Remain silent.",
         voice: "verse",
-        turn_detection: null // Disable listening immediately
+        input_audio_format: "g711_ulaw",
+        output_audio_format: "g711_ulaw",
+        turn_detection: null // Mute the microphone logic on OpenAI side
       }
     }));
+
     openAiReady = true;
     if (repName) attemptLaunch();
   });
@@ -306,7 +313,7 @@ wss.on("connection", async (ws) => {
       firstDeal,
       repName.split(" ")[0],
       dealQueue.length - 1,
-      dealQueue.length // Fixes the "totalCount" crash
+      dealQueue.length
     );
 
     // D. Session Configuration (Voice & Tools)
@@ -342,7 +349,7 @@ wss.on("connection", async (ws) => {
                 risk_summary: { type: "string" },
                 next_steps: { type: "string" },
               },
-              required: [], // Empty required list prevents "choking" on missing data
+              required: [], 
             },
           },
         ],
@@ -352,7 +359,7 @@ wss.on("connection", async (ws) => {
 
     openAiWs.send(JSON.stringify(sessionUpdate));
 
-    // E. The Trigger (Forces Custom Intro)
+    // E. The Trigger (OPEN THE GATE)
     setTimeout(() => {
       openAiWs.send(JSON.stringify({
         type: "response.create",
@@ -360,6 +367,10 @@ wss.on("connection", async (ws) => {
             instructions: "Please begin immediately by speaking the opening intro defined in your system instructions." 
         },
       }));
+      
+      // ✅ OPEN THE AUDIO GATE
+      console.log("🔓 Audio Gate Opened");
+      isSessionInitialized = true; 
     }, 500);
   };
 
@@ -456,13 +467,11 @@ wss.on("connection", async (ws) => {
       ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
     }
 
-    // THE TRIGGER: Wait for arguments to be DONE
+    // THE TRIGGER
     if (response.type === "response.function_call_arguments.done" && response.name === "save_deal_data") {
       console.log(`🛠️ AI Finished Generating Data: ${response.name}`);
       try {
         const args = JSON.parse(response.arguments);
-
-        // Handshake: Tell OpenAI to unpause the voice
         openAiWs.send(JSON.stringify({
           type: "conversation.item.create",
           item: {
@@ -471,7 +480,6 @@ wss.on("connection", async (ws) => {
             output: JSON.stringify({ status: "success" }),
           },
         }));
-
         handleFunctionCall(args); 
       } catch (error) {
         console.error("❌ JSON Parse Error on Tool Args:", error);
@@ -479,7 +487,7 @@ wss.on("connection", async (ws) => {
     }
   });
 
-  // 5. TWILIO LISTENER
+  // 5. TWILIO LISTENER (WITH AUDIO GATE)
   ws.on("message", (message) => {
     const msg = JSON.parse(message);
     if (msg.event === "start") {
@@ -492,11 +500,16 @@ wss.on("connection", async (ws) => {
         if (openAiReady) attemptLaunch();
       }
     }
+    
+    // ✋ AUDIO GATE CHECK
     if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
-      openAiWs.send(JSON.stringify({
-        type: "input_audio_buffer.append",
-        audio: msg.media.payload,
-      }));
+      if (isSessionInitialized) {
+        openAiWs.send(JSON.stringify({
+          type: "input_audio_buffer.append",
+          audio: msg.media.payload,
+        }));
+      }
+      // Else: Drop the audio packet to prevent "Hello" race condition
     }
   });
 
@@ -505,6 +518,7 @@ wss.on("connection", async (ws) => {
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
 }); 
+
 // --- [BLOCK 6: SERVER LISTEN] ---
 server.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT}`);
