@@ -179,19 +179,6 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
 ### INTERNAL TRUTHS (PRODUCT POLICE)
     ${deal.org_product_data || "Verify capabilities against company documentation."}
 
-### COMPLETION PROTOCOL (CRITICAL)
-   When you have gathered the data (or if the user says "move on"), you MUST follow this EXACT sequence. Do not deviate.
-
-   1. **Say:** "Got it. I'm updating the scorecard."
-   2. **ACTION:** Call the function 'save_deal_data'. 
-      - **SUMMARY RULES:** You MUST start the summary string with the Score Label (e.g., "Score 1: Soft Benefits only"). Then explain the gap.
-      - **TIP RULES (THE COACH):** - If Score is 3: Tip is "None". 
-         - If Score < 3: You MUST write the specific coaching advice you held back during the call. Tell the rep exactly what action to take to get a 3.
-      - **WARNING:** You are FORBIDDEN from pretending to save. You must execute the tool physically.
-      - **WAIT:** You must wait for the tool to return success before speaking again.
-   3. **After Tool Success:** Say "Okay, saved. Moving to the next deal."
-   `;
-}
 
 // --- [BLOCK 4: SMART RECEPTIONIST] ---
 app.post("/agent", async (req, res) => {
