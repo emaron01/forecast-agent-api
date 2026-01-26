@@ -236,19 +236,18 @@ wss.on("connection", async (ws) => {
   let openAiReady = false;
 
 // 1. CONNECT TO OPENAI
-  const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
-    headers: {
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-      "OpenAI-Beta": "realtime=v1",
-    },
-  });
+const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
+  headers: {
+    Authorization: `Bearer ${OPENAI_API_KEY}`,
+    "OpenAI-Beta": "realtime=v1",
+  },
+});
 
-  openAiWs.on("open", () => {
+openAiWs.on("open", () => {
   console.log("📡 OpenAI Connected");
+  openAiReady = true;   // DO NOT launch here
+});
 
-  openAiReady = true;
-  attemptLaunch();
-});    
 
 // 2. HELPER: LAUNCHER
 const attemptLaunch = async () => {
@@ -507,29 +506,35 @@ openAiWs.on("message", (data) => {
         }
     }
 });
-  // 5. TWILIO EVENT LISTENER
-  ws.on("message", (message) => {
-    const msg = JSON.parse(message);
-    if (msg.event === "start") {
-      streamSid = msg.start.streamSid;
-      const params = msg.start.customParameters;
-      if (params) {
-          orgId = parseInt(params.org_id) || 1;
-          repName = params.rep_name || "Guest";
-          console.log(`🔎 Params Received: ${repName}`);
-          attemptLaunch(); 
-      }
-    }
-    if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
-      openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
-    }
-  });
+// 5. TWILIO EVENT LISTENER
+ws.on("message", (message) => {
+  const msg = JSON.parse(message);
 
-  ws.on("close", () => {
-    console.log("🔌 Call Closed.");
-    if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
-  });
+  if (msg.event === "start") {
+    streamSid = msg.start.streamSid;
+    const params = msg.start.customParameters;
+
+    if (params) {
+      orgId = parseInt(params.org_id) || 1;
+      repName = params.rep_name || "Guest";
+      console.log(`🔎 Params Received: ${repName}`);
+      attemptLaunch();   // ONLY launch here
+    }
+  }
+
+  if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
+    openAiWs.send(JSON.stringify({
+      type: "input_audio_buffer.append",
+      audio: msg.media.payload
+    }));
+  }
 });
+
+ws.on("close", () => {
+  console.log("🔌 Call Closed.");
+  if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
+});
+
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/debug/opportunities", async (req, res) => {
   try {
