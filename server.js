@@ -237,6 +237,30 @@ wss.on("connection", async (ws) => {
     },
   });
 
+  // THE MISSING LINK: Handle the connection open event
+  openAiWs.on("open", () => {
+    console.log("📡 OpenAI Connected");
+    openAiReady = true;
+    
+    // Configure the session format
+    openAiWs.send(JSON.stringify({
+      type: "session.update",
+      session: {
+        turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
+        input_audio_format: "g711_ulaw",
+        output_audio_format: "g711_ulaw",
+        voice: "verse"
+      }
+    }));
+
+    // Trigger the data load and intro
+    attemptLaunch();
+  });
+
+  openAiWs.on("error", (err) => {
+    console.error("❌ OpenAI WebSocket Error:", err);
+  });
+
   // 2. HELPER: LAUNCHER
   const attemptLaunch = async () => {
       if (!repName || !openAiReady) return; 
