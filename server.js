@@ -388,6 +388,7 @@ const handleFunctionCall = async (args) => {
             ]
         );
         console.log(`✅ Saved: ${deal.account_name}`);
+openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `The database save was successful. Now, speak to the user: Confirm the save for ${deal.account_name} and immediately transition to ${nextDeal.account_name}.` } }));
 
         // 3. Move to Next Deal logic
         currentDealIndex++;
