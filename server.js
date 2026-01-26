@@ -301,30 +301,22 @@ wss.on("connection", async (ws) => {
       console.error("❌ DB Load Error:", err.message);
     }
 
-    // B. Handle Empty Queue
     if (dealQueue.length === 0) {
-      openAiWs.send(JSON.stringify({
-        type: "response.create",
-        response: { instructions: `Say: 'Hello ${repName}. I connected, but I found zero active deals.'` },
-      }));
+      openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: 'Hello ${repName}. I connected, but I found zero active deals.'` } }));
       return;
     }
 
-    // C. Generate Instructions
+    // B. Generate Instructions
     const firstDeal = dealQueue[0];
-    const instructions = getSystemPrompt(
-      firstDeal,
-      repName.split(" ")[0],
-      dealQueue.length - 1,
-      dealQueue.length
-    );
+    const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
 
-    // D. Session Configuration (VAD REMAINS OFF HERE)
+    // C. Configure Session (VAD IS OFF)
+    // We send the tools and instructions, but we keep the ears CLOSED (turn_detection: null)
     const sessionUpdate = {
         type: "session.update",
         session: {
           instructions: instructions,
-          turn_detection: null, // <--- CRITICAL: Keep ears closed!
+          turn_detection: null, 
           tools: [{
               type: "function",
               name: "save_deal_data",
@@ -351,22 +343,24 @@ wss.on("connection", async (ws) => {
       };
     openAiWs.send(JSON.stringify(sessionUpdate));
 
-    // E. The Trigger (Enable Ears + Speak NOW)
+    // D. The Trigger (Mouth FIRST, Ears SECOND)
     setTimeout(() => {
-      // 1. NOW we turn the ears on
-      openAiWs.send(JSON.stringify({
-        type: "session.update",
-        session: {
-            turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 }
-        }
-      }));
-
-      // 2. Force the Intro
+      // 1. Force the Intro (The Mouth)
+      // We queue the speech FIRST so it is impossible for "Hello" to cut in line.
       openAiWs.send(JSON.stringify({
         type: "response.create",
         response: { 
             instructions: "Please begin immediately by speaking the opening intro defined in your system instructions." 
         },
+      }));
+
+      // 2. NOW turn the ears on (The Ears)
+      // The AI is already "busy" speaking step 1, so it won't react to background noise yet.
+      openAiWs.send(JSON.stringify({
+        type: "session.update",
+        session: {
+            turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 }
+        }
       }));
       
       // 3. Open Audio Gate (Twilio Flow)
