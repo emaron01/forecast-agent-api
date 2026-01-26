@@ -105,8 +105,8 @@ function getSystemPrompt(deal, repName, dealsLeft) {
     }
 
 // 6. INTRO
-    const totalCount = dealQueue.length; // Use the actual queue size
-    const closeDateStr = deal.close_date ? new Date(deal.close_date).toLocaleDateString() : "Unknown";
+    const totalCount = dealQueue.length;
+    const closeDateStr = deal.close_date ? new Date(deal.close_date).toLocaleDateString() : "TBD";
     
     const intro = `Hi ${repName}. My name is Matthew, I am your Sales Forecaster assistant. Today, we will review ${totalCount} deals, starting with ${deal.account_name} (${category}, for ${amountStr}) with a close date of ${closeDateStr}. ${historyHook}`;
 
@@ -232,7 +232,7 @@ wss.on("connection", async (ws) => {
   let orgId = 1;
   let openAiReady = false;
 
-  // 1. CONNECT TO OPENAI
+// 1. CONNECT TO OPENAI
   const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
     headers: {
       Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -240,30 +240,32 @@ wss.on("connection", async (ws) => {
     },
   });
 
-  // THE MISSING LINK: Handle the connection open event
   openAiWs.on("open", () => {
     console.log("📡 OpenAI Connected");
-    openAiReady = true;
     
-    // Configure the session format
+    // Configure session before setting ready flag
     openAiWs.send(JSON.stringify({
       type: "session.update",
       session: {
-        turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
         input_audio_format: "g711_ulaw",
         output_audio_format: "g711_ulaw",
-        voice: "verse"
+        voice: "verse",
+        turn_detection: { 
+          type: "server_vad", 
+          threshold: 0.5,
+          prefix_padding_ms: 300,
+          silence_duration_ms: 500 
+        }
       }
     }));
 
-    // Trigger the data load and intro
+    openAiReady = true;
     attemptLaunch();
   });
 
   openAiWs.on("error", (err) => {
-    console.error("❌ OpenAI WebSocket Error:", err);
+    console.error("❌ OpenAI WebSocket Error:", err.message);
   });
-
   // 2. HELPER: LAUNCHER
   const attemptLaunch = async () => {
       if (!repName || !openAiReady) return; 
@@ -335,12 +337,16 @@ const handleFunctionCall = async (args) => {
     try {
         const deal = dealQueue[currentDealIndex];
 
-        // Scoring Logic
-        const scores = [args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score];
+        // 1. Calculate Score & Stage
+        const scores = [
+            args.pain_score, args.metrics_score, args.champion_score, 
+            args.eb_score, args.criteria_score, args.process_score, 
+            args.competition_score, args.paper_score, args.timing_score
+        ];
         const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
         const newStage = totalScore >= 25 ? "Closed Won" : totalScore >= 20 ? "Commit" : totalScore >= 12 ? "Best Case" : "Pipeline";
 
-        // SQL execution with exact 31-parameter mapping
+        // 2. Execute Database Update
         await pool.query(
             `UPDATE opportunities SET 
               pain_score=$1, pain_tip=$2, pain_summary=$3,
@@ -369,39 +375,80 @@ const handleFunctionCall = async (args) => {
             ]
         );
         console.log(`✅ Saved: ${deal.account_name}`);
-        
+
+        // 3. Move to Next Deal logic
+        currentDealIndex++;
+
+        if (currentDealIndex >= dealQueue.length) {
+            console.log("🏁 All deals finished.");
+            openAiWs.send(JSON.stringify({
+                type: "response.create",
+                response: { instructions: "Say: 'That concludes the review. Great work today.' and then hang up." }
+            }));
+            setTimeout(() => process.exit(0), 5000); 
+        } else {
+            const nextDeal = dealQueue[currentDealIndex];
+            const remaining = dealQueue.length - currentDealIndex;
+            console.log(`➡️ Moving to next: ${nextDeal.account_name} (${remaining} left)`);
+            
+            const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], remaining - 1);
+            
+            // THE CONTEXT NUKE (Ensures AI starts fresh for the next account)
+            const nukeInstructions = `*** SYSTEM ALERT: PREVIOUS DEAL CLOSED. ***\n\nFORGET ALL context about the previous account. FOCUS ONLY on this new deal:\n\n` + nextInstructions;
+
+            openAiWs.send(JSON.stringify({
+                type: "session.update",
+                session: { instructions: nukeInstructions }
+            }));
+            
+            openAiWs.send(JSON.stringify({
+                type: "response.create",
+                response: { 
+                    instructions: `Say: 'Okay, saved. We have ${remaining} ${remaining === 1 ? 'deal' : 'deals'} left to review. Next up is ${nextDeal.account_name}. What is the latest update there?'` 
+                }
+            }));
+        }
     } catch (err) {
         console.error("❌ Save Failed:", err);
+        openAiWs.send(JSON.stringify({
+           type: "response.create",
+           response: { instructions: "Say: 'I ran into an issue saving those details. Let me try that again.'" }
+        }));
     }
 };
 
-// 4. OPENAI EVENT LISTENER (The Catch-All Ear)
-  openAiWs.on("message", (data) => {
+// 4. OPENAI EVENT LISTENER (The Ear)
+openAiWs.on("message", (data) => {
     const response = JSON.parse(data);
 
     // 1. Audio Passthrough
     if (response.type === "response.audio.delta" && response.delta) {
-      ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
+        ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
     }
 
-    // 2. THE FIX: Listen for ANY valid "Save" signal
-    // Signal A: The "Fast" Trigger (Standard)
+    // 2. THE TRIGGER: Fast & Reliable
     if (response.type === "response.function_call_arguments.done" && response.name === "save_deal_data") {
-        console.log("🛠️ Trigger: Fast Signal received.");
-        const args = JSON.parse(response.arguments);
-        handleFunctionCall(args);
+        console.log("🛠️ Save Triggered by OpenAI");
+        try {
+            const args = JSON.parse(response.arguments);
+
+            // CRITICAL FIX: Tell OpenAI the tool finished so it can clear its "wait" state
+            openAiWs.send(JSON.stringify({
+                type: "conversation.item.create",
+                item: {
+                    type: "function_call_output",
+                    call_id: response.call_id, // Match the ID from the event
+                    output: JSON.stringify({ status: "success", message: "Deal saved." })
+                }
+            }));
+
+            // Now run the Muscle
+            handleFunctionCall(args); 
+        } catch (error) {
+            console.error("❌ Error parsing tool arguments:", error);
+        }
     }
-    // Signal B: The "Gold Standard" Trigger (Backup)
-    else if (response.type === "response.output_item.done" && 
-             response.item?.type === "function_call" && 
-             response.item?.name === "save_deal_data") {
-        console.log("🛠️ Trigger: Backup Signal received.");
-        // We only run this if we haven't already (simple check prevents double-save)
-        // Note: In a production app we'd use a flag, but for now this ensures we catch it.
-        // If Signal A fired, this might double-save, but that is better than NO save.
-        // We will trust Signal A catches it 99% of the time.
-    }
-  });
+});
 
   // 5. TWILIO EVENT LISTENER
   ws.on("message", (message) => {
