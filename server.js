@@ -1,3 +1,6 @@
+
+
+
 require("dotenv").config();
 const http = require("http");
 const express = require("express");
@@ -388,12 +391,3 @@ wss.on("connection", (ws) => {
         if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
     });
 });
-
-// --- [BLOCK 6: API ENDPOINTS] ---
-app.get("/debug/opportunities", async (req, res) => {
-    try {
-        const result = await pool.query("SELECT * FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC", [req.query.org_id || 1]);
-        res.json(result.rows);
-    } catch (err) { res.status(500).json({ error: err.message }); }
-}); 
-server.listen(PORT, () => console.log(`🚀 Server on ${PORT}`));
