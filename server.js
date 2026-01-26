@@ -301,6 +301,7 @@ wss.on("connection", async (ws) => {
       console.error("❌ DB Load Error:", err.message);
     }
 
+    // B. Handle Empty Queue
     if (dealQueue.length === 0) {
       openAiWs.send(JSON.stringify({
         type: "response.create",
@@ -309,16 +310,21 @@ wss.on("connection", async (ws) => {
       return;
     }
 
-    // B. Generate Instructions
+    // C. Generate Instructions
     const firstDeal = dealQueue[0];
-    const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
+    const instructions = getSystemPrompt(
+      firstDeal,
+      repName.split(" ")[0],
+      dealQueue.length - 1,
+      dealQueue.length
+    );
 
-    // C. Configure Session (VAD IS OFF HERE)
+    // D. Session Configuration (VAD REMAINS OFF HERE)
     const sessionUpdate = {
         type: "session.update",
         session: {
           instructions: instructions,
-          turn_detection: null, // <--- KEEP EARS OFF INITIALLY
+          turn_detection: null, // <--- CRITICAL: Keep ears closed!
           tools: [{
               type: "function",
               name: "save_deal_data",
@@ -345,9 +351,9 @@ wss.on("connection", async (ws) => {
       };
     openAiWs.send(JSON.stringify(sessionUpdate));
 
-    // D. The Trigger (VAD ON + SPEAK + GATE OPEN)
+    // E. The Trigger (Enable Ears + Speak NOW)
     setTimeout(() => {
-      // 1. Turn Ears On NOW
+      // 1. NOW we turn the ears on
       openAiWs.send(JSON.stringify({
         type: "session.update",
         session: {
@@ -355,7 +361,7 @@ wss.on("connection", async (ws) => {
         }
       }));
 
-      // 2. Tell it to Speak
+      // 2. Force the Intro
       openAiWs.send(JSON.stringify({
         type: "response.create",
         response: { 
@@ -363,7 +369,7 @@ wss.on("connection", async (ws) => {
         },
       }));
       
-      // 3. Open Audio Gate
+      // 3. Open Audio Gate (Twilio Flow)
       console.log("🔓 Audio Gate Opened");
       isSessionInitialized = true; 
     }, 500);
