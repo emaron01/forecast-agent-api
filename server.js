@@ -412,15 +412,17 @@ const handleFunctionCall = async (args) => {
                 }
             }));
         }
-    } catch (err) {
+} catch (err) {
         console.error("❌ Save Failed:", err);
+        // This tells the user something went wrong instead of just staying silent
         openAiWs.send(JSON.stringify({
             type: "response.create",
-            response: { instructions: "Say: 'I ran into an issue saving. Let me try that again.'" }
+            response: { 
+                instructions: "Say: 'I ran into an issue saving those details. Let me try that again.'" 
+            }
         }));
     }
-};        
-
+};
 currentDealIndex++;
 
         if (currentDealIndex >= dealQueue.length) {
