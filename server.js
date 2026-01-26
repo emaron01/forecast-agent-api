@@ -359,7 +359,7 @@ const handleFunctionCall = async (args) => {
         const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
         const newStage = totalScore >= 25 ? "Closed Won" : totalScore >= 20 ? "Commit" : totalScore >= 12 ? "Best Case" : "Pipeline";
 
-        // 2. Execute Database Update (Added Null Safety)
+        // 2. Execute Database Update
         await pool.query(
             `UPDATE opportunities SET 
               pain_score=$1, pain_tip=$2, pain_summary=$3,
@@ -388,8 +388,51 @@ const handleFunctionCall = async (args) => {
             ]
         );
         console.log(`✅ Saved: ${deal.account_name}`);
-openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `The database save was successful. Now, speak to the user: Confirm the save for ${deal.account_name} and immediately transition to ${nextDeal.account_name}.` } }));
 
+        // 3. Increment Index
+        currentDealIndex++;
+
+        // 4. Handle Branching (End of Call vs Next Deal)
+        if (currentDealIndex >= dealQueue.length) {
+            console.log("🏁 All deals finished.");
+            openAiWs.send(JSON.stringify({
+                type: "response.create",
+                response: { instructions: "Say: 'Got it, Cyberdyne is saved. That actually wraps up our list for today. Great work! I'll see you next time.' and then hang up." }
+            }));
+            // Give it 10 seconds to finish speaking before closing the process
+            setTimeout(() => { if (ws.readyState === WebSocket.OPEN) ws.close(); }, 10000); 
+        } else {
+            const nextDeal = dealQueue[currentDealIndex];
+            const remaining = dealQueue.length - currentDealIndex;
+            console.log(`➡️ Moving to next: ${nextDeal.account_name} (${remaining} left)`);
+            
+            const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], remaining - 1, dealQueue.length);
+            
+            // Context Nuke
+            const nukeInstructions = `*** SYSTEM ALERT: PREVIOUS DEAL CLOSED. ***\n\nFORGET ALL context about the previous account. FOCUS ONLY on this new deal:\n\n` + nextInstructions;
+
+            // Update Instructions
+            openAiWs.send(JSON.stringify({
+                type: "session.update",
+                session: { instructions: nukeInstructions }
+            }));
+            
+            // 🎙️ THE MOUTH TRIGGER (Now safely inside the 'else' block where nextDeal is defined)
+            openAiWs.send(JSON.stringify({
+                type: "response.create",
+                response: { 
+                   instructions: `Say: 'Okay, Cyberdyne is saved. We have ${remaining} ${remaining === 1 ? 'deal' : 'deals'} left. Next up is ${nextDeal.account_name}. What is the latest update there?'` 
+                }
+            }));
+        }
+    } catch (err) {
+        console.error("❌ Save Failed:", err);
+        openAiWs.send(JSON.stringify({
+           type: "response.create",
+           response: { instructions: "Say: 'I ran into an issue saving those details. Let me try that again.'" }
+        }));
+    }
+};
         // 3. Move to Next Deal logic
         currentDealIndex++;
 
