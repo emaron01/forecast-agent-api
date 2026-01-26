@@ -396,7 +396,7 @@ setTimeout(() => {
     response: { instructions: "Start" }
   }));
 }, 500);
-  
+ }
 // 3. HELPER: FUNCTION HANDLER (The Muscle)
 const handleFunctionCall = async (args) => {
     console.log("🛠️ Tool Triggered: save_deal_data");
