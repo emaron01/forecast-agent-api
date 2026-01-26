@@ -516,6 +516,7 @@ wss.on("connection", async (ws) => {
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
 }); // end of connection
+
 //// --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/debug/opportunities", async (req, res) => {
   try {
