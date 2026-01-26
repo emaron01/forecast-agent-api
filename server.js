@@ -314,108 +314,116 @@ wss.on("connection", async (ws) => {
           instructions: instructions,
           tools: [{
               type: "function",
-              name: "save_deal_data",
-              description: "Saves scores, tips, and summaries. ALL FIELDS ARE REQUIRED.",
-              parameters: {
-                type: "object",
-                properties: {
-                  pain_score: { type: "number" }, pain_tip: { type: "string" }, pain_summary: { type: "string" },
-                  metrics_score: { type: "number" }, metrics_tip: { type: "string" }, metrics_summary: { type: "string" },
-                  champion_score: { type: "number" }, champion_tip: { type: "string" }, champion_summary: { type: "string" },
-                  eb_score: { type: "number" }, eb_tip: { type: "string" }, eb_summary: { type: "string" },
-                  criteria_score: { type: "number" }, criteria_tip: { type: "string" }, criteria_summary: { type: "string" },
-                  process_score: { type: "number" }, process_tip: { type: "string" }, process_summary: { type: "string" },
-                  competition_score: { type: "number" }, competition_tip: { type: "string" }, competition_summary: { type: "string" },
-                  paper_score: { type: "number" }, paper_tip: { type: "string" }, paper_summary: { type: "string" },
-                  timing_score: { type: "number" }, timing_tip: { type: "string" }, timing_summary: { type: "string" },
-                  risk_summary: { type: "string" }, next_steps: { type: "string" },
-                },
-                required: [], // <--- FIX 1: REMOVED ALL REQUIRED FIELDS
-              },
-          }],
-          tool_choice: "auto",
-        },
-      };
+              {
+  name: "save_deal_data",
+  description: "Saves scores, tips, and summaries. ALL FIELDS ARE OPTIONAL - only save what is mentioned.",
+  parameters: {
+    type: "object",
+    properties: {
+      pain_score: { type: "number" }, pain_tip: { type: "string" }, pain_summary: { type: "string" },
+      metrics_score: { type: "number" }, metrics_tip: { type: "string" }, metrics_summary: { type: "string" },
+      champion_score: { type: "number" }, champion_tip: { type: "string" }, champion_summary: { type: "string" },
+      eb_score: { type: "number" }, eb_tip: { type: "string" }, eb_summary: { type: "string" },
+      criteria_score: { type: "number" }, criteria_tip: { type: "string" }, criteria_summary: { type: "string" },
+      process_score: { type: "number" }, process_tip: { type: "string" }, process_summary: { type: "string" },
+      competition_score: { type: "number" }, competition_tip: { type: "string" }, competition_summary: { type: "string" },
+      paper_score: { type: "number" }, paper_tip: { type: "string" }, paper_summary: { type: "string" },
+      timing_score: { type: "number" }, timing_tip: { type: "string" }, timing_summary: { type: "string" },
+      risk_summary: { type: "string" },
+      next_steps: { type: "string" },
+      // --- NEW POWER MAP FIELDS ---
+      champion_name: { type: "string", description: "The full name of the Champion if mentioned." },
+      champion_title: { type: "string", description: "The job title of the Champion." },
+      eb_name: { type: "string", description: "The full name of the Economic Buyer if mentioned." },
+      eb_title: { type: "string", description: "The job title of the Economic Buyer." },
+      // --- NEW COACHING FIELDS ---
+      rep_comments: { type: "string", description: "Blunt coaching for the rep." },
+      manager_comments: { type: "string", description: "The #1 risk for the manager." }
+    },
+    required: [] 
+  }
+}
 
       openAiWs.send(JSON.stringify(sessionUpdate));
       setTimeout(() => { openAiWs.send(JSON.stringify({ type: "response.create" })); }, 500);
   };
 
 // 3. HELPER: FUNCTION HANDLER (The Muscle)
-const handleFunctionCall = async (args) => {
-    console.log("🛠️ Tool Triggered: save_deal_data");
+async function handleFunctionCall(args) {
+    console.log(`Saving full deal audit for: ${deal.account_name}`);
 
     try {
-        const deal = dealQueue[currentDealIndex];
-        
-        // 1. Calculate Score & Stage
-        const scores = [
-            args.pain_score, args.metrics_score, args.champion_score,
-            args.eb_score, args.criteria_score, args.process_score,
-            args.competition_score, args.paper_score, args.timing_score
+        // THE SQL QUERY - All 36 fields mapped in order
+        const query = `
+            UPDATE opportunities SET 
+                pain_score = $1, pain_tip = $2, pain_summary = $3,
+                metrics_score = $4, metrics_tip = $5, metrics_summary = $6,
+                champion_score = $7, champion_tip = $8, champion_summary = $9,
+                eb_score = $10, eb_tip = $11, eb_summary = $12,
+                criteria_score = $13, criteria_tip = $14, criteria_summary = $15,
+                process_score = $16, process_tip = $17, process_summary = $18,
+                competition_score = $19, competition_tip = $20, competition_summary = $21,
+                paper_score = $22, paper_tip = $23, paper_summary = $24,
+                timing_score = $25, timing_tip = $26, timing_summary = $27,
+                risk_summary = $28, next_steps = $29,
+                champion_name = $30, champion_title = $31,
+                eb_name = $32, eb_title = $33,
+                rep_comments = $34, manager_comments = $35,
+                updated_at = NOW(),
+                run_count = run_count + 1
+            WHERE id = $36;
+        `;
+
+        // THE VALUES - Mapping the AI's "thoughts" to your DB columns
+        const values = [
+            args.pain_score, args.pain_tip, args.pain_summary,
+            args.metrics_score, args.metrics_tip, args.metrics_summary,
+            args.champion_score, args.champion_tip, args.champion_summary,
+            args.eb_score, args.eb_tip, args.eb_summary,
+            args.criteria_score, args.criteria_tip, args.criteria_summary,
+            args.process_score, args.process_tip, args.process_summary,
+            args.competition_score, args.competition_tip, args.competition_summary,
+            args.paper_score, args.paper_tip, args.paper_summary,
+            args.timing_score, args.timing_tip, args.timing_summary,
+            args.risk_summary, args.next_steps,
+            args.champion_name || null, args.champion_title || null,
+            args.eb_name || null, args.eb_title || null,
+            args.rep_comments || "Coaching will appear here.",
+            args.manager_comments || "Critical risks will appear here.",
+            deal.id // The current deal being audited
         ];
-        const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
-        const newStage = totalScore >= 25 ? "Closed Won" : totalScore >= 20 ? "Commit" : totalScore >= 12 ? "Best Case" : "Pipeline";
 
-        // 2. THE GATEKEEPER: Execute Database Update
-        // Nothing happens below this line until the DB responds.
-        const dbResult = await pool.query(
-            `UPDATE opportunities SET 
-              pain_score=$1, pain_tip=$2, pain_summary=$3,
-              metrics_score=$4, metrics_tip=$5, metrics_summary=$6,
-              champion_score=$7, champion_tip=$8, champion_summary=$9,
-              eb_score=$10, eb_tip=$11, eb_summary=$12,
-              criteria_score=$13, criteria_tip=$14, criteria_summary=$15,
-              process_score=$16, process_tip=$17, process_summary=$18,
-              competition_score=$19, competition_tip=$20, competition_summary=$21,
-              paper_score=$22, paper_tip=$23, paper_summary=$24,
-              timing_score=$25, timing_tip=$26, timing_summary=$27,
-              last_summary=$28, next_steps=$29, forecast_stage=$30,
-              run_count = run_count + 1, updated_at = NOW()
-             WHERE id = $31`,
-            [
-                args.pain_score || 0, args.pain_tip || null, args.pain_summary || null,
-                args.metrics_score || 0, args.metrics_tip || null, args.metrics_summary || null,
-                args.champion_score || 0, args.champion_tip || null, args.champion_summary || null,
-                args.eb_score || 0, args.eb_tip || null, args.eb_summary || null,
-                args.criteria_score || 0, args.criteria_tip || null, args.criteria_summary || null,
-                args.process_score || 0, args.process_tip || null, args.process_summary || null,
-                args.competition_score || 0, args.competition_tip || null, args.competition_summary || null,
-                args.paper_score || 0, args.paper_tip || null, args.paper_summary || null,
-                args.timing_score || 0, args.timing_tip || null, args.timing_summary || null,
-                args.risk_summary || "No summary", args.next_steps || "None", newStage, deal.id
-            ]
-        );
+        const dbResult = await pool.query(query, values);
 
-        // 3. Confirm Database success in logs
         if (dbResult.rowCount > 0) {
-            console.log(`✅ DATABASE UPDATED: ${deal.account_name} (ID: ${deal.id})`);
-        } else {
-            console.log(`⚠️ DATABASE WARNING: Query ran but 0 rows affected for ID ${deal.id}`);
+            console.log(`✅ DATABASE UPDATED: ${deal.account_name}`);
         }
 
-        // 4. Proceed to Next Deal Logic
+        // --- 4. PROCEED TO NEXT DEAL LOGIC ---
         currentDealIndex++;
+        
         if (currentDealIndex >= dealQueue.length) {
+            // No more deals left in the list
             openAiWs.send(JSON.stringify({
                 type: "response.create",
                 response: { instructions: "Say: 'Saved. That's all for today.' and hang up." }
             }));
         } else {
+            // Move to the next deal in the queue
             const nextDeal = dealQueue[currentDealIndex];
             const remaining = dealQueue.length - currentDealIndex;
             const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], remaining - 1, dealQueue.length);
 
+            // Update the AI's context for the new deal
             openAiWs.send(JSON.stringify({
                 type: "session.update",
                 session: { instructions: nextInstructions }
             }));
 
+            // Tell the AI to announce the next deal
             openAiWs.send(JSON.stringify({
                 type: "response.create",
-                response: {
-                    instructions: `Say: 'Saved. Next is ${nextDeal.account_name}. What's the latest?'`
-                }
+                response: { instructions: `Say: 'Saved. Next is ${nextDeal.account_name}. What's the latest?'` }
             }));
         }
 
@@ -426,7 +434,7 @@ const handleFunctionCall = async (args) => {
             response: { instructions: "Say: 'I had trouble hitting the database. Let me try again.'" }
         }));
     }
-};
+}
 // 4. OPENAI EVENT LISTENER (The Ear)
 openAiWs.on("message", (data) => {
     const response = JSON.parse(data);
