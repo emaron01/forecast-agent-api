@@ -299,7 +299,8 @@ const sessionUpdate = {
       threshold: 0.5,
       silence_duration_ms: 1000
     },
-    output_audio_format: "g711_ulaw",   // ⭐ REQUIRED FOR TWILIO AUDIO OUTPUT
+    input_audio_format: "g711_ulaw",     // REQUIRED for Twilio → OpenAI audio
+    output_audio_format: "g711_ulaw",    // REQUIRED for OpenAI → Twilio audio
     instructions: instructions,
     tools: [
       {
