@@ -95,18 +95,56 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
     `;
 
   // 5. STAGE STRATEGY
-  let stageInstructions = "";
-  if (category.includes("Commit")) {
-    stageInstructions = `MODE: CLOSING AUDIT (Commit). 
-        • GOAL: Find the one thing that will kill this deal.
-        • LOGIC: If a score is 3, skip it unless you smell a lie. Focus ONLY on scores < 3.`;
-  } else {
-    stageInstructions = `MODE: PIPELINE QUALIFICATION. 
-• GOAL: Identify the strength of the foundation, Pipeline is a light review because the sales processes is new. 
-• LOGIC: Capture the status of Pain, Metrics, and Champion. Even if they are weak (0-1), continue the extraction to get a full picture of the deal.`; 
-  }
+let stageInstructions = "";
 
-  // 6. INTRO
+if (category.includes("Commit")) {
+    stageInstructions = `MODE: CLOSING AUDIT (Commit). 
+    • GOAL: Find the one thing that will kill this deal.
+    • LOGIC: If a score is 3, skip it unless you smell a lie. Focus ONLY on scores < 3.`;
+} else {
+    stageInstructions = `MODE: PIPELINE QUALIFICATION
+
+GOAL:
+Perform a lightweight MEDDICC qualification pass appropriate for early‑stage pipeline. 
+Your job is to determine whether the deal is:
+1) A newly converted lead still in discovery, or
+2) A deal that has progressed beyond discovery.
+
+BRANCHING LOGIC:
+• First, determine: “Is this deal beyond the discovery phase, or is it a newly converted lead?”
+
+IF NEW LEAD (still in discovery):
+• Only assess the following MEDDICC elements:
+  - Pain
+  - Metrics
+  - Competition
+  - Timing
+• Do NOT assess:
+  - Champion
+  - Economic Buyer
+  - Decision Criteria
+  - Decision Process
+  - Paper Process
+
+IF BEYOND DISCOVERY PHASE:
+• Assess the following MEDDICC elements:
+  - Pain
+  - Metrics
+  - Champion
+  - Competition
+  - Economic Buyer
+  - Decision Criteria
+  - Timing
+• Do NOT assess:
+  - Decision Process
+  - Paper Process
+
+ADDITIONAL RULES:
+• Even if answers are weak or incomplete (0–1), continue extraction to build a full picture.
+• Ask only one MEDDICC‑advancing question per turn.
+• Do not coach, explain, or ask follow‑ups during the qualification sequence.`;
+}
+// 6. INTRO
   const closeDateStr = deal.close_date
     ? new Date(deal.close_date).toLocaleDateString()
     : "TBD";
@@ -278,82 +316,83 @@ wss.on("connection", async (ws) => {
   });
 
   // 2. HELPER: LAUNCHER
-  const attemptLaunch = async () => {
-      if (!repName || !openAiReady) return; 
+const attemptLaunch = async () => {
+    if (!repName || !openAiReady) return;
 
-      console.log(`🚀 Launching Session for ${repName}`);
+    console.log(`🚀 Launching Session for ${repName}`);
 
-      try {
+    try {
         const result = await pool.query(
-          `SELECT o.*, org.product_truths AS org_product_data
-           FROM opportunities o
-           JOIN organizations org ON o.org_id = org.id
-           WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost')
-           ORDER BY o.id ASC`,
-          [orgId]
+            `SELECT o.*, org.product_truths AS org_product_data
+             FROM opportunities o
+             JOIN organizations org ON o.org_id = org.id
+             WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost')
+             ORDER BY o.id ASC`,
+            [orgId]
         );
         dealQueue = result.rows;
         console.log(`📊 Loaded ${dealQueue.length} deals`);
-      } catch (err) {
+    } catch (err) {
         console.error("❌ DB Load Error:", err.message);
-      }
+    }
 
-      if (dealQueue.length === 0) {
-         openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: "System Message." } }));
-         openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: 'Hello ${repName}. I connected, but I found zero active deals.'` } }));
-         return;
-      }
+    if (dealQueue.length === 0) {
+        openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: "System Message." } }));
+        openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: 'Hello ${repName}. I connected, but I found zero active deals.'` } }));
+        return;
+    }
 
-      const firstDeal = dealQueue[0];
-      const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);     
+    const firstDeal = dealQueue[0];
+    const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
 
-      const sessionUpdate = {
+    const sessionUpdate = {
         type: "session.update",
         session: {
-          turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
-          instructions: instructions,
-          tools: [{
-              type: "function",
-              {
-  name: "save_deal_data",
-  description: "Saves scores, tips, and summaries. ALL FIELDS ARE OPTIONAL - only save what is mentioned.",
-  parameters: {
-    type: "object",
-    properties: {
-      pain_score: { type: "number" }, pain_tip: { type: "string" }, pain_summary: { type: "string" },
-      metrics_score: { type: "number" }, metrics_tip: { type: "string" }, metrics_summary: { type: "string" },
-      champion_score: { type: "number" }, champion_tip: { type: "string" }, champion_summary: { type: "string" },
-      eb_score: { type: "number" }, eb_tip: { type: "string" }, eb_summary: { type: "string" },
-      criteria_score: { type: "number" }, criteria_tip: { type: "string" }, criteria_summary: { type: "string" },
-      process_score: { type: "number" }, process_tip: { type: "string" }, process_summary: { type: "string" },
-      competition_score: { type: "number" }, competition_tip: { type: "string" }, competition_summary: { type: "string" },
-      paper_score: { type: "number" }, paper_tip: { type: "string" }, paper_summary: { type: "string" },
-      timing_score: { type: "number" }, timing_tip: { type: "string" }, timing_summary: { type: "string" },
-      risk_summary: { type: "string" },
-      next_steps: { type: "string" },
-      // --- NEW POWER MAP FIELDS ---
-      champion_name: { type: "string", description: "The full name of the Champion if mentioned." },
-      champion_title: { type: "string", description: "The job title of the Champion." },
-      eb_name: { type: "string", description: "The full name of the Economic Buyer if mentioned." },
-      eb_title: { type: "string", description: "The job title of the Economic Buyer." },
-      // --- NEW COACHING FIELDS ---
-      rep_comments: { type: "string", description: "Blunt coaching for the rep." },
-      manager_comments: { type: "string", description: "The #1 risk for the manager." }
-    },
-    required: [] 
-  }
-}
+            turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
+            instructions: instructions,
+            tools: [{
+                type: "function",
+                name: "save_deal_data",
+                description: "Saves scores, tips, and summaries. ALL FIELDS ARE OPTIONAL - only save what is mentioned.",
+                parameters: {
+                    type: "object",
+                    properties: {
+                        pain_score: { type: "number" }, pain_tip: { type: "string" }, pain_summary: { type: "string" },
+                        metrics_score: { type: "number" }, metrics_tip: { type: "string" }, metrics_summary: { type: "string" },
+                        champion_score: { type: "number" }, champion_tip: { type: "string" }, champion_summary: { type: "string" },
+                        eb_score: { type: "number" }, eb_tip: { type: "string" }, eb_summary: { type: "string" },
+                        criteria_score: { type: "number" }, criteria_tip: { type: "string" }, criteria_summary: { type: "string" },
+                        process_score: { type: "number" }, process_tip: { type: "string" }, process_summary: { type: "string" },
+                        competition_score: { type: "number" }, competition_tip: { type: "string" }, competition_summary: { type: "string" },
+                        paper_score: { type: "number" }, paper_tip: { type: "string" }, paper_summary: { type: "string" },
+                        timing_score: { type: "number" }, timing_tip: { type: "string" }, timing_summary: { type: "string" },
+                        risk_summary: { type: "string" },
+                        next_steps: { type: "string" },
+                        champion_name: { type: "string", description: "The full name of the Champion if mentioned." },
+                        champion_title: { type: "string", description: "The job title of the Champion." },
+                        eb_name: { type: "string", description: "The full name of the Economic Buyer if mentioned." },
+                        eb_title: { type: "string", description: "The job title of the Economic Buyer." },
+                        rep_comments: { type: "string", description: "Blunt coaching for the rep." },
+                        manager_comments: { type: "string", description: "The #1 risk for the manager." }
+                    },
+                    required: []
+                }
+            }]
+        }
+    };
 
-      openAiWs.send(JSON.stringify(sessionUpdate));
-      setTimeout(() => { openAiWs.send(JSON.stringify({ type: "response.create" })); }, 500);
-  };
+    openAiWs.send(JSON.stringify(sessionUpdate));
+    setTimeout(() => { openAiWs.send(JSON.stringify({ type: "response.create" })); }, 500);
+};
 
 // 3. HELPER: FUNCTION HANDLER (The Muscle)
 async function handleFunctionCall(args) {
+    const deal = dealQueue[currentDealIndex];
+    if (!deal) return;
+
     console.log(`Saving full deal audit for: ${deal.account_name}`);
 
     try {
-        // THE SQL QUERY - All 36 fields mapped in order
         const query = `
             UPDATE opportunities SET 
                 pain_score = $1, pain_tip = $2, pain_summary = $3,
@@ -374,7 +413,6 @@ async function handleFunctionCall(args) {
             WHERE id = $36;
         `;
 
-        // THE VALUES - Mapping the AI's "thoughts" to your DB columns
         const values = [
             args.pain_score, args.pain_tip, args.pain_summary,
             args.metrics_score, args.metrics_tip, args.metrics_summary,
@@ -390,51 +428,28 @@ async function handleFunctionCall(args) {
             args.eb_name || null, args.eb_title || null,
             args.rep_comments || "Coaching will appear here.",
             args.manager_comments || "Critical risks will appear here.",
-            deal.id // The current deal being audited
+            deal.id 
         ];
 
         const dbResult = await pool.query(query, values);
+        if (dbResult.rowCount > 0) { console.log(`✅ DATABASE UPDATED: ${deal.account_name}`); }
 
-        if (dbResult.rowCount > 0) {
-            console.log(`✅ DATABASE UPDATED: ${deal.account_name}`);
-        }
-
-        // --- 4. PROCEED TO NEXT DEAL LOGIC ---
         currentDealIndex++;
-        
         if (currentDealIndex >= dealQueue.length) {
-            // No more deals left in the list
-            openAiWs.send(JSON.stringify({
-                type: "response.create",
-                response: { instructions: "Say: 'Saved. That's all for today.' and hang up." }
-            }));
+            openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: "Say: 'Saved. That's all for today.' and hang up." } }));
         } else {
-            // Move to the next deal in the queue
             const nextDeal = dealQueue[currentDealIndex];
             const remaining = dealQueue.length - currentDealIndex;
             const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], remaining - 1, dealQueue.length);
-
-            // Update the AI's context for the new deal
-            openAiWs.send(JSON.stringify({
-                type: "session.update",
-                session: { instructions: nextInstructions }
-            }));
-
-            // Tell the AI to announce the next deal
-            openAiWs.send(JSON.stringify({
-                type: "response.create",
-                response: { instructions: `Say: 'Saved. Next is ${nextDeal.account_name}. What's the latest?'` }
-            }));
+            openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: nextInstructions } }));
+            openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: 'Saved. Next is ${nextDeal.account_name}. What's the latest?'` } }));
         }
-
     } catch (err) {
         console.error("❌ CRITICAL DATABASE ERROR:", err.message);
-        openAiWs.send(JSON.stringify({
-            type: "response.create",
-            response: { instructions: "Say: 'I had trouble hitting the database. Let me try again.'" }
-        }));
+        openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: "Say: 'I had trouble hitting the database. Let me try again.'" } }));
     }
 }
+
 // 4. OPENAI EVENT LISTENER (The Ear)
 openAiWs.on("message", (data) => {
     const response = JSON.parse(data);
