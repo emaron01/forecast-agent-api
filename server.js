@@ -427,33 +427,41 @@ openAiWs.on("message", (data) => {
 
     // 1. Audio Passthrough
     if (response.type === "response.audio.delta" && response.delta) {
-        ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
+        ws.send(JSON.stringify({
+            event: "media",
+            streamSid,
+            media: { payload: response.delta }
+        }));
     }
 
-    // 2. THE TRIGGER: Fast & Reliable
-    if (response.type === "response.function_call_arguments.done" && response.name === "save_deal_data") {
-        console.log("🛠️ Save Triggered by OpenAI");
-        try {
-            const args = JSON.parse(response.arguments);
+    // 2. THE TRIGGER: Fast & Reliable (REAL Realtime API event)
+    if (response.type === "response.output_item.added") {
+        const item = response.item;
+        if (!item || !item.content) return;
 
-            // CRITICAL FIX: Tell OpenAI the tool finished so it can clear its "wait" state
+        const toolCall = item.content.find(c => c.type === "tool_call");
+        if (!toolCall) return;
+
+        if (toolCall.name === "save_deal_data") {
+            console.log("🛠️ Save Triggered by OpenAI");
+
+            const args = JSON.parse(toolCall.arguments);
+
+            // Tell OpenAI the tool completed
             openAiWs.send(JSON.stringify({
                 type: "conversation.item.create",
                 item: {
                     type: "function_call_output",
-                    call_id: response.call_id, // Match the ID from the event
-                    output: JSON.stringify({ status: "success", message: "Deal saved." })
+                    call_id: toolCall.call_id,
+                    output: JSON.stringify({ status: "success" })
                 }
             }));
 
-            // Now run the Muscle
-            handleFunctionCall(args); 
-        } catch (error) {
-            console.error("❌ Error parsing tool arguments:", error);
+            // Run your DB update
+            handleFunctionCall(args);
         }
     }
 });
-
   // 5. TWILIO EVENT LISTENER
   ws.on("message", (message) => {
     const msg = JSON.parse(message);
