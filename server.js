@@ -433,12 +433,11 @@ wss.on("connection", async (ws) => {
   });
 });
 // --- [BLOCK 6: API ENDPOINTS] ---
-app.get("/", (req, res) => res.send("Forecast Agent API is Online 🤖"));
 app.get("/debug/opportunities", async (req, res) => {
   try {
     const orgId = parseInt(req.query.org_id) || 1;
     const result = await pool.query(
-      `SELECT id, account_name, forecast_stage, run_count, updated_at FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC`,
+      `SELECT * FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC`,
       [orgId]
     );
     res.json(result.rows);
@@ -446,5 +445,4 @@ app.get("/debug/opportunities", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`));
