@@ -224,7 +224,7 @@ app.post("/agent", async (req, res) => {
   }
 });
 
-// --- [BLOCK 5: WEBSOCKET CORE] ---
+//// --- [BLOCK 5: WEBSOCKET CORE] ---
 wss.on("connection", async (ws) => {
   console.log("🔥 Twilio WebSocket connected");
 
@@ -246,7 +246,12 @@ wss.on("connection", async (ws) => {
 
   openAiWs.on("open", () => {
     console.log("📡 OpenAI Connected");
-    openAiReady = true;   // DO NOT launch here
+    openAiReady = true;
+
+    // If Twilio already sent repName, launch now
+    if (repName) {
+      attemptLaunch();
+    }
   });
 
   openAiWs.on("error", (err) => {
@@ -528,7 +533,11 @@ wss.on("connection", async (ws) => {
         orgId = parseInt(params.org_id) || 1;
         repName = params.rep_name || "Guest";
         console.log(`🔎 Params Received: ${repName}`);
-        attemptLaunch();   // ONLY launch here
+
+        // If OpenAI is already ready, launch now
+        if (openAiReady) {
+          attemptLaunch();
+        }
       }
     }
 
@@ -545,8 +554,7 @@ wss.on("connection", async (ws) => {
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
 }); // end of connection
-
-// --- [BLOCK 6: API ENDPOINTS] ---
+//// --- [BLOCK 6: API ENDPOINTS] ---
 
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/debug/opportunities", async (req, res) => {
