@@ -177,7 +177,7 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
        - *Scoring:* 0=Unknown, 1=Assumed, 2=Confirmed, flexible, 3=Confirmed, real consequence if missed.
 
 ### INTERNAL TRUTHS (PRODUCT POLICE)
-    ${deal.org_product_data || "Verify capabilities against company documentation."}
+    ${deal.org_product_data || "Verify capabilities against company documentation."} `;
 
 
 // --- [BLOCK 4: SMART RECEPTIONIST] ---
