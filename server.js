@@ -251,10 +251,19 @@ wss.on("connection", async (ws) => {
 
   openAiWs.on("open", () => {
     console.log("📡 OpenAI Connected");
+
+    // 1. IMMEDIATELY clear the default greeting logic
+    openAiWs.send(JSON.stringify({
+        type: "session.update",
+        session: {
+            instructions: "You are a silent assistant waiting for instructions. Do not speak yet.",
+            turn_detection: null // Temporarily disable VAD so it doesn't "jump the gun"
+        }
+    }));
+
     openAiReady = true;
     if (repName) attemptLaunch();
   });
-
   openAiWs.on("error", (err) => {
     console.error("❌ OpenAI WebSocket Error:", err.message);
   });
@@ -366,7 +375,7 @@ setTimeout(() => {
           },
         })
       );
-    }, 500);
+    }, 700);
  };
 
   const handleFunctionCall = async (args) => {
