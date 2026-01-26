@@ -246,30 +246,6 @@ wss.on("connection", async (ws) => {
   openAiWs.on("open", () => {
     console.log("📡 OpenAI Connected");
     
-    // Configure session before setting ready flag
-    openAiWs.send(JSON.stringify({
-      type: "session.update",
-      session: {
-        input_audio_format: "g711_ulaw",
-        output_audio_format: "g711_ulaw",
-        voice: "verse",
-        turn_detection: { 
-          type: "server_vad", 
-          threshold: 0.5,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 500 
-        }
-      }
-    }));
-
-    openAiReady = true;
-    attemptLaunch();
-  });
-
-  openAiWs.on("error", (err) => {
-    console.error("❌ OpenAI WebSocket Error:", err.message);
-  });
-
 // 2. HELPER: LAUNCHER
 const attemptLaunch = async () => {
   if (!repName || !openAiReady) return;
