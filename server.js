@@ -34,8 +34,9 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 // --- [BLOCK 3: SYSTEM PROMPT] ---
-function getSystemPrompt(deal, repName, dealsLeft) {
-    // 1. DATA SANITIZATION
+function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
+
+// 1. DATA SANITIZATION
     let category = deal.forecast_stage || "Pipeline";
     if (category === "Null" || category.trim() === "") category = "Pipeline";
 
@@ -100,25 +101,27 @@ function getSystemPrompt(deal, repName, dealsLeft) {
         • LOGIC: If a score is 3, skip it unless you smell a lie. Focus ONLY on scores < 3.`;
     } else {
         stageInstructions = `MODE: PIPELINE QUALIFICATION. 
-        • GOAL: Build the foundation.
-        • LOGIC: If Pain/Metrics/Champion are weak (0-1), STOP and fix them. Do not ask about Legal/Paperwork yet.`;
-    }
+• GOAL: Identify the strength of the foundation, Pipeline is a light review because the sales processes is new. 
+• LOGIC: Capture the status of Pain, Metrics, and Champion. Even if they are weak (0-1), continue the extraction to get a full picture of the deal.`; 
+}
 
 // 6. INTRO
-    const totalCount = dealQueue.length;
     const closeDateStr = deal.close_date ? new Date(deal.close_date).toLocaleDateString() : "TBD";
     
     const intro = `Hi ${repName}. My name is Matthew, I am your Sales Forecaster assistant. Today, we will review ${totalCount} deals, starting with ${deal.account_name} (${category}, for ${amountStr}) with a close date of ${closeDateStr}. ${historyHook}`;
-
-    // 7. THE MASTER PROMPT
+    
+// 7. THE MASTER PROMPT
     return `
 ### MANDATORY OPENING
     You MUST open exactly with: "${intro} So, lets jump right in - please share the latest update?"
-  
-  ### ROLE & IDENTITY
-    You are Matthew, a high-IQ Sales Strategist. You are NOT a script reader.
+    ### ROLE & IDENTITY
+    You are Matthew, a high-IQ Sales Strategist. You are an **Extractor**, not a Coach.
+    
+    **CRITICAL RULE:** Do NOT stop the call to fix weak areas. Your job is to assess, record evidence, and move through the categories.
+    
+    **SKEPTICISM RULE:** Never assume a category is "strong" unless the representative provides evidence. If they are vague, assume it is a RISK and probe deeper.
+    
     ${stageInstructions}
-
     ### INTELLIGENT AUDIT PROTOCOL
     1. **INTERNAL DATA REVIEW (DO NOT READ ALOUD):**
        - The following is your memory of the previous call: "${scoreContext}".
@@ -294,8 +297,9 @@ wss.on("connection", async (ws) => {
       }
 
       const firstDeal = dealQueue[0];
-      const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1);
-      
+      // Pass dealQueue.length as the 4th argument
+      const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);      
+
       const sessionUpdate = {
         type: "session.update",
         session: {
@@ -391,7 +395,7 @@ const handleFunctionCall = async (args) => {
             const remaining = dealQueue.length - currentDealIndex;
             console.log(`➡️ Moving to next: ${nextDeal.account_name} (${remaining} left)`);
             
-            const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], remaining - 1);
+const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], remaining - 1, dealQueue.length);
             
             // THE CONTEXT NUKE (Ensures AI starts fresh for the next account)
             const nukeInstructions = `*** SYSTEM ALERT: PREVIOUS DEAL CLOSED. ***\n\nFORGET ALL context about the previous account. FOCUS ONLY on this new deal:\n\n` + nextInstructions;
