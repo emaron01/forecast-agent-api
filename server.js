@@ -346,81 +346,21 @@ wss.on("connection", async (ws) => {
 // 3. HELPER: FUNCTION HANDLER (The Muscle)
 const handleFunctionCall = async (args) => {
     console.log("🛠️ Tool Triggered: save_deal_data");
+
     try {
         const deal = dealQueue[currentDealIndex];
+
         const scores = [
             args.pain_score, args.metrics_score, args.champion_score,
             args.eb_score, args.criteria_score, args.process_score,
             args.competition_score, args.paper_score, args.timing_score
         ];
+
         const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
-        const newStage = totalScore >= 25 ? "Closed Won" : totalScore >= 20 ? "Commit" : totalScore >= 12 ? "Best Case" : "Pipeline";
-
-        await pool.query(
-            `UPDATE opportunities SET 
-              pain_score=$1, pain_tip=$2, pain_summary=$3,
-              metrics_score=$4, metrics_tip=$5, metrics_summary=$6,
-              champion_score=$7, champion_tip=$8, champion_summary=$9,
-              eb_score=$10, eb_tip=$11, eb_summary=$12,
-              criteria_score=$13, criteria_tip=$14, criteria_summary=$15,
-              process_score=$16, process_tip=$17, process_summary=$18,
-              competition_score=$19, competition_tip=$20, competition_summary=$21,
-              paper_score=$22, paper_tip=$23, paper_summary=$24,
-              timing_score=$25, timing_tip=$26, timing_summary=$27,
-              last_summary=$28, next_steps=$29, forecast_stage=$30,
-              run_count = run_count + 1, updated_at = NOW()
-             WHERE id = $31`,
-            [
-                args.pain_score || 0, args.pain_tip || null, args.pain_summary || null,
-                args.metrics_score || 0, args.metrics_tip || null, args.metrics_summary || null,
-                args.champion_score || 0, args.champion_tip || null, args.champion_summary || null,
-                args.eb_score || 0, args.eb_tip || null, args.eb_summary || null,
-                args.criteria_score || 0, args.criteria_tip || null, args.criteria_summary || null,
-                args.process_score || 0, args.process_tip || null, args.process_summary || null,
-                args.competition_score || 0, args.competition_tip || null, args.competition_summary || null,
-                args.paper_score || 0, args.paper_tip || null, args.paper_summary || null,
-                args.timing_score || 0, args.timing_tip || null, args.timing_summary || null,
-                args.risk_summary || "No summary", args.next_steps || "None", newStage, deal.id
-            ]
-        );
-
-        console.log("✅ Saved to DB");
-        currentDealIndex++;
-
-        if (currentDealIndex >= dealQueue.length) {
-            openAiWs.send(JSON.stringify({
-                type: "response.create",
-                response: { instructions: "Say: 'Saved. That's all for today. Great work!' and hang up." }
-            }));
-        } else {
-            const nextDeal = dealQueue[currentDealIndex];
-            const remaining = dealQueue.length - currentDealIndex;
-            const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], remaining - 1, dealQueue.length);
-
-            openAiWs.send(JSON.stringify({
-                type: "session.update",
-                session: { instructions: nextInstructions }
-            }));
-
-            openAiWs.send(JSON.stringify({
-                type: "response.create",
-                response: {
-                    instructions: "Say: 'Saved. Next is " + nextDeal.account_name + ". What's the update?'"
-                }
-            }));
-        }
-} catch (err) {
-        console.error("❌ Save Failed:", err);
-        // This tells the user something went wrong instead of just staying silent
-        openAiWs.send(JSON.stringify({
-            type: "response.create",
-            response: { 
-                instructions: "Say: 'I ran into an issue saving those details. Let me try that again.'" 
-            }
-        }));
-    }
-};
-currentDealIndex++;
+        const newStage =
+            totalScore >= 25 ? "Closed Won" :
+            totalScore >= 20 ? "Commit" :
+            totalcurrentDealIndex++;
 
         if (currentDealIndex >= dealQueue.length) {
             console.log("🏁 All deals finished.");
