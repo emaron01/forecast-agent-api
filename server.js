@@ -1,230 +1,77 @@
+require('dotenv').config();
+const express = require('express');
+const WebSocket = require('ws');
+const { Pool } = require('pg');
+const http = require('http');
 
-
-
-require("dotenv").config();
-const http = require("http");
-const express = require("express");
-const { Pool } = require("pg");
-const WebSocket = require("ws");
-const cors = require("cors");
-
-// --- [BLOCK 1: CONFIGURATION] ---
-const PORT = process.env.PORT || 10000;
-const OPENAI_API_KEY = process.env.MODEL_API_KEY;
-const MODEL_URL = process.env.MODEL_URL || "wss://api.openai.com/v1/realtime";
-const MODEL_NAME = process.env.MODEL_NAME || "gpt-4o-mini-realtime-preview-2024-12-17";
-
-if (!OPENAI_API_KEY) {
-    console.error("❌ Missing MODEL_API_KEY in environment");
-    process.exit(1);
-}
-
-// --- [BLOCK 2: SERVER CONFIGURATION] ---
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(cors());
-app.use(express.static("public"));
-
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false },
-});
-
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+
+const PORT = process.env.PORT || 10000;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const MODEL_URL = "wss://api.openai.com/v1/realtime";
+const MODEL_NAME = "gpt-4o-realtime-preview-2024-10-01";
+
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+});
+
 // --- [BLOCK 3: SYSTEM PROMPT] ---
 function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
-
-// 1. DATA SANITIZATION
     let category = deal.forecast_stage || "Pipeline";
     if (category === "Null" || category.trim() === "") category = "Pipeline";
 
-    // 2. DATA FORMATTING
     const amountStr = new Intl.NumberFormat('en-US', { 
         style: 'currency', currency: 'USD', maximumFractionDigits: 0 
     }).format(deal.amount || 0);
 
-    // 3. HISTORY EXTRACTION
     const lastSummary = deal.last_summary || "";
     const hasHistory = lastSummary.length > 5;
-    const historyHook = hasHistory 
-        ? `Last time we flagged: "${lastSummary}".` 
-        : "";
+    const historyHook = hasHistory ? `Last time we flagged: "${lastSummary}".` : "";
 
-    // 4. MEMORY SNAPSHOT
     const details = deal.audit_details || {}; 
     const scoreContext = `
     PRIOR SNAPSHOT (MEMORY):
-    • Pain: ${deal.pain_score || details.pain_score || "?"}/3 
-      > Last Tip: "${deal.pain_tip || "None"}"
-      > Last Reasoning: ${deal.pain_summary || "No notes yet."}
-      
-    • Metrics: ${deal.metrics_score || details.metrics_score || "?"}/3 
-      > Last Tip: "${deal.metrics_tip || "None"}"
-      > Last Reasoning: ${deal.metrics_summary || "No notes yet."}
-      
-    • Champion: ${deal.champion_score || details.champion_score || "?"}/3 
-      > Last Tip: "${deal.champion_tip || "None"}"
-      > Last Reasoning: ${deal.champion_summary || "No notes yet."}
-      
-    • Economic Buyer: ${deal.eb_score || details.eb_score || "?"}/3 
-      > Last Tip: "${deal.eb_tip || "None"}"
-      > Last Reasoning: ${deal.eb_summary || "No notes yet."}
-      
-    • Criteria: ${deal.criteria_score || details.criteria_score || "?"}/3 
-      > Last Tip: "${deal.criteria_tip || "None"}"
-      > Last Reasoning: ${deal.criteria_summary || "No notes yet."}
-      
-    • Process: ${deal.process_score || details.process_score || "?"}/3 
-      > Last Tip: "${deal.process_tip || "None"}"
-      > Last Reasoning: ${deal.process_summary || "No notes yet."}
-      
-    • Competition: ${deal.competition_score || details.competition_score || "?"}/3 
-      > Last Tip: "${deal.competition_tip || "None"}"
-      > Last Reasoning: ${deal.competition_summary || "No notes yet."}
-      
-    • Paper Process: ${deal.paper_score || details.paper_score || "?"}/3 
-      > Last Tip: "${deal.paper_tip || "None"}"
-      > Last Reasoning: ${deal.paper_summary || "No notes yet."}
-      
-    • Timing: ${deal.timing_score || details.timing_score || "?"}/3 
-      > Last Tip: "${deal.timing_tip || "None"}"
-      > Last Reasoning: ${deal.timing_summary || "No notes yet."}
+    • Pain: ${deal.pain_score || "?"}/3 | Metrics: ${deal.metrics_score || "?"}/3
+    • Champion: ${deal.champion_score || "?"}/3 | EB: ${deal.eb_score || "?"}/3
+    • Timing: ${deal.timing_score || "?"}/3
     `;
 
-// 5. STAGE STRATEGY
-let stageInstructions = "";
+    let stageInstructions = "";
+    if (category.includes("Commit")) {
+        stageInstructions = `MODE: CLOSING AUDIT (Commit). Goal: Find the one thing that will kill this deal. Focus on scores < 3.`;
+    } else {
+        stageInstructions = `MODE: PIPELINE QUALIFICATION. Determine if this is early discovery or progressed. Focus on Pain, Metrics, and Timing.`;
+    }
 
-if (category.includes("Commit")) {
-    stageInstructions = `MODE: CLOSING AUDIT (Commit). 
-    • GOAL: Find the one thing that will kill this deal.
-    • LOGIC: If a score is 3, skip it unless you smell a lie. Focus ONLY on scores < 3.`;
-} else {
-    stageInstructions = `MODE: PIPELINE QUALIFICATION
-
-GOAL:
-Perform a lightweight MEDDICC qualification pass appropriate for early‑stage pipeline. 
-Your job is to determine whether the deal is:
-1) A newly converted lead still in discovery, or
-2) A deal that has progressed beyond discovery.
-
-BRANCHING LOGIC:
-• First, determine: “Is this deal beyond the discovery phase, or is it a newly converted lead?”
-
-IF NEW LEAD (still in discovery):
-• Only assess the following MEDDICC elements:
-  - Pain
-  - Metrics
-  - Competition
-  - Timing
-• Do NOT assess:
-  - Champion
-  - Economic Buyer
-  - Decision Criteria
-  - Decision Process
-  - Paper Process
-
-IF BEYOND DISCOVERY PHASE:
-• Assess the following MEDDICC elements:
-  - Pain
-  - Metrics
-  - Champion
-  - Competition
-  - Economic Buyer
-  - Decision Criteria
-  - Timing
-• Do NOT assess:
-  - Decision Process
-  - Paper Process
-
-ADDITIONAL RULES:
-• Even if answers are weak or incomplete (0–1), continue extraction to build a full picture.
-• Ask only one MEDDICC‑advancing question per turn.
-• Do not coach, explain, or ask follow‑ups during the qualification sequence.`;
-}
-// 6. INTRO
     const closeDateStr = deal.close_date ? new Date(deal.close_date).toLocaleDateString() : "TBD";
-    
     const intro = `Hi ${repName}. My name is Matthew, I am your Sales Forecaster assistant. Today, we will review ${totalCount} deals, starting with ${deal.account_name} (${category}, for ${amountStr}) with a close date of ${closeDateStr}. ${historyHook}`;
-    
-// 7. THE MASTER PROMPT
+
     return `
 ### MANDATORY OPENING
-    You MUST open exactly with: "${intro} So, lets jump right in - please share the latest update?"
-    ### ROLE & IDENTITY
-    You are Matthew, a high-IQ Sales Strategist. You are an **Extractor**, not a Coach.
-    
-    **CRITICAL RULE:** Do NOT stop the call to fix weak areas. Your job is to assess, record evidence, and move through the categories.
-    
-    **SKEPTICISM RULE:** Never assume a category is "strong" unless the representative provides evidence. If they are vague, assume it is a RISK and probe deeper.
-    
-    ${stageInstructions}
-    ### INTELLIGENT AUDIT PROTOCOL
-    1. **INTERNAL DATA REVIEW (DO NOT READ ALOUD):**
-       - The following is your memory of the previous call: "${scoreContext}".
-       - **CRITICAL:** Do NOT read these scores, tips, or summaries to the user. They are for your logic only.
-    
-    2. **EXECUTION LOGIC:**
-       - **If a Score is 3 (from memory):** Briefly confirm ("I see [Category] is fully validated. Has anything changed?") and move on.
-       - **If a Score is 0-2 (from memory):** Ask the specific question from the checklist below.
+   You MUST open exactly with: "${intro} So, lets jump right in - please share the latest update?"
 
-    3. **DYNAMIC LISTENING:**
-       - If the user mentions "Pain" while answering "Metrics", LOG BOTH.
+### ROLE
+   You are Matthew, a high-IQ Sales Strategist. You are an **Extractor**, not a Coach.
+   **SKEPTICISM RULE:** Never assume a category is "strong" unless the representative provides evidence. If they are vague, assume it is a RISK and probe deeper.
 
-    ### THE MEDDPICC CHECKLIST (Mental Map, Not a Script)
-    Cover these areas naturally. Do not number them 1-9 like a robot.
+${stageInstructions}
 
-    [BRANCH B: FORECAST AUDIT (PURE EXTRACTION)]
-    *CORE RULE:* You are a Data Collector, not a Coach.
-    - If the Rep's answer is weak, mark the score low (0 or 1) and move on. 
-    - **Context Matters:** If the deal is "Pipeline", use the softer questions below.
+### THE MEDDPICC CHECKLIST
+   Pain, Metrics, Champion, EB, Criteria, Process, Competition, Paper, Timing.
 
-    1. **PAIN (0-3):** "What is the specific cost of doing nothing here?"
-       - *Scoring:* 0=None, 1=Vague/cost of doing nothing is minimal, 2=Clear Pain, 3=Quantified Impact (Cost of doing nothing is high).
-
-    2. **METRICS (0-3):** "How will they measure the success of this project?"
-       - *Scoring:* 0=Unknown, 1=Soft Benefits, 2=Rep-defined KPIs, 3=Customer-validated Economics.
-
-    3. **CHAMPION (0-3):** "Who is selling this for us when we aren't in the room?"
-       - *Scoring:* 0=Friendly, 1=Coach, 2=Mobilizer, 3=Champion.
-
-    4. **ECONOMIC BUYER (0-3):** "Do we have a direct line to the person who signs the contract?"
-       - *Scoring:* 0=Unknown, 1=Identified only, 2=Indirect access, 3=Direct relationship.
-
-    5. **DECISION CRITERIA (0-3):** "Are the technical requirements fully defined?"
-       - *Scoring:* 0=No, 1=Vague, 2=Defined, 3=Locked in our favor.
-
-    6. **DECISION PROCESS (0-3):** - *If Pipeline:* "Do we have a sense of how they usually buy software like this?"
-       - *If Best Case/Commit:* "Walk me through the approval chain."
-       - *Scoring:* 0=Unknown, 1=Assumed, 2=Understood, 3=Documented/Verified.
-
-    7. **COMPETITION (0-3):** - *If Pipeline:* "Are they looking at anyone else yet, or is this sole-source?"
-       - *If Best Case/Commit:* "Who are we up against and why do we win?"
-       - *Scoring:* 0=Unknown, 1=Assumed, 2=Identified, 3=We know why we win.
-
-    8. **PAPER PROCESS (0-3):** - *If Pipeline:* **DO NOT ASK.** (Auto-score 0).
-       - *If Best Case/Commit:* "Where does the contract sit right now?"
-       - *Scoring:* 0=Unknown, 1=Known, not started, 2=Started, 3=In Process, waiting on order.
-
-    9. **TIMING (0-3):** - *If Pipeline:* "Is there a target date in mind?"
-       - *If Best Case/Commit:* "Is there a Compelling Event if we miss the date?"
-       - *Scoring:* 0=Unknown, 1=Assumed, 2=Confirmed, flexible, 3=Confirmed, real consequence if missed.
-
-### INTERNAL TRUTHS (PRODUCT POLICE)
-    ${deal.org_product_data || "Verify capabilities against company documentation."}
-
-### COMPLETION PROTOCOL (CRITICAL)
-   When you have gathered the data (or if the user says "move on"), you MUST follow this EXACT sequence. Do not deviate.
-   1. **Say:** "Got it. I'm updating the scorecard."
-   2. **ACTION:** Call the function 'save_deal_data'. 
-      - **SUMMARY RULES:** Start every summary field (e.g., pain_summary) with the Score Label (e.g., "Score 1: Soft Benefits only"). Then explain the gap.
-      - **TIP RULES (THE COACH):** For every category: If Score is 3, Tip is "None". If Score < 3, you MUST write the specific coaching advice you held back during the call in the 'tip' field (e.g., pain_tip).
-      - **VERDICT:** Use the 'risk_summary' field to provide the "Full Agent Verdict."
-      - **WARNING:** You are FORBIDDEN from pretending to save. You must execute the tool physically.
-      - **WAIT:** You must wait for the tool to return success before speaking again.
-   3. **After Tool Success:** Say "Okay, saved. Moving to the next deal."
+### COMPLETION PROTOCOL
+   1. Say: "Got it. I'm updating the scorecard."
+   2. Call the function 'save_deal_data'. 
+      - capture Champion/EB names and titles.
+      - write blunt coaching in 'rep_comments'.
+      - write #1 risk in 'manager_comments'.
+   3. After Tool Success: Say "Saved. Next is [Next Account Name]. What's the latest?"
    `;
 }
 
@@ -236,11 +83,11 @@ app.post("/agent", async (req, res) => {
             "SELECT org_id, rep_name FROM opportunities WHERE rep_phone = $1 LIMIT 1",
             [callerPhone]
         );
-
-        let orgId = 1;
-        let repName = result.rows.length > 0 ? result.rows[0].rep_name : "Rep";
-        if (result.rows.length > 0) orgId = result.rows[0].org_id;
-
+        let orgId = 1, repName = "Rep";
+        if (result.rows.length > 0) {
+            orgId = result.rows[0].org_id;
+            repName = result.rows[0].rep_name || "Rep";
+        }
         res.type("text/xml").send(`
             <Response>
                 <Connect>
@@ -258,36 +105,22 @@ app.post("/agent", async (req, res) => {
 // --- [BLOCK 5: WEBSOCKET CORE] ---
 wss.on("connection", (ws) => {
     console.log("🔥 Twilio WebSocket connected");
-
-    let streamSid = null;
-    let dealQueue = [];
-    let currentDealIndex = 0;
-    let repName = null;
-    let orgId = 1;
-    let openAiReady = false;
+    let streamSid = null, dealQueue = [], currentDealIndex = 0, repName = null, orgId = 1, openAiReady = false;
 
     const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
-        headers: {
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
-            "OpenAI-Beta": "realtime=v1",
-        },
+        headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "OpenAI-Beta": "realtime=v1" }
     });
 
     const attemptLaunch = async () => {
         if (!repName || !openAiReady) return;
         try {
             const result = await pool.query(
-                `SELECT o.*, org.product_truths AS org_product_data 
-                 FROM opportunities o JOIN organizations org ON o.org_id = org.id 
-                 WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') 
-                 ORDER BY o.id ASC`, [orgId]
+                `SELECT o.*, org.product_truths FROM opportunities o JOIN organizations org ON o.org_id = org.id WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') ORDER BY o.id ASC`, [orgId]
             );
             dealQueue = result.rows;
             if (dealQueue.length === 0) return;
-
             const deal = dealQueue[0];
             const instructions = getSystemPrompt(deal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
-
             if (openAiWs.readyState === WebSocket.OPEN) {
                 openAiWs.send(JSON.stringify({
                     type: "session.update",
@@ -320,6 +153,8 @@ wss.on("connection", (ws) => {
                         }]
                     }
                 }));
+                // Forced Greeting
+                setTimeout(() => { if (openAiWs.readyState === WebSocket.OPEN) openAiWs.send(JSON.stringify({ type: "response.create" })); }, 500);
             }
         } catch (err) { console.error("Launch Error:", err); }
     };
@@ -355,21 +190,13 @@ wss.on("connection", (ws) => {
         } catch (err) { console.error("Save Error:", err); }
     }
 
-    openAiWs.on("open", () => {
-        openAiReady = true;
-        attemptLaunch();
-    });
-
+    openAiWs.on("open", () => { openAiReady = true; attemptLaunch(); });
     openAiWs.on("message", (data) => {
         const response = JSON.parse(data);
-        if (response.type === "response.audio.delta" && response.delta) {
-            ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
-        }
+        if (response.type === "response.audio.delta" && response.delta) ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
         if (response.type === "response.function_call_arguments.done") {
             handleFunctionCall(JSON.parse(response.arguments));
-            if (openAiWs.readyState === WebSocket.OPEN) {
-                openAiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: response.call_id, output: "success" } }));
-            }
+            if (openAiWs.readyState === WebSocket.OPEN) openAiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: response.call_id, output: "success" } }));
         }
     });
 
@@ -382,12 +209,10 @@ wss.on("connection", (ws) => {
             repName = params.rep_name || "Guest";
             attemptLaunch();
         }
-        if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
-            openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
-        }
+        if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
     });
 
-    ws.on("close", () => {
-        if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
-    });
+    ws.on("close", () => { if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close(); });
 });
+
+server.listen(PORT, () => console.log(`🚀 Server on ${PORT}`));
