@@ -249,31 +249,33 @@ wss.on("connection", async (ws) => {
     },
   });
 
+  // 1. OPEN EVENT (THE MUZZLE)
+  // Immediately stops the AI from speaking the default greeting
   openAiWs.on("open", () => {
     console.log("📡 OpenAI Connected");
-
-    // 1. IMMEDIATELY clear the default greeting logic
     openAiWs.send(JSON.stringify({
-        type: "session.update",
-        session: {
-            instructions: "You are a silent assistant waiting for instructions. Do not speak yet.",
-            turn_detection: null // Temporarily disable VAD so it doesn't "jump the gun"
-        }
+      type: "session.update",
+      session: {
+        modalities: ["text", "audio"],
+        instructions: "You are a silent assistant waiting for instructions. Do not speak yet.",
+        voice: "verse",
+        turn_detection: null // Disable listening immediately
+      }
     }));
-
     openAiReady = true;
     if (repName) attemptLaunch();
   });
+
   openAiWs.on("error", (err) => {
     console.error("❌ OpenAI WebSocket Error:", err.message);
   });
 
+  // 2. LAUNCHER (THE BRAIN)
   const attemptLaunch = async () => {
-    if (!openAiReady) return;
-    if (!repName) return;
-
+    if (!openAiReady || !repName) return;
     console.log(`🚀 Launching Session for ${repName}`);
 
+    // A. Load Data
     try {
       const result = await pool.query(
         `SELECT o.*, org.product_truths AS org_product_data
@@ -289,37 +291,38 @@ wss.on("connection", async (ws) => {
       console.error("❌ DB Load Error:", err.message);
     }
 
+    // B. Handle Empty Queue
     if (dealQueue.length === 0) {
-      openAiWs.send(
-        JSON.stringify({
-          type: "response.create",
-          response: {
-            instructions: `Say: 'Hello ${repName}. I connected, but I found zero active deals.'`,
-          },
-        })
-      );
+      openAiWs.send(JSON.stringify({
+        type: "response.create",
+        response: { instructions: `Say: 'Hello ${repName}. I connected, but I found zero active deals.'` },
+      }));
       return;
     }
 
+    // C. Generate Instructions
     const firstDeal = dealQueue[0];
     const instructions = getSystemPrompt(
       firstDeal,
       repName.split(" ")[0],
       dealQueue.length - 1,
-      dealQueue.length
+      dealQueue.length // Fixes the "totalCount" crash
     );
 
+    // D. Session Configuration (Voice & Tools)
     const sessionUpdate = {
       type: "session.update",
       session: {
+        instructions: instructions,
+        voice: "verse",
+        modalities: ["text", "audio"],
+        input_audio_format: "g711_ulaw",
+        output_audio_format: "g711_ulaw",
         turn_detection: {
           type: "server_vad",
           threshold: 0.5,
           silence_duration_ms: 1000,
         },
-        input_audio_format: "g711_ulaw",
-        output_audio_format: "g711_ulaw",
-        instructions: instructions,
         tools: [
           {
             type: "function",
@@ -327,57 +330,40 @@ wss.on("connection", async (ws) => {
             parameters: {
               type: "object",
               properties: {
-                pain_score: { type: "number" },
-                pain_tip: { type: "string" },
-                pain_summary: { type: "string" },
-                metrics_score: { type: "number" },
-                metrics_tip: { type: "string" },
-                metrics_summary: { type: "string" },
-                champion_score: { type: "number" },
-                champion_tip: { type: "string" },
-                champion_summary: { type: "string" },
-                eb_score: { type: "number" },
-                eb_tip: { type: "string" },
-                eb_summary: { type: "string" },
-                criteria_score: { type: "number" },
-                criteria_tip: { type: "string" },
-                criteria_summary: { type: "string" },
-                process_score: { type: "number" },
-                process_tip: { type: "string" },
-                process_summary: { type: "string" },
-                competition_score: { type: "number" },
-                competition_tip: { type: "string" },
-                competition_summary: { type: "string" },
-                paper_score: { type: "number" },
-                paper_tip: { type: "string" },
-                paper_summary: { type: "string" },
-                timing_score: { type: "number" },
-                timing_tip: { type: "string" },
-                timing_summary: { type: "string" },
+                pain_score: { type: "number" }, pain_tip: { type: "string" }, pain_summary: { type: "string" },
+                metrics_score: { type: "number" }, metrics_tip: { type: "string" }, metrics_summary: { type: "string" },
+                champion_score: { type: "number" }, champion_tip: { type: "string" }, champion_summary: { type: "string" },
+                eb_score: { type: "number" }, eb_tip: { type: "string" }, eb_summary: { type: "string" },
+                criteria_score: { type: "number" }, criteria_tip: { type: "string" }, criteria_summary: { type: "string" },
+                process_score: { type: "number" }, process_tip: { type: "string" }, process_summary: { type: "string" },
+                competition_score: { type: "number" }, competition_tip: { type: "string" }, competition_summary: { type: "string" },
+                paper_score: { type: "number" }, paper_tip: { type: "string" }, paper_summary: { type: "string" },
+                timing_score: { type: "number" }, timing_tip: { type: "string" }, timing_summary: { type: "string" },
                 risk_summary: { type: "string" },
                 next_steps: { type: "string" },
               },
-              required: [],
+              required: [], // Empty required list prevents "choking" on missing data
             },
           },
         ],
+        tool_choice: "auto",
       },
     };
 
     openAiWs.send(JSON.stringify(sessionUpdate));
 
-setTimeout(() => {
-      openAiWs.send(
-        JSON.stringify({
-          type: "response.create",
-          response: { 
+    // E. The Trigger (Forces Custom Intro)
+    setTimeout(() => {
+      openAiWs.send(JSON.stringify({
+        type: "response.create",
+        response: { 
             instructions: "Please begin immediately by speaking the opening intro defined in your system instructions." 
-          },
-        })
-      );
-    }, 700);
- };
+        },
+      }));
+    }, 500);
+  };
 
+  // 3. THE MUSCLE (DB SAVE)
   const handleFunctionCall = async (args) => {
     console.log("🛠️ Tool Triggered: save_deal_data");
 
@@ -461,21 +447,22 @@ setTimeout(() => {
     }
   };
 
-openAiWs.on("message", (data) => {
+  // 4. THE EAR (OPENAI LISTENER)
+  openAiWs.on("message", (data) => {
     const response = JSON.parse(data);
 
-    // 1. Audio Passthrough
+    // Audio Passthrough
     if (response.type === "response.audio.delta" && response.delta) {
       ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
     }
 
-    // 2. THE TRIGGER: Wait for arguments to be DONE
+    // THE TRIGGER: Wait for arguments to be DONE
     if (response.type === "response.function_call_arguments.done" && response.name === "save_deal_data") {
       console.log(`🛠️ AI Finished Generating Data: ${response.name}`);
       try {
         const args = JSON.parse(response.arguments);
 
-        // Handshake: Tell OpenAI to unpause the voice so it can speak the next deal intro
+        // Handshake: Tell OpenAI to unpause the voice
         openAiWs.send(JSON.stringify({
           type: "conversation.item.create",
           item: {
@@ -491,29 +478,25 @@ openAiWs.on("message", (data) => {
       }
     }
   });
+
+  // 5. TWILIO LISTENER
   ws.on("message", (message) => {
     const msg = JSON.parse(message);
-
     if (msg.event === "start") {
       streamSid = msg.start.streamSid;
       const params = msg.start.customParameters;
-
       if (params) {
         orgId = parseInt(params.org_id) || 1;
         repName = params.rep_name || "Guest";
         console.log(`🔎 Params Received: ${repName}`);
-
         if (openAiReady) attemptLaunch();
       }
     }
-
     if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
-      openAiWs.send(
-        JSON.stringify({
-          type: "input_audio_buffer.append",
-          audio: msg.media.payload,
-        })
-      );
+      openAiWs.send(JSON.stringify({
+        type: "input_audio_buffer.append",
+        audio: msg.media.payload,
+      }));
     }
   });
 
@@ -521,8 +504,7 @@ openAiWs.on("message", (data) => {
     console.log("🔌 Call Closed.");
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
-}); // end of connection
-
+}); 
 // --- [BLOCK 6: SERVER LISTEN] ---
 server.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT}`);
