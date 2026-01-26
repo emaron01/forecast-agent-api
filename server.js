@@ -330,10 +330,15 @@ wss.on("connection", async (ws) => {
         },
       };
 
-      openAiWs.send(JSON.stringify(sessionUpdate));
-      setTimeout(() => { openAiWs.send(JSON.stringify({ type: "response.create" })); }, 500);
-  };
+openAiWs.send(JSON.stringify(sessionUpdate));
 
+setTimeout(() => {
+  openAiWs.send(JSON.stringify({
+    type: "response.create",
+    response: { instructions: "Start" }
+  }));
+}, 500);
+};
 // 3. HELPER: FUNCTION HANDLER (The Muscle)
 const handleFunctionCall = async (args) => {
     console.log("🛠️ Tool Triggered: save_deal_data");
