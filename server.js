@@ -346,14 +346,14 @@ wss.on("connection", async (ws) => {
 // 3. HELPER: FUNCTION HANDLER (The Muscle)
 const handleFunctionCall = async (args) => {
     console.log("🛠️ Tool Triggered: save_deal_data");
-    
+
     try {
         const deal = dealQueue[currentDealIndex];
 
         // 1. Calculate Score & Stage
         const scores = [
-            args.pain_score, args.metrics_score, args.champion_score, 
-            args.eb_score, args.criteria_score, args.process_score, 
+            args.pain_score, args.metrics_score, args.champion_score,
+            args.eb_score, args.criteria_score, args.process_score,
             args.competition_score, args.paper_score, args.timing_score
         ];
         const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
@@ -375,16 +375,16 @@ const handleFunctionCall = async (args) => {
               run_count = run_count + 1, updated_at = NOW()
              WHERE id = $31`,
             [
-              args.pain_score || 0, args.pain_tip || null, args.pain_summary || null,
-              args.metrics_score || 0, args.metrics_tip || null, args.metrics_summary || null,
-              args.champion_score || 0, args.champion_tip || null, args.champion_summary || null,
-              args.eb_score || 0, args.eb_tip || null, args.eb_summary || null,
-              args.criteria_score || 0, args.criteria_tip || null, args.criteria_summary || null,
-              args.process_score || 0, args.process_tip || null, args.process_summary || null,
-              args.competition_score || 0, args.competition_tip || null, args.competition_summary || null,
-              args.paper_score || 0, args.paper_tip || null, args.paper_summary || null,
-              args.timing_score || 0, args.timing_tip || null, args.timing_summary || null,
-              args.risk_summary || "No summary", args.next_steps || "None", newStage, deal.id
+                args.pain_score || 0, args.pain_tip || null, args.pain_summary || null,
+                args.metrics_score || 0, args.metrics_tip || null, args.metrics_summary || null,
+                args.champion_score || 0, args.champion_tip || null, args.champion_summary || null,
+                args.eb_score || 0, args.eb_tip || null, args.eb_summary || null,
+                args.criteria_score || 0, args.criteria_tip || null, args.criteria_summary || null,
+                args.process_score || 0, args.process_tip || null, args.process_summary || null,
+                args.competition_score || 0, args.competition_tip || null, args.competition_summary || null,
+                args.paper_score || 0, args.paper_tip || null, args.paper_summary || null,
+                args.timing_score || 0, args.timing_tip || null, args.timing_summary || null,
+                args.risk_summary || "No summary", args.next_steps || "None", newStage, deal.id
             ]
         );
         console.log(`✅ Saved: ${deal.account_name}`);
@@ -392,48 +392,43 @@ const handleFunctionCall = async (args) => {
         // 3. Increment Index
         currentDealIndex++;
 
-        // 4. Handle Branching (End of Call vs Next Deal)
+        // 4. Handle Branching
         if (currentDealIndex >= dealQueue.length) {
             console.log("🏁 All deals finished.");
             openAiWs.send(JSON.stringify({
                 type: "response.create",
-                response: { instructions: "Say: 'Got it, Cyberdyne is saved. That actually wraps up our list for today. Great work! I'll see you next time.' and then hang up." }
+                response: { instructions: "Say: 'Got it, that's saved. That actually wraps up our list for today. Great work! I'll see you next time.' and then hang up." }
             }));
-            // Give it 10 seconds to finish speaking before closing the process
-            setTimeout(() => { if (ws.readyState === WebSocket.OPEN) ws.close(); }, 10000); 
+            setTimeout(() => { if (ws.readyState === WebSocket.OPEN) ws.close(); }, 10000);
         } else {
             const nextDeal = dealQueue[currentDealIndex];
             const remaining = dealQueue.length - currentDealIndex;
             console.log(`➡️ Moving to next: ${nextDeal.account_name} (${remaining} left)`);
-            
+
             const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], remaining - 1, dealQueue.length);
-            
-            // Context Nuke
+
             const nukeInstructions = `*** SYSTEM ALERT: PREVIOUS DEAL CLOSED. ***\n\nFORGET ALL context about the previous account. FOCUS ONLY on this new deal:\n\n` + nextInstructions;
 
-            // Update Instructions
             openAiWs.send(JSON.stringify({
                 type: "session.update",
                 session: { instructions: nukeInstructions }
             }));
-            
-            // 🎙️ THE MOUTH TRIGGER (Now safely inside the 'else' block where nextDeal is defined)
+
             openAiWs.send(JSON.stringify({
                 type: "response.create",
-                response: { 
-                   instructions: `Say: 'Okay, Cyberdyne is saved. We have ${remaining} ${remaining === 1 ? 'deal' : 'deals'} left. Next up is ${nextDeal.account_name}. What is the latest update there?'` 
+                response: {
+                    instructions: `Say: 'Okay, saved. We have ${remaining} ${remaining === 1 ? "deal" : "deals"} left to review. Next up is ${nextDeal.account_name}. What is the latest update there?'`
                 }
             }));
         }
     } catch (err) {
         console.error("❌ Save Failed:", err);
         openAiWs.send(JSON.stringify({
-           type: "response.create",
-           response: { instructions: "Say: 'I ran into an issue saving those details. Let me try that again.'" }
+            type: "response.create",
+            response: { instructions: "Say: 'I ran into an issue saving those details. Let me try that again.'" }
         }));
     }
 };
-        // 3. Move to Next Deal logic
         currentDealIndex++;
 
         if (currentDealIndex >= dealQueue.length) {
