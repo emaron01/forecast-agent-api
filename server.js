@@ -357,43 +357,31 @@ wss.on("connection", async (ws) => {
 
     openAiWs.send(JSON.stringify(sessionUpdate));
 
-    setTimeout(() => {
+setTimeout(() => {
       openAiWs.send(
         JSON.stringify({
           type: "response.create",
-          response: { instructions: "Start" },
+          response: { 
+            instructions: "Please begin immediately by speaking the opening intro defined in your system instructions." 
+          },
         })
       );
     }, 500);
-  };
+ };
 
   const handleFunctionCall = async (args) => {
     console.log("🛠️ Tool Triggered: save_deal_data");
 
     try {
       const deal = dealQueue[currentDealIndex];
-
       const scores = [
-        args.pain_score,
-        args.metrics_score,
-        args.champion_score,
-        args.eb_score,
-        args.criteria_score,
-        args.process_score,
-        args.competition_score,
-        args.paper_score,
-        args.timing_score,
+        args.pain_score, args.metrics_score, args.champion_score,
+        args.eb_score, args.criteria_score, args.process_score,
+        args.competition_score, args.paper_score, args.timing_score,
       ];
 
       const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
-      const newStage =
-        totalScore >= 25
-          ? "Closed Won"
-          : totalScore >= 20
-          ? "Commit"
-          : totalScore >= 12
-          ? "Best Case"
-          : "Pipeline";
+      const newStage = totalScore >= 25 ? "Closed Won" : totalScore >= 20 ? "Commit" : totalScore >= 12 ? "Best Case" : "Pipeline";
 
       await pool.query(
         `UPDATE opportunities SET 
@@ -410,150 +398,90 @@ wss.on("connection", async (ws) => {
           run_count = run_count + 1, updated_at = NOW()
          WHERE id = $31`,
         [
-          args.pain_score,
-          args.pain_tip,
-          args.pain_summary,
-          args.metrics_score,
-          args.metrics_tip,
-          args.metrics_summary,
-          args.champion_score,
-          args.champion_tip,
-          args.champion_summary,
-          args.eb_score,
-          args.eb_tip,
-          args.eb_summary,
-          args.criteria_score,
-          args.criteria_tip,
-          args.criteria_summary,
-          args.process_score,
-          args.process_tip,
-          args.process_summary,
-          args.competition_score,
-          args.competition_tip,
-          args.competition_summary,
-          args.paper_score,
-          args.paper_tip,
-          args.paper_summary,
-          args.timing_score,
-          args.timing_tip,
-          args.timing_summary,
-          args.risk_summary,
-          args.next_steps,
-          newStage,
+          args.pain_score || 0, args.pain_tip || null, args.pain_summary || null,
+          args.metrics_score || 0, args.metrics_tip || null, args.metrics_summary || null,
+          args.champion_score || 0, args.champion_tip || null, args.champion_summary || null,
+          args.eb_score || 0, args.eb_tip || null, args.eb_summary || null,
+          args.criteria_score || 0, args.criteria_tip || null, args.criteria_summary || null,
+          args.process_score || 0, args.process_tip || null, args.process_summary || null,
+          args.competition_score || 0, args.competition_tip || null, args.competition_summary || null,
+          args.paper_score || 0, args.paper_tip || null, args.paper_summary || null,
+          args.timing_score || 0, args.timing_tip || null, args.timing_summary || null,
+          args.risk_summary || "No summary provided", 
+          args.next_steps || "No next steps", 
+          newStage, 
           deal.id,
         ]
       );
 
       console.log(`✅ Saved: ${deal.account_name}`);
-
       currentDealIndex++;
 
       if (currentDealIndex >= dealQueue.length) {
         console.log("🏁 All deals finished.");
-        openAiWs.send(
-          JSON.stringify({
-            type: "response.create",
-            response: {
-              instructions:
-                "Say: 'That concludes the review. Great work today.' and then hang up.",
-            },
-          })
-        );
+        openAiWs.send(JSON.stringify({
+          type: "response.create",
+          response: { instructions: "Say: 'That concludes the review. Great work today.' and then hang up." },
+        }));
         setTimeout(() => process.exit(0), 5000);
       } else {
         const nextDeal = dealQueue[currentDealIndex];
         const remaining = dealQueue.length - currentDealIndex;
+        const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], remaining - 1, dealQueue.length);
+        
+        const nukeInstructions = `*** SYSTEM ALERT: PREVIOUS DEAL CLOSED. ***\n\nFORGET ALL context about the previous account. FOCUS ONLY on this new deal:\n\n` + nextInstructions;
 
-        console.log(
-          `➡️ Moving to next: ${nextDeal.account_name} (${remaining} left)`
-        );
+        openAiWs.send(JSON.stringify({
+          type: "session.update",
+          session: { instructions: nukeInstructions },
+        }));
 
-        const nextInstructions = getSystemPrompt(
-          nextDeal,
-          repName.split(" ")[0],
-          remaining - 1,
-          dealQueue.length
-        );
-
-        const nukeInstructions =
-          `*** SYSTEM ALERT: PREVIOUS DEAL CLOSED. ***\n\nFORGET ALL context about the previous account. FOCUS ONLY on this new deal:\n\n` +
-          nextInstructions;
-
-        openAiWs.send(
-          JSON.stringify({
-            type: "session.update",
-            session: { instructions: nukeInstructions },
-          })
-        );
-
-        openAiWs.send(
-          JSON.stringify({
-            type: "response.create",
-            response: {
-              instructions: `Say: 'Okay, saved. We have ${remaining} ${
-                remaining === 1 ? "deal" : "deals"
-              } left to review. Next up is ${
-                nextDeal.account_name
-              }. What is the latest update there?'`,
-            },
-          })
-        );
+        openAiWs.send(JSON.stringify({
+          type: "response.create",
+          response: { 
+            instructions: `Say: 'Okay, saved. We have ${remaining} ${remaining === 1 ? "deal" : "deals"} left to review. Next up is ${nextDeal.account_name}. What is the latest update there?'` 
+          },
+        }));
       }
     } catch (err) {
       console.error("❌ Save Failed:", err);
-      openAiWs.send(
-        JSON.stringify({
-          type: "response.create",
-          response: {
-            instructions:
-              "Say: 'I ran into an issue saving those details. Let me try that again.'",
-          },
-        })
-      );
+      openAiWs.send(JSON.stringify({
+        type: "response.create",
+        response: { instructions: "Say: 'I ran into an issue saving those details. Let me try that again.'" },
+      }));
     }
   };
 
-  openAiWs.on("message", (data) => {
+openAiWs.on("message", (data) => {
     const response = JSON.parse(data);
 
+    // 1. Audio Passthrough
     if (response.type === "response.audio.delta" && response.delta) {
-      ws.send(
-        JSON.stringify({
-          event: "media",
-          streamSid,
-          media: { payload: response.delta },
-        })
-      );
+      ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
     }
 
-    if (response.type === "response.output_item.added") {
-      const item = response.item;
-      if (!item || !item.content) return;
+    // 2. THE TRIGGER: Wait for arguments to be DONE
+    if (response.type === "response.function_call_arguments.done" && response.name === "save_deal_data") {
+      console.log(`🛠️ AI Finished Generating Data: ${response.name}`);
+      try {
+        const args = JSON.parse(response.arguments);
 
-      const toolCall = item.content.find((c) => c.type === "tool_call");
-      if (!toolCall) return;
+        // Handshake: Tell OpenAI to unpause the voice so it can speak the next deal intro
+        openAiWs.send(JSON.stringify({
+          type: "conversation.item.create",
+          item: {
+            type: "function_call_output",
+            call_id: response.call_id,
+            output: JSON.stringify({ status: "success" }),
+          },
+        }));
 
-      if (toolCall.name === "save_deal_data") {
-        console.log("🛠️ Save Triggered by OpenAI");
-
-        const args = JSON.parse(toolCall.arguments);
-
-        openAiWs.send(
-          JSON.stringify({
-            type: "conversation.item.create",
-            item: {
-              type: "function_call_output",
-              call_id: toolCall.call_id,
-              output: JSON.stringify({ status: "success" }),
-            },
-          })
-        );
-
-        handleFunctionCall(args);
+        handleFunctionCall(args); 
+      } catch (error) {
+        console.error("❌ JSON Parse Error on Tool Args:", error);
       }
     }
   });
-
   ws.on("message", (message) => {
     const msg = JSON.parse(message);
 
