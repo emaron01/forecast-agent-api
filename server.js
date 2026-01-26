@@ -223,6 +223,7 @@ app.post("/agent", async (req, res) => {
     res.type("text/xml").send(`<Response><Connect><Stream url="wss://${req.headers.host}/" /></Connect></Response>`);
   }
 });
+
 // --- [BLOCK 5: WEBSOCKET CORE] ---
 wss.on("connection", async (ws) => {
   console.log("🔥 Twilio WebSocket connected");
@@ -544,6 +545,8 @@ wss.on("connection", async (ws) => {
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
 }); // end of connection
+
+// --- [BLOCK 6: API ENDPOINTS] ---
 
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/debug/opportunities", async (req, res) => {
