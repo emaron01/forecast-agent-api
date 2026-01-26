@@ -269,121 +269,134 @@ wss.on("connection", async (ws) => {
   openAiWs.on("error", (err) => {
     console.error("❌ OpenAI WebSocket Error:", err.message);
   });
-  // 2. HELPER: LAUNCHER
-  const attemptLaunch = async () => {
-      if (!repName || !openAiReady) return; 
 
-      console.log(`🚀 Launching Session for ${repName}`);
+// 2. HELPER: LAUNCHER
+const attemptLaunch = async () => {
+  if (!repName || !openAiReady) return;
 
-      try {
-        const result = await pool.query(
-          `SELECT o.*, org.product_truths AS org_product_data
-           FROM opportunities o
-           JOIN organizations org ON o.org_id = org.id
-           WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost')
-           ORDER BY o.id ASC`,
-          [orgId]
-        );
-        dealQueue = result.rows;
-        console.log(`📊 Loaded ${dealQueue.length} deals`);
-      } catch (err) {
-       console.error("❌ DB Load Error:", err.message);
-      }
+  console.log(`🚀 Launching Session for ${repName}`);
 
-      if (dealQueue.length === 0) {
-         openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: "System Message." } }));
-         openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: 'Hello ${repName}. I connected, but I found zero active deals.'` } }));
-         return;
-      }
-
-      const firstDeal = dealQueue[0];
-      // Pass dealQueue.length as the 4th argument
-      const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);      
-
-const sessionUpdate = {
-  type: "session.update",
-  session: {
-    turn_detection: {
-      type: "server_vad",
-      threshold: 0.5,
-      silence_duration_ms: 1000
-    },
-    instructions: instructions,
-    tools: [
-      {
-        type: "function",
-        name: "save_deal_data",
-        description: "Saves scores, tips, and summaries. ALL FIELDS ARE REQUIRED.",
-        parameters: {
-          type: "object",
-          properties: {
-            pain_score: { type: "number" },
-            pain_tip: { type: "string" },
-            pain_summary: { type: "string" },
-
-            metrics_score: { type: "number" },
-            metrics_tip: { type: "string" },
-            metrics_summary: { type: "string" },
-
-            champion_score: { type: "number" },
-            champion_tip: { type: "string" },
-            champion_summary: { type: "string" },
-
-            eb_score: { type: "number" },
-            eb_tip: { type: "string" },
-            eb_summary: { type: "string" },
-
-            criteria_score: { type: "number" },
-            criteria_tip: { type: "string" },
-            criteria_summary: { type: "string" },
-
-            process_score: { type: "number" },
-            process_tip: { type: "string" },
-            process_summary: { type: "string" },
-
-            competition_score: { type: "number" },
-            competition_tip: { type: "string" },
-            competition_summary: { type: "string" },
-
-            paper_score: { type: "number" },
-            paper_tip: { type: "string" },
-            paper_summary: { type: "string" },
-
-            timing_score: { type: "number" },
-            timing_tip: { type: "string" },
-            timing_summary: { type: "string" },
-
-            risk_summary: { type: "string" },
-            next_steps: { type: "string" }
-          },
-          required: [
-            "pain_score","pain_tip","pain_summary",
-            "metrics_score","metrics_tip","metrics_summary",
-            "champion_score","champion_tip","champion_summary",
-            "eb_score","eb_tip","eb_summary",
-            "criteria_score","criteria_tip","criteria_summary",
-            "process_score","process_tip","process_summary",
-            "competition_score","competition_tip","competition_summary",
-            "paper_score","paper_tip","paper_summary",
-            "timing_score","timing_tip","timing_summary",
-            "risk_summary","next_steps"
-          ]
-        }
-      }
-    ]
+  try {
+    const result = await pool.query(
+      `SELECT o.*, org.product_truths AS org_product_data
+       FROM opportunities o
+       JOIN organizations org ON o.org_id = org.id
+       WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost')
+       ORDER BY o.id ASC`,
+      [orgId]
+    );
+    dealQueue = result.rows;
+    console.log(`📊 Loaded ${dealQueue.length} deals`);
+  } catch (err) {
+    console.error("❌ DB Load Error:", err.message);
   }
+
+  if (dealQueue.length === 0) {
+    openAiWs.send(JSON.stringify({
+      type: "session.update",
+      session: { instructions: "System Message." }
+    }));
+    openAiWs.send(JSON.stringify({
+      type: "response.create",
+      response: { instructions: `Say: 'Hello ${repName}. I connected, but I found zero active deals.'` }
+    }));
+    return;
+  }
+
+  const firstDeal = dealQueue[0];
+  const instructions = getSystemPrompt(
+    firstDeal,
+    repName.split(" ")[0],
+    dealQueue.length - 1,
+    dealQueue.length
+  );
+
+  // --- CLEAN, VALID REALTIME SESSION.UPDATE ---
+  const sessionUpdate = {
+    type: "session.update",
+    session: {
+      turn_detection: {
+        type: "server_vad",
+        threshold: 0.5,
+        silence_duration_ms: 1000
+      },
+      instructions: instructions,
+      tools: [
+        {
+          type: "function",
+          name: "save_deal_data",
+          description: "Saves scores, tips, and summaries. ALL FIELDS ARE REQUIRED.",
+          parameters: {
+            type: "object",
+            properties: {
+              pain_score: { type: "number" },
+              pain_tip: { type: "string" },
+              pain_summary: { type: "string" },
+
+              metrics_score: { type: "number" },
+              metrics_tip: { type: "string" },
+              metrics_summary: { type: "string" },
+
+              champion_score: { type: "number" },
+              champion_tip: { type: "string" },
+              champion_summary: { type: "string" },
+
+              eb_score: { type: "number" },
+              eb_tip: { type: "string" },
+              eb_summary: { type: "string" },
+
+              criteria_score: { type: "number" },
+              criteria_tip: { type: "string" },
+              criteria_summary: { type: "string" },
+
+              process_score: { type: "number" },
+              process_tip: { type: "string" },
+              process_summary: { type: "string" },
+
+              competition_score: { type: "number" },
+              competition_tip: { type: "string" },
+              competition_summary: { type: "string" },
+
+              paper_score: { type: "number" },
+              paper_tip: { type: "string" },
+              paper_summary: { type: "string" },
+
+              timing_score: { type: "number" },
+              timing_tip: { type: "string" },
+              timing_summary: { type: "string" },
+
+              risk_summary: { type: "string" },
+              next_steps: { type: "string" }
+            },
+            required: [
+              "pain_score","pain_tip","pain_summary",
+              "metrics_score","metrics_tip","metrics_summary",
+              "champion_score","champion_tip","champion_summary",
+              "eb_score","eb_tip","eb_summary",
+              "criteria_score","criteria_tip","criteria_summary",
+              "process_score","process_tip","process_summary",
+              "competition_score","competition_tip","competition_summary",
+              "paper_score","paper_tip","paper_summary",
+              "timing_score","timing_tip","timing_summary",
+              "risk_summary","next_steps"
+            ]
+          }
+        }
+      ]
+    }
+  };
+
+  // Send the session update
+  openAiWs.send(JSON.stringify(sessionUpdate));
+
+  // Send the Start nudge
+  setTimeout(() => {
+    openAiWs.send(JSON.stringify({
+      type: "response.create",
+      response: { instructions: "Start" }
+    }));
+  }, 500);
 };
-
-// Send the session update
-openAiWs.send(JSON.stringify(sessionUpdate));
-
-// Send the Start nudge
-setTimeout(() => {
-  openAiWs.send(JSON.stringify({
-    type: "response.create",
-    response: { instructions: "Start" }
-  }));
-}, 500);
 
 // 3. HELPER: FUNCTION HANDLER (The Muscle)
 const handleFunctionCall = async (args) => {
