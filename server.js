@@ -223,6 +223,7 @@ ADDITIONAL RULES:
       - **WAIT:** You must wait for the tool to return success before speaking again.
    3. **After Tool Success:** Say "Okay, saved. Moving to the next deal."
    `;
+}
 
 // --- [BLOCK 4: SMART RECEPTIONIST] ---
 app.post("/agent", async (req, res) => {
@@ -399,6 +400,5 @@ app.get("/debug/opportunities", async (req, res) => {
         const result = await pool.query("SELECT * FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC", [req.query.org_id || 1]);
         res.json(result.rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
+}); 
 server.listen(PORT, () => console.log(`🚀 Server on ${PORT}`));
