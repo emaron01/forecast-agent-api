@@ -346,11 +346,8 @@ wss.on("connection", async (ws) => {
 // 3. HELPER: FUNCTION HANDLER (The Muscle)
 const handleFunctionCall = async (args) => {
     console.log("🛠️ Tool Triggered: save_deal_data");
-
     try {
         const deal = dealQueue[currentDealIndex];
-
-        // 1. Calculate Score & Stage
         const scores = [
             args.pain_score, args.metrics_score, args.champion_score,
             args.eb_score, args.criteria_score, args.process_score,
@@ -359,7 +356,6 @@ const handleFunctionCall = async (args) => {
         const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
         const newStage = totalScore >= 25 ? "Closed Won" : totalScore >= 20 ? "Commit" : totalScore >= 12 ? "Best Case" : "Pipeline";
 
-        // 2. Execute Database Update
         await pool.query(
             `UPDATE opportunities SET 
               pain_score=$1, pain_tip=$2, pain_summary=$3,
@@ -389,24 +385,19 @@ const handleFunctionCall = async (args) => {
         );
         console.log(`✅ Saved: ${deal.account_name}`);
 
-        // 3. Increment Index
         currentDealIndex++;
 
-        // 4. Handle Branching
         if (currentDealIndex >= dealQueue.length) {
             console.log("🏁 All deals finished.");
             openAiWs.send(JSON.stringify({
                 type: "response.create",
-                response: { instructions: "Say: 'Got it, that's saved. That actually wraps up our list for today. Great work! I'll see you next time.' and then hang up." }
+                response: { instructions: "Say: 'Got it, saved. That wraps up our list for today. Great work! I will see you next time.' and hang up." }
             }));
             setTimeout(() => { if (ws.readyState === WebSocket.OPEN) ws.close(); }, 10000);
         } else {
             const nextDeal = dealQueue[currentDealIndex];
             const remaining = dealQueue.length - currentDealIndex;
-            console.log(`➡️ Moving to next: ${nextDeal.account_name} (${remaining} left)`);
-
             const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], remaining - 1, dealQueue.length);
-
             const nukeInstructions = `*** SYSTEM ALERT: PREVIOUS DEAL CLOSED. ***\n\nFORGET ALL context about the previous account. FOCUS ONLY on this new deal:\n\n` + nextInstructions;
 
             openAiWs.send(JSON.stringify({
@@ -417,7 +408,7 @@ const handleFunctionCall = async (args) => {
             openAiWs.send(JSON.stringify({
                 type: "response.create",
                 response: {
-                    instructions: `Say: 'Okay, saved. We have ${remaining} ${remaining === 1 ? "deal" : "deals"} left to review. Next up is ${nextDeal.account_name}. What is the latest update there?'`
+                    instructions: `Say: 'Okay, saved. We have ${remaining} deals left. Next up is ${nextDeal.account_name}. What is the latest update there?'`
                 }
             }));
         }
@@ -425,11 +416,12 @@ const handleFunctionCall = async (args) => {
         console.error("❌ Save Failed:", err);
         openAiWs.send(JSON.stringify({
             type: "response.create",
-            response: { instructions: "Say: 'I ran into an issue saving those details. Let me try that again.'" }
+            response: { instructions: "Say: 'I ran into an issue saving. Let me try that again.'" }
         }));
     }
-};
-        currentDealIndex++;
+};        
+
+currentDealIndex++;
 
         if (currentDealIndex >= dealQueue.length) {
             console.log("🏁 All deals finished.");
