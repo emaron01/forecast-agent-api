@@ -311,93 +311,92 @@ const attemptLaunch = async () => {
     dealQueue.length
   );
 
-  // --- CLEAN, VALID REALTIME SESSION.UPDATE ---
-  const sessionUpdate = {
-    type: "session.update",
-    session: {
-      turn_detection: {
-        type: "server_vad",
-        threshold: 0.5,
-        silence_duration_ms: 1000
-      },
-      instructions: instructions,
-      tools: [
-        {
-          type: "function",
-          name: "save_deal_data",
-          description: "Saves scores, tips, and summaries. ALL FIELDS ARE REQUIRED.",
-          parameters: {
-            type: "object",
-            properties: {
-              pain_score: { type: "number" },
-              pain_tip: { type: "string" },
-              pain_summary: { type: "string" },
+// --- CLEAN, VALID REALTIME SESSION.UPDATE ---
+const sessionUpdate = {
+  type: "session.update",
+  session: {
+    turn_detection: {
+      type: "server_vad",
+      threshold: 0.5,
+      silence_duration_ms: 1000
+    },
+    instructions: instructions,
+    tools: [
+      {
+        type: "function",
+        name: "save_deal_data",
+        description: "Saves scores, tips, and summaries. ALL FIELDS ARE REQUIRED.",
+        parameters: {
+          type: "object",
+          properties: {
+            pain_score: { type: "number" },
+            pain_tip: { type: "string" },
+            pain_summary: { type: "string" },
 
-              metrics_score: { type: "number" },
-              metrics_tip: { type: "string" },
-              metrics_summary: { type: "string" },
+            metrics_score: { type: "number" },
+            metrics_tip: { type: "string" },
+            metrics_summary: { type: "string" },
 
-              champion_score: { type: "number" },
-              champion_tip: { type: "string" },
-              champion_summary: { type: "string" },
+            champion_score: { type: "number" },
+            champion_tip: { type: "string" },
+            champion_summary: { type: "string" },
 
-              eb_score: { type: "number" },
-              eb_tip: { type: "string" },
-              eb_summary: { type: "string" },
+            eb_score: { type: "number" },
+            eb_tip: { type: "string" },
+            eb_summary: { type: "string" },
 
-              criteria_score: { type: "number" },
-              criteria_tip: { type: "string" },
-              criteria_summary: { type: "string" },
+            criteria_score: { type: "number" },
+            criteria_tip: { type: "string" },
+            criteria_summary: { type: "string" },
 
-              process_score: { type: "number" },
-              process_tip: { type: "string" },
-              process_summary: { type: "string" },
+            process_score: { type: "number" },
+            process_tip: { type: "string" },
+            process_summary: { type: "string" },
 
-              competition_score: { type: "number" },
-              competition_tip: { type: "string" },
-              competition_summary: { type: "string" },
+            competition_score: { type: "number" },
+            competition_tip: { type: "string" },
+            competition_summary: { type: "string" },
 
-              paper_score: { type: "number" },
-              paper_tip: { type: "string" },
-              paper_summary: { type: "string" },
+            paper_score: { type: "number" },
+            paper_tip: { type: "string" },
+            paper_summary: { type: "string" },
 
-              timing_score: { type: "number" },
-              timing_tip: { type: "string" },
-              timing_summary: { type: "string" },
+            timing_score: { type: "number" },
+            timing_tip: { type: "string" },
+            timing_summary: { type: "string" },
 
-              risk_summary: { type: "string" },
-              next_steps: { type: "string" }
-            },
-            required: [
-              "pain_score","pain_tip","pain_summary",
-              "metrics_score","metrics_tip","metrics_summary",
-              "champion_score","champion_tip","champion_summary",
-              "eb_score","eb_tip","eb_summary",
-              "criteria_score","criteria_tip","criteria_summary",
-              "process_score","process_tip","process_summary",
-              "competition_score","competition_tip","competition_summary",
-              "paper_score","paper_tip","paper_summary",
-              "timing_score","timing_tip","timing_summary",
-              "risk_summary","next_steps"
-            ]
-          }
+            risk_summary: { type: "string" },
+            next_steps: { type: "string" }
+          },
+          required: [
+            "pain_score","pain_tip","pain_summary",
+            "metrics_score","metrics_tip","metrics_summary",
+            "champion_score","champion_tip","champion_summary",
+            "eb_score","eb_tip","eb_summary",
+            "criteria_score","criteria_tip","criteria_summary",
+            "process_score","process_tip","process_summary",
+            "competition_score","competition_tip","competition_summary",
+            "paper_score","paper_tip","paper_summary",
+            "timing_score","timing_tip","timing_summary",
+            "risk_summary","next_steps"
+          ]
         }
-      ]
-    }
-  };
+      }
+    ]
+  }
+};
 
-  // Send the session update
-  openAiWs.send(JSON.stringify(sessionUpdate));
+// Send the session update
+openAiWs.send(JSON.stringify(sessionUpdate));
 
-  // Send the Start nudge
-  setTimeout(() => {
-    openAiWs.send(JSON.stringify({
-      type: "response.create",
-      response: { instructions: "Start" }
-    }));
-  }, 500); 
-}
-
+// Send the Start nudge
+setTimeout(() => {
+  openAiWs.send(JSON.stringify({
+    type: "response.create",
+    response: { instructions: "Start" }
+  }));
+}, 500);
+  
 // 3. HELPER: FUNCTION HANDLER (The Muscle)
 const handleFunctionCall = async (args) => {
     console.log("🛠️ Tool Triggered: save_deal_data");
