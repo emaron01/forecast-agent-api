@@ -395,8 +395,8 @@ const attemptLaunch = async () => {
       type: "response.create",
       response: { instructions: "Start" }
     }));
-  }, 500);
-};
+  }, 500); 
+}
 
 // 3. HELPER: FUNCTION HANDLER (The Muscle)
 const handleFunctionCall = async (args) => {
