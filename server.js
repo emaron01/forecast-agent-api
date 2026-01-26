@@ -191,6 +191,7 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
       - **WAIT:** You must wait for the tool to return success before speaking again.
    3. **After Tool Success:** Say "Okay, saved. Moving to the next deal."
    `;
+}
 
 // --- [BLOCK 4: SMART RECEPTIONIST] ---
 app.post("/agent", async (req, res) => {
