@@ -126,38 +126,40 @@ wss.on("connection", (ws) => {
             const deal = dealQueue[0];
             const instructions = getSystemPrompt(deal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
 
-            openAiWs.send(JSON.stringify({
-                type: "session.update",
-                session: {
-                    turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
-                    instructions: instructions,
-                    tools: [{
-                        type: "function",
-                        name: "save_deal_data",
-                        description: "Saves sales audit data.",
-                        parameters: {
-                            type: "object",
-                            properties: {
-                                pain_score: { type: "number" }, pain_tip: { type: "string" }, pain_summary: { type: "string" },
-                                metrics_score: { type: "number" }, metrics_tip: { type: "string" }, metrics_summary: { type: "string" },
-                                champion_score: { type: "number" }, champion_tip: { type: "string" }, champion_summary: { type: "string" },
-                                eb_score: { type: "number" }, eb_tip: { type: "string" }, eb_summary: { type: "string" },
-                                criteria_score: { type: "number" }, criteria_tip: { type: "string" }, criteria_summary: { type: "string" },
-                                process_score: { type: "number" }, process_tip: { type: "string" }, process_summary: { type: "string" },
-                                competition_score: { type: "number" }, competition_tip: { type: "string" }, competition_summary: { type: "string" },
-                                paper_score: { type: "number" }, paper_tip: { type: "string" }, paper_summary: { type: "string" },
-                                timing_score: { type: "number" }, timing_tip: { type: "string" }, timing_summary: { type: "string" },
-                                risk_summary: { type: "string" }, next_steps: { type: "string" },
-                                champion_name: { type: "string" }, champion_title: { type: "string" },
-                                eb_name: { type: "string" }, eb_title: { type: "string" },
-                                rep_comments: { type: "string" }, manager_comments: { type: "string" }
-                            },
-                            required: []
-                        }
-                    }]
-                }
-            }));
-        } catch (err) { console.error(err); }
+            if (openAiWs.readyState === WebSocket.OPEN) {
+                openAiWs.send(JSON.stringify({
+                    type: "session.update",
+                    session: {
+                        turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
+                        instructions: instructions,
+                        tools: [{
+                            type: "function",
+                            name: "save_deal_data",
+                            description: "Saves sales audit data.",
+                            parameters: {
+                                type: "object",
+                                properties: {
+                                    pain_score: { type: "number" }, pain_tip: { type: "string" }, pain_summary: { type: "string" },
+                                    metrics_score: { type: "number" }, metrics_tip: { type: "string" }, metrics_summary: { type: "string" },
+                                    champion_score: { type: "number" }, champion_tip: { type: "string" }, champion_summary: { type: "string" },
+                                    eb_score: { type: "number" }, eb_tip: { type: "string" }, eb_summary: { type: "string" },
+                                    criteria_score: { type: "number" }, criteria_tip: { type: "string" }, criteria_summary: { type: "string" },
+                                    process_score: { type: "number" }, process_tip: { type: "string" }, process_summary: { type: "string" },
+                                    competition_score: { type: "number" }, competition_tip: { type: "string" }, competition_summary: { type: "string" },
+                                    paper_score: { type: "number" }, paper_tip: { type: "string" }, paper_summary: { type: "string" },
+                                    timing_score: { type: "number" }, timing_tip: { type: "string" }, timing_summary: { type: "string" },
+                                    risk_summary: { type: "string" }, next_steps: { type: "string" },
+                                    champion_name: { type: "string" }, champion_title: { type: "string" },
+                                    eb_name: { type: "string" }, eb_title: { type: "string" },
+                                    rep_comments: { type: "string" }, manager_comments: { type: "string" }
+                                },
+                                required: []
+                            }
+                        }]
+                    }
+                }));
+            }
+        } catch (err) { console.error("Launch Error:", err); }
     };
 
     async function handleFunctionCall(args) {
@@ -183,12 +185,18 @@ wss.on("connection", (ws) => {
             ];
             await pool.query(query, values);
             currentDealIndex++;
-            if (currentDealIndex < dealQueue.length) {
+            if (currentDealIndex < dealQueue.length && openAiWs.readyState === WebSocket.OPEN) {
                 const nextDeal = dealQueue[currentDealIndex];
-                openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: getSystemPrompt(nextDeal, repName, 0, dealQueue.length) } }));
-                openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: "Next deal..." } }));
+                openAiWs.send(JSON.stringify({ 
+                    type: "session.update", 
+                    session: { instructions: getSystemPrompt(nextDeal, repName, 0, dealQueue.length) } 
+                }));
+                openAiWs.send(JSON.stringify({ 
+                    type: "response.create", 
+                    response: { instructions: `Say: 'Saved. Next is ${nextDeal.account_name}. What's the latest?'` } 
+                }));
             }
-        } catch (err) { console.error(err); }
+        } catch (err) { console.error("Save Error:", err); }
     }
 
     openAiWs.on("open", () => {
@@ -198,12 +206,14 @@ wss.on("connection", (ws) => {
 
     openAiWs.on("message", (data) => {
         const response = JSON.parse(data);
-        if (response.type === "response.audio.delta") {
+        if (response.type === "response.audio.delta" && response.delta) {
             ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
         }
         if (response.type === "response.function_call_arguments.done") {
             handleFunctionCall(JSON.parse(response.arguments));
-            openAiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: response.call_id, output: "success" } }));
+            if (openAiWs.readyState === WebSocket.OPEN) {
+                openAiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: response.call_id, output: "success" } }));
+            }
         }
     });
 
@@ -211,11 +221,12 @@ wss.on("connection", (ws) => {
         const msg = JSON.parse(message);
         if (msg.event === "start") {
             streamSid = msg.start.streamSid;
-            orgId = msg.start.customParameters.org_id;
-            repName = msg.start.customParameters.rep_name;
+            const params = msg.start.customParameters || {};
+            orgId = params.org_id || 1;
+            repName = params.rep_name || "Guest";
             attemptLaunch();
         }
-        if (msg.event === "media") {
+        if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
             openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
         }
     });
@@ -224,7 +235,6 @@ wss.on("connection", (ws) => {
         if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
     });
 });
-
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/debug/opportunities", async (req, res) => {
     try {
