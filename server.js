@@ -104,15 +104,18 @@ function getSystemPrompt(deal, repName, dealsLeft) {
         • LOGIC: If Pain/Metrics/Champion are weak (0-1), STOP and fix them. Do not ask about Legal/Paperwork yet.`;
     }
 
-    // 6. INTRO
-    const intro = `Hi ${repName}. Pulling up ${deal.account_name} (${category}, ${amountStr}). ${historyHook}`;
+// 6. INTRO
+    const totalCount = dealQueue.length; // Use the actual queue size
+    const closeDateStr = deal.close_date ? new Date(deal.close_date).toLocaleDateString() : "Unknown";
+    
+    const intro = `Hi ${repName}. My name is Matthew, I am your Sales Forecaster assistant. Today, we will review ${totalCount} deals, starting with ${deal.account_name} (${category}, for ${amountStr}) with a close date of ${closeDateStr}. ${historyHook}`;
 
-// 7. THE MASTER PROMPT
+    // 7. THE MASTER PROMPT
     return `
 ### MANDATORY OPENING
     You MUST open exactly with: "${intro} So, lets jump right in - please share the latest update?"
-
-    ### ROLE & IDENTITY
+  
+  ### ROLE & IDENTITY
     You are Matthew, a high-IQ Sales Strategist. You are NOT a script reader.
     ${stageInstructions}
 
@@ -326,19 +329,19 @@ wss.on("connection", async (ws) => {
   };
 
 // 3. HELPER: FUNCTION HANDLER (The Muscle)
-  const handleFunctionCall = async (args) => {
-      console.log("🛠️ Tool Triggered: save_deal_data");
-      
-      try {
-          const deal = dealQueue[currentDealIndex];
+const handleFunctionCall = async (args) => {
+    console.log("🛠️ Tool Triggered: save_deal_data");
+    
+    try {
+        const deal = dealQueue[currentDealIndex];
 
-          // Calculate Stage based on Score
-          const scores = [args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score];
-          const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
-          const newStage = totalScore >= 25 ? "Closed Won" : totalScore >= 20 ? "Commit" : totalScore >= 12 ? "Best Case" : "Pipeline";
+        // Scoring Logic
+        const scores = [args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score];
+        const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
+        const newStage = totalScore >= 25 ? "Closed Won" : totalScore >= 20 ? "Commit" : totalScore >= 12 ? "Best Case" : "Pipeline";
 
-          // Execute Database Update
-          await pool.query(
+        // SQL execution with exact 31-parameter mapping
+        await pool.query(
             `UPDATE opportunities SET 
               pain_score=$1, pain_tip=$2, pain_summary=$3,
               metrics_score=$4, metrics_tip=$5, metrics_summary=$6,
@@ -364,46 +367,13 @@ wss.on("connection", async (ws) => {
               args.timing_score, args.timing_tip, args.timing_summary,
               args.risk_summary, args.next_steps, newStage, deal.id
             ]
-          );
-          console.log(`✅ Saved: ${deal.account_name}`);
-
-          // Move to Next Deal
-          currentDealIndex++;
-
-          if (currentDealIndex >= dealQueue.length) {
-             console.log("🏁 All deals finished.");
-             openAiWs.send(JSON.stringify({
-                 type: "response.create",
-                 response: { instructions: "Say: 'That concludes the review. Great work today.' and then hang up." }
-             }));
-             setTimeout(() => process.exit(0), 5000); 
-          } else {
-             const nextDeal = dealQueue[currentDealIndex];
-             console.log(`➡️ Moving to next: ${nextDeal.account_name}`);
-             
-             const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - 1 - currentDealIndex);
-             
-             // THE CONTEXT NUKE (Forces AI to forget previous deal)
-             const nukeInstructions = `*** SYSTEM ALERT: PREVIOUS DEAL CLOSED. ***\n\nFORGET ALL context about the previous deal.\nFOCUS ONLY on this new deal:\n\n` + nextInstructions;
-
-             openAiWs.send(JSON.stringify({
-                 type: "session.update",
-                 session: { instructions: nukeInstructions }
-             }));
-             
-             openAiWs.send(JSON.stringify({
-                 type: "response.create",
-                 response: { instructions: `Say: 'Okay, saved. Next up is ${nextDeal.account_name}. What is the latest there?'` }
-             }));
-          }
-      } catch (err) {
-          console.error("❌ Save Failed:", err);
-          openAiWs.send(JSON.stringify({
-             type: "response.create",
-             response: { instructions: "Say: 'I am having trouble saving to the database. Let's try that again.'" }
-          }));
-      }
-  };
+        );
+        console.log(`✅ Saved: ${deal.account_name}`);
+        
+    } catch (err) {
+        console.error("❌ Save Failed:", err);
+    }
+};
 
 // 4. OPENAI EVENT LISTENER (The Catch-All Ear)
   openAiWs.on("message", (data) => {
