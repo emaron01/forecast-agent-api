@@ -244,8 +244,11 @@ wss.on("connection", async (ws) => {
   });
 
   openAiWs.on("open", () => {
-    console.log("📡 OpenAI Connected");
-    
+  console.log("📡 OpenAI Connected");
+
+  openAiReady = true;
+  attemptLaunch();
+});    
 // 2. HELPER: LAUNCHER
 const attemptLaunch = async () => {
   if (!repName || !openAiReady) return;
