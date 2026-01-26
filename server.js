@@ -345,41 +345,35 @@ wss.on("connection", async (ws) => {
 
           // Move to Next Deal
           currentDealIndex++;
-if (currentDealIndex >= dealQueue.length) {
-            console.log("🏁 All deals finished.");
-            openAiWs.send(JSON.stringify({
-                type: "response.create",
-                response: { instructions: "Say: 'That concludes the review. Great work today.' and then hang up." }
-            }));
-            setTimeout(() => process.exit(0), 5000); 
-         } else {
-            const nextDeal = dealQueue[currentDealIndex];
-            console.log(`➡️ Moving to next: ${nextDeal.account_name}`);
-            
-            const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - 1 - currentDealIndex);
-            
-            // THE FIX: CONTEXT NUKE (Forces AI to forget previous deal)
-            const nukeInstructions = `*** SYSTEM ALERT: PREVIOUS DEAL CLOSED. ***\n\nFORGET ALL context about the previous deal.\nFOCUS ONLY on this new deal:\n\n` + nextInstructions;
 
-            openAiWs.send(JSON.stringify({
-                type: "session.update",
-                session: { instructions: nukeInstructions }
-            }));
-            
-            openAiWs.send(JSON.stringify({
-                type: "response.create",
-                response: { instructions: `Say: 'Okay, saved. Next up is ${nextDeal.account_name}. What is the latest there?'` }
-            }));
-         }             
-             // Force AI to Speak
+          if (currentDealIndex >= dealQueue.length) {
+             console.log("🏁 All deals finished.");
              openAiWs.send(JSON.stringify({
-                type: "response.create",
-                response: { instructions: `Say: 'Okay, saved. Next up is ${nextDeal.account_name}. What is the latest there?'` }
+                 type: "response.create",
+                 response: { instructions: "Say: 'That concludes the review. Great work today.' and then hang up." }
+             }));
+             setTimeout(() => process.exit(0), 5000); 
+          } else {
+             const nextDeal = dealQueue[currentDealIndex];
+             console.log(`➡️ Moving to next: ${nextDeal.account_name}`);
+             
+             const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - 1 - currentDealIndex);
+             
+             // THE CONTEXT NUKE (Forces AI to forget previous deal)
+             const nukeInstructions = `*** SYSTEM ALERT: PREVIOUS DEAL CLOSED. ***\n\nFORGET ALL context about the previous deal.\nFOCUS ONLY on this new deal:\n\n` + nextInstructions;
+
+             openAiWs.send(JSON.stringify({
+                 type: "session.update",
+                 session: { instructions: nukeInstructions }
+             }));
+             
+             openAiWs.send(JSON.stringify({
+                 type: "response.create",
+                 response: { instructions: `Say: 'Okay, saved. Next up is ${nextDeal.account_name}. What is the latest there?'` }
              }));
           }
       } catch (err) {
           console.error("❌ Save Failed:", err);
-          // Tell the user it failed so you aren't stuck in silence
           openAiWs.send(JSON.stringify({
              type: "response.create",
              response: { instructions: "Say: 'I am having trouble saving to the database. Let's try that again.'" }
