@@ -360,7 +360,7 @@ const handleFunctionCall = async (args) => {
         const newStage =
             totalScore >= 25 ? "Closed Won" :
             totalScore >= 20 ? "Commit" :
-            totalcurrentDealIndex++;
+            currentDealIndex++;
 
         if (currentDealIndex >= dealQueue.length) {
             console.log("🏁 All deals finished.");
