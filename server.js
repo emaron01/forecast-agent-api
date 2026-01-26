@@ -248,7 +248,7 @@ wss.on("connection", async (ws) => {
   openAiWs.on("open", () => {
     console.log("📡 OpenAI Connected");
 
-    // Base session config
+    // Step 1: tiny safe update (always accepted)
     openAiWs.send(JSON.stringify({
       type: "session.update",
       session: {
@@ -259,17 +259,19 @@ wss.on("connection", async (ws) => {
           type: "server_vad",
           threshold: 0.5,
           prefix_padding_ms: 300,
-          silence_duration_ms: 1200 // 🧘 More stable turn-taking
-        }
+          silence_duration_ms: 1200
+        },
+        instructions: "Initializing forecasting session..."
       }
     }));
 
     openAiReady = true;
 
-    // 🔥 Delay ensures OpenAI is fully ready before instructions load
+    // Step 2: delay full launch so OpenAI is fully ready
     setTimeout(() => {
+      console.log("⏳ Delayed launch triggered");
       attemptLaunch();
-    }, 300);
+    }, 250);
   });
 
   openAiWs.on("error", (err) => {
@@ -278,8 +280,11 @@ wss.on("connection", async (ws) => {
 
   // 2. HELPER: LAUNCHER
   const attemptLaunch = async () => {
-    if (!repName || !openAiReady || launched) return;
-    launched = true; // 🚀 Prevent double launches
+    if (!repName || !openAiReady || launched) {
+      console.log("⏭️ Launch skipped (conditions not met)");
+      return;
+    }
+    launched = true;
 
     console.log(`🚀 Launching Session for ${repName}`);
 
@@ -299,6 +304,7 @@ wss.on("connection", async (ws) => {
     }
 
     if (dealQueue.length === 0) {
+      console.log("⚠️ No deals found");
       openAiWs.send(JSON.stringify({
         type: "response.create",
         response: {
@@ -316,56 +322,60 @@ wss.on("connection", async (ws) => {
       dealQueue.length
     );
 
-    // 🔥 Load system prompt + tools
-    openAiWs.send(JSON.stringify({
-      type: "session.update",
-      session: {
-        instructions,
-        tools: [
-          {
-            type: "function",
-            name: "save_deal_data",
-            description: "Saves scores, tips, and summaries. ALL FIELDS ARE REQUIRED.",
-            parameters: {
-              type: "object",
-              properties: {
-                pain_score: { type: "number" }, pain_tip: { type: "string" }, pain_summary: { type: "string" },
-                metrics_score: { type: "number" }, metrics_tip: { type: "string" }, metrics_summary: { type: "string" },
-                champion_score: { type: "number" }, champion_tip: { type: "string" }, champion_summary: { type: "string" },
-                eb_score: { type: "number" }, eb_tip: { type: "string" }, eb_summary: { type: "string" },
-                criteria_score: { type: "number" }, criteria_tip: { type: "string" }, criteria_summary: { type: "string" },
-                process_score: { type: "number" }, process_tip: { type: "string" }, process_summary: { type: "string" },
-                competition_score: { type: "number" }, competition_tip: { type: "string" }, competition_summary: { type: "string" },
-                paper_score: { type: "number" }, paper_tip: { type: "string" }, paper_summary: { type: "string" },
-                timing_score: { type: "number" }, timing_tip: { type: "string" }, timing_summary: { type: "string" },
-                risk_summary: { type: "string" },
-                next_steps: { type: "string" }
-              },
-              required: [
-                "pain_score","pain_tip","pain_summary",
-                "metrics_score","metrics_tip","metrics_summary",
-                "champion_score","champion_tip","champion_summary",
-                "eb_score","eb_tip","eb_summary",
-                "criteria_score","criteria_tip","criteria_summary",
-                "process_score","process_tip","process_summary",
-                "competition_score","competition_tip","competition_summary",
-                "paper_score","paper_tip","paper_summary",
-                "timing_score","timing_tip","timing_summary",
-                "risk_summary","next_steps"
-              ]
-            }
-          }
-        ]
-      }
-    }));
-
-    // 🔊 Safe, single start nudge
+    // Step 2: send full system prompt AFTER OpenAI is ready
     setTimeout(() => {
+      console.log("📨 Sending full system prompt + tools");
+      openAiWs.send(JSON.stringify({
+        type: "session.update",
+        session: {
+          instructions,
+          tools: [
+            {
+              type: "function",
+              name: "save_deal_data",
+              description: "Saves scores, tips, and summaries. ALL FIELDS ARE REQUIRED.",
+              parameters: {
+                type: "object",
+                properties: {
+                  pain_score: { type: "number" }, pain_tip: { type: "string" }, pain_summary: { type: "string" },
+                  metrics_score: { type: "number" }, metrics_tip: { type: "string" }, metrics_summary: { type: "string" },
+                  champion_score: { type: "number" }, champion_tip: { type: "string" }, champion_summary: { type: "string" },
+                  eb_score: { type: "number" }, eb_tip: { type: "string" }, eb_summary: { type: "string" },
+                  criteria_score: { type: "number" }, criteria_tip: { type: "string" }, criteria_summary: { type: "string" },
+                  process_score: { type: "number" }, process_tip: { type: "string" }, process_summary: { type: "string" },
+                  competition_score: { type: "number" }, competition_tip: { type: "string" }, competition_summary: { type: "string" },
+                  paper_score: { type: "number" }, paper_tip: { type: "string" }, paper_summary: { type: "string" },
+                  timing_score: { type: "number" }, timing_tip: { type: "string" }, timing_summary: { type: "string" },
+                  risk_summary: { type: "string" },
+                  next_steps: { type: "string" }
+                },
+                required: [
+                  "pain_score","pain_tip","pain_summary",
+                  "metrics_score","metrics_tip","metrics_summary",
+                  "champion_score","champion_tip","champion_summary",
+                  "eb_score","eb_tip","eb_summary",
+                  "criteria_score","criteria_tip","criteria_summary",
+                  "process_score","process_tip","process_summary",
+                  "competition_score","competition_tip","competition_summary",
+                  "paper_score","paper_tip","paper_summary",
+                  "timing_score","timing_tip","timing_summary",
+                  "risk_summary","next_steps"
+                ]
+              }
+            }
+          ]
+        }
+      }));
+    }, 200);
+
+    // Step 3: Start nudge AFTER instructions load
+    setTimeout(() => {
+      console.log("🔊 Sending Start nudge");
       openAiWs.send(JSON.stringify({
         type: "response.create",
         response: { instructions: "Start" }
       }));
-    }, 400);
+    }, 450);
   };
 
   // 3. HELPER: FUNCTION HANDLER
@@ -374,6 +384,7 @@ wss.on("connection", async (ws) => {
 
     try {
       const deal = dealQueue[currentDealIndex];
+      console.log(`💾 Saving deal: ${deal.account_name}`);
 
       const scores = [
         args.pain_score, args.metrics_score, args.champion_score,
@@ -440,6 +451,8 @@ wss.on("connection", async (ws) => {
       const nextDeal = dealQueue[currentDealIndex];
       const remaining = dealQueue.length - currentDealIndex;
 
+      console.log(`➡️ Moving to next deal: ${nextDeal.account_name} (${remaining} left)`);
+
       const nextInstructions = getSystemPrompt(
         nextDeal,
         repName.split(" ")[0],
@@ -483,6 +496,8 @@ wss.on("connection", async (ws) => {
   openAiWs.on("message", (data) => {
     const response = JSON.parse(data);
 
+    console.log("🔵 OpenAI Event:", response.type);
+
     // Audio passthrough
     if (response.type === "response.audio.delta" && response.delta) {
       ws.send(JSON.stringify({
@@ -494,15 +509,17 @@ wss.on("connection", async (ws) => {
 
     // Tool call detection
     if (response.type === "response.output_item.added") {
+      console.log("🟣 Output item added");
+
       const item = response.item;
       if (!item || !item.content) return;
 
       const toolCall = item.content.find((c) => c.type === "tool_call");
       if (!toolCall) return;
 
-      if (toolCall.name === "save_deal_data") {
-        console.log("🛠️ Save Triggered by OpenAI");
+      console.log("🛠️ Tool call detected:", toolCall.name);
 
+      if (toolCall.name === "save_deal_data") {
         const args = JSON.parse(toolCall.arguments);
 
         openAiWs.send(JSON.stringify({
@@ -522,6 +539,7 @@ wss.on("connection", async (ws) => {
   // 5. TWILIO EVENT LISTENER
   ws.on("message", (message) => {
     const msg = JSON.parse(message);
+    console.log("📨 Twilio Event:", msg.event);
 
     if (msg.event === "start") {
       streamSid = msg.start.streamSid;
@@ -551,7 +569,6 @@ wss.on("connection", async (ws) => {
     try { openAiWs.close(); } catch {}
   });
 });
-
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/debug/opportunities", async (req, res) => {
   try {
