@@ -181,14 +181,16 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
 
 ### COMPLETION PROTOCOL (CRITICAL)
    When you have gathered the data (or if the user says "move on"), you MUST follow this EXACT sequence. Do not deviate.
+
    1. **Say:** "Got it. I'm updating the scorecard."
    2. **ACTION:** Call the function 'save_deal_data'. 
       - **SUMMARY RULES:** You MUST start the summary string with the Score Label (e.g., "Score 1: Soft Benefits only"). Then explain the gap.
       - **TIP RULES (THE COACH):** - If Score is 3: Tip is "None". 
          - If Score < 3: You MUST write the specific coaching advice you held back during the call. Tell the rep exactly what action to take to get a 3.
       - **WARNING:** You are FORBIDDEN from pretending to save. You must execute the tool physically.
+      - **WAIT:** You must wait for the tool to return success before speaking again.
    3. **After Tool Success:** Say "Okay, saved. Moving to the next deal."
-   `;}
+   `;
 
 // --- [BLOCK 4: SMART RECEPTIONIST] ---
 app.post("/agent", async (req, res) => {
@@ -277,7 +279,7 @@ wss.on("connection", async (ws) => {
     console.error("❌ OpenAI WebSocket Error:", err.message);
   });
 
-  // 2. LAUNCHER (THE BRAIN)
+// 2. LAUNCHER (THE BRAIN)
   const attemptLaunch = async () => {
     if (!openAiReady || !repName) return;
     console.log(`🚀 Launching Session for ${repName}`);
@@ -298,7 +300,6 @@ wss.on("connection", async (ws) => {
       console.error("❌ DB Load Error:", err.message);
     }
 
-    // B. Handle Empty Queue
     if (dealQueue.length === 0) {
       openAiWs.send(JSON.stringify({
         type: "response.create",
@@ -307,25 +308,20 @@ wss.on("connection", async (ws) => {
       return;
     }
 
-    // C. Generate Instructions
+    // B. Generate Instructions
     const firstDeal = dealQueue[0];
-    const instructions = getSystemPrompt(
-      firstDeal,
-      repName.split(" ")[0],
-      dealQueue.length - 1,
-      dealQueue.length
-    );
+    const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
 
-    // D. Session Configuration (Voice & Tools)
-const sessionUpdate = {
+    // C. Configure Session (VAD IS OFF HERE)
+    const sessionUpdate = {
         type: "session.update",
         session: {
-          turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
           instructions: instructions,
+          turn_detection: null, // <--- KEEP EARS OFF INITIALLY
           tools: [{
               type: "function",
               name: "save_deal_data",
-              description: "Saves scores, tips, and summaries. Call this immediately when the user is done.",
+              description: "Saves scores. Call immediately when done.",
               parameters: {
                 type: "object",
                 properties: {
@@ -340,7 +336,7 @@ const sessionUpdate = {
                   timing_score: { type: "number" }, timing_tip: { type: "string" }, timing_summary: { type: "string" },
                   risk_summary: { type: "string" }, next_steps: { type: "string" },
                 },
-                required: [], // <--- THIS IS THE FIX. No fields are mandatory.
+                required: [], 
               },
           }],
           tool_choice: "auto",
@@ -348,8 +344,17 @@ const sessionUpdate = {
       };
     openAiWs.send(JSON.stringify(sessionUpdate));
 
-    // E. The Trigger (OPEN THE GATE)
+    // D. The Trigger (VAD ON + SPEAK + GATE OPEN)
     setTimeout(() => {
+      // 1. Turn Ears On NOW
+      openAiWs.send(JSON.stringify({
+        type: "session.update",
+        session: {
+            turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 }
+        }
+      }));
+
+      // 2. Tell it to Speak
       openAiWs.send(JSON.stringify({
         type: "response.create",
         response: { 
@@ -357,7 +362,7 @@ const sessionUpdate = {
         },
       }));
       
-      // ✅ OPEN THE AUDIO GATE
+      // 3. Open Audio Gate
       console.log("🔓 Audio Gate Opened");
       isSessionInitialized = true; 
     }, 500);
@@ -515,4 +520,3 @@ const handleFunctionCall = async (args) => {
 server.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT}`);
 });
- 
