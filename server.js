@@ -265,7 +265,11 @@ wss.on("connection", async (ws) => {
     }));
 
     openAiReady = true;
-    attemptLaunch();
+
+    // 🔥 Delay ensures OpenAI is fully ready before instructions load
+    setTimeout(() => {
+      attemptLaunch();
+    }, 300);
   });
 
   openAiWs.on("error", (err) => {
@@ -312,6 +316,7 @@ wss.on("connection", async (ws) => {
       dealQueue.length
     );
 
+    // 🔥 Load system prompt + tools
     openAiWs.send(JSON.stringify({
       type: "session.update",
       session: {
@@ -360,7 +365,7 @@ wss.on("connection", async (ws) => {
         type: "response.create",
         response: { instructions: "Start" }
       }));
-    }, 600);
+    }, 400);
   };
 
   // 3. HELPER: FUNCTION HANDLER
@@ -546,6 +551,7 @@ wss.on("connection", async (ws) => {
     try { openAiWs.close(); } catch {}
   });
 });
+
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/debug/opportunities", async (req, res) => {
   try {
