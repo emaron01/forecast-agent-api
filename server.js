@@ -299,6 +299,7 @@ const sessionUpdate = {
       threshold: 0.5,
       silence_duration_ms: 1000
     },
+    output_audio_format: "g711_ulaw",   // ⭐ REQUIRED FOR TWILIO AUDIO OUTPUT
     instructions: instructions,
     tools: [
       {
@@ -375,7 +376,8 @@ setTimeout(() => {
     response: { instructions: "Start" }
   }));
 }, 500);
- }
+}
+
 // 3. HELPER: FUNCTION HANDLER (The Muscle)
 const handleFunctionCall = async (args) => {
     console.log("🛠️ Tool Triggered: save_deal_data");
