@@ -383,32 +383,29 @@ const handleFunctionCall = async (args) => {
                 args.risk_summary || "No summary", args.next_steps || "None", newStage, deal.id
             ]
         );
-        console.log(`✅ Saved: ${deal.account_name}`);
 
+        console.log("✅ Saved to DB");
         currentDealIndex++;
 
         if (currentDealIndex >= dealQueue.length) {
-            console.log("🏁 All deals finished.");
             openAiWs.send(JSON.stringify({
                 type: "response.create",
-                response: { instructions: "Say: 'Got it, saved. That wraps up our list for today. Great work! I will see you next time.' and hang up." }
+                response: { instructions: "Say: 'Saved. That's all for today. Great work!' and hang up." }
             }));
-            setTimeout(() => { if (ws.readyState === WebSocket.OPEN) ws.close(); }, 10000);
         } else {
             const nextDeal = dealQueue[currentDealIndex];
             const remaining = dealQueue.length - currentDealIndex;
             const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], remaining - 1, dealQueue.length);
-            const nukeInstructions = `*** SYSTEM ALERT: PREVIOUS DEAL CLOSED. ***\n\nFORGET ALL context about the previous account. FOCUS ONLY on this new deal:\n\n` + nextInstructions;
 
             openAiWs.send(JSON.stringify({
                 type: "session.update",
-                session: { instructions: nukeInstructions }
+                session: { instructions: nextInstructions }
             }));
 
             openAiWs.send(JSON.stringify({
                 type: "response.create",
                 response: {
-                    instructions: `Say: 'Okay, saved. We have ${remaining} deals left. Next up is ${nextDeal.account_name}. What is the latest update there?'`
+                    instructions: "Say: 'Saved. Next is " + nextDeal.account_name + ". What's the update?'"
                 }
             }));
         }
