@@ -76,8 +76,8 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
         stageInstructions = `MODE: PIPELINE QUALIFICATION
     GOAL: Perform a lightweight MEDDICC qualification pass appropriate for early‑stage pipeline.
         BRANCHING LOGIC:
-    • First, ASK: “Is this deal beyond the discovery phase, or is it a newly converted lead?”
-        IF NEW LEAD (still in discovery):
+    • If the Forecast Stage is Pipeline and the conversation has just started, ASK:: “Is this deal beyond the discovery phase, or is it an early stage opportunity?”
+        IF early stage opportunity (still in discovery):
     • Only assess: Pain, Metrics, Competition, Timing.
     • Do NOT assess: Champion, EB, Criteria, Process, Paper.
     
@@ -350,62 +350,60 @@ const handleFunctionCall = async (args) => {
     try {
         const deal = dealQueue[currentDealIndex];
 
+        // --- INSERT THE LOG HERE ---
+        console.log(`DEBUG [SAVE]: Attempting save for Deal ID ${deal.id} (${deal.account_name}). Args:`, JSON.stringify(args, null, 2));
+        // ---------------------------
+
         // 1. Calculate Score
         const scores = [
-            args.pain_score, args.metrics_score, args.champion_score, 
-            args.eb_score, args.criteria_score, args.process_score, 
-            args.competition_score, args.paper_score, args.timing_score
-        ];
-        const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
+           args.pain_score, args.metrics_score, args.champion_score, 
+           args.eb_score, args.criteria_score, args.process_score, 
+           args.competition_score, args.paper_score, args.timing_score
+        ];        const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
 
-        // 2. THE SHADOW FORECAST LOGIC (Preserve forecast_stage)
+        // 2. THE SHADOW FORECAST LOGIC
         const aiOpinion = totalScore >= 21 ? "Commit" : 
                           totalScore >= 15 ? "Best Case" : 
                           "Pipeline";
 
-        // 3. Execute Database Update [FIXED: Saves to risk_summary, ai_forecast]
+        // 3. Execute Database Update [HARDENED]
         await pool.query(
             `UPDATE opportunities SET 
-              pain_score=$1, pain_tip=$2, pain_summary=$3,
-              metrics_score=$4, metrics_tip=$5, metrics_summary=$6,
-              champion_score=$7, champion_tip=$8, champion_summary=$9,
-              eb_score=$10, eb_tip=$11, eb_summary=$12,
-              criteria_score=$13, criteria_tip=$14, criteria_summary=$15,
-              process_score=$16, process_tip=$17, process_summary=$18,
-              competition_score=$19, competition_tip=$20, competition_summary=$21,
-              paper_score=$22, paper_tip=$23, paper_summary=$24,
-              timing_score=$25, timing_tip=$26, timing_summary=$27,
-              
-              risk_summary=$28, next_steps=$29, 
-              champion_name=$30, champion_title=$31, eb_name=$32, eb_title=$33, 
-              rep_comments=$34, manager_comments=$35,
-              ai_forecast=$36, 
-              
-              run_count = COALESCE(run_count, 0) + 1, updated_at = NOW()
+             pain_score=$1, pain_tip=$2, pain_summary=$3,
+             metrics_score=$4, metrics_tip=$5, metrics_summary=$6,
+             champion_score=$7, champion_tip=$8, champion_summary=$9,
+             eb_score=$10, eb_tip=$11, eb_summary=$12,
+             criteria_score=$13, criteria_tip=$14, criteria_summary=$15,
+             process_score=$16, process_tip=$17, process_summary=$18,
+             competition_score=$19, competition_tip=$20, competition_summary=$21,
+             paper_score=$22, paper_tip=$23, paper_summary=$24,
+             timing_score=$25, timing_tip=$26, timing_summary=$27,
+             risk_summary=$28, next_steps=$29, 
+             champion_name=$30, champion_title=$31, eb_name=$32, eb_title=$33, 
+             rep_comments=$34, manager_comments=$35,
+             ai_forecast=$36, 
+             run_count = COALESCE(run_count, 0) + 1, updated_at = NOW()
              WHERE id = $37`,
             [
-              args.pain_score || 0, args.pain_tip || "", args.pain_summary || "",
-              args.metrics_score || 0, args.metrics_tip || "", args.metrics_summary || "",
-              args.champion_score || 0, args.champion_tip || "", args.champion_summary || "",
-              args.eb_score || 0, args.eb_tip || "", args.eb_summary || "",
-              args.criteria_score || 0, args.criteria_tip || "", args.criteria_summary || "",
-              args.process_score || 0, args.process_tip || "", args.process_summary || "",
-              args.competition_score || 0, args.competition_tip || "", args.competition_summary || "",
-              args.paper_score || 0, args.paper_tip || "", args.paper_summary || "",
-              args.timing_score || 0, args.timing_tip || "", args.timing_summary || "",
-              
-              args.risk_summary || "", 
-              args.next_steps || "",
-              args.champion_name || "", args.champion_title || "", 
-              args.eb_name || "", args.eb_title || "", 
-              args.rep_comments || "", args.manager_comments || "", 
-              aiOpinion, 
-              
-              deal.id
+             args.pain_score || 0, args.pain_tip || "", args.pain_summary || "",
+             args.metrics_score || 0, args.metrics_tip || "", args.metrics_summary || "",
+             args.champion_score || 0, args.champion_tip || "", args.champion_summary || "",
+             args.eb_score || 0, args.eb_tip || "", args.eb_summary || "",
+             args.criteria_score || 0, args.criteria_tip || "", args.criteria_summary || "",
+             args.process_score || 0, args.process_tip || "", args.process_summary || "",
+             args.competition_score || 0, args.competition_tip || "", args.competition_summary || "",
+             args.paper_score || 0, args.paper_tip || "", args.paper_summary || "",
+             args.timing_score || 0, args.timing_tip || "", args.timing_summary || "",
+             args.risk_summary || "Audit incomplete", 
+             args.next_steps || "TBD",
+             args.champion_name || "Unknown", args.champion_title || "Unknown",
+             args.eb_name || "Unknown", args.eb_title || "Unknown", 
+             args.rep_comments || "", args.manager_comments || "", 
+             aiOpinion, 
+             deal.id
             ]
         );
-        console.log(`✅ Saved: ${deal.account_name} (AI Opinion: ${aiOpinion})`);
-
+        console.log(`✅ Saved: ${deal.account_name} (Score: ${totalScore})`);
         // 3. Move to Next Deal logic
         currentDealIndex++;
 
