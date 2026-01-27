@@ -260,7 +260,7 @@ wss.on("connection", async (ws) => {
           type: "server_vad", 
           threshold: 0.5,
           prefix_padding_ms: 300,
-          silence_duration_ms: 1200 
+          silence_duration_ms: 1500
         }
       }
     }));
@@ -271,7 +271,7 @@ wss.on("connection", async (ws) => {
 
   openAiWs.on("error", (err) => {
     console.error("❌ OpenAI WebSocket Error:", err.message);
-  });
+  });	
 
   // 2. HELPER: LAUNCHER
   const attemptLaunch = async () => {
@@ -307,7 +307,7 @@ wss.on("connection", async (ws) => {
       const sessionUpdate = {
         type: "session.update",
         session: {
-          turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
+          turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1500 },
           instructions: instructions,
           tools: [{
               type: "function",
@@ -404,44 +404,92 @@ const handleFunctionCall = async (args) => {
             ]
         );
         console.log(`✅ Saved: ${deal.account_name} (Score: ${totalScore})`);
-        // 3. Move to Next Deal logic
+
+
+// 3. LOGIC: Capture state and transition the voice immediately
+        const finishedDeal = dealQueue[currentDealIndex]; 
         currentDealIndex++;
 
         if (currentDealIndex >= dealQueue.length) {
             console.log("🏁 All deals finished.");
             openAiWs.send(JSON.stringify({
                 type: "response.create",
-                response: { instructions: "Say: 'That concludes the review. Great work today.' and then hang up." }
+                response: { instructions: "Say: 'That concludes the review for all accounts. Great work today.' then hang up." }
             }));
-            setTimeout(() => process.exit(0), 5000); 
         } else {
             const nextDeal = dealQueue[currentDealIndex];
             const remaining = dealQueue.length - currentDealIndex;
-            console.log(`➡️ Moving to next: ${nextDeal.account_name} (${remaining} left)`);
             
+            console.log(`➡️ Moving to next: ${nextDeal.account_name} (${remaining} left)`);
+
+            // Generate FRESH instructions for the new deal
             const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], remaining - 1, dealQueue.length);
             
-            // THE CONTEXT NUKE
             const nukeInstructions = `*** SYSTEM ALERT: PREVIOUS DEAL CLOSED. ***\n\nFORGET ALL context about the previous account. FOCUS ONLY on this new deal:\n\n` + nextInstructions;
 
+            // Update the AI session with the new deal context
             openAiWs.send(JSON.stringify({
                 type: "session.update",
                 session: { instructions: nukeInstructions }
             }));
-            
+
+            // Kick off the next verbal response instantly
             openAiWs.send(JSON.stringify({
                 type: "response.create",
                 response: { 
-                    instructions: `Say: 'Okay, saved. We have ${remaining} ${remaining === 1 ? 'deal' : 'deals'} left to review. Next up is ${nextDeal.account_name}. What is the latest update there?'` 
+                    instructions: `Say: 'Okay, saved. We have ${remaining} left. Next up is ${nextDeal.account_name}. What is the latest update there?'` 
                 }
             }));
         }
+
+        // 4. DATABASE SAVE (Background Execution)
+        // setImmediate ensures this doesn't block the voice transition above
+        setImmediate(async () => {
+            try {
+                await pool.query(
+                    `UPDATE opportunities SET 
+                     pain_score=$1, pain_tip=$2, pain_summary=$3,
+                     metrics_score=$4, metrics_tip=$5, metrics_summary=$6,
+                     champion_score=$7, champion_tip=$8, champion_summary=$9,
+                     eb_score=$10, eb_tip=$11, eb_summary=$12,
+                     criteria_score=$13, criteria_tip=$14, criteria_summary=$15,
+                     process_score=$16, process_tip=$17, process_summary=$18,
+                     competition_score=$19, competition_tip=$20, competition_summary=$21,
+                     paper_score=$22, paper_tip=$23, paper_summary=$24,
+                     timing_score=$25, timing_tip=$26, timing_summary=$27,
+                     risk_summary=$28, next_steps=$29, 
+                     champion_name=$30, champion_title=$31, eb_name=$32, eb_title=$33, 
+                     rep_comments=$34, manager_comments=$35,
+                     ai_forecast=$36, 
+                     run_count = COALESCE(run_count, 0) + 1, updated_at = NOW()
+                     WHERE id = $37`,
+                    [
+                     args.pain_score || 0, args.pain_tip || "", args.pain_summary || "",
+                     args.metrics_score || 0, args.metrics_tip || "", args.metrics_summary || "",
+                     args.champion_score || 0, args.champion_tip || "", args.champion_summary || "",
+                     args.eb_score || 0, args.eb_tip || "", args.eb_summary || "",
+                     args.criteria_score || 0, args.criteria_tip || "", args.criteria_summary || "",
+                     args.process_score || 0, args.process_tip || "", args.process_summary || "",
+                     args.competition_score || 0, args.competition_tip || "", args.competition_summary || "",
+                     args.paper_score || 0, args.paper_tip || "", args.paper_summary || "",
+                     args.timing_score || 0, args.timing_tip || "", args.timing_summary || "",
+                     args.risk_summary || "Audit incomplete", 
+                     args.next_steps || "TBD",
+                     args.champion_name || "Unknown", args.champion_title || "Unknown",
+                     args.eb_name || "Unknown", args.eb_title || "Unknown", 
+                     args.rep_comments || "", args.manager_comments || "", 
+                     aiOpinion, 
+                     finishedDeal.id // Locked ID from step 3
+                    ]
+                );
+                console.log(`✅ Background Save Complete for: ${finishedDeal.account_name}`);
+            } catch (dbErr) {
+                console.error(`❌ Background Save FAILED for ${finishedDeal.account_name}:`, dbErr.message);
+            }
+        });
+
     } catch (err) {
-        console.error("❌ Save Failed:", err);
-        openAiWs.send(JSON.stringify({
-           type: "response.create",
-           response: { instructions: "Say: 'I ran into an issue saving those details. Let me try that again.'" }
-        }));
+        console.error("❌ Overall handleFunctionCall Error:", err);
     }
 };
 
