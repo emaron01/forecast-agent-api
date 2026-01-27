@@ -117,10 +117,9 @@ wss.on("connection", (ws) => {
         headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "OpenAI-Beta": "realtime=v1" }
     });
 
-    // 2. OPEN EVENT (STATIC FIX)
+    // 2. OPEN EVENT
     openAiWs.on("open", () => {
         console.log("📡 OpenAI Connected");
-        // Force G.711 Audio Immediately
         openAiWs.send(JSON.stringify({
             type: "session.update",
             session: {
@@ -154,7 +153,7 @@ wss.on("connection", (ws) => {
             const deal = dealQueue[0];
             const instructions = getSystemPrompt(deal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
             
-            // A. SEND INSTRUCTIONS (With Save Fixes)
+            // A. SEND INSTRUCTIONS
             openAiWs.send(JSON.stringify({
                 type: "session.update",
                 session: {
@@ -180,19 +179,23 @@ wss.on("connection", (ws) => {
                                 eb_name: { type: "string" }, eb_title: { type: "string" },
                                 rep_comments: { type: "string" }, manager_comments: { type: "string" }
                             },
-                            required: [] // CRASH FIX
+                            required: []
                         }
                     }],
-                    tool_choice: "auto" // SAVE FIX
+                    tool_choice: "auto"
                 }
             }));
 
-            // B. THE BRUTE FORCE TRIGGER (Replaces the "Lock")
-            // This is the "Old Code" method that guarantees speech.
+            // B. THE PUPPETEER MOVE (Forcing the words)
             setTimeout(() => {
-                console.log("⏰ Timer Fired - Forcing Greeting");
-                openAiWs.send(JSON.stringify({ type: "response.create" }));
-            }, 1000); 
+                console.log("⏰ Timer Fired - Forcing Specific Greeting");
+                openAiWs.send(JSON.stringify({ 
+                    type: "response.create",
+                    response: {
+                        instructions: `Say: 'Hello ${repName}. I am online and connected. Let's review ${dealQueue[0].account_name}.'`
+                    }
+                }));
+            }, 1500); // 1.5 seconds wait
             
         } catch (err) { console.error("❌ Launch Error:", err); }
     };
@@ -212,7 +215,6 @@ wss.on("connection", (ws) => {
                 champion_name=$30, champion_title=$31, eb_name=$32, eb_title=$33, rep_comments=$34, manager_comments=$35,
                 updated_at=NOW(), run_count=COALESCE(run_count, 0)+1 WHERE id=$36`;
             
-            // SAFETY DEFAULTS (Prevent Crashes)
             const values = [
                 args.pain_score || 0, args.pain_tip || "", args.pain_summary || "",
                 args.metrics_score || 0, args.metrics_tip || "", args.metrics_summary || "",
@@ -247,10 +249,10 @@ wss.on("connection", (ws) => {
     // 5. OPENAI EVENT LISTENER (The Ear)
     openAiWs.on("message", (data) => {
         const response = JSON.parse(data);
-        
-        // NO EVENT ID LOCK HERE - WE USE THE TIMER ABOVE INSTEAD
 
+        // LOGGING AUDIO RETURN
         if (response.type === "response.audio.delta" && response.delta) {
+             // console.log("🔊 Audio Packet"); // Uncomment if you really want to see the spam
              ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
         }
         
