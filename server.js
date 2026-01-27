@@ -1,4 +1,4 @@
-require("dotenv").config();
+Require("dotenv").config();
 const http = require("http");
 const express = require("express");
 const { Pool } = require("pg");
@@ -7,14 +7,15 @@ const cors = require("cors");
 
 // --- [BLOCK 1: CONFIGURATION] ---
 const PORT = process.env.PORT || 10000;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY; // Fixed variable name
-const MODEL_URL = "wss://api.openai.com/v1/realtime";
-const MODEL_NAME = "gpt-4o-realtime-preview-2024-10-01"; // Standard stable model
+const OPENAI_API_KEY = process.env.MODEL_API_KEY;
+const MODEL_URL = process.env.MODEL_URL || "wss://api.openai.com/v1/realtime";
+const MODEL_NAME = process.env.MODEL_NAME || "gpt-4o-mini-realtime-preview-2024-12-17";
 
 if (!OPENAI_API_KEY) {
-  console.error("❌ Fatal: OPENAI_API_KEY is missing in environment");
+  console.error("❌ Missing MODEL_API_KEY in environment");
   process.exit(1);
 }
+
 
 // --- [BLOCK 2: SERVER CONFIGURATION] ---
 const app = express();
