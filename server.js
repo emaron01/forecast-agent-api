@@ -441,6 +441,39 @@ const handleFunctionCall = async (args) => {
     }
 };
 
+// 4. LISTEN FOR OPENAI EVENTS (The Ear)
+  openAiWs.on("message", (data) => {
+    try {
+      const response = JSON.parse(data);
+
+      // Debug Log: Prove OpenAI is talking
+      if (response.type === "response.audio.delta") {
+          // process.stdout.write("."); // Optional: Prints dots for audio
+      } else {
+          console.log("📩 OpenAI Event:", response.type);
+      }
+
+      // Handle Tool Calls
+      if (response.type === "response.function_call_arguments.done") {
+        const args = JSON.parse(response.arguments);
+        handleFunctionCall(args);
+      }
+
+      // Handle Audio Output (Forward to Phone)
+      if (response.type === "response.audio.delta" && response.delta) {
+        if (streamSid) {
+          ws.send(JSON.stringify({
+            event: "media",
+            streamSid: streamSid,
+            media: { payload: response.delta }
+          }));
+        }
+      }
+    } catch (err) {
+      console.error("❌ Error processing OpenAI message:", err);
+    }
+  });
+
   // 4. LISTEN FOR OPENAI EVENTS
   openAiWs.on("message", (data) => {
     try {
