@@ -291,9 +291,13 @@ wss.on("connection", (ws) => {
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/debug/opportunities", async (req, res) => {
     try {
-        const result = await pool.query("SELECT id, account_name, forecast_stage, updated_at FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC", [req.query.org_id || 1]);
+        // [FIX: SELECT * SHOWS ALL 36 COLUMNS]
+        const result = await pool.query(
+            "SELECT * FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC", 
+            [req.query.org_id || 1]
+        );
         res.json(result.rows);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-server.listen(PORT, () => console.log(`🚀 Server on ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Server on ${PORT}`));server.listen(PORT, () => console.log(`🚀 Server on ${PORT}`));
