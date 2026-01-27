@@ -7,12 +7,12 @@ const cors = require("cors");
 
 // --- [BLOCK 1: CONFIGURATION] ---
 const PORT = process.env.PORT || 10000;
-const MODEL_API_KEY = process.env.MODEL_API_KEY;
-const MODEL_URL = process.env.MODEL_URL || "wss://api.openai.com/v1/realtime";
-const MODEL_NAME = process.env.MODEL_NAME || "gpt-4o-mini-realtime-preview-2024-12-17";
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY; // Fixed variable name
+const MODEL_URL = "wss://api.openai.com/v1/realtime";
+const MODEL_NAME = "gpt-4o-realtime-preview-2024-10-01"; // Standard stable model
 
 if (!OPENAI_API_KEY) {
-  console.error("❌ Missing MODEL_API_KEY in environment");
+  console.error("❌ Fatal: OPENAI_API_KEY is missing in environment");
   process.exit(1);
 }
 
@@ -21,7 +21,6 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
-app.use(express.static("public"));
 
 // --- [BLOCK DB: POSTGRES POOL] ---
 const pool = new Pool({
@@ -185,6 +184,7 @@ ${stageInstructions}
    3. **After Tool Success:** Say "Okay, saved. Moving to the next deal."
     `;
 }
+
 // --- [BLOCK 4: SMART RECEPTIONIST] ---
 app.post("/agent", async (req, res) => {
   try {
@@ -208,19 +208,20 @@ app.post("/agent", async (req, res) => {
     const wsUrl = `wss://${req.headers.host}/`;
     res.type("text/xml").send(
       `<Response>
-         <Connect>
+        <Connect>
            <Stream url="${wsUrl}">
-             <Parameter name="org_id" value="${orgId}" />
-             <Parameter name="rep_name" value="${repName}" />
-           </Stream>
-         </Connect>
-       </Response>`
+            <Parameter name="org_id" value="${orgId}" />
+            <Parameter name="rep_name" value="${repName}" />
+          </Stream>
+        </Connect>
+      </Response>`
     );
   } catch (err) {
     console.error("❌ /agent error:", err.message);
     res.type("text/xml").send(`<Response><Connect><Stream url="wss://${req.headers.host}/" /></Connect></Response>`);
   }
 });
+
 // --- [BLOCK 5: WEBSOCKET CORE] ---
 wss.on("connection", async (ws) => {
   console.log("🔥 Twilio WebSocket connected");
@@ -267,6 +268,7 @@ wss.on("connection", async (ws) => {
   openAiWs.on("error", (err) => {
     console.error("❌ OpenAI WebSocket Error:", err.message);
   });
+
   // 2. HELPER: LAUNCHER
   const attemptLaunch = async () => {
       if (!repName || !openAiReady) return; 
@@ -289,21 +291,20 @@ wss.on("connection", async (ws) => {
       }
 
       if (dealQueue.length === 0) {
-         openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: "System Message." } }));
-         openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: 'Hello ${repName}. I connected, but I found zero active deals.'` } }));
+        openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: "System Message." } }));
+        openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: 'Hello ${repName}. I connected, but I found zero active deals.'` } }));
          return;
       }
 
       const firstDeal = dealQueue[0];
-      // Pass dealQueue.length as the 4th argument
-      const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);      
+      const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);     
 
       const sessionUpdate = {
         type: "session.update",
         session: {
-          turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
-          instructions: instructions,
-          tools: [{
+         turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
+         instructions: instructions,
+         tools: [{
               type: "function",
               name: "save_deal_data",
               description: "Saves scores, tips, and summaries. ALL FIELDS ARE REQUIRED.",
@@ -320,8 +321,13 @@ wss.on("connection", async (ws) => {
                   paper_score: { type: "number" }, paper_tip: { type: "string" }, paper_summary: { type: "string" },
                   timing_score: { type: "number" }, timing_tip: { type: "string" }, timing_summary: { type: "string" },
                   risk_summary: { type: "string" }, next_steps: { type: "string" },
+                  
+                  // NEW FIELDS FOR POWER PLAYERS
+                  champion_name: { type: "string" }, champion_title: { type: "string" },
+                  eb_name: { type: "string" }, eb_title: { type: "string" },
+                  rep_comments: { type: "string" }, manager_comments: { type: "string" }
                 },
-                required: ["pain_score", "pain_tip", "pain_summary", "metrics_score", "metrics_tip", "metrics_summary", "champion_score", "champion_tip", "champion_summary", "eb_score", "eb_tip", "eb_summary", "criteria_score", "criteria_tip", "criteria_summary", "process_score", "process_tip", "process_summary", "competition_score", "competition_tip", "competition_summary", "paper_score", "paper_tip", "paper_summary", "timing_score", "timing_tip", "timing_summary", "risk_summary", "next_steps"],
+                required: ["pain_score", "risk_summary", "next_steps"],
               },
           }],
           tool_choice: "auto",
@@ -435,6 +441,32 @@ const handleFunctionCall = async (args) => {
     }
 };
 
+  // 4. LISTEN FOR OPENAI EVENTS (THIS WAS MISSING!)
+  openAiWs.on("message", (data) => {
+    try {
+      const response = JSON.parse(data);
+
+      // Handle Tool Calls
+      if (response.type === "response.function_call_arguments.done") {
+        const args = JSON.parse(response.arguments);
+        handleFunctionCall(args);
+      }
+
+      // Handle Audio Output
+      if (response.type === "response.audio.delta" && response.delta) {
+        if (streamSid) {
+          ws.send(JSON.stringify({
+            event: "media",
+            streamSid: streamSid,
+            media: { payload: response.delta }
+          }));
+        }
+      }
+    } catch (err) {
+      console.error("❌ Error processing OpenAI message:", err);
+    }
+  });
+
   // 5. TWILIO EVENT LISTENER
   ws.on("message", (message) => {
     const msg = JSON.parse(message);
@@ -458,6 +490,7 @@ const handleFunctionCall = async (args) => {
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
 });
+
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/debug/opportunities", async (req, res) => {
   try {
@@ -471,4 +504,20 @@ app.get("/debug/opportunities", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// DB FIX ROUTES
+app.get("/fix-db", async (req, res) => {
+    try {
+        await pool.query(`ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS risk_summary TEXT;`);
+        res.send("✅ Database Repaired!");
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+app.get("/add-ai-forecast", async (req, res) => {
+    try {
+        await pool.query(`ALTER TABLE opportunities ADD COLUMN IF NOT EXISTS ai_forecast TEXT;`);
+        res.send("✅ AI Forecast Column Added!");
+    } catch (err) { res.status(500).send(err.message); }
+});
+
 server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`));
