@@ -3,7 +3,6 @@ const express = require('express');
 const WebSocket = require('ws');
 const { Pool } = require('pg');
 const http = require('http');
-const cors = require('cors');
 
 const app = express();
 const server = http.createServer(app);
@@ -11,19 +10,14 @@ const wss = new WebSocket.Server({ server });
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
-app.use(cors());
 
 const PORT = process.env.PORT || 10000;
 
-// [CONFIGURATION: USING YOUR SPECIFIC KEY NAME]
+// [FIX 1: USE THE KEY NAME THAT WORKS FOR YOU]
 const OPENAI_API_KEY = process.env.MODEL_API_KEY; 
+
 const MODEL_URL = "wss://api.openai.com/v1/realtime";
 const MODEL_NAME = "gpt-4o-realtime-preview-2024-10-01";
-
-if (!OPENAI_API_KEY) {
-    console.error("❌ Missing MODEL_API_KEY in environment");
-    process.exit(1);
-}
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -80,16 +74,14 @@ ${stageInstructions}
 app.post("/agent", async (req, res) => {
     try {
         const callerPhone = req.body.From || null;
-        console.log("📞 Incoming call from:", callerPhone);
         const result = await pool.query(
             "SELECT org_id, rep_name FROM opportunities WHERE rep_phone = $1 LIMIT 1",
             [callerPhone]
         );
-        let orgId = 1, repName = "Guest";
+        let orgId = 1, repName = "Rep";
         if (result.rows.length > 0) {
             orgId = result.rows[0].org_id;
             repName = result.rows[0].rep_name || "Rep";
-            console.log(`✅ Identified Rep: ${repName}`);
         }
         res.type("text/xml").send(`
             <Response>
@@ -101,7 +93,6 @@ app.post("/agent", async (req, res) => {
                 </Connect>
             </Response>`);
     } catch (err) {
-        console.error("❌ /agent error:", err.message);
         res.type("text/xml").send(`<Response><Connect><Stream url="wss://${req.headers.host}/" /></Connect></Response>`);
     }
 });
@@ -111,7 +102,7 @@ wss.on("connection", (ws) => {
     console.log("🔥 Twilio WebSocket connected");
     let streamSid = null, dealQueue = [], currentDealIndex = 0, repName = null, orgId = 1;
     let openAiReady = false;
-    let instructionsSent = false; // THE LOCK: Prevents double-speaking
+    let instructionsSent = false; // <--- THE LOCK (Prevents premature greeting)
 
     // 1. CONNECT TO OPENAI
     const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
@@ -135,29 +126,40 @@ wss.on("connection", (ws) => {
         attemptLaunch();
     });
 
-    // 3. HELPER: LAUNCHER
+// 3. HELPER: LAUNCHER
     const attemptLaunch = async () => {
+        // GATEKEEPER: Wait for both OpenAI (Connection) and Twilio (Rep Name)
         if (!repName || !openAiReady) return;
+
         console.log(`🚀 Launching Session for ${repName}`);
+        
         try {
+            // A. LOAD DEALS
             const result = await pool.query(
-                `SELECT o.*, org.product_truths FROM opportunities o JOIN organizations org ON o.org_id = org.id WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') ORDER BY o.id ASC`, [orgId]
+                `SELECT o.*, org.product_truths FROM opportunities o 
+                 JOIN organizations org ON o.org_id = org.id 
+                 WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') 
+                 ORDER BY o.id ASC`, 
+                [orgId]
             );
             dealQueue = result.rows;
             console.log(`📊 Loaded ${dealQueue.length} deals`);
 
+            // B. HANDLE ZERO DEALS
             if (dealQueue.length === 0) {
                  openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: "System Message." } }));
                  openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: 'Hello ${repName}. I connected, but I found zero active deals.'` } }));
                  return;
             }
 
+            // C. GENERATE INSTRUCTIONS
             const deal = dealQueue[0];
             const instructions = getSystemPrompt(deal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
             
-            // SEND INSTRUCTIONS & TOOLS
+            // D. SEND SESSION UPDATE (With Tracking Number & Tool Fixes)
             openAiWs.send(JSON.stringify({
                 type: "session.update",
+                client_event_id: "instructions_loaded", // <--- FIX 1: THE TRACKING NUMBER (Prevents Dead Air)
                 session: {
                     instructions: instructions,
                     tools: [{
@@ -181,19 +183,15 @@ wss.on("connection", (ws) => {
                                 eb_name: { type: "string" }, eb_title: { type: "string" },
                                 rep_comments: { type: "string" }, manager_comments: { type: "string" }
                             },
-                            required: [] // [FIX: PREVENTS CRASHES]
+                            required: [] // <--- FIX 2: PREVENTS CRASHES
                         }
-                    }]
+                    }],
+                    tool_choice: "auto" // <--- FIX 3: ENSURES SAVING WORKS
                 }
             }));
             
-            // SET THE LOCK (We are ready to speak, but waiting for confirmation)
-            instructionsSent = true;
-
         } catch (err) { console.error("❌ Launch Error:", err); }
-    };
-
-    // 4. HELPER: FUNCTION HANDLER (The Muscle)
+    };    // 4. HELPER: FUNCTION HANDLER (The Muscle)
     async function handleFunctionCall(args) {
         const deal = dealQueue[currentDealIndex];
         if (!deal) return;
@@ -208,15 +206,23 @@ wss.on("connection", (ws) => {
                 champion_name=$30, champion_title=$31, eb_name=$32, eb_title=$33, rep_comments=$34, manager_comments=$35,
                 updated_at=NOW(), run_count=run_count+1 WHERE id=$36`;
             
+// [ADDED SAFETY DEFAULTS TO PREVENT CRASHES]
             const values = [
-                args.pain_score, args.pain_tip, args.pain_summary, args.metrics_score, args.metrics_tip, args.metrics_summary,
-                args.champion_score, args.champion_tip, args.champion_summary, args.eb_score, args.eb_tip, args.eb_summary,
-                args.criteria_score, args.criteria_tip, args.criteria_summary, args.process_score, args.process_tip, args.process_summary,
-                args.competition_score, args.competition_tip, args.competition_summary, args.paper_score, args.paper_tip, args.paper_summary,
-                args.timing_score, args.timing_tip, args.timing_summary, args.risk_summary, args.next_steps,
-                args.champion_name, args.champion_title, args.eb_name, args.eb_title, args.rep_comments, args.manager_comments, deal.id
-            ];
-            await pool.query(query, values);
+                args.pain_score || 0, args.pain_tip || "", args.pain_summary || "",
+                args.metrics_score || 0, args.metrics_tip || "", args.metrics_summary || "",
+                args.champion_score || 0, args.champion_tip || "", args.champion_summary || "",
+                args.eb_score || 0, args.eb_tip || "", args.eb_summary || "",
+                args.criteria_score || 0, args.criteria_tip || "", args.criteria_summary || "",
+                args.process_score || 0, args.process_tip || "", args.process_summary || "",
+                args.competition_score || 0, args.competition_tip || "", args.competition_summary || "",
+                args.paper_score || 0, args.paper_tip || "", args.paper_summary || "",
+                args.timing_score || 0, args.timing_tip || "", args.timing_summary || "",
+                args.risk_summary || "", args.next_steps || "",
+                args.champion_name || "", args.champion_title || "", 
+                args.eb_name || "", args.eb_title || "", 
+                args.rep_comments || "", args.manager_comments || "", 
+                deal.id
+            ];            await pool.query(query, values);
             
             currentDealIndex++;
             if (currentDealIndex < dealQueue.length && openAiWs.readyState === WebSocket.OPEN) {
@@ -236,7 +242,7 @@ wss.on("connection", (ws) => {
     openAiWs.on("message", (data) => {
         const response = JSON.parse(data);
         
-        // [FIX: LOCK CHECK] Only speak if instructions were just sent
+        // [FIX: LOCK CHECK] Only speak if the brain is actually loaded
         if (response.type === "session.updated" && instructionsSent) {
             console.log("✅ Brain Loaded - TRIGGERING GREETING");
             openAiWs.send(JSON.stringify({ type: "response.create" }));
@@ -257,6 +263,25 @@ wss.on("connection", (ws) => {
         }
     });
 
+    // 6. TWILIO EVENT LISTENER
+    ws.on("message", (message) => {
+        const msg = JSON.parse(message);
+        if (msg.event === "start") {
+            streamSid = msg.start.streamSid;
+            const params = msg.start.customParameters || {};
+            orgId = params.org_id || 1;
+            repName = params.rep_name || "Guest";
+            console.log(`🔎 Twilio Connected: ${repName}`);
+            attemptLaunch();
+        }
+        if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
+    });
+
+    ws.on("close", () => {
+        console.log("🔌 Call Closed.");
+        if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
+    });
+});
     // 6. TWILIO EVENT LISTENER
     ws.on("message", (message) => {
         const msg = JSON.parse(message);
