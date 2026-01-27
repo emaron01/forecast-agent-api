@@ -3,6 +3,7 @@ const express = require('express');
 const WebSocket = require('ws');
 const { Pool } = require('pg');
 const http = require('http');
+const cors = require('cors');
 
 const app = express();
 const server = http.createServer(app);
@@ -10,14 +11,19 @@ const wss = new WebSocket.Server({ server });
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+app.use(cors());
 
 const PORT = process.env.PORT || 10000;
 
-// [FIX 1: USE THE KEY NAME THAT WORKS FOR YOU]
+// [CONFIGURATION]
 const OPENAI_API_KEY = process.env.MODEL_API_KEY; 
-
 const MODEL_URL = "wss://api.openai.com/v1/realtime";
 const MODEL_NAME = "gpt-4o-realtime-preview-2024-10-01";
+
+if (!OPENAI_API_KEY) {
+    console.error("❌ Missing MODEL_API_KEY in environment");
+    process.exit(1);
+}
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -74,14 +80,16 @@ ${stageInstructions}
 app.post("/agent", async (req, res) => {
     try {
         const callerPhone = req.body.From || null;
+        console.log("📞 Incoming call from:", callerPhone);
         const result = await pool.query(
             "SELECT org_id, rep_name FROM opportunities WHERE rep_phone = $1 LIMIT 1",
             [callerPhone]
         );
-        let orgId = 1, repName = "Rep";
+        let orgId = 1, repName = "Guest";
         if (result.rows.length > 0) {
             orgId = result.rows[0].org_id;
             repName = result.rows[0].rep_name || "Rep";
+            console.log(`✅ Identified Rep: ${repName}`);
         }
         res.type("text/xml").send(`
             <Response>
@@ -93,6 +101,7 @@ app.post("/agent", async (req, res) => {
                 </Connect>
             </Response>`);
     } catch (err) {
+        console.error("❌ /agent error:", err.message);
         res.type("text/xml").send(`<Response><Connect><Stream url="wss://${req.headers.host}/" /></Connect></Response>`);
     }
 });
@@ -102,17 +111,15 @@ wss.on("connection", (ws) => {
     console.log("🔥 Twilio WebSocket connected");
     let streamSid = null, dealQueue = [], currentDealIndex = 0, repName = null, orgId = 1;
     let openAiReady = false;
-    let instructionsSent = false; // <--- THE LOCK (Prevents premature greeting)
 
     // 1. CONNECT TO OPENAI
     const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
         headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "OpenAI-Beta": "realtime=v1" }
     });
 
-    // 2. OPEN EVENT (FIXES STATIC)
+    // 2. OPEN EVENT (FIX: STATIC REMOVAL)
     openAiWs.on("open", () => {
         console.log("📡 OpenAI Connected");
-        // [FIX: FORCE TELEPHONE AUDIO FORMAT G.711]
         openAiWs.send(JSON.stringify({
             type: "session.update",
             session: {
@@ -126,40 +133,30 @@ wss.on("connection", (ws) => {
         attemptLaunch();
     });
 
-// 3. HELPER: LAUNCHER
+    // 3. HELPER: LAUNCHER
     const attemptLaunch = async () => {
-        // GATEKEEPER: Wait for both OpenAI (Connection) and Twilio (Rep Name)
         if (!repName || !openAiReady) return;
-
         console.log(`🚀 Launching Session for ${repName}`);
-        
         try {
-            // A. LOAD DEALS
             const result = await pool.query(
-                `SELECT o.*, org.product_truths FROM opportunities o 
-                 JOIN organizations org ON o.org_id = org.id 
-                 WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') 
-                 ORDER BY o.id ASC`, 
-                [orgId]
+                `SELECT o.*, org.product_truths FROM opportunities o JOIN organizations org ON o.org_id = org.id WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') ORDER BY o.id ASC`, [orgId]
             );
             dealQueue = result.rows;
             console.log(`📊 Loaded ${dealQueue.length} deals`);
 
-            // B. HANDLE ZERO DEALS
             if (dealQueue.length === 0) {
                  openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: "System Message." } }));
                  openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: 'Hello ${repName}. I connected, but I found zero active deals.'` } }));
                  return;
             }
 
-            // C. GENERATE INSTRUCTIONS
             const deal = dealQueue[0];
             const instructions = getSystemPrompt(deal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
             
-            // D. SEND SESSION UPDATE (With Tracking Number & Tool Fixes)
+            // SEND INSTRUCTIONS (FIX: EVENT ID LOCK & TOOL CHOICE)
             openAiWs.send(JSON.stringify({
                 type: "session.update",
-                client_event_id: "instructions_loaded", // <--- FIX 1: THE TRACKING NUMBER (Prevents Dead Air)
+                client_event_id: "instructions_loaded", // <--- THE DEAD AIR FIX
                 session: {
                     instructions: instructions,
                     tools: [{
@@ -183,15 +180,17 @@ wss.on("connection", (ws) => {
                                 eb_name: { type: "string" }, eb_title: { type: "string" },
                                 rep_comments: { type: "string" }, manager_comments: { type: "string" }
                             },
-                            required: [] // <--- FIX 2: PREVENTS CRASHES
+                            required: [] // <--- THE CRASH FIX
                         }
                     }],
-                    tool_choice: "auto" // <--- FIX 3: ENSURES SAVING WORKS
+                    tool_choice: "auto" // <--- THE SAVE FIX
                 }
             }));
             
         } catch (err) { console.error("❌ Launch Error:", err); }
-    };    // 4. HELPER: FUNCTION HANDLER (The Muscle)
+    };
+
+    // 4. HELPER: FUNCTION HANDLER (The Muscle)
     async function handleFunctionCall(args) {
         const deal = dealQueue[currentDealIndex];
         if (!deal) return;
@@ -204,9 +203,9 @@ wss.on("connection", (ws) => {
                 competition_score=$19, competition_tip=$20, competition_summary=$21, paper_score=$22, paper_tip=$23, paper_summary=$24,
                 timing_score=$25, timing_tip=$26, timing_summary=$27, risk_summary=$28, next_steps=$29,
                 champion_name=$30, champion_title=$31, eb_name=$32, eb_title=$33, rep_comments=$34, manager_comments=$35,
-                updated_at=NOW(), run_count=run_count+1 WHERE id=$36`;
+                updated_at=NOW(), run_count=COALESCE(run_count, 0)+1 WHERE id=$36`;
             
-// [ADDED SAFETY DEFAULTS TO PREVENT CRASHES]
+            // [FIX: DEFAULTS PREVENT UNDEFINED CRASHES]
             const values = [
                 args.pain_score || 0, args.pain_tip || "", args.pain_summary || "",
                 args.metrics_score || 0, args.metrics_tip || "", args.metrics_summary || "",
@@ -222,14 +221,14 @@ wss.on("connection", (ws) => {
                 args.eb_name || "", args.eb_title || "", 
                 args.rep_comments || "", args.manager_comments || "", 
                 deal.id
-            ];            await pool.query(query, values);
+            ];
+            
+            await pool.query(query, values);
             
             currentDealIndex++;
             if (currentDealIndex < dealQueue.length && openAiWs.readyState === WebSocket.OPEN) {
                 const nextDeal = dealQueue[currentDealIndex];
-                // CONTEXT NUKE for next deal
                 const nextInstructions = `*** SYSTEM ALERT: PREVIOUS DEAL CLOSED. ***\n\nFORGET ALL context about the previous account. FOCUS ONLY on this new deal:\n\n` + getSystemPrompt(nextDeal, repName, 0, dealQueue.length);
-                
                 openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: nextInstructions } }));
                 openAiWs.send(JSON.stringify({ type: "response.create", response: { instructions: `Say: 'Saved. Next is ${nextDeal.account_name}. What's the latest?'` } }));
             } else {
@@ -242,14 +241,15 @@ wss.on("connection", (ws) => {
     openAiWs.on("message", (data) => {
         const response = JSON.parse(data);
         
-        // [FIX: LOCK CHECK] Only speak if the brain is actually loaded
-        if (response.type === "session.updated" && instructionsSent) {
-            console.log("✅ Brain Loaded - TRIGGERING GREETING");
+        // [FIX: ID CHECK] Only speak when "instructions_loaded" event confirms readiness
+        if (response.type === "session.updated" && response.client_event_id === "instructions_loaded") {
+            console.log("✅ Instructions Confirmed - TRIGGERING GREETING");
             openAiWs.send(JSON.stringify({ type: "response.create" }));
-            instructionsSent = false; // Reset so we don't spam
         }
 
-        if (response.type === "response.audio.delta" && response.delta) ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
+        if (response.type === "response.audio.delta" && response.delta) {
+             ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
+        }
         
         if (response.type === "response.function_call_arguments.done") {
             const args = JSON.parse(response.arguments);
@@ -282,27 +282,8 @@ wss.on("connection", (ws) => {
         if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
     });
 });
-    // 6. TWILIO EVENT LISTENER
-    ws.on("message", (message) => {
-        const msg = JSON.parse(message);
-        if (msg.event === "start") {
-            streamSid = msg.start.streamSid;
-            const params = msg.start.customParameters || {};
-            orgId = params.org_id || 1;
-            repName = params.rep_name || "Guest";
-            console.log(`🔎 Twilio Connected: ${repName}`);
-            attemptLaunch();
-        }
-        if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
-    });
 
-    ws.on("close", () => {
-        console.log("🔌 Call Closed.");
-        if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
-    });
-});
-
-// --- [BLOCK 6: DEBUG & API ENDPOINTS] ---
+// --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/debug/opportunities", async (req, res) => {
     try {
         const result = await pool.query("SELECT id, account_name, forecast_stage, updated_at FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC", [req.query.org_id || 1]);
