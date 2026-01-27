@@ -75,11 +75,9 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
     } else {
         stageInstructions = `MODE: PIPELINE QUALIFICATION
     GOAL: Perform a lightweight MEDDICC qualification pass appropriate for early‑stage pipeline.
-    
-    BRANCHING LOGIC:
+        BRANCHING LOGIC:
     • First, ASK: “Is this deal beyond the discovery phase, or is it a newly converted lead?”
-    
-    IF NEW LEAD (still in discovery):
+        IF NEW LEAD (still in discovery):
     • Only assess: Pain, Metrics, Competition, Timing.
     • Do NOT assess: Champion, EB, Criteria, Process, Paper.
     
@@ -88,6 +86,10 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
     • Do NOT assess: Process, Paper.
     
     ADDITIONAL RULES:
+- METRIC VALIDATION RULE: If the rep provides qualitative metrics (e.g., "speed," "efficiency," "saving money"), acknowledge them immediately. 
+- TWO-STRIKE LIMIT: You may ask for a specific number OR a calculation once. If the rep repeats the qualitative metric or says "I already gave you that," YOU MUST ACCEPT IT, categorize it as "Low Evidence," and move to the next MEDDPICC category.
+- CONCURRENCY: Call the 'update_opportunity' tool in the background as soon as a metric is mentioned. Do not wait for the end of the conversation.
+- FLOW CONTROL: After receiving a metric, your very next sentence must start with: "Got it, I've noted [Metric]. Now, moving on to [Next Category]..."
     • Even if answers are weak (0–1), continue extraction to build a full picture.
     • Ask only one MEDDICC‑advancing question per turn.
     • Do not coach, explain, or ask follow‑ups during the qualification sequence.`;
@@ -169,7 +171,7 @@ ${stageInstructions}
 ### INTERNAL TRUTHS (PRODUCT POLICE)
    ${deal.org_product_data || "Verify capabilities against company documentation."}
 
-### COMPLETION PROTOCOL (CRITICAL)
+## COMPLETION PROTOCOL (CRITICAL)
    When you have gathered the data (or if the user says "move on"), you MUST follow this EXACT sequence.
    
    1. **Say:** "Got it. I'm updating the scorecard."
@@ -258,7 +260,7 @@ wss.on("connection", async (ws) => {
           type: "server_vad", 
           threshold: 0.5,
           prefix_padding_ms: 300,
-          silence_duration_ms: 500 
+          silence_duration_ms: 1200 
         }
       }
     }));
@@ -445,39 +447,43 @@ const handleFunctionCall = async (args) => {
     }
 };
 
-// 4. OPENAI EVENT LISTENER (The Ear)
-openAiWs.on("message", (data) => {
-    const response = JSON.parse(data);
+// 4. LISTEN FOR OPENAI EVENTS (The Ear)
+  openAiWs.on("message", (data) => {
+    try {
+      const response = JSON.parse(data);
 
-    // 1. Audio Passthrough
-    if (response.type === "response.audio.delta" && response.delta) {
-       ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
+      // Handle Tool Calls (The "Stall Fix")
+      if (response.type === "response.function_call_arguments.done") {
+        const args = JSON.parse(response.arguments);
+        
+        // 1. Tell OpenAI "I got it, stop waiting" - This unblocks the conversation
+        openAiWs.send(JSON.stringify({
+            type: "conversation.item.create",
+            item: {
+                type: "function_call_output",
+                call_id: response.call_id, 
+                output: JSON.stringify({ status: "success", message: "Deal saved." })
+            }
+        }));
+
+        // 2. Trigger the Database Save
+        handleFunctionCall(args);
+      }
+
+      // Handle Audio Output
+      if (response.type === "response.audio.delta" && response.delta) {
+        if (streamSid) {
+          ws.send(JSON.stringify({
+            event: "media",
+            streamSid: streamSid,
+            media: { payload: response.delta }
+          }));
+        }
+      }
+    } catch (err) {
+      console.error("❌ Error processing OpenAI message:", err);
     }
-
-    // 2. THE TRIGGER: Fast & Reliable
-    if (response.type === "response.function_call_arguments.done" && response.name === "save_deal_data") {
-       console.log("🛠️ Save Triggered by OpenAI");
-       try {
-           const args = JSON.parse(response.arguments);
-
-           // CRITICAL FIX: Tell OpenAI the tool finished
-           openAiWs.send(JSON.stringify({
-               type: "conversation.item.create",
-               item: {
-                   type: "function_call_output",
-                   call_id: response.call_id, 
-                   output: JSON.stringify({ status: "success", message: "Deal saved." })
-               }
-           }));
-
-           // Now run the Muscle
-           handleFunctionCall(args); 
-       } catch (error) {
-           console.error("❌ Error parsing tool arguments:", error);
-       }
-    }
-});
-
+  });
   // 5. TWILIO EVENT LISTENER
   ws.on("message", (message) => {
     const msg = JSON.parse(message);
