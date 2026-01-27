@@ -12,7 +12,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 const PORT = process.env.PORT || 10000;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_API_KEY = process.env.MODEL_API_KEY;
 const MODEL_URL = "wss://api.openai.com/v1/realtime";
 const MODEL_NAME = "gpt-4o-realtime-preview-2024-10-01";
 
