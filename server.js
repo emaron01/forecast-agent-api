@@ -183,6 +183,7 @@ ${stageInstructions}
       - **VERDICT:** Use 'risk_summary' for the Full Agent Verdict.
       
    3. **After Tool Success:** Say "Okay, saved. Moving to the next deal."
+`; 
 }
 
 
