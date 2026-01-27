@@ -100,7 +100,9 @@ app.post("/agent", async (req, res) => {
 // --- [BLOCK 5: WEBSOCKET CORE] ---
 wss.on("connection", (ws) => {
     console.log("🔥 Twilio WebSocket connected");
-    let streamSid = null, dealQueue = [], currentDealIndex = 0, repName = null, orgId = 1, openAiReady = false;
+    let streamSid = null, dealQueue = [], currentDealIndex = 0, repName = null, orgId = 1;
+    let openAiReady = false;
+    let instructionsSent = false; // <--- THE LOCK (Prevents premature greeting)
 
     // 1. CONNECT TO OPENAI
     const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
@@ -175,7 +177,10 @@ wss.on("connection", (ws) => {
                     }]
                 }
             }));
-            // NOTE: No setTimeout here anymore. We use the event listener below.
+            
+            // UNLOCK THE GREETING (Now we are ready to speak)
+            instructionsSent = true;
+
         } catch (err) { console.error("❌ Launch Error:", err); }
     };
 
@@ -222,10 +227,11 @@ wss.on("connection", (ws) => {
     openAiWs.on("message", (data) => {
         const response = JSON.parse(data);
         
-        // [FIX: EVENT-DRIVEN GREETING = NO DEAD AIR]
-        if (response.type === "session.updated") {
-            console.log("✅ OpenAI Ready - TRIGGERING GREETING");
+        // [FIX: LOCK CHECK] Only speak if the brain is actually loaded
+        if (response.type === "session.updated" && instructionsSent) {
+            console.log("✅ Brain Loaded - TRIGGERING GREETING");
             openAiWs.send(JSON.stringify({ type: "response.create" }));
+            instructionsSent = false; // Reset so we don't spam
         }
 
         if (response.type === "response.audio.delta" && response.delta) ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
@@ -242,6 +248,25 @@ wss.on("connection", (ws) => {
         }
     });
 
+    // 6. TWILIO EVENT LISTENER
+    ws.on("message", (message) => {
+        const msg = JSON.parse(message);
+        if (msg.event === "start") {
+            streamSid = msg.start.streamSid;
+            const params = msg.start.customParameters || {};
+            orgId = params.org_id || 1;
+            repName = params.rep_name || "Guest";
+            console.log(`🔎 Twilio Connected: ${repName}`);
+            attemptLaunch();
+        }
+        if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
+    });
+
+    ws.on("close", () => {
+        console.log("🔌 Call Closed.");
+        if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
+    });
+});
     // 6. TWILIO EVENT LISTENER
     ws.on("message", (message) => {
         const msg = JSON.parse(message);
