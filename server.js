@@ -338,9 +338,10 @@ wss.on("connection", async (ws) => {
 const handleFunctionCall = async (args) => {
     console.log("🛠️ Tool Triggered: save_deal_data");
     
-    try {
-        const deal = dealQueue[currentDealIndex];
+    const deal = dealQueue[currentDealIndex];
+    if (!deal) return;
 
+    try {
         // 1. Calculate Score & Stage
         const scores = [
             args.pain_score, args.metrics_score, args.champion_score, 
@@ -350,32 +351,39 @@ const handleFunctionCall = async (args) => {
         const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
         const newStage = totalScore >= 25 ? "Closed Won" : totalScore >= 20 ? "Commit" : totalScore >= 12 ? "Best Case" : "Pipeline";
 
-        // 2. Execute Database Update
+        // 2. Execute Database Update (CRITICAL: Added Power Players & Comments)
         await pool.query(
             `UPDATE opportunities SET 
-              pain_score=$1, pain_tip=$2, pain_summary=$3,
-              metrics_score=$4, metrics_tip=$5, metrics_summary=$6,
-              champion_score=$7, champion_tip=$8, champion_summary=$9,
-              eb_score=$10, eb_tip=$11, eb_summary=$12,
-              criteria_score=$13, criteria_tip=$14, criteria_summary=$15,
-              process_score=$16, process_tip=$17, process_summary=$18,
-              competition_score=$19, competition_tip=$20, competition_summary=$21,
-              paper_score=$22, paper_tip=$23, paper_summary=$24,
-              timing_score=$25, timing_tip=$26, timing_summary=$27,
-              last_summary=$28, next_steps=$29, forecast_stage=$30,
-              run_count = run_count + 1, updated_at = NOW()
-             WHERE id = $31`,
+             pain_score=$1, pain_tip=$2, pain_summary=$3,
+             metrics_score=$4, metrics_tip=$5, metrics_summary=$6,
+             champion_score=$7, champion_tip=$8, champion_summary=$9,
+             eb_score=$10, eb_tip=$11, eb_summary=$12,
+             criteria_score=$13, criteria_tip=$14, criteria_summary=$15,
+             process_score=$16, process_tip=$17, process_summary=$18,
+             competition_score=$19, competition_tip=$20, competition_summary=$21,
+             paper_score=$22, paper_tip=$23, paper_summary=$24,
+             timing_score=$25, timing_tip=$26, timing_summary=$27,
+             risk_summary=$28, next_steps=$29, 
+             champion_name=$30, champion_title=$31, eb_name=$32, eb_title=$33, rep_comments=$34, manager_comments=$35,
+             forecast_stage=$36, run_count = COALESCE(run_count, 0) + 1, updated_at = NOW()
+             WHERE id = $37`,
             [
-              args.pain_score, args.pain_tip, args.pain_summary,
-              args.metrics_score, args.metrics_tip, args.metrics_summary,
-              args.champion_score, args.champion_tip, args.champion_summary,
-              args.eb_score, args.eb_tip, args.eb_summary,
-              args.criteria_score, args.criteria_tip, args.criteria_summary,
-              args.process_score, args.process_tip, args.process_summary,
-              args.competition_score, args.competition_tip, args.competition_summary,
-              args.paper_score, args.paper_tip, args.paper_summary,
-              args.timing_score, args.timing_tip, args.timing_summary,
-              args.risk_summary, args.next_steps, newStage, deal.id
+             args.pain_score || 0, args.pain_tip || "", args.pain_summary || "",
+             args.metrics_score || 0, args.metrics_tip || "", args.metrics_summary || "",
+             args.champion_score || 0, args.champion_tip || "", args.champion_summary || "",
+             args.eb_score || 0, args.eb_tip || "", args.eb_summary || "",
+             args.criteria_score || 0, args.criteria_tip || "", args.criteria_summary || "",
+             args.process_score || 0, args.process_tip || "", args.process_summary || "",
+             args.competition_score || 0, args.competition_tip || "", args.competition_summary || "",
+             args.paper_score || 0, args.paper_tip || "", args.paper_summary || "",
+             args.timing_score || 0, args.timing_tip || "", args.timing_summary || "",
+             args.risk_summary || "", args.next_steps || "",
+             // --- NEW FIELDS ---
+             args.champion_name || "", args.champion_title || "", 
+             args.eb_name || "", args.eb_title || "", 
+             args.rep_comments || "", args.manager_comments || "", 
+             // ------------------
+             newStage, deal.id
             ]
         );
         console.log(`✅ Saved: ${deal.account_name}`);
@@ -395,7 +403,7 @@ const handleFunctionCall = async (args) => {
             const remaining = dealQueue.length - currentDealIndex;
             console.log(`➡️ Moving to next: ${nextDeal.account_name} (${remaining} left)`);
             
-const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], remaining - 1, dealQueue.length);
+            const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], remaining - 1, dealQueue.length);
             
             // THE CONTEXT NUKE (Ensures AI starts fresh for the next account)
             const nukeInstructions = `*** SYSTEM ALERT: PREVIOUS DEAL CLOSED. ***\n\nFORGET ALL context about the previous account. FOCUS ONLY on this new deal:\n\n` + nextInstructions;
@@ -420,7 +428,6 @@ const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], remain
         }));
     }
 };
-
 // 4. OPENAI EVENT LISTENER (The Ear)
 openAiWs.on("message", (data) => {
     const response = JSON.parse(data);
