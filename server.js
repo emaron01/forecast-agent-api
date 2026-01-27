@@ -207,9 +207,10 @@ wss.on("connection", (ws) => {
             console.error("❌ OpenAI Error:", JSON.stringify(response));
         }
 
-        // B. CONFIRM INSTRUCTIONS
+// B. CONFIRM INSTRUCTIONS & FORCE SPEECH
         if (response.type === "session.updated") {
-            console.log("✅ OpenAI Accepted Instructions");
+            console.log("✅ OpenAI Ready - TRIGGERING GREETING");
+            openAiWs.send(JSON.stringify({ type: "response.create" }));
         }
 
         // C. AUDIO
