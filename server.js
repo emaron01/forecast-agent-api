@@ -117,18 +117,9 @@ wss.on("connection", (ws) => {
         headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "OpenAI-Beta": "realtime=v1" }
     });
 
-    // 2. OPEN EVENT (STATIC FIX)
+    // 2. OPEN EVENT (Phase 1: Configure Audio)
     openAiWs.on("open", () => {
         console.log("📡 OpenAI Connected");
-        openAiWs.send(JSON.stringify({
-            type: "session.update",
-            session: {
-                input_audio_format: "g711_ulaw",
-                output_audio_format: "g711_ulaw",
-                voice: "verse",
-                turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 }
-            }
-        }));
         openAiReady = true;
         attemptLaunch();
     });
@@ -153,10 +144,16 @@ wss.on("connection", (ws) => {
             const deal = dealQueue[0];
             const instructions = getSystemPrompt(deal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
             
-            // A. SEND INSTRUCTIONS (With Save Fixes)
+            // --- [PHASE 1: THE SILENT TAKEOVER] ---
+            // We turn VAD *OFF* (Manual Mode) so the AI ignores your background noise.
+            // We set tools to *NONE* so it focuses only on speaking.
             openAiWs.send(JSON.stringify({
                 type: "session.update",
                 session: {
+                    input_audio_format: "g711_ulaw",
+                    output_audio_format: "g711_ulaw",
+                    voice: "verse",
+                    turn_detection: null, // <--- DEAF MODE (VAD OFF)
                     instructions: instructions,
                     tools: [{
                         type: "function",
@@ -179,23 +176,39 @@ wss.on("connection", (ws) => {
                                 eb_name: { type: "string" }, eb_title: { type: "string" },
                                 rep_comments: { type: "string" }, manager_comments: { type: "string" }
                             },
-                            required: [] // CRASH FIX
+                            required: []
                         }
                     }],
-                    tool_choice: "auto" // SAVE FIX
+                    tool_choice: "none" // <--- FOCUS MODE
                 }
             }));
 
-            // B. THE TIMER (Guarantees Speech)
+            // --- [PHASE 2: FORCE GREETING] ---
+            // We clear the buffer (delete any noise sent so far) and FORCE the hello.
             setTimeout(() => {
-                console.log("⏰ Timer Fired - Forcing Specific Greeting");
+                console.log("🗣️ Forcing Uninterruptible Greeting");
+                openAiWs.send(JSON.stringify({ type: "input_audio_buffer.clear" }));
                 openAiWs.send(JSON.stringify({ 
                     type: "response.create",
                     response: {
-                        instructions: `Say: 'Hello ${repName}. I am online and connected. Let's review ${dealQueue[0].account_name}.'`
+                        modalities: ["text", "audio"],
+                        instructions: `Say: 'Hello ${repName}. I am online. Let's start.'`
                     }
                 }));
-            }, 1500); 
+            }, 500);
+
+            // --- [PHASE 3: OPEN THE EARS] ---
+            // After 3 seconds (greeting finished), we turn VAD *ON* and Tools *AUTO*.
+            setTimeout(() => {
+                console.log("👂 Enabling VAD & Tools");
+                openAiWs.send(JSON.stringify({
+                    type: "session.update",
+                    session: {
+                        turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 },
+                        tool_choice: "auto"
+                    }
+                }));
+            }, 3000);
             
         } catch (err) { console.error("❌ Launch Error:", err); }
     };
@@ -215,7 +228,6 @@ wss.on("connection", (ws) => {
                 champion_name=$30, champion_title=$31, eb_name=$32, eb_title=$33, rep_comments=$34, manager_comments=$35,
                 updated_at=NOW(), run_count=COALESCE(run_count, 0)+1 WHERE id=$36`;
             
-            // SAFETY DEFAULTS (Prevent Crashes)
             const values = [
                 args.pain_score || 0, args.pain_tip || "", args.pain_summary || "",
                 args.metrics_score || 0, args.metrics_tip || "", args.metrics_summary || "",
@@ -247,7 +259,7 @@ wss.on("connection", (ws) => {
         } catch (err) { console.error("❌ Save Error:", err); }
     }
 
-    // 5. OPENAI EVENT LISTENER (The Ear)
+    // 5. OPENAI EVENT LISTENER
     openAiWs.on("message", (data) => {
         const response = JSON.parse(data);
 
@@ -290,7 +302,6 @@ wss.on("connection", (ws) => {
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/debug/opportunities", async (req, res) => {
     try {
-        // [FIX: SELECT * TO SHOW ALL DATA]
         const result = await pool.query(
             "SELECT * FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC", 
             [req.query.org_id || 1]
