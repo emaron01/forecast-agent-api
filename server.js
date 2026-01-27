@@ -198,21 +198,41 @@ wss.on("connection", (ws) => {
 
     openAiWs.on("open", () => { openAiReady = true; attemptLaunch(); });
     
+    // 4. OPENAI EVENT LISTENER (Debug Version)
     openAiWs.on("message", (data) => {
         const response = JSON.parse(data);
-        if (response.type === "response.audio.delta" && response.delta) ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
+
+        // A. LOG ERRORS (This is what we need to see!)
+        if (response.type === "error") {
+            console.error("❌ OpenAI Error:", JSON.stringify(response));
+        }
+
+        // B. CONFIRM INSTRUCTIONS
+        if (response.type === "session.updated") {
+            console.log("✅ OpenAI Accepted Instructions");
+        }
+
+        // C. AUDIO
+        if (response.type === "response.audio.delta" && response.delta) {
+            ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
+        }
+
+        // D. TOOL TRIGGER
         if (response.type === "response.function_call_arguments.done") {
+            console.log("🛠️ AI Calling Tool:", response.name);
             const args = JSON.parse(response.arguments);
             handleFunctionCall(args);
+            
             if (openAiWs.readyState === WebSocket.OPEN) {
                  openAiWs.send(JSON.stringify({ 
                      type: "conversation.item.create", 
                      item: { type: "function_call_output", call_id: response.call_id, output: "success" } 
                  }));
+                 // FORCE THE AI TO SPEAK AFTER SAVING
+                 openAiWs.send(JSON.stringify({ type: "response.create" }));
             }
         }
     });
-
     ws.on("message", (message) => {
         const msg = JSON.parse(message);
         if (msg.event === "start") {
