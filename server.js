@@ -3,6 +3,7 @@ const express = require('express');
 const WebSocket = require('ws');
 const { Pool } = require('pg');
 const http = require('http');
+const cors = require('cors');
 
 const app = express();
 const server = http.createServer(app);
@@ -10,14 +11,19 @@ const wss = new WebSocket.Server({ server });
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+app.use(cors());
 
 const PORT = process.env.PORT || 10000;
 
-// [FIX 1: USE THE KEY NAME THAT WORKS FOR YOU]
+// [CONFIGURATION: USING YOUR SPECIFIC KEY NAME]
 const OPENAI_API_KEY = process.env.MODEL_API_KEY; 
-
 const MODEL_URL = "wss://api.openai.com/v1/realtime";
 const MODEL_NAME = "gpt-4o-realtime-preview-2024-10-01";
+
+if (!OPENAI_API_KEY) {
+    console.error("❌ Missing MODEL_API_KEY in environment");
+    process.exit(1);
+}
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -74,14 +80,16 @@ ${stageInstructions}
 app.post("/agent", async (req, res) => {
     try {
         const callerPhone = req.body.From || null;
+        console.log("📞 Incoming call from:", callerPhone);
         const result = await pool.query(
             "SELECT org_id, rep_name FROM opportunities WHERE rep_phone = $1 LIMIT 1",
             [callerPhone]
         );
-        let orgId = 1, repName = "Rep";
+        let orgId = 1, repName = "Guest";
         if (result.rows.length > 0) {
             orgId = result.rows[0].org_id;
             repName = result.rows[0].rep_name || "Rep";
+            console.log(`✅ Identified Rep: ${repName}`);
         }
         res.type("text/xml").send(`
             <Response>
@@ -93,6 +101,7 @@ app.post("/agent", async (req, res) => {
                 </Connect>
             </Response>`);
     } catch (err) {
+        console.error("❌ /agent error:", err.message);
         res.type("text/xml").send(`<Response><Connect><Stream url="wss://${req.headers.host}/" /></Connect></Response>`);
     }
 });
@@ -102,7 +111,7 @@ wss.on("connection", (ws) => {
     console.log("🔥 Twilio WebSocket connected");
     let streamSid = null, dealQueue = [], currentDealIndex = 0, repName = null, orgId = 1;
     let openAiReady = false;
-    let instructionsSent = false; // <--- THE LOCK (Prevents premature greeting)
+    let instructionsSent = false; // THE LOCK: Prevents double-speaking
 
     // 1. CONNECT TO OPENAI
     const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
@@ -178,7 +187,7 @@ wss.on("connection", (ws) => {
                 }
             }));
             
-            // UNLOCK THE GREETING (Now we are ready to speak)
+            // SET THE LOCK (We are ready to speak, but waiting for confirmation)
             instructionsSent = true;
 
         } catch (err) { console.error("❌ Launch Error:", err); }
@@ -227,7 +236,7 @@ wss.on("connection", (ws) => {
     openAiWs.on("message", (data) => {
         const response = JSON.parse(data);
         
-        // [FIX: LOCK CHECK] Only speak if the brain is actually loaded
+        // [FIX: LOCK CHECK] Only speak if instructions were just sent
         if (response.type === "session.updated" && instructionsSent) {
             console.log("✅ Brain Loaded - TRIGGERING GREETING");
             openAiWs.send(JSON.stringify({ type: "response.create" }));
@@ -248,25 +257,6 @@ wss.on("connection", (ws) => {
         }
     });
 
-    // 6. TWILIO EVENT LISTENER
-    ws.on("message", (message) => {
-        const msg = JSON.parse(message);
-        if (msg.event === "start") {
-            streamSid = msg.start.streamSid;
-            const params = msg.start.customParameters || {};
-            orgId = params.org_id || 1;
-            repName = params.rep_name || "Guest";
-            console.log(`🔎 Twilio Connected: ${repName}`);
-            attemptLaunch();
-        }
-        if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
-    });
-
-    ws.on("close", () => {
-        console.log("🔌 Call Closed.");
-        if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
-    });
-});
     // 6. TWILIO EVENT LISTENER
     ws.on("message", (message) => {
         const msg = JSON.parse(message);
