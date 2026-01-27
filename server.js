@@ -7,7 +7,7 @@ const cors = require("cors");
 
 // --- [BLOCK 1: CONFIGURATION] ---
 const PORT = process.env.PORT || 10000;
-const OPENAI_API_KEY = process.env.MODEL_API_KEY;
+const MODEL_API_KEY = process.env.MODEL_API_KEY;
 const MODEL_URL = process.env.MODEL_URL || "wss://api.openai.com/v1/realtime";
 const MODEL_NAME = process.env.MODEL_NAME || "gpt-4o-mini-realtime-preview-2024-12-17";
 
