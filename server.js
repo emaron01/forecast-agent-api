@@ -347,17 +347,14 @@ const handleFunctionCall = async (args) => {
         ];
         const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
 
-        // 2. THE SHADOW FORECAST LOGIC (New Thresholds)
-        // 21+ = Commit (High bar)
-        // 15-20 = Best Case
-        // <15 = Pipeline
-        const aiOpinion = totalScore >= 21 ? "Commit" : 
-                          totalScore >= 15 ? "Best Case" : 
+        // 2. THE SHADOW FORECAST LOGIC
+        // 25+ = Commit, 20-24 = Best Case, <20 = Pipeline
+        const aiOpinion = totalScore >= 25 ? "Commit" : 
+                          totalScore >= 20 ? "Best Case" : 
                           "Pipeline";
 
-
         // 3. Execute Database Update
-        // [CRITICAL CHANGE]: We are saving to 'ai_forecast' ($36), NOT 'forecast_stage'.
+        // Saving 'aiOpinion' to 'ai_forecast' column ($36)
         await pool.query(
             `UPDATE opportunities SET 
              pain_score=$1, pain_tip=$2, pain_summary=$3,
@@ -387,38 +384,56 @@ const handleFunctionCall = async (args) => {
              args.process_score || 0, args.process_tip || "", args.process_summary || "",
              args.competition_score || 0, args.competition_tip || "", args.competition_summary || "",
              args.paper_score || 0, args.paper_tip || "", args.paper_summary || "",
-             args.timing_score || 0, args.timing_tip || "", args// 4. OPENAI EVENT LISTENER (The Ear)
-openAiWs.on("message", (data) => {
-    const response = JSON.parse(data);
+             args.timing_score || 0, args.timing_tip || "", args.timing_summary || "",
+             
+             args.risk_summary || "", 
+             args.next_steps || "",
+             args.champion_name || "", args.champion_title || "", 
+             args.eb_name || "", args.eb_title || "", 
+             args.rep_comments || "", args.manager_comments || "", 
+             
+             aiOpinion, 
+             
+             deal.id
+            ]
+        );
+        console.log(`✅ Saved: ${deal.account_name} (AI Opinion: ${aiOpinion})`);
 
-    // 1. Audio Passthrough
-    if (response.type === "response.audio.delta" && response.delta) {
-        ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
-    }
+        // 4. Move to Next Deal logic
+        currentDealIndex++;
 
-    // 2. THE TRIGGER: Fast & Reliable
-    if (response.type === "response.function_call_arguments.done" && response.name === "save_deal_data") {
-        console.log("🛠️ Save Triggered by OpenAI");
-        try {
-            const args = JSON.parse(response.arguments);
-
-            // CRITICAL FIX: Tell OpenAI the tool finished so it can clear its "wait" state
+        if (currentDealIndex >= dealQueue.length) {
+            console.log("🏁 All deals finished.");
             openAiWs.send(JSON.stringify({
-                type: "conversation.item.create",
-                item: {
-                    type: "function_call_output",
-                    call_id: response.call_id, // Match the ID from the event
-                    output: JSON.stringify({ status: "success", message: "Deal saved." })
+                type: "response.create",
+                response: { instructions: "Say: 'That concludes the review. Great work today.' and then hang up." }
+            }));
+            setTimeout(() => process.exit(0), 5000); 
+        } else {
+            const nextDeal = dealQueue[currentDealIndex];
+            const remaining = dealQueue.length - currentDealIndex;
+            console.log(`➡️ Moving to next: ${nextDeal.account_name} (${remaining} left)`);
+            
+            const nextInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], remaining - 1, dealQueue.length);
+            const nukeInstructions = `*** SYSTEM ALERT: PREVIOUS DEAL CLOSED. ***\n\nFORGET ALL context about the previous account. FOCUS ONLY on this new deal:\n\n` + nextInstructions;
+
+            openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: nukeInstructions } }));
+            
+            openAiWs.send(JSON.stringify({
+                type: "response.create",
+                response: { 
+                    instructions: `Say: 'Okay, saved. We have ${remaining} ${remaining === 1 ? 'deal' : 'deals'} left. Next up is ${nextDeal.account_name}. What is the latest update there?'` 
                 }
             }));
-
-            // Now run the Muscle
-            handleFunctionCall(args); 
-        } catch (error) {
-            console.error("❌ Error parsing tool arguments:", error);
         }
+    } catch (err) {
+        console.error("❌ Save Failed:", err);
+        openAiWs.send(JSON.stringify({
+           type: "response.create",
+           response: { instructions: "Say: 'I ran into an issue saving those details. Let me try that again.'" }
+        }));
     }
-});
+};
 
   // 5. TWILIO EVENT LISTENER
   ws.on("message", (message) => {
