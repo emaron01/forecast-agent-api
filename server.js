@@ -117,7 +117,7 @@ wss.on("connection", (ws) => {
         headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "OpenAI-Beta": "realtime=v1" }
     });
 
-    // 2. OPEN EVENT
+    // 2. OPEN EVENT (STATIC FIX)
     openAiWs.on("open", () => {
         console.log("📡 OpenAI Connected");
         openAiWs.send(JSON.stringify({
@@ -153,7 +153,7 @@ wss.on("connection", (ws) => {
             const deal = dealQueue[0];
             const instructions = getSystemPrompt(deal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
             
-            // A. SEND INSTRUCTIONS
+            // A. SEND INSTRUCTIONS (With Save Fixes)
             openAiWs.send(JSON.stringify({
                 type: "session.update",
                 session: {
@@ -179,14 +179,14 @@ wss.on("connection", (ws) => {
                                 eb_name: { type: "string" }, eb_title: { type: "string" },
                                 rep_comments: { type: "string" }, manager_comments: { type: "string" }
                             },
-                            required: []
+                            required: [] // CRASH FIX
                         }
                     }],
-                    tool_choice: "auto"
+                    tool_choice: "auto" // SAVE FIX
                 }
             }));
 
-            // B. THE PUPPETEER MOVE (Forcing the words)
+            // B. THE TIMER (Guarantees Speech)
             setTimeout(() => {
                 console.log("⏰ Timer Fired - Forcing Specific Greeting");
                 openAiWs.send(JSON.stringify({ 
@@ -195,7 +195,7 @@ wss.on("connection", (ws) => {
                         instructions: `Say: 'Hello ${repName}. I am online and connected. Let's review ${dealQueue[0].account_name}.'`
                     }
                 }));
-            }, 1500); // 1.5 seconds wait
+            }, 1500); 
             
         } catch (err) { console.error("❌ Launch Error:", err); }
     };
@@ -215,6 +215,7 @@ wss.on("connection", (ws) => {
                 champion_name=$30, champion_title=$31, eb_name=$32, eb_title=$33, rep_comments=$34, manager_comments=$35,
                 updated_at=NOW(), run_count=COALESCE(run_count, 0)+1 WHERE id=$36`;
             
+            // SAFETY DEFAULTS (Prevent Crashes)
             const values = [
                 args.pain_score || 0, args.pain_tip || "", args.pain_summary || "",
                 args.metrics_score || 0, args.metrics_tip || "", args.metrics_summary || "",
@@ -250,9 +251,7 @@ wss.on("connection", (ws) => {
     openAiWs.on("message", (data) => {
         const response = JSON.parse(data);
 
-        // LOGGING AUDIO RETURN
         if (response.type === "response.audio.delta" && response.delta) {
-             // console.log("🔊 Audio Packet"); // Uncomment if you really want to see the spam
              ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
         }
         
@@ -291,7 +290,7 @@ wss.on("connection", (ws) => {
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/debug/opportunities", async (req, res) => {
     try {
-        // [FIX: SELECT * SHOWS ALL 36 COLUMNS]
+        // [FIX: SELECT * TO SHOW ALL DATA]
         const result = await pool.query(
             "SELECT * FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC", 
             [req.query.org_id || 1]
@@ -300,4 +299,4 @@ app.get("/debug/opportunities", async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-server.listen(PORT, () => console.log(`🚀 Server on ${PORT}`));server.listen(PORT, () => console.log(`🚀 Server on ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Server on ${PORT}`));
