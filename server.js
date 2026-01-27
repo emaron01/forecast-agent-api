@@ -176,14 +176,13 @@ ${stageInstructions}
    
    2. **ACTION:** Call the function 'save_deal_data'. 
       - **DATA EXTRACTION RULES (STRICT):**
-        - **Champion Name:** You MUST extract the actual name (e.g., "Sarah") into the 'champion_name' field.
-        - **Economic Buyer Name:** You MUST extract the actual name (e.g., "Samantha") into the 'eb_name' field.
+        - **Champion:** Extract the **Full Name** into 'champion_name' and **Job Title** into 'champion_title'.
+        - **Economic Buyer:** Extract the **Full Name** into 'eb_name' and **Job Title** into 'eb_title'.
         - **Coaching:** Write your specific advice in 'rep_comments'.
       - **SUMMARY RULES:** Start every summary field with the Score Label (e.g., "Score 1: ...").
       - **VERDICT:** Use 'risk_summary' for the Full Agent Verdict.
       
    3. **After Tool Success:** Say "Okay, saved. Moving to the next deal."
-    `;
 }
 
 
