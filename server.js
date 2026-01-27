@@ -447,8 +447,8 @@ const handleFunctionCall = async (args) => {
     }
 };
 
-// 4. LISTEN FOR OPENAI EVENTS (The Ear)
-  openAiWs.on("message", (data) => {
+// --- [BLOCK 5, PART 4: THE EAR - REVISED] ---
+ openAiWs.on("message", (data) => {
     try {
       const response = JSON.parse(data);
 
@@ -456,7 +456,7 @@ const handleFunctionCall = async (args) => {
       if (response.type === "response.function_call_arguments.done") {
         const args = JSON.parse(response.arguments);
         
-        // 1. Tell OpenAI "I got it, stop waiting" - This unblocks the conversation
+        // 1. Tell OpenAI "I got it, stop waiting" - This unblocks the AI's internal state
         openAiWs.send(JSON.stringify({
             type: "conversation.item.create",
             item: {
@@ -466,8 +466,15 @@ const handleFunctionCall = async (args) => {
             }
         }));
 
-        // 2. Trigger the Database Save
-        handleFunctionCall(args);
+        // 2. THE CRITICAL ADDITION: Trigger the AI to resume talking
+        // This tells Matthew to look at the prompt and ask the next question or move deals.
+        openAiWs.send(JSON.stringify({ type: "response.create" }));
+
+        // 3. Trigger the Database Save in the background
+        // setImmediate ensures the DB work doesn't lag the voice response
+        setImmediate(() => {
+          handleFunctionCall(args).catch(err => console.error("❌ Background Save Error:", err));
+        });
       }
 
       // Handle Audio Output
@@ -484,6 +491,7 @@ const handleFunctionCall = async (args) => {
       console.error("❌ Error processing OpenAI message:", err);
     }
   });
+
   // 5. TWILIO EVENT LISTENER
   ws.on("message", (message) => {
     const msg = JSON.parse(message);
