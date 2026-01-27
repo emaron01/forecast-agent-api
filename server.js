@@ -493,52 +493,79 @@ const handleFunctionCall = async (args) => {
     }
 };
 
-// --- [BLOCK 5, PART 4: THE EAR - REVISED] ---
- openAiWs.on("message", (data) => {
+// --- 1. THE EAR (BLOCK 5, PART 4) ---
+openAiWs.on("message", (data) => {
     try {
-      const response = JSON.parse(data);
+        const response = JSON.parse(data);
 
-      // Handle Tool Calls (The "Stall Fix")
-      if (response.type === "response.function_call_arguments.done") {
-        const args = JSON.parse(response.arguments);
+        if (response.type === "response.function_call_arguments.done") {
+            const args = JSON.parse(response.arguments);
+            
+            // WE CALL THE FUNCTION AND 'AWAIT' IT HERE (Like we did when it worked)
+            handleFunctionCall(args, response.call_id);
+        }
+
+        if (response.type === "response.audio.delta" && response.delta) {
+            if (streamSid) {
+                ws.send(JSON.stringify({ event: "media", streamSid: streamSid, media: { payload: response.delta } }));
+            }
+        }
+    } catch (err) {
+        console.error("❌ Error:", err);
+    }
+});
+
+// --- 2. THE MUSCLE (BLOCK 5, PART 3) ---
+const handleFunctionCall = async (args, callId) => {
+    console.log("🛠️ Tool Triggered: save_deal_data");
+    try {
+        const deal = dealQueue[currentDealIndex];
         
-        // 1. Tell OpenAI "I got it, stop waiting" - This unblocks the AI's internal state
+        // CALCULATE SCORES
+        const scores = [args.pain_score, args.metrics_score, args.champion_score, args.eb_score, args.criteria_score, args.process_score, args.competition_score, args.paper_score, args.timing_score];
+        const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
+        const aiOpinion = totalScore >= 21 ? "Commit" : totalScore >= 15 ? "Best Case" : "Pipeline";
+
+        // THE SYNCHRONOUS SAVE (Wait for it to finish!)
+        await pool.query(
+            `UPDATE opportunities SET pain_score=$1, pain_tip=$2, pain_summary=$3, metrics_score=$4, metrics_tip=$5, metrics_summary=$6, champion_score=$7, champion_tip=$8, champion_summary=$9, eb_score=$10, eb_tip=$11, eb_summary=$12, criteria_score=$13, criteria_tip=$14, criteria_summary=$15, process_score=$16, process_tip=$17, process_summary=$18, competition_score=$19, competition_tip=$20, competition_summary=$21, paper_score=$22, paper_tip=$23, paper_summary=$24, timing_score=$25, timing_tip=$26, timing_summary=$27, risk_summary=$28, next_steps=$29, champion_name=$30, champion_title=$31, eb_name=$32, eb_title=$33, rep_comments=$34, manager_comments=$35, ai_forecast=$36, run_count = COALESCE(run_count, 0) + 1, updated_at = NOW() WHERE id = $37`,
+            [args.pain_score || 0, args.pain_tip || "", args.pain_summary || "", args.metrics_score || 0, args.metrics_tip || "", args.metrics_summary || "", args.champion_score || 0, args.champion_tip || "", args.champion_summary || "", args.eb_score || 0, args.eb_tip || "", args.eb_summary || "", args.criteria_score || 0, args.criteria_tip || "", args.criteria_summary || "", args.process_score || 0, args.process_tip || "", args.process_summary || "", args.competition_score || 0, args.competition_tip || "", args.competition_summary || "", args.paper_score || 0, args.paper_tip || "", args.paper_summary || "", args.timing_score || 0, args.timing_tip || "", args.timing_summary || "", args.risk_summary || "Audit incomplete", args.next_steps || "TBD", args.champion_name || "Unknown", args.champion_title || "Unknown", args.eb_name || "Unknown", args.eb_title || "Unknown", args.rep_comments || "", args.manager_comments || "", aiOpinion, deal.id]
+        );
+
+        console.log(`✅ Saved: ${deal.account_name}`);
+
+        // 3. TELL OPENAI WE ARE DONE (Handshake)
         openAiWs.send(JSON.stringify({
             type: "conversation.item.create",
             item: {
                 type: "function_call_output",
-                call_id: response.call_id, 
-                output: JSON.stringify({ status: "success", message: "Deal saved." })
+                call_id: callId,
+                output: JSON.stringify({ status: "success" })
             }
         }));
 
-        // 2. THE CRITICAL ADDITION: Trigger the AI to resume talking
-        // This tells Matthew to look at the prompt and ask the next question or move deals.
-        openAiWs.send(JSON.stringify({ type: "response.create" }));
-
-        // 3. Trigger the Database Save in the background
-        // setImmediate ensures the DB work doesn't lag the voice response
-        setImmediate(() => {
-          handleFunctionCall(args).catch(err => console.error("❌ Background Save Error:", err));
-        });
-      }
-
-      // Handle Audio Output
-      if (response.type === "response.audio.delta" && response.delta) {
-        if (streamSid) {
-          ws.send(JSON.stringify({
-            event: "media",
-            streamSid: streamSid,
-            media: { payload: response.delta }
-          }));
+        // 4. MOVE TO NEXT DEAL
+        currentDealIndex++;
+        if (currentDealIndex < dealQueue.length) {
+            const nextDeal = dealQueue[currentDealIndex];
+            const remaining = dealQueue.length - currentDealIndex;
+            
+            // Simple response.create - No session nuking, keep it simple.
+            openAiWs.send(JSON.stringify({
+                type: "response.create",
+                response: { instructions: `Say: 'Okay, saved. Next up is ${nextDeal.account_name}. What is the latest there?'` }
+            }));
+        } else {
+            openAiWs.send(JSON.stringify({
+                type: "response.create",
+                response: { instructions: "Say: 'All deals finished. Great work.' and hang up." }
+            }));
         }
-      }
-    } catch (err) {
-      console.error("❌ Error processing OpenAI message:", err);
-    }
-  });
 
-  // 5. TWILIO EVENT LISTENER
+    } catch (err) {
+        console.error("❌ Save Error:", err);
+    }
+};  // 5. TWILIO EVENT LISTENER
   ws.on("message", (message) => {
     const msg = JSON.parse(message);
     if (msg.event === "start") {
