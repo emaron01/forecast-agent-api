@@ -670,61 +670,80 @@ again.'" }
     }
 };
 // 4. OPENAI EVENT LISTENER (The Ear)
-// --- PASTE STARTS HERE (Replacing the cut-off section) ---
+openAiWs.on("message", (data) => {
+    const response =
+JSON.parse(data);
+ 
+    // 1. Audio
+Passthrough
+    if (response.type
+=== "response.audio.delta" && response.delta) {
+       ws.send(JSON.stringify({ event: "media", streamSid, media: {
+payload: response.delta } }));
+    }
+ 
+    // 2. THE TRIGGER:
+Fast & Reliable
+    if (response.type
+=== "response.function_call_arguments.done" && response.name
+=== "save_deal_data") {
+        console.log("🛠️ Save Triggered by OpenAI");
+        try {
+            const args = JSON.parse(response.arguments);
 
-    openAiWs.on("message", (data) => {
-        const response = JSON.parse(data);
-        
-        // 1. Speak the Audio (The Voice)
-        if (response.type === "response.audio.delta" && response.delta) {
-            ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
-        }
+            // CRITICAL FIX: Tell OpenAI the tool finished so it can clear its "wait" state
+            openAiWs.send(JSON.stringify({
+                type: "conversation.item.create",
+                item: {
+                    type: "function_call_output",
+                    call_id: response.call_id, // Match the ID from the event
+                    output: JSON.stringify({ status: "success", message: "Deal saved." })
+                }
+            }));
 
-        // 2. The Trigger (The Save)
-        if (response.type === "response.function_call_arguments.done") {
-            handleFunctionCall(JSON.parse(response.arguments));
-            
-            // Tell OpenAI it worked so it continues to the next deal
-            if (openAiWs.readyState === WebSocket.OPEN) {
-                openAiWs.send(JSON.stringify({ 
-                    type: "conversation.item.create", 
-                    item: { 
-                        type: "function_call_output", 
-                        call_id: response.call_id, 
-                        output: "success" 
-                    } 
-                }));
-            }
+            // Now run the Muscle
+            handleFunctionCall(args); 
+        } catch (error) {
+            console.error("❌ Error parsing tool arguments:", error);
         }
-    });
-
-    // 3. The Nerves (Twilio Listener)
-    ws.on("message", (message) => {
-        const msg = JSON.parse(message);
-        if (msg.event === "start") {
-            streamSid = msg.start.streamSid;
-            const params = msg.start.customParameters || {};
-            orgId = params.org_id || 1;
-            repName = params.rep_name || "Guest";
-            attemptLaunch();
-        }
-        if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
-            openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
-        }
-    });
-
-    // 4. Cleanup
-    ws.on("close", () => {
-        if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
-    });
+    }
 });
 
-// --- [BLOCK 6: DEBUG & SERVER LAUNCH] ---
+  // 5. TWILIO EVENT LISTENER
+  ws.on("message", (message) => {
+    const msg = JSON.parse(message);
+    if (msg.event === "start") {
+      streamSid = msg.start.streamSid;
+      const params = msg.start.customParameters;
+      if (params) {
+          orgId = parseInt(params.org_id) || 1;
+          repName = params.rep_name || "Guest";
+          console.log(`🔎 Params Received: ${repName}`);
+          attemptLaunch(); 
+      }
+    }
+    if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
+      openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
+    }
+  });
+
+  ws.on("close", () => {
+    console.log("🔌 Call Closed.");
+    if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
+  });
+});
+
+// --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/debug/opportunities", async (req, res) => {
-    try {
-        const result = await pool.query("SELECT id, account_name, forecast_stage FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC", [req.query.org_id || 1]);
-        res.json(result.rows);
-    } catch (err) { res.status(500).json({ error: err.message }); }
+  try {
+    const orgId = parseInt(req.query.org_id) || 1;
+    const result = await pool.query(
+      `SELECT * FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC`,
+      [orgId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
-
-server.listen(PORT, () => console.log(`🚀 Server on ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`));
