@@ -249,7 +249,7 @@ wss.on("connection", async (ws) => {
         console.log(`🎙️ AI Nudged to speak for: ${deal.account_name}`);
       }
     }, 200);
-
+};
 // 2. THE EAR (CRASH PROOF + DIGITAL TRIGGER)
   openAiWs.on("message", (data) => {
     try {
