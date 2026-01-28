@@ -197,35 +197,63 @@ wss.on("connection", async (ws) => {
 // 1. THE MUSCLE: Background Save (Speed Hack)
 const handleFunctionCall = async (args, callId) => {
   console.log("🛠️ Tool Triggered: save_deal_data");
+
   const deal = dealQueue[currentDealIndex];
   if (!deal) return;
 
-  // --- 1️⃣ Strict Current Account Identity ---
-  const currentAccount = deal.account_name; // always the "customer" account
+  const currentAccount = deal.account_name; // always the current customer account
 
-  // A. LOGIC: Calculate Scores (In Memory)
-  const scores = [
-    args.pain_score, args.metrics_score, args.champion_score,
-    args.eb_score, args.criteria_score, args.process_score,
-    args.competition_score, args.paper_score, args.timing_score
-  ];
-  const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
-  const aiOpinion = totalScore >= 21 ? "Commit" : totalScore >= 15 ? "Best Case" : "Pipeline";
+  // --- 1️⃣ Enforce Account Identity Across All Fields ---
+  try {
+    const allFields = [
+      "pain", "metrics", "champion", "eb", "criteria",
+      "process", "competition", "paper", "timing"
+    ];
 
-  // --- 3️⃣ Post-AI Output Verification (Simple) ---
-  ["pain_summary","metrics_summary","champion_summary","eb_summary","criteria_summary","process_summary","competition_summary","paper_summary","timing_summary"].forEach(f => {
-    if (args[f]) args[f] = args[f].replace(/Acme Corp/g, currentAccount);
-  });
+    // Pain first (foundation)
+    if (args?.pain_summary) {
+      args.pain_summary = args.pain_summary.replace(/Acme Corp/g, currentAccount);
+    }
+    if (args?.pain_tip) args.pain_tip = args.pain_tip.replace(/Acme Corp/g, currentAccount);
 
-  // B. DATABASE: Fire and Forget (Don't make the user wait)
+    // Then all other fields
+    allFields.filter(f => f !== "pain").forEach(f => {
+      ["summary", "tip"].forEach(suffix => {
+        const key = `${f}_${suffix}`;
+        if (args[key]) args[key] = args[key].replace(/Acme Corp/g, currentAccount);
+      });
+    });
+  } catch (e) {
+    console.error("⚠️ Account-name enforcement error:", e);
+    // Don't block saving
+  }
+
+  // --- 2️⃣ Guaranteed Save ---
+  try {
+    await saveDealData(deal, args);
+    console.log(`✅ Atomic Save (Background) for ${currentAccount}`);
+  } catch (err) {
+    console.error("❌ Atomic save failed:", err);
+  }
+
+  // --- 3️⃣ DATABASE: Fire-and-Forget ---
   const sqlQuery = `UPDATE opportunities SET 
-      pain_score=$1, pain_tip=$2, pain_summary=$3, metrics_score=$4, metrics_tip=$5, metrics_summary=$6,
-      champion_score=$7, champion_tip=$8, champion_summary=$9, eb_score=$10, eb_tip=$11, eb_summary=$12,
-      criteria_score=$13, criteria_tip=$14, criteria_summary=$15, process_score=$16, process_tip=$17, process_summary=$18,
-      competition_score=$19, competition_tip=$20, competition_summary=$21, paper_score=$22, paper_tip=$23, paper_summary=$24,
-      timing_score=$25, timing_tip=$26, timing_summary=$27, risk_summary=$28, next_steps=$29, 
-      champion_name=$30, champion_title=$31, eb_name=$32, eb_title=$33, rep_comments=$34, manager_comments=$35,
-      ai_forecast=$36, run_count = COALESCE(run_count, 0) + 1, updated_at = NOW() WHERE id = $37`;
+      pain_score=$1, pain_tip=$2, pain_summary=$3,
+      metrics_score=$4, metrics_tip=$5, metrics_summary=$6,
+      champion_score=$7, champion_tip=$8, champion_summary=$9,
+      eb_score=$10, eb_tip=$11, eb_summary=$12,
+      criteria_score=$13, criteria_tip=$14, criteria_summary=$15,
+      process_score=$16, process_tip=$17, process_summary=$18,
+      competition_score=$19, competition_tip=$20, competition_summary=$21,
+      paper_score=$22, paper_tip=$23, paper_summary=$24,
+      timing_score=$25, timing_tip=$26, timing_summary=$27,
+      risk_summary=$28, next_steps=$29,
+      champion_name=$30, champion_title=$31,
+      eb_name=$32, eb_title=$33,
+      rep_comments=$34, manager_comments=$35,
+      ai_forecast=$36, run_count = COALESCE(run_count, 0) + 1,
+      updated_at = NOW()
+      WHERE id = $37`;
 
   const sqlParams = [
     args.pain_score ?? deal.pain_score, args.pain_tip || deal.pain_tip, args.pain_summary || deal.pain_summary,
@@ -245,25 +273,24 @@ const handleFunctionCall = async (args, callId) => {
   ];
 
   pool.query(sqlQuery, sqlParams)
-      .then(() => console.log(`✅ Atomic Save (Background): ${deal.account_name}`))
-      .catch(err => console.error("❌ Background Save Error:", err));
+    .then(() => console.log(`✅ Background DB Save: ${currentAccount}`))
+    .catch(err => console.error("❌ Background Save Error:", err));
 
-  // C. SPEED: Update Local Memory & Reply Instantly
+  // --- 4️⃣ SPEED: Update Local Memory & Reply Instantly ---
   Object.assign(deal, args);
   openAiWs.send(JSON.stringify({ 
     type: "conversation.item.create", 
     item: { type: "function_call_output", call_id: callId, output: JSON.stringify({ status: "success" }) } 
   }));
 
-  // SURGICAL FIX: 200ms buffer prevents the AI from "Freezing" in silence
+  // --- 5️⃣ SURGICAL FIX: 200ms buffer prevents AI from freezing ---
   setTimeout(() => {
     if (openAiWs.readyState === WebSocket.OPEN) {
-      openAiWs.send(JSON.stringify({ type: "response.create" })); 
-      console.log(`🎙️ AI Nudged to speak for: ${deal.account_name}`);
+      openAiWs.send(JSON.stringify({ type: "response.create" }));
+      console.log(`🎙️ AI Nudged to speak for: ${currentAccount}`);
     }
   }, 200);
 };
-
 // 2. THE EAR (CRASH PROOF + DIGITAL TRIGGER)
   openAiWs.on("message", (data) => {
     try {
@@ -368,7 +395,7 @@ if (response.type === "response.done") {
                 }, 
                 required: ["risk_summary"] 
               } 
-            }]  
+            }] 
         }
       }));
       setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
