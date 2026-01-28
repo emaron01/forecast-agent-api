@@ -35,8 +35,11 @@ const wss = new WebSocket.Server({ server });
 function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
   const runCount = Number(deal.run_count) || 0;
   const isNewDeal = runCount === 0;
-  const category = deal.forecast_stage || "Pipeline";
-  const amountStr = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(deal.amount || 0);
+  const amountStr = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(deal.amount || 0);
   const closeDateStr = deal.close_date ? new Date(deal.close_date).toLocaleDateString() : "TBD";
 
   const isSessionStart = dealsLeft === totalCount - 1 || dealsLeft === totalCount;
@@ -52,6 +55,7 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
     { name: "Paper Process", val: deal.paper_score },
     { name: "Timing", val: deal.timing_score },
   ];
+
   const firstGap = scores.find((s) => (Number(s.val) || 0) < 3) || { name: "Pain" };
 
   let openingLine = "";
@@ -67,8 +71,7 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
     openingLine += ` ${amountStr}. Last risk: "${deal.risk_summary || "None"}". Status on ${firstGap.name}?`;
   }
 
-  return `
-### ROLE
+  return `### ROLE
 You are a **MEDDPICC Scorer**. Your job is to Listen, Judge, and Record.
 
 ### MANDATORY OPENING
@@ -104,8 +107,6 @@ Only call 'advance_deal' when leaving a deal with health_score, risk_summary, ne
 app.post("/agent", async (req, res) => {
   try {
     const callerPhone = req.body.From || null;
-    console.log("📞 Incoming call from:", callerPhone);
-
     const result = await pool.query(
       "SELECT org_id, rep_name FROM opportunities WHERE rep_phone = $1 LIMIT 1",
       [callerPhone]
@@ -117,22 +118,21 @@ app.post("/agent", async (req, res) => {
     if (result.rows.length > 0) {
       orgId = result.rows[0].org_id;
       repName = result.rows[0].rep_name || "Rep";
-      console.log(`✅ Identified Rep: ${repName}`);
     }
 
     const wsUrl = `wss://${req.headers.host}/`;
     res.type("text/xml").send(
       `<Response>
-         <Connect>
-           <Stream url="${wsUrl}">
-             <Parameter name="org_id" value="${orgId}" />
-             <Parameter name="rep_name" value="${repName}" />
-           </Stream>
-         </Connect>
-       </Response>`
+        <Connect>
+          <Stream url="${wsUrl}">
+            <Parameter name="org_id" value="${orgId}" />
+            <Parameter name="rep_name" value="${repName}" />
+          </Stream>
+        </Connect>
+      </Response>`
     );
   } catch (err) {
-    console.error("❌ /agent error:", err.message);
+    console.error("/agent error:", err.message);
     res.type("text/xml").send(`<Response><Connect><Stream url="wss://${req.headers.host}/" /></Connect></Response>`);
   }
 });
@@ -152,7 +152,7 @@ wss.on("connection", async (ws) => {
     headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "OpenAI-Beta": "realtime=v1" },
   });
 
-  // --- OpenAI connection ---
+  // --- OpenAI connect ---
   openAiWs.on("open", () => {
     console.log("📡 OpenAI Connected");
     openAiWs.send(JSON.stringify({
@@ -168,7 +168,7 @@ wss.on("connection", async (ws) => {
     attemptLaunch();
   });
 
-  // --- Save deal function ---
+  // --- Save deal handler ---
   const handleFunctionCall = async (args, callId) => {
     const deal = dealQueue[currentDealIndex];
     if (!deal) return;
@@ -178,6 +178,7 @@ wss.on("connection", async (ws) => {
       args.eb_score, args.criteria_score, args.process_score,
       args.competition_score, args.paper_score, args.timing_score
     ];
+
     const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
     const aiOpinion = totalScore >= 21 ? "Commit" : totalScore >= 15 ? "Best Case" : "Pipeline";
 
@@ -221,20 +222,7 @@ wss.on("connection", async (ws) => {
     try {
       const response = JSON.parse(data);
 
-      // Hard advance
-      if (response.type === "response.function_call_arguments.done" && response.name === "advance_deal") {
-        console.log("🚀 Hard advance signal received");
-        currentDealIndex++;
-        if (currentDealIndex < dealQueue.length) {
-          const nextDeal = dealQueue[currentDealIndex];
-          const newInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - 1 - currentDealIndex, dealQueue.length);
-          openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: newInstructions } }));
-          setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 300);
-        } else console.log("🏁 All deals completed.");
-        return;
-      }
-
-      // Normal save
+      // Normal save path
       if (response.type === "response.function_call_arguments.done") {
         const args = JSON.parse(response.arguments);
         handleFunctionCall(args, response.call_id);
@@ -245,27 +233,26 @@ wss.on("connection", async (ws) => {
         ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
       }
 
-      // Context switch
+      // Digital trigger
       if (response.type === "response.done") {
         const transcript = response.response?.output?.[0]?.content?.[0]?.transcript || "";
         if (transcript.includes("NEXT_DEAL_TRIGGER")) {
-          console.log("🚀 Digital Trigger Detected. Moving to next deal...");
           currentDealIndex++;
           if (currentDealIndex < dealQueue.length) {
             const nextDeal = dealQueue[currentDealIndex];
-            console.log(`👉 Swapping Context to: ${nextDeal.account_name}`);
             const newInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - 1 - currentDealIndex, dealQueue.length);
             openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: newInstructions } }));
             setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 400);
-          } else console.log("🏁 All deals done.");
+          }
         }
       }
+
     } catch (err) {
       console.error("❌ OpenAI Message Error:", err);
     }
   });
 
-  // --- Twilio message ---
+  // --- Twilio listener ---
   ws.on("message", (message) => {
     try {
       const msg = JSON.parse(message);
@@ -275,7 +262,6 @@ wss.on("connection", async (ws) => {
         if (params) {
           orgId = parseInt(params.org_id) || 1;
           repName = params.rep_name || "Guest";
-          console.log(`🔎 Identified ${repName}`);
           attemptLaunch();
         }
       }
@@ -307,47 +293,49 @@ wss.on("connection", async (ws) => {
         [orgId, repName]
       );
       dealQueue = result.rows;
-      console.log(`📊 Loaded ${dealQueue.length} deals for ${repName}`);
-      if (dealQueue.length > 0) console.log(`👉 Starting with: ${dealQueue[0].account_name} (ID: ${dealQueue[0].id})`);
+      if (dealQueue.length > 0) {
+        const firstDeal = dealQueue[0];
+        const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
+        openAiWs.send(JSON.stringify({
+          type: "session.update",
+          session: {
+            instructions,
+            tools: [
+              {
+                type: "function",
+                name: "save_deal_data",
+                description: "DYNAMIC SAVE: Call this immediately after every category update. Don't wait.",
+                parameters: { type: "object", properties: {}, required: [] }
+              },
+              {
+                type: "function",
+                name: "advance_deal",
+                description: "Hard signal that the current deal is complete and ready to advance.",
+                parameters: { type: "object", properties: {}, required: [] }
+              }
+            ]
+          }
+        }));
+        setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
+      }
     } catch (err) {
       console.error("❌ DB Error:", err.message);
     }
+  };
+});
 
-    if (dealQueue.length > 0) {
-      const firstDeal = dealQueue[0];
-      const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
-      openAiWs.send(JSON.stringify({
-        type: "session.update",
-        session: {
-          instructions,
-          tools: [
-            // save_deal_data function
-            {
-              type: "function",
-              name: "save_deal_data",
-              description: "DYNAMIC SAVE: Call this immediately after every category update. Don't wait.",
-              parameters: {
-                type: "object",
-                properties: {
-                  pain_score: { type: "number" }, pain_summary: { type: "string" }, pain_tip: { type: "string" },
-                  metrics_score: { type: "number" }, metrics_summary: { type: "string" }, metrics_tip: { type: "string" },
-                  champion_score: { type: "number" }, champion_summary: { type: "string" }, champion_tip: { type: "string" },
-                  champion_name: { type: "string" }, champion_title: { type: "string" },
-                  eb_score: { type: "number" }, eb_summary: { type: "string" }, eb_tip: { type: "string" },
-                  eb_name: { type: "string" }, eb_title: { type: "string" },
-                  criteria_score: { type: "number" }, criteria_summary: { type: "string" }, criteria_tip: { type: "string" },
-                  process_score: { type: "number" }, process_summary: { type: "string" }, process_tip: { type: "string" },
-                  competition_score: { type: "number" }, competition_summary: { type: "string" }, competition_tip: { type: "string" },
-                  paper_score: { type: "number" }, paper_summary: { type: "string" }, paper_tip: { type: "string" },
-                  timing_score: { type: "number" }, timing_summary: { type: "string" }, timing_tip: { type: "string" },
-                  risk_summary: { type: "string" }, next_steps: { type: "string" }, rep_comments: { type: "string" }
-                },
-                required: []
-              }
-            },
-            // advance_deal function
-            {
-              type: "function",
-              name: "advance_deal",
-              description: "Hard signal that the current deal is complete and ready to advance.",
-              parameters: {
+// --- [BLOCK 6: API ENDPOINTS] ---
+app.get("/debug/opportunities", async (req, res) => {
+  try {
+    const orgId = parseInt(req.query.org_id) || 1;
+    const result = await pool.query(
+      `SELECT * FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC`,
+      [orgId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`));
