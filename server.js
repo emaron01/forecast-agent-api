@@ -203,32 +203,45 @@ const handleFunctionCall = async (args, callId) => {
 
   const currentAccount = deal.account_name; // always the current customer account
 
-  // --- 1️⃣ Enforce Account Identity Across All Fields ---
+  // --- 1️⃣ Strict Current Account Identity ---
   try {
-    const allFields = [
-      "pain", "metrics", "champion", "eb", "criteria",
-      "process", "competition", "paper", "timing"
-    ];
-
-    // Pain first (foundation)
-    if (args?.pain_summary) {
-      args.pain_summary = args.pain_summary.replace(/Acme Corp/g, currentAccount);
-    }
-    if (args?.pain_tip) args.pain_tip = args.pain_tip.replace(/Acme Corp/g, currentAccount);
-
-    // Then all other fields
-    allFields.filter(f => f !== "pain").forEach(f => {
-      ["summary", "tip"].forEach(suffix => {
-        const key = `${f}_${suffix}`;
-        if (args[key]) args[key] = args[key].replace(/Acme Corp/g, currentAccount);
-      });
+    ["pain_summary","metrics_summary","champion_summary","eb_summary","criteria_summary","process_summary","competition_summary","paper_summary","timing_summary"].forEach(f => {
+      if (args[f]) args[f] = args[f].replace(/Acme Corp/g, currentAccount);
     });
   } catch (e) {
     console.error("⚠️ Account-name enforcement error:", e);
-    // Don't block saving
   }
 
-  // --- 2️⃣ Guaranteed Save ---
+  // --- 2️⃣ Partial Save: Save As You Go ---
+  const meddpFields = [
+    "pain","metrics","champion","eb","criteria","process","competition","paper","timing"
+  ];
+
+  for (const field of meddpFields) {
+    if (
+      args[`${field}_score`] !== undefined ||
+      args[`${field}_tip`] !== undefined ||
+      args[`${field}_summary`] !== undefined
+    ) {
+      try {
+        const sqlQuery = `UPDATE opportunities SET 
+          ${field}_score=$1, ${field}_tip=$2, ${field}_summary=$3, updated_at=NOW()
+          WHERE id=$4`;
+        const sqlParams = [
+          args[`${field}_score`] ?? deal[`${field}_score`],
+          args[`${field}_tip`] ?? deal[`${field}_tip`],
+          args[`${field}_summary`] ?? deal[`${field}_summary`],
+          deal.id
+        ];
+        await pool.query(sqlQuery, sqlParams);
+        console.log(`✅ Partial Save: ${currentAccount} - ${field}`);
+      } catch (err) {
+        console.error(`❌ Partial Save Error (${field}):`, err);
+      }
+    }
+  }
+
+  // --- 3️⃣ Full Save: Bulk fallback ---
   try {
     await saveDealData(deal, args);
     console.log(`✅ Atomic Save (Background) for ${currentAccount}`);
@@ -236,54 +249,13 @@ const handleFunctionCall = async (args, callId) => {
     console.error("❌ Atomic save failed:", err);
   }
 
-  // --- 3️⃣ DATABASE: Fire-and-Forget ---
-  const sqlQuery = `UPDATE opportunities SET 
-      pain_score=$1, pain_tip=$2, pain_summary=$3,
-      metrics_score=$4, metrics_tip=$5, metrics_summary=$6,
-      champion_score=$7, champion_tip=$8, champion_summary=$9,
-      eb_score=$10, eb_tip=$11, eb_summary=$12,
-      criteria_score=$13, criteria_tip=$14, criteria_summary=$15,
-      process_score=$16, process_tip=$17, process_summary=$18,
-      competition_score=$19, competition_tip=$20, competition_summary=$21,
-      paper_score=$22, paper_tip=$23, paper_summary=$24,
-      timing_score=$25, timing_tip=$26, timing_summary=$27,
-      risk_summary=$28, next_steps=$29,
-      champion_name=$30, champion_title=$31,
-      eb_name=$32, eb_title=$33,
-      rep_comments=$34, manager_comments=$35,
-      ai_forecast=$36, run_count = COALESCE(run_count, 0) + 1,
-      updated_at = NOW()
-      WHERE id = $37`;
-
-  const sqlParams = [
-    args.pain_score ?? deal.pain_score, args.pain_tip || deal.pain_tip, args.pain_summary || deal.pain_summary,
-    args.metrics_score ?? deal.metrics_score, args.metrics_tip || deal.metrics_tip, args.metrics_summary || deal.metrics_summary,
-    args.champion_score ?? deal.champion_score, args.champion_tip || deal.champion_tip, args.champion_summary || deal.champion_summary,
-    args.eb_score ?? deal.eb_score, args.eb_tip || deal.eb_tip, args.eb_summary || deal.eb_summary,
-    args.criteria_score ?? deal.criteria_score, args.criteria_tip || deal.criteria_tip, args.criteria_summary || deal.criteria_summary,
-    args.process_score ?? deal.process_score, args.process_tip || deal.process_tip, args.process_summary || deal.process_summary,
-    args.competition_score ?? deal.competition_score, args.competition_tip || deal.competition_tip, args.competition_summary || deal.competition_summary,
-    args.paper_score ?? deal.paper_score, args.paper_tip || deal.paper_tip, args.paper_summary || deal.paper_summary,
-    args.timing_score ?? deal.timing_score, args.timing_tip || deal.timing_tip, args.timing_summary || deal.timing_summary,
-    args.risk_summary || deal.risk_summary, args.next_steps || deal.next_steps,
-    args.champion_name || deal.champion_name, args.champion_title || deal.champion_title,
-    args.eb_name || deal.eb_name, args.eb_title || deal.eb_title,
-    args.rep_comments || deal.rep_comments, args.manager_comments || deal.manager_comments,
-    aiOpinion, deal.id
-  ];
-
-  pool.query(sqlQuery, sqlParams)
-    .then(() => console.log(`✅ Background DB Save: ${currentAccount}`))
-    .catch(err => console.error("❌ Background Save Error:", err));
-
-  // --- 4️⃣ SPEED: Update Local Memory & Reply Instantly ---
+  // --- 4️⃣ Update Local Memory & Nudge AI ---
   Object.assign(deal, args);
   openAiWs.send(JSON.stringify({ 
     type: "conversation.item.create", 
     item: { type: "function_call_output", call_id: callId, output: JSON.stringify({ status: "success" }) } 
   }));
 
-  // --- 5️⃣ SURGICAL FIX: 200ms buffer prevents AI from freezing ---
   setTimeout(() => {
     if (openAiWs.readyState === WebSocket.OPEN) {
       openAiWs.send(JSON.stringify({ type: "response.create" }));
@@ -291,6 +263,7 @@ const handleFunctionCall = async (args, callId) => {
     }
   }, 200);
 };
+
 // 2. THE EAR (CRASH PROOF + DIGITAL TRIGGER)
   openAiWs.on("message", (data) => {
     try {
