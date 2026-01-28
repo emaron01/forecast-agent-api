@@ -78,6 +78,7 @@ You MUST open exactly with: "${openingLine}"
 1. **ACCOUNT IDENTITY IS SACROSANCT:** You are currently auditing {{account_name}}. 
 2. **IGNORE LEGACY NOISE:** If existing notes or tips mention a different company (e.g., "GenTech"), DISREGARD that name. They are legacy artifacts. You must only use the current {{account_name}} for this session.
 3. **CLEANSE ON SAVE:** When you call 'save_deal_data', ensure your summaries and tips only refer to {{account_name}}.
+**ROLE DISTINCTION:** Distinguish between the Customer and the Competitor. - The Customer/Account is ALWAYS {{account_name}}. - Names like "Zerto," "Azure," or "AWS" are attributes, risks, or competitors. - NEVER swap the Account Name with a competitor name found in the notes.
 
 ### THE "JUDGE & SAVE" PROTOCOL (STRICT)
 1. **EVERY RESPONSE COUNTS:** After every user response, you MUST call 'save_deal_data'. 
@@ -87,6 +88,8 @@ You MUST open exactly with: "${openingLine}"
 
 **DO NOT** simply transcribe what they say. You must evaluate it.
 **DO NOT** read the score out loud. Save it silently.
+**DO NOT** read repeat the answer give out loud. Save it silently.
+
 
 ### SCORING RUBRIC (EXACT DEFINITIONS)
 - **PAIN:** 0=None, 1=Vague, 2=Clear, 3=Quantified ($$$).
@@ -232,13 +235,20 @@ wss.on("connection", async (ws) => {
         .then(() => console.log(`✅ Atomic Save (Background): ${deal.account_name}`))
         .catch(err => console.error("❌ Background Save Error:", err));
     
-    // C. SPEED: Update Local Memory & Reply Instantly
+// C. SPEED: Update Local Memory & Reply Instantly
     Object.assign(deal, args); 
-    openAiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: callId, output: JSON.stringify({ status: "success" }) } }));
+    openAiWs.send(JSON.stringify({ 
+      type: "conversation.item.create", 
+      item: { type: "function_call_output", call_id: callId, output: JSON.stringify({ status: "success" }) } 
+    }));
     
-    // FORCE SPEECH
-    openAiWs.send(JSON.stringify({ type: "response.create" })); 
-  };
+    // SURGICAL FIX: 200ms buffer prevents the AI from "Freezing" in silence
+    setTimeout(() => {
+      if (openAiWs.readyState === WebSocket.OPEN) {
+        openAiWs.send(JSON.stringify({ type: "response.create" })); 
+        console.log(`🎙️ AI Nudged to speak for: ${deal.account_name}`);
+      }
+    }, 200);
 
 // 2. THE EAR (CRASH PROOF + DIGITAL TRIGGER)
   openAiWs.on("message", (data) => {
@@ -248,32 +258,35 @@ wss.on("connection", async (ws) => {
         const args = JSON.parse(response.arguments);
         handleFunctionCall(args, response.call_id); // This is what triggers the log "🛠️ Tool Triggered"
       }      
+
+
 // 3. INDEX ADVANCER (CONTEXT SWITCHING)
       if (response.type === "response.done") {
         const transcript = response.response?.output?.[0]?.content?.[0]?.transcript || "";
         
+        // SAFETY: If the AI stops talking and didn't trigger a move, give it a nudge
+        if (!transcript && response.response?.status === "completed") {
+           console.log("Empty response detected, nudging AI...");
+           openAiWs.send(JSON.stringify({ type: "response.create" }));
+        }
+
         if (transcript.includes("NEXT_DEAL_TRIGGER")) {
           console.log("🚀 Digital Trigger Detected. Moving to next deal...");
           currentDealIndex++;
 
           if (currentDealIndex < dealQueue.length) {
               const nextDeal = dealQueue[currentDealIndex];
-              console.log(`👉 Swapping Context to: ${nextDeal.account_name}`);
-              
-              // RE-GENERATE PROMPT FOR THE NEW DEAL
               const newInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - 1 - currentDealIndex, dealQueue.length);
               
-              // UPDATE THE AI BRAIN
+              // UPDATE AND FORCE SPEECH
               openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: newInstructions } }));
-              
-              // MAKE AI SPEAK IMMEDIATELY
-              setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 400);
-          } else {
-              console.log("🏁 All deals done.");
+              setTimeout(() => {
+                openAiWs.send(JSON.stringify({ type: "response.create" }));
+                console.log("👉 Context Swapped & AI Nudged");
+              }, 500);
           }
         }
       }
-
     // 4. AUDIO RELAY (Keep this!)
       if (response.type === "response.audio.delta" && response.delta && streamSid) {
           ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
