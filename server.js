@@ -310,7 +310,7 @@ wss.on("connection", async (ws) => {
       }
     } catch (err) { console.error("❌ Twilio Error:", err); }
   });
-
+ 
   ws.on("close", () => {
     console.log("🔌 Call Closed.");
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
