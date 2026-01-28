@@ -224,118 +224,195 @@ wss.on("connection", async (ws) => {
   };
 
   // --- 2. THE EAR (CRASH PROOF + DIGITAL TRIGGER) ---
-  openAiWs.on("message", (data) => {
-    try {
-      const response = JSON.parse(data);
+openAiWs.on("message", (data) => {
+  try {
+    const response = JSON.parse(data);
 
-      // HARD ADVANCE SIGNAL
-      if (response.type === "response.function_call_arguments.done" && response.name === "advance_deal") {
-        console.log("🚀 Hard advance signal received");
-        currentDealIndex++;
-        if (currentDealIndex < dealQueue.length) {
-          const nextDeal = dealQueue[currentDealIndex];
-          const newInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - 1 - currentDealIndex, dealQueue.length);
-          openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: newInstructions } }));
-          setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 300);
-        } else {
-          console.log("🏁 All deals completed.");
-        }
-        return;
-      }
+    // ===============================
+    // HARD ADVANCE SIGNAL (NO SPEECH)
+    // ===============================
+    if (
+      response.type === "response.function_call_arguments.done" &&
+      response.name === "advance_deal"
+    ) {
+      console.log("🚀 Hard advance signal received");
+      currentDealIndex++;
 
-      // NORMAL SAVE PATH
-      if (response.type === "response.function_call_arguments.done") {
-        const args = JSON.parse(response.arguments);
-        handleFunctionCall(args, response.call_id);
-      }
-
-      // AUDIO RELAY
-      if (response.type === "response.audio.delta" && response.delta && streamSid) {
-        ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
-      }
-
-      // INDEX ADVANCER
-      if (response.type === "response.done") {
-        const transcript = response.response?.output?.[0]?.content?.[0]?.transcript || "";
-        if (transcript.includes("NEXT_DEAL_TRIGGER")) {
-          console.log("🚀 Digital Trigger Detected. Moving to next deal...");
-          currentDealIndex++;
-          if (currentDealIndex < dealQueue.length) {
-            const nextDeal = dealQueue[currentDealIndex];
-            const newInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - 1 - currentDealIndex, dealQueue.length);
-            openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: newInstructions } }));
-            setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 400);
-          } else {
-            console.log("🏁 All deals done.");
-          }
-        }
-      }
-
-    } catch (err) {
-      console.error("❌ OpenAI Message Error:", err);
-    }
-  });
-
-  // --- 3. LAUNCHER ---
-  const attemptLaunch = async () => {
-    if (!repName || !openAiReady) return;
-    try {
-      const result = await pool.query(
-        `SELECT o.*, org.product_truths AS org_product_data
-         FROM opportunities o
-         JOIN organizations org ON o.org_id = org.id
-         WHERE o.org_id = $1 AND o.rep_name = $2
-         AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost')
-         ORDER BY o.id ASC`,
-        [orgId, repName]
-      );
-      dealQueue = result.rows;
-      console.log(`📊 Loaded ${dealQueue.length} deals for ${repName}`);
-      if (dealQueue.length > 0) console.log(`👉 Starting with: ${dealQueue[0].account_name} (ID: ${dealQueue[0].id})`);
-
-      if (dealQueue.length > 0) {
-        const firstDeal = dealQueue[0];
-        const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
+      if (currentDealIndex < dealQueue.length) {
+        const nextDeal = dealQueue[currentDealIndex];
+        const newInstructions = getSystemPrompt(
+          nextDeal,
+          repName.split(" ")[0],
+          dealQueue.length - 1 - currentDealIndex,
+          dealQueue.length
+        );
+        // Update AI context for new deal
         openAiWs.send(JSON.stringify({
           type: "session.update",
-          session: { instructions }
+          session: { instructions: newInstructions }
         }));
-        setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
+        // Force AI to speak immediately
+        setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 300);
+      } else {
+        console.log("🏁 All deals completed.");
       }
-
-    } catch (err) {
-      console.error("❌ DB Error:", err.message);
+      return; // 🔴 stop here
     }
-  };
 
-  // --- 4. TWILIO LISTENER ---
-  ws.on("message", (message) => {
-    try {
-      const msg = JSON.parse(message);
-      if (msg.event === "start") {
-        streamSid = msg.start.streamSid;
-        const params = msg.start.customParameters;
-        if (params) {
-          orgId = parseInt(params.org_id) || 1;
-          repName = params.rep_name || "Guest";
-          console.log(`🔎 Identified ${repName}`);
-          attemptLaunch();
+    // ===============================
+    // NORMAL SAVE PATH (ORIGINAL LOGIC)
+    // ===============================
+    if (response.type === "response.function_call_arguments.done" && response.name === "save_deal_data") {
+      const args = JSON.parse(response.arguments);
+      handleFunctionCall(args, response.call_id); // <-- This is exactly how it saved before
+    }
+
+    // ===============================
+    // AUDIO RELAY (NO CHANGES)
+    // ===============================
+    if (response.type === "response.audio.delta" && response.delta && streamSid) {
+      ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
+    }
+
+    // ===============================
+    // DIGITAL NEXT DEAL TRIGGER
+    // ===============================
+    if (response.type === "response.done") {
+      const transcript = response.response?.output?.[0]?.content?.[0]?.transcript || "";
+
+      if (transcript.includes("NEXT_DEAL_TRIGGER")) {
+        console.log("🚀 Digital Trigger Detected. Moving to next deal...");
+        currentDealIndex++;
+
+        if (currentDealIndex < dealQueue.length) {
+          const nextDeal = dealQueue[currentDealIndex];
+          console.log(`👉 Swapping Context to: ${nextDeal.account_name}`);
+          const newInstructions = getSystemPrompt(
+            nextDeal,
+            repName.split(" ")[0],
+            dealQueue.length - 1 - currentDealIndex,
+            dealQueue.length
+          );
+          // Update AI session for the new deal
+          openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: newInstructions } }));
+          setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 400);
+        } else {
+          console.log("🏁 All deals done.");
         }
       }
-      if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
-        openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
-      }
-    } catch (err) {
-      console.error("❌ Twilio Error:", err);
     }
-  });
 
-  ws.on("close", () => {
-    console.log("🔌 Call Closed.");
-    if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
-  });
-
+  } catch (err) {
+    console.error("❌ OpenAI Message Error:", err);
+  }
 });
+
+// --- 3. LAUNCHER (FIRST DEAL INIT + TOOLS) ---
+const attemptLaunch = async () => {
+  if (!repName || !openAiReady) return;
+
+  try {
+    const result = await pool.query(
+      `SELECT o.*, org.product_truths AS org_product_data 
+       FROM opportunities o 
+       JOIN organizations org ON o.org_id = org.id 
+       WHERE o.org_id = $1 
+       AND o.rep_name = $2 
+       AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') 
+       ORDER BY o.id ASC`,
+      [orgId, repName]
+    );
+
+    dealQueue = result.rows;
+    console.log(`📊 Loaded ${dealQueue.length} deals for ${repName}`);
+    if (dealQueue.length > 0) console.log(`👉 Starting with: ${dealQueue[0].account_name} (ID: ${dealQueue[0].id})`);
+  } catch (err) {
+    console.error("❌ DB Error:", err.message);
+  }
+
+  if (dealQueue.length > 0) {
+    const firstDeal = dealQueue[0];
+    const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
+
+    // Register tools correctly
+    openAiWs.send(JSON.stringify({
+      type: "session.update",
+      session: {
+        instructions,
+        tools: [
+          {
+            type: "function",
+            name: "save_deal_data",
+            description: "DYNAMIC SAVE: Call this immediately after every category update. Don't wait.",
+            parameters: {
+              type: "object",
+              properties: {
+                pain_score: { type: "number" }, pain_summary: { type: "string" }, pain_tip: { type: "string" },
+                metrics_score: { type: "number" }, metrics_summary: { type: "string" }, metrics_tip: { type: "string" },
+                champion_score: { type: "number" }, champion_summary: { type: "string" }, champion_tip: { type: "string" }, champion_name: { type: "string" }, champion_title: { type: "string" },
+                eb_score: { type: "number" }, eb_summary: { type: "string" }, eb_tip: { type: "string" }, eb_name: { type: "string" }, eb_title: { type: "string" },
+                criteria_score: { type: "number" }, criteria_summary: { type: "string" }, criteria_tip: { type: "string" },
+                process_score: { type: "number" }, process_summary: { type: "string" }, process_tip: { type: "string" },
+                competition_score: { type: "number" }, competition_summary: { type: "string" }, competition_tip: { type: "string" },
+                paper_score: { type: "number" }, paper_summary: { type: "string" }, paper_tip: { type: "string" },
+                timing_score: { type: "number" }, timing_summary: { type: "string" }, timing_tip: { type: "string" },
+                risk_summary: { type: "string" }, next_steps: { type: "string" }, rep_comments: { type: "string" }
+              }
+            }
+          },
+          {
+            type: "function",
+            name: "advance_deal",
+            description: "Hard signal that the current deal is complete and ready to advance.",
+            parameters: {
+              type: "object",
+              properties: {
+                health_score: { type: "number" },
+                risk_summary: { type: "string" },
+                next_steps: { type: "string" }
+              },
+              required: ["health_score", "risk_summary", "next_steps"]
+            }
+          }
+        ]
+      }
+    }));
+
+    // Force first response
+    setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
+  }
+};
+
+// --- 4. TWILIO LISTENER (UNCHANGED) ---
+ws.on("message", (message) => {
+  try {
+    const msg = JSON.parse(message);
+
+    if (msg.event === "start") {
+      streamSid = msg.start.streamSid;
+      const params = msg.start.customParameters;
+      if (params) {
+        orgId = parseInt(params.org_id) || 1;
+        repName = params.rep_name || "Guest";
+        console.log(`🔎 Identified ${repName}`);
+        attemptLaunch();
+      }
+    }
+
+    if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
+      openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
+    }
+
+  } catch (err) {
+    console.error("❌ Twilio Error:", err);
+  }
+});
+
+ws.on("close", () => {
+  console.log("🔌 Call Closed.");
+  if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
+});
+ 
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/debug/opportunities", async (req, res) => {
   try {
