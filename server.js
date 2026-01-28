@@ -7,7 +7,7 @@ const cors = require("cors");
 
 // --- [BLOCK 1: CONFIGURATION] ---
 const PORT = process.env.PORT || 10000;
-const OPENAI_API_KEY = process.env.MODEL_API_KEY; // Using your specific Env Var
+const OPENAI_API_KEY = process.env.MODEL_API_KEY;
 const MODEL_URL = process.env.MODEL_URL || "wss://api.openai.com/v1/realtime";
 const MODEL_NAME = process.env.MODEL_NAME || "gpt-4o-realtime-preview-2024-10-01";
 
@@ -23,13 +23,11 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cors());
 app.use(express.static("public"));
 
-// --- [BLOCK DB: POSTGRES POOL] ---
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
-// --- [BLOCK X: SERVER + WEBSOCKET INIT] ---
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
@@ -74,12 +72,14 @@ You are a **MEDDPICC Scorer**. Your job is to Listen, Judge, and Record.
 
 ### MANDATORY OPENING
 You MUST open exactly with: "${openingLine}"
+**CRITICAL:** Do NOT use the phrase "NEXT_DEAL_TRIGGER" in your opening line.
 
 ### THE "JUDGE & SAVE" PROTOCOL (REAL-TIME)
 As soon as the user answers your question:
 1. **JUDGE:** Compare their answer to the Scoring Rubric below (0-3).
 2. **ASSIGN:** Determine the specific score (e.g., Pain = 1).
 3. **SAVE:** Call 'save_deal_data' with that score IMMEDIATELY.
+   - *NOTE:* For intermediate saves, set 'risk_summary' to "Audit in Progress".
 4. **ASK:** Move to the next question.
 
 **DO NOT** simply transcribe what they say. You must evaluate it.
@@ -109,6 +109,7 @@ As soon as the user answers your question:
 **CRITICAL:** You MUST say the exact phrase "NEXT_DEAL_TRIGGER" to advance to the next account.
 `;
 }
+
 // --- [BLOCK 4: SMART RECEPTIONIST] ---
 app.post("/agent", async (req, res) => {
   try {
@@ -146,7 +147,7 @@ app.post("/agent", async (req, res) => {
   }
 });
 
-// --- [BLOCK 5: WEBSOCKET CORE (ATOMIC SAVE)] ---
+// --- [BLOCK 5: WEBSOCKET CORE (CRASH PROOF + DIGITAL TRIGGER)] ---
 wss.on("connection", async (ws) => {
   console.log("🔥 Twilio WebSocket connected");
 
@@ -178,7 +179,7 @@ wss.on("connection", async (ws) => {
       const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
       const aiOpinion = totalScore >= 21 ? "Commit" : totalScore >= 15 ? "Best Case" : "Pipeline";
 
-      // B. PREPARE DATA (Atomic Logic)
+      // B. PREPARE DATA
       const sqlQuery = `UPDATE opportunities SET 
           pain_score=$1, pain_tip=$2, pain_summary=$3, metrics_score=$4, metrics_tip=$5, metrics_summary=$6,
           champion_score=$7, champion_tip=$8, champion_summary=$9, eb_score=$10, eb_tip=$11, eb_summary=$12,
@@ -188,7 +189,6 @@ wss.on("connection", async (ws) => {
           champion_name=$30, champion_title=$31, eb_name=$32, eb_title=$33, rep_comments=$34, manager_comments=$35,
           ai_forecast=$36, run_count = COALESCE(run_count, 0) + 1, updated_at = NOW() WHERE id = $37`;
 
-      // USE ?? to ensure 0s are saved, fallback to existing deal data if null
       const sqlParams = [
         args.pain_score ?? deal.pain_score, args.pain_tip || deal.pain_tip, args.pain_summary || deal.pain_summary,
         args.metrics_score ?? deal.metrics_score, args.metrics_tip || deal.metrics_tip, args.metrics_summary || deal.metrics_summary,
@@ -214,7 +214,7 @@ wss.on("connection", async (ws) => {
     } catch (err) { console.error("❌ Atomic Save Error:", err); }
   };
 
-// 2. THE EAR
+  // 2. THE EAR (CRASH PROOF + DIGITAL TRIGGER)
   openAiWs.on("message", (data) => {
     try {
       const response = JSON.parse(data);
@@ -223,12 +223,12 @@ wss.on("connection", async (ws) => {
         handleFunctionCall(args, response.call_id);
       }
       
-// 3. INDEX ADVANCER (DIGITAL TRIGGER + CRASH FIX)
+      // 3. INDEX ADVANCER (DIGITAL TRIGGER)
       if (response.type === "response.done") {
-        // Fix 1: Add ?. to prevent crash on silent tool calls
+        // !!! FIX: Added ?. before [0] to prevent crash on silent tool calls !!!
         const transcript = response.response?.output?.[0]?.content?.[0]?.transcript || "";
         
-        // Fix 2: Listen for the ACTUAL code defined in your Prompt
+        // !!! FIX: Listening for the ACTUAL code defined in Block 3 !!!
         if (transcript.includes("NEXT_DEAL_TRIGGER")) {
           console.log("🚀 Digital Trigger Detected. Advancing Index.");
           currentDealIndex++;
@@ -249,6 +249,7 @@ wss.on("connection", async (ws) => {
       const result = await pool.query(`SELECT o.*, org.product_truths AS org_product_data FROM opportunities o JOIN organizations org ON o.org_id = org.id WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') ORDER BY o.id ASC`, [orgId]);
       dealQueue = result.rows;
       console.log(`📊 Loaded ${dealQueue.length} deals for ${repName}`);
+      if (dealQueue.length > 0) console.log(`👉 Starting with: ${dealQueue[0].account_name} (ID: ${dealQueue[0].id})`);
     } catch (err) { console.error("❌ DB Error:", err.message); }
 
     if (dealQueue.length > 0) {
@@ -291,7 +292,7 @@ wss.on("connection", async (ws) => {
     attemptLaunch(); 
   });
 
-  // 4. TWILIO LISTENER (Kept inside for safety)
+  // 4. TWILIO LISTENER
   ws.on("message", (message) => {
     try {
       const msg = JSON.parse(message);
@@ -316,6 +317,7 @@ wss.on("connection", async (ws) => {
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
 });
+
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/debug/opportunities", async (req, res) => {
   try {
@@ -329,4 +331,5 @@ app.get("/debug/opportunities", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`));
