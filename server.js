@@ -279,5 +279,6 @@ app.get("/debug/opportunities", async (req, res) => {
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
+// --- [BLOCK X: TWILIO ENTRY POINT (THE MISSING LINK)] --- app.post("/agent", (req, res) => { res.type("xml"); res.send(` <Response> <Connect> <Stream url="wss://${req.get("host")}/" /> </Connect> </Response> `);
+ });
 server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`));
