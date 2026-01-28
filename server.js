@@ -368,7 +368,7 @@ if (response.type === "response.done") {
                 }, 
                 required: ["risk_summary"] 
               } 
-            }] 
+            }]  
         }
       }));
       setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
