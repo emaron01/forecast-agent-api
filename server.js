@@ -228,13 +228,10 @@ openAiWs.on("message", (data) => {
   try {
     const response = JSON.parse(data);
 
-    // ===============================
+    // -------------------------------
     // HARD ADVANCE SIGNAL (NO SPEECH)
-    // ===============================
-    if (
-      response.type === "response.function_call_arguments.done" &&
-      response.name === "advance_deal"
-    ) {
+    // -------------------------------
+    if (response.type === "response.function_call_arguments.done" && response.name === "advance_deal") {
       console.log("🚀 Hard advance signal received");
       currentDealIndex++;
 
@@ -246,37 +243,40 @@ openAiWs.on("message", (data) => {
           dealQueue.length - 1 - currentDealIndex,
           dealQueue.length
         );
-        // Update AI context for new deal
+
+        // Update AI context
         openAiWs.send(JSON.stringify({
           type: "session.update",
           session: { instructions: newInstructions }
         }));
+
         // Force AI to speak immediately
         setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 300);
       } else {
         console.log("🏁 All deals completed.");
       }
-      return; // 🔴 stop here
+
+      return; // stop further processing
     }
 
-    // ===============================
-    // NORMAL SAVE PATH (ORIGINAL LOGIC)
-    // ===============================
-    if (response.type === "response.function_call_arguments.done" && response.name === "save_deal_data") {
+    // -------------------------------
+    // NORMAL SAVE PATH
+    // -------------------------------
+    if (response.type === "response.function_call_arguments.done") {
       const args = JSON.parse(response.arguments);
-      handleFunctionCall(args, response.call_id); // <-- This is exactly how it saved before
+      handleFunctionCall(args, response.call_id);
     }
 
-    // ===============================
-    // AUDIO RELAY (NO CHANGES)
-    // ===============================
+    // -------------------------------
+    // AUDIO RELAY
+    // -------------------------------
     if (response.type === "response.audio.delta" && response.delta && streamSid) {
       ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
     }
 
-    // ===============================
-    // DIGITAL NEXT DEAL TRIGGER
-    // ===============================
+    // -------------------------------
+    // DIGITAL TRIGGER / CONTEXT SWITCH
+    // -------------------------------
     if (response.type === "response.done") {
       const transcript = response.response?.output?.[0]?.content?.[0]?.transcript || "";
 
@@ -287,14 +287,19 @@ openAiWs.on("message", (data) => {
         if (currentDealIndex < dealQueue.length) {
           const nextDeal = dealQueue[currentDealIndex];
           console.log(`👉 Swapping Context to: ${nextDeal.account_name}`);
+
           const newInstructions = getSystemPrompt(
             nextDeal,
             repName.split(" ")[0],
             dealQueue.length - 1 - currentDealIndex,
             dealQueue.length
           );
-          // Update AI session for the new deal
-          openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: newInstructions } }));
+
+          openAiWs.send(JSON.stringify({
+            type: "session.update",
+            session: { instructions: newInstructions }
+          }));
+
           setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 400);
         } else {
           console.log("🏁 All deals done.");
@@ -307,18 +312,18 @@ openAiWs.on("message", (data) => {
   }
 });
 
-// --- 3. LAUNCHER (FIRST DEAL INIT + TOOLS) ---
+// --- 3. LAUNCHER ---
 const attemptLaunch = async () => {
   if (!repName || !openAiReady) return;
 
   try {
     const result = await pool.query(
-      `SELECT o.*, org.product_truths AS org_product_data 
-       FROM opportunities o 
-       JOIN organizations org ON o.org_id = org.id 
-       WHERE o.org_id = $1 
-       AND o.rep_name = $2 
-       AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') 
+      `SELECT o.*, org.product_truths AS org_product_data
+       FROM opportunities o
+       JOIN organizations org ON o.org_id = org.id
+       WHERE o.org_id = $1
+         AND o.rep_name = $2
+         AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost')
        ORDER BY o.id ASC`,
       [orgId, repName]
     );
@@ -334,7 +339,6 @@ const attemptLaunch = async () => {
     const firstDeal = dealQueue[0];
     const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
 
-    // Register tools correctly
     openAiWs.send(JSON.stringify({
       type: "session.update",
       session: {
@@ -347,17 +351,42 @@ const attemptLaunch = async () => {
             parameters: {
               type: "object",
               properties: {
-                pain_score: { type: "number" }, pain_summary: { type: "string" }, pain_tip: { type: "string" },
-                metrics_score: { type: "number" }, metrics_summary: { type: "string" }, metrics_tip: { type: "string" },
-                champion_score: { type: "number" }, champion_summary: { type: "string" }, champion_tip: { type: "string" }, champion_name: { type: "string" }, champion_title: { type: "string" },
-                eb_score: { type: "number" }, eb_summary: { type: "string" }, eb_tip: { type: "string" }, eb_name: { type: "string" }, eb_title: { type: "string" },
-                criteria_score: { type: "number" }, criteria_summary: { type: "string" }, criteria_tip: { type: "string" },
-                process_score: { type: "number" }, process_summary: { type: "string" }, process_tip: { type: "string" },
-                competition_score: { type: "number" }, competition_summary: { type: "string" }, competition_tip: { type: "string" },
-                paper_score: { type: "number" }, paper_summary: { type: "string" }, paper_tip: { type: "string" },
-                timing_score: { type: "number" }, timing_summary: { type: "string" }, timing_tip: { type: "string" },
-                risk_summary: { type: "string" }, next_steps: { type: "string" }, rep_comments: { type: "string" }
-              }
+                pain_score: { type: "number" },
+                pain_summary: { type: "string" },
+                pain_tip: { type: "string" },
+                metrics_score: { type: "number" },
+                metrics_summary: { type: "string" },
+                metrics_tip: { type: "string" },
+                champion_score: { type: "number" },
+                champion_summary: { type: "string" },
+                champion_tip: { type: "string" },
+                champion_name: { type: "string" },
+                champion_title: { type: "string" },
+                eb_score: { type: "number" },
+                eb_summary: { type: "string" },
+                eb_tip: { type: "string" },
+                eb_name: { type: "string" },
+                eb_title: { type: "string" },
+                criteria_score: { type: "number" },
+                criteria_summary: { type: "string" },
+                criteria_tip: { type: "string" },
+                process_score: { type: "number" },
+                process_summary: { type: "string" },
+                process_tip: { type: "string" },
+                competition_score: { type: "number" },
+                competition_summary: { type: "string" },
+                competition_tip: { type: "string" },
+                paper_score: { type: "number" },
+                paper_summary: { type: "string" },
+                paper_tip: { type: "string" },
+                timing_score: { type: "number" },
+                timing_summary: { type: "string" },
+                timing_tip: { type: "string" },
+                risk_summary: { type: "string" },
+                next_steps: { type: "string" },
+                rep_comments: { type: "string" }
+              },
+              required: []
             }
           },
           {
@@ -378,12 +407,11 @@ const attemptLaunch = async () => {
       }
     }));
 
-    // Force first response
     setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
   }
 };
 
-// --- 4. TWILIO LISTENER (UNCHANGED) ---
+// --- 4. TWILIO LISTENER ---
 ws.on("message", (message) => {
   try {
     const msg = JSON.parse(message);
@@ -402,7 +430,6 @@ ws.on("message", (message) => {
     if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
       openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
     }
-
   } catch (err) {
     console.error("❌ Twilio Error:", err);
   }
@@ -411,8 +438,7 @@ ws.on("message", (message) => {
 ws.on("close", () => {
   console.log("🔌 Call Closed.");
   if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
-});
- 
+}); 
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/debug/opportunities", async (req, res) => {
   try {
