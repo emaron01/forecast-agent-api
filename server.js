@@ -262,8 +262,15 @@ wss.on("connection", async (ws) => {
 
 // 3. INDEX ADVANCER (CONTEXT SWITCHING)
       if (response.type === "response.done") {
-        const transcript = response.response?.output?.[0]?.content?.[0]?.transcript || "";
-        
+        const transcript = (
+  response.response?.output
+    ?.flatMap(o => o.content || [])
+    ?.map(c => c.transcript || c.text || "")
+    ?.join(" ")
+) || "";
+// 👇 ADD THIS LINE RIGHT HERE
+  console.log("📝 FINAL TRANSCRIPT:", transcript);
+
         // SAFETY: If the AI stops talking and didn't trigger a move, give it a nudge
         if (!transcript && response.response?.status === "completed") {
            console.log("Empty response detected, nudging AI...");
@@ -387,3 +394,4 @@ app.get("/debug/opportunities", async (req, res) => {
 });
 
 server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`));
+
