@@ -258,8 +258,8 @@ wss.on("connection", async (ws) => {
         const args = JSON.parse(response.arguments);
         handleFunctionCall(args, response.call_id); // This is what triggers the log "🛠️ Tool Triggered"
       }      
-
-// Helper: save with retries
+}
+/// Helper: save with retries
 async function saveWithRetry(dealIndex, transcript, retries = 3, delayMs = 500) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
