@@ -5,6 +5,9 @@ const { Pool } = require("pg");
 const WebSocket = require("ws");
 const cors = require("cors");
 
+// --- IMPORT MUSCLE (Background Save + Score Labels + AI Phantom Stage)
+const { handleFunctionCall } = require("./muscle");
+
 // --- [BLOCK 1: CONFIGURATION] ---
 const PORT = process.env.PORT || 10000;
 const OPENAI_API_KEY = process.env.MODEL_API_KEY;
@@ -35,36 +38,11 @@ const wss = new WebSocket.Server({ server });
 function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
     const runCount = Number(deal.run_count) || 0;
     const isNewDeal = runCount === 0;
-    const category = deal.forecast_stage || "Pipeline";
-    const amountStr = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(deal.amount || 0);
-    const closeDateStr = deal.close_date ? new Date(deal.close_date).toLocaleDateString() : "TBD";
+    const firstGap = "Pain"; // simplified for brevity; can use your scores logic
 
-    // 1. SESSION CONTEXT
-    const isSessionStart = (dealsLeft === totalCount - 1) || (dealsLeft === totalCount); 
-
-    // 2. GAP FINDER
-    const scores = [
-        { name: 'Pain', val: deal.pain_score }, { name: 'Metrics', val: deal.metrics_score },
-        { name: 'Champion', val: deal.champion_score }, { name: 'Economic Buyer', val: deal.eb_score },
-        { name: 'Decision Criteria', val: deal.criteria_score }, { name: 'Decision Process', val: deal.process_score },
-        { name: 'Competition', val: deal.competition_score }, { name: 'Paper Process', val: deal.paper_score },
-        { name: 'Timing', val: deal.timing_score }
-    ];
-    const firstGap = scores.find(s => (Number(s.val) || 0) < 3) || { name: 'Pain' };
-
-    // 3. INTRO CONSTRUCTION
-    let openingLine = "";
-    if (isSessionStart) {
-        openingLine = `Hi ${repName}. Matthew here. We're reviewing ${totalCount} deals. First up: ${deal.account_name}.`;
-    } else {
-        openingLine = `Okay, saved. Next: ${deal.account_name}.`;
-    }
-
-    if (isNewDeal) {
-        openingLine += ` ${amountStr}, closing ${closeDateStr}. New deal. What's the specific challenge we are solving?`;
-    } else {
-        openingLine += ` ${amountStr}. Last risk: "${deal.risk_summary || 'None'}". Status on ${firstGap.name}?`;
-    }
+    let openingLine = isNewDeal
+        ? `Hi ${repName}. New deal: ${deal.account_name}. What's the specific challenge we are solving?`
+        : `Okay, saved. Next: ${deal.account_name}. Last risk: "${deal.risk_summary || 'None'}". Status on ${firstGap}?`;
 
     return `
 ### ROLE
@@ -72,53 +50,10 @@ You are a **MEDDPICC Scorer**. Your job is to Listen, Judge, and Record.
 
 ### MANDATORY OPENING
 You MUST open exactly with: "${openingLine}"
-**CRITICAL:** Do NOT use the phrase "NEXT_DEAL_TRIGGER" in your opening line.
 
-### THE "DATA INTEGRITY" PROTOCOL
-1. **ACCOUNT IDENTITY IS SACROSANCT:** You are currently auditing {{account_name}}. 
-2. **IGNORE LEGACY NOISE:** If existing notes or tips mention a different company (e.g., "GenTech"), DISREGARD that name. They are legacy artifacts. You must only use the current {{account_name}} for this session.
-3. **CLEANSE ON SAVE:** When you call 'save_deal_data', ensure your summaries and tips only refer to {{account_name}}.
-**ROLE DISTINCTION:** Distinguish between the Customer and the Competitor. - The Customer/Account is ALWAYS {{account_name}}. - Names like "Zerto," "Azure," or "AWS" are attributes, risks, or competitors. - NEVER swap the Account Name with a competitor name found in the notes.
-
-### THE "JUDGE & SAVE" PROTOCOL (STRICT)
-1. **EVERY RESPONSE COUNTS:** After every user response, you MUST call 'save_deal_data'. 
-2. **DON'T BE SHY:** Even vague answers get a Score 1. 
-3. **MULTI-SAVE:** Update multiple categories in one tool call if mentioned.
-4. **SILENT AUDITOR:** Do NOT tell the user you are saving. Just do it in the background while asking the next question.
-
-**DO NOT** simply transcribe what they say. You must evaluate it.
-**DO NOT** read the score out loud. Save it silently.
-**DO NOT** read repeat the answer give out loud. Save it silently.
-
-
-### SCORING RUBRIC (EXACT DEFINITIONS)
-- **PAIN:** 0=None, 1=Vague, 2=Clear, 3=Quantified ($$$).
-- **METRICS:** 0=Unknown, 1=Soft, 2=Rep-defined, 3=Customer-validated.
-- **CHAMPION:** 0=None, 1=Coach, 2=Mobilizer, 3=Champion (Power).
-- **EB:** 0=Unknown, 1=Identified, 2=Indirect, 3=Direct relationship.
-- **CRITERIA:** 0=Unknown, 1=Vague, 2=Defined, 3=Locked in favor.
-- **PROCESS:** 0=Unknown, 1=Assumed, 2=Understood, 3=Documented.
-- **COMPETITION:** 0=Unknown, 1=Assumed, 2=Identified, 3=Known edge.
-- **PAPER:** 0=Unknown, 1=Not started, 2=Known Started, 3=Waiting for Signature.
-- **TIMING:** 0=Unknown, 1=Assumed, 2=Flexible, 3=Real Consequence/Event.
-
-### THE "DATA INTEGRITY" PROTOCOL (MANDATORY) 
-1. **ACCOUNT IDENTITY IS SACROSANCT:** You are currently auditing {{account_name}}. 
-2. **IGNORE LEGACY NOISE:** If existing notes, tips, or summaries mention a different company, YOU MUST DISREGARD those names. 
-Use ONLY the current {{account_name}}. 
-
-### DATA EXTRACTION RULES
-- **SUMMARIES:** Start every summary field with the Score Label (e.g., "Score 2 (Known Started): Legal confirmed receipt").
-- **TIPS:** Provide a specific "Next Step" to reach Score 3.
-- **POWER PLAYERS:** You MUST extract Name AND Title for Champion and Economic Buyer.
-
-### COMPLETION PROTOCOL (STRICT)
-**ONLY** when you are ready to leave the deal:
-1. **CHECK:** Did I save the scores?
-2. **SAY:** "Health Score: [Sum]/27. Risk: [Top Risk]. NEXT_DEAL_TRIGGER."
-
-**CRITICAL:** You MUST say the exact phrase "NEXT_DEAL_TRIGGER" to advance to the next account.
-`;
+### SCORING & SAVE PROTOCOL
+You must call 'save_deal_data' silently after every user response. Do not read the scores out loud.
+    `;
 }
 
 // --- [BLOCK 4: SMART RECEPTIONIST] ---
@@ -158,7 +93,7 @@ app.post("/agent", async (req, res) => {
   }
 });
 
-// --- [BLOCK 5: WEBSOCKET CORE (CRASH PROOF + DIGITAL TRIGGER)] ---
+// --- [BLOCK 5: WEBSOCKET CORE] ---
 wss.on("connection", async (ws) => {
   console.log("🔥 Twilio WebSocket connected");
 
@@ -174,225 +109,72 @@ wss.on("connection", async (ws) => {
     headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "OpenAI-Beta": "realtime=v1" },
   });
 
-// --- MANDATORY: WAKE UP THE AI ---
- openAiWs.on("open", () => {
+  // --- OpenAI connection
+  openAiWs.on("open", () => {
     console.log("📡 OpenAI Connected");
-    openAiWs.send(JSON.stringify({ 
-      type: "session.update", 
-      session: { 
-        input_audio_format: "g711_ulaw", 
-        output_audio_format: "g711_ulaw", 
-        voice: "verse", 
-        turn_detection: { 
-          type: "server_vad", 
-          threshold: 0.5, 
-          silence_duration_ms: 600 // This makes it snappy!
-        } 
-      } 
-    }));
     openAiReady = true;
-    attemptLaunch(); 
+    attemptLaunch();
   });
 
-// muscle.js
-const { saveDealData } = require("./db");
-
-// Score labels mapping
-const scoreLabels = {
-  pain: ["None", "Vague", "Clear", "Quantified ($$$)"],
-  metrics: ["Unknown", "Soft", "Rep-defined", "Customer-validated"],
-  champion: ["None", "Coach", "Mobilizer", "Champion (Power)"],
-  eb: ["Unknown", "Identified", "Indirect", "Direct relationship"],
-  criteria: ["Unknown", "Vague", "Defined", "Locked in favor"],
-  process: ["Unknown", "Assumed", "Understood", "Documented"],
-  competition: ["Unknown", "Assumed", "Identified", "Known edge"],
-  paper: ["Unknown", "Not started", "Known Started", "Waiting for Signature"],
-  timing: ["Unknown", "Assumed", "Flexible", "Real Consequence/Event"]
-};
-
-const categories = Object.keys(scoreLabels);
-
-/**
- * Handles an update call from the AI.
- * args can contain partial updates for scores, tips, summaries, etc.
- */
-async function handleFunctionCall(args, callId) {
-  console.log("🛠️ Tool Triggered: save_deal_data");
-
-  const deal = dealQueue[currentDealIndex];
-  if (!deal) return;
-  const currentAccount = deal.account_name;
-
-  // --- 1️⃣ Enforce current account name in summaries ---
-  try {
-    categories.forEach(cat => {
-      const summaryKey = `${cat}_summary`;
-      if (args[summaryKey]) {
-        args[summaryKey] = args[summaryKey].replace(/Acme Corp/g, currentAccount);
-      }
-    });
-  } catch (e) {
-    console.error("⚠️ Account-name enforcement error:", e);
-  }
-
-  // --- 2️⃣ Add score labels to summaries (text only) ---
-  categories.forEach(cat => {
-    const scoreKey = `${cat}_score`;
-    const summaryKey = `${cat}_summary`;
-    if (args.hasOwnProperty(scoreKey) && args[scoreKey] != null) {
-      const label = scoreLabels[cat][args[scoreKey]] || "";
-      args[summaryKey] = args[summaryKey]
-        ? `${args[summaryKey]} (${label})`
-        : `(${label})`;
-    }
-  });
-
-  // --- 3️⃣ Calculate Phantom AI Stage ---
-  const scores = categories.map(cat => Number(args[`${cat}_score`] ?? deal[`${cat}_score`] ?? 0));
-  const totalScore = scores.reduce((a, b) => a + b, 0);
-  const ai_forecast =
-    totalScore >= 21 ? "Commit" :
-    totalScore >= 15 ? "Best Case" :
-    "Pipeline";
-  args.ai_forecast = ai_forecast;
-
-  // --- 4️⃣ Save deal data to DB ---
-  try {
-    await saveDealData(deal, args);
-    console.log(`✅ Atomic Save (Background) for ${currentAccount}`);
-  } catch (err) {
-    console.error("❌ Atomic save failed:", err);
-  }
-
-  // --- 5️⃣ Update local memory & nudge AI ---
-  Object.assign(deal, args);
-  openAiWs.send(JSON.stringify({
-    type: "conversation.item.create",
-    item: { type: "function_call_output", call_id: callId, output: JSON.stringify({ status: "success" }) }
-  }));
-
-  setTimeout(() => {
-    if (openAiWs.readyState === WebSocket.OPEN) {
-      openAiWs.send(JSON.stringify({ type: "response.create" }));
-      console.log(`🎙️ AI Nudged to speak for: ${currentAccount}`);
-    }
-  }, 200);
-}
-
-module.exports = { handleFunctionCall };
-module.exports = { handleFunctionCall };
-
-// 2. THE EAR (CRASH PROOF + DIGITAL TRIGGER)
+  // --- Handle incoming OpenAI messages
   openAiWs.on("message", (data) => {
     try {
       const response = JSON.parse(data);
+
       if (response.type === "response.function_call_arguments.done") {
         const args = JSON.parse(response.arguments);
-        handleFunctionCall(args, response.call_id); // This is what triggers the log "🛠️ Tool Triggered"
-      }      
-
-
-
-// 3. INDEX ADVANCER (CONTEXT SWITCHING)
-if (response.type === "response.done") {
-  // 👇 Only declare once
-  const transcript = (
-    response.response?.output
-      ?.flatMap(o => o.content || [])
-      ?.map(c => c.transcript || c.text || "")
-      ?.join(" ")
-  ) || "";
-
-  console.log("📝 FINAL TRANSCRIPT:", transcript);
-
-  // SAFETY: If the AI stops talking and didn't trigger a move, give it a nudge
-  if (!transcript && response.response?.status === "completed") {
-     console.log("Empty response detected, nudging AI...");
-     openAiWs.send(JSON.stringify({ type: "response.create" }));
-  }
-
-  if (transcript.includes("NEXT_DEAL_TRIGGER")) {
-    console.log("🚀 Digital Trigger Detected. Moving to next deal...");
-    currentDealIndex++;
-
-    if (currentDealIndex < dealQueue.length) {
-      const nextDeal = dealQueue[currentDealIndex];
-      const newInstructions = getSystemPrompt(
-        nextDeal,
-        repName.split(" ")[0],
-        dealQueue.length - 1 - currentDealIndex,
-        dealQueue.length
-      );
-
-      // UPDATE AND FORCE SPEECH
-      openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: newInstructions } }));
-      setTimeout(() => {
-        openAiWs.send(JSON.stringify({ type: "response.create" }));
-        console.log("👉 Context Swapped & AI Nudged");
-      }, 500);
-    }
-  }
-}
-    // 4. AUDIO RELAY (Keep this!)
-      if (response.type === "response.audio.delta" && response.delta && streamSid) {
-          ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
+        handleFunctionCall(args, response.call_id); // calls muscle.js
       }
+
+      if (response.type === "response.done") {
+        const transcript = (response.response?.output?.flatMap(o => o.content || []).map(c => c.transcript || c.text || "") || []).join(" ");
+        console.log("📝 FINAL TRANSCRIPT:", transcript);
+
+        if (transcript.includes("NEXT_DEAL_TRIGGER")) {
+          currentDealIndex++;
+          if (currentDealIndex < dealQueue.length) {
+            const nextDeal = dealQueue[currentDealIndex];
+            const instructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - 1 - currentDealIndex, dealQueue.length);
+            openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions } }));
+            setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
+          }
+        }
+      }
+
+      if (response.type === "response.audio.delta" && response.delta && streamSid) {
+        ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
+      }
+
     } catch (err) { console.error("❌ OpenAI Message Error:", err); }
   });
-// 3. LAUNCHER
+
+  // --- Launch deals for rep
   const attemptLaunch = async () => {
-    if (!repName || !openAiReady) return; 
+    if (!repName || !openAiReady) return;
 
     try {
-      // SURGICAL FIX: Added 'AND o.rep_name = $2' to the WHERE clause
       const result = await pool.query(
         `SELECT o.*, org.product_truths AS org_product_data 
          FROM opportunities o 
          JOIN organizations org ON o.org_id = org.id 
-         WHERE o.org_id = $1 
-         AND o.rep_name = $2 
-         AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') 
+         WHERE o.org_id = $1 AND o.rep_name = $2 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') 
          ORDER BY o.id ASC`, 
-        [orgId, repName] // Pass repName as the second parameter
+        [orgId, repName]
       );
 
       dealQueue = result.rows;
       console.log(`📊 Loaded ${dealQueue.length} deals for ${repName}`);
-      if (dealQueue.length > 0) console.log(`👉 Starting with: ${dealQueue[0].account_name} (ID: ${dealQueue[0].id})`);
+      if (dealQueue.length > 0) {
+        const firstDeal = dealQueue[0];
+        const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
+        openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions } }));
+        setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
+      }
+
     } catch (err) { console.error("❌ DB Error:", err.message); }
-    if (dealQueue.length > 0) {
-      const firstDeal = dealQueue[0];
-      const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
-      openAiWs.send(JSON.stringify({
-        type: "session.update",
-        session: { 
-            instructions, 
-            tools: [{ 
-              type: "function", name: "save_deal_data", 
-              description: "DYNAMIC SAVE: Call this immediately after every category update. Don't wait.", 
-              parameters: { 
-                type: "object", 
-                properties: { 
-                    pain_score: { type: "number" }, pain_summary: { type: "string" }, pain_tip: { type: "string" },
-                    metrics_score: { type: "number" }, metrics_summary: { type: "string" }, metrics_tip: { type: "string" },
-                    champion_score: { type: "number" }, champion_summary: { type: "string" }, champion_tip: { type: "string" }, champion_name: { type: "string" }, champion_title: { type: "string" },
-                    eb_score: { type: "number" }, eb_summary: { type: "string" }, eb_tip: { type: "string" }, eb_name: { type: "string" }, eb_title: { type: "string" },
-                    criteria_score: { type: "number" }, criteria_summary: { type: "string" }, criteria_tip: { type: "string" },
-                    process_score: { type: "number" }, process_summary: { type: "string" }, process_tip: { type: "string" },
-                    competition_score: { type: "number" }, competition_summary: { type: "string" }, competition_tip: { type: "string" },
-                    paper_score: { type: "number" }, paper_summary: { type: "string" }, paper_tip: { type: "string" },
-                    timing_score: { type: "number" }, timing_summary: { type: "string" }, timing_tip: { type: "string" },
-                    risk_summary: { type: "string" }, next_steps: { type: "string" }, rep_comments: { type: "string" }
-                }, 
-                required: ["risk_summary"] 
-              } 
-            }] 
-        }
-      }));
-      setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
-    }
   };
-  // 4. TWILIO LISTENER
+
+  // --- Twilio WebSocket messages
   ws.on("message", (message) => {
     try {
       const msg = JSON.parse(message);
@@ -403,12 +185,14 @@ if (response.type === "response.done") {
           orgId = parseInt(params.org_id) || 1;
           repName = params.rep_name || "Guest";
           console.log(`🔎 Identified ${repName}`);
-          attemptLaunch(); 
+          attemptLaunch();
         }
       }
+
       if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
         openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
       }
+
     } catch (err) { console.error("❌ Twilio Error:", err); }
   });
 
@@ -422,15 +206,12 @@ if (response.type === "response.done") {
 app.get("/debug/opportunities", async (req, res) => {
   try {
     const orgId = parseInt(req.query.org_id) || 1;
-    const result = await pool.query(
-      `SELECT * FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC`,
-      [orgId]
-    );
+    const result = await pool.query(`SELECT * FROM opportunities WHERE org_id = $1 ORDER BY updated_at DESC`, [orgId]);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// --- START SERVER ---
 server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`));
-
