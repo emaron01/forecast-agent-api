@@ -75,12 +75,6 @@ You MUST open exactly with: "${openingLine}"
 **CRITICAL:** Do NOT use the phrase "NEXT_DEAL_TRIGGER" in your opening line.
 
 
-### THE "DATA INTEGRITY" PROTOCOL (MANDATORY)
-1. **ACCOUNT IDENTITY IS SACROSANCT:** You are currently auditing {{account_name}}. 
-2. **IGNORE LEGACY NOISE:** If existing notes, tips, or summaries mention a different company (e.g., "GenTech"), YOU MUST DISREGARD those names. They are errors. Use ONLY the current {{account_name}}.
-3. **CONFLICT RESOLUTION:** If the database notes say "Azure" but the user says "AWS", immediately overwrite the notes with the user's truth.
-4. **CLEANSE ON SAVE:** Every time you call 'save_deal_data', ensure your summaries and tips are purged of any legacy company names.
-
 ### THE "JUDGE & SAVE" PROTOCOL (STRICT)
 1. **EVERY RESPONSE COUNTS:** After every user response, you MUST call 'save_deal_data'. 
 2. **DON'T BE SHY:** Even vague answers get a Score 1. 
