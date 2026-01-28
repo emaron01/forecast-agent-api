@@ -41,12 +41,10 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
     const amountStr = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(deal.amount || 0);
     const closeDateStr = deal.close_date ? new Date(deal.close_date).toLocaleDateString() : "TBD";
 
-    // 1. CALCULATE SESSION POSITION (Am I saying Hello or Next?)
-    // Note: dealQueue.length is totalCount. dealsLeft is the index descending.
-    // If dealsLeft == totalCount - 1, we are at the very start of the array.
+    // 1. SESSION CONTEXT
     const isSessionStart = (dealsLeft === totalCount - 1) || (dealsLeft === totalCount); 
 
-    // 2. DYNAMIC GAP FINDER
+    // 2. GAP FINDER
     const scores = [
         { name: 'Pain', val: deal.pain_score }, { name: 'Metrics', val: deal.metrics_score },
         { name: 'Champion', val: deal.champion_score }, { name: 'Economic Buyer', val: deal.eb_score },
@@ -56,37 +54,38 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
     ];
     const firstGap = scores.find(s => (Number(s.val) || 0) < 3) || { name: 'Pain' };
 
-    // 3. CONSTRUCT THE INTRO
+    // 3. INTRO CONSTRUCTION
     let openingLine = "";
-
-    // PART A: The Greeting (Session vs Transition)
     if (isSessionStart) {
-        openingLine = `Hi ${repName}. This is Matthew, your sales forecaster agent. Today we are going to review ${totalCount} opportunities, starting with ${deal.account_name}, ${deal.name}.`;
+        openingLine = `Hi ${repName}. Matthew here. We're reviewing ${totalCount} deals. First up: ${deal.account_name}.`;
     } else {
-        openingLine = `Okay, moving on. Let's look at ${deal.account_name}, ${deal.name}.`;
+        openingLine = `Okay, saved. Next: ${deal.account_name}.`;
     }
 
-    // PART B: The Deal Context (New vs Existing)
     if (isNewDeal) {
-        openingLine += ` It's in ${category} for ${amountStr}, closing ${closeDateStr}. Since this is new, what product are we selling and what specific challenge are we trying to overcome for the customer?`;
+        openingLine += ` ${amountStr}, closing ${closeDateStr}. New deal. What's the specific challenge we are solving?`;
     } else {
-        openingLine += ` It's in ${category} for ${amountStr}. Last time we flagged: "${deal.risk_summary || 'vague project drivers'}". I see ${firstGap.name} is still a risk—have we made any progress there?`;
+        openingLine += ` ${amountStr}. Last risk: "${deal.risk_summary || 'None'}". Status on ${firstGap.name}?`;
     }
 
     return `
-### ROLE & IDENTITY
-You are Matthew, a high-IQ MEDDPICC Auditor. You are an **Extractor**, not a Coach.
+### ROLE
+You are a **MEDDPICC Scorer**. Your job is to Listen, Judge, and Record.
 
 ### MANDATORY OPENING
 You MUST open exactly with: "${openingLine}"
 
-### CONVERSATION FLOW RULES (GUARDRAILS)
-1. Ask ONE MEDDPICC-advancing question per turn.
-2. If the rep’s answer is unclear → ask ONE clarifying question. If still unclear → score low and move on.
-3. Never repeat or paraphrase the rep’s answer.
-4. **ATOMIC SAVES:** Call 'save_deal_data' SILENTLY immediately after the rep answers a question about a category. Do not wait.
+### THE "JUDGE & SAVE" PROTOCOL (REAL-TIME)
+As soon as the user answers your question:
+1. **JUDGE:** Compare their answer to the Scoring Rubric below (0-3).
+2. **ASSIGN:** Determine the specific score (e.g., Pain = 1).
+3. **SAVE:** Call 'save_deal_data' with that score IMMEDIATELY.
+4. **ASK:** Move to the next question.
 
-### THE EXACT SCORING RUBRIC (0-3)
+**DO NOT** simply transcribe what they say. You must evaluate it.
+**DO NOT** read the score out loud. Save it silently.
+
+### SCORING RUBRIC (EXACT DEFINITIONS)
 - **PAIN:** 0=None, 1=Vague, 2=Clear, 3=Quantified ($$$).
 - **METRICS:** 0=Unknown, 1=Soft, 2=Rep-defined, 3=Customer-validated.
 - **CHAMPION:** 0=None, 1=Coach, 2=Mobilizer, 3=Champion (Power).
@@ -98,22 +97,16 @@ You MUST open exactly with: "${openingLine}"
 - **TIMING:** 0=Unknown, 1=Assumed, 2=Flexible, 3=Real Consequence/Event.
 
 ### DATA EXTRACTION RULES
-- **SUMMARIES:** explain WHY you gave the score (e.g., "Score 2 (Known Started): Legal confirmed receipt").
+- **SUMMARIES:** Start every summary field with the Score Label (e.g., "Score 2 (Known Started): Legal confirmed receipt").
 - **TIPS:** Provide a specific "Next Step" to reach Score 3.
 - **POWER PLAYERS:** You MUST extract Name AND Title for Champion and Economic Buyer.
 
-### COMPLETION PROTOCOL (THE "SAVE GATE")
-**BEFORE** you leave the current deal to move to the next one, you MUST perform this check:
+### COMPLETION PROTOCOL (STRICT)
+**ONLY** when you are ready to leave the deal:
+1. **CHECK:** Did I save the scores?
+2. **SAY:** "Health Score: [Sum]/27. Risk: [Top Risk]. NEXT_DEAL_TRIGGER."
 
-1. **TOOL VERIFICATION:** Have I saved the final data for this deal yet?
-   - **IF NO:** Call 'save_deal_data' NOW.
-   - **IF YES:** Proceed to step 2.
-
-2. **VERBAL SUMMARY:** "Your Health Score is [Sum]/27. Deal Risk is [Category < 3]. Next Step: [Tip]."
-
-3. **TRANSITION:** "Okay, saved. Moving to the next deal."
-
-**CRITICAL:** It is FORBIDDEN to say "Moving to the next deal" unless the 'save_deal_data' tool has been successfully triggered for the current account.
+**CRITICAL:** You MUST say the exact phrase "NEXT_DEAL_TRIGGER" to advance to the next account.
 `;
 }
 // --- [BLOCK 4: SMART RECEPTIONIST] ---
@@ -221,7 +214,7 @@ wss.on("connection", async (ws) => {
     } catch (err) { console.error("❌ Atomic Save Error:", err); }
   };
 
-  // 2. THE EAR
+// 2. THE EAR
   openAiWs.on("message", (data) => {
     try {
       const response = JSON.parse(data);
@@ -230,11 +223,14 @@ wss.on("connection", async (ws) => {
         handleFunctionCall(args, response.call_id);
       }
       
-      // 3. INDEX ADVANCER (Listens for Exit Phrase)
+// 3. INDEX ADVANCER (DIGITAL TRIGGER + CRASH FIX)
       if (response.type === "response.done") {
-        const transcript = response.response.output[0]?.content[0]?.transcript || "";
-        if (transcript.includes("Moving to the next deal") || transcript.includes("concludes our review")) {
-          console.log("🚀 Completion Protocol Detected. Advancing Index.");
+        // Fix 1: Add ?. to prevent crash on silent tool calls
+        const transcript = response.response?.output?.[0]?.content?.[0]?.transcript || "";
+        
+        // Fix 2: Listen for the ACTUAL code defined in your Prompt
+        if (transcript.includes("NEXT_DEAL_TRIGGER")) {
+          console.log("🚀 Digital Trigger Detected. Advancing Index.");
           currentDealIndex++;
         }
       }
