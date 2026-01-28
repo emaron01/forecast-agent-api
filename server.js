@@ -74,13 +74,11 @@ You are a **MEDDPICC Scorer**. Your job is to Listen, Judge, and Record.
 You MUST open exactly with: "${openingLine}"
 **CRITICAL:** Do NOT use the phrase "NEXT_DEAL_TRIGGER" in your opening line.
 
-### THE "JUDGE & SAVE" PROTOCOL (REAL-TIME)
-As soon as the user answers your question:
-1. **JUDGE:** Compare their answer to the Scoring Rubric below (0-3).
-2. **ASSIGN:** Determine the specific score (e.g., Pain = 1).
-3. **SAVE:** Call 'save_deal_data' with that score IMMEDIATELY.
-   - *NOTE:* For intermediate saves, set 'risk_summary' to "Audit in Progress".
-4. **ASK:** Move to the next question.
+### THE "JUDGE & SAVE" PROTOCOL (STRICT)
+1. **EVERY RESPONSE COUNTS:** As soon as the user gives you any information, you MUST call 'save_deal_data'. 
+2. **DON'T BE SHY:** Even if they only give you a "vague" answer, save it as a Score 1 immediately. 
+3. **MULTI-SAVE:** If the user mentions two things (e.g., Pain and a Name), save BOTH in one tool call.
+4. **SILENT AUDITOR:** Do NOT tell the user you are saving. Just do it in the background while you ask the next question.4. **ASK:** Move to the next question.
 
 **DO NOT** simply transcribe what they say. You must evaluate it.
 **DO NOT** read the score out loud. Save it silently.
@@ -243,9 +241,8 @@ wss.on("connection", async (ws) => {
       const response = JSON.parse(data);
       if (response.type === "response.function_call_arguments.done") {
         const args = JSON.parse(response.arguments);
-        handleFunctionCall(args, response.call_id);
-      }
-      
+        handleFunctionCall(args, response.call_id); // This is what triggers the log "🛠️ Tool Triggered"
+      }      
 // 3. INDEX ADVANCER (CONTEXT SWITCHING)
       if (response.type === "response.done") {
         const transcript = response.response?.output?.[0]?.content?.[0]?.transcript || "";
