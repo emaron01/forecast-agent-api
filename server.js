@@ -39,29 +39,43 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
     const isNewDeal = runCount === 0;
     const category = deal.forecast_stage || "Pipeline";
     const amountStr = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(deal.amount || 0);
+    const closeDateStr = deal.close_date ? new Date(deal.close_date).toLocaleDateString() : "TBD";
 
-    // 1. DYNAMIC GAP FINDER (Focus on Scores < 3)
+    // 1. CALCULATE SESSION POSITION (Am I saying Hello or Next?)
+    // Note: dealQueue.length is totalCount. dealsLeft is the index descending.
+    // If dealsLeft == totalCount - 1, we are at the very start of the array.
+    const isSessionStart = (dealsLeft === totalCount - 1) || (dealsLeft === totalCount); 
+
+    // 2. DYNAMIC GAP FINDER
     const scores = [
-        { name: 'Pain', val: deal.pain_score },
-        { name: 'Metrics', val: deal.metrics_score },
-        { name: 'Champion', val: deal.champion_score },
-        { name: 'Economic Buyer', val: deal.eb_score },
-        { name: 'Decision Criteria', val: deal.criteria_score },
-        { name: 'Decision Process', val: deal.process_score },
-        { name: 'Competition', val: deal.competition_score },
-        { name: 'Paper Process', val: deal.paper_score },
+        { name: 'Pain', val: deal.pain_score }, { name: 'Metrics', val: deal.metrics_score },
+        { name: 'Champion', val: deal.champion_score }, { name: 'Economic Buyer', val: deal.eb_score },
+        { name: 'Decision Criteria', val: deal.criteria_score }, { name: 'Decision Process', val: deal.process_score },
+        { name: 'Competition', val: deal.competition_score }, { name: 'Paper Process', val: deal.paper_score },
         { name: 'Timing', val: deal.timing_score }
     ];
     const firstGap = scores.find(s => (Number(s.val) || 0) < 3) || { name: 'Pain' };
 
-    // 2. DYNAMIC OPENING
-    let openingLine = isNewDeal 
-        ? `Hi ${repName}. Let's look at ${deal.account_name} for ${amountStr}. Since this is new, what product are we selling and what specific challenge are we trying to overcome for the customer?`
-        : `Hi ${repName}. Back on ${deal.account_name}. Last time we flagged: "${deal.risk_summary || 'vague project drivers'}". I see ${firstGap.name} is still a risk—have we made any progress there?`;
+    // 3. CONSTRUCT THE INTRO
+    let openingLine = "";
+
+    // PART A: The Greeting (Session vs Transition)
+    if (isSessionStart) {
+        openingLine = `Hi ${repName}. This is Matthew, your sales forecaster agent. Today we are going to review ${totalCount} opportunities, starting with ${deal.account_name}, ${deal.name}.`;
+    } else {
+        openingLine = `Okay, moving on. Let's look at ${deal.account_name}, ${deal.name}.`;
+    }
+
+    // PART B: The Deal Context (New vs Existing)
+    if (isNewDeal) {
+        openingLine += ` It's in ${category} for ${amountStr}, closing ${closeDateStr}. Since this is new, what product are we selling and what specific challenge are we trying to overcome for the customer?`;
+    } else {
+        openingLine += ` It's in ${category} for ${amountStr}. Last time we flagged: "${deal.risk_summary || 'vague project drivers'}". I see ${firstGap.name} is still a risk—have we made any progress there?`;
+    }
 
     return `
 ### ROLE & IDENTITY
-You are Matthew, a high-IQ MEDDPICC Auditor. You are an **Extractor**, not a Coach. You extract evidence with surgical precision.
+You are Matthew, a high-IQ MEDDPICC Auditor. You are an **Extractor**, not a Coach.
 
 ### MANDATORY OPENING
 You MUST open exactly with: "${openingLine}"
@@ -70,8 +84,7 @@ You MUST open exactly with: "${openingLine}"
 1. Ask ONE MEDDPICC-advancing question per turn.
 2. If the rep’s answer is unclear → ask ONE clarifying question. If still unclear → score low and move on.
 3. Never repeat or paraphrase the rep’s answer.
-4. Call 'save_deal_data' SILENTLY after EVERY category discussion. Do not wait for the end.
-5. **PAIN summary is verbal ONLY if score < 3.** No other summaries are verbal.
+4. **ATOMIC SAVES:** Call 'save_deal_data' SILENTLY immediately after the rep answers a question about a category. Do not wait.
 
 ### THE EXACT SCORING RUBRIC (0-3)
 - **PAIN:** 0=None, 1=Vague, 2=Clear, 3=Quantified ($$$).
@@ -89,16 +102,20 @@ You MUST open exactly with: "${openingLine}"
 - **TIPS:** Provide a specific "Next Step" to reach Score 3.
 - **POWER PLAYERS:** You MUST extract Name AND Title for Champion and Economic Buyer.
 
-### COMPLETION PROTOCOL (STRICT ORDER)
-When a deal review is finished, deliver the final summary in this EXACT order:
-1. **Health Score:** "Your Health Score is [Sum of all 9 scores] out of 27."
-2. **Deal Risks:** "Your Deal Risk(s) are: [Summary of categories scored < 3]."
-3. **Next Steps:** "Next Steps are: [Critical action from Tips]."
-4. **Forecast Verdict:** "You have the deal in ${category}. I recommend [Commit/Best Case/Pipeline] based on the data."
+### COMPLETION PROTOCOL (THE "SAVE GATE")
+**BEFORE** you leave the current deal to move to the next one, you MUST perform this check:
 
-Say: "Okay, saved. Moving to the next deal."`;
+1. **TOOL VERIFICATION:** Have I saved the final data for this deal yet?
+   - **IF NO:** Call 'save_deal_data' NOW.
+   - **IF YES:** Proceed to step 2.
+
+2. **VERBAL SUMMARY:** "Your Health Score is [Sum]/27. Deal Risk is [Category < 3]. Next Step: [Tip]."
+
+3. **TRANSITION:** "Okay, saved. Moving to the next deal."
+
+**CRITICAL:** It is FORBIDDEN to say "Moving to the next deal" unless the 'save_deal_data' tool has been successfully triggered for the current account.
+`;
 }
-
 // --- [BLOCK 4: SMART RECEPTIONIST] ---
 app.post("/agent", async (req, res) => {
   try {
@@ -136,7 +153,7 @@ app.post("/agent", async (req, res) => {
   }
 });
 
-// --- [BLOCK 5: WEBSOCKET CORE (ATOMIC SAVE UPGRADE)] ---
+// --- [BLOCK 5: WEBSOCKET CORE (ATOMIC SAVE)] ---
 wss.on("connection", async (ws) => {
   console.log("🔥 Twilio WebSocket connected");
 
@@ -168,7 +185,7 @@ wss.on("connection", async (ws) => {
       const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
       const aiOpinion = totalScore >= 21 ? "Commit" : totalScore >= 15 ? "Best Case" : "Pipeline";
 
-      // B. PREPARE DATA (Atomic Logic: Use Args -> Fallback to Local Memory)
+      // B. PREPARE DATA (Atomic Logic)
       const sqlQuery = `UPDATE opportunities SET 
           pain_score=$1, pain_tip=$2, pain_summary=$3, metrics_score=$4, metrics_tip=$5, metrics_summary=$6,
           champion_score=$7, champion_tip=$8, champion_summary=$9, eb_score=$10, eb_tip=$11, eb_summary=$12,
@@ -178,7 +195,7 @@ wss.on("connection", async (ws) => {
           champion_name=$30, champion_title=$31, eb_name=$32, eb_title=$33, rep_comments=$34, manager_comments=$35,
           ai_forecast=$36, run_count = COALESCE(run_count, 0) + 1, updated_at = NOW() WHERE id = $37`;
 
-      // NOTE: Using '??' allows 0 scores to save correctly. '||' would overwrite 0 with old data.
+      // USE ?? to ensure 0s are saved, fallback to existing deal data if null
       const sqlParams = [
         args.pain_score ?? deal.pain_score, args.pain_tip || deal.pain_tip, args.pain_summary || deal.pain_summary,
         args.metrics_score ?? deal.metrics_score, args.metrics_tip || deal.metrics_tip, args.metrics_summary || deal.metrics_summary,
@@ -198,14 +215,9 @@ wss.on("connection", async (ws) => {
 
       await pool.query(sqlQuery, sqlParams);
       console.log(`✅ Atomic Save: ${deal.account_name}`);
+      Object.assign(deal, args); // MEMORY MERGE
       
-      // C. MEMORY MERGE (Crucial for Save-As-You-Go)
-      Object.assign(deal, args); 
-
-      // D. HANDSHAKE
       openAiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: callId, output: JSON.stringify({ status: "success" }) } }));
-      
-      // NOTE: We do NOT increment currentDealIndex here anymore. We wait for the exit phrase.
     } catch (err) { console.error("❌ Atomic Save Error:", err); }
   };
 
@@ -288,7 +300,7 @@ wss.on("connection", async (ws) => {
     try {
       const msg = JSON.parse(message);
       if (msg.event === "start") {
-        streamSid = msg.start.streamSid; // <--- The Vital Link
+        streamSid = msg.start.streamSid;
         const params = msg.start.customParameters;
         if (params) {
           orgId = parseInt(params.org_id) || 1;
@@ -308,7 +320,6 @@ wss.on("connection", async (ws) => {
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
 });
-
 // --- [BLOCK 6: API ENDPOINTS] ---
 app.get("/debug/opportunities", async (req, res) => {
   try {
