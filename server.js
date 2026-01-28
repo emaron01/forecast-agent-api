@@ -260,42 +260,47 @@ wss.on("connection", async (ws) => {
       }      
 
 
+
 // 3. INDEX ADVANCER (CONTEXT SWITCHING)
-      if (response.type === "response.done") {
-        const transcript = response.response?.output?.[0]?.content?.[0]?.transcript || "";
-        
-        const transcript = (
-  response.response?.output
-    ?.flatMap(o => o.content || [])
-    ?.map(c => c.transcript || c.text || "")
-    ?.join(" ")
-) || "";
-// 👇 ADD THIS LINE RIGHT HERE
+if (response.type === "response.done") {
+  // 👇 Only declare once
+  const transcript = (
+    response.response?.output
+      ?.flatMap(o => o.content || [])
+      ?.map(c => c.transcript || c.text || "")
+      ?.join(" ")
+  ) || "";
+
   console.log("📝 FINAL TRANSCRIPT:", transcript);
 
-        // SAFETY: If the AI stops talking and didn't trigger a move, give it a nudge
-        if (!transcript && response.response?.status === "completed") {
-           console.log("Empty response detected, nudging AI...");
-           openAiWs.send(JSON.stringify({ type: "response.create" }));
-        }
+  // SAFETY: If the AI stops talking and didn't trigger a move, give it a nudge
+  if (!transcript && response.response?.status === "completed") {
+     console.log("Empty response detected, nudging AI...");
+     openAiWs.send(JSON.stringify({ type: "response.create" }));
+  }
 
-        if (transcript.includes("NEXT_DEAL_TRIGGER")) {
-          console.log("🚀 Digital Trigger Detected. Moving to next deal...");
-          currentDealIndex++;
+  if (transcript.includes("NEXT_DEAL_TRIGGER")) {
+    console.log("🚀 Digital Trigger Detected. Moving to next deal...");
+    currentDealIndex++;
 
-          if (currentDealIndex < dealQueue.length) {
-              const nextDeal = dealQueue[currentDealIndex];
-              const newInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - 1 - currentDealIndex, dealQueue.length);
+    if (currentDealIndex < dealQueue.length) {
+      const nextDeal = dealQueue[currentDealIndex];
+      const newInstructions = getSystemPrompt(
+        nextDeal,
+        repName.split(" ")[0],
+        dealQueue.length - 1 - currentDealIndex,
+        dealQueue.length
+      );
 
-              // UPDATE AND FORCE SPEECH
-              openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: newInstructions } }));
-              setTimeout(() => {
-                openAiWs.send(JSON.stringify({ type: "response.create" }));
-                console.log("👉 Context Swapped & AI Nudged");
-              }, 500);
-          }
-        }
-      }
+      // UPDATE AND FORCE SPEECH
+      openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: newInstructions } }));
+      setTimeout(() => {
+        openAiWs.send(JSON.stringify({ type: "response.create" }));
+        console.log("👉 Context Swapped & AI Nudged");
+      }, 500);
+    }
+  }
+}
     // 4. AUDIO RELAY (Keep this!)
       if (response.type === "response.audio.delta" && response.delta && streamSid) {
           ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
