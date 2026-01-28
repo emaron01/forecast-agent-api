@@ -251,20 +251,20 @@ wss.on("connection", async (ws) => {
     }, 200);
 };
 // 2. THE EAR (CRASH PROOF + DIGITAL TRIGGER)
-  openAiWs.on("message", (data) => {
-    try {
-      const response = JSON.parse(data);
-      if (response.type === "response.function_call_arguments.done") {
-        const args = JSON.parse(response.arguments);
-        handleFunctionCall(args, response.call_id); // 🛠️ Tool Triggered
-    }
+openAiWs.on("message", (data) => {
+  try {
+    const response = JSON.parse(data);
+    if (response.type === "response.function_call_arguments.done") {
+      const args = JSON.parse(response.arguments);
+      handleFunctionCall(args, response.call_id); // 🛠️ Tool Triggered
+    } // <-- THIS WAS MISSING
 
     // You can handle other response types here if needed
+
   } catch (err) {
     console.error("❌ OpenAI WS Error:", err);
   }
 });
-
 /// Helper: save with retries
 async function saveWithRetry(dealIndex, transcript, retries = 3, delayMs = 500) {
   for (let attempt = 1; attempt <= retries; attempt++) {
