@@ -194,25 +194,40 @@ wss.on("connection", async (ws) => {
     attemptLaunch(); 
   });
 
-// 1. THE MUSCLE: Background Save (Speed Hack)
-const handleFunctionCall = async (args, callId) => {
+// muscle.js
+const { saveDealData } = require("./db");
+
+// Score labels mapping
+const scoreLabels = {
+  pain: ["None", "Vague", "Clear", "Quantified ($$$)"],
+  metrics: ["Unknown", "Soft", "Rep-defined", "Customer-validated"],
+  champion: ["None", "Coach", "Mobilizer", "Champion (Power)"],
+  eb: ["Unknown", "Identified", "Indirect", "Direct relationship"],
+  criteria: ["Unknown", "Vague", "Defined", "Locked in favor"],
+  process: ["Unknown", "Assumed", "Understood", "Documented"],
+  competition: ["Unknown", "Assumed", "Identified", "Known edge"],
+  paper: ["Unknown", "Not started", "Known Started", "Waiting for Signature"],
+  timing: ["Unknown", "Assumed", "Flexible", "Real Consequence/Event"]
+};
+
+const categories = Object.keys(scoreLabels);
+
+/**
+ * Handles an update call from the AI.
+ * args can contain partial updates for scores, tips, summaries, etc.
+ */
+async function handleFunctionCall(args, callId) {
   console.log("🛠️ Tool Triggered: save_deal_data");
 
   const deal = dealQueue[currentDealIndex];
   if (!deal) return;
+  const currentAccount = deal.account_name;
 
-  // --- 1️⃣ Strict Current Account Identity ---
-  const currentAccount = deal.account_name; // always the current customer account
-  const meddpiccFields = [
-    "pain", "metrics", "champion", "eb",
-    "criteria", "process", "competition",
-    "paper", "timing"
-  ];
-
+  // --- 1️⃣ Enforce current account name in summaries ---
   try {
-    meddpiccFields.forEach(f => {
-      const summaryKey = `${f}_summary`;
-      if (args?.[summaryKey]) {
+    categories.forEach(cat => {
+      const summaryKey = `${cat}_summary`;
+      if (args[summaryKey]) {
         args[summaryKey] = args[summaryKey].replace(/Acme Corp/g, currentAccount);
       }
     });
@@ -220,33 +235,28 @@ const handleFunctionCall = async (args, callId) => {
     console.error("⚠️ Account-name enforcement error:", e);
   }
 
-  // --- 2️⃣ Append Score Labels to Summaries ---
-  const scoreLabels = {
-    pain: ["None", "Vague", "Clear", "Quantified ($$$)"],
-    metrics: ["Unknown", "Soft", "Rep-defined", "Customer-validated"],
-    champion: ["None", "Coach", "Mobilizer", "Champion (Power)"],
-    eb: ["Unknown", "Identified", "Indirect", "Direct relationship"],
-    criteria: ["Unknown", "Vague", "Defined", "Locked in favor"],
-    process: ["Unknown", "Assumed", "Understood", "Documented"],
-    competition: ["Unknown", "Assumed", "Identified", "Known edge"],
-    paper: ["Unknown", "Not started", "Known Started", "Waiting for Signature"],
-    timing: ["Unknown", "Assumed", "Flexible", "Real Consequence/Event"]
-  };
+  // --- 2️⃣ Add score labels to summaries (text only) ---
+  categories.forEach(cat => {
+    const scoreKey = `${cat}_score`;
+    const summaryKey = `${cat}_summary`;
+    if (args.hasOwnProperty(scoreKey) && args[scoreKey] != null) {
+      const label = scoreLabels[cat][args[scoreKey]] || "";
+      args[summaryKey] = args[summaryKey]
+        ? `${args[summaryKey]} (${label})`
+        : `(${label})`;
+    }
+  });
 
-  try {
-    meddpiccFields.forEach(f => {
-      const scoreKey = `${f}_score`;
-      const summaryKey = `${f}_summary`;
-      if (args?.[scoreKey] != null && args?.[summaryKey]) {
-        const label = scoreLabels[f][args[scoreKey]] || "Unknown";
-        args[summaryKey] = `[score=${label}] ${args[summaryKey]}`;
-      }
-    });
-  } catch (e) {
-    console.error("⚠️ Score label append error:", e);
-  }
+  // --- 3️⃣ Calculate Phantom AI Stage ---
+  const scores = categories.map(cat => Number(args[`${cat}_score`] ?? deal[`${cat}_score`] ?? 0));
+  const totalScore = scores.reduce((a, b) => a + b, 0);
+  const ai_forecast =
+    totalScore >= 21 ? "Commit" :
+    totalScore >= 15 ? "Best Case" :
+    "Pipeline";
+  args.ai_forecast = ai_forecast;
 
-  // --- 3️⃣ Guaranteed Save ---
+  // --- 4️⃣ Save deal data to DB ---
   try {
     await saveDealData(deal, args);
     console.log(`✅ Atomic Save (Background) for ${currentAccount}`);
@@ -254,60 +264,24 @@ const handleFunctionCall = async (args, callId) => {
     console.error("❌ Atomic save failed:", err);
   }
 
-  // --- 4️⃣ Database: Fire and Forget ---
-  const sqlQuery = `UPDATE opportunities SET 
-      pain_score=$1, pain_tip=$2, pain_summary=$3,
-      metrics_score=$4, metrics_tip=$5, metrics_summary=$6,
-      champion_score=$7, champion_tip=$8, champion_summary=$9,
-      eb_score=$10, eb_tip=$11, eb_summary=$12,
-      criteria_score=$13, criteria_tip=$14, criteria_summary=$15,
-      process_score=$16, process_tip=$17, process_summary=$18,
-      competition_score=$19, competition_tip=$20, competition_summary=$21,
-      paper_score=$22, paper_tip=$23, paper_summary=$24,
-      timing_score=$25, timing_tip=$26, timing_summary=$27,
-      risk_summary=$28, next_steps=$29,
-      champion_name=$30, champion_title=$31,
-      eb_name=$32, eb_title=$33,
-      rep_comments=$34, manager_comments=$35,
-      ai_forecast=$36, run_count = COALESCE(run_count, 0) + 1, updated_at = NOW()
-      WHERE id = $37`;
-
-  const sqlParams = [
-    args.pain_score ?? deal.pain_score, args.pain_tip || deal.pain_tip, args.pain_summary || deal.pain_summary,
-    args.metrics_score ?? deal.metrics_score, args.metrics_tip || deal.metrics_tip, args.metrics_summary || deal.metrics_summary,
-    args.champion_score ?? deal.champion_score, args.champion_tip || deal.champion_tip, args.champion_summary || deal.champion_summary,
-    args.eb_score ?? deal.eb_score, args.eb_tip || deal.eb_tip, args.eb_summary || deal.eb_summary,
-    args.criteria_score ?? deal.criteria_score, args.criteria_tip || deal.criteria_tip, args.criteria_summary || deal.criteria_summary,
-    args.process_score ?? deal.process_score, args.process_tip || deal.process_tip, args.process_summary || deal.process_summary,
-    args.competition_score ?? deal.competition_score, args.competition_tip || deal.competition_tip, args.competition_summary || deal.competition_summary,
-    args.paper_score ?? deal.paper_score, args.paper_tip || deal.paper_tip, args.paper_summary || deal.paper_summary,
-    args.timing_score ?? deal.timing_score, args.timing_tip || deal.timing_tip, args.timing_summary || deal.timing_summary,
-    args.risk_summary || deal.risk_summary, args.next_steps || deal.next_steps,
-    args.champion_name || deal.champion_name, args.champion_title || deal.champion_title,
-    args.eb_name || deal.eb_name, args.eb_title || deal.eb_title,
-    args.rep_comments || deal.rep_comments, args.manager_comments || deal.manager_comments,
-    aiOpinion, deal.id
-  ];
-
-  pool.query(sqlQuery, sqlParams)
-      .then(() => console.log(`✅ Background Save Complete: ${deal.account_name}`))
-      .catch(err => console.error("❌ Background Save Error:", err));
-
-  // --- 5️⃣ SPEED: Update Local Memory & Reply Instantly ---
+  // --- 5️⃣ Update local memory & nudge AI ---
   Object.assign(deal, args);
-  openAiWs.send(JSON.stringify({ 
-    type: "conversation.item.create", 
-    item: { type: "function_call_output", call_id: callId, output: JSON.stringify({ status: "success" }) } 
+  openAiWs.send(JSON.stringify({
+    type: "conversation.item.create",
+    item: { type: "function_call_output", call_id: callId, output: JSON.stringify({ status: "success" }) }
   }));
 
-  // SURGICAL FIX: 200ms buffer prevents AI from freezing
   setTimeout(() => {
     if (openAiWs.readyState === WebSocket.OPEN) {
-      openAiWs.send(JSON.stringify({ type: "response.create" })); 
-      console.log(`🎙️ AI Nudged to speak for: ${deal.account_name}`);
+      openAiWs.send(JSON.stringify({ type: "response.create" }));
+      console.log(`🎙️ AI Nudged to speak for: ${currentAccount}`);
     }
   }, 200);
-};
+}
+
+module.exports = { handleFunctionCall };
+module.exports = { handleFunctionCall };
+
 // 2. THE EAR (CRASH PROOF + DIGITAL TRIGGER)
   openAiWs.on("message", (data) => {
     try {
@@ -459,3 +433,4 @@ app.get("/debug/opportunities", async (req, res) => {
 });
 
 server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`));
+
