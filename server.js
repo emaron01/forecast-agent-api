@@ -163,6 +163,26 @@ wss.on("connection", async (ws) => {
     headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "OpenAI-Beta": "realtime=v1" },
   });
 
+// --- MANDATORY: WAKE UP THE AI ---
+ openAiWs.on("open", () => {
+    console.log("📡 OpenAI Connected");
+    openAiWs.send(JSON.stringify({ 
+      type: "session.update", 
+      session: { 
+        input_audio_format: "g711_ulaw", 
+        output_audio_format: "g711_ulaw", 
+        voice: "verse", 
+        turn_detection: { 
+          type: "server_vad", 
+          threshold: 0.5, 
+          silence_duration_ms: 600 // This makes it snappy!
+        } 
+      } 
+    }));
+    openAiReady = true;
+    attemptLaunch(); 
+  });
+    
 // 1. THE MUSCLE: Background Save (Speed Hack)
   const handleFunctionCall = async (args, callId) => {
     console.log("🛠️ Tool Triggered: save_deal_data");
@@ -205,7 +225,6 @@ wss.on("connection", async (ws) => {
       aiOpinion, deal.id
     ];
 
-    // BACKGROUND WRITE: We do NOT await this.
     pool.query(sqlQuery, sqlParams)
         .then(() => console.log(`✅ Atomic Save (Background): ${deal.account_name}`))
         .catch(err => console.error("❌ Background Save Error:", err));
@@ -214,9 +233,11 @@ wss.on("connection", async (ws) => {
     Object.assign(deal, args); 
     openAiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: callId, output: JSON.stringify({ status: "success" }) } }));
     
-    // FORCE SPEECH: Don't wait for silence, start generating the next question now.
+    // FORCE SPEECH
     openAiWs.send(JSON.stringify({ type: "response.create" })); 
-  };  // 2. THE EAR (CRASH PROOF + DIGITAL TRIGGER)
+  };
+
+// 2. THE EAR (CRASH PROOF + DIGITAL TRIGGER)
   openAiWs.on("message", (data) => {
     try {
       const response = JSON.parse(data);
@@ -233,42 +254,51 @@ wss.on("connection", async (ws) => {
           console.log("🚀 Digital Trigger Detected. Moving to next deal...");
           currentDealIndex++;
 
-          // CHECK: Are there more deals?
           if (currentDealIndex < dealQueue.length) {
               const nextDeal = dealQueue[currentDealIndex];
               console.log(`👉 Swapping Context to: ${nextDeal.account_name}`);
               
-              // RE-GENERATE PROMPT FOR NEW DEAL
+              // RE-GENERATE PROMPT FOR THE NEW DEAL
               const newInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - 1 - currentDealIndex, dealQueue.length);
               
-              // UPDATE SESSION
+              // UPDATE THE AI BRAIN
               openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: newInstructions } }));
               
-              // TRIGGER AI TO SPEAK NEW OPENING
-              setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
+              // MAKE AI SPEAK IMMEDIATELY
+              setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 400);
           } else {
               console.log("🏁 All deals done.");
           }
         }
       }
 
-      // 4. AUDIO RELAY (Keep this!)
+    // 4. AUDIO RELAY (Keep this!)
       if (response.type === "response.audio.delta" && response.delta && streamSid) {
           ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
       }
     } catch (err) { console.error("❌ OpenAI Message Error:", err); }
   });
-  // 3. LAUNCHER
+// 3. LAUNCHER
   const attemptLaunch = async () => {
     if (!repName || !openAiReady) return; 
     
     try {
-      const result = await pool.query(`SELECT o.*, org.product_truths AS org_product_data FROM opportunities o JOIN organizations org ON o.org_id = org.id WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') ORDER BY o.id ASC`, [orgId]);
+      // SURGICAL FIX: Added 'AND o.rep_name = $2' to the WHERE clause
+      const result = await pool.query(
+        `SELECT o.*, org.product_truths AS org_product_data 
+         FROM opportunities o 
+         JOIN organizations org ON o.org_id = org.id 
+         WHERE o.org_id = $1 
+         AND o.rep_name = $2 
+         AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') 
+         ORDER BY o.id ASC`, 
+        [orgId, repName] // Pass repName as the second parameter
+      );
+      
       dealQueue = result.rows;
       console.log(`📊 Loaded ${dealQueue.length} deals for ${repName}`);
       if (dealQueue.length > 0) console.log(`👉 Starting with: ${dealQueue[0].account_name} (ID: ${dealQueue[0].id})`);
     } catch (err) { console.error("❌ DB Error:", err.message); }
-
     if (dealQueue.length > 0) {
       const firstDeal = dealQueue[0];
       const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
@@ -301,14 +331,6 @@ wss.on("connection", async (ws) => {
       setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
     }
   };
-
-  openAiWs.on("open", () => {
-    console.log("📡 OpenAI Connected");
-    openAiWs.send(JSON.stringify({ type: "session.update", session: { input_audio_format: "g711_ulaw", output_audio_format: "g711_ulaw", voice: "verse", turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 } } }));
-    openAiReady = true;
-    attemptLaunch(); 
-  });
-
   // 4. TWILIO LISTENER
   ws.on("message", (message) => {
     try {
