@@ -31,19 +31,23 @@ const pool = new Pool({
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// --- [BLOCK 3: SURGICAL SYSTEM PROMPT] ---
+// --- [BLOCK 3: SYSTEM PROMPT] ---
 function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
     const runCount = Number(deal.run_count) || 0;
     const isNewDeal = runCount === 0;
     const category = deal.forecast_stage || "Pipeline";
     const amountStr = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(deal.amount || 0);
 
-    // 1. DYNAMIC GAP FINDER
+    // 1. DYNAMIC GAP FINDER (Focus on Scores < 3)
     const scores = [
-        { name: 'Pain', val: deal.pain_score }, { name: 'Metrics', val: deal.metrics_score },
-        { name: 'Champion', val: deal.champion_score }, { name: 'Economic Buyer', val: deal.eb_score },
-        { name: 'Decision Criteria', val: deal.criteria_score }, { name: 'Decision Process', val: deal.process_score },
-        { name: 'Competition', val: deal.competition_score }, { name: 'Paper Process', val: deal.paper_score },
+        { name: 'Pain', val: deal.pain_score },
+        { name: 'Metrics', val: deal.metrics_score },
+        { name: 'Champion', val: deal.champion_score },
+        { name: 'Economic Buyer', val: deal.eb_score },
+        { name: 'Decision Criteria', val: deal.criteria_score },
+        { name: 'Decision Process', val: deal.process_score },
+        { name: 'Competition', val: deal.competition_score },
+        { name: 'Paper Process', val: deal.paper_score },
         { name: 'Timing', val: deal.timing_score }
     ];
     const firstGap = scores.find(s => (Number(s.val) || 0) < 3) || { name: 'Pain' };
@@ -55,7 +59,7 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
 
     return `
 ### ROLE & IDENTITY
-You are Matthew, a high-IQ MEDDPICC Auditor. You are an **Extractor**, not a Coach.
+You are Matthew, a high-IQ MEDDPICC Auditor. You are an **Extractor**, not a Coach. You extract evidence with surgical precision.
 
 ### MANDATORY OPENING
 You MUST open exactly with: "${openingLine}"
@@ -64,7 +68,7 @@ You MUST open exactly with: "${openingLine}"
 1. Ask ONE MEDDPICC-advancing question per turn.
 2. If the rep’s answer is unclear → ask ONE clarifying question. If still unclear → score low and move on.
 3. Never repeat or paraphrase the rep’s answer.
-4. Call 'save_deal_data' SILENTLY after EVERY category discussion.
+4. Call 'save_deal_data' SILENTLY after EVERY category discussion. Do not wait for the end.
 5. **PAIN summary is verbal ONLY if score < 3.** No other summaries are verbal.
 
 ### THE EXACT SCORING RUBRIC (0-3)
@@ -94,7 +98,7 @@ Say: "Okay, saved. Moving to the next deal."`;
 }
 
 // --- [BLOCK 4: SMART RECEPTIONIST LOGIC] ---
-// Defines the listener behavior, but waits for the connection to activate it
+// Restored to its own block. This logic handles the "Identity Check"
 const runSmartReceptionist = (ws, openAiWs, launchCallback) => {
     ws.on("message", (message) => {
         try {
@@ -106,7 +110,7 @@ const runSmartReceptionist = (ws, openAiWs, launchCallback) => {
                     const orgId = parseInt(params.org_id) || 1;
                     const repName = params.rep_name || "Guest";
                     console.log(`🔎 Smart Receptionist: Identified ${repName} (Org: ${orgId})`);
-                    launchCallback(orgId, repName); // Hand off to Core
+                    launchCallback(orgId, repName); 
                 }
             }
             // 2. PASS AUDIO TO MATTHEW
@@ -133,14 +137,13 @@ wss.on("connection", async (ws) => {
     headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "OpenAI-Beta": "realtime=v1" },
   });
 
-  // 1. THE MUSCLE: Atomic Save + Memory Merge
+  // 1. THE MUSCLE
   const handleFunctionCall = async (args, callId) => {
     console.log("🛠️ Tool Triggered: save_deal_data");
     try {
       const deal = dealQueue[currentDealIndex];
       if (!deal) return;
 
-      // A. Calculate Scores (For Forecast)
       const scores = [
         args.pain_score, args.metrics_score, args.champion_score, 
         args.eb_score, args.criteria_score, args.process_score, 
@@ -149,8 +152,6 @@ wss.on("connection", async (ws) => {
       const totalScore = scores.reduce((a, b) => a + (Number(b) || 0), 0);
       const aiOpinion = totalScore >= 21 ? "Commit" : totalScore >= 15 ? "Best Case" : "Pipeline";
 
-      // B. PREPARE DATA (Use Args -> Fallback to Local Memory)
-      // Note: "args.field ?? deal.field" preserves 0 values, avoiding overwrite bugs
       const sqlQuery = `UPDATE opportunities SET 
           pain_score=$1, pain_tip=$2, pain_summary=$3, metrics_score=$4, metrics_tip=$5, metrics_summary=$6,
           champion_score=$7, champion_tip=$8, champion_summary=$9, eb_score=$10, eb_tip=$11, eb_summary=$12,
@@ -177,14 +178,10 @@ wss.on("connection", async (ws) => {
         aiOpinion, deal.id
       ];
 
-      // C. EXECUTE SAVE
       await pool.query(sqlQuery, sqlParams);
       console.log(`✅ Atomic Save: ${deal.account_name}`);
-
-      // D. MEMORY MERGE (Prevents Data Reversion)
-      Object.assign(deal, args); 
-
-      // E. HANDSHAKE
+      Object.assign(deal, args); // MEMORY MERGE
+      
       openAiWs.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: callId, output: JSON.stringify({ status: "success" }) } }));
     } catch (err) { console.error("❌ Atomic Save Error:", err); }
   };
@@ -197,7 +194,6 @@ wss.on("connection", async (ws) => {
         const args = JSON.parse(response.arguments);
         handleFunctionCall(args, response.call_id);
       }
-      // 3. INDEX ADVANCER (Listens for Exit Phrase)
       if (response.type === "response.done") {
         const transcript = response.response.output[0]?.content[0]?.transcript || "";
         if (transcript.includes("Moving to the next deal") || transcript.includes("concludes our review")) {
@@ -213,7 +209,7 @@ wss.on("connection", async (ws) => {
 
   // 3. LAUNCHER
   const attemptLaunch = async (id, name) => {
-    orgId = id; repName = name; // Update State
+    orgId = id; repName = name; 
     if (!openAiReady) return; 
     
     try {
@@ -259,7 +255,7 @@ wss.on("connection", async (ws) => {
     console.log("📡 OpenAI Connected");
     openAiWs.send(JSON.stringify({ type: "session.update", session: { input_audio_format: "g711_ulaw", output_audio_format: "g711_ulaw", voice: "verse", turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 1000 } } }));
     openAiReady = true;
-    if(repName) attemptLaunch(orgId, repName); // Retry if Receptionist was faster
+    if(repName) attemptLaunch(orgId, repName); 
   });
 
   // 4. ACTIVATE RECEPTIONIST
@@ -279,6 +275,17 @@ app.get("/debug/opportunities", async (req, res) => {
     res.json(result.rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-// --- [BLOCK X: TWILIO ENTRY POINT (THE MISSING LINK)] --- app.post("/agent", (req, res) => { res.type("xml"); res.send(` <Response> <Connect> <Stream url="wss://${req.get("host")}/" /> </Connect> </Response> `);
- });
+
+// --- [BLOCK X: TWILIO ENTRY POINT] ---
+app.post("/agent", (req, res) => {
+  res.type("xml");
+  res.send(`
+    <Response>
+      <Connect>
+        <Stream url="wss://${req.get("host")}/" />
+      </Connect>
+    </Response>
+  `);
+});
+
 server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`));
