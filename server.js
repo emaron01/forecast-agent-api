@@ -273,16 +273,18 @@ async function saveWithRetry(dealIndex, transcript, retries = 3, delayMs = 500) 
   }
   console.error("❌ All save attempts failed for this turn.");
   return false;
+  }
 }
-
 // 3. INDEX ADVANCER (CONTEXT SWITCHING)
 if (response.type === "response.done") {
 
+  // 🚧 HARD GATE: ignore model self-talk / nudges
   if (!lastTurnWasHuman) {
     console.log("⛔ Ignoring non-human response.done");
     return;
   }
 
+  // reset for next turn
   lastTurnWasHuman = false;
 
   const transcript = (
@@ -294,10 +296,15 @@ if (response.type === "response.done") {
 
   console.log("📝 FINAL TRANSCRIPT:", transcript);
 
-  // ✅ SAVE ON EVERY HUMAN TURN WITH RETRY
-  saveWithRetry(currentDealIndex, transcript);
+  // ✅ SAVE ON EVERY HUMAN TURN
+  try {
+    save_deal_data(currentDealIndex, transcript);
+    console.log("💾 Deal data saved successfully.");
+  } catch (err) {
+    console.error("❌ Save failed:", err);
+  }
 
-  // ✅ ONLY advance on explicit digital trigger
+  // ✅ ONLY advance when the explicit digital trigger is spoken
   if (transcript.includes("NEXT_DEAL_TRIGGER")) {
     console.log("🚀 Digital Trigger Detected. Moving to next deal...");
     currentDealIndex++;
@@ -311,11 +318,13 @@ if (response.type === "response.done") {
         dealQueue.length
       );
 
+      // update context
       openAiWs.send(JSON.stringify({
         type: "session.update",
         session: { instructions: newInstructions }
       }));
 
+      // force next opening
       setTimeout(() => {
         openAiWs.send(JSON.stringify({ type: "response.create" }));
         console.log("👉 Context Swapped & AI Nudged");
@@ -328,6 +337,7 @@ if (response.type === "response.done") {
 ws.on("message", (message) => {
   try {
     const msg = JSON.parse(message);
+
     if (msg.event === "start") {
       streamSid = msg.start.streamSid;
       const params = msg.start.customParameters;
@@ -335,22 +345,25 @@ ws.on("message", (message) => {
         orgId = parseInt(params.org_id) || 1;
         repName = params.rep_name || "Guest";
         console.log(`🔎 Identified ${repName}`);
-        attemptLaunch(); 
+        attemptLaunch();
       }
     }
+
     if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
-      // mark human turn active
+      // ✅ TWEAK: mark that a human turn is active
       lastTurnWasHuman = true;
       openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
     }
-  } catch (err) { console.error("❌ Twilio Error:", err); }
+
+  } catch (err) {
+    console.error("❌ Twilio Error:", err);
+  }
 });
 
 ws.on("close", () => {
   console.log("🔌 Call Closed.");
   if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
 });
-
 // 3. LAUNCHER
   const attemptLaunch = async () => {
     if (!repName || !openAiReady) return; 
