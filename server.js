@@ -250,14 +250,16 @@ wss.on("connection", async (ws) => {
       }
     }, 200);
 };
-// 2. THE EAR (CRASH PROOF + DIGITAL TRIGGER)
+// --- [BLOCK 2: THE EAR + FUNCTION CALL HANDLER] ---
 openAiWs.on("message", (data) => {
   try {
     const response = JSON.parse(data);
+
+    // Handle function call arguments
     if (response.type === "response.function_call_arguments.done") {
       const args = JSON.parse(response.arguments);
       handleFunctionCall(args, response.call_id); // 🛠️ Tool Triggered
-    } // <-- THIS WAS MISSING
+    }
 
     // You can handle other response types here if needed
 
@@ -265,7 +267,8 @@ openAiWs.on("message", (data) => {
     console.error("❌ OpenAI WS Error:", err);
   }
 });
-/// Helper: save with retries
+
+// --- Helper: save with retries ---
 async function saveWithRetry(dealIndex, transcript, retries = 3, delayMs = 500) {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -279,10 +282,10 @@ async function saveWithRetry(dealIndex, transcript, retries = 3, delayMs = 500) 
   }
   console.error("❌ All save attempts failed for this turn.");
   return false;
-} 
-// 3. INDEX ADVANCER (CONTEXT SWITCHING)
-if (response.type === "response.done") {
+}
 
+// --- [BLOCK 3: INDEX ADVANCER / CONTEXT SWITCHING] ---
+if (response.type === "response.done") {
   // 🚧 HARD GATE: ignore model self-talk / nudges
   if (!lastTurnWasHuman) {
     console.log("⛔ Ignoring non-human response.done");
@@ -338,7 +341,7 @@ if (response.type === "response.done") {
   }
 }
 
-// 4. AUDIO RELAY (Keep this!)
+// --- [BLOCK 4: AUDIO RELAY / TWILIO LISTENER] ---
 ws.on("message", (message) => {
   try {
     const msg = JSON.parse(message);
@@ -355,9 +358,16 @@ ws.on("message", (message) => {
     }
 
     if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
-      // ✅ TWEAK: mark that a human turn is active
-      lastTurnWasHuman = true;
       openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
+
+      // ✅ HUMAN SPEAKING DETECTED: mark turn as human
+      lastTurnWasHuman = true;
+      console.log("🗣️ Human turn detected, ready for AI response");
+    }
+
+    if (msg.event === "end") {
+      lastTurnWasHuman = true;
+      console.log("🗣️ Human turn ended, ready for AI response");
     }
 
   } catch (err) {
@@ -369,60 +379,68 @@ ws.on("close", () => {
   console.log("🔌 Call Closed.");
   if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
 });
-// 3. LAUNCHER
-  const attemptLaunch = async () => {
-    if (!repName || !openAiReady) return; 
-    
-    try {
-      // SURGICAL FIX: Added 'AND o.rep_name = $2' to the WHERE clause
-      const result = await pool.query(
-        `SELECT o.*, org.product_truths AS org_product_data 
-         FROM opportunities o 
-         JOIN organizations org ON o.org_id = org.id 
-         WHERE o.org_id = $1 
-         AND o.rep_name = $2 
-         AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') 
-         ORDER BY o.id ASC`, 
-        [orgId, repName] // Pass repName as the second parameter
-      );
-      
-      dealQueue = result.rows;
-      console.log(`📊 Loaded ${dealQueue.length} deals for ${repName}`);
-      if (dealQueue.length > 0) console.log(`👉 Starting with: ${dealQueue[0].account_name} (ID: ${dealQueue[0].id})`);
-    } catch (err) { console.error("❌ DB Error:", err.message); }
-    if (dealQueue.length > 0) {
-      const firstDeal = dealQueue[0];
-      const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
-      openAiWs.send(JSON.stringify({
-        type: "session.update",
-        session: { 
-            instructions, 
-            tools: [{ 
-              type: "function", name: "save_deal_data", 
-              description: "DYNAMIC SAVE: Call this immediately after every category update. Don't wait.", 
-              parameters: { 
-                type: "object", 
-                properties: { 
-                    pain_score: { type: "number" }, pain_summary: { type: "string" }, pain_tip: { type: "string" },
-                    metrics_score: { type: "number" }, metrics_summary: { type: "string" }, metrics_tip: { type: "string" },
-                    champion_score: { type: "number" }, champion_summary: { type: "string" }, champion_tip: { type: "string" }, champion_name: { type: "string" }, champion_title: { type: "string" },
-                    eb_score: { type: "number" }, eb_summary: { type: "string" }, eb_tip: { type: "string" }, eb_name: { type: "string" }, eb_title: { type: "string" },
-                    criteria_score: { type: "number" }, criteria_summary: { type: "string" }, criteria_tip: { type: "string" },
-                    process_score: { type: "number" }, process_summary: { type: "string" }, process_tip: { type: "string" },
-                    competition_score: { type: "number" }, competition_summary: { type: "string" }, competition_tip: { type: "string" },
-                    paper_score: { type: "number" }, paper_summary: { type: "string" }, paper_tip: { type: "string" },
-                    timing_score: { type: "number" }, timing_summary: { type: "string" }, timing_tip: { type: "string" },
-                    risk_summary: { type: "string" }, next_steps: { type: "string" }, rep_comments: { type: "string" }
-                }, 
-                required: ["risk_summary"] 
-              } 
-            }] 
-        }
-      }));
-      setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
-    }
-  };
 
+// --- [BLOCK 5: ATTEMPT LAUNCH] ---
+const attemptLaunch = async () => {
+  if (!repName || !openAiReady) return;
+
+  try {
+    const result = await pool.query(
+      `SELECT o.*, org.product_truths AS org_product_data
+       FROM opportunities o
+       JOIN organizations org ON o.org_id = org.id
+       WHERE o.org_id = $1 AND o.rep_name = $2
+         AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost')
+       ORDER BY o.id ASC`,
+      [orgId, repName]
+    );
+
+    dealQueue = result.rows;
+    console.log(`📊 Loaded ${dealQueue.length} deals for ${repName}`);
+    if (dealQueue.length > 0)
+      console.log(`👉 Starting with: ${dealQueue[0].account_name} (ID: ${dealQueue[0].id})`);
+
+  } catch (err) {
+    console.error("❌ DB Error:", err.message);
+  }
+
+  if (dealQueue.length > 0) {
+    const firstDeal = dealQueue[0];
+    const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
+
+    openAiWs.send(JSON.stringify({
+      type: "session.update",
+      session: {
+        instructions,
+        tools: [{
+          type: "function",
+          name: "save_deal_data",
+          description: "DYNAMIC SAVE: Call this immediately after every category update. Don't wait.",
+          parameters: {
+            type: "object",
+            properties: {
+              pain_score: { type: "number" }, pain_summary: { type: "string" }, pain_tip: { type: "string" },
+              metrics_score: { type: "number" }, metrics_summary: { type: "string" }, metrics_tip: { type: "string" },
+              champion_score: { type: "number" }, champion_summary: { type: "string" }, champion_tip: { type: "string" },
+              champion_name: { type: "string" }, champion_title: { type: "string" },
+              eb_score: { type: "number" }, eb_summary: { type: "string" }, eb_tip: { type: "string" },
+              eb_name: { type: "string" }, eb_title: { type: "string" },
+              criteria_score: { type: "number" }, criteria_summary: { type: "string" }, criteria_tip: { type: "string" },
+              process_score: { type: "number" }, process_summary: { type: "string" }, process_tip: { type: "string" },
+              competition_score: { type: "number" }, competition_summary: { type: "string" }, competition_tip: { type: "string" },
+              paper_score: { type: "number" }, paper_summary: { type: "string" }, paper_tip: { type: "string" },
+              timing_score: { type: "number" }, timing_summary: { type: "string" }, timing_tip: { type: "string" },
+              risk_summary: { type: "string" }, next_steps: { type: "string" }, rep_comments: { type: "string" }
+            },
+            required: ["risk_summary"]
+          }
+        }]
+      }
+    }));
+
+    setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
+  }
+};
 // 4. TWILIO LISTENER
 ws.on("message", (message) => {
   try {
