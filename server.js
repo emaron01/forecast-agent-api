@@ -256,9 +256,15 @@ wss.on("connection", async (ws) => {
       const response = JSON.parse(data);
       if (response.type === "response.function_call_arguments.done") {
         const args = JSON.parse(response.arguments);
-        handleFunctionCall(args, response.call_id); // This is what triggers the log "🛠️ Tool Triggered"
-      }      
-}
+        handleFunctionCall(args, response.call_id); // 🛠️ Tool Triggered
+    }
+
+    // You can handle other response types here if needed
+  } catch (err) {
+    console.error("❌ OpenAI WS Error:", err);
+  }
+});
+
 /// Helper: save with retries
 async function saveWithRetry(dealIndex, transcript, retries = 3, delayMs = 500) {
   for (let attempt = 1; attempt <= retries; attempt++) {
@@ -273,8 +279,7 @@ async function saveWithRetry(dealIndex, transcript, retries = 3, delayMs = 500) 
   }
   console.error("❌ All save attempts failed for this turn.");
   return false;
-  }
-}
+} 
 // 3. INDEX ADVANCER (CONTEXT SWITCHING)
 if (response.type === "response.done") {
 
