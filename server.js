@@ -85,6 +85,7 @@ You MUST open exactly with: "${openingLine}"
 2. **DON'T BE SHY:** Even vague answers get a Score 1. 
 3. **MULTI-SAVE:** Update multiple categories in one tool call if mentioned.
 4. **SILENT AUDITOR:** Do NOT tell the user you are saving. Just do it in the background while asking the next question.
++5. **WAIT RULE:** If the user has not clearly answered, you MUST ask a clarifying question and STOP. Never invent, assume, or fill in missing information.
 
 **DO NOT** simply transcribe what they say. You must evaluate it.
 **DO NOT** read the score out loud. Save it silently.
@@ -108,12 +109,11 @@ You MUST open exactly with: "${openingLine}"
 - **POWER PLAYERS:** You MUST extract Name AND Title for Champion and Economic Buyer.
 
 ### COMPLETION PROTOCOL (STRICT)
++WHEN YOU SAY THE COMPLETION LINE, YOU MUST STOP SPEAKING AND WAIT.
++
 **ONLY** when you are ready to leave the deal:
 1. **CHECK:** Did I save the scores?
-2. **SAY:** "Health Score: [Sum]/27. Risk: [Top Risk]. NEXT_DEAL_TRIGGER."
-
-**CRITICAL:** You MUST say the exact phrase "NEXT_DEAL_TRIGGER" to advance to the next account.
-`;
+2. **SAY:** "Health Score: [Sum]/27. Risk: [Top Risk]. NEXT_DEAL_TRIGGER."`;
 }
 
 // --- [BLOCK 4: SMART RECEPTIONIST] ---
@@ -259,47 +259,98 @@ wss.on("connection", async (ws) => {
         handleFunctionCall(args, response.call_id); // This is what triggers the log "🛠️ Tool Triggered"
       }      
 
+// Helper: save with retries
+async function saveWithRetry(dealIndex, transcript, retries = 3, delayMs = 500) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      await save_deal_data(dealIndex, transcript);
+      console.log(`💾 Deal data saved successfully (Attempt ${attempt})`);
+      return true;
+    } catch (err) {
+      console.error(`❌ Save failed (Attempt ${attempt}):`, err);
+      if (attempt < retries) await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+  console.error("❌ All save attempts failed for this turn.");
+  return false;
+}
 
 // 3. INDEX ADVANCER (CONTEXT SWITCHING)
-      if (response.type === "response.done") {
-        const transcript = (
-  response.response?.output
-    ?.flatMap(o => o.content || [])
-    ?.map(c => c.transcript || c.text || "")
-    ?.join(" ")
-) || "";
-// 👇 ADD THIS LINE RIGHT HERE
+if (response.type === "response.done") {
+
+  if (!lastTurnWasHuman) {
+    console.log("⛔ Ignoring non-human response.done");
+    return;
+  }
+
+  lastTurnWasHuman = false;
+
+  const transcript = (
+    response.response?.output
+      ?.flatMap(o => o.content || [])
+      ?.map(c => c.transcript || c.text || "")
+      ?.join(" ")
+  ) || "";
+
   console.log("📝 FINAL TRANSCRIPT:", transcript);
 
-        // SAFETY: If the AI stops talking and didn't trigger a move, give it a nudge
-        if (!transcript && response.response?.status === "completed") {
-           console.log("Empty response detected, nudging AI...");
-           openAiWs.send(JSON.stringify({ type: "response.create" }));
-        }
+  // ✅ SAVE ON EVERY HUMAN TURN WITH RETRY
+  saveWithRetry(currentDealIndex, transcript);
 
-        if (transcript.includes("NEXT_DEAL_TRIGGER")) {
-          console.log("🚀 Digital Trigger Detected. Moving to next deal...");
-          currentDealIndex++;
+  // ✅ ONLY advance on explicit digital trigger
+  if (transcript.includes("NEXT_DEAL_TRIGGER")) {
+    console.log("🚀 Digital Trigger Detected. Moving to next deal...");
+    currentDealIndex++;
 
-          if (currentDealIndex < dealQueue.length) {
-              const nextDeal = dealQueue[currentDealIndex];
-              const newInstructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - 1 - currentDealIndex, dealQueue.length);
-              
-              // UPDATE AND FORCE SPEECH
-              openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions: newInstructions } }));
-              setTimeout(() => {
-                openAiWs.send(JSON.stringify({ type: "response.create" }));
-                console.log("👉 Context Swapped & AI Nudged");
-              }, 500);
-          }
-        }
+    if (currentDealIndex < dealQueue.length) {
+      const nextDeal = dealQueue[currentDealIndex];
+      const newInstructions = getSystemPrompt(
+        nextDeal,
+        repName.split(" ")[0],
+        dealQueue.length - 1 - currentDealIndex,
+        dealQueue.length
+      );
+
+      openAiWs.send(JSON.stringify({
+        type: "session.update",
+        session: { instructions: newInstructions }
+      }));
+
+      setTimeout(() => {
+        openAiWs.send(JSON.stringify({ type: "response.create" }));
+        console.log("👉 Context Swapped & AI Nudged");
+      }, 500);
+    }
+  }
+}
+
+// 4. AUDIO RELAY (Keep this!)
+ws.on("message", (message) => {
+  try {
+    const msg = JSON.parse(message);
+    if (msg.event === "start") {
+      streamSid = msg.start.streamSid;
+      const params = msg.start.customParameters;
+      if (params) {
+        orgId = parseInt(params.org_id) || 1;
+        repName = params.rep_name || "Guest";
+        console.log(`🔎 Identified ${repName}`);
+        attemptLaunch(); 
       }
-    // 4. AUDIO RELAY (Keep this!)
-      if (response.type === "response.audio.delta" && response.delta && streamSid) {
-          ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
-      }
-    } catch (err) { console.error("❌ OpenAI Message Error:", err); }
-  });
+    }
+    if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
+      // mark human turn active
+      lastTurnWasHuman = true;
+      openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
+    }
+  } catch (err) { console.error("❌ Twilio Error:", err); }
+});
+
+ws.on("close", () => {
+  console.log("🔌 Call Closed.");
+  if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
+});
+
 // 3. LAUNCHER
   const attemptLaunch = async () => {
     if (!repName || !openAiReady) return; 
@@ -353,30 +404,45 @@ wss.on("connection", async (ws) => {
       setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
     }
   };
-  // 4. TWILIO LISTENER
-  ws.on("message", (message) => {
-    try {
-      const msg = JSON.parse(message);
-      if (msg.event === "start") {
-        streamSid = msg.start.streamSid;
-        const params = msg.start.customParameters;
-        if (params) {
-          orgId = parseInt(params.org_id) || 1;
-          repName = params.rep_name || "Guest";
-          console.log(`🔎 Identified ${repName}`);
-          attemptLaunch(); 
-        }
-      }
-      if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
-        openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
-      }
-    } catch (err) { console.error("❌ Twilio Error:", err); }
-  });
 
-  ws.on("close", () => {
-    console.log("🔌 Call Closed.");
-    if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
-  });
+// 4. TWILIO LISTENER
+ws.on("message", (message) => {
+  try {
+    const msg = JSON.parse(message);
+
+    if (msg.event === "start") {
+      streamSid = msg.start.streamSid;
+      const params = msg.start.customParameters;
+      if (params) {
+        orgId = parseInt(params.org_id) || 1;
+        repName = params.rep_name || "Guest";
+        console.log(`🔎 Identified ${repName}`);
+        attemptLaunch(); 
+      }
+    }
+
+    if (msg.event === "media" && openAiWs.readyState === WebSocket.OPEN) {
+      openAiWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: msg.media.payload }));
+
+      // ✅ HUMAN SPEAKING DETECTED: mark turn as human
+      lastTurnWasHuman = true;
+      console.log("🗣️ Human turn detected, ready for AI response");
+    }
+
+    // Optional: if your Twilio stream sends an explicit 'end' event
+    if (msg.event === "end") {
+      lastTurnWasHuman = true;
+      console.log("🗣️ Human turn ended, ready for AI response");
+    }
+
+  } catch (err) {
+    console.error("❌ Twilio Error:", err);
+  }
+});
+
+ws.on("close", () => {
+  console.log("🔌 Call Closed.");
+  if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
 });
 
 // --- [BLOCK 6: API ENDPOINTS] ---
