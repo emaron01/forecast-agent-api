@@ -93,11 +93,12 @@ app.post("/agent", async (req, res) => {
   }
 });
 
+
 // --- [BLOCK 5: WEBSOCKET CORE] ---
 wss.on("connection", async (ws) => {
   console.log("🔥 Twilio WebSocket connected");
 
-  // Local State
+  // --- Local State ---
   let streamSid = null;
   let dealQueue = [];
   let currentDealIndex = 0;
@@ -105,27 +106,33 @@ wss.on("connection", async (ws) => {
   let orgId = 1;
   let openAiReady = false;
 
+  // --- Connect to OpenAI Realtime ---
   const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
-    headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "OpenAI-Beta": "realtime=v1" },
+    headers: { 
+      Authorization: `Bearer ${OPENAI_API_KEY}`, 
+      "OpenAI-Beta": "realtime=v1" 
+    },
   });
 
-  // --- OpenAI connection
+  // --- OpenAI connection ---
   openAiWs.on("open", () => {
     console.log("📡 OpenAI Connected");
     openAiReady = true;
     attemptLaunch();
   });
 
-  // --- Handle incoming OpenAI messages
+  // --- Handle incoming OpenAI messages ---
   openAiWs.on("message", (data) => {
     try {
       const response = JSON.parse(data);
 
+      // --- Function calls from AI ---
       if (response.type === "response.function_call_arguments.done") {
         const args = JSON.parse(response.arguments);
-        handleFunctionCall(args, response.call_id); // calls muscle.js
+        handleFunctionCall(args, response.call_id); // muscle.js
       }
 
+      // --- Final AI response ---
       if (response.type === "response.done") {
         const transcript = (response.response?.output?.flatMap(o => o.content || []).map(c => c.transcript || c.text || "") || []).join(" ");
         console.log("📝 FINAL TRANSCRIPT:", transcript);
@@ -134,19 +141,70 @@ wss.on("connection", async (ws) => {
           currentDealIndex++;
           if (currentDealIndex < dealQueue.length) {
             const nextDeal = dealQueue[currentDealIndex];
-            const instructions = getSystemPrompt(nextDeal, repName.split(" ")[0], dealQueue.length - 1 - currentDealIndex, dealQueue.length);
+            const instructions = getSystemPrompt(
+              nextDeal, 
+              repName?.split(" ")[0] || "Rep", 
+              dealQueue.length - 1 - currentDealIndex, 
+              dealQueue.length
+            );
             openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions } }));
             setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
           }
         }
       }
 
+      // --- Audio streaming to Twilio ---
       if (response.type === "response.audio.delta" && response.delta && streamSid) {
-        ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
+        ws.send(JSON.stringify({ 
+          event: "media", 
+          streamSid, 
+          media: { payload: response.delta, encoding: "g711_ulaw" } 
+        }));
       }
 
-    } catch (err) { console.error("❌ OpenAI Message Error:", err); }
+    } catch (err) { 
+      console.error("❌ OpenAI Message Error:", err); 
+    }
   });
+
+  // --- Twilio WebSocket: incoming audio ---
+  ws.on("message", async (msg) => {
+    const event = JSON.parse(msg);
+
+    // --- Incoming audio from Twilio ---
+    if (event.event === "media" && openAiReady) {
+      openAiWs.send(JSON.stringify({
+        type: "input_audio_buffer.append",
+        audio: event.media.payload,
+        encoding: "g711_ulaw"
+      }));
+    }
+
+    // --- Call start ---
+    if (event.event === "start") {
+      streamSid = event.start.streamSid;
+      repName = event.start.representativeName || null;
+      console.log(`📞 Incoming call: ${repName || "Unknown Rep"}`);
+    }
+
+    // --- Call end ---
+    if (event.event === "stop") {
+      if (openAiReady) {
+        openAiWs.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
+        openAiWs.send(JSON.stringify({ type: "response.create" }));
+      }
+      console.log("🔌 Call Closed.");
+    }
+  });
+
+  // --- Handle Twilio WS close/error ---
+  ws.on("close", () => {
+    console.log("⚠️ Twilio WebSocket closed");
+    if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
+  });
+
+  ws.on("error", (err) => console.error("❌ Twilio WS error:", err));
+});
 
   // --- Launch deals for rep
   const attemptLaunch = async () => {
@@ -215,4 +273,3 @@ app.get("/debug/opportunities", async (req, res) => {
 
 // --- START SERVER ---
 server.listen(PORT, () => console.log(`🚀 Matthew God-Mode Live on port ${PORT}`));
- 
