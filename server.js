@@ -76,7 +76,27 @@ app.post("/agent", async (req, res) => {
   }
 });
 
-// --- OPTIONAL DEBUG (remove later if you want)
+// ============================================================
+// DEBUG / DASHBOARD SUPPORT (READ-ONLY + LOCAL CORS)
+// Remove this entire block when you no longer need the local dashboard.
+// Allows browser dashboard at http://localhost:8080 to fetch from Render.
+// ============================================================
+
+app.use("/debug/opportunities", (req, res, next) => {
+  // Allow only localhost dashboard origins (any port)
+  const origin = req.headers.origin || "";
+  if (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
 app.get("/debug/opportunities", async (req, res) => {
   try {
     const orgId = parseInt(req.query.org_id, 10) || 1;
@@ -184,28 +204,11 @@ You are a **MEDDPICC Scorer**. Your job is to Listen, Judge, and Record.
 You MUST open exactly with: "${openingLine}"
 **CRITICAL:** Do NOT use the phrase "NEXT_DEAL_TRIGGER" in your opening line.
 
-### THE "DATA INTEGRITY" PROTOCOL (MANDATORY)
-1. **ACCOUNT IDENTITY IS SACROSANCT:** You are currently auditing {{account_name}}.
-2. **IGNORE LEGACY NOISE:** If existing notes mention a different company, disregard those names. Use ONLY the current {{account_name}}.
-3. **CONFLICT RESOLUTION:** If DB notes conflict with user's truth, overwrite notes with user's truth.
-4. **CLEANSE ON SAVE:** Every time you call 'save_deal_data', purge summaries and tips of legacy company names.
-
 ### THE "JUDGE & SAVE" PROTOCOL (STRICT)
 1. After every user response, you MUST call 'save_deal_data'.
 2. Even vague answers get a Score 1.
 3. Update multiple categories in one tool call if mentioned.
 4. Do NOT tell the user you are saving.
-
-### SCORING RUBRIC (EXACT DEFINITIONS)
-- PAIN: 0=None, 1=Vague, 2=Clear, 3=Quantified ($$$).
-- METRICS: 0=Unknown, 1=Soft, 2=Rep-defined, 3=Customer-validated.
-- CHAMPION: 0=None, 1=Coach, 2=Mobilizer, 3=Champion (Power).
-- EB: 0=Unknown, 1=Identified, 2=Indirect, 3=Direct relationship.
-- CRITERIA: 0=Unknown, 1=Vague, 2=Defined, 3=Locked in favor.
-- PROCESS: 0=Unknown, 1=Assumed, 2=Understood, 3=Documented.
-- COMPETITION: 0=Unknown, 1=Assumed, 2=Identified, 3=Known edge.
-- PAPER: 0=Unknown, 1=Not started, 2=Known Started, 3=Waiting for Signature.
-- TIMING: 0=Unknown, 1=Assumed, 2=Flexible, 3=Real Consequence/Event.
 
 ### COMPLETION PROTOCOL (STRICT)
 ONLY when ready to leave the deal:
@@ -227,7 +230,6 @@ wss.on("connection", async (twilioWs) => {
 
   let openAiReady = false;
 
-  // Connect to OpenAI Realtime (MODEL_URL must be wss://.../v1/realtime)
   const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
     headers: {
       Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -248,7 +250,6 @@ wss.on("connection", async (twilioWs) => {
   openAiWs.on("open", () => {
     console.log("📡 OpenAI Connected");
 
-    // Session init: ulaw + voice + VAD
     openAiWs.send(JSON.stringify({
       type: "session.update",
       session: {
@@ -272,7 +273,6 @@ wss.on("connection", async (twilioWs) => {
     try {
       const response = JSON.parse(data);
 
-      // Tool call arguments (save_deal_data)
       if (response.type === "response.function_call_arguments.done") {
         const args = JSON.parse(response.arguments || "{}");
         const callId = response.call_id;
@@ -280,7 +280,7 @@ wss.on("connection", async (twilioWs) => {
         const deal = dealQueue[currentDealIndex];
         if (!deal) return;
 
-        // IMPORTANT: pass current deal context into muscle for safe saving
+        // Pass current deal context into muscle for safe saving
         handleFunctionCall({ ...args, _deal: deal }, callId);
 
         // Acknowledge tool output to keep the model flowing
@@ -293,11 +293,9 @@ wss.on("connection", async (twilioWs) => {
           },
         }));
 
-        // Force the model to speak
         openAiWs.send(JSON.stringify({ type: "response.create" }));
       }
 
-      // When a response completes, check for NEXT_DEAL_TRIGGER
       if (response.type === "response.done") {
         const transcript = (
           response.response?.output
@@ -362,7 +360,6 @@ wss.on("connection", async (twilioWs) => {
       }
 
       if (data.event === "media" && data.media?.payload && openAiReady) {
-        // IMPORTANT: Correct OpenAI Realtime input message
         openAiWs.send(JSON.stringify({
           type: "input_audio_buffer.append",
           audio: data.media.payload, // base64 g711_ulaw
@@ -383,11 +380,9 @@ wss.on("connection", async (twilioWs) => {
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
 
-  // Load deals + initialize the first instructions
   async function attemptLaunch() {
     if (!openAiReady || !repName) return;
 
-    // Only load once per call
     if (dealQueue.length === 0) {
       const result = await pool.query(
         `
