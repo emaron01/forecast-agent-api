@@ -1,4 +1,4 @@
-const { saveDealData } = require("./db");
+import { saveDealData } from "./db.js"; // note .js for ES modules
 
 // Score labels mapping
 const scoreLabels = {
@@ -15,15 +15,10 @@ const scoreLabels = {
 
 const categories = Object.keys(scoreLabels);
 
-/**
- * Handles a function call from the AI agent
- * @param {object} args - Scores and summaries sent from the agent
- * @param {string} callId - ID of the AI function call
- */
-async function handleFunctionCall(args, callId) {
+export async function handleFunctionCall(args, callId) {
   console.log("🛠️ Tool Triggered: save_deal_data");
 
-  const deal = args._deal || {}; // must pass current deal
+  const deal = args._deal || {};
   const currentAccount = deal.account_name || "Unknown Account";
 
   try {
@@ -64,5 +59,3 @@ async function handleFunctionCall(args, callId) {
     console.error("❌ Atomic save failed:", err);
   }
 }
-
-module.exports = { handleFunctionCall }; 
