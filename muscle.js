@@ -60,7 +60,7 @@ function computeAiForecast(totalScore) {
   return "Pipeline";
 }
 
-export async function handleFunctionCall(args, callId) {
+export async function handleFunctionCall(args /*, callId */) {
   console.log("🛠️ Tool Triggered: save_deal_data");
 
   const deal = args._deal || {};
@@ -70,6 +70,10 @@ export async function handleFunctionCall(args, callId) {
     const updates = { ...args };
     delete updates._deal;
 
+    // Defensive: never persist unknown keys
+    delete updates.call_id;
+    delete updates.type;
+
     // 1) Clamp any scores present (0-3)
     for (const cat of categories) {
       const k = `${cat}_score`;
@@ -78,15 +82,7 @@ export async function handleFunctionCall(args, callId) {
       }
     }
 
-    // 2) Enforce account name safety in summaries (optional)
-    for (const cat of categories) {
-      const k = `${cat}_summary`;
-      if (typeof updates[k] === "string" && updates[k].includes("Acme Corp")) {
-        updates[k] = updates[k].replace(/Acme Corp/g, currentAccount);
-      }
-    }
-
-    // 3) Apply "Label: evidence" formatting (ONLY if summary provided)
+    // 2) Apply "Label: evidence" formatting (ONLY if summary provided)
     for (const cat of categories) {
       const scoreK = `${cat}_score`;
       const summaryK = `${cat}_summary`;
@@ -99,7 +95,7 @@ export async function handleFunctionCall(args, callId) {
       else delete updates[summaryK]; // critical: do not overwrite DB summary
     }
 
-    // 4) Phantom AI stage (based on merged scores: update if score provided)
+    // 3) Phantom AI stage (based on merged scores)
     const mergedScores = categories.map((cat) => {
       const k = `${cat}_score`;
       const v = updates[k] !== undefined ? updates[k] : deal[k];
@@ -109,10 +105,12 @@ export async function handleFunctionCall(args, callId) {
     const totalScore = mergedScores.reduce((a, b) => a + b, 0);
     updates.ai_forecast = computeAiForecast(totalScore);
 
-    // 5) Save (db.js prevents blank overwrites + avoids deleting previous fields)
+    // 4) Save (db.js prevents blank overwrites + avoids deleting previous fields)
     const updatedDeal = await saveDealData(deal, updates);
 
-    console.log(`✅ Saved deal id=${updatedDeal.id} account="${currentAccount}" ai_forecast=${updatedDeal.ai_forecast} run_count=${updatedDeal.run_count}`);
+    console.log(
+      `✅ Saved deal id=${updatedDeal.id} account="${currentAccount}" ai_forecast=${updatedDeal.ai_forecast} run_count=${updatedDeal.run_count}`
+    );
     return updatedDeal;
   } catch (err) {
     console.error("❌ save_deal_data failed:", err?.message || err);
