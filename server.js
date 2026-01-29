@@ -1,9 +1,6 @@
-/// server.js (ES module)
+// server.js (ES module)
 /// Forecast Agent Conductor: Twilio <Stream> + OpenAI Realtime + deal queue + tool routing.
-/// Notes:
-/// - server.js is READ-ONLY to DB (writes happen in db.js via muscle.js)
-/// - Prompts live in getSystemPrompt() + tool schema below.
-/// - This version fixes: “goes dark after save”, score >3, response.create storms, duplicate saves.
+/// READ-ONLY to DB (writes happen in db.js via muscle.js)
 
 import express from "express";
 import http from "http";
@@ -17,8 +14,7 @@ import { handleFunctionCall } from "./muscle.js";
 /// ============================================================================
 const PORT = process.env.PORT || 10000;
 
-// IMPORTANT: MODEL_API_URL must be wss://api.openai.com/v1/realtime
-const MODEL_URL = process.env.MODEL_API_URL;
+const MODEL_URL = process.env.MODEL_API_URL;      // wss://api.openai.com/v1/realtime
 const MODEL_NAME = process.env.MODEL_NAME;
 const OPENAI_API_KEY = process.env.MODEL_API_KEY;
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -57,7 +53,7 @@ function compact(obj, keys) {
 }
 
 function computeFirstGap(deal) {
-  // deterministic order (fast review)
+  // first category with score < 3 (deterministic order)
   const scores = [
     { name: "Pain", key: "pain_score", val: deal.pain_score },
     { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
@@ -75,7 +71,6 @@ function computeFirstGap(deal) {
 
 function applyArgsToLocalDeal(deal, args) {
   // Keep local memory aligned with DB so gap logic stays stable.
-  // Only copy keys actually present.
   for (const [k, v] of Object.entries(args || {})) {
     if (v !== undefined) deal[k] = v;
   }
@@ -91,7 +86,7 @@ app.use(express.urlencoded({ extended: false })); // REQUIRED for Twilio
 app.get("/", (req, res) => res.send("✅ Forecast Agent API is alive!"));
 
 /// ============================================================================
-/// SECTION 5: TWILIO WEBHOOK (/agent) -> identify rep by caller phone -> TwiML WS
+/// SECTION 5: TWILIO WEBHOOK (/agent) -> identify rep by phone -> return TwiML
 /// ============================================================================
 app.post("/agent", async (req, res) => {
   try {
@@ -134,12 +129,13 @@ app.post("/agent", async (req, res) => {
 });
 
 /// ============================================================================
-/// SECTION 5B: DEBUG / DASHBOARD SUPPORT (READ-ONLY + LOCAL CORS)
+/// SECTION 6: DEBUG (optional) /debug/opportunities (read-only + local CORS)
 /// ============================================================================
 app.use("/debug/opportunities", (req, res, next) => {
   const origin = req.headers.origin || "";
   const isLocal =
-    origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:");
+    origin.startsWith("http://localhost:") ||
+    origin.startsWith("http://127.0.0.1:");
 
   if (isLocal) res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
@@ -155,11 +151,7 @@ app.get("/debug/opportunities", async (req, res) => {
     const orgId = parseInt(req.query.org_id, 10) || 1;
     const repName = req.query.rep_name || null;
 
-    let query = `
-      SELECT *
-      FROM opportunities
-      WHERE org_id = $1
-    `;
+    let query = `SELECT * FROM opportunities WHERE org_id = $1`;
     const params = [orgId];
 
     if (repName) {
@@ -178,16 +170,7 @@ app.get("/debug/opportunities", async (req, res) => {
 });
 
 /// ============================================================================
-/// SECTION 6: HTTP SERVER + WS SERVER
-/// ============================================================================
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
-console.log("🌐 WebSocket server created");
-
-/// ============================================================================
-/// SECTION 7: OpenAI TOOL SCHEMA (save_deal_data) — HARD SCORE GUARDRAILS
-/// - Integer + min/max prevents 5/7/8 scores
-/// - Do NOT require risk_summary (muscle.js computes deterministically)
+/// SECTION 7: OpenAI Tool Schema (save_deal_data) — HARD SCORE GUARDRAILS
 /// ============================================================================
 const scoreInt = { type: "integer", minimum: 0, maximum: 3 };
 
@@ -199,47 +182,19 @@ const saveDealDataTool = {
   parameters: {
     type: "object",
     properties: {
-      pain_score: scoreInt,
-      pain_summary: { type: "string" },
-      pain_tip: { type: "string" },
+      pain_score: scoreInt, pain_summary: { type: "string" }, pain_tip: { type: "string" },
+      metrics_score: scoreInt, metrics_summary: { type: "string" }, metrics_tip: { type: "string" },
+      champion_score: scoreInt, champion_summary: { type: "string" }, champion_tip: { type: "string" },
+      champion_name: { type: "string" }, champion_title: { type: "string" },
+      eb_score: scoreInt, eb_summary: { type: "string" }, eb_tip: { type: "string" },
+      eb_name: { type: "string" }, eb_title: { type: "string" },
+      criteria_score: scoreInt, criteria_summary: { type: "string" }, criteria_tip: { type: "string" },
+      process_score: scoreInt, process_summary: { type: "string" }, process_tip: { type: "string" },
+      competition_score: scoreInt, competition_summary: { type: "string" }, competition_tip: { type: "string" },
+      paper_score: scoreInt, paper_summary: { type: "string" }, paper_tip: { type: "string" },
+      timing_score: scoreInt, timing_summary: { type: "string" }, timing_tip: { type: "string" },
 
-      metrics_score: scoreInt,
-      metrics_summary: { type: "string" },
-      metrics_tip: { type: "string" },
-
-      champion_score: scoreInt,
-      champion_summary: { type: "string" },
-      champion_tip: { type: "string" },
-      champion_name: { type: "string" },
-      champion_title: { type: "string" },
-
-      eb_score: scoreInt,
-      eb_summary: { type: "string" },
-      eb_tip: { type: "string" },
-      eb_name: { type: "string" },
-      eb_title: { type: "string" },
-
-      criteria_score: scoreInt,
-      criteria_summary: { type: "string" },
-      criteria_tip: { type: "string" },
-
-      process_score: scoreInt,
-      process_summary: { type: "string" },
-      process_tip: { type: "string" },
-
-      competition_score: scoreInt,
-      competition_summary: { type: "string" },
-      competition_tip: { type: "string" },
-
-      paper_score: scoreInt,
-      paper_summary: { type: "string" },
-      paper_tip: { type: "string" },
-
-      timing_score: scoreInt,
-      timing_summary: { type: "string" },
-      timing_tip: { type: "string" },
-
-      // Optional; muscle.js may compute/overwrite deterministically anyway
+      // optional; muscle.js can compute deterministically if present/needed
       risk_summary: { type: "string" },
 
       next_steps: { type: "string" },
@@ -251,9 +206,6 @@ const saveDealDataTool = {
 
 /// ============================================================================
 /// SECTION 8: System Prompt Builder (getSystemPrompt)
-/// - New deals: do NOT ask “what changed since last review”
-/// - Existing deals: focus ONLY on categories < 3, deterministic ordering
-/// - Anti-chattiness: one sentence question only
 /// ============================================================================
 function getSystemPrompt(deal, repFirstName, dealsLeft, totalCount) {
   const runCount = Number(deal.run_count) || 0;
@@ -270,31 +222,27 @@ function getSystemPrompt(deal, repFirstName, dealsLeft, totalCount) {
   const isSessionStart = dealsLeft === totalCount - 1 || dealsLeft === totalCount;
 
   const firstGap = computeFirstGap(deal);
-
-  // Existing deal: "what changed" guardrail
-  const gapQuestion = isNewDeal
-    ? "What product are we selling and what specific customer challenge are we solving?"
-    : `Has anything changed since last review regarding ${firstGap.name}?`;
+  const gapQuestion = `Has anything changed since last review regarding ${firstGap.name}?`;
 
   let openingLine = "";
   if (isSessionStart) {
-    openingLine = `Hi ${repFirstName}. This is Matthew, your sales forecaster agent. Today we will review ${totalCount} opportunities, starting with ${deal.account_name}.`;
+    openingLine = `Hi ${repFirstName}. This is Matthew. We are reviewing ${totalCount} opportunities, starting with ${deal.account_name}.`;
   } else {
-    openingLine = `Okay, saved. Next deal: ${deal.account_name}.`;
+    openingLine = `Okay. Next deal: ${deal.account_name}.`;
   }
 
   if (isNewDeal) {
-    openingLine += ` It's in ${stage} for ${amountStr}, closing ${closeDateStr}.`;
+    // NEW DEAL: do NOT ask “since last review”
+    openingLine += ` It's in ${stage} for ${amountStr}, closing ${closeDateStr}. What product are we selling and what specific customer problem are we solving?`;
   } else {
     openingLine += ` It's in ${stage} for ${amountStr}.`;
   }
 
   return `
-### ROLE & IDENTITY
+### ROLE
 You are Matthew, a high-IQ MEDDPICC Auditor. You are an extractor, not a coach.
 
-### HARD CONTEXT (NON-NEGOTIABLE)
-You are auditing exactly:
+### HARD CONTEXT
 - DEAL_ID: ${deal.id}
 - ACCOUNT_NAME: ${deal.account_name}
 Never use any other company name unless the rep explicitly corrects the deal identity.
@@ -302,25 +250,23 @@ Never use any other company name unless the rep explicitly corrects the deal ide
 ### MANDATORY OPENING
 You MUST open exactly with: "${openingLine}"
 
-/// FLOW (FAST)
-- If the deal is NEW: establish baseline fast, then proceed to firstGap.
-- If the deal is NOT new: focus ONLY on categories with score < 3.
-Each turn:
-1) Ask ONE surgical question (gap-first).
-2) If unclear: ask ONE clarifier, then score low and move on.
-3) Call save_deal_data SILENTLY immediately.
-4) Move to the next category with score < 3.
-
-/// QUESTIONING RULE (MANDATORY)
-Your next question MUST be exactly:
-"${gapQuestion}"
-
-### STRICT COMMUNICATION RULES (ANTI-CHATTY)
-- Do NOT repeat or paraphrase what the rep said.
+### OUTPUT STYLE (ANTI-CHATTY)
+- Do NOT repeat or paraphrase the rep.
 - Do NOT ask what the rep would score.
-- Do NOT debate scores. You decide silently.
-- Spoken output should be ONLY: Question → (optional one clarifier) → next question.
-- Each spoken turn must be ONE sentence ending with a question mark.
+- Do NOT debate scores.
+- Spoken output must be ONLY a single question (one sentence ending with "?").
+- If unclear: ask ONE clarifier question, then move on.
+
+### SAVE-AS-YOU-GO (CRITICAL)
+After EVERY rep answer, you MUST call save_deal_data SILENTLY.
+- If nothing changed, still call save_deal_data with rep_comments="No change stated".
+- NEVER invent facts. Never overwrite evidence with blanks.
+
+### FLOW
+- If NEW DEAL: ask baseline MEDDPICC starter question(s) (but still save after each answer).
+- If NOT NEW: focus ONLY on categories with score < 3.
+- Ask about the first/lowest gap. Next question MUST be exactly:
+"${gapQuestion}"
 
 ### SCORING RUBRIC (0-3 ONLY)
 PAIN: 0=None, 1=Vague, 2=Clear, 3=Quantified ($$$).
@@ -333,11 +279,9 @@ COMPETITION: 0=Unknown, 1=Assumed, 2=Identified, 3=Known edge.
 PAPER: 0=Unknown, 1=Not started, 2=Known Started, 3=Waiting for Signature.
 TIMING: 0=Unknown, 1=Assumed, 2=Flexible, 3=Real Consequence/Event.
 
-### DATA EXTRACTION RULES
-- Summaries must be: "Label: evidence" (NO score numbers).
-  Example: "Customer-validated: Outages cost ~$2M per quarter."
-- Tips: one concrete next step to reach Score 3.
-- POWER PLAYERS: extract Name AND Title for Champion and Economic Buyer when relevant.
+### SUMMARY FORMAT
+Summaries MUST be: "Label: evidence" (NO score numbers).
+Example: "Customer-validated: Outages cost ~$2M per quarter."
 
 ### COMPLETION
 Only when ready to leave the deal:
@@ -347,10 +291,14 @@ You MUST say NEXT_DEAL_TRIGGER to advance.
 }
 
 /// ============================================================================
-/// SECTION 9: WebSocket Server (Twilio WS <-> OpenAI WS)
-/// - Fixes “goes dark after save” by POST-SAVE KICK
-/// - Includes SINGLE-NUDGE watchdog (no infinite loops)
-/// - Debounces speech_stopped storms
+/// SECTION 9: HTTP server + WS server
+/// ============================================================================
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
+console.log("🌐 WebSocket server created");
+
+/// ============================================================================
+/// SECTION 10: WebSocket Server (Twilio WS <-> OpenAI WS)
 /// ============================================================================
 wss.on("connection", async (twilioWs) => {
   console.log("🔥 Twilio WebSocket connected");
@@ -361,27 +309,13 @@ wss.on("connection", async (twilioWs) => {
 
   let dealQueue = [];
   let currentDealIndex = 0;
+
   let openAiReady = false;
 
-  // Debounce VAD speech_stopped
+  // minimal debouncing (no watchdog loops)
   let lastSpeechStoppedAt = 0;
-
-  // Model turn controls
-  let awaitingModel = false;       // guard against response.create storms
-  let sawToolCallThisTurn = false; // did save_deal_data fire for latest rep turn?
-  let lastUserSpeechAt = 0;
-  let saveNudgedThisTurn = false;  // watchdog only once per rep turn
-
-  // Duplicate-save suppression (prevents pain saved twice)
-  let lastSavedPrimaryKey = null;
-  let lastSavedAt = 0;
-
-  const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
-    headers: {
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-      "OpenAI-Beta": "realtime=v1",
-    },
-  });
+  let awaitingModel = false;
+  let sawToolCallSinceLastUserTurn = false;
 
   function safeSend(ws, payload) {
     try {
@@ -391,44 +325,19 @@ wss.on("connection", async (twilioWs) => {
     }
   }
 
-  function kickModel(reason = "kick") {
+  function kickModel(reason) {
     if (awaitingModel) return;
     awaitingModel = true;
     console.log(`⚡ response.create (${reason})`);
     safeSend(openAiWs, { type: "response.create" });
   }
 
-  function nudgeSaveOnce() {
-    if (saveNudgedThisTurn) return;
-    saveNudgedThisTurn = true;
-
-    const deal = dealQueue[currentDealIndex];
-    if (!deal) return;
-
-    console.warn(`🧯 SAVE WATCHDOG (single nudge): deal id=${deal.id} account="${deal.account_name}"`);
-
-    // Strong system instruction: call tool ONLY, no talk.
-    safeSend(openAiWs, {
-      type: "conversation.item.create",
-      item: {
-        type: "message",
-        role: "system",
-        content: [
-          {
-            type: "input_text",
-            text:
-              "CALL save_deal_data NOW for the CURRENT deal. " +
-              "DO NOT SPEAK. If nothing changed, save a minimal update: rep_comments='No change stated'. " +
-              "Scores must be integers 0-3 and do not overwrite existing evidence with blanks.",
-          },
-        ],
-      },
-    });
-
-    // allow + kick once
-    awaitingModel = false;
-    kickModel("save_watchdog_single_nudge");
-  }
+  const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      "OpenAI-Beta": "realtime=v1",
+    },
+  });
 
   openAiWs.on("error", (err) => {
     console.error("❌ OpenAI WebSocket error:", err?.message || err);
@@ -442,7 +351,6 @@ wss.on("connection", async (twilioWs) => {
   openAiWs.on("open", () => {
     console.log("📡 OpenAI Connected");
 
-    // Session init
     safeSend(openAiWs, {
       type: "session.update",
       session: {
@@ -471,20 +379,17 @@ wss.on("connection", async (twilioWs) => {
     }
     const response = parsed.json;
 
-    // VAD breadcrumbs + kick
+    // VAD
     if (response.type === "input_audio_buffer.speech_started") {
       console.log("🗣️ VAD: speech_started");
-      lastUserSpeechAt = Date.now();
-      sawToolCallThisTurn = false;
-      saveNudgedThisTurn = false;
-      // allow model to be kicked at speech_stopped
+      sawToolCallSinceLastUserTurn = false;
     }
 
     if (response.type === "input_audio_buffer.speech_stopped") {
       console.log("🗣️ VAD: speech_stopped");
 
       const now = Date.now();
-      if (now - lastSpeechStoppedAt < 700) return; // debounce
+      if (now - lastSpeechStoppedAt < 700) return;
       lastSpeechStoppedAt = now;
 
       awaitingModel = false;
@@ -492,7 +397,7 @@ wss.on("connection", async (twilioWs) => {
     }
 
     try {
-      // Tool call args complete
+      // Tool args done
       if (response.type === "response.function_call_arguments.done") {
         const callId = response.call_id;
 
@@ -508,54 +413,22 @@ wss.on("connection", async (twilioWs) => {
           return;
         }
 
-        sawToolCallThisTurn = true;
+        sawToolCallSinceLastUserTurn = true;
 
         console.log(
           `🧾 SAVE ROUTE dealIndex=${currentDealIndex}/${Math.max(dealQueue.length - 1, 0)} id=${deal.id} account="${deal.account_name}" callId=${callId}`
         );
         console.log("🔎 args keys:", Object.keys(argsParsed.json));
-        console.log(
-          "🔎 args preview:",
-          compact(argsParsed.json, [
-            "pain_score",
-            "metrics_score",
-            "champion_score",
-            "eb_score",
-            "criteria_score",
-            "process_score",
-            "competition_score",
-            "paper_score",
-            "timing_score",
-            "risk_summary",
-            "rep_comments",
-          ])
-        );
+        console.log("🔎 args preview:", compact(argsParsed.json, [
+          "pain_score","metrics_score","champion_score","eb_score",
+          "criteria_score","process_score","competition_score","paper_score","timing_score",
+          "risk_summary","rep_comments",
+        ]));
 
-        // Duplicate-save suppression (same primary key within 2s)
-        const keys = Object.keys(argsParsed.json || {});
-        const primary =
-          keys.find((k) => k.endsWith("_score")) ||
-          keys.find((k) => k.endsWith("_summary")) ||
-          keys.find((k) => k.endsWith("_tip")) ||
-          null;
+        await handleFunctionCall({ ...argsParsed.json, _deal: deal }, callId);
+        applyArgsToLocalDeal(deal, argsParsed.json);
 
-        const tnow = Date.now();
-        const dup = primary && primary === lastSavedPrimaryKey && tnow - lastSavedAt < 2000;
-
-        if (dup) {
-          console.warn(`⏭️ Duplicate save suppressed: ${primary}`);
-        } else {
-          lastSavedPrimaryKey = primary;
-          lastSavedAt = tnow;
-
-          // Save (muscle/db should clamp + protect against blank overwrites)
-          await handleFunctionCall({ ...argsParsed.json, _deal: deal }, callId);
-
-          // Keep local deal aligned so gap logic stays correct
-          applyArgsToLocalDeal(deal, argsParsed.json);
-        }
-
-        // Ack tool output so the model can proceed
+        // Ack tool output
         safeSend(openAiWs, {
           type: "conversation.item.create",
           item: {
@@ -565,14 +438,12 @@ wss.on("connection", async (twilioWs) => {
           },
         });
 
-        // ✅ POST-SAVE KICK (fixes “saved then went dark”)
-        if (streamSid) {
-          awaitingModel = false;
-          kickModel("post_tool_continue");
-        }
+        // IMPORTANT: keep the convo moving (prevents “saved then went dark”)
+        awaitingModel = false;
+        kickModel("post_tool_continue");
       }
 
-      // Response done: watchdog + deal switching
+      // response.done: allow next kick + handle NEXT_DEAL_TRIGGER
       if (response.type === "response.done") {
         awaitingModel = false;
 
@@ -583,14 +454,6 @@ wss.on("connection", async (twilioWs) => {
             .join(" ") || ""
         );
 
-        // If model responded after user speech but did NOT save, nudge exactly once
-        const spokeAfterUser = Date.now() - lastUserSpeechAt < 120000; // 2 minutes
-        if (spokeAfterUser && !sawToolCallThisTurn) {
-          nudgeSaveOnce();
-          return;
-        }
-
-        // Deal advance
         if (transcript.includes("NEXT_DEAL_TRIGGER")) {
           console.log("🚀 NEXT_DEAL_TRIGGER detected. Advancing deal...");
           currentDealIndex++;
@@ -618,15 +481,13 @@ wss.on("connection", async (twilioWs) => {
         }
       }
 
-      // Audio out (model -> Twilio)
+      // Audio out
       if (response.type === "response.audio.delta" && response.delta && streamSid) {
-        twilioWs.send(
-          JSON.stringify({
-            event: "media",
-            streamSid,
-            media: { payload: response.delta },
-          })
-        );
+        twilioWs.send(JSON.stringify({
+          event: "media",
+          streamSid,
+          media: { payload: response.delta },
+        }));
       }
     } catch (err) {
       console.error("❌ OpenAI Message Handler Error:", err);
@@ -634,7 +495,7 @@ wss.on("connection", async (twilioWs) => {
     }
   });
 
-  /// ---------------- Twilio inbound frames (rep audio) ----------------
+  /// ---------------- Twilio inbound frames ----------------
   twilioWs.on("message", async (msg) => {
     const parsed = safeJsonParse(msg);
     if (!parsed.ok) {
@@ -660,7 +521,7 @@ wss.on("connection", async (twilioWs) => {
       if (data.event === "media" && data.media?.payload && openAiReady) {
         safeSend(openAiWs, {
           type: "input_audio_buffer.append",
-          audio: data.media.payload, // base64 g711_ulaw
+          audio: data.media.payload,
         });
       }
 
@@ -682,7 +543,6 @@ wss.on("connection", async (twilioWs) => {
   async function attemptLaunch() {
     if (!openAiReady || !repName) return;
 
-    // Load once per call
     if (dealQueue.length === 0) {
       const result = await pool.query(
         `
@@ -729,7 +589,7 @@ wss.on("connection", async (twilioWs) => {
 });
 
 /// ============================================================================
-/// SECTION 10: START
+/// SECTION 11: START
 /// ============================================================================
 server.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT}`);
