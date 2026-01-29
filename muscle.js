@@ -49,24 +49,39 @@ function cleanseText(text, currentAccount) {
  * IMPORTANT: This function should ONLY be applied when evidence exists,
  * otherwise we preserve the existing DB summary (no overwrite).
  */
+/**
+ * Label format: "Label: evidence" (NO score numbers).
+ * IMPORTANT: Only apply when evidence exists; otherwise return undefined (no overwrite).
+ */
 function labelSummary(cat, score, summary) {
   const s = Number.isFinite(Number(score)) ? Number(score) : 0;
   const label = scoreLabels[cat]?.[s] ?? "Unknown";
 
   if (!summary || typeof summary !== "string") return undefined; // critical: don't overwrite
-  const cleaned = summary.trim();
+  let cleaned = summary.trim();
+  if (!cleaned) return undefined; // critical: don't overwrite
+
+  // ---- Strip common "Score X" / "(Score X)" / "Score X:" prefixes from older behavior ----
+  cleaned = cleaned
+    .replace(/^["']?score\s*\d+\s*[:\-–—]\s*/i, "")                  // Score 2: blah
+    .replace(/^\(?\s*score\s*\d+\s*\)?\s*[:\-–—]\s*/i, "")           // (Score 2): blah
+    .replace(/^score\s*\d+\s*/i, "")                                 // Score 2 blah
+    .trim();
 
   const lower = cleaned.toLowerCase();
   const labelLower = String(label).toLowerCase() + ":";
 
+  // If already correctly prefixed with the chosen label, keep it.
   if (lower.startsWith(labelLower)) return cleaned;
 
+  // If prefixed with ANY valid label already, keep it (do not relabel).
   const anyLabelPrefix = (scoreLabels[cat] || [])
     .filter(Boolean)
     .some((lbl) => lower.startsWith(String(lbl).toLowerCase() + ":"));
 
   if (anyLabelPrefix) return cleaned;
 
+  // Otherwise prefix with the computed label
   return `${label}: ${cleaned}`;
 }
 
