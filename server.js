@@ -1,19 +1,25 @@
-// server.js (ES module)
-// Conductor: Twilio + OpenAI Realtime session + deal queue + tool routing.
-// Uses muscle.js for scoring and db.js for persistence (via muscle).
+/// server.js (ES module)
+/// Forecast Agent Conductor: Twilio <Stream> + OpenAI Realtime + deal queue + tool routing.
+/// Notes:
+/// - server.js is READ-ONLY to DB (writes happen in db.js via muscle.js)
+/// - /debug/opportunities is for your local dashboard and can be removed later.
 
 import express from "express";
 import http from "http";
 import WebSocket, { WebSocketServer } from "ws";
 import { Pool } from "pg";
+
 import { handleFunctionCall } from "./muscle.js";
 
+/// ============================================================================
+/// CONFIG
+/// ============================================================================
 const PORT = process.env.PORT || 10000;
 
 // Render env vars
-const MODEL_URL = process.env.MODEL_API_URL;      // MUST be: wss://api.openai.com/v1/realtime
+const MODEL_URL = process.env.MODEL_API_URL;      // MUST be wss://api.openai.com/v1/realtime
 const MODEL_NAME = process.env.MODEL_NAME;        // Realtime model name
-const OPENAI_API_KEY = process.env.MODEL_API_KEY; // API key
+const OPENAI_API_KEY = process.env.MODEL_API_KEY; // OpenAI API key
 const DATABASE_URL = process.env.DATABASE_URL;
 
 if (!MODEL_URL || !MODEL_NAME || !OPENAI_API_KEY) {
@@ -23,14 +29,17 @@ if (!DATABASE_URL) {
   throw new Error("⚠️ DATABASE_URL must be set!");
 }
 
-// --- PostgreSQL (read-only in server.js; writes happen via muscle.js -> db.js)
+/// ============================================================================
+/// DB (read-only in server.js)
+/// ============================================================================
 const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
-// ----------------- Helpers -----------------
-
+/// ============================================================================
+/// HELPERS
+/// ============================================================================
 function safeJsonParse(data) {
   const s = Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
   try {
@@ -46,15 +55,35 @@ function compact(obj, keys) {
   return out;
 }
 
-// ----------------- Express server -----------------
+function computeFirstGap(deal) {
+  // lowest/first category with score < 3
+  const scores = [
+    { name: "Pain", key: "pain_score", val: deal.pain_score },
+    { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
+    { name: "Champion", key: "champion_score", val: deal.champion_score },
+    { name: "Economic Buyer", key: "eb_score", val: deal.eb_score },
+    { name: "Decision Criteria", key: "criteria_score", val: deal.criteria_score },
+    { name: "Decision Process", key: "process_score", val: deal.process_score },
+    { name: "Competition", key: "competition_score", val: deal.competition_score },
+    { name: "Paper Process", key: "paper_score", val: deal.paper_score },
+    { name: "Timing", key: "timing_score", val: deal.timing_score },
+  ];
 
+  return scores.find(s => (Number(s.val) || 0) < 3) || scores[0];
+}
+
+/// ============================================================================
+/// EXPRESS APP
+/// ============================================================================
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false })); // REQUIRED for Twilio
 
 app.get("/", (req, res) => res.send("✅ Forecast Agent API is alive!"));
 
-// --- SMART RECEPTIONIST: Twilio webhook -> returns TwiML that opens a WS audio stream
+/// ============================================================================
+/// TWILIO WEBHOOK: identify rep by caller phone -> return TwiML to open WS
+/// ============================================================================
 app.post("/agent", async (req, res) => {
   try {
     const callerPhone = req.body.From || null;
@@ -88,24 +117,25 @@ app.post("/agent", async (req, res) => {
        </Response>`
     );
   } catch (err) {
-    console.error("❌ /agent error:", err);
+    console.error("❌ /agent error:", err?.message || err);
     res.type("text/xml").send(
       `<Response><Connect><Stream url="wss://${req.headers.host}/" /></Connect></Response>`
     );
   }
 });
 
-// ============================================================
-// DEBUG / DASHBOARD SUPPORT (READ-ONLY + LOCAL CORS)
-// Remove this entire block when you no longer need the local dashboard.
-// Allows browser dashboards at http://localhost:* to fetch from Render.
-// ============================================================
-
+/// ============================================================================
+/// DEBUG / DASHBOARD SUPPORT (READ-ONLY + LOCAL CORS)
+/// - Lets your local browser dashboard call Render API without CORS blocking.
+/// - Remove later if you want.
+/// ============================================================================
 app.use("/debug/opportunities", (req, res, next) => {
   const origin = req.headers.origin || "";
-  if (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
+  const isLocal =
+    origin.startsWith("http://localhost:") ||
+    origin.startsWith("http://127.0.0.1:");
+
+  if (isLocal) res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -136,24 +166,26 @@ app.get("/debug/opportunities", async (req, res) => {
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
-    console.error("❌ /debug/opportunities error:", err);
+    console.error("❌ /debug/opportunities error:", err?.message || err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ----------------- HTTP server + WS server -----------------
-
+/// ============================================================================
+/// HTTP SERVER + WS SERVER
+/// ============================================================================
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 console.log("🌐 WebSocket server created");
 
-// ----------------- Tool schema (save_deal_data) -----------------
-
+/// ============================================================================
+/// TOOL SCHEMA (save_deal_data)
+/// ============================================================================
 const saveDealDataTool = {
   type: "function",
   name: "save_deal_data",
   description:
-    "Call immediately after every user response to save MEDDPICC updates. Do NOT invent facts.",
+    "Save MEDDPICC updates for the CURRENT deal only. Scores must be 0-3. Do not invent facts.",
   parameters: {
     type: "object",
     properties: {
@@ -176,9 +208,10 @@ const saveDealDataTool = {
   },
 };
 
-// ----------------- System prompt -----------------
-
-function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
+/// ============================================================================
+/// SYSTEM PROMPT (FAST / surgical / no coaching / no repetition)
+/// ============================================================================
+function getSystemPrompt(deal, repFirstName, dealsLeft, totalCount) {
   const runCount = Number(deal.run_count) || 0;
   const isNewDeal = runCount === 0;
 
@@ -189,63 +222,84 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
   }).format(deal.amount || 0);
 
   const closeDateStr = deal.close_date ? new Date(deal.close_date).toLocaleDateString() : "TBD";
+  const stage = deal.forecast_stage || "Pipeline";
+
   const isSessionStart = (dealsLeft === totalCount - 1) || (dealsLeft === totalCount);
 
-  const scores = [
-    { name: "Pain", val: deal.pain_score },
-    { name: "Metrics", val: deal.metrics_score },
-    { name: "Champion", val: deal.champion_score },
-    { name: "Economic Buyer", val: deal.eb_score },
-    { name: "Decision Criteria", val: deal.criteria_score },
-    { name: "Decision Process", val: deal.process_score },
-    { name: "Competition", val: deal.competition_score },
-    { name: "Paper Process", val: deal.paper_score },
-    { name: "Timing", val: deal.timing_score },
-  ];
-  const firstGap = scores.find(s => (Number(s.val) || 0) < 3) || { name: "Pain" };
+  const firstGap = computeFirstGap(deal);
+  const gapQuestion = `Has anything changed since last review regarding ${firstGap.name}?`;
 
   let openingLine = "";
   if (isSessionStart) {
-    openingLine = `Hi ${repName}. Matthew here. We're reviewing ${totalCount} deals. First up: ${deal.account_name}.`;
+    openingLine = `Hi ${repFirstName}. This is Matthew, your sales forecaster agent. Today we will review ${totalCount} opportunities, starting with ${deal.account_name}.`;
   } else {
-    openingLine = `Okay, saved. Next: ${deal.account_name}.`;
+    openingLine = `Okay, saved. Next deal: ${deal.account_name}.`;
   }
 
   if (isNewDeal) {
-    openingLine += ` ${amountStr}, closing ${closeDateStr}. New deal. What's the specific challenge we are solving?`;
+    openingLine += ` It's in ${stage} for ${amountStr}, closing ${closeDateStr}. Since this is new: what product are we selling and what specific challenge are we solving?`;
   } else {
-    openingLine += ` ${amountStr}. Last risk: "${deal.risk_summary || "None"}". Status on ${firstGap.name}?`;
+    openingLine += ` It's in ${stage} for ${amountStr}.`;
   }
 
   return `
-### ROLE
-You are a MEDDPICC Scorer. Listen, judge, and record.
+### ROLE & IDENTITY
+You are Matthew, a high-IQ MEDDPICC Auditor. You are an extractor, not a coach.
 
 ### HARD CONTEXT (NON-NEGOTIABLE)
 You are auditing exactly:
 - DEAL_ID: ${deal.id}
 - ACCOUNT_NAME: ${deal.account_name}
-
-You MUST NOT replace the account name unless the user explicitly says: "this deal is actually <X>".
-Otherwise, treat other company names as noise.
+Never use any other company name unless the rep explicitly corrects the deal identity.
 
 ### MANDATORY OPENING
 You MUST open exactly with: "${openingLine}"
-Do NOT say NEXT_DEAL_TRIGGER in the opening line.
 
-### SAVE-AS-YOU-GO RULE (STRICT)
-After every user response, you MUST call save_deal_data to store updated scores/summaries/tips.
-Do not invent facts. If unknown, score low and write "unknown".
+/// FLOW (FAST)
+You will focus ONLY on categories with score < 3.
+Each turn:
+1) Ask ONE surgical question about the lowest/first score < 3: “Has anything changed since last review regarding <CATEGORY>?”
+2) If unclear: ask ONE clarifier, then score low and move on.
+3) Call save_deal_data SILENTLY immediately.
+4) Move to the next lowest score < 3.
 
-### COMPLETION PROTOCOL
+/// QUESTIONING RULE (MANDATORY)
+Your next question MUST be exactly:
+"${gapQuestion}"
+
+### STRICT COMMUNICATION RULES (ANTI-CHATTY)
+- Do NOT repeat or paraphrase what the rep said (forbidden: “So you’re saying…”).
+- Do NOT ask what the rep would score.
+- Do NOT debate scores. You decide silently.
+- Spoken output should be ONLY: Question → (optional one clarifier) → next question.
+
+### SCORING RUBRIC (0-3 ONLY)
+PAIN: 0=None, 1=Vague, 2=Clear, 3=Quantified ($$$).
+METRICS: 0=Unknown, 1=Soft, 2=Rep-defined, 3=Customer-validated.
+CHAMPION: 0=None, 1=Coach, 2=Mobilizer, 3=Champion (Power).
+EB: 0=Unknown, 1=Identified, 2=Indirect, 3=Direct relationship.
+CRITERIA: 0=Unknown, 1=Vague, 2=Defined, 3=Locked in favor.
+PROCESS: 0=Unknown, 1=Assumed, 2=Understood, 3=Documented.
+COMPETITION: 0=Unknown, 1=Assumed, 2=Identified, 3=Known edge.
+PAPER: 0=Unknown, 1=Not started, 2=Known Started, 3=Waiting for Signature.
+TIMING: 0=Unknown, 1=Assumed, 2=Flexible, 3=Real Consequence/Event.
+
+### DATA EXTRACTION RULES
+- Summaries must be: "Label: evidence" (NO score numbers).
+  Example: "Customer-validated: Outages cost ~$2M per quarter."
+- Tips: one concrete next step to reach Score 3.
+- POWER PLAYERS: extract Name AND Title for Champion and Economic Buyer when relevant.
+
+### COMPLETION
 Only when ready to leave the deal:
 Say: "Health Score: [Sum]/27. Risk: [Top Risk]. NEXT_DEAL_TRIGGER."
 You MUST say NEXT_DEAL_TRIGGER to advance.
 `.trim();
 }
 
-// ----------------- WebSocket core -----------------
-
+/// ============================================================================
+/// WS CORE: Twilio <-> OpenAI
+/// ============================================================================
 wss.on("connection", async (twilioWs) => {
   console.log("🔥 Twilio WebSocket connected");
 
@@ -257,7 +311,6 @@ wss.on("connection", async (twilioWs) => {
   let currentDealIndex = 0;
   let openAiReady = false;
 
-  // Connect to OpenAI Realtime
   const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
     headers: {
       Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -265,7 +318,6 @@ wss.on("connection", async (twilioWs) => {
     },
   });
 
-  // Prevent crashes from unhandled WS errors
   openAiWs.on("error", (err) => {
     console.error("❌ OpenAI WebSocket error:", err?.message || err);
   });
@@ -298,27 +350,29 @@ wss.on("connection", async (twilioWs) => {
     attemptLaunch().catch((e) => console.error("❌ attemptLaunch error:", e));
   });
 
+  /// ---------------- OpenAI inbound frames ----------------
   openAiWs.on("message", (data) => {
     const parsed = safeJsonParse(data);
     if (!parsed.ok) {
       console.error("❌ OpenAI frame not JSON:", parsed.err?.message, "| head:", parsed.head);
       return;
     }
-
     const response = parsed.json;
 
-    // -------- VAD: ensure the model responds after the rep stops talking --------
+    // VAD breadcrumbs
     if (response.type === "input_audio_buffer.speech_started") {
       console.log("🗣️ VAD: speech_started");
     }
-
     if (response.type === "input_audio_buffer.speech_stopped") {
       console.log("🗣️ VAD: speech_stopped -> response.create");
-      openAiWs.send(JSON.stringify({ type: "response.create" }));
+      // Kick the model after the rep stops talking
+      if (openAiWs.readyState === WebSocket.OPEN) {
+        openAiWs.send(JSON.stringify({ type: "response.create" }));
+      }
     }
 
     try {
-      // -------- Tool call: save_deal_data --------
+      // Tool call arguments complete
       if (response.type === "response.function_call_arguments.done") {
         const callId = response.call_id;
 
@@ -334,31 +388,21 @@ wss.on("connection", async (twilioWs) => {
           return;
         }
 
-        // Audit breadcrumb: what deal we believe we are on
+        // Save route breadcrumb
         console.log(
           `🧾 SAVE ROUTE dealIndex=${currentDealIndex}/${Math.max(dealQueue.length - 1, 0)} id=${deal.id} account="${deal.account_name}" callId=${callId}`
         );
         console.log("🔎 args keys:", Object.keys(argsParsed.json));
-        console.log(
-          "🔎 args preview:",
-          compact(argsParsed.json, [
-            "risk_summary",
-            "pain_score",
-            "metrics_score",
-            "champion_score",
-            "eb_score",
-            "criteria_score",
-            "process_score",
-            "competition_score",
-            "paper_score",
-            "timing_score",
-          ])
-        );
+        console.log("🔎 args preview:", compact(argsParsed.json, [
+          "risk_summary",
+          "pain_score","metrics_score","champion_score","eb_score",
+          "criteria_score","process_score","competition_score","paper_score","timing_score",
+        ]));
 
-        // IMPORTANT: pass locked deal context into muscle for safe saving
+        // IMPORTANT: lock the deal context for muscle/db
         handleFunctionCall({ ...argsParsed.json, _deal: deal }, callId);
 
-        // Acknowledge tool output to keep the model flowing
+        // Acknowledge tool output so the model can proceed
         openAiWs.send(JSON.stringify({
           type: "conversation.item.create",
           item: {
@@ -368,11 +412,11 @@ wss.on("connection", async (twilioWs) => {
           },
         }));
 
-        // Force speech immediately after tool handling
-        openAiWs.send(JSON.stringify({ type: "response.create" }));
+        // NOTE: Do NOT force response.create here.
+        // VAD speech_stopped already triggers response.create after rep audio ends.
       }
 
-      // -------- Deal progression trigger --------
+      // End of model response: check for NEXT_DEAL_TRIGGER
       if (response.type === "response.done") {
         const transcript = (
           response.response?.output
@@ -390,17 +434,17 @@ wss.on("connection", async (twilioWs) => {
 
             const instructions = getSystemPrompt(
               nextDeal,
-              repName.split(" ")[0],
+              (repName || "Rep").split(" ")[0],
               dealQueue.length - 1 - currentDealIndex,
               dealQueue.length
             );
 
-            // IMPORTANT: resend tools on every session.update to avoid tool loss
             openAiWs.send(JSON.stringify({
               type: "session.update",
-              session: { instructions, tools: [saveDealDataTool] },
+              session: { instructions },
             }));
 
+            // ask first question for next deal
             setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
           } else {
             console.log("🏁 All deals done.");
@@ -408,7 +452,7 @@ wss.on("connection", async (twilioWs) => {
         }
       }
 
-      // -------- Audio out: model -> Twilio --------
+      // Audio out (model -> Twilio)
       if (response.type === "response.audio.delta" && response.delta && streamSid) {
         twilioWs.send(JSON.stringify({
           event: "media",
@@ -421,11 +465,16 @@ wss.on("connection", async (twilioWs) => {
     }
   });
 
-  // Twilio inbound WS (audio -> model)
+  /// ---------------- Twilio inbound frames (rep audio) ----------------
   twilioWs.on("message", async (msg) => {
-    try {
-      const data = JSON.parse(msg);
+    const parsed = safeJsonParse(msg);
+    if (!parsed.ok) {
+      console.error("❌ Twilio frame not JSON:", parsed.err?.message, "| head:", parsed.head);
+      return;
+    }
+    const data = parsed.json;
 
+    try {
       if (data.event === "start") {
         streamSid = data.start?.streamSid || null;
         const params = data.start?.customParameters || {};
@@ -440,9 +489,10 @@ wss.on("connection", async (twilioWs) => {
       }
 
       if (data.event === "media" && data.media?.payload && openAiReady) {
+        // Correct OpenAI Realtime input message
         openAiWs.send(JSON.stringify({
           type: "input_audio_buffer.append",
-          audio: data.media.payload,
+          audio: data.media.payload, // base64 g711_ulaw
         }));
       }
 
@@ -451,7 +501,7 @@ wss.on("connection", async (twilioWs) => {
         streamSid = null;
       }
     } catch (err) {
-      console.error("❌ Twilio WS message error:", err);
+      console.error("❌ Twilio WS message handler error:", err);
     }
   });
 
@@ -460,11 +510,11 @@ wss.on("connection", async (twilioWs) => {
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
 
-  // Load deals + initialize first instructions
+  /// ---------------- Deal loading + initial prompt ----------------
   async function attemptLaunch() {
     if (!openAiReady || !repName) return;
 
-    // Load queue once per call
+    // Load once per call
     if (dealQueue.length === 0) {
       const result = await pool.query(
         `
@@ -496,22 +546,24 @@ wss.on("connection", async (twilioWs) => {
     const deal = dealQueue[currentDealIndex];
     const instructions = getSystemPrompt(
       deal,
-      repName.split(" ")[0],
+      (repName || "Rep").split(" ")[0],
       dealQueue.length - 1,
       dealQueue.length
     );
 
-    // IMPORTANT: resend tools on every session.update to avoid tool loss
     openAiWs.send(JSON.stringify({
       type: "session.update",
-      session: { instructions, tools: [saveDealDataTool] },
+      session: { instructions },
     }));
 
+    // Ask first question
     setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
   }
 });
 
-// --- Start server
+/// ============================================================================
+/// START
+/// ============================================================================
 server.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT}`);
 });

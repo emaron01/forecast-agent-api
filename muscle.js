@@ -1,3 +1,6 @@
+// muscle.js
+// Judge & Scorer: clamps scores, labels summaries, computes ai_forecast, delegates save to db.js.
+
 import { saveDealData } from "./db.js";
 
 const scoreLabels = {
@@ -14,67 +17,85 @@ const scoreLabels = {
 
 const categories = Object.keys(scoreLabels);
 
-function addLabel(cat, score, summary) {
-  const s = Number.isFinite(Number(score)) ? Number(score) : 0;
-  const label = scoreLabels[cat]?.[s] ?? "";
-  const prefix = `Score ${s} (${label}):`;
-  if (!summary || typeof summary !== "string") return `${prefix} (no evidence captured)`;
-  const cleaned = summary.trim();
-  // Avoid double-prefixing
-  if (cleaned.toLowerCase().startsWith("score ")) return cleaned;
-  return `${prefix} ${cleaned}`;
+function clampScore(x) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return null;
+  if (n < 0) return 0;
+  if (n > 3) return 3;
+  return n;
 }
 
-function cleanseText(text, currentAccount) {
-  if (!text || typeof text !== "string") return text;
-  // If the model inserts "Company: X" or "Account: X", normalize.
-  return text
-    .replace(/(company|account)\s*:\s*["']?[^"'\n]+["']?/gi, `Account: ${currentAccount}`)
-    .trim();
+function withLabel(cat, score, summary) {
+  const s = Number.isFinite(Number(score)) ? Number(score) : 0;
+  const label = scoreLabels[cat]?.[s] ?? "Unknown";
+  const prefix = `Score ${s} (${label}):`;
+
+  if (!summary || typeof summary !== "string" || summary.trim().length === 0) {
+    return `${prefix} (no evidence captured)`;
+  }
+
+  // Avoid double-prefixing if it’s already labeled
+  if (summary.trim().startsWith("Score ")) return summary.trim();
+  return `${prefix} ${summary.trim()}`;
 }
 
 export async function handleFunctionCall(args, callId) {
   console.log("🛠️ Tool Triggered: save_deal_data");
 
-  const deal = args._deal;
-  const dealId = deal?.id;
-  const currentAccount = deal?.account_name || "Unknown Account";
+  const deal = args._deal || {};
+  const dealId = deal.id;
+  const account = deal.account_name || "Unknown Account";
 
-  if (!dealId) {
-    console.error("❌ save_deal_data missing _deal context (refusing to save)");
-    return;
-  }
+  // Never persist internal routing fields
+  const clean = { ...args };
+  delete clean._deal;
 
-  try {
-    // 1) Cleanse + label summaries
-    for (const cat of categories) {
-      const scoreKey = `${cat}_score`;
-      const summaryKey = `${cat}_summary`;
-
-      if (args[summaryKey]) {
-        args[summaryKey] = cleanseText(args[summaryKey], currentAccount);
-      }
-
-      // If a score is present, enforce labeled summary format
-      if (Object.prototype.hasOwnProperty.call(args, scoreKey)) {
-        args[summaryKey] = addLabel(cat, args[scoreKey], args[summaryKey]);
+  // 1) Clamp any *_score fields to 0–3
+  for (const cat of categories) {
+    const k = `${cat}_score`;
+    if (Object.prototype.hasOwnProperty.call(clean, k)) {
+      const c = clampScore(clean[k]);
+      if (c === null) {
+        delete clean[k]; // ignore junk values
+      } else {
+        if (Number(clean[k]) !== c) {
+          console.log(`⚠️ Clamp ${k}: ${clean[k]} -> ${c}`);
+        }
+        clean[k] = c;
       }
     }
+  }
 
-    // 2) Phantom AI forecast
-    const scores = categories.map(cat =>
-      Number(args[`${cat}_score`] ?? deal[`${cat}_score`] ?? 0)
-    );
-    const totalScore = scores.reduce((a, b) => a + b, 0);
-    args.ai_forecast = totalScore >= 21 ? "Commit" : totalScore >= 15 ? "Best Case" : "Pipeline";
+  // 2) Label summaries consistently (Score X (Label): ...)
+  for (const cat of categories) {
+    const scoreKey = `${cat}_score`;
+    const summaryKey = `${cat}_summary`;
 
-    // 3) Save
-    const updatedDeal = await saveDealData(deal, args);
+    const scoreToUse =
+      Object.prototype.hasOwnProperty.call(clean, scoreKey) ? clean[scoreKey] : deal[scoreKey] ?? 0;
 
-    console.log(
-      `✅ Saved deal id=${dealId} account="${currentAccount}" ai_forecast=${updatedDeal.ai_forecast} run_count=${updatedDeal.run_count}`
-    );
+    if (Object.prototype.hasOwnProperty.call(clean, summaryKey) || Object.prototype.hasOwnProperty.call(clean, scoreKey)) {
+      clean[summaryKey] = withLabel(cat, scoreToUse, clean[summaryKey] ?? deal[summaryKey]);
+    }
+  }
+
+  // 3) Compute ai_forecast from final score set (args override deal)
+  const scores = categories.map((cat) => {
+    const k = `${cat}_score`;
+    const v = Object.prototype.hasOwnProperty.call(clean, k) ? clean[k] : (deal[k] ?? 0);
+    return Number.isFinite(Number(v)) ? Number(v) : 0;
+  });
+
+  const total = scores.reduce((a, b) => a + b, 0);
+  clean.ai_forecast = total >= 21 ? "Commit" : total >= 15 ? "Best Case" : "Pipeline";
+
+  // 4) Save safely (db.js preserves existing values)
+  try {
+    const updated = await saveDealData(deal, clean);
+    console.log(`✅ Saved deal id=${dealId} account="${account}" ai_forecast=${updated.ai_forecast} run_count=${updated.run_count}`);
+    return updated;
   } catch (err) {
-    console.error(`❌ Atomic save failed for id=${dealId} account="${currentAccount}":`, err);
+    console.error("❌ Save failed:", err);
+    throw err;
   }
 }
