@@ -2,7 +2,7 @@ const { Pool } = require("pg");
 
 // Use DATABASE_URL from environment for production
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: process.env.DATABASE_URL, 
   ssl: { rejectUnauthorized: false },
 });
 
