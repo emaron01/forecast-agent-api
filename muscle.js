@@ -1,8 +1,13 @@
-// muscle.js
-// Judge & Scorer: clamps scores, labels summaries, computes ai_forecast, delegates save to db.js.
+/// muscle.js (ES module)
+/// Judge & Scorer: validates tool args, clamps scores,
+/// computes ai_forecast and risk_summary deterministically,
+/// and (optionally) emits audit_log_entry for db.js to append.
 
 import { saveDealData } from "./db.js";
 
+/// ------------------------------
+/// SECTION: Scoring Labels
+/// ------------------------------
 const scoreLabels = {
   pain: ["None", "Vague", "Clear", "Quantified ($$$)"],
   metrics: ["Unknown", "Soft", "Rep-defined", "Customer-validated"],
@@ -17,85 +22,171 @@ const scoreLabels = {
 
 const categories = Object.keys(scoreLabels);
 
-function clampScore(x) {
+/// ------------------------------
+/// SECTION: Helpers (sanitize / clamp / labeling)
+/// ------------------------------
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+function clampScoreInt0to3(x) {
   const n = Number(x);
-  if (!Number.isFinite(n)) return null;
+  if (!Number.isFinite(n)) return undefined; // undefined => "no update"
   if (n < 0) return 0;
   if (n > 3) return 3;
-  return n;
+  return Math.round(n);
 }
 
-function withLabel(cat, score, summary) {
+function cleanseText(text, currentAccount) {
+  if (!text || typeof text !== "string") return text;
+  return text
+    .replace(/(company|account)\s*:\s*["']?[^"'\n]+["']?/gi, `Account: ${currentAccount}`)
+    .trim();
+}
+
+/**
+ * Label format: "Label: evidence" (NO score numbers).
+ * IMPORTANT: This function should ONLY be applied when evidence exists,
+ * otherwise we preserve the existing DB summary (no overwrite).
+ */
+function labelSummary(cat, score, summary) {
   const s = Number.isFinite(Number(score)) ? Number(score) : 0;
   const label = scoreLabels[cat]?.[s] ?? "Unknown";
-  const prefix = `Score ${s} (${label}):`;
 
-  if (!summary || typeof summary !== "string" || summary.trim().length === 0) {
-    return `${prefix} (no evidence captured)`;
-  }
+  if (!summary || typeof summary !== "string") return undefined; // critical: don't overwrite
+  const cleaned = summary.trim();
 
-  // Avoid double-prefixing if it’s already labeled
-  if (summary.trim().startsWith("Score ")) return summary.trim();
-  return `${prefix} ${summary.trim()}`;
+  const lower = cleaned.toLowerCase();
+  const labelLower = String(label).toLowerCase() + ":";
+
+  if (lower.startsWith(labelLower)) return cleaned;
+
+  const anyLabelPrefix = (scoreLabels[cat] || [])
+    .filter(Boolean)
+    .some((lbl) => lower.startsWith(String(lbl).toLowerCase() + ":"));
+
+  if (anyLabelPrefix) return cleaned;
+
+  return `${label}: ${cleaned}`;
 }
 
+/// ------------------------------
+/// SECTION: Risk selection (deterministic)
+/// ------------------------------
+const riskPriority = ["eb", "champion", "competition", "paper", "process", "criteria", "timing", "metrics", "pain"];
+
+function scoreFor(cat, args, deal) {
+  const key = `${cat}_score`;
+  const fromArgs = args[key];
+  if (fromArgs !== undefined) return Number(fromArgs) || 0;
+  return Number(deal?.[key]) || 0;
+}
+
+function pickTopRiskCategory(args, deal) {
+  let minScore = Infinity;
+  for (const cat of categories) {
+    const s = scoreFor(cat, args, deal);
+    if (s < minScore) minScore = s;
+  }
+  if (!Number.isFinite(minScore)) minScore = 0;
+
+  for (const cat of riskPriority) {
+    if (scoreFor(cat, args, deal) === minScore) return cat;
+  }
+  return "pain";
+}
+
+function computeRiskSummary(args, deal, currentAccount) {
+  const cat = pickTopRiskCategory(args, deal);
+  const score = scoreFor(cat, args, deal);
+
+  const summaryKey = `${cat}_summary`;
+  const existing = deal?.[summaryKey];
+  const incoming = args?.[summaryKey];
+
+  const bestSummary =
+    (typeof incoming === "string" && incoming.trim().length > 0)
+      ? incoming.trim()
+      : (typeof existing === "string" && existing.trim().length > 0)
+        ? existing.trim()
+        : "";
+
+  if (bestSummary) return cleanseText(bestSummary, currentAccount);
+
+  const label = scoreLabels[cat]?.[score] ?? "Unknown";
+  return `${label}: Risk not validated yet in ${cat.toUpperCase()}.`;
+}
+
+/// ------------------------------
+/// SECTION: Main entry — tool handler
+/// ------------------------------
 export async function handleFunctionCall(args, callId) {
   console.log("🛠️ Tool Triggered: save_deal_data");
 
-  const deal = args._deal || {};
-  const dealId = deal.id;
-  const account = deal.account_name || "Unknown Account";
+  const deal = args?._deal;
+  const dealId = deal?.id;
+  const currentAccount = deal?.account_name || "Unknown Account";
 
-  // Never persist internal routing fields
-  const clean = { ...args };
-  delete clean._deal;
+  if (!dealId) {
+    console.error("❌ save_deal_data missing _deal context (refusing to save)");
+    return;
+  }
 
-  // 1) Clamp any *_score fields to 0–3
-  for (const cat of categories) {
-    const k = `${cat}_score`;
-    if (Object.prototype.hasOwnProperty.call(clean, k)) {
-      const c = clampScore(clean[k]);
-      if (c === null) {
-        delete clean[k]; // ignore junk values
-      } else {
-        if (Number(clean[k]) !== c) {
-          console.log(`⚠️ Clamp ${k}: ${clean[k]} -> ${c}`);
+  try {
+    /// 1) Clamp + cleanse + (conditionally) label summaries
+    for (const cat of categories) {
+      const scoreKey = `${cat}_score`;
+      const summaryKey = `${cat}_summary`;
+
+      if (hasOwn(args, scoreKey)) {
+        const clamped = clampScoreInt0to3(args[scoreKey]);
+        if (clamped === undefined) {
+          delete args[scoreKey];
+        } else {
+          args[scoreKey] = clamped;
         }
-        clean[k] = c;
+      }
+
+      if (typeof args[summaryKey] === "string") {
+        args[summaryKey] = cleanseText(args[summaryKey], currentAccount);
+      }
+
+      // Only label if evidence was provided. This avoids "deletes" / overwrites.
+      if (hasOwn(args, scoreKey)) {
+        const labeled = labelSummary(cat, args[scoreKey], args[summaryKey]);
+        if (typeof labeled === "string") args[summaryKey] = labeled;
+        else delete args[summaryKey]; // ensure db.js doesn't overwrite old summary
       }
     }
-  }
 
-  // 2) Label summaries consistently (Score X (Label): ...)
-  for (const cat of categories) {
-    const scoreKey = `${cat}_score`;
-    const summaryKey = `${cat}_summary`;
+    /// 2) Phantom AI forecast (based on merged scores)
+    const mergedScores = categories.map((cat) => Number(args[`${cat}_score`] ?? deal[`${cat}_score`] ?? 0));
+    const totalScore = mergedScores.reduce((a, b) => a + b, 0);
 
-    const scoreToUse =
-      Object.prototype.hasOwnProperty.call(clean, scoreKey) ? clean[scoreKey] : deal[scoreKey] ?? 0;
+    args.ai_forecast = totalScore >= 21 ? "Commit" : totalScore >= 15 ? "Best Case" : "Pipeline";
 
-    if (Object.prototype.hasOwnProperty.call(clean, summaryKey) || Object.prototype.hasOwnProperty.call(clean, scoreKey)) {
-      clean[summaryKey] = withLabel(cat, scoreToUse, clean[summaryKey] ?? deal[summaryKey]);
-    }
-  }
+    /// 3) Deterministic risk_summary
+    args.risk_summary = computeRiskSummary(args, deal, currentAccount);
 
-  // 3) Compute ai_forecast from final score set (args override deal)
-  const scores = categories.map((cat) => {
-    const k = `${cat}_score`;
-    const v = Object.prototype.hasOwnProperty.call(clean, k) ? clean[k] : (deal[k] ?? 0);
-    return Number.isFinite(Number(v)) ? Number(v) : 0;
-  });
+    /// 4) Optional audit log entry (db.js will append if column exists)
+    args.audit_log_entry = {
+      ts: new Date().toISOString(),
+      deal_id: dealId,
+      account: currentAccount,
+      call_id: callId,
+      rep_forecast_stage: deal?.forecast_stage ?? null,
+      ai_forecast: args.ai_forecast,
+      top_risk_category: pickTopRiskCategory(args, deal),
+      changed_keys: Object.keys(args).filter((k) => k !== "_deal" && k !== "_meta"),
+    };
 
-  const total = scores.reduce((a, b) => a + b, 0);
-  clean.ai_forecast = total >= 21 ? "Commit" : total >= 15 ? "Best Case" : "Pipeline";
+    /// 5) Save
+    const updatedDeal = await saveDealData(deal, args);
 
-  // 4) Save safely (db.js preserves existing values)
-  try {
-    const updated = await saveDealData(deal, clean);
-    console.log(`✅ Saved deal id=${dealId} account="${account}" ai_forecast=${updated.ai_forecast} run_count=${updated.run_count}`);
-    return updated;
+    console.log(
+      `✅ Saved deal id=${dealId} account="${currentAccount}" ai_forecast=${updatedDeal.ai_forecast} run_count=${updatedDeal.run_count}`
+    );
   } catch (err) {
-    console.error("❌ Save failed:", err);
-    throw err;
+    console.error(`❌ Atomic save failed for id=${dealId} account="${currentAccount}":`, err);
   }
 }
