@@ -6,7 +6,6 @@ import express from "express";
 import http from "http";
 import WebSocket, { WebSocketServer } from "ws";
 import { Pool } from "pg";
-
 import { handleFunctionCall } from "./muscle.js";
 
 const PORT = process.env.PORT || 10000;
@@ -24,13 +23,13 @@ if (!DATABASE_URL) {
   throw new Error("⚠️ DATABASE_URL must be set!");
 }
 
-// --- PostgreSQL (read-only in server.js; writes happen via db.js called by muscle.js)
+// --- PostgreSQL (read-only in server.js; writes happen via muscle.js -> db.js)
 const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
-// ----------------- Helpers: safer logging + parsing -----------------
+// ----------------- Helpers -----------------
 
 function safeJsonParse(data) {
   const s = Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
@@ -50,7 +49,7 @@ function compact(obj, keys) {
 // ----------------- Express server -----------------
 
 const app = express();
-app.use(express.json()); // for your own APIs
+app.use(express.json());
 app.use(express.urlencoded({ extended: false })); // REQUIRED for Twilio
 
 app.get("/", (req, res) => res.send("✅ Forecast Agent API is alive!"));
@@ -73,6 +72,8 @@ app.post("/agent", async (req, res) => {
       orgId = result.rows[0].org_id;
       repName = result.rows[0].rep_name || "Rep";
       console.log(`✅ Identified Rep: ${repName} (org_id=${orgId})`);
+    } else {
+      console.log("⚠️ No rep matched this phone; defaulting to Guest/org 1");
     }
 
     const wsUrl = `wss://${req.headers.host}/`;
@@ -97,7 +98,7 @@ app.post("/agent", async (req, res) => {
 // ============================================================
 // DEBUG / DASHBOARD SUPPORT (READ-ONLY + LOCAL CORS)
 // Remove this entire block when you no longer need the local dashboard.
-// Allows browser dashboard at http://localhost:* to fetch from Render.
+// Allows browser dashboards at http://localhost:* to fetch from Render.
 // ============================================================
 
 app.use("/debug/opportunities", (req, res, next) => {
@@ -146,13 +147,13 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 console.log("🌐 WebSocket server created");
 
-// ----------------- Tool schema the model uses to save deal updates -----------------
+// ----------------- Tool schema (save_deal_data) -----------------
 
 const saveDealDataTool = {
   type: "function",
   name: "save_deal_data",
   description:
-    "Call immediately after every user response to save MEDDPICC updates. Do NOT invent facts. Update only what user provided.",
+    "Call immediately after every user response to save MEDDPICC updates. Do NOT invent facts.",
   parameters: {
     type: "object",
     properties: {
@@ -175,7 +176,7 @@ const saveDealDataTool = {
   },
 };
 
-// ----------------- System prompt (greeting + discipline) -----------------
+// ----------------- System prompt -----------------
 
 function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
   const runCount = Number(deal.run_count) || 0;
@@ -225,14 +226,16 @@ You are auditing exactly:
 - DEAL_ID: ${deal.id}
 - ACCOUNT_NAME: ${deal.account_name}
 
-You MUST NOT mention or use any other company name as the account. If the user says a different company, treat it as a correction ONLY if they explicitly say "this deal is actually X". Otherwise, keep ACCOUNT_NAME as the deal name.
+You MUST NOT replace the account name unless the user explicitly says: "this deal is actually <X>".
+Otherwise, treat other company names as noise.
 
 ### MANDATORY OPENING
 You MUST open exactly with: "${openingLine}"
 Do NOT say NEXT_DEAL_TRIGGER in the opening line.
 
 ### SAVE-AS-YOU-GO RULE (STRICT)
-After every user response, you MUST call save_deal_data to store updated scores/summaries/tips. Do not invent facts; if unknown, score low and write "unknown".
+After every user response, you MUST call save_deal_data to store updated scores/summaries/tips.
+Do not invent facts. If unknown, score low and write "unknown".
 
 ### COMPLETION PROTOCOL
 Only when ready to leave the deal:
@@ -241,7 +244,7 @@ You MUST say NEXT_DEAL_TRIGGER to advance.
 `.trim();
 }
 
-// ----------------- WebSocket core: Twilio <Stream> <-> OpenAI Realtime -----------------
+// ----------------- WebSocket core -----------------
 
 wss.on("connection", async (twilioWs) => {
   console.log("🔥 Twilio WebSocket connected");
@@ -252,9 +255,9 @@ wss.on("connection", async (twilioWs) => {
 
   let dealQueue = [];
   let currentDealIndex = 0;
-
   let openAiReady = false;
 
+  // Connect to OpenAI Realtime
   const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
     headers: {
       Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -262,6 +265,7 @@ wss.on("connection", async (twilioWs) => {
     },
   });
 
+  // Prevent crashes from unhandled WS errors
   openAiWs.on("error", (err) => {
     console.error("❌ OpenAI WebSocket error:", err?.message || err);
   });
@@ -274,6 +278,7 @@ wss.on("connection", async (twilioWs) => {
   openAiWs.on("open", () => {
     console.log("📡 OpenAI Connected");
 
+    // Session init: ulaw + voice + VAD + tools
     openAiWs.send(JSON.stringify({
       type: "session.update",
       session: {
@@ -302,13 +307,24 @@ wss.on("connection", async (twilioWs) => {
 
     const response = parsed.json;
 
+    // -------- VAD: ensure the model responds after the rep stops talking --------
+    if (response.type === "input_audio_buffer.speech_started") {
+      console.log("🗣️ VAD: speech_started");
+    }
+
+    if (response.type === "input_audio_buffer.speech_stopped") {
+      console.log("🗣️ VAD: speech_stopped -> response.create");
+      openAiWs.send(JSON.stringify({ type: "response.create" }));
+    }
+
     try {
-      // Tool call arguments (save_deal_data)
+      // -------- Tool call: save_deal_data --------
       if (response.type === "response.function_call_arguments.done") {
         const callId = response.call_id;
-        const args = safeJsonParse(response.arguments || "{}");
-        if (!args.ok) {
-          console.error("❌ Tool args not JSON:", args.err?.message, "| head:", args.head);
+
+        const argsParsed = safeJsonParse(response.arguments || "{}");
+        if (!argsParsed.ok) {
+          console.error("❌ Tool args not JSON:", argsParsed.err?.message, "| head:", argsParsed.head);
           return;
         }
 
@@ -322,22 +338,25 @@ wss.on("connection", async (twilioWs) => {
         console.log(
           `🧾 SAVE ROUTE dealIndex=${currentDealIndex}/${Math.max(dealQueue.length - 1, 0)} id=${deal.id} account="${deal.account_name}" callId=${callId}`
         );
-        console.log("🔎 args keys:", Object.keys(args.json));
-        console.log("🔎 args preview:", compact(args.json, [
-          "risk_summary",
-          "pain_score",
-          "metrics_score",
-          "champion_score",
-          "eb_score",
-          "criteria_score",
-          "process_score",
-          "competition_score",
-          "paper_score",
-          "timing_score",
-        ]));
+        console.log("🔎 args keys:", Object.keys(argsParsed.json));
+        console.log(
+          "🔎 args preview:",
+          compact(argsParsed.json, [
+            "risk_summary",
+            "pain_score",
+            "metrics_score",
+            "champion_score",
+            "eb_score",
+            "criteria_score",
+            "process_score",
+            "competition_score",
+            "paper_score",
+            "timing_score",
+          ])
+        );
 
         // IMPORTANT: pass locked deal context into muscle for safe saving
-        handleFunctionCall({ ...args.json, _deal: deal }, callId);
+        handleFunctionCall({ ...argsParsed.json, _deal: deal }, callId);
 
         // Acknowledge tool output to keep the model flowing
         openAiWs.send(JSON.stringify({
@@ -349,11 +368,11 @@ wss.on("connection", async (twilioWs) => {
           },
         }));
 
-        // Force the model to speak
+        // Force speech immediately after tool handling
         openAiWs.send(JSON.stringify({ type: "response.create" }));
       }
 
-      // When a response completes, check for NEXT_DEAL_TRIGGER
+      // -------- Deal progression trigger --------
       if (response.type === "response.done") {
         const transcript = (
           response.response?.output
@@ -376,9 +395,10 @@ wss.on("connection", async (twilioWs) => {
               dealQueue.length
             );
 
+            // IMPORTANT: resend tools on every session.update to avoid tool loss
             openAiWs.send(JSON.stringify({
               type: "session.update",
-              session: { instructions },
+              session: { instructions, tools: [saveDealDataTool] },
             }));
 
             setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
@@ -388,7 +408,7 @@ wss.on("connection", async (twilioWs) => {
         }
       }
 
-      // Audio out (model -> Twilio)
+      // -------- Audio out: model -> Twilio --------
       if (response.type === "response.audio.delta" && response.delta && streamSid) {
         twilioWs.send(JSON.stringify({
           event: "media",
@@ -420,10 +440,9 @@ wss.on("connection", async (twilioWs) => {
       }
 
       if (data.event === "media" && data.media?.payload && openAiReady) {
-        // Correct OpenAI Realtime input message
         openAiWs.send(JSON.stringify({
           type: "input_audio_buffer.append",
-          audio: data.media.payload, // base64 g711_ulaw
+          audio: data.media.payload,
         }));
       }
 
@@ -445,6 +464,7 @@ wss.on("connection", async (twilioWs) => {
   async function attemptLaunch() {
     if (!openAiReady || !repName) return;
 
+    // Load queue once per call
     if (dealQueue.length === 0) {
       const result = await pool.query(
         `
@@ -473,17 +493,18 @@ wss.on("connection", async (twilioWs) => {
       return;
     }
 
-    const firstDeal = dealQueue[currentDealIndex];
+    const deal = dealQueue[currentDealIndex];
     const instructions = getSystemPrompt(
-      firstDeal,
+      deal,
       repName.split(" ")[0],
       dealQueue.length - 1,
       dealQueue.length
     );
 
+    // IMPORTANT: resend tools on every session.update to avoid tool loss
     openAiWs.send(JSON.stringify({
       type: "session.update",
-      session: { instructions },
+      session: { instructions, tools: [saveDealDataTool] },
     }));
 
     setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
