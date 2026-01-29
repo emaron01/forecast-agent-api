@@ -2,80 +2,87 @@
 import express from "express";
 import http from "http";
 import WebSocket, { WebSocketServer } from "ws";
-import { Pool } from "pg";
-import { handleFunctionCall } from "./muscle.js"; // ES module
-// ---------------------------------------------------------
-const PORT = process.env.PORT || 10000;
-const MODEL_URL = process.env.MODEL_URL;
-const MODEL_NAME = process.env.MODEL_NAME;
-const MODEL_API_KEY = process.env.MODEL_API_KEY;
 
-if (!MODEL_URL || !MODEL_NAME || !MODEL_API_KEY) {
-  throw new Error("⚠️ MODEL_URL, MODEL_NAME, and MODEL_API_KEY must be set in environment variables!");
+// Import your function handler
+import { handleFunctionCall } from "./muscle.js";  
+
+import { Pool } from "pg";
+
+const PORT = process.env.PORT || 10000;
+const MODEL_URL = process.env.MODEL_API_URL;      // Render env
+const MODEL_NAME = process.env.MODEL_NAME;        // Render env
+const OPENAI_API_KEY = process.env.MODEL_API_KEY; // Render env
+const DATABASE_URL = process.env.DATABASE_URL;
+
+if (!MODEL_URL || !MODEL_NAME || !OPENAI_API_KEY) {
+  throw new Error(
+    "⚠️ MODEL_API_URL, MODEL_NAME, and MODEL_API_KEY must be set in environment variables!"
+  );
 }
 
-// ----------------- Postgres Setup -----------------------
+// --- PostgreSQL
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
-// ----------------- Express + WebSocket ------------------
+// --- Express server for health checks + Twilio webhook
 const app = express();
-app.use(express.json());
+app.use(express.json()); // parse JSON payloads
 
 app.get("/", (req, res) => res.send("✅ Forecast Agent API is alive!"));
 
-// --- Smart Receptionist / Twilio handshake
+// --- SMART RECEPTIONIST: Twilio POST webhook
 app.post("/agent", async (req, res) => {
   try {
     const callerPhone = req.body.From || null;
     console.log("📞 Incoming call from:", callerPhone);
 
+    const result = await pool.query(
+      "SELECT org_id, rep_name FROM opportunities WHERE rep_phone = $1 LIMIT 1",
+      [callerPhone]
+    );
+
     let orgId = 1;
     let repName = "Guest";
 
-    if (callerPhone) {
-      const result = await pool.query(
-        "SELECT org_id, rep_name FROM opportunities WHERE rep_phone = $1 LIMIT 1",
-        [callerPhone]
-      );
-
-      if (result.rows.length > 0) {
-        orgId = result.rows[0].org_id;
-        repName = result.rows[0].rep_name || "Rep";
-        console.log(`✅ Identified Rep: ${repName}`);
-      }
+    if (result.rows.length > 0) {
+      orgId = result.rows[0].org_id;
+      repName = result.rows[0].rep_name || "Rep";
+      console.log(`✅ Identified Rep: ${repName}`);
     }
 
     const wsUrl = `wss://${req.headers.host}/`;
-    res.type("text/xml").send(`
-      <Response>
-        <Connect>
-          <Stream url="${wsUrl}">
-            <Parameter name="org_id" value="${orgId}" />
-            <Parameter name="rep_name" value="${repName}" />
-          </Stream>
-        </Connect>
-      </Response>
-    `);
+    res.type("text/xml").send(
+      `<Response>
+         <Connect>
+           <Stream url="${wsUrl}">
+             <Parameter name="org_id" value="${orgId}" />
+             <Parameter name="rep_name" value="${repName}" />
+           </Stream>
+         </Connect>
+       </Response>`
+    );
   } catch (err) {
     console.error("❌ /agent error:", err.message);
-    res.type("text/xml").send(`<Response><Connect><Stream url="wss://${req.headers.host}/" /></Connect></Response>`);
+    res.type("text/xml").send(
+      `<Response><Connect><Stream url="wss://${req.headers.host}/" /></Connect></Response>`
+    );
   }
 });
 
-// ----------------- HTTP & WebSocket Server -------------
+// --- HTTP server (needed for WebSocket)
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
 
+// --- WebSocket server
+const wss = new WebSocketServer({ server });
 console.log("🌐 WebSocket server created");
 
-// ----------------- WebSocket Core -----------------------
+// --- [BLOCK 5: WEBSOCKET CORE] ---
 wss.on("connection", async (ws) => {
   console.log("🔥 Twilio WebSocket connected");
 
-  // --- Local State ---
+  // Local State
   let streamSid = null;
   let dealQueue = [];
   let currentDealIndex = 0;
@@ -84,35 +91,39 @@ wss.on("connection", async (ws) => {
   let openAiReady = false;
   let audioBufferQueue = [];
 
-  // --- OpenAI Realtime WS ---
+  // --- Connect to OpenAI Realtime
   const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
     headers: {
-      Authorization: `Bearer ${MODEL_API_KEY}`,
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
       "OpenAI-Beta": "realtime=v1",
     },
   });
 
+  // --- OpenAI connection
   openAiWs.on("open", () => {
     console.log("📡 OpenAI Connected");
     openAiReady = true;
     attemptLaunch();
   });
 
+  // --- Handle incoming OpenAI messages
   openAiWs.on("message", (data) => {
     try {
       const response = JSON.parse(data);
 
-      // --- Function calls
+      // Function call
       if (response.type === "response.function_call_arguments.done") {
         const args = JSON.parse(response.arguments);
         handleFunctionCall(args, response.call_id);
       }
 
-      // --- Final transcript
+      // Final transcript
       if (response.type === "response.done") {
-        const transcript = (response.response?.output
-          ?.flatMap(o => o.content || [])
-          .map(c => c.transcript || c.text || "") || []).join(" ");
+        const transcript = (
+          response.response?.output
+            ?.flatMap((o) => o.content || [])
+            .map((c) => c.transcript || c.text || "") || []
+        ).join(" ");
         console.log("📝 FINAL TRANSCRIPT:", transcript);
 
         if (transcript.includes("NEXT_DEAL_TRIGGER")) {
@@ -125,13 +136,15 @@ wss.on("connection", async (ws) => {
               dealQueue.length - 1 - currentDealIndex,
               dealQueue.length
             );
-            openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions } }));
+            openAiWs.send(
+              JSON.stringify({ type: "session.update", session: { instructions } })
+            );
             setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
           }
         }
       }
 
-      // --- Audio delta
+      // Audio delta
       if (response.type === "response.audio.delta" && response.delta) {
         if (streamSid) {
           ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: response.delta } }));
@@ -145,7 +158,7 @@ wss.on("connection", async (ws) => {
     }
   });
 
-  // --- Twilio messages
+  // --- Handle incoming Twilio WebSocket messages
   ws.on("message", async (msg) => {
     const data = JSON.parse(msg);
     console.log("📩 Twilio WS message:", data);
@@ -154,22 +167,25 @@ wss.on("connection", async (ws) => {
       streamSid = data.streamSid;
       console.log("🎬 Stream started:", streamSid);
 
-      // Flush buffered audio
-      audioBufferQueue.forEach(delta => {
-        ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: delta } }));
-      });
+      // Flush queued audio
+      audioBufferQueue.forEach((delta) =>
+        ws.send(JSON.stringify({ event: "media", streamSid, media: { payload: delta } }))
+      );
       audioBufferQueue = [];
     }
 
     if (data.event === "media" && data.media?.payload) {
       const audioBuffer = Buffer.from(data.media.payload, "base64");
 
+      // Send to OpenAI as g711_ulaw
       if (openAiReady) {
-        openAiWs.send(JSON.stringify({
-          type: "input.audio.buffer",
-          audio: audioBuffer.toString("base64"),
-          encoding: "g711_ulaw",
-        }));
+        openAiWs.send(
+          JSON.stringify({
+            type: "input.audio.buffer",
+            audio: audioBuffer.toString("base64"),
+            encoding: "g711_ulaw",
+          })
+        );
       }
     }
 
@@ -205,7 +221,7 @@ wss.on("connection", async (ws) => {
   }
 });
 
-// ----------------- Start server ------------------------
+// --- Start server
 server.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT}`);
 });
