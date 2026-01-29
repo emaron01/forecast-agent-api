@@ -27,23 +27,21 @@ function clampScore(x) {
 
 /**
  * Label format: "Label: evidence" (NO score numbers).
- * IMPORTANT: Only applied when evidence exists; otherwise preserve DB summary (no overwrite).
+ * Only apply when evidence exists; otherwise preserve DB summary (no overwrite).
  */
 function labelSummary(cat, score, summary) {
   const s = Number.isFinite(Number(score)) ? Number(score) : 0;
   const label = scoreLabels[cat]?.[s] ?? "Unknown";
 
-  if (!summary || typeof summary !== "string") return undefined; // do not overwrite
+  if (!summary || typeof summary !== "string") return undefined;
   const cleaned = summary.trim();
   if (!cleaned) return undefined;
 
   const lower = cleaned.toLowerCase();
   const labelLower = String(label).toLowerCase() + ":";
 
-  // already labeled correctly
   if (lower.startsWith(labelLower)) return cleaned;
 
-  // already has *some* valid label prefix
   const anyLabelPrefix = (scoreLabels[cat] || [])
     .filter(Boolean)
     .some((lbl) => lower.startsWith(String(lbl).toLowerCase() + ":"));
@@ -54,13 +52,12 @@ function labelSummary(cat, score, summary) {
 }
 
 function computeAiForecast(totalScore) {
-  // 27 max
   if (totalScore >= 21) return "Commit";
   if (totalScore >= 15) return "Best Case";
   return "Pipeline";
 }
 
-export async function handleFunctionCall(args /*, callId */) {
+export async function handleFunctionCall(args /* callId not used */) {
   console.log("🛠️ Tool Triggered: save_deal_data");
 
   const deal = args._deal || {};
@@ -70,11 +67,11 @@ export async function handleFunctionCall(args /*, callId */) {
     const updates = { ...args };
     delete updates._deal;
 
-    // Defensive: never persist unknown keys
+    // Defensive: never persist unknown transport keys
     delete updates.call_id;
     delete updates.type;
 
-    // 1) Clamp any scores present (0-3)
+    // Clamp scores present
     for (const cat of categories) {
       const k = `${cat}_score`;
       if (updates[k] !== undefined) {
@@ -82,7 +79,7 @@ export async function handleFunctionCall(args /*, callId */) {
       }
     }
 
-    // 2) Apply "Label: evidence" formatting (ONLY if summary provided)
+    // Label summaries only if provided
     for (const cat of categories) {
       const scoreK = `${cat}_score`;
       const summaryK = `${cat}_summary`;
@@ -92,10 +89,10 @@ export async function handleFunctionCall(args /*, callId */) {
 
       const labeled = labelSummary(cat, effectiveScore, updates[summaryK]);
       if (labeled !== undefined) updates[summaryK] = labeled;
-      else delete updates[summaryK]; // critical: do not overwrite DB summary
+      else delete updates[summaryK]; // do not overwrite DB summary
     }
 
-    // 3) Phantom AI stage (based on merged scores)
+    // AI forecast from merged scores
     const mergedScores = categories.map((cat) => {
       const k = `${cat}_score`;
       const v = updates[k] !== undefined ? updates[k] : deal[k];
@@ -105,7 +102,6 @@ export async function handleFunctionCall(args /*, callId */) {
     const totalScore = mergedScores.reduce((a, b) => a + b, 0);
     updates.ai_forecast = computeAiForecast(totalScore);
 
-    // 4) Save (db.js prevents blank overwrites + avoids deleting previous fields)
     const updatedDeal = await saveDealData(deal, updates);
 
     console.log(

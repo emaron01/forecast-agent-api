@@ -1,6 +1,10 @@
 // server.js (ES module)
-/// Forecast Agent Conductor: Twilio <Stream> + OpenAI Realtime + deal queue + tool routing.
-/// READ-ONLY to DB (writes happen in db.js via muscle.js)
+/// Forecast Agent Conductor: Twilio <Stream> + OpenAI Realtime + deterministic deal/category flow.
+/// KEY DESIGN:
+/// - Server chooses category each turn (no model drift).
+/// - After rep speaks: force a silent tool-only pass to save.
+/// - After save: force a speak-only pass to ask next question.
+/// - No watchdog loops.
 
 import express from "express";
 import http from "http";
@@ -46,38 +50,68 @@ function safeJsonParse(data) {
   }
 }
 
+function safeSend(ws, payload) {
+  try {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+  } catch (e) {
+    console.error("❌ WS send error:", e?.message || e);
+  }
+}
+
 function compact(obj, keys) {
   const out = {};
   for (const k of keys) if (obj?.[k] !== undefined) out[k] = obj[k];
   return out;
 }
 
-function computeFirstGap(deal) {
-  // first category with score < 3 (deterministic order)
-  const scores = [
-    { name: "Pain", key: "pain_score", val: deal.pain_score },
-    { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
-    { name: "Champion", key: "champion_score", val: deal.champion_score },
-    { name: "Economic Buyer", key: "eb_score", val: deal.eb_score },
-    { name: "Decision Criteria", key: "criteria_score", val: deal.criteria_score },
-    { name: "Decision Process", key: "process_score", val: deal.process_score },
-    { name: "Competition", key: "competition_score", val: deal.competition_score },
-    { name: "Paper Process", key: "paper_score", val: deal.paper_score },
-    { name: "Timing", key: "timing_score", val: deal.timing_score },
-  ];
-
-  return scores.find((s) => (Number(s.val) || 0) < 3) || scores[0];
-}
-
 function applyArgsToLocalDeal(deal, args) {
-  // Keep local memory aligned with DB so gap logic stays stable.
+  // Keep local copy aligned so gap selection stays deterministic.
   for (const [k, v] of Object.entries(args || {})) {
     if (v !== undefined) deal[k] = v;
   }
 }
 
+const CATEGORY_ORDER = [
+  { key: "pain", name: "Pain" },
+  { key: "metrics", name: "Metrics" },
+  { key: "champion", name: "Champion" },
+  { key: "eb", name: "Economic Buyer" },
+  { key: "criteria", name: "Decision Criteria" },
+  { key: "process", name: "Decision Process" },
+  { key: "competition", name: "Competition" },
+  { key: "paper", name: "Paper Process" },
+  { key: "timing", name: "Timing" },
+];
+
+function scoreKey(catKey) {
+  return `${catKey}_score`;
+}
+
+function findNextGap(deal) {
+  // First category with score < 3, deterministic order.
+  for (const c of CATEGORY_ORDER) {
+    const v = Number(deal?.[scoreKey(c.key)] ?? 0);
+    if (v < 3) return c;
+  }
+  return null;
+}
+
+function dealHeader(deal, repFirstName, totalCount, idx) {
+  const amountStr = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(deal.amount || 0);
+
+  const closeDateStr = deal.close_date ? new Date(deal.close_date).toLocaleDateString() : "TBD";
+  const stage = deal.forecast_stage || "Pipeline";
+  const n = idx + 1;
+
+  return `Hi ${repFirstName}. Deal ${n} of ${totalCount}: ${deal.account_name}. ${stage} for ${amountStr}, closing ${closeDateStr}.`;
+}
+
 /// ============================================================================
-/// SECTION 4: EXPRESS APP
+/// SECTION 4: EXPRESS
 /// ============================================================================
 const app = express();
 app.use(express.json());
@@ -85,9 +119,6 @@ app.use(express.urlencoded({ extended: false })); // REQUIRED for Twilio
 
 app.get("/", (req, res) => res.send("✅ Forecast Agent API is alive!"));
 
-/// ============================================================================
-/// SECTION 5: TWILIO WEBHOOK (/agent) -> identify rep by phone -> return TwiML
-/// ============================================================================
 app.post("/agent", async (req, res) => {
   try {
     const callerPhone = req.body.From || null;
@@ -105,8 +136,6 @@ app.post("/agent", async (req, res) => {
       orgId = result.rows[0].org_id;
       repName = result.rows[0].rep_name || "Rep";
       console.log(`✅ Identified Rep: ${repName} (org_id=${orgId})`);
-    } else {
-      console.log("⚠️ No rep matched this phone; defaulting to Guest/org 1");
     }
 
     const wsUrl = `wss://${req.headers.host}/`;
@@ -129,19 +158,15 @@ app.post("/agent", async (req, res) => {
 });
 
 /// ============================================================================
-/// SECTION 6: DEBUG (optional) /debug/opportunities (read-only + local CORS)
+/// SECTION 5: DEBUG endpoint (optional)
 /// ============================================================================
 app.use("/debug/opportunities", (req, res, next) => {
   const origin = req.headers.origin || "";
-  const isLocal =
-    origin.startsWith("http://localhost:") ||
-    origin.startsWith("http://127.0.0.1:");
-
+  const isLocal = origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:");
   if (isLocal) res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
@@ -160,7 +185,6 @@ app.get("/debug/opportunities", async (req, res) => {
     }
 
     query += " ORDER BY updated_at DESC";
-
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
@@ -170,7 +194,14 @@ app.get("/debug/opportunities", async (req, res) => {
 });
 
 /// ============================================================================
-/// SECTION 7: OpenAI Tool Schema (save_deal_data) — HARD SCORE GUARDRAILS
+/// SECTION 6: HTTP + WS
+/// ============================================================================
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
+console.log("🌐 WebSocket server created");
+
+/// ============================================================================
+/// SECTION 7: TOOL SCHEMA (hard score guardrails)
 /// ============================================================================
 const scoreInt = { type: "integer", minimum: 0, maximum: 3 };
 
@@ -193,10 +224,7 @@ const saveDealDataTool = {
       competition_score: scoreInt, competition_summary: { type: "string" }, competition_tip: { type: "string" },
       paper_score: scoreInt, paper_summary: { type: "string" }, paper_tip: { type: "string" },
       timing_score: scoreInt, timing_summary: { type: "string" }, timing_tip: { type: "string" },
-
-      // optional; muscle.js can compute deterministically if present/needed
       risk_summary: { type: "string" },
-
       next_steps: { type: "string" },
       rep_comments: { type: "string" },
     },
@@ -205,100 +233,78 @@ const saveDealDataTool = {
 };
 
 /// ============================================================================
-/// SECTION 8: System Prompt Builder (getSystemPrompt)
+/// SECTION 8: PROMPT BUILDERS (two-phase)
 /// ============================================================================
-function getSystemPrompt(deal, repFirstName, dealsLeft, totalCount) {
-  const runCount = Number(deal.run_count) || 0;
-  const isNewDeal = runCount === 0;
-
-  const amountStr = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(deal.amount || 0);
-
-  const closeDateStr = deal.close_date ? new Date(deal.close_date).toLocaleDateString() : "TBD";
-  const stage = deal.forecast_stage || "Pipeline";
-  const isSessionStart = dealsLeft === totalCount - 1 || dealsLeft === totalCount;
-
-  const firstGap = computeFirstGap(deal);
-  const gapQuestion = `Has anything changed since last review regarding ${firstGap.name}?`;
-
-  let openingLine = "";
-  if (isSessionStart) {
-    openingLine = `Hi ${repFirstName}. This is Matthew. We are reviewing ${totalCount} opportunities, starting with ${deal.account_name}.`;
-  } else {
-    openingLine = `Okay. Next deal: ${deal.account_name}.`;
-  }
-
-  if (isNewDeal) {
-    // NEW DEAL: do NOT ask “since last review”
-    openingLine += ` It's in ${stage} for ${amountStr}, closing ${closeDateStr}. What product are we selling and what specific customer problem are we solving?`;
-  } else {
-    openingLine += ` It's in ${stage} for ${amountStr}.`;
-  }
-
+function baseDiscipline(deal) {
   return `
 ### ROLE
-You are Matthew, a high-IQ MEDDPICC Auditor. You are an extractor, not a coach.
+You are Matthew, a MEDDPICC Auditor. You are an extractor, not a coach.
 
 ### HARD CONTEXT
-- DEAL_ID: ${deal.id}
-- ACCOUNT_NAME: ${deal.account_name}
-Never use any other company name unless the rep explicitly corrects the deal identity.
+DEAL_ID: ${deal.id}
+ACCOUNT_NAME: ${deal.account_name}
 
-### MANDATORY OPENING
-You MUST open exactly with: "${openingLine}"
-
-### OUTPUT STYLE (ANTI-CHATTY)
-- Do NOT repeat or paraphrase the rep.
-- Do NOT ask what the rep would score.
-- Do NOT debate scores.
-- Spoken output must be ONLY a single question (one sentence ending with "?").
-- If unclear: ask ONE clarifier question, then move on.
-
-### SAVE-AS-YOU-GO (CRITICAL)
-After EVERY rep answer, you MUST call save_deal_data SILENTLY.
-- If nothing changed, still call save_deal_data with rep_comments="No change stated".
-- NEVER invent facts. Never overwrite evidence with blanks.
-
-### FLOW
-- If NEW DEAL: ask baseline MEDDPICC starter question(s) (but still save after each answer).
-- If NOT NEW: focus ONLY on categories with score < 3.
-- Ask about the first/lowest gap. Next question MUST be exactly:
-"${gapQuestion}"
-
-### SCORING RUBRIC (0-3 ONLY)
-PAIN: 0=None, 1=Vague, 2=Clear, 3=Quantified ($$$).
-METRICS: 0=Unknown, 1=Soft, 2=Rep-defined, 3=Customer-validated.
-CHAMPION: 0=None, 1=Coach, 2=Mobilizer, 3=Champion (Power).
-EB: 0=Unknown, 1=Identified, 2=Indirect, 3=Direct relationship.
-CRITERIA: 0=Unknown, 1=Vague, 2=Defined, 3=Locked in favor.
-PROCESS: 0=Unknown, 1=Assumed, 2=Understood, 3=Documented.
-COMPETITION: 0=Unknown, 1=Assumed, 2=Identified, 3=Known edge.
-PAPER: 0=Unknown, 1=Not started, 2=Known Started, 3=Waiting for Signature.
-TIMING: 0=Unknown, 1=Assumed, 2=Flexible, 3=Real Consequence/Event.
+### SPEECH RULES (ANTI-CHATTY)
+- Never repeat/paraphrase the rep.
+- Never ask the rep what score they would give.
+- Never debate scores.
+- Spoken output must be ONE sentence ending with a question mark.
+- No tips verbally. Tips go into saved fields only.
 
 ### SUMMARY FORMAT
-Summaries MUST be: "Label: evidence" (NO score numbers).
-Example: "Customer-validated: Outages cost ~$2M per quarter."
+Summaries must be "Label: evidence" (no score numbers).
 
-### COMPLETION
-Only when ready to leave the deal:
-Say: "Health Score: [Sum]/27. Risk: [Top Risk]. NEXT_DEAL_TRIGGER."
-You MUST say NEXT_DEAL_TRIGGER to advance.
+### SCORING (0-3)
+PAIN 0=None 1=Vague 2=Clear 3=Quantified ($$$)
+METRICS 0=Unknown 1=Soft 2=Rep-defined 3=Customer-validated
+CHAMPION 0=None 1=Coach 2=Mobilizer 3=Champion (Power)
+EB 0=Unknown 1=Identified 2=Indirect 3=Direct relationship
+CRITERIA 0=Unknown 1=Vague 2=Defined 3=Locked in favor
+PROCESS 0=Unknown 1=Assumed 2=Understood 3=Documented
+COMPETITION 0=Unknown 1=Assumed 2=Identified 3=Known edge
+PAPER 0=Unknown 1=Not started 2=Known Started 3=Waiting for Signature
+TIMING 0=Unknown 1=Assumed 2=Flexible 3=Real Consequence/Event
+`.trim();
+}
+
+function questionForGap(deal, repFirstName, totalCount, idx, gap) {
+  const header = dealHeader(deal, repFirstName, totalCount, idx);
+  const q = `Has anything changed since last review regarding ${gap.name}?`;
+  return `
+${baseDiscipline(deal)}
+
+### OPENING
+You MUST say exactly:
+"${header} ${q}"
+`.trim();
+}
+
+function questionForNewDeal(deal, repFirstName, totalCount, idx) {
+  const header = dealHeader(deal, repFirstName, totalCount, idx);
+  const q = "New deal: what product are we selling and what specific customer problem are we solving?";
+  return `
+${baseDiscipline(deal)}
+
+### OPENING
+You MUST say exactly:
+"${header} ${q}"
+`.trim();
+}
+
+function toolOnlyInstruction(deal, gap) {
+  return `
+${baseDiscipline(deal)}
+
+### TOOL-ONLY MODE (MANDATORY)
+You MUST call save_deal_data now.
+- Do NOT speak.
+- Update ONLY the relevant category (${gap ? gap.name : "current"}) based on the rep’s last answer.
+- If rep said "no change", save rep_comments="No change stated" and do NOT overwrite other fields with blanks.
 `.trim();
 }
 
 /// ============================================================================
-/// SECTION 9: HTTP server + WS server
-/// ============================================================================
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
-console.log("🌐 WebSocket server created");
-
-/// ============================================================================
-/// SECTION 10: WebSocket Server (Twilio WS <-> OpenAI WS)
+/// SECTION 9: WS CORE
 /// ============================================================================
 wss.on("connection", async (twilioWs) => {
   console.log("🔥 Twilio WebSocket connected");
@@ -312,25 +318,9 @@ wss.on("connection", async (twilioWs) => {
 
   let openAiReady = false;
 
-  // minimal debouncing (no watchdog loops)
-  let lastSpeechStoppedAt = 0;
-  let awaitingModel = false;
-  let sawToolCallSinceLastUserTurn = false;
-
-  function safeSend(ws, payload) {
-    try {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
-    } catch (e) {
-      console.error("❌ WS send error:", e?.message || e);
-    }
-  }
-
-  function kickModel(reason) {
-    if (awaitingModel) return;
-    awaitingModel = true;
-    console.log(`⚡ response.create (${reason})`);
-    safeSend(openAiWs, { type: "response.create" });
-  }
+  // Turn state
+  let currentGap = null;
+  let phase = "idle"; // "idle" | "waiting_tool" | "waiting_question"
 
   const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
     headers: {
@@ -341,11 +331,6 @@ wss.on("connection", async (twilioWs) => {
 
   openAiWs.on("error", (err) => {
     console.error("❌ OpenAI WebSocket error:", err?.message || err);
-  });
-
-  openAiWs.on("unexpected-response", (req, res) => {
-    console.error("❌ OpenAI WS unexpected response:", res?.statusCode, res?.statusMessage);
-    console.error("Headers:", res?.headers);
   });
 
   openAiWs.on("open", () => {
@@ -379,25 +364,32 @@ wss.on("connection", async (twilioWs) => {
     }
     const response = parsed.json;
 
-    // VAD
-    if (response.type === "input_audio_buffer.speech_started") {
-      console.log("🗣️ VAD: speech_started");
-      sawToolCallSinceLastUserTurn = false;
-    }
-
+    // When rep finishes speaking, run tool-only pass (Phase A).
     if (response.type === "input_audio_buffer.speech_stopped") {
-      console.log("🗣️ VAD: speech_stopped");
+      if (phase !== "waiting_question") {
+        // only commit to tool pass when we were actually expecting rep speech
+        return;
+      }
 
-      const now = Date.now();
-      if (now - lastSpeechStoppedAt < 700) return;
-      lastSpeechStoppedAt = now;
+      phase = "waiting_tool";
 
-      awaitingModel = false;
-      kickModel("speech_stopped");
+      const deal = dealQueue[currentDealIndex];
+      if (!deal) return;
+
+      // Force a silent tool-only turn.
+      safeSend(openAiWs, {
+        type: "session.update",
+        session: {
+          instructions: toolOnlyInstruction(deal, currentGap),
+        },
+      });
+
+      safeSend(openAiWs, { type: "response.create" });
+      return;
     }
 
     try {
-      // Tool args done
+      // Tool call args complete => save => ask next question (Phase B)
       if (response.type === "response.function_call_arguments.done") {
         const callId = response.call_id;
 
@@ -413,19 +405,23 @@ wss.on("connection", async (twilioWs) => {
           return;
         }
 
-        sawToolCallSinceLastUserTurn = true;
-
         console.log(
           `🧾 SAVE ROUTE dealIndex=${currentDealIndex}/${Math.max(dealQueue.length - 1, 0)} id=${deal.id} account="${deal.account_name}" callId=${callId}`
         );
         console.log("🔎 args keys:", Object.keys(argsParsed.json));
-        console.log("🔎 args preview:", compact(argsParsed.json, [
-          "pain_score","metrics_score","champion_score","eb_score",
-          "criteria_score","process_score","competition_score","paper_score","timing_score",
-          "risk_summary","rep_comments",
-        ]));
+        console.log(
+          "🔎 args preview:",
+          compact(argsParsed.json, [
+            "pain_score","metrics_score","champion_score","eb_score",
+            "criteria_score","process_score","competition_score","paper_score","timing_score",
+            "risk_summary","rep_comments",
+          ])
+        );
 
+        // Save
         await handleFunctionCall({ ...argsParsed.json, _deal: deal }, callId);
+
+        // Sync local memory for deterministic next gap selection
         applyArgsToLocalDeal(deal, argsParsed.json);
 
         // Ack tool output
@@ -438,60 +434,58 @@ wss.on("connection", async (twilioWs) => {
           },
         });
 
-        // IMPORTANT: keep the convo moving (prevents “saved then went dark”)
-        awaitingModel = false;
-        kickModel("post_tool_continue");
-      }
+        // Next: choose next gap and ask exactly one question
+        currentGap = findNextGap(deal);
 
-      // response.done: allow next kick + handle NEXT_DEAL_TRIGGER
-      if (response.type === "response.done") {
-        awaitingModel = false;
-
-        const transcript = (
-          response.response?.output
-            ?.flatMap((o) => o.content || [])
-            .map((c) => c.transcript || c.text || "")
-            .join(" ") || ""
-        );
-
-        if (transcript.includes("NEXT_DEAL_TRIGGER")) {
-          console.log("🚀 NEXT_DEAL_TRIGGER detected. Advancing deal...");
+        // If no gaps left, advance deal.
+        if (!currentGap) {
           currentDealIndex++;
-
-          if (currentDealIndex < dealQueue.length) {
-            const nextDeal = dealQueue[currentDealIndex];
-            console.log(`👉 Context switch -> id=${nextDeal.id} account="${nextDeal.account_name}"`);
-
-            const instructions = getSystemPrompt(
-              nextDeal,
-              (repName || "Rep").split(" ")[0],
-              dealQueue.length - 1 - currentDealIndex,
-              dealQueue.length
-            );
-
-            safeSend(openAiWs, { type: "session.update", session: { instructions } });
-
-            setTimeout(() => {
-              awaitingModel = false;
-              kickModel("next_deal_first_question");
-            }, 500);
-          } else {
+          if (currentDealIndex >= dealQueue.length) {
             console.log("🏁 All deals done.");
+            return;
           }
         }
+
+        const nextDeal = dealQueue[currentDealIndex];
+        const repFirst = (repName || "Rep").split(" ")[0];
+
+        const runCount = Number(nextDeal.run_count) || 0;
+        const isNewDeal = runCount === 0;
+
+        currentGap = findNextGap(nextDeal);
+
+        const nextInstructions = isNewDeal
+          ? questionForNewDeal(nextDeal, repFirst, dealQueue.length, currentDealIndex)
+          : questionForGap(nextDeal, repFirst, dealQueue.length, currentDealIndex, currentGap || CATEGORY_ORDER[0]);
+
+        safeSend(openAiWs, {
+          type: "session.update",
+          session: { instructions: nextInstructions },
+        });
+
+        phase = "waiting_question";
+        safeSend(openAiWs, { type: "response.create" });
       }
 
-      // Audio out
+      // Audio out (model -> Twilio)
       if (response.type === "response.audio.delta" && response.delta && streamSid) {
-        twilioWs.send(JSON.stringify({
-          event: "media",
-          streamSid,
-          media: { payload: response.delta },
-        }));
+        twilioWs.send(
+          JSON.stringify({
+            event: "media",
+            streamSid,
+            media: { payload: response.delta },
+          })
+        );
+      }
+
+      // If model "finishes" but didn't tool-call while we were waiting_tool, just stop.
+      // This prevents watchdog storms. The rep can answer again, or you can hang up.
+      if (response.type === "response.done") {
+        // If we were waiting_tool and it didn't call tool, don't loop.
+        // (You will see it immediately in logs; simplest stable behavior.)
       }
     } catch (err) {
       console.error("❌ OpenAI Message Handler Error:", err);
-      awaitingModel = false;
     }
   });
 
@@ -539,7 +533,7 @@ wss.on("connection", async (twilioWs) => {
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
 
-  /// ---------------- Deal loading + initial prompt ----------------
+  /// ---------------- Deal loading + first question ----------------
   async function attemptLaunch() {
     if (!openAiReady || !repName) return;
 
@@ -572,24 +566,30 @@ wss.on("connection", async (twilioWs) => {
     }
 
     const deal = dealQueue[currentDealIndex];
-    const instructions = getSystemPrompt(
-      deal,
-      (repName || "Rep").split(" ")[0],
-      dealQueue.length - 1,
-      dealQueue.length
-    );
+    const repFirst = (repName || "Rep").split(" ")[0];
 
-    safeSend(openAiWs, { type: "session.update", session: { instructions } });
+    const runCount = Number(deal.run_count) || 0;
+    const isNewDeal = runCount === 0;
 
-    setTimeout(() => {
-      awaitingModel = false;
-      kickModel("first_question");
-    }, 500);
+    currentGap = findNextGap(deal);
+
+    const instructions = isNewDeal
+      ? questionForNewDeal(deal, repFirst, dealQueue.length, currentDealIndex)
+      : questionForGap(deal, repFirst, dealQueue.length, currentDealIndex, currentGap || CATEGORY_ORDER[0]);
+
+    safeSend(openAiWs, {
+      type: "session.update",
+      session: { instructions },
+    });
+
+    phase = "waiting_question";
+    console.log("⚡ response.create (first_question)");
+    safeSend(openAiWs, { type: "response.create" });
   }
 });
 
 /// ============================================================================
-/// SECTION 11: START
+/// SECTION 10: START
 /// ============================================================================
 server.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT}`);
