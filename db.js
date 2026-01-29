@@ -1,8 +1,10 @@
-const { Pool } = require("pg");
+// db.js (ES module)
+import pkg from "pg";
+const { Pool } = pkg;
 
 // Use DATABASE_URL from environment for production
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL, 
+  connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
@@ -11,7 +13,7 @@ const pool = new Pool({
  * @param {object} deal - The existing deal row from the DB.
  * @param {object} args - Scores, summaries, tips, ai_forecast, etc.
  */
-async function saveDealData(deal, args) {
+export async function saveDealData(deal, args) {
   try {
     const updatedFields = {
       ...args,
@@ -60,5 +62,3 @@ async function saveDealData(deal, args) {
     throw err;
   }
 }
-
-module.exports = { saveDealData };
