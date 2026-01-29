@@ -1,5 +1,5 @@
 // muscle.js (ES module)
-/// Tool handler (save_deal_data) + scoring hygiene + label formatting
+/// SECTION: Tool handler (save_deal_data) + scoring hygiene + summary formatting
 
 import { saveDealData } from "./db.js";
 
@@ -27,30 +27,29 @@ function clampScore(x) {
 
 /**
  * Label format: "Label: evidence" (NO score numbers).
- * Only applied when evidence exists; otherwise preserve DB summary (no overwrite).
+ * IMPORTANT: Only applied when evidence exists; otherwise preserve DB summary (no overwrite).
  */
 function labelSummary(cat, score, summary) {
-  const s0 = Number(score);
-  const s = Number.isFinite(s0) ? s0 : 0; // force 0 if missing
-  const label = scoreLabels[cat]?.[s] ?? scoreLabels[cat]?.[0] ?? "Unknown";
+  const s = Number.isFinite(Number(score)) ? Number(score) : 0;
+  const label = scoreLabels[cat]?.[s] ?? "Unknown";
 
-  if (!summary || typeof summary !== "string") return undefined;
+  if (typeof summary !== "string") return undefined;
   const cleaned = summary.trim();
   if (!cleaned) return undefined;
 
   const lower = cleaned.toLowerCase();
-  const labelLower = String(label).toLowerCase() + ":";
 
-  // already labeled correctly
+  // already labeled with the correct label
+  const labelLower = String(label).toLowerCase() + ":";
   if (lower.startsWith(labelLower)) return cleaned;
 
-  // already has *some* valid label prefix
+  // already labeled with ANY known label
   const anyLabelPrefix = (scoreLabels[cat] || [])
     .filter(Boolean)
     .some((lbl) => lower.startsWith(String(lbl).toLowerCase() + ":"));
-
   if (anyLabelPrefix) return cleaned;
 
+  // add label
   return `${label}: ${cleaned}`;
 }
 
@@ -71,26 +70,34 @@ export async function handleFunctionCall(args, callId) {
     const updates = { ...args };
     delete updates._deal;
 
-    // Defensive: never persist junk keys
+    // Defensive: never persist unknown keys (sometimes models leak these)
     delete updates.call_id;
     delete updates.type;
 
-    // 1) Clamp any scores present
+    // 1) Clamp any scores present (0-3)
     for (const cat of categories) {
       const k = `${cat}_score`;
-      if (updates[k] !== undefined) updates[k] = clampScore(updates[k]);
+      if (updates[k] !== undefined) {
+        updates[k] = clampScore(updates[k]);
+      }
     }
 
-    // 2) Label summaries when provided (otherwise preserve DB)
+    // 2) Apply "Label: evidence" formatting (ONLY if summary provided)
     for (const cat of categories) {
       const scoreK = `${cat}_score`;
       const summaryK = `${cat}_summary`;
 
-      const effectiveScore = updates[scoreK] !== undefined ? updates[scoreK] : deal[scoreK];
+      const effectiveScore =
+        updates[scoreK] !== undefined ? updates[scoreK] : deal[scoreK];
+
       const labeled = labelSummary(cat, effectiveScore, updates[summaryK]);
 
-      if (labeled !== undefined) updates[summaryK] = labeled;
-      else delete updates[summaryK]; // critical: never overwrite DB summary with blanks/undefined
+      if (labeled !== undefined) {
+        updates[summaryK] = labeled;
+      } else {
+        // critical: do not overwrite DB summary with blank/undefined
+        delete updates[summaryK];
+      }
     }
 
     // 3) Compute ai_forecast from merged scores
@@ -103,13 +110,12 @@ export async function handleFunctionCall(args, callId) {
     const totalScore = mergedScores.reduce((a, b) => a + b, 0);
     updates.ai_forecast = computeAiForecast(totalScore);
 
-    // 4) Save (db.js prevents blank overwrites)
+    // 4) Save
     const updatedDeal = await saveDealData(deal, updates);
 
     console.log(
       `✅ Saved deal id=${updatedDeal.id} account="${currentAccount}" ai_forecast=${updatedDeal.ai_forecast} run_count=${updatedDeal.run_count}`
     );
-
     return updatedDeal;
   } catch (err) {
     console.error("❌ save_deal_data failed:", err?.message || err);

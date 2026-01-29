@@ -9,7 +9,7 @@ const pool = new Pool({
 
 function pick(deal, args, key) {
   const v = args?.[key];
-  // allow 0 / false; block undefined and empty-string overwrites
+  // allow 0; block undefined and empty-string overwrites
   if (v === undefined) return deal?.[key];
   if (typeof v === "string" && v.trim() === "") return deal?.[key];
   return v;
@@ -17,7 +17,7 @@ function pick(deal, args, key) {
 
 export async function saveDealData(deal, args) {
   try {
-    const run_count = (Number(deal.run_count) || 0) + 1;
+    const run_count = (deal.run_count || 0) + 1;
     const updated_at = new Date();
 
     const merged = {
