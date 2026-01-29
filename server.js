@@ -28,7 +28,9 @@ const pool = new Pool({
 
 // --- Express server for health checks + Twilio webhook
 const app = express();
-app.use(express.json()); // parse JSON payloads
+
+app.use(express.json());                 // JSON (for your own APIs)
+app.use(express.urlencoded({ extended: false })); // 🔴 REQUIRED for Twilio
 
 app.get("/", (req, res) => res.send("✅ Forecast Agent API is alive!"));
 
