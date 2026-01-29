@@ -1,44 +1,41 @@
 // server.js
-import WebSocket, { WebSocketServer } from "ws";
+import express from "express";
 import http from "http";
+import WebSocket, { WebSocketServer } from "ws";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 const MODEL_URL = process.env.MODEL_URL;
 const MODEL_NAME = process.env.MODEL_NAME;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// --- HTTP server (needed for Render) ---
-const server = http.createServer();
-server.listen(PORT, () => console.log(`🚀 Server listening on port ${PORT}`));
+// --- Express server for health checks
+const app = express();
+app.get("/", (req, res) => res.send("✅ Forecast Agent API is alive!"));
 
-// --- WebSocket Server ---
+// --- HTTP server (needed for WebSocket)
+const server = http.createServer(app);
+
+// --- WebSocket server
 const wss = new WebSocketServer({ server });
+
 console.log("🌐 WebSocket server created");
-
-// --- Helper: system prompt for deals ---
-function getSystemPrompt(deal, repFirstName, dealsRemaining, totalDeals) {
-  return `You are a sales assistant talking to ${repFirstName}. Deal info: ${JSON.stringify(deal)}. Deals remaining: ${dealsRemaining}/${totalDeals}`;
-}
-
-// --- Placeholder function handler ---
-function handleFunctionCall(args, callId) {
-  console.log("📞 Function call received:", callId, args);
-}
 
 // --- [BLOCK 5: WEBSOCKET CORE] ---
 wss.on("connection", async (ws) => {
   console.log("🔥 Twilio WebSocket connected");
 
+  // Local State
   let streamSid = null;
   let dealQueue = [];
   let currentDealIndex = 0;
   let repName = null;
+  let orgId = 1;
   let openAiReady = false;
 
-  // --- Connect to OpenAI Realtime
+  // Connect to OpenAI Realtime
   const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
     headers: {
       Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -53,7 +50,7 @@ wss.on("connection", async (ws) => {
     attemptLaunch();
   });
 
-  // --- Handle messages from OpenAI
+  // --- Handle incoming OpenAI messages
   openAiWs.on("message", (data) => {
     try {
       const response = JSON.parse(data);
@@ -66,9 +63,11 @@ wss.on("connection", async (ws) => {
 
       // Handle final text transcript
       if (response.type === "response.done") {
-        const transcript = (
-          response.response?.output?.flatMap(o => o.content || []).map(c => c.transcript || c.text || "") || []
-        ).join(" ");
+        const transcript =
+          (response.response?.output
+            ?.flatMap((o) => o.content || [])
+            .map((c) => c.transcript || c.text || "") || []
+          ).join(" ");
         console.log("📝 FINAL TRANSCRIPT:", transcript);
 
         if (transcript.includes("NEXT_DEAL_TRIGGER")) {
@@ -81,49 +80,50 @@ wss.on("connection", async (ws) => {
               dealQueue.length - 1 - currentDealIndex,
               dealQueue.length
             );
-            openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions } }));
+            openAiWs.send(
+              JSON.stringify({ type: "session.update", session: { instructions } })
+            );
             setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
           }
         }
       }
 
-      // --- Audio streaming TO Twilio (base64 μ-law ONLY)
+      // Handle audio delta
       if (response.type === "response.audio.delta" && response.delta && streamSid) {
-        ws.send(JSON.stringify({
-          event: "media",
-          streamSid,
-          media: { payload: response.delta } // ✅ Twilio-compliant
-        }));
+        ws.send(
+          JSON.stringify({
+            event: "media",
+            streamSid,
+            media: { payload: response.delta }, // NO encoding field for Twilio
+          })
+        );
       }
-
     } catch (err) {
       console.error("❌ OpenAI Message Error:", err);
     }
   });
 
-  // --- Handle messages from Twilio
+  // --- Handle incoming Twilio WebSocket messages
   ws.on("message", async (msg) => {
     const data = JSON.parse(msg);
 
     if (data.event === "start") {
       streamSid = data.streamSid;
-      repName = data.repName || "Unknown Rep";
-      dealQueue = data.deals || [];
-      currentDealIndex = 0;
       console.log("🎬 Stream started:", streamSid);
-      attemptLaunch();
     }
 
-    if (data.event === "media" && data.media?.payload) {
+    if (data.event === "media" && data.media && data.media.payload) {
       const audioBuffer = Buffer.from(data.media.payload, "base64");
 
-      // Send to OpenAI
+      // Send to OpenAI as g711_ulaw
       if (openAiReady) {
-        openAiWs.send(JSON.stringify({
-          type: "input.audio.buffer",
-          audio: audioBuffer.toString("base64"),
-          encoding: "g711_ulaw" // Only for OpenAI
-        }));
+        openAiWs.send(
+          JSON.stringify({
+            type: "input.audio.buffer",
+            audio: audioBuffer.toString("base64"),
+            encoding: "g711_ulaw",
+          })
+        );
       }
     }
 
@@ -143,15 +143,23 @@ wss.on("connection", async (ws) => {
     streamSid = null;
   });
 
-  // --- Launch deals to OpenAI if ready
+  // --- Launch deals if ready
   function attemptLaunch() {
     if (!openAiReady || !repName) return;
     dealQueue.forEach((deal, idx) => {
-      const instructions = getSystemPrompt(deal, repName.split(" ")[0], dealQueue.length - 1 - idx, dealQueue.length);
+      const instructions = getSystemPrompt(
+        deal,
+        repName.split(" ")[0],
+        dealQueue.length - 1 - idx,
+        dealQueue.length
+      );
       openAiWs.send(JSON.stringify({ type: "session.update", session: { instructions } }));
     });
     setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 500);
   }
 });
 
-console.log(`✅ Server running and ready for Twilio calls on ws://localhost:${PORT}`);
+// --- Start server
+server.listen(PORT, () => {
+  console.log(`🚀 Server listening on port ${PORT}`);
+});
