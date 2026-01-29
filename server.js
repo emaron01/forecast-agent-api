@@ -18,10 +18,10 @@ const OPENAI_API_KEY = process.env.MODEL_API_KEY; // API key
 const DATABASE_URL = process.env.DATABASE_URL;
 
 if (!MODEL_URL || !MODEL_NAME || !OPENAI_API_KEY) {
-  throw new Error("⚠️ MODEL_API_URL, MODEL_NAME, and MODEL_API_KEY must be set in environment variables!");
+  throw new Error("⚠️ MODEL_API_URL, MODEL_NAME, and MODEL_API_KEY must be set!");
 }
 if (!DATABASE_URL) {
-  throw new Error("⚠️ DATABASE_URL must be set in environment variables!");
+  throw new Error("⚠️ DATABASE_URL must be set!");
 }
 
 // --- PostgreSQL (read-only in server.js; writes happen via db.js called by muscle.js)
@@ -30,7 +30,25 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// --- Express server
+// ----------------- Helpers: safer logging + parsing -----------------
+
+function safeJsonParse(data) {
+  const s = Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
+  try {
+    return { ok: true, json: JSON.parse(s) };
+  } catch (e) {
+    return { ok: false, err: e, head: s.slice(0, 200) };
+  }
+}
+
+function compact(obj, keys) {
+  const out = {};
+  for (const k of keys) if (obj?.[k] !== undefined) out[k] = obj[k];
+  return out;
+}
+
+// ----------------- Express server -----------------
+
 const app = express();
 app.use(express.json()); // for your own APIs
 app.use(express.urlencoded({ extended: false })); // REQUIRED for Twilio
@@ -79,16 +97,14 @@ app.post("/agent", async (req, res) => {
 // ============================================================
 // DEBUG / DASHBOARD SUPPORT (READ-ONLY + LOCAL CORS)
 // Remove this entire block when you no longer need the local dashboard.
-// Allows browser dashboard at http://localhost:8080 to fetch from Render.
+// Allows browser dashboard at http://localhost:* to fetch from Render.
 // ============================================================
 
 app.use("/debug/opportunities", (req, res, next) => {
-  // Allow only localhost dashboard origins (any port)
   const origin = req.headers.origin || "";
   if (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
     res.setHeader("Access-Control-Allow-Origin", origin);
   }
-
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -124,16 +140,19 @@ app.get("/debug/opportunities", async (req, res) => {
   }
 });
 
-// --- HTTP server (needed for WebSocket)
+// ----------------- HTTP server + WS server -----------------
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 console.log("🌐 WebSocket server created");
 
-// --- Tool schema the model uses to save deal updates
+// ----------------- Tool schema the model uses to save deal updates -----------------
+
 const saveDealDataTool = {
   type: "function",
   name: "save_deal_data",
-  description: "Call immediately after every user response to save MEDDPICC updates.",
+  description:
+    "Call immediately after every user response to save MEDDPICC updates. Do NOT invent facts. Update only what user provided.",
   parameters: {
     type: "object",
     properties: {
@@ -148,13 +167,16 @@ const saveDealDataTool = {
       competition_score: { type: "number" }, competition_summary: { type: "string" }, competition_tip: { type: "string" },
       paper_score: { type: "number" }, paper_summary: { type: "string" }, paper_tip: { type: "string" },
       timing_score: { type: "number" }, timing_summary: { type: "string" }, timing_tip: { type: "string" },
-      risk_summary: { type: "string" }, next_steps: { type: "string" }, rep_comments: { type: "string" }
+      risk_summary: { type: "string" },
+      next_steps: { type: "string" },
+      rep_comments: { type: "string" },
     },
-    required: ["risk_summary"]
-  }
+    required: ["risk_summary"],
+  },
 };
 
-// --- System prompt (restores greeting + discipline from old monolith)
+// ----------------- System prompt (greeting + discipline) -----------------
+
 function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
   const runCount = Number(deal.run_count) || 0;
   const isNewDeal = runCount === 0;
@@ -166,7 +188,6 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
   }).format(deal.amount || 0);
 
   const closeDateStr = deal.close_date ? new Date(deal.close_date).toLocaleDateString() : "TBD";
-
   const isSessionStart = (dealsLeft === totalCount - 1) || (dealsLeft === totalCount);
 
   const scores = [
@@ -180,7 +201,6 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
     { name: "Paper Process", val: deal.paper_score },
     { name: "Timing", val: deal.timing_score },
   ];
-
   const firstGap = scores.find(s => (Number(s.val) || 0) < 3) || { name: "Pain" };
 
   let openingLine = "";
@@ -198,26 +218,31 @@ function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
 
   return `
 ### ROLE
-You are a **MEDDPICC Scorer**. Your job is to Listen, Judge, and Record.
+You are a MEDDPICC Scorer. Listen, judge, and record.
+
+### HARD CONTEXT (NON-NEGOTIABLE)
+You are auditing exactly:
+- DEAL_ID: ${deal.id}
+- ACCOUNT_NAME: ${deal.account_name}
+
+You MUST NOT mention or use any other company name as the account. If the user says a different company, treat it as a correction ONLY if they explicitly say "this deal is actually X". Otherwise, keep ACCOUNT_NAME as the deal name.
 
 ### MANDATORY OPENING
 You MUST open exactly with: "${openingLine}"
-**CRITICAL:** Do NOT use the phrase "NEXT_DEAL_TRIGGER" in your opening line.
+Do NOT say NEXT_DEAL_TRIGGER in the opening line.
 
-### THE "JUDGE & SAVE" PROTOCOL (STRICT)
-1. After every user response, you MUST call 'save_deal_data'.
-2. Even vague answers get a Score 1.
-3. Update multiple categories in one tool call if mentioned.
-4. Do NOT tell the user you are saving.
+### SAVE-AS-YOU-GO RULE (STRICT)
+After every user response, you MUST call save_deal_data to store updated scores/summaries/tips. Do not invent facts; if unknown, score low and write "unknown".
 
-### COMPLETION PROTOCOL (STRICT)
-ONLY when ready to leave the deal:
+### COMPLETION PROTOCOL
+Only when ready to leave the deal:
 Say: "Health Score: [Sum]/27. Risk: [Top Risk]. NEXT_DEAL_TRIGGER."
-You MUST say the exact phrase NEXT_DEAL_TRIGGER to advance.
+You MUST say NEXT_DEAL_TRIGGER to advance.
 `.trim();
 }
 
-// --- WebSocket core: Twilio <Stream> <-> OpenAI Realtime
+// ----------------- WebSocket core: Twilio <Stream> <-> OpenAI Realtime -----------------
+
 wss.on("connection", async (twilioWs) => {
   console.log("🔥 Twilio WebSocket connected");
 
@@ -237,7 +262,6 @@ wss.on("connection", async (twilioWs) => {
     },
   });
 
-  // Prevent “Unhandled error event” crashes
   openAiWs.on("error", (err) => {
     console.error("❌ OpenAI WebSocket error:", err?.message || err);
   });
@@ -270,18 +294,50 @@ wss.on("connection", async (twilioWs) => {
   });
 
   openAiWs.on("message", (data) => {
-    try {
-      const response = JSON.parse(data);
+    const parsed = safeJsonParse(data);
+    if (!parsed.ok) {
+      console.error("❌ OpenAI frame not JSON:", parsed.err?.message, "| head:", parsed.head);
+      return;
+    }
 
+    const response = parsed.json;
+
+    try {
+      // Tool call arguments (save_deal_data)
       if (response.type === "response.function_call_arguments.done") {
-        const args = JSON.parse(response.arguments || "{}");
         const callId = response.call_id;
+        const args = safeJsonParse(response.arguments || "{}");
+        if (!args.ok) {
+          console.error("❌ Tool args not JSON:", args.err?.message, "| head:", args.head);
+          return;
+        }
 
         const deal = dealQueue[currentDealIndex];
-        if (!deal) return;
+        if (!deal) {
+          console.error("❌ Tool fired but no active deal (ignoring).");
+          return;
+        }
 
-        // Pass current deal context into muscle for safe saving
-        handleFunctionCall({ ...args, _deal: deal }, callId);
+        // Audit breadcrumb: what deal we believe we are on
+        console.log(
+          `🧾 SAVE ROUTE dealIndex=${currentDealIndex}/${Math.max(dealQueue.length - 1, 0)} id=${deal.id} account="${deal.account_name}" callId=${callId}`
+        );
+        console.log("🔎 args keys:", Object.keys(args.json));
+        console.log("🔎 args preview:", compact(args.json, [
+          "risk_summary",
+          "pain_score",
+          "metrics_score",
+          "champion_score",
+          "eb_score",
+          "criteria_score",
+          "process_score",
+          "competition_score",
+          "paper_score",
+          "timing_score",
+        ]));
+
+        // IMPORTANT: pass locked deal context into muscle for safe saving
+        handleFunctionCall({ ...args.json, _deal: deal }, callId);
 
         // Acknowledge tool output to keep the model flowing
         openAiWs.send(JSON.stringify({
@@ -293,9 +349,11 @@ wss.on("connection", async (twilioWs) => {
           },
         }));
 
+        // Force the model to speak
         openAiWs.send(JSON.stringify({ type: "response.create" }));
       }
 
+      // When a response completes, check for NEXT_DEAL_TRIGGER
       if (response.type === "response.done") {
         const transcript = (
           response.response?.output
@@ -309,6 +367,8 @@ wss.on("connection", async (twilioWs) => {
 
           if (currentDealIndex < dealQueue.length) {
             const nextDeal = dealQueue[currentDealIndex];
+            console.log(`👉 Context switch -> id=${nextDeal.id} account="${nextDeal.account_name}"`);
+
             const instructions = getSystemPrompt(
               nextDeal,
               repName.split(" ")[0],
@@ -337,7 +397,7 @@ wss.on("connection", async (twilioWs) => {
         }));
       }
     } catch (err) {
-      console.error("❌ OpenAI Message Error:", err);
+      console.error("❌ OpenAI Message Handler Error:", err);
     }
   });
 
@@ -360,6 +420,7 @@ wss.on("connection", async (twilioWs) => {
       }
 
       if (data.event === "media" && data.media?.payload && openAiReady) {
+        // Correct OpenAI Realtime input message
         openAiWs.send(JSON.stringify({
           type: "input_audio_buffer.append",
           audio: data.media.payload, // base64 g711_ulaw
@@ -380,6 +441,7 @@ wss.on("connection", async (twilioWs) => {
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
 
+  // Load deals + initialize first instructions
   async function attemptLaunch() {
     if (!openAiReady || !repName) return;
 
@@ -401,6 +463,9 @@ wss.on("connection", async (twilioWs) => {
       currentDealIndex = 0;
 
       console.log(`📊 Loaded ${dealQueue.length} deals for ${repName}`);
+      if (dealQueue[0]) {
+        console.log(`👉 Starting deal -> id=${dealQueue[0].id} account="${dealQueue[0].account_name}"`);
+      }
     }
 
     if (dealQueue.length === 0) {
