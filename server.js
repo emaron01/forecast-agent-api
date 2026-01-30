@@ -187,7 +187,8 @@ const wsUrl = `wss://${req.headers.host}/`;
          <Connect>
            <Stream url="${wsUrl}">
              <Parameter name="org_id" value="${orgId}" />
-             <Parameter name="rep_name" value="${repFirstName}" />
+             <Parameter name="rep_name_full" value="${repName}" />
+             <Parameter name="rep_name_first" value="${repFirstName}" />
            </Stream>
          </Connect>
        </Response>`
@@ -500,6 +501,7 @@ wss.on("connection", async (twilioWs) => {
   let streamSid = null;
   let orgId = 1;
   let repName = null;
+  let repFirstName = null;
 
   let dealQueue = [];
   let currentDealIndex = 0;
@@ -637,7 +639,7 @@ wss.on("connection", async (twilioWs) => {
 
             const instructions = getSystemPrompt(
               nextDeal,
-              repName || "Rep",
+              repFirstName || repName || "Rep",
               dealQueue.length,
               false
             );
@@ -731,7 +733,7 @@ wss.on("connection", async (twilioWs) => {
 
             const instructions = getSystemPrompt(
               nextDeal,
-              repName || "Rep",
+              repFirstName || repName || "Rep",
               dealQueue.length,
               false
             );
@@ -781,7 +783,8 @@ wss.on("connection", async (twilioWs) => {
         const params = data.start?.customParameters || {};
 
         orgId = parseInt(params.org_id, 10) || 1;
-        repName = params.rep_name || "Guest";
+        repName = params.rep_name_full || params.rep_name || "Guest";
+        repFirstName = params.rep_name_first || String(repName).trim().split(/\s+/)[0] || "Rep";
 
         console.log("🎬 Stream started:", streamSid);
         console.log(`🔎 Rep: ${repName} | orgId=${orgId}`);
@@ -843,11 +846,23 @@ wss.on("connection", async (twilioWs) => {
 
     if (dealQueue.length === 0) {
       console.log("⚠️ No review_now=TRUE deals found for this rep.");
+
+      const noDealsMsg = `Hi ${repFirstName || "there"}. I don’t see any deals marked review_now for you right now. If you want to run a forecast review, set review_now to true on the opportunities you want to cover — then call back.`;
+
+      const instructions = `You are Matthew, a calm enterprise sales leader. Say exactly: "${noDealsMsg}" Then stop talking.`;
+
+      safeSend(openAiWs, { type: "session.update", session: { instructions } });
+
+      setTimeout(() => {
+        awaitingModel = false;
+        kickModel("no_deals_message");
+      }, 250);
+
       return;
     }
 
     const deal = dealQueue[currentDealIndex];
-    const instructions = getSystemPrompt(deal, repName, dealQueue.length, true);
+    const instructions = getSystemPrompt(deal, repFirstName || repName, dealQueue.length, true);
 
     safeSend(openAiWs, {
       type: "session.update",
