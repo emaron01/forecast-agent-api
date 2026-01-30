@@ -381,8 +381,8 @@ function getSystemPrompt(deal, repName, totalCount, isFirstDeal) {
     stageMode = "MODE: PIPELINE ANALYST (PIPELINE)";
     stageFocus = "FOCUS ONLY: Pain, Metrics, Champion, Budget.";
     stageRules =
-      "RULES: Do NOT ask about paper process, legal, contracts, or procurement. Do NOT force completeness. Do NOT act late-stage.
-Champion scoring in Pipeline: a past user or someone who booked a demo is NOT automatically a Champion. A 3 requires proven internal advocacy, influence, and active action in the current cycle.";
+      `RULES: Do NOT ask about paper process, legal, contracts, or procurement. Do NOT force completeness. Do NOT act late-stage.
+Champion scoring in Pipeline: a past user or someone who booked a demo is NOT automatically a Champion. A 3 requires proven internal advocacy, influence, and active action in the current cycle.`;
   }
 
   // 1-sentence recall (keep it short)
