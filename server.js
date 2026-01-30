@@ -509,11 +509,10 @@ wss.on("connection", async (twilioWs) => {
   // Turn-control stability
   let awaitingModel = false;
   let activeResponse = false;
-  let activeResponseId = null;
   let pendingContinue = false;
+  let lastResponseCreateAt = 0;
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
-  let lastResponseCreateAt = 0;
 
   // Advancement gating (prevents premature NEXT_DEAL_TRIGGER in Pipeline)
   let touched = new Set();
@@ -536,9 +535,10 @@ wss.on("connection", async (twilioWs) => {
 
   function kickModel(reason) {
     const now = Date.now();
+    // Never create a new response while one is active
     if (activeResponse) return;
     if (awaitingModel) return;
-    if (now - lastResponseCreateAt < 1200) return;
+    if (now - lastResponseCreateAt < 900) return;
 
     awaitingModel = true;
     lastResponseCreateAt = now;
@@ -597,11 +597,16 @@ wss.on("connection", async (twilioWs) => {
     }
     const response = parsed.json;
 
-    if (response.type === "response.created") {
-      activeResponse = true;
-      activeResponseId = response.response?.id || response.id || null;
+    // ---- Debug (helps diagnose silent failures) ----
+    if (response.type === "error") {
+      console.error("❌ OpenAI error frame:", response);
     }
 
+    if (response.type === "response.created") {
+      activeResponse = true;
+      awaitingModel = true;
+      console.log("🟦 OpenAI response.created");
+    }
 
 
     if (response.type === "input_audio_buffer.speech_started") {
@@ -717,19 +722,16 @@ wss.on("connection", async (twilioWs) => {
         });
 
         pendingContinue = true;
-        // Don't create a new response while the current one is still active.
-        // We'll continue immediately after we receive response.done.
-        activeResponse = true;
+        // Wait for response.done before continuing to avoid active-response collisions.
         awaitingModel = true;
       }
 
       if (response.type === "response.done") {
+        console.log("🟩 OpenAI response.done");
         activeResponse = false;
-        activeResponseId = null;
         awaitingModel = false;
         if (pendingContinue) {
           pendingContinue = false;
-          // Small delay helps avoid rapid VAD-triggered creates.
           setTimeout(() => kickModel("post_tool_continue"), 150);
         }
 
@@ -742,7 +744,7 @@ wss.on("connection", async (twilioWs) => {
             .join(" ") || ""
         );
 
-        if (transcript.includes("NEXT_DEAL_TRIGGER") || transcript.includes("Okay — let’s move to the next one.") || transcript.includes("Okay — let's move to the next one.")) {
+        if (transcript.includes("NEXT_DEAL_TRIGGER")) {
           const currentDeal = dealQueue[currentDealIndex];
           if (!currentDeal) return;
 
