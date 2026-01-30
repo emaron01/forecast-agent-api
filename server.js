@@ -334,12 +334,14 @@ function getSystemPrompt(deal, repName, totalCount, isFirstDeal) {
   const oppName = (deal.opportunity_name || "").trim();
   const oppNamePart = oppName ? ` — ${oppName}` : "";
 
+  // First-deal greeting (REPLACES both prior blocks to avoid repeating deal context)
   const callPickup =
     `Hi ${repName}, this is Matthew from Sales Forecaster. ` +
     `Today we are reviewing ${totalCount} deals. ` +
     `Let's jump in starting with ${deal.account_name}${oppNamePart} ` +
     `for ${amountStr} in CRM Forecast Stage ${stage} closing ${closeDateStr}.`;
 
+  // Deal opening (USED FOR SUBSEQUENT DEALS ONLY)
   const dealOpening =
     `Let’s look at ${deal.account_name}${oppNamePart}, ` +
     `${stage}, ${amountStr}, closing ${closeDateStr}.`;
@@ -367,6 +369,7 @@ function getSystemPrompt(deal, repName, totalCount, isFirstDeal) {
       "RULES: Do NOT ask about paper process, legal, contracts, or procurement. Do NOT force completeness. Do NOT act late-stage.";
   }
 
+  // 1-sentence recall (keep it short)
   const recallBits = [];
   if (deal.pain_summary) recallBits.push(`Pain: ${deal.pain_summary}`);
   if (deal.metrics_summary) recallBits.push(`Metrics: ${deal.metrics_summary}`);
@@ -403,6 +406,11 @@ function getSystemPrompt(deal, repName, totalCount, isFirstDeal) {
     return `What is the latest on ${firstGap.name}?`;
   })();
 
+  // Enforce a deterministic spoken sequence to prevent "Last review" from leading.
+  // FIRST DEAL: Greeting -> Recall -> First question
+  // SUBSEQUENT: Deal opening -> Recall -> First question
+  const firstLine = isFirstDeal ? callPickup : dealOpening;
+
   return `
 SYSTEM PROMPT — SALES LEADER FORECAST REVIEW AGENT
 You are Matthew, a calm, credible, experienced enterprise sales leader.
@@ -421,41 +429,23 @@ You are reviewing exactly:
 - OPPORTUNITY_NAME: ${oppName || "(none)"}
 Never change deal identity unless the rep explicitly corrects it.
 
-CALL OPENING (FIRST DEAL ONLY — SAY EXACTLY)
-${
-  isFirstDeal
-    ? `Say EXACTLY:\n"${callPickup}"\nThen pause briefly.\nIMPORTANT: Do NOT repeat the deal opening on the first deal.`
-    : "Do NOT say the call opening."
-}
-
-DEAL OPENING (SUBSEQUENT DEALS ONLY — SAY EXACTLY)
-${
-  isFirstDeal
-    ? "On the first deal: do NOT say the deal opening again. Go straight to recall."
-    : `At the start of this deal, say EXACTLY:\n"${dealOpening}"`
-}
-
-HOW YOU THINK
-- You already have the current scorecard (scores, summaries, stage, risk).
-- Validate what changed and close gaps.
-- If nothing changed, say nothing judgmental — just record it.
-
-GENERAL FLOW (ALL STAGES)
-1) Brief recall (1 sentence max)
-2) Ask one clear question
-3) Wait for the rep to finish
-4) Save to the scorecard
-5) Move on
-Never rapid-fire. Never interrupt.
-
-RECALL (MANDATORY — 1 sentence max)
-Say EXACTLY after the opening:
-"${recallLine}"
+OPENING SEQUENCE (MANDATORY — DO NOT REORDER)
+You MUST speak these lines in this exact order, with no other words in between:
+1) "${firstLine}"
+2) "${recallLine}"
+3) "${gapQuestion}"
 
 STAGE STRATEGY (STRICT)
 ${stageMode}
 ${stageFocus}
 ${stageRules}
+
+GENERAL FLOW (ALL STAGES)
+- Ask one clear question at a time.
+- Wait for the rep to finish speaking.
+- Save to the scorecard.
+- Move on.
+Never rapid-fire. Never interrupt.
 
 SCORING RULES (CRITICAL)
 - You do not invent labels or criteria.
@@ -476,10 +466,6 @@ TOOL USE (CRITICAL)
 After EACH rep answer:
 1) Call save_deal_data silently (no spoken preface).
 2) Then ask the next single best question.
-
-NEXT SPOKEN LINE (MANDATORY)
-Your next spoken line MUST be exactly:
-"${gapQuestion}"
 
 END OF DEAL
 When finished with a deal, say:
