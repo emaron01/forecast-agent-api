@@ -511,8 +511,6 @@ wss.on("connection", async (twilioWs) => {
   let responseActive = false;
   let responseCreateQueued = false;
   let lastResponseCreateAt = 0;
-  let responseWatchdog = null;
-  let activeResponseBeganAt = 0;
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
 
@@ -546,26 +544,11 @@ wss.on("connection", async (twilioWs) => {
 
     // Throttle hard to prevent VAD storms
     if (awaitingModel) return;
-    if (now - lastResponseCreateAt < 650) return;
+    if (now - lastResponseCreateAt < 1200) return;
 
     awaitingModel = true;
     responseActive = true; // set true immediately to avoid races (don’t wait for response.created)
-    activeResponseBeganAt = now;
     lastResponseCreateAt = now;
-
-    if (responseWatchdog) clearTimeout(responseWatchdog);
-    responseWatchdog = setTimeout(() => {
-      // If OpenAI never sends response.done (rare), recover deterministically.
-      if (responseActive) {
-        console.warn("⏱️ Watchdog: response.done not seen; recovering");
-        responseActive = false;
-        awaitingModel = false;
-        if (responseCreateQueued) {
-          responseCreateQueued = false;
-          kickModel("watchdog_queued_continue");
-        }
-      }
-    }, 12000);
 
     console.log(`⚡ response.create (${reason})`);
     safeSend(openAiWs, { type: "response.create" });
@@ -627,8 +610,10 @@ wss.on("connection", async (twilioWs) => {
       // If OpenAI says there is an active response, treat as active and wait for response.done
       const code = response?.error?.code;
       if (code === "conversation_already_has_active_response") {
+        // Treat as active; queue a single follow-up create after response.done.
         responseActive = true;
         awaitingModel = true;
+        responseCreateQueued = true;
         return;
       }
     }
@@ -754,18 +739,12 @@ wss.on("connection", async (twilioWs) => {
           },
         });
 
-        // Queue a single follow-up response after the current one completes.
-        // If the current response already finished (race), continue immediately.
+        // Queue a single follow-up response after the current one completes
         responseCreateQueued = true;
         awaitingModel = true;
-        if (!responseActive) {
-          responseCreateQueued = false;
-          setTimeout(() => kickModel("post_tool_continue_racefix"), 120);
-        }
       }
 
       if (response.type === "response.done") {
-        if (responseWatchdog) { clearTimeout(responseWatchdog); responseWatchdog = null; }
         responseActive = false;
         awaitingModel = false;
         if (responseCreateQueued) {
