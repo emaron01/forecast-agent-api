@@ -508,10 +508,11 @@ wss.on("connection", async (twilioWs) => {
 
   // Turn-control stability
   let awaitingModel = false;
+  let activeResponse = false;
+  let activeResponseId = null;
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
-  let lastKickAt = 0;
-  let lastDoneAt = 0;
+  let lastResponseCreateAt = 0;
 
   // Advancement gating (prevents premature NEXT_DEAL_TRIGGER in Pipeline)
   let touched = new Set();
@@ -534,11 +535,12 @@ wss.on("connection", async (twilioWs) => {
 
   function kickModel(reason) {
     const now = Date.now();
+    if (activeResponse) return;
     if (awaitingModel) return;
-    // hard cooldown to prevent response.create storms
-    if (now - lastKickAt < 2000) return;
-    lastKickAt = now;
+    if (now - lastResponseCreateAt < 1200) return;
+
     awaitingModel = true;
+    lastResponseCreateAt = now;
     console.log(`⚡ response.create (${reason})`);
     safeSend(openAiWs, { type: "response.create" });
   }
@@ -594,11 +596,12 @@ wss.on("connection", async (twilioWs) => {
     }
     const response = parsed.json;
 
-    if (response.type === "error") {
-      console.error("❌ OpenAI error frame:", response);
-      awaitingModel = false;
-      return;
+    if (response.type === "response.created") {
+      activeResponse = true;
+      activeResponseId = response.response?.id || response.id || null;
     }
+
+
 
     if (response.type === "input_audio_buffer.speech_started") {
       sawSpeechStarted = true;
@@ -712,13 +715,18 @@ wss.on("connection", async (twilioWs) => {
           },
         });
 
+        activeResponse = false;
+        activeResponseId = null;
         awaitingModel = false;
         kickModel("post_tool_continue");
       }
 
       if (response.type === "response.done") {
+        activeResponse = false;
+        activeResponseId = null;
         awaitingModel = false;
-        lastDoneAt = Date.now();
+
+        awaitingModel = false;
 
         const transcript = (
           response.response?.output
@@ -727,14 +735,7 @@ wss.on("connection", async (twilioWs) => {
             .join(" ") || ""
         );
 
-        if (transcript) {
-          console.log("🗣️ Model said:", transcript.slice(0, 160));
-        } else {
-          console.log("🗣️ Model done (no transcript)");
-        }
-
-
-        if (transcript.includes("NEXT_DEAL_TRIGGER")) {
+        if (transcript.includes("NEXT_DEAL_TRIGGER") || transcript.includes("Okay — let’s move to the next one.") || transcript.includes("Okay — let's move to the next one.")) {
           const currentDeal = dealQueue[currentDealIndex];
           if (!currentDeal) return;
 
@@ -865,18 +866,6 @@ wss.on("connection", async (twilioWs) => {
 
     if (dealQueue.length === 0) {
       console.log("⚠️ No review_now=TRUE deals found for this rep.");
-
-      const noDealsMsg = `Hi ${repFirstName || "there"}. I don’t see any deals marked review_now for you right now. If you want to run a forecast review, set review_now to true on the opportunities you want to cover — then call back.`;
-
-      const instructions = `You are Matthew, a calm enterprise sales leader. Say exactly: "${noDealsMsg}" Then stop talking.`;
-
-      safeSend(openAiWs, { type: "session.update", session: { instructions } });
-
-      setTimeout(() => {
-        awaitingModel = false;
-        kickModel("no_deals_message");
-      }, 250);
-
       return;
     }
 
