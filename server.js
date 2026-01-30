@@ -179,13 +179,15 @@ app.post("/agent", async (req, res) => {
       console.log("⚠️ No rep matched this phone; defaulting to Guest/org 1");
     }
 
-    const wsUrl = `wss://${req.headers.host}/`;
+        const repFirstName = String(repName || "Rep").trim().split(/\s+/)[0] || "Rep";
+
+const wsUrl = `wss://${req.headers.host}/`;
     res.type("text/xml").send(
       `<Response>
          <Connect>
            <Stream url="${wsUrl}">
              <Parameter name="org_id" value="${orgId}" />
-             <Parameter name="rep_name" value="${repName}" />
+             <Parameter name="rep_name" value="${repFirstName}" />
            </Stream>
          </Connect>
        </Response>`
@@ -315,6 +317,19 @@ const saveDealDataTool = {
   },
 };
 
+
+const advanceDealTool = {
+  type: "function",
+  name: "advance_deal",
+  description:
+    "Advance to the next deal ONLY when you are finished with the current deal. This tool call is silent.",
+  parameters: {
+    type: "object",
+    properties: {},
+    required: [],
+  },
+};
+
 /// ============================================================================
 /// SECTION 8: System Prompt Builder (getSystemPrompt)
 /// ============================================================================
@@ -366,14 +381,14 @@ function getSystemPrompt(deal, repName, totalCount, isFirstDeal) {
     stageMode = "MODE: PIPELINE ANALYST (PIPELINE)";
     stageFocus = "FOCUS ONLY: Pain, Metrics, Champion, Budget.";
     stageRules =
-      "RULES: Do NOT ask about paper process, legal, contracts, or procurement. Do NOT force completeness. Do NOT act late-stage.";
+      "RULES: Do NOT ask about paper process, legal, contracts, or procurement. Do NOT force completeness. Do NOT act late-stage.
+Champion scoring in Pipeline: a past user or someone who booked a demo is NOT automatically a Champion. A 3 requires proven internal advocacy, influence, and active action in the current cycle.";
   }
 
   // 1-sentence recall (keep it short)
   const recallBits = [];
   if (deal.pain_summary) recallBits.push(`Pain: ${deal.pain_summary}`);
   if (deal.metrics_summary) recallBits.push(`Metrics: ${deal.metrics_summary}`);
-  if (deal.champion_summary) recallBits.push(`Champion: ${deal.champion_summary}`);
   if (deal.budget_summary) recallBits.push(`Budget: ${deal.budget_summary}`);
 
   const recallLine =
@@ -450,8 +465,10 @@ Never rapid-fire. Never interrupt.
 SCORING RULES (CRITICAL)
 - You do not invent labels or criteria.
 - Labels and criteria come from scorecard definitions.
+- Be conservative: NEVER assign a 3 unless the rep provides explicit, current evidence.
+- If evidence is weak, vague, second-hand, or based on assumptions: score 1–2 and capture the uncertainty.
 - You provide evidence only; backend normalizes summaries.
-- If evidence is weak or unclear: score lower, capture uncertainty, do not argue.
+- Do not argue with the rep.
 
 RISK
 - Do not debate risk live.
@@ -468,9 +485,9 @@ After EACH rep answer:
 2) Then ask the next single best question.
 
 END OF DEAL
-When finished with a deal, say:
-"Okay — let’s move to the next one. NEXT_DEAL_TRIGGER"
-You MUST say NEXT_DEAL_TRIGGER to advance.
+When finished with a deal:
+- Say: "Okay — let’s move to the next one."
+- Then call the advance_deal tool silently.
 `.trim();
 }
 
@@ -553,7 +570,7 @@ wss.on("connection", async (twilioWs) => {
           threshold: 0.6,
           silence_duration_ms: 1100,
         },
-        tools: [saveDealDataTool],
+        tools: [saveDealDataTool, advanceDealTool],
       },
     });
 
@@ -588,10 +605,55 @@ wss.on("connection", async (twilioWs) => {
     try {
       if (response.type === "response.function_call_arguments.done") {
         const callId = response.call_id;
+        const fnName = response.name || response.function_name || response?.function?.name || null;
+
 
         const argsParsed = safeJsonParse(response.arguments || "{}");
         if (!argsParsed.ok) {
           console.error("❌ Tool args not JSON:", argsParsed.err?.message, "| head:", argsParsed.head);
+          return;
+        }
+
+
+        // Silent advancement tool (no spoken trigger)
+        if (fnName === "advance_deal") {
+          console.log("➡️ advance_deal tool received. Advancing deal...");
+
+          safeSend(openAiWs, {
+            type: "conversation.item.create",
+            item: {
+              type: "function_call_output",
+              call_id: callId,
+              output: JSON.stringify({ status: "success" }),
+            },
+          });
+
+          awaitingModel = false;
+          currentDealIndex++;
+
+          if (currentDealIndex < dealQueue.length) {
+            const nextDeal = dealQueue[currentDealIndex];
+            console.log(`👉 Context switch -> id=${nextDeal.id} account="${nextDeal.account_name}"`);
+
+            const instructions = getSystemPrompt(
+              nextDeal,
+              repName || "Rep",
+              dealQueue.length,
+              false
+            );
+
+            safeSend(openAiWs, {
+              type: "session.update",
+              session: { instructions },
+            });
+
+            setTimeout(() => {
+              awaitingModel = false;
+              kickModel("next_deal_first_question");
+            }, 350);
+          } else {
+            console.log("🏁 All deals done.");
+          }
           return;
         }
 
