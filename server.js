@@ -1,13 +1,14 @@
 // server.js (ES module)
 // Forecast Agent Conductor: Twilio <Stream> + OpenAI Realtime + deal queue + tool routing.
 //
-// LOCKED INTENT
-// - Incremental saves per category (Option A)
-// - Backend (muscle.js) is deterministic: scoring bounds, summary normalization (Label+Criteria+Evidence), risk, forecast
-// - Score labels + criteria come from score_definitions (DB), model provides evidence only
-// - MEDDPICC+TB (adds Timing + Budget) = 10 categories, max score 30
-// - Only review_now = TRUE opportunities are reviewed
-// - Pipeline questioning focuses ONLY on Pain / Metrics / Champion / Budget (no paper/legal/procurement)
+// LOCKED BEHAVIOR (DO NOT REFACTOR):
+// - Incremental saves per category (Option A) via save_deal_data tool calls
+// - Deterministic backend scoring/risk/forecast in muscle.js (model provides evidence only)
+// - Score labels + criteria come from score_definitions table (muscle.js)
+// - review_now = TRUE only
+// - MEDDPICC+TB includes Budget (10 categories, max score 30)
+// - Stage-aware questioning; Pipeline focuses ONLY on Pain/Metrics/Champion/Budget
+// - Mandatory call pickup greeting (FIRST DEAL ONLY) + mandatory deal opening (SUBSEQUENT DEALS)
 
 import express from "express";
 import http from "http";
@@ -77,7 +78,7 @@ function scoreNum(x) {
  * Stage-aware questioning order.
  * STRICT:
  * - Pipeline focuses ONLY on Pain, Metrics, Champion, Budget.
- * - No Paper/Legal/Procurement in Pipeline.
+ * - Do NOT ask Paper/Legal/Procurement in Pipeline.
  */
 function computeFirstGap(deal, stage) {
   const stageStr = String(stage || deal?.forecast_stage || "Pipeline");
@@ -93,8 +94,8 @@ function computeFirstGap(deal, stage) {
     { name: "Economic Buyer", key: "eb_score", val: deal.eb_score },
     { name: "Decision Process", key: "process_score", val: deal.process_score },
     { name: "Paper Process", key: "paper_score", val: deal.paper_score },
-    { name: "Budget", key: "budget_score", val: deal.budget_score },
     { name: "Competition", key: "competition_score", val: deal.competition_score },
+    { name: "Budget", key: "budget_score", val: deal.budget_score },
     { name: "Decision Criteria", key: "criteria_score", val: deal.criteria_score },
     { name: "Timing", key: "timing_score", val: deal.timing_score },
     { name: "Champion", key: "champion_score", val: deal.champion_score },
@@ -126,6 +127,23 @@ function applyArgsToLocalDeal(deal, args) {
   for (const [k, v] of Object.entries(args || {})) {
     if (v !== undefined) deal[k] = v;
   }
+}
+
+function markTouched(touchedSet, args) {
+  for (const k of Object.keys(args || {})) {
+    if (k.endsWith("_score") || k.endsWith("_summary") || k.endsWith("_tip")) {
+      touchedSet.add(k.split("_")[0]); // e.g. metrics_score -> metrics
+    }
+  }
+}
+
+function okToAdvance(deal, touchedSet) {
+  const stage = String(deal?.forecast_stage || "Pipeline");
+  if (stage.includes("Pipeline")) {
+    const req = ["pain", "metrics", "champion", "budget"];
+    return req.every((c) => touchedSet.has(c));
+  }
+  return true;
 }
 
 /// ============================================================================
@@ -234,7 +252,6 @@ console.log("🌐 WebSocket server created");
 
 /// ============================================================================
 /// SECTION 7: OpenAI Tool Schema (save_deal_data)
-///  MEDDPICC+TB includes Budget
 /// ============================================================================
 const scoreInt = { type: "integer", minimum: 0, maximum: 3 };
 
@@ -290,7 +307,7 @@ const saveDealDataTool = {
       budget_summary: { type: "string" },
       budget_tip: { type: "string" },
 
-      // stored, not debated live
+      risk_summary: { type: "string" },
       next_steps: { type: "string" },
       rep_comments: { type: "string" },
     },
@@ -317,15 +334,16 @@ function getSystemPrompt(deal, repName, totalCount, isFirstDeal) {
   const oppName = (deal.opportunity_name || "").trim();
   const oppNamePart = oppName ? ` — ${oppName}` : "";
 
-  // ☎️ CALL OPENING (MANDATORY — SAY EXACTLY)
-  const callPickup = `Hi ${repName}. Matthew here.
-We’re reviewing ${totalCount} deals today.
-First up: ${deal.account_name}${oppNamePart}, ${stage}, ${amountStr}, closing ${closeDateStr}.`;
+  const callPickup =
+    `Hi ${repName}, this is Matthew from Sales Forecaster. ` +
+    `Today we are reviewing ${totalCount} deals. ` +
+    `Let's jump in starting with ${deal.account_name}${oppNamePart} ` +
+    `for ${amountStr} in CRM Forecast Stage ${stage} closing ${closeDateStr}.`;
 
-  // 🧭 DEAL OPENING (MANDATORY — EVERY DEAL)
-  const dealOpening = `Let’s look at ${deal.account_name}${oppNamePart}, ${stage}, ${amountStr}, closing ${closeDateStr}.`;
+  const dealOpening =
+    `Let’s look at ${deal.account_name}${oppNamePart}, ` +
+    `${stage}, ${amountStr}, closing ${closeDateStr}.`;
 
-  // 🧱 STAGE-SPECIFIC STRATEGY (STRICT)
   let stageMode = "";
   let stageFocus = "";
   let stageRules = "";
@@ -349,7 +367,6 @@ First up: ${deal.account_name}${oppNamePart}, ${stage}, ${amountStr}, closing ${
       "RULES: Do NOT ask about paper process, legal, contracts, or procurement. Do NOT force completeness. Do NOT act late-stage.";
   }
 
-  // 🔄 Flow: brief recall (1 sentence max)
   const recallBits = [];
   if (deal.pain_summary) recallBits.push(`Pain: ${deal.pain_summary}`);
   if (deal.metrics_summary) recallBits.push(`Metrics: ${deal.metrics_summary}`);
@@ -364,7 +381,6 @@ First up: ${deal.account_name}${oppNamePart}, ${stage}, ${amountStr}, closing ${
   const firstGap = computeFirstGap(deal, stage);
 
   const gapQuestion = (() => {
-    // Pipeline: strictly foundation
     if (String(stage).includes("Pipeline")) {
       if (firstGap.name === "Pain")
         return "What specific business problem is the customer trying to solve, and what happens if they do nothing?";
@@ -377,7 +393,6 @@ First up: ${deal.account_name}${oppNamePart}, ${stage}, ${amountStr}, closing ${
       return `What changed since last time on ${firstGap.name}?`;
     }
 
-    // Best Case / Commit: validate readiness and close gaps
     if (String(stage).includes("Commit")) {
       return `This is Commit — what evidence do we have that ${firstGap.name} is fully locked?`;
     }
@@ -391,13 +406,11 @@ First up: ${deal.account_name}${oppNamePart}, ${stage}, ${amountStr}, closing ${
   return `
 SYSTEM PROMPT — SALES LEADER FORECAST REVIEW AGENT
 You are Matthew, a calm, credible, experienced enterprise sales leader.
-Your role is to review live opportunities with a sales rep in order to:
-• Improve forecast accuracy
-• Strengthen deal rigor
-• Identify and mitigate risk early
+Your role is to review live opportunities with a sales rep in order to improve forecast accuracy,
+strengthen deal rigor, and identify/mitigate risk early.
 
 You are not a boss, not chatty, and not transactional.
-You do not give pep talks, ultimatums, or status requests.
+No pep talks, no ultimatums, no status requests.
 Your job is to ask smart questions, listen carefully, and update the scorecard.
 All coaching, evaluation, scoring, and recommendations belong in the scorecard, not spoken aloud.
 
@@ -408,68 +421,58 @@ You are reviewing exactly:
 - OPPORTUNITY_NAME: ${oppName || "(none)"}
 Never change deal identity unless the rep explicitly corrects it.
 
-☎️ CALL OPENING (MANDATORY — SAY EXACTLY)
-${isFirstDeal ? `At the very start of the call, say exactly:\n"${callPickup}"\nPause briefly, then continue.` : "Do NOT repeat the call opening."}
+CALL OPENING (FIRST DEAL ONLY — SAY EXACTLY)
+${
+  isFirstDeal
+    ? `Say EXACTLY:\n"${callPickup}"\nThen pause briefly.\nIMPORTANT: Do NOT repeat the deal opening on the first deal.`
+    : "Do NOT say the call opening."
+}
 
-🧭 DEAL OPENING (MANDATORY — EVERY DEAL)
-At the start of every deal, say exactly:
-"${dealOpening}"
-Then proceed.
+DEAL OPENING (SUBSEQUENT DEALS ONLY — SAY EXACTLY)
+${
+  isFirstDeal
+    ? "On the first deal: do NOT say the deal opening again. Go straight to recall."
+    : `At the start of this deal, say EXACTLY:\n"${dealOpening}"`
+}
 
-🧠 HOW YOU THINK (IMPORTANT)
-• You already have the current scorecard (scores, summaries, stage, and risk).
-• Your job is to validate what changed and close gaps.
-• If nothing changed, say nothing judgmental — just record it.
+HOW YOU THINK
+- You already have the current scorecard (scores, summaries, stage, risk).
+- Validate what changed and close gaps.
+- If nothing changed, say nothing judgmental — just record it.
 
-🔄 GENERAL FLOW (ALL STAGES)
-1. Briefly recall what we knew last time (1 sentence max)
-2. Ask one clear question at a time
-3. Wait for the rep to finish speaking
-4. Update the scorecard
-5. Move on
-Never rapid-fire questions. Never interrupt.
+GENERAL FLOW (ALL STAGES)
+1) Brief recall (1 sentence max)
+2) Ask one clear question
+3) Wait for the rep to finish
+4) Save to the scorecard
+5) Move on
+Never rapid-fire. Never interrupt.
 
 RECALL (MANDATORY — 1 sentence max)
-After the deal opening line, say exactly:
+Say EXACTLY after the opening:
 "${recallLine}"
 
-🧱 STAGE-SPECIFIC STRATEGY (STRICT)
+STAGE STRATEGY (STRICT)
 ${stageMode}
 ${stageFocus}
 ${stageRules}
 
-🧮 SCORING RULES (CRITICAL)
-• You do not invent labels or criteria.
-• All labels and criteria come from the scorecard definitions.
-• You only decide: which score applies and what evidence supports it.
-Every summary must follow:
-Label: Criteria. Evidence: what the rep said.
-If evidence is weak or unclear:
-• Score lower
-• Capture uncertainty
-• Do not argue with the rep
+SCORING RULES (CRITICAL)
+- You do not invent labels or criteria.
+- Labels and criteria come from scorecard definitions.
+- You provide evidence only; backend normalizes summaries.
+- If evidence is weak or unclear: score lower, capture uncertainty, do not argue.
 
-⚠️ RISK
-You do not verbally speculate about risk.
-Risk is calculated automatically and recorded in the scorecard.
+RISK
+- Do not debate risk live.
+- Risk is recorded in the scorecard (deterministic backend).
 
-📝 SAVING BEHAVIOR
-• Update the scorecard incrementally after each rep answer.
-• Assume the call could end at any time.
-If needed, you may say: "Got it — I’m updating the scorecard."
-Do not narrate scores or math.
+SAVING BEHAVIOR (STRICT)
+- Never say "Saving", "Updating", or anything similar.
+- Tool calls are silent.
+- Continue smoothly with the next question.
 
-🧠 TONE & CULTURE (DO NOT VIOLATE)
-• Supportive • Curious • Calm • Sales-savvy
-• Never condescending • Never robotic
-• Never managerial ("keep me posted", "circle back", etc.)
-
-🚫 HARD NOs
-• No scripts • No lecturing • No pressure • No buzzwords
-• No fake enthusiasm • No making up answers
-• No forcing categories when irrelevant
-
-✅ TOOL USE (CRITICAL)
+TOOL USE (CRITICAL)
 After EACH rep answer:
 1) Call save_deal_data silently (no spoken preface).
 2) Then ask the next single best question.
@@ -478,7 +481,7 @@ NEXT SPOKEN LINE (MANDATORY)
 Your next spoken line MUST be exactly:
 "${gapQuestion}"
 
-🏁 END OF DEAL
+END OF DEAL
 When finished with a deal, say:
 "Okay — let’s move to the next one. NEXT_DEAL_TRIGGER"
 You MUST say NEXT_DEAL_TRIGGER to advance.
@@ -504,6 +507,9 @@ wss.on("connection", async (twilioWs) => {
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
 
+  // Advancement gating (prevents premature NEXT_DEAL_TRIGGER in Pipeline)
+  let touched = new Set();
+
   const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
     headers: {
       Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -525,6 +531,26 @@ wss.on("connection", async (twilioWs) => {
     awaitingModel = true;
     console.log(`⚡ response.create (${reason})`);
     safeSend(openAiWs, { type: "response.create" });
+  }
+
+  function nudgeModelStayOnDeal(reason) {
+    console.log(`⛔ Advance blocked (${reason}). Nudging model to continue current deal.`);
+    safeSend(openAiWs, {
+      type: "conversation.item.create",
+      item: {
+        type: "message",
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text:
+              "Continue reviewing the CURRENT deal. Do NOT move to the next deal yet. Ask the next required question.",
+          },
+        ],
+      },
+    });
+    awaitingModel = false;
+    kickModel("advance_blocked_continue");
   }
 
   openAiWs.on("open", () => {
@@ -559,18 +585,15 @@ wss.on("connection", async (twilioWs) => {
     const response = parsed.json;
 
     if (response.type === "input_audio_buffer.speech_started") {
-      console.log("🗣️ VAD: speech_started");
       sawSpeechStarted = true;
     }
 
     if (response.type === "input_audio_buffer.speech_stopped") {
-      console.log("🗣️ VAD: speech_stopped");
-
       if (!sawSpeechStarted) return;
       sawSpeechStarted = false;
 
       const now = Date.now();
-      if (now - lastSpeechStoppedAt < 1200) return;
+      if (now - lastSpeechStoppedAt < 1800) return;
       lastSpeechStoppedAt = now;
 
       kickModel("speech_stopped");
@@ -609,9 +632,12 @@ wss.on("connection", async (twilioWs) => {
             "competition_score",
             "paper_score",
             "timing_score",
+            "risk_summary",
             "rep_comments",
           ])
         );
+
+        markTouched(touched, argsParsed.json);
 
         await handleFunctionCall({ ...argsParsed.json, _deal: deal }, callId);
         applyArgsToLocalDeal(deal, argsParsed.json);
@@ -640,8 +666,16 @@ wss.on("connection", async (twilioWs) => {
         );
 
         if (transcript.includes("NEXT_DEAL_TRIGGER")) {
-          console.log("🚀 NEXT_DEAL_TRIGGER detected. Advancing deal...");
+          const currentDeal = dealQueue[currentDealIndex];
+          if (!currentDeal) return;
+
+          if (!okToAdvance(currentDeal, touched)) {
+            return nudgeModelStayOnDeal("pipeline_incomplete");
+          }
+
+          console.log("🚀 NEXT_DEAL_TRIGGER accepted. Advancing deal...");
           currentDealIndex++;
+          touched = new Set();
 
           if (currentDealIndex < dealQueue.length) {
             const nextDeal = dealQueue[currentDealIndex];
@@ -651,7 +685,7 @@ wss.on("connection", async (twilioWs) => {
               nextDeal,
               repName || "Rep",
               dealQueue.length,
-              false // only first deal gets call pickup
+              false
             );
 
             safeSend(openAiWs, {
@@ -749,10 +783,13 @@ wss.on("connection", async (twilioWs) => {
 
       dealQueue = result.rows;
       currentDealIndex = 0;
+      touched = new Set();
 
       console.log(`📊 Loaded ${dealQueue.length} review_now deals for ${repName}`);
       if (dealQueue[0]) {
-        console.log(`👉 Starting deal -> id=${dealQueue[0].id} account="${dealQueue[0].account_name}"`);
+        console.log(
+          `👉 Starting deal -> id=${dealQueue[0].id} account="${dealQueue[0].account_name}"`
+        );
       }
     }
 
@@ -762,8 +799,6 @@ wss.on("connection", async (twilioWs) => {
     }
 
     const deal = dealQueue[currentDealIndex];
-
-    // FIRST DEAL: include call pickup
     const instructions = getSystemPrompt(deal, repName, dealQueue.length, true);
 
     safeSend(openAiWs, {
