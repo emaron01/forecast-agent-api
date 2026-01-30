@@ -508,8 +508,8 @@ wss.on("connection", async (twilioWs) => {
 
   // Turn-control stability
   let awaitingModel = false;
-  let activeResponse = false;
-  let pendingContinue = false;
+  let responseActive = false;
+  let responseCreateQueued = false;
   let lastResponseCreateAt = 0;
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
@@ -535,13 +535,21 @@ wss.on("connection", async (twilioWs) => {
 
   function kickModel(reason) {
     const now = Date.now();
-    // Never create a new response while one is active
-    if (activeResponse) return;
+
+    // If a response is in progress, queue a single follow-up create
+    if (responseActive) {
+      responseCreateQueued = true;
+      return;
+    }
+
+    // Throttle hard to prevent VAD storms
     if (awaitingModel) return;
-    if (now - lastResponseCreateAt < 900) return;
+    if (now - lastResponseCreateAt < 1200) return;
 
     awaitingModel = true;
+    responseActive = true; // set true immediately to avoid races (don’t wait for response.created)
     lastResponseCreateAt = now;
+
     console.log(`⚡ response.create (${reason})`);
     safeSend(openAiWs, { type: "response.create" });
   }
@@ -597,16 +605,22 @@ wss.on("connection", async (twilioWs) => {
     }
     const response = parsed.json;
 
-    // ---- Debug (helps diagnose silent failures) ----
     if (response.type === "error") {
       console.error("❌ OpenAI error frame:", response);
+      // If OpenAI says there is an active response, treat as active and wait for response.done
+      const code = response?.error?.code;
+      if (code === "conversation_already_has_active_response") {
+        responseActive = true;
+        awaitingModel = true;
+        return;
+      }
     }
 
     if (response.type === "response.created") {
-      activeResponse = true;
+      // keep active; we already set it true on create
       awaitingModel = true;
-      console.log("🟦 OpenAI response.created");
     }
+
 
 
     if (response.type === "input_audio_buffer.speech_started") {
@@ -671,6 +685,8 @@ wss.on("connection", async (twilioWs) => {
 
             setTimeout(() => {
               awaitingModel = false;
+              responseActive = false;
+              responseCreateQueued = false;
               kickModel("next_deal_first_question");
             }, 350);
           } else {
@@ -721,18 +737,17 @@ wss.on("connection", async (twilioWs) => {
           },
         });
 
-        pendingContinue = true;
-        // Wait for response.done before continuing to avoid active-response collisions.
+        // Queue a single follow-up response after the current one completes
+        responseCreateQueued = true;
         awaitingModel = true;
       }
 
       if (response.type === "response.done") {
-        console.log("🟩 OpenAI response.done");
-        activeResponse = false;
+        responseActive = false;
         awaitingModel = false;
-        if (pendingContinue) {
-          pendingContinue = false;
-          setTimeout(() => kickModel("post_tool_continue"), 150);
+        if (responseCreateQueued) {
+          responseCreateQueued = false;
+          setTimeout(() => kickModel("queued_continue"), 150);
         }
 
         awaitingModel = false;
@@ -774,6 +789,8 @@ wss.on("connection", async (twilioWs) => {
 
             setTimeout(() => {
               awaitingModel = false;
+              responseActive = false;
+              responseCreateQueued = false;
               kickModel("next_deal_first_question");
             }, 350);
           } else {
@@ -888,6 +905,8 @@ wss.on("connection", async (twilioWs) => {
 
     setTimeout(() => {
       awaitingModel = false;
+      responseActive = false;
+      responseCreateQueued = false;
       kickModel("first_question");
     }, 350);
   }
