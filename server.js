@@ -510,6 +510,7 @@ wss.on("connection", async (twilioWs) => {
   let awaitingModel = false;
   let activeResponse = false;
   let activeResponseId = null;
+  let pendingContinue = false;
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
   let lastResponseCreateAt = 0;
@@ -715,16 +716,22 @@ wss.on("connection", async (twilioWs) => {
           },
         });
 
-        activeResponse = false;
-        activeResponseId = null;
-        awaitingModel = false;
-        kickModel("post_tool_continue");
+        pendingContinue = true;
+        // Don't create a new response while the current one is still active.
+        // We'll continue immediately after we receive response.done.
+        activeResponse = true;
+        awaitingModel = true;
       }
 
       if (response.type === "response.done") {
         activeResponse = false;
         activeResponseId = null;
         awaitingModel = false;
+        if (pendingContinue) {
+          pendingContinue = false;
+          // Small delay helps avoid rapid VAD-triggered creates.
+          setTimeout(() => kickModel("post_tool_continue"), 150);
+        }
 
         awaitingModel = false;
 
