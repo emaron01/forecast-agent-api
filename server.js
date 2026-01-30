@@ -187,7 +187,7 @@ const wsUrl = `wss://${req.headers.host}/`;
          <Connect>
            <Stream url="${wsUrl}">
              <Parameter name="org_id" value="${orgId}" />
-             <Parameter name="rep_name" value="${repName}" />
+             <Parameter name="rep_name" value="${repFirstName}" />
            </Stream>
          </Connect>
        </Response>`
@@ -500,7 +500,6 @@ wss.on("connection", async (twilioWs) => {
   let streamSid = null;
   let orgId = 1;
   let repName = null;
-  let repFirstName = null;
 
   let dealQueue = [];
   let currentDealIndex = 0;
@@ -508,9 +507,6 @@ wss.on("connection", async (twilioWs) => {
 
   // Turn-control stability
   let awaitingModel = false;
-  let responseActive = false;
-  let responseCreateQueued = false;
-  let lastResponseCreateAt = 0;
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
 
@@ -534,22 +530,8 @@ wss.on("connection", async (twilioWs) => {
   });
 
   function kickModel(reason) {
-    const now = Date.now();
-
-    // If a response is in progress, queue a single follow-up create
-    if (responseActive) {
-      responseCreateQueued = true;
-      return;
-    }
-
-    // Throttle hard to prevent VAD storms
     if (awaitingModel) return;
-    if (now - lastResponseCreateAt < 1200) return;
-
     awaitingModel = true;
-    responseActive = true; // set true immediately to avoid races (don’t wait for response.created)
-    lastResponseCreateAt = now;
-
     console.log(`⚡ response.create (${reason})`);
     safeSend(openAiWs, { type: "response.create" });
   }
@@ -605,24 +587,6 @@ wss.on("connection", async (twilioWs) => {
     }
     const response = parsed.json;
 
-    if (response.type === "error") {
-      console.error("❌ OpenAI error frame:", response);
-      // If OpenAI says there is an active response, treat as active and wait for response.done
-      const code = response?.error?.code;
-      if (code === "conversation_already_has_active_response") {
-        responseActive = true;
-        awaitingModel = true;
-        return;
-      }
-    }
-
-    if (response.type === "response.created") {
-      // keep active; we already set it true on create
-      awaitingModel = true;
-    }
-
-
-
     if (response.type === "input_audio_buffer.speech_started") {
       sawSpeechStarted = true;
     }
@@ -673,7 +637,7 @@ wss.on("connection", async (twilioWs) => {
 
             const instructions = getSystemPrompt(
               nextDeal,
-              repFirstName || repName || "Rep",
+              repName || "Rep",
               dealQueue.length,
               false
             );
@@ -685,8 +649,6 @@ wss.on("connection", async (twilioWs) => {
 
             setTimeout(() => {
               awaitingModel = false;
-              responseActive = false;
-              responseCreateQueued = false;
               kickModel("next_deal_first_question");
             }, 350);
           } else {
@@ -737,19 +699,11 @@ wss.on("connection", async (twilioWs) => {
           },
         });
 
-        // Queue a single follow-up response after the current one completes
-        responseCreateQueued = true;
-        awaitingModel = true;
+        awaitingModel = false;
+        kickModel("post_tool_continue");
       }
 
       if (response.type === "response.done") {
-        responseActive = false;
-        awaitingModel = false;
-        if (responseCreateQueued) {
-          responseCreateQueued = false;
-          setTimeout(() => kickModel("queued_continue"), 150);
-        }
-
         awaitingModel = false;
 
         const transcript = (
@@ -777,7 +731,7 @@ wss.on("connection", async (twilioWs) => {
 
             const instructions = getSystemPrompt(
               nextDeal,
-              repFirstName || repName || "Rep",
+              repName || "Rep",
               dealQueue.length,
               false
             );
@@ -789,8 +743,6 @@ wss.on("connection", async (twilioWs) => {
 
             setTimeout(() => {
               awaitingModel = false;
-              responseActive = false;
-              responseCreateQueued = false;
               kickModel("next_deal_first_question");
             }, 350);
           } else {
@@ -830,7 +782,6 @@ wss.on("connection", async (twilioWs) => {
 
         orgId = parseInt(params.org_id, 10) || 1;
         repName = params.rep_name || "Guest";
-        repFirstName = String(repName).trim().split(/\s+/)[0] || "Rep";
 
         console.log("🎬 Stream started:", streamSid);
         console.log(`🔎 Rep: ${repName} | orgId=${orgId}`);
@@ -896,7 +847,7 @@ wss.on("connection", async (twilioWs) => {
     }
 
     const deal = dealQueue[currentDealIndex];
-    const instructions = getSystemPrompt(deal, repFirstName || repName, dealQueue.length, true);
+    const instructions = getSystemPrompt(deal, repName, dealQueue.length, true);
 
     safeSend(openAiWs, {
       type: "session.update",
@@ -905,8 +856,6 @@ wss.on("connection", async (twilioWs) => {
 
     setTimeout(() => {
       awaitingModel = false;
-      responseActive = false;
-      responseCreateQueued = false;
       kickModel("first_question");
     }, 350);
   }
