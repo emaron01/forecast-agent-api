@@ -1,21 +1,37 @@
 // muscle.js (ES module)
-// Tool handler (save_deal_data) + scoring hygiene + deterministic labeling + deterministic risk
+// Tool handler (save_deal_data)
+// Goals:
+// - Clamp scores 0–3 (integers)
+// - Build deterministic summaries that ALWAYS include: Label + Criteria + (optional) Evidence
+// - Deterministic risk_summary (stage-aware)
+// - Deterministic ai_forecast from total score
+// - Avoid junk overwrites (empty strings, "Unknown", placeholders)
 
+import pkg from "pg";
 import { saveDealData } from "./db.js";
+const { Pool } = pkg;
 
-const scoreLabels = {
-  pain: ["None", "Vague", "Clear", "Quantified ($$$)"],
-  metrics: ["Unknown", "Soft", "Rep-defined", "Customer-validated"],
-  champion: ["None", "Coach", "Mobilizer", "Champion (Power)"],
-  eb: ["Unknown", "Identified", "Indirect", "Direct relationship"],
-  criteria: ["Unknown", "Vague", "Defined", "Locked in favor"],
-  process: ["Unknown", "Assumed", "Understood", "Documented"],
-  competition: ["Unknown", "Assumed", "Identified", "Known edge"],
-  paper: ["Unknown", "Not started", "Known Started", "Waiting for Signature"],
-  timing: ["Unknown", "Assumed", "Flexible", "Real Consequence/Event"],
-};
+// ---- Score definition cache (per org) ----
+const defPool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
 
-const categories = Object.keys(scoreLabels);
+const defsCache = new Map(); // orgId -> { at:number, map: Map("cat|score"-> {label,criteria}) }
+const DEF_TTL_MS = 5 * 60 * 1000;
+
+const categories = [
+  "pain",
+  "metrics",
+  "champion",
+  "eb",
+  "criteria",
+  "process",
+  "competition",
+  "paper",
+  "timing",
+  "budget",
+];
 
 function clampScore(x) {
   const n = Number(x);
@@ -29,12 +45,19 @@ function isMeaningfulString(v) {
   return typeof v === "string" && v.trim().length > 0;
 }
 
+function pruneEmptyStringFields(updates) {
+  for (const [k, v] of Object.entries(updates)) {
+    if (typeof v === "string" && v.trim() === "") delete updates[k];
+  }
+}
+
 function scrubUnknown(v) {
   if (!isMeaningfulString(v)) return undefined;
   const t = v.trim();
-  const low = t.toLowerCase();
-  if (low === "unknown") return undefined;
+  const lower = t.toLowerCase();
+  if (lower === "unknown") return undefined;
   if (t === "[Champion's Name]" || t === "[Champion's Title]") return undefined;
+  if (t === "[Economic Buyer's Name]" || t === "[Economic Buyer's Title]") return undefined;
   return t;
 }
 
@@ -42,54 +65,46 @@ function scrubUnknown(v) {
  * Strips model junk like:
  *  - "Score 3 (Customer-validated): blah"
  *  - "Score 2: blah"
- *  - "Score 1 — blah"
+ *  - "Customer-validated: blah" (we strip any known "Label:" prefix later)
  */
 function stripScorePrefix(text) {
-  if (!isMeaningfulString(text)) return undefined;
+  if (!isMeaningfulString(text)) return "";
   let s = text.trim();
 
-  // "Score X (...):"
+  // Remove leading "Score X (...):"
   s = s.replace(/^Score\s*[0-3]\s*(\([^)]+\))?\s*:\s*/i, "");
-
-  // "Score X -" or "Score X —"
+  // Remove leading "Score X -" or "Score X —"
   s = s.replace(/^Score\s*[0-3]\s*[-—]\s*/i, "");
 
   return s.trim();
 }
 
-/**
- * Enforce: "Label: evidence" (NO score numbers).
- * Returns undefined when evidence is missing so we never overwrite.
- */
-function labelSummary(cat, effectiveScore, summary) {
-  const cleanedRaw = stripScorePrefix(summary);
-  if (!isMeaningfulString(cleanedRaw)) return undefined;
+async function getScoreDefinitions(orgId) {
+  const now = Date.now();
+  const cached = defsCache.get(orgId);
+  if (cached && now - cached.at < DEF_TTL_MS) return cached.map;
 
-  const s = Number.isFinite(Number(effectiveScore)) ? Number(effectiveScore) : 0;
-  const label = scoreLabels[cat]?.[s] ?? "Unknown";
+  const map = new Map();
+  const q = `
+    SELECT category, score, label, criteria
+    FROM score_definitions
+    WHERE org_id = $1
+  `;
+  const res = await defPool.query(q, [orgId]);
 
-  const cleaned = cleanedRaw.trim();
-  const lower = cleaned.toLowerCase();
-  const labelLower = String(label).toLowerCase() + ":";
+  for (const row of res.rows) {
+    const cat = String(row.category || "").trim().toLowerCase();
+    const score = Number(row.score);
+    if (!cat || !Number.isFinite(score)) continue;
 
-  // already correctly labeled
-  if (lower.startsWith(labelLower)) return cleaned;
+    map.set(`${cat}|${score}`, {
+      label: row.label || "",
+      criteria: row.criteria || "",
+    });
+  }
 
-  // already has some valid label prefix (accept it; do not relabel)
-  const anyLabelPrefix = (scoreLabels[cat] || [])
-    .filter(Boolean)
-    .some((lbl) => lower.startsWith(String(lbl).toLowerCase() + ":"));
-
-  if (anyLabelPrefix) return cleaned;
-
-  return `${label}: ${cleaned}`;
-}
-
-function computeAiForecast(totalScore) {
-  // 27 max
-  if (totalScore >= 21) return "Commit";
-  if (totalScore >= 15) return "Best Case";
-  return "Pipeline";
+  defsCache.set(orgId, { at: now, map });
+  return map;
 }
 
 function mergedScoreFor(deal, updates, cat) {
@@ -98,78 +113,80 @@ function mergedScoreFor(deal, updates, cat) {
   return Number.isFinite(Number(v)) ? Number(v) : 0;
 }
 
+function computeAiForecast(totalScore, maxScore) {
+  // Keep simple + stable. Tune later in one place.
+  // Defaults: Commit ~= 80%+, Best Case ~= 55%+
+  const commitCut = Math.round(maxScore * 0.8);
+  const bestCaseCut = Math.round(maxScore * 0.55);
+
+  if (totalScore >= commitCut) return "Commit";
+  if (totalScore >= bestCaseCut) return "Best Case";
+  return "Pipeline";
+}
+
 function computeTopRisk(deal, updates) {
   const stage = String(deal?.forecast_stage || "Pipeline");
 
-  const scores = categories.map((cat) => ({
-    cat,
-    score: mergedScoreFor(deal, updates, cat),
-  }));
+  const gap = (cat) => mergedScoreFor(deal, updates, cat);
 
-  const gap = (cat) => scores.find((s) => s.cat === cat)?.score ?? 0;
-
-  // Commit
   if (stage.includes("Commit")) {
     if (gap("paper") < 3) return "Commit risk: Paper process not locked.";
     if (gap("eb") < 3) return "Commit risk: Economic Buyer not confirmed/direct.";
     if (gap("process") < 3) return "Commit risk: Decision process not documented.";
+    if (gap("budget") < 3) return "Commit risk: Budget not confirmed/locked.";
     return "Commit risk: No material gaps detected.";
   }
 
-  // Best Case
   if (stage.includes("Best Case")) {
     if (gap("eb") < 2) return "Best Case risk: Economic Buyer access is weak/unknown.";
     if (gap("paper") < 2) return "Best Case risk: Paper process not started/unclear.";
     if (gap("process") < 2) return "Best Case risk: Decision process is assumed/unknown.";
+    if (gap("budget") < 2) return "Best Case risk: Budget is unclear/unconfirmed.";
     if (gap("competition") < 3) return "Best Case risk: Competitive position not a known edge.";
     return "Best Case risk: Primary gaps appear manageable.";
   }
 
-  // Pipeline
+  // Pipeline: foundation-first
   if (gap("pain") < 3) return "Pipeline risk: Pain is not quantified/real enough yet.";
   if (gap("metrics") < 3) return "Pipeline risk: Metrics are not customer-validated.";
   if (gap("champion") < 3) return "Pipeline risk: No true champion/mobilizer identified.";
+  if (gap("budget") < 2) return "Pipeline risk: Budget not established early enough.";
   return "Pipeline risk: Foundation looks real; next risk is EB/process progression.";
 }
 
-function pruneEmptyStringFields(updates) {
-  for (const [k, v] of Object.entries(updates)) {
-    if (typeof v === "string" && v.trim() === "") delete updates[k];
-  }
-}
-
 /**
- * Key fix:
- * Normalize summaries EVEN when the model didn't send *_summary in this tool call.
- * We use: tool summary if present, else existing DB summary.
- * We only write back if we can produce a meaningful labeled value.
+ * Build deterministic summary:
+ *   "<Label>: <Criteria> Evidence: <evidence>"
+ * Evidence is optional, but Label+Criteria always included.
+ *
+ * Evidence sourcing:
+ * - Prefer tool-provided summary (updates)
+ * - Else use existing DB summary as evidence (deal)
+ * - Strip any "Score X..." prefixes
+ * - Strip any leading "<some label>:" prefix if it matches the label from definitions
  */
-function normalizeAllSummaries(deal, updates) {
-  for (const cat of categories) {
-    const scoreK = `${cat}_score`;
-    const summaryK = `${cat}_summary`;
+function buildSummary({ label, criteria, evidenceRaw }) {
+  const labelClean = isMeaningfulString(label) ? label.trim() : "Unknown";
+  const criteriaClean = isMeaningfulString(criteria) ? criteria.trim() : "No criteria defined.";
 
-    const effectiveScore =
-      updates[scoreK] !== undefined ? updates[scoreK] : deal?.[scoreK];
-
-    const sourceSummary =
-      updates[summaryK] !== undefined ? updates[summaryK] : deal?.[summaryK];
-
-    const labeled = labelSummary(cat, effectiveScore, sourceSummary);
-
-    // If we can label (meaningful evidence exists), persist it.
-    // This fixes your “no label” issue even when model omits *_summary.
-    if (labeled !== undefined) {
-      updates[summaryK] = labeled;
-    }
-    // else: leave it untouched (db.js pick() preserves existing)
+  let ev = stripScorePrefix(evidenceRaw);
+  if (isMeaningfulString(ev)) {
+    // If evidence starts with "Label:" already, strip it (normalize)
+    const lower = ev.toLowerCase();
+    const ll = `${labelClean.toLowerCase()}:`;
+    if (lower.startsWith(ll)) ev = ev.slice(ll.length).trim();
+  } else {
+    ev = "";
   }
+
+  return `${labelClean}: ${criteriaClean}${ev ? ` Evidence: ${ev}` : ""}`;
 }
 
 export async function handleFunctionCall(args, callId) {
   console.log("🛠️ Tool Triggered: save_deal_data");
 
   const deal = args._deal || {};
+  const orgId = Number(deal.org_id) || 1;
   const currentAccount = deal.account_name || "Unknown Account";
 
   try {
@@ -189,26 +206,51 @@ export async function handleFunctionCall(args, callId) {
     // Strip empty strings so db.js won't overwrite
     pruneEmptyStringFields(updates);
 
-    // 1) Clamp any scores present (0-3)
+    // 1) Clamp any scores present (0–3)
     for (const cat of categories) {
       const k = `${cat}_score`;
       if (updates[k] !== undefined) updates[k] = clampScore(updates[k]);
     }
 
-    // 2) Normalize + label ALL summaries (tool summary OR DB summary)
-    normalizeAllSummaries(deal, updates);
+    // 2) Pull definitions for Label + Criteria
+    const defMap = await getScoreDefinitions(orgId);
 
-    // 3) Deterministic risk_summary (ignore model free-writing)
+    // 3) Force summaries to always include Label + Criteria (+ optional Evidence)
+    //    Evidence comes from:
+    //      - updates[cat_summary] if provided
+    //      - else deal[cat_summary] (existing) as evidence
+    for (const cat of categories) {
+      const scoreK = `${cat}_score`;
+      const summaryK = `${cat}_summary`;
+
+      const effectiveScore =
+        updates[scoreK] !== undefined ? updates[scoreK] : deal?.[scoreK];
+      const s = Number.isFinite(Number(effectiveScore)) ? Number(effectiveScore) : 0;
+
+      const def = defMap.get(`${cat}|${s}`) || { label: "Unknown", criteria: "No criteria defined." };
+
+      const evidenceRaw =
+        updates[summaryK] !== undefined ? updates[summaryK] : deal?.[summaryK];
+
+      updates[summaryK] = buildSummary({
+        label: def.label,
+        criteria: def.criteria,
+        evidenceRaw,
+      });
+    }
+
+    // 4) Deterministic risk_summary (ignore model free-writing)
     updates.risk_summary = computeTopRisk(deal, updates);
 
-    // 4) Deterministic ai_forecast (from merged score)
+    // 5) Deterministic ai_forecast (from merged total score)
     const totalScore = categories
       .map((cat) => mergedScoreFor(deal, updates, cat))
       .reduce((a, b) => a + b, 0);
 
-    updates.ai_forecast = computeAiForecast(totalScore);
+    const maxScore = categories.length * 3; // MEDDPICC + Timing + Budget => 10 * 3 = 30
+    updates.ai_forecast = computeAiForecast(totalScore, maxScore);
 
-    // 5) HARD STABILITY: ignore truly empty tool calls (no DB writes)
+    // 6) HARD STABILITY: ignore truly empty calls (should not happen now, but keep)
     const meaningfulKeys = Object.keys(updates).filter((k) => updates[k] !== undefined);
     if (meaningfulKeys.length === 0) {
       console.log("⚠️ Ignoring empty save_deal_data call (no-op).");
