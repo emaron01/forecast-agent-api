@@ -187,8 +187,7 @@ const wsUrl = `wss://${req.headers.host}/`;
          <Connect>
            <Stream url="${wsUrl}">
              <Parameter name="org_id" value="${orgId}" />
-             <Parameter name="rep_name_full" value="${repName}" />
-             <Parameter name="rep_name_first" value="${repFirstName}" />
+             <Parameter name="rep_name" value="${repName}" />
            </Stream>
          </Connect>
        </Response>`
@@ -511,6 +510,8 @@ wss.on("connection", async (twilioWs) => {
   let awaitingModel = false;
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
+  let lastKickAt = 0;
+  let lastDoneAt = 0;
 
   // Advancement gating (prevents premature NEXT_DEAL_TRIGGER in Pipeline)
   let touched = new Set();
@@ -532,7 +533,11 @@ wss.on("connection", async (twilioWs) => {
   });
 
   function kickModel(reason) {
+    const now = Date.now();
     if (awaitingModel) return;
+    // hard cooldown to prevent response.create storms
+    if (now - lastKickAt < 2000) return;
+    lastKickAt = now;
     awaitingModel = true;
     console.log(`⚡ response.create (${reason})`);
     safeSend(openAiWs, { type: "response.create" });
@@ -588,6 +593,12 @@ wss.on("connection", async (twilioWs) => {
       return;
     }
     const response = parsed.json;
+
+    if (response.type === "error") {
+      console.error("❌ OpenAI error frame:", response);
+      awaitingModel = false;
+      return;
+    }
 
     if (response.type === "input_audio_buffer.speech_started") {
       sawSpeechStarted = true;
@@ -707,6 +718,7 @@ wss.on("connection", async (twilioWs) => {
 
       if (response.type === "response.done") {
         awaitingModel = false;
+        lastDoneAt = Date.now();
 
         const transcript = (
           response.response?.output
@@ -714,6 +726,13 @@ wss.on("connection", async (twilioWs) => {
             .map((c) => c.transcript || c.text || "")
             .join(" ") || ""
         );
+
+        if (transcript) {
+          console.log("🗣️ Model said:", transcript.slice(0, 160));
+        } else {
+          console.log("🗣️ Model done (no transcript)");
+        }
+
 
         if (transcript.includes("NEXT_DEAL_TRIGGER")) {
           const currentDeal = dealQueue[currentDealIndex];
@@ -783,8 +802,8 @@ wss.on("connection", async (twilioWs) => {
         const params = data.start?.customParameters || {};
 
         orgId = parseInt(params.org_id, 10) || 1;
-        repName = params.rep_name_full || params.rep_name || "Guest";
-        repFirstName = params.rep_name_first || String(repName).trim().split(/\s+/)[0] || "Rep";
+        repName = params.rep_name || "Guest";
+        repFirstName = String(repName).trim().split(/\s+/)[0] || "Rep";
 
         console.log("🎬 Stream started:", streamSid);
         console.log(`🔎 Rep: ${repName} | orgId=${orgId}`);
