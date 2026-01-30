@@ -187,7 +187,7 @@ const wsUrl = `wss://${req.headers.host}/`;
          <Connect>
            <Stream url="${wsUrl}">
              <Parameter name="org_id" value="${orgId}" />
-             <Parameter name="rep_name" value="${repFirstName}" />
+             <Parameter name="rep_name" value="${repName}" />
            </Stream>
          </Connect>
        </Response>`
@@ -500,6 +500,7 @@ wss.on("connection", async (twilioWs) => {
   let streamSid = null;
   let orgId = 1;
   let repName = null;
+  let repFirstName = null;
 
   let dealQueue = [];
   let currentDealIndex = 0;
@@ -507,6 +508,11 @@ wss.on("connection", async (twilioWs) => {
 
   // Turn-control stability
   let awaitingModel = false;
+  let responseActive = false;
+  let responseCreateQueued = false;
+  let lastResponseCreateAt = 0;
+  let responseWatchdog = null;
+  let activeResponseBeganAt = 0;
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
 
@@ -530,8 +536,37 @@ wss.on("connection", async (twilioWs) => {
   });
 
   function kickModel(reason) {
+    const now = Date.now();
+
+    // If a response is in progress, queue a single follow-up create
+    if (responseActive) {
+      responseCreateQueued = true;
+      return;
+    }
+
+    // Throttle hard to prevent VAD storms
     if (awaitingModel) return;
+    if (now - lastResponseCreateAt < 650) return;
+
     awaitingModel = true;
+    responseActive = true; // set true immediately to avoid races (don’t wait for response.created)
+    activeResponseBeganAt = now;
+    lastResponseCreateAt = now;
+
+    if (responseWatchdog) clearTimeout(responseWatchdog);
+    responseWatchdog = setTimeout(() => {
+      // If OpenAI never sends response.done (rare), recover deterministically.
+      if (responseActive) {
+        console.warn("⏱️ Watchdog: response.done not seen; recovering");
+        responseActive = false;
+        awaitingModel = false;
+        if (responseCreateQueued) {
+          responseCreateQueued = false;
+          kickModel("watchdog_queued_continue");
+        }
+      }
+    }, 12000);
+
     console.log(`⚡ response.create (${reason})`);
     safeSend(openAiWs, { type: "response.create" });
   }
@@ -587,6 +622,24 @@ wss.on("connection", async (twilioWs) => {
     }
     const response = parsed.json;
 
+    if (response.type === "error") {
+      console.error("❌ OpenAI error frame:", response);
+      // If OpenAI says there is an active response, treat as active and wait for response.done
+      const code = response?.error?.code;
+      if (code === "conversation_already_has_active_response") {
+        responseActive = true;
+        awaitingModel = true;
+        return;
+      }
+    }
+
+    if (response.type === "response.created") {
+      // keep active; we already set it true on create
+      awaitingModel = true;
+    }
+
+
+
     if (response.type === "input_audio_buffer.speech_started") {
       sawSpeechStarted = true;
     }
@@ -637,7 +690,7 @@ wss.on("connection", async (twilioWs) => {
 
             const instructions = getSystemPrompt(
               nextDeal,
-              repName || "Rep",
+              repFirstName || repName || "Rep",
               dealQueue.length,
               false
             );
@@ -649,6 +702,8 @@ wss.on("connection", async (twilioWs) => {
 
             setTimeout(() => {
               awaitingModel = false;
+              responseActive = false;
+              responseCreateQueued = false;
               kickModel("next_deal_first_question");
             }, 350);
           } else {
@@ -699,11 +754,25 @@ wss.on("connection", async (twilioWs) => {
           },
         });
 
-        awaitingModel = false;
-        kickModel("post_tool_continue");
+        // Queue a single follow-up response after the current one completes.
+        // If the current response already finished (race), continue immediately.
+        responseCreateQueued = true;
+        awaitingModel = true;
+        if (!responseActive) {
+          responseCreateQueued = false;
+          setTimeout(() => kickModel("post_tool_continue_racefix"), 120);
+        }
       }
 
       if (response.type === "response.done") {
+        if (responseWatchdog) { clearTimeout(responseWatchdog); responseWatchdog = null; }
+        responseActive = false;
+        awaitingModel = false;
+        if (responseCreateQueued) {
+          responseCreateQueued = false;
+          setTimeout(() => kickModel("queued_continue"), 150);
+        }
+
         awaitingModel = false;
 
         const transcript = (
@@ -731,7 +800,7 @@ wss.on("connection", async (twilioWs) => {
 
             const instructions = getSystemPrompt(
               nextDeal,
-              repName || "Rep",
+              repFirstName || repName || "Rep",
               dealQueue.length,
               false
             );
@@ -743,6 +812,8 @@ wss.on("connection", async (twilioWs) => {
 
             setTimeout(() => {
               awaitingModel = false;
+              responseActive = false;
+              responseCreateQueued = false;
               kickModel("next_deal_first_question");
             }, 350);
           } else {
@@ -782,6 +853,7 @@ wss.on("connection", async (twilioWs) => {
 
         orgId = parseInt(params.org_id, 10) || 1;
         repName = params.rep_name || "Guest";
+        repFirstName = String(repName).trim().split(/\s+/)[0] || "Rep";
 
         console.log("🎬 Stream started:", streamSid);
         console.log(`🔎 Rep: ${repName} | orgId=${orgId}`);
@@ -847,7 +919,7 @@ wss.on("connection", async (twilioWs) => {
     }
 
     const deal = dealQueue[currentDealIndex];
-    const instructions = getSystemPrompt(deal, repName, dealQueue.length, true);
+    const instructions = getSystemPrompt(deal, repFirstName || repName, dealQueue.length, true);
 
     safeSend(openAiWs, {
       type: "session.update",
@@ -856,6 +928,8 @@ wss.on("connection", async (twilioWs) => {
 
     setTimeout(() => {
       awaitingModel = false;
+      responseActive = false;
+      responseCreateQueued = false;
       kickModel("first_question");
     }, 350);
   }
@@ -867,4 +941,3 @@ wss.on("connection", async (twilioWs) => {
 server.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT}`);
 });
- 
