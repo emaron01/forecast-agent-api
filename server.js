@@ -1,7 +1,13 @@
-/// server.js (ES module)
-/// Forecast Agent Conductor: Twilio <Stream> + OpenAI Realtime + deal queue + tool routing.
-/// - server.js is READ-ONLY to DB (writes happen in db.js via muscle.js)
-/// - /debug/opportunities is for your local dashboard and can be removed later.
+// server.js (ES module)
+// Forecast Agent Conductor: Twilio <Stream> + OpenAI Realtime + deal queue + tool routing.
+//
+// LOCKED INTENT
+// - Incremental saves per category (Option A)
+// - Backend (muscle.js) is deterministic: scoring bounds, summary normalization (Label+Criteria+Evidence), risk, forecast
+// - Score labels + criteria come from score_definitions (DB), model provides evidence only
+// - MEDDPICC+TB (adds Timing + Budget) = 10 categories, max score 30
+// - Only review_now = TRUE opportunities are reviewed
+// - Pipeline questioning focuses ONLY on Pain / Metrics / Champion / Budget (no paper/legal/procurement)
 
 import express from "express";
 import http from "http";
@@ -11,14 +17,14 @@ import { Pool } from "pg";
 import { handleFunctionCall } from "./muscle.js";
 
 /// ============================================================================
-/// CONFIG
+/// SECTION 1: CONFIG
 /// ============================================================================
 const PORT = process.env.PORT || 10000;
 
-// Render env vars (IMPORTANT: MODEL_API_URL must be wss://api.openai.com/v1/realtime)
-const MODEL_URL = process.env.MODEL_API_URL;
+const MODEL_URL = process.env.MODEL_API_URL; // wss://api.openai.com/v1/realtime
 const MODEL_NAME = process.env.MODEL_NAME;
 const OPENAI_API_KEY = process.env.MODEL_API_KEY;
+
 const DATABASE_URL = process.env.DATABASE_URL;
 
 if (!MODEL_URL || !MODEL_NAME || !OPENAI_API_KEY) {
@@ -29,7 +35,7 @@ if (!DATABASE_URL) {
 }
 
 /// ============================================================================
-/// DB (read-only in server.js)
+/// SECTION 2: DB (read-only in server.js)
 /// ============================================================================
 const pool = new Pool({
   connectionString: DATABASE_URL,
@@ -37,7 +43,7 @@ const pool = new Pool({
 });
 
 /// ============================================================================
-/// HELPERS
+/// SECTION 3: HELPERS
 /// ============================================================================
 function safeJsonParse(data) {
   const s = Buffer.isBuffer(data) ? data.toString("utf8") : String(data);
@@ -62,60 +68,77 @@ function safeSend(ws, payload) {
   }
 }
 
-function computeFirstGap(deal, stage) {
-  // For Pipeline: foundation first (pain/metrics/champion) and do not prioritize paper/legal.
-  const isPipeline = String(stage || "").includes("Pipeline");
+function scoreNum(x) {
+  const n = Number(x);
+  return Number.isFinite(n) ? n : 0;
+}
 
-  const full = [
+/**
+ * Stage-aware questioning order.
+ * STRICT:
+ * - Pipeline focuses ONLY on Pain, Metrics, Champion, Budget.
+ * - No Paper/Legal/Procurement in Pipeline.
+ */
+function computeFirstGap(deal, stage) {
+  const stageStr = String(stage || deal?.forecast_stage || "Pipeline");
+
+  const pipelineOrder = [
     { name: "Pain", key: "pain_score", val: deal.pain_score },
     { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
     { name: "Champion", key: "champion_score", val: deal.champion_score },
+    { name: "Budget", key: "budget_score", val: deal.budget_score },
+  ];
+
+  const bestCaseOrder = [
     { name: "Economic Buyer", key: "eb_score", val: deal.eb_score },
-    { name: "Decision Criteria", key: "criteria_score", val: deal.criteria_score },
     { name: "Decision Process", key: "process_score", val: deal.process_score },
-    { name: "Competition", key: "competition_score", val: deal.competition_score },
     { name: "Paper Process", key: "paper_score", val: deal.paper_score },
+    { name: "Budget", key: "budget_score", val: deal.budget_score },
+    { name: "Competition", key: "competition_score", val: deal.competition_score },
+    { name: "Decision Criteria", key: "criteria_score", val: deal.criteria_score },
     { name: "Timing", key: "timing_score", val: deal.timing_score },
+    { name: "Champion", key: "champion_score", val: deal.champion_score },
+    { name: "Pain", key: "pain_score", val: deal.pain_score },
+    { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
   ];
 
-  const pipelineOrder = [
-    "pain_score",
-    "metrics_score",
-    "champion_score",
-    "competition_score",
-    "timing_score",
-    "eb_score",
-    "criteria_score",
-    "process_score",
-    // paper intentionally late/ignored in Pipeline mode
-    "paper_score",
+  const commitOrder = [
+    { name: "Paper Process", key: "paper_score", val: deal.paper_score },
+    { name: "Economic Buyer", key: "eb_score", val: deal.eb_score },
+    { name: "Decision Process", key: "process_score", val: deal.process_score },
+    { name: "Budget", key: "budget_score", val: deal.budget_score },
+    { name: "Decision Criteria", key: "criteria_score", val: deal.criteria_score },
+    { name: "Champion", key: "champion_score", val: deal.champion_score },
+    { name: "Timing", key: "timing_score", val: deal.timing_score },
+    { name: "Competition", key: "competition_score", val: deal.competition_score },
+    { name: "Pain", key: "pain_score", val: deal.pain_score },
+    { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
   ];
 
-  const ordered = isPipeline
-    ? pipelineOrder.map((k) => full.find((x) => x.key === k)).filter(Boolean)
-    : full;
+  let order = pipelineOrder;
+  if (stageStr.includes("Commit")) order = commitOrder;
+  else if (stageStr.includes("Best Case")) order = bestCaseOrder;
 
-  return ordered.find((s) => (Number(s.val) || 0) < 3) || ordered[0] || full[0];
+  return order.find((s) => scoreNum(s.val) < 3) || order[0];
 }
 
 function applyArgsToLocalDeal(deal, args) {
-  // Keep local memory aligned with DB so gap logic stays stable.
   for (const [k, v] of Object.entries(args || {})) {
     if (v !== undefined) deal[k] = v;
   }
 }
 
 /// ============================================================================
-/// EXPRESS APP
+/// SECTION 4: EXPRESS APP
 /// ============================================================================
 const app = express();
 app.use(express.json());
-app.use(express.urlencoded({ extended: false })); // REQUIRED for Twilio
+app.use(express.urlencoded({ extended: false }));
 
 app.get("/", (req, res) => res.send("✅ Forecast Agent API is alive!"));
 
 /// ============================================================================
-/// TWILIO WEBHOOK: identify rep by caller phone -> return TwiML to open WS
+/// SECTION 5: TWILIO WEBHOOK -> TwiML to open WS
 /// ============================================================================
 app.post("/agent", async (req, res) => {
   try {
@@ -158,7 +181,8 @@ app.post("/agent", async (req, res) => {
 });
 
 /// ============================================================================
-/// DEBUG / DASHBOARD SUPPORT (READ-ONLY + LOCAL CORS)
+/// SECTION 5B: DEBUG (READ-ONLY)
+//  (CORS only for localhost)
 /// ============================================================================
 app.use("/debug/opportunities", (req, res, next) => {
   const origin = req.headers.origin || "";
@@ -202,14 +226,15 @@ app.get("/debug/opportunities", async (req, res) => {
 });
 
 /// ============================================================================
-/// HTTP SERVER + WS SERVER
+/// SECTION 6: HTTP SERVER + WS SERVER
 /// ============================================================================
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 console.log("🌐 WebSocket server created");
 
 /// ============================================================================
-/// TOOL SCHEMA (save_deal_data) — HARD SCORE GUARDRAILS
+/// SECTION 7: OpenAI Tool Schema (save_deal_data)
+///  MEDDPICC+TB includes Budget
 /// ============================================================================
 const scoreInt = { type: "integer", minimum: 0, maximum: 3 };
 
@@ -217,7 +242,7 @@ const saveDealDataTool = {
   type: "function",
   name: "save_deal_data",
   description:
-    "Save MEDDPICC updates for the CURRENT deal only. Scores MUST be integers 0-3. Do not invent facts. Do not overwrite evidence with blanks.",
+    "Save MEDDPICC+TB updates for the CURRENT deal only. Scores MUST be integers 0-3. Do not invent facts. Do not overwrite evidence with blanks.",
   parameters: {
     type: "object",
     properties: {
@@ -261,9 +286,11 @@ const saveDealDataTool = {
       timing_summary: { type: "string" },
       timing_tip: { type: "string" },
 
-      // Optional; muscle.js will compute/overwrite deterministically anyway
-      risk_summary: { type: "string" },
+      budget_score: scoreInt,
+      budget_summary: { type: "string" },
+      budget_tip: { type: "string" },
 
+      // stored, not debated live
       next_steps: { type: "string" },
       rep_comments: { type: "string" },
     },
@@ -272,12 +299,11 @@ const saveDealDataTool = {
 };
 
 /// ============================================================================
-/// SYSTEM PROMPT BUILDER (stage-smart, sales-leader feel, not chatty)
-/// - Mandatory deal opening EXACT text
-/// - Stage strategy: Pipeline vs Best Case vs Commit
-/// - Tool call must happen after each rep answer (at least rep_comments if no change)
+/// SECTION 8: System Prompt Builder (getSystemPrompt)
 /// ============================================================================
-function getSystemPrompt(deal, repFirstName) {
+function getSystemPrompt(deal, repName, totalCount, isFirstDeal) {
+  const stage = deal.forecast_stage || "Pipeline";
+
   const amountStr = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -285,104 +311,182 @@ function getSystemPrompt(deal, repFirstName) {
   }).format(Number(deal.amount || 0));
 
   const closeDateStr = deal.close_date
-    ? new Date(deal.close_date).toLocaleDateString("en-US")
+    ? new Date(deal.close_date).toLocaleDateString()
     : "TBD";
 
-  const stage = deal.forecast_stage || "Pipeline";
-  const account = deal.account_name || "Unknown Account";
-  const opp = deal.opportunity_name || "Opportunity";
+  const oppName = (deal.opportunity_name || "").trim();
+  const oppNamePart = oppName ? ` — ${oppName}` : "";
 
-  // REQUIRED EXACT OPENING
-  const openingLine = `Let’s look at ${account} — ${opp} — ${stage}, ${amountStr}, closing ${closeDateStr}.`;
+  // ☎️ CALL OPENING (MANDATORY — SAY EXACTLY)
+  const callPickup = `Hi ${repName}. Matthew here.
+We’re reviewing ${totalCount} deals today.
+First up: ${deal.account_name}${oppNamePart}, ${stage}, ${amountStr}, closing ${closeDateStr}.`;
 
-  // Stage strategy (your logic, preserved)
-  let stageInstructions = "";
+  // 🧭 DEAL OPENING (MANDATORY — EVERY DEAL)
+  const dealOpening = `Let’s look at ${deal.account_name}${oppNamePart}, ${stage}, ${amountStr}, closing ${closeDateStr}.`;
+
+  // 🧱 STAGE-SPECIFIC STRATEGY (STRICT)
+  let stageMode = "";
+  let stageFocus = "";
+  let stageRules = "";
+
   if (String(stage).includes("Commit")) {
-    stageInstructions = `MODE: CLOSING ASSISTANT (Commit).
-- Goal: Protect the forecast (de-risk).
-- Logic: Scan for ANY category scored 0-2. Challenge placement: "Why is this in Commit if <CATEGORY> is still a gap?"
-- Focus: EB and Paper Process must be solid 3s. If they aren't, the deal is not truly Commit.`;
+    stageMode = "MODE: CLOSING ASSISTANT (COMMIT)";
+    stageFocus =
+      "FOCUS: Paper process, signature authority (EB), decision process, budget approved/allocated.";
+    stageRules =
+      "Logic: If any of these are weak, the deal does NOT belong in Commit. Do not hope — verify.";
   } else if (String(stage).includes("Best Case")) {
-    stageInstructions = `MODE: DEAL STRATEGIST (Best Case).
-- Goal: Validate the upside.
-- Logic: Test the gaps preventing a move to Commit.
-- Focus: Can the Champion accelerate EB access + Paperwork? If not, keep it Best Case.`;
+    stageMode = "MODE: DEAL STRATEGIST (BEST CASE)";
+    stageFocus =
+      "FOCUS: Economic Buyer access, decision process, paper readiness, competitive position, budget confirmation.";
+    stageRules =
+      "Logic: Identify gaps keeping the deal out of Commit. Probe readiness without pressure.";
   } else {
-    stageInstructions = `MODE: PIPELINE ANALYST (Pipeline).
-- Goal: Qualify or disqualify.
-- Logic: FOUNDATION FIRST. Validate Pain, Metrics, and Champion.
-- Constraint: IGNORE PAPERWORK & LEGAL. Do not ask about contracts. If Pain or Metrics are 0-2, the deal is not real—move on.`;
+    stageMode = "MODE: PIPELINE ANALYST (PIPELINE)";
+    stageFocus = "FOCUS ONLY: Pain, Metrics, Champion, Budget.";
+    stageRules =
+      "RULES: Do NOT ask about paper process, legal, contracts, or procurement. Do NOT force completeness. Do NOT act late-stage.";
   }
+
+  // 🔄 Flow: brief recall (1 sentence max)
+  const recallBits = [];
+  if (deal.pain_summary) recallBits.push(`Pain: ${deal.pain_summary}`);
+  if (deal.metrics_summary) recallBits.push(`Metrics: ${deal.metrics_summary}`);
+  if (deal.champion_summary) recallBits.push(`Champion: ${deal.champion_summary}`);
+  if (deal.budget_summary) recallBits.push(`Budget: ${deal.budget_summary}`);
+
+  const recallLine =
+    recallBits.length > 0
+      ? `Last review: ${recallBits.slice(0, 3).join(" | ")}.`
+      : "Last review: no prior notes captured.";
 
   const firstGap = computeFirstGap(deal, stage);
 
-  const questionMap = {
-    pain_score: "What is the specific business impact, and is it quantified in dollars or penalties?",
-    metrics_score: "What are the success metrics, and has the customer validated them (in writing or explicitly)?",
-    champion_score: "Who is driving this internally, what is their title, and what have they DONE that proves they’re a mobilizer/champion?",
-    eb_score: "Who is the economic buyer, what is their title, and do you have direct access or only secondhand?",
-    criteria_score: "What decision criteria will they use, and is it already shaped in your favor?",
-    process_score: "What is the actual decision process and the exact next internal step (who/what/when)?",
-    competition_score: "Who are you up against, and what is the concrete edge you have over them?",
-    paper_score: "What paperwork is required (NDA/SOW/MSA/PO), who owns it, and what is the current status?",
-    timing_score: "What is the forcing event/date, and what happens if they miss it?",
-  };
+  const gapQuestion = (() => {
+    // Pipeline: strictly foundation
+    if (String(stage).includes("Pipeline")) {
+      if (firstGap.name === "Pain")
+        return "What specific business problem is the customer trying to solve, and what happens if they do nothing?";
+      if (firstGap.name === "Metrics")
+        return "What measurable outcome has the customer agreed matters, and who validated it?";
+      if (firstGap.name === "Champion")
+        return "Who is driving this internally, what is their role, and how have they shown advocacy?";
+      if (firstGap.name === "Budget")
+        return "Has budget been discussed or confirmed, and at what level?";
+      return `What changed since last time on ${firstGap.name}?`;
+    }
 
-  const firstQuestion = questionMap[firstGap.key] || "What changed since the last review?";
+    // Best Case / Commit: validate readiness and close gaps
+    if (String(stage).includes("Commit")) {
+      return `This is Commit — what evidence do we have that ${firstGap.name} is fully locked?`;
+    }
+    if (String(stage).includes("Best Case")) {
+      return `What would need to happen to strengthen ${firstGap.name} to a clear 3?`;
+    }
+
+    return `What is the latest on ${firstGap.name}?`;
+  })();
 
   return `
-### ROLE
-You are Matthew — a sales-leader grade MEDDPICC auditor. You are supportive and precise. You are not the boss. You do not coach verbally.
+SYSTEM PROMPT — SALES LEADER FORECAST REVIEW AGENT
+You are Matthew, a calm, credible, experienced enterprise sales leader.
+Your role is to review live opportunities with a sales rep in order to:
+• Improve forecast accuracy
+• Strengthen deal rigor
+• Identify and mitigate risk early
 
-### HARD CONTEXT (NON-NEGOTIABLE)
-You are auditing exactly:
+You are not a boss, not chatty, and not transactional.
+You do not give pep talks, ultimatums, or status requests.
+Your job is to ask smart questions, listen carefully, and update the scorecard.
+All coaching, evaluation, scoring, and recommendations belong in the scorecard, not spoken aloud.
+
+HARD CONTEXT (NON-NEGOTIABLE)
+You are reviewing exactly:
 - DEAL_ID: ${deal.id}
-- ACCOUNT_NAME: ${account}
-- OPPORTUNITY_NAME: ${opp}
-Never reference any other company or opportunity unless the rep explicitly corrects identity.
+- ACCOUNT_NAME: ${deal.account_name}
+- OPPORTUNITY_NAME: ${oppName || "(none)"}
+Never change deal identity unless the rep explicitly corrects it.
 
-### DEAL OPENING (MANDATORY)
+☎️ CALL OPENING (MANDATORY — SAY EXACTLY)
+${isFirstDeal ? `At the very start of the call, say exactly:\n"${callPickup}"\nPause briefly, then continue.` : "Do NOT repeat the call opening."}
+
+🧭 DEAL OPENING (MANDATORY — EVERY DEAL)
 At the start of every deal, say exactly:
-"${openingLine}"
+"${dealOpening}"
+Then proceed.
 
-Then ask ONE question.
+🧠 HOW YOU THINK (IMPORTANT)
+• You already have the current scorecard (scores, summaries, stage, and risk).
+• Your job is to validate what changed and close gaps.
+• If nothing changed, say nothing judgmental — just record it.
 
-### STAGE STRATEGY (MANDATORY)
-${stageInstructions}
+🔄 GENERAL FLOW (ALL STAGES)
+1. Briefly recall what we knew last time (1 sentence max)
+2. Ask one clear question at a time
+3. Wait for the rep to finish speaking
+4. Update the scorecard
+5. Move on
+Never rapid-fire questions. Never interrupt.
 
-### CONVERSATION BEHAVIOR
-- Spoken output is for asking questions only.
-- Do NOT summarize back what the rep said.
-- Do NOT give advice verbally.
-- One question at a time. If unclear, ask ONE clarifier only.
-- No threats, no “keep me posted”, no “make sure you…”.
+RECALL (MANDATORY — 1 sentence max)
+After the deal opening line, say exactly:
+"${recallLine}"
 
-### TOOLING (MANDATORY)
-After each rep answer, you MUST call save_deal_data SILENTLY for the current deal.
-- If nothing changed, still call the tool with rep_comments="No change stated".
-- Scores must be integers 0-3.
-- Do not overwrite evidence with blanks.
+🧱 STAGE-SPECIFIC STRATEGY (STRICT)
+${stageMode}
+${stageFocus}
+${stageRules}
 
-### QUESTION FLOW
-- Focus on categories with score < 3 (per stage constraints above).
-- Start with the lowest/first gap. Then proceed to the next gap.
+🧮 SCORING RULES (CRITICAL)
+• You do not invent labels or criteria.
+• All labels and criteria come from the scorecard definitions.
+• You only decide: which score applies and what evidence supports it.
+Every summary must follow:
+Label: Criteria. Evidence: what the rep said.
+If evidence is weak or unclear:
+• Score lower
+• Capture uncertainty
+• Do not argue with the rep
 
-### FIRST QUESTION (MANDATORY)
-Ask exactly this question next:
-"${firstQuestion}"
+⚠️ RISK
+You do not verbally speculate about risk.
+Risk is calculated automatically and recorded in the scorecard.
 
-### COMPLETION
-When you are ready to leave the deal, say:
-"Health Score: [Sum]/27. Risk: [Top Risk]. NEXT_DEAL_TRIGGER."
+📝 SAVING BEHAVIOR
+• Update the scorecard incrementally after each rep answer.
+• Assume the call could end at any time.
+If needed, you may say: "Got it — I’m updating the scorecard."
+Do not narrate scores or math.
+
+🧠 TONE & CULTURE (DO NOT VIOLATE)
+• Supportive • Curious • Calm • Sales-savvy
+• Never condescending • Never robotic
+• Never managerial ("keep me posted", "circle back", etc.)
+
+🚫 HARD NOs
+• No scripts • No lecturing • No pressure • No buzzwords
+• No fake enthusiasm • No making up answers
+• No forcing categories when irrelevant
+
+✅ TOOL USE (CRITICAL)
+After EACH rep answer:
+1) Call save_deal_data silently (no spoken preface).
+2) Then ask the next single best question.
+
+NEXT SPOKEN LINE (MANDATORY)
+Your next spoken line MUST be exactly:
+"${gapQuestion}"
+
+🏁 END OF DEAL
+When finished with a deal, say:
+"Okay — let’s move to the next one. NEXT_DEAL_TRIGGER"
 You MUST say NEXT_DEAL_TRIGGER to advance.
 `.trim();
 }
 
 /// ============================================================================
-/// WS CORE (Twilio <-> OpenAI)
-/// - Simple, stable: VAD speech_stopped triggers response.create (debounced)
-/// - No watchdog
-/// - Tool calls handled + acknowledged
+/// SECTION 9: WebSocket Server (Twilio WS <-> OpenAI WS)
 /// ============================================================================
 wss.on("connection", async (twilioWs) => {
   console.log("🔥 Twilio WebSocket connected");
@@ -393,10 +497,11 @@ wss.on("connection", async (twilioWs) => {
 
   let dealQueue = [];
   let currentDealIndex = 0;
-
   let openAiReady = false;
-  let haveTwilioStart = false;
 
+  // Turn-control stability
+  let awaitingModel = false;
+  let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
 
   const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
@@ -415,10 +520,16 @@ wss.on("connection", async (twilioWs) => {
     console.error("Headers:", res?.headers);
   });
 
+  function kickModel(reason) {
+    if (awaitingModel) return;
+    awaitingModel = true;
+    console.log(`⚡ response.create (${reason})`);
+    safeSend(openAiWs, { type: "response.create" });
+  }
+
   openAiWs.on("open", () => {
     console.log("📡 OpenAI Connected");
 
-    // Session init: ulaw + voice + VAD + tools
     safeSend(openAiWs, {
       type: "session.update",
       session: {
@@ -427,8 +538,8 @@ wss.on("connection", async (twilioWs) => {
         voice: "verse",
         turn_detection: {
           type: "server_vad",
-          threshold: 0.5,
-          silence_duration_ms: 600,
+          threshold: 0.6,
+          silence_duration_ms: 1100,
         },
         tools: [saveDealDataTool],
       },
@@ -447,23 +558,25 @@ wss.on("connection", async (twilioWs) => {
     }
     const response = parsed.json;
 
-    // Kick model after rep stops talking (debounced)
     if (response.type === "input_audio_buffer.speech_started") {
-      // no-op; useful for logs if you want
-      // console.log("🗣️ VAD: speech_started");
+      console.log("🗣️ VAD: speech_started");
+      sawSpeechStarted = true;
     }
 
     if (response.type === "input_audio_buffer.speech_stopped") {
+      console.log("🗣️ VAD: speech_stopped");
+
+      if (!sawSpeechStarted) return;
+      sawSpeechStarted = false;
+
       const now = Date.now();
-      if (now - lastSpeechStoppedAt < 700) return;
+      if (now - lastSpeechStoppedAt < 1200) return;
       lastSpeechStoppedAt = now;
 
-      // console.log("🗣️ VAD: speech_stopped -> response.create");
-      safeSend(openAiWs, { type: "response.create" });
+      kickModel("speech_stopped");
     }
 
     try {
-      // Tool call args complete
       if (response.type === "response.function_call_arguments.done") {
         const callId = response.call_id;
 
@@ -489,24 +602,20 @@ wss.on("connection", async (twilioWs) => {
             "pain_score",
             "metrics_score",
             "champion_score",
+            "budget_score",
             "eb_score",
             "criteria_score",
             "process_score",
             "competition_score",
             "paper_score",
             "timing_score",
-            "risk_summary",
             "rep_comments",
           ])
         );
 
-        // Save (muscle/db will clamp + label + compute deterministic risk)
         await handleFunctionCall({ ...argsParsed.json, _deal: deal }, callId);
-
-        // Keep local memory aligned so gap logic stays stable
         applyArgsToLocalDeal(deal, argsParsed.json);
 
-        // Ack tool output to keep model flowing
         safeSend(openAiWs, {
           type: "conversation.item.create",
           item: {
@@ -515,10 +624,14 @@ wss.on("connection", async (twilioWs) => {
             output: JSON.stringify({ status: "success" }),
           },
         });
+
+        awaitingModel = false;
+        kickModel("post_tool_continue");
       }
 
-      // Response done: check for NEXT_DEAL_TRIGGER
       if (response.type === "response.done") {
+        awaitingModel = false;
+
         const transcript = (
           response.response?.output
             ?.flatMap((o) => o.content || [])
@@ -536,7 +649,9 @@ wss.on("connection", async (twilioWs) => {
 
             const instructions = getSystemPrompt(
               nextDeal,
-              (repName || "Rep").split(" ")[0]
+              repName || "Rep",
+              dealQueue.length,
+              false // only first deal gets call pickup
             );
 
             safeSend(openAiWs, {
@@ -544,9 +659,9 @@ wss.on("connection", async (twilioWs) => {
               session: { instructions },
             });
 
-            // Ask first question for next deal
             setTimeout(() => {
-              safeSend(openAiWs, { type: "response.create" });
+              awaitingModel = false;
+              kickModel("next_deal_first_question");
             }, 350);
           } else {
             console.log("🏁 All deals done.");
@@ -554,7 +669,6 @@ wss.on("connection", async (twilioWs) => {
         }
       }
 
-      // Audio out (model -> Twilio)
       if (response.type === "response.audio.delta" && response.delta && streamSid) {
         twilioWs.send(
           JSON.stringify({
@@ -566,10 +680,11 @@ wss.on("connection", async (twilioWs) => {
       }
     } catch (err) {
       console.error("❌ OpenAI Message Handler Error:", err);
+      awaitingModel = false;
     }
   });
 
-  /// ---------------- Twilio inbound frames (rep audio) ----------------
+  /// ---------------- Twilio inbound frames ----------------
   twilioWs.on("message", async (msg) => {
     const parsed = safeJsonParse(msg);
     if (!parsed.ok) {
@@ -585,7 +700,6 @@ wss.on("connection", async (twilioWs) => {
 
         orgId = parseInt(params.org_id, 10) || 1;
         repName = params.rep_name || "Guest";
-        haveTwilioStart = true;
 
         console.log("🎬 Stream started:", streamSid);
         console.log(`🔎 Rep: ${repName} | orgId=${orgId}`);
@@ -616,7 +730,7 @@ wss.on("connection", async (twilioWs) => {
 
   /// ---------------- Deal loading + initial prompt ----------------
   async function attemptLaunch() {
-    if (!openAiReady || !haveTwilioStart || !repName) return;
+    if (!openAiReady || !repName) return;
 
     if (dealQueue.length === 0) {
       const result = await pool.query(
@@ -626,6 +740,7 @@ wss.on("connection", async (twilioWs) => {
         JOIN organizations org ON o.org_id = org.id
         WHERE o.org_id = $1
           AND o.rep_name = $2
+          AND o.review_now = TRUE
           AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost')
         ORDER BY o.id ASC
         `,
@@ -635,36 +750,37 @@ wss.on("connection", async (twilioWs) => {
       dealQueue = result.rows;
       currentDealIndex = 0;
 
-      console.log(`📊 Loaded ${dealQueue.length} deals for ${repName}`);
+      console.log(`📊 Loaded ${dealQueue.length} review_now deals for ${repName}`);
       if (dealQueue[0]) {
         console.log(`👉 Starting deal -> id=${dealQueue[0].id} account="${dealQueue[0].account_name}"`);
       }
     }
 
     if (dealQueue.length === 0) {
-      console.log("⚠️ No active deals found for this rep.");
+      console.log("⚠️ No review_now=TRUE deals found for this rep.");
       return;
     }
 
     const deal = dealQueue[currentDealIndex];
-    const instructions = getSystemPrompt(deal, (repName || "Rep").split(" ")[0]);
+
+    // FIRST DEAL: include call pickup
+    const instructions = getSystemPrompt(deal, repName, dealQueue.length, true);
 
     safeSend(openAiWs, {
       type: "session.update",
       session: { instructions },
     });
 
-    // Kick first response (deal opening + first question)
     setTimeout(() => {
-      safeSend(openAiWs, { type: "response.create" });
+      awaitingModel = false;
+      kickModel("first_question");
     }, 350);
   }
 });
 
 /// ============================================================================
-/// START
+/// SECTION 10: START
 /// ============================================================================
 server.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT}`);
 });
- 

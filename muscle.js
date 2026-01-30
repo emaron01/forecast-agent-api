@@ -1,21 +1,40 @@
 // muscle.js (ES module)
-// Tool handler (save_deal_data) + scoring hygiene + deterministic labeling + deterministic risk
+// Tool handler (save_deal_data) + scoring hygiene + deterministic labeling (from score_definitions) + deterministic risk/forecast
+//
+// Key behavior:
+// - Scores clamped to 0..3
+// - Summaries normalized as: "Label: Criteria. Evidence: <rep input>"
+// - Label + Criteria come from score_definitions (DB) by org_id/category/score
+// - Model provides evidence only (we ignore model-provided label/criteria formats)
+// - Deterministic risk_summary by stage (includes Budget)
+// - Deterministic ai_forecast from total score (max 30)
 
+import pkg from "pg";
 import { saveDealData } from "./db.js";
+const { Pool } = pkg;
 
-const scoreLabels = {
-  pain: ["None", "Vague", "Clear", "Quantified ($$$)"],
-  metrics: ["Unknown", "Soft", "Rep-defined", "Customer-validated"],
-  champion: ["None", "Coach", "Mobilizer", "Champion (Power)"],
-  eb: ["Unknown", "Identified", "Indirect", "Direct relationship"],
-  criteria: ["Unknown", "Vague", "Defined", "Locked in favor"],
-  process: ["Unknown", "Assumed", "Understood", "Documented"],
-  competition: ["Unknown", "Assumed", "Identified", "Known edge"],
-  paper: ["Unknown", "Not started", "Known Started", "Waiting for Signature"],
-  timing: ["Unknown", "Assumed", "Flexible", "Real Consequence/Event"],
-};
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
 
-const categories = Object.keys(scoreLabels);
+// Stable category list (MEDDPICC+TB)
+const categories = [
+  "pain",
+  "metrics",
+  "champion",
+  "eb",
+  "criteria",
+  "process",
+  "competition",
+  "paper",
+  "timing",
+  "budget",
+];
+
+// Cache score_definitions by org_id
+// shape: { [orgId]: { [category]: { [score]: {label, criteria} } } }
+const defsCache = new Map();
 
 function clampScore(x) {
   const n = Number(x);
@@ -57,39 +76,48 @@ function stripScorePrefix(text) {
   return s.trim();
 }
 
-/**
- * Enforce: "Label: evidence" (NO score numbers).
- * Returns undefined when evidence is missing so we never overwrite.
- */
-function labelSummary(cat, effectiveScore, summary) {
-  const cleanedRaw = stripScorePrefix(summary);
-  if (!isMeaningfulString(cleanedRaw)) return undefined;
-
-  const s = Number.isFinite(Number(effectiveScore)) ? Number(effectiveScore) : 0;
-  const label = scoreLabels[cat]?.[s] ?? "Unknown";
-
-  const cleaned = cleanedRaw.trim();
-  const lower = cleaned.toLowerCase();
-  const labelLower = String(label).toLowerCase() + ":";
-
-  // already correctly labeled
-  if (lower.startsWith(labelLower)) return cleaned;
-
-  // already has some valid label prefix (accept it; do not relabel)
-  const anyLabelPrefix = (scoreLabels[cat] || [])
-    .filter(Boolean)
-    .some((lbl) => lower.startsWith(String(lbl).toLowerCase() + ":"));
-
-  if (anyLabelPrefix) return cleaned;
-
-  return `${label}: ${cleaned}`;
+function pruneEmptyStringFields(updates) {
+  for (const [k, v] of Object.entries(updates)) {
+    if (typeof v === "string" && v.trim() === "") delete updates[k];
+  }
 }
 
-function computeAiForecast(totalScore) {
-  // 27 max
-  if (totalScore >= 21) return "Commit";
-  if (totalScore >= 15) return "Best Case";
-  return "Pipeline";
+async function loadScoreDefinitions(orgId) {
+  const id = Number(orgId) || 1;
+  if (defsCache.has(id)) return defsCache.get(id);
+
+  const defs = {};
+  for (const cat of categories) defs[cat] = {};
+
+  const res = await pool.query(
+    `
+      SELECT category, score, label, criteria
+      FROM score_definitions
+      WHERE org_id = $1
+    `,
+    [id]
+  );
+
+  for (const row of res.rows || []) {
+    const cat = String(row.category || "").trim().toLowerCase();
+    const score = Number(row.score);
+    if (!categories.includes(cat)) continue;
+    if (!Number.isFinite(score) || score < 0 || score > 3) continue;
+
+    defs[cat][score] = {
+      label: String(row.label || "Unknown").trim() || "Unknown",
+      criteria: String(row.criteria || "").trim(),
+    };
+  }
+
+  defsCache.set(id, defs);
+  return defs;
+}
+
+function getDef(defs, cat, score) {
+  const s = Number.isFinite(Number(score)) ? Number(score) : 0;
+  const fallback = { label: "Unknown", criteria: "" };
+  return defs?.[cat]?.[s] || fallback;
 }
 
 function mergedScoreFor(deal, updates, cat) {
@@ -98,72 +126,121 @@ function mergedScoreFor(deal, updates, cat) {
   return Number.isFinite(Number(v)) ? Number(v) : 0;
 }
 
+/**
+ * Extract evidence from an existing summary if it's already in the normalized format.
+ * We prefer what comes after the last "Evidence:" token.
+ */
+function extractEvidence(existingSummary) {
+  if (!isMeaningfulString(existingSummary)) return undefined;
+  const s = existingSummary.trim();
+
+  const idx = s.toLowerCase().lastIndexOf("evidence:");
+  if (idx >= 0) {
+    const after = s.slice(idx + "evidence:".length).trim();
+    return after.length ? after : undefined;
+  }
+
+  // If it isn't in the "Evidence:" format, treat whole string as evidence (legacy data)
+  return s;
+}
+
+/**
+ * Build normalized summary:
+ * "Label: Criteria. Evidence: <evidence>"
+ *
+ * Rules:
+ * - Model-provided *_summary is treated as EVIDENCE ONLY (we strip any "Score X..." prefix).
+ * - If model omitted summary, we re-use existing DB evidence when possible.
+ * - If summary is empty in DB, we still write a criteria-only scaffold once:
+ *     "Label: Criteria. Evidence: No evidence provided."
+ */
+function buildSummary(def, evidence, allowScaffold) {
+  const label = def?.label || "Unknown";
+  const criteria = def?.criteria ? def.criteria.trim() : "";
+
+  const criteriaPart = criteria ? `${criteria}` : "";
+  if (isMeaningfulString(evidence)) {
+    return `${label}: ${criteriaPart}${criteriaPart ? " " : ""}Evidence: ${evidence.trim()}`;
+  }
+
+  if (allowScaffold) {
+    return `${label}: ${criteriaPart}${criteriaPart ? " " : ""}Evidence: No evidence provided.`;
+  }
+
+  return undefined;
+}
+
+/**
+ * Normalize summaries for all categories using score_definitions.
+ * - Only overwrite DB if we have meaningful evidence OR the DB summary was empty and we can scaffold.
+ */
+function normalizeAllSummaries(deal, updates, defs) {
+  for (const cat of categories) {
+    const scoreK = `${cat}_score`;
+    const summaryK = `${cat}_summary`;
+
+    const effectiveScore = updates[scoreK] !== undefined ? updates[scoreK] : deal?.[scoreK];
+    const def = getDef(defs, cat, effectiveScore);
+
+    // Evidence source priority:
+    // 1) tool call summary (treated as evidence)
+    // 2) existing DB summary evidence
+    const toolEvidence = stripScorePrefix(updates[summaryK]);
+    const existingEvidence = extractEvidence(deal?.[summaryK]);
+
+    const evidence = toolEvidence !== undefined ? toolEvidence : existingEvidence;
+
+    const dbHadSummary = isMeaningfulString(deal?.[summaryK]);
+    const allowScaffold = !dbHadSummary; // only scaffold if DB empty/NULL
+
+    const normalized = buildSummary(def, evidence, allowScaffold);
+
+    if (normalized !== undefined) {
+      updates[summaryK] = normalized;
+    }
+    // else: leave untouched (db.js preserves existing)
+  }
+}
+
+function computeAiForecast(totalScore) {
+  // max 30
+  // Commit ≈ 80%+  -> 24+
+  // Best Case ≈ 55%+ -> 17+
+  if (totalScore >= 24) return "Commit";
+  if (totalScore >= 17) return "Best Case";
+  return "Pipeline";
+}
+
 function computeTopRisk(deal, updates) {
   const stage = String(deal?.forecast_stage || "Pipeline");
 
-  const scores = categories.map((cat) => ({
-    cat,
-    score: mergedScoreFor(deal, updates, cat),
-  }));
-
-  const gap = (cat) => scores.find((s) => s.cat === cat)?.score ?? 0;
+  const score = (cat) => mergedScoreFor(deal, updates, cat);
 
   // Commit
   if (stage.includes("Commit")) {
-    if (gap("paper") < 3) return "Commit risk: Paper process not locked.";
-    if (gap("eb") < 3) return "Commit risk: Economic Buyer not confirmed/direct.";
-    if (gap("process") < 3) return "Commit risk: Decision process not documented.";
+    if (score("paper") < 3) return "Commit risk: Paper process not locked.";
+    if (score("eb") < 3) return "Commit risk: Economic Buyer not confirmed/direct.";
+    if (score("process") < 3) return "Commit risk: Decision process not documented.";
+    if (score("budget") < 3) return "Commit risk: Budget not approved/allocated.";
     return "Commit risk: No material gaps detected.";
   }
 
   // Best Case
   if (stage.includes("Best Case")) {
-    if (gap("eb") < 2) return "Best Case risk: Economic Buyer access is weak/unknown.";
-    if (gap("paper") < 2) return "Best Case risk: Paper process not started/unclear.";
-    if (gap("process") < 2) return "Best Case risk: Decision process is assumed/unknown.";
-    if (gap("competition") < 3) return "Best Case risk: Competitive position not a known edge.";
+    if (score("eb") < 2) return "Best Case risk: Economic Buyer access is weak/unknown.";
+    if (score("paper") < 2) return "Best Case risk: Paper process not started/unclear.";
+    if (score("process") < 2) return "Best Case risk: Decision process is assumed/unknown.";
+    if (score("budget") < 2) return "Best Case risk: Budget is not confirmed/unclear.";
+    if (score("competition") < 3) return "Best Case risk: Competitive position not a known edge.";
     return "Best Case risk: Primary gaps appear manageable.";
   }
 
-  // Pipeline
-  if (gap("pain") < 3) return "Pipeline risk: Pain is not quantified/real enough yet.";
-  if (gap("metrics") < 3) return "Pipeline risk: Metrics are not customer-validated.";
-  if (gap("champion") < 3) return "Pipeline risk: No true champion/mobilizer identified.";
+  // Pipeline (foundation only)
+  if (score("pain") < 3) return "Pipeline risk: Pain is not quantified/real enough yet.";
+  if (score("metrics") < 3) return "Pipeline risk: Metrics are not customer-validated.";
+  if (score("champion") < 3) return "Pipeline risk: No true champion/mobilizer identified.";
+  if (score("budget") < 3) return "Pipeline risk: Budget not established early enough.";
   return "Pipeline risk: Foundation looks real; next risk is EB/process progression.";
-}
-
-function pruneEmptyStringFields(updates) {
-  for (const [k, v] of Object.entries(updates)) {
-    if (typeof v === "string" && v.trim() === "") delete updates[k];
-  }
-}
-
-/**
- * Key fix:
- * Normalize summaries EVEN when the model didn't send *_summary in this tool call.
- * We use: tool summary if present, else existing DB summary.
- * We only write back if we can produce a meaningful labeled value.
- */
-function normalizeAllSummaries(deal, updates) {
-  for (const cat of categories) {
-    const scoreK = `${cat}_score`;
-    const summaryK = `${cat}_summary`;
-
-    const effectiveScore =
-      updates[scoreK] !== undefined ? updates[scoreK] : deal?.[scoreK];
-
-    const sourceSummary =
-      updates[summaryK] !== undefined ? updates[summaryK] : deal?.[summaryK];
-
-    const labeled = labelSummary(cat, effectiveScore, sourceSummary);
-
-    // If we can label (meaningful evidence exists), persist it.
-    // This fixes your “no label” issue even when model omits *_summary.
-    if (labeled !== undefined) {
-      updates[summaryK] = labeled;
-    }
-    // else: leave it untouched (db.js pick() preserves existing)
-  }
 }
 
 export async function handleFunctionCall(args, callId) {
@@ -171,6 +248,7 @@ export async function handleFunctionCall(args, callId) {
 
   const deal = args._deal || {};
   const currentAccount = deal.account_name || "Unknown Account";
+  const orgId = deal.org_id || 1;
 
   try {
     const updates = { ...args };
@@ -195,8 +273,9 @@ export async function handleFunctionCall(args, callId) {
       if (updates[k] !== undefined) updates[k] = clampScore(updates[k]);
     }
 
-    // 2) Normalize + label ALL summaries (tool summary OR DB summary)
-    normalizeAllSummaries(deal, updates);
+    // 2) Load score definitions + normalize ALL summaries (tool summary OR DB summary)
+    const defs = await loadScoreDefinitions(orgId);
+    normalizeAllSummaries(deal, updates, defs);
 
     // 3) Deterministic risk_summary (ignore model free-writing)
     updates.risk_summary = computeTopRisk(deal, updates);
