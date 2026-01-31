@@ -532,6 +532,10 @@ wss.on("connection", async (twilioWs) => {
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
 
+  // Only allow user-turn triggers after the model has completed its prior turn.
+  // This prevents `conversation_already_has_active_response` VAD race conditions.
+  let canAcceptUserSpeech = false;
+
   // Advancement gating (prevents premature NEXT_DEAL_TRIGGER in Pipeline)
   let touched = new Set();
 
@@ -566,6 +570,7 @@ wss.on("connection", async (twilioWs) => {
 
     awaitingModel = true;
     responseActive = true; // set true immediately to avoid races (don’t wait for response.created)
+    canAcceptUserSpeech = false;
     lastResponseCreateAt = now;
 
     console.log(`⚡ response.create (${reason})`);
@@ -644,10 +649,12 @@ wss.on("connection", async (twilioWs) => {
 
 
     if (response.type === "input_audio_buffer.speech_started") {
+      if (!canAcceptUserSpeech) return;
       sawSpeechStarted = true;
     }
 
     if (response.type === "input_audio_buffer.speech_stopped") {
+      if (!canAcceptUserSpeech) return;
       if (!sawSpeechStarted) return;
       sawSpeechStarted = false;
 
@@ -724,6 +731,7 @@ wss.on("connection", async (twilioWs) => {
       if (response.type === "response.done") {
         responseActive = false;
         awaitingModel = false;
+        canAcceptUserSpeech = true;
         if (responseCreateQueued) {
           responseCreateQueued = false;
           setTimeout(() => kickModel("queued_continue"), 150);
