@@ -372,7 +372,7 @@ function getSystemPrompt(deal, repName, totalCount, isFirstDeal) {
     `Hi ${repName}, this is Matthew from Sales Forecaster. ` +
     `Today we are reviewing ${totalCount} deals. ` +
     `Let's jump in starting with ${deal.account_name}${oppNamePart} ` +
-    `for ${amountStr} in ${stage} closing ${closeDateStr}.`;
+    `for ${amountStr} in CRM Forecast Stage ${stage} closing ${closeDateStr}.`;
 
   // Deal opening (USED FOR SUBSEQUENT DEALS ONLY)
   const dealOpening =
@@ -528,6 +528,7 @@ wss.on("connection", async (twilioWs) => {
   let responseActive = false;
   let responseCreateQueued = false;
   let responseCreateAfterTool = false;
+  let responseCreateInFlight = false;
   let lastResponseCreateAt = 0;
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
@@ -566,6 +567,7 @@ wss.on("connection", async (twilioWs) => {
 
     awaitingModel = true;
     responseActive = true; // set true immediately to avoid races (don’t wait for response.created)
+    responseCreateInFlight = true;
     lastResponseCreateAt = now;
 
     console.log(`⚡ response.create (${reason})`);
@@ -638,8 +640,9 @@ wss.on("connection", async (twilioWs) => {
     }
 
     if (response.type === "response.created") {
-      // keep active; we already set it true on create
+      // response stream has begun
       awaitingModel = true;
+      responseCreateInFlight = false;
     }
 
 
