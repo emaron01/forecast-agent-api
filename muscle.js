@@ -1,157 +1,333 @@
-import { getOpportunityById, updateOpportunity, insertAuditEvent } from "./db.js";
+// muscle.js (ES module)
+// Tool handler (save_deal_data)
+// Goals:
+// - Clamp scores 0–3 (integers)
+// - Build deterministic summaries that ALWAYS include: Label + Criteria + (optional) Evidence
+// - Deterministic risk_summary (stage-aware)
+// - Deterministic ai_forecast from total score
+// - Avoid junk overwrites (empty strings, "Unknown", placeholders)
 
-function cleanText(s) {
-  if (!s) return null;
-  const t = String(s).trim();
-  return t.length ? t : null;
+import crypto from "crypto";
+import pkg from "pg";
+import { saveDealData } from "./db.js";
+const { Pool } = pkg;
+
+// ---- Score definition cache (per org) ----
+const defPool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
+
+const defsCache = new Map(); // orgId -> { at:number, map: Map("cat|score"-> {label,criteria}) }
+const DEF_TTL_MS = 5 * 60 * 1000;
+
+const AUDIT_SCHEMA_VERSION = 1;
+const PROMPT_VERSION = "server_prompt_v3";
+const LOGIC_VERSION = "muscle_v3";
+
+const categories = [
+  "pain",
+  "metrics",
+  "champion",
+  "eb",
+  "criteria",
+  "process",
+  "competition",
+  "paper",
+  "timing",
+  "budget",
+];
+
+function clampScore(x) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return undefined;
+  if (n < 0) return 0;
+  if (n > 3) return 3;
+  return Math.round(n);
 }
 
-function toIntOrNull(v) {
-  if (v === undefined || v === null || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.trunc(n) : null;
+function isMeaningfulString(v) {
+  return typeof v === "string" && v.trim().length > 0;
 }
 
-function safeArray(v) {
-  if (!v) return null;
-  if (Array.isArray(v)) return v;
-  return [v];
-}
-
-function buildDelta(updates) {
-  // Keep audit deltas lean: only write keys that are actually changing on this save
-  const delta = {};
+function pruneEmptyStringFields(updates) {
   for (const [k, v] of Object.entries(updates)) {
-    if (v === undefined) continue;
-    if (k.startsWith("_")) continue; // internal/meta
-    delta[k] = v;
+    if (typeof v === "string" && v.trim() === "") delete updates[k];
   }
-  return delta;
 }
 
-function computeTotalsFromDeal(deal) {
-  // Conservative: sum known score fields if present. If not, treat as 0.
-  // Update these keys if you add categories.
-  const scoreKeys = [
-    "pain_score",
-    "metrics_score",
-    "champion_score",
-    "competition_score",
-    "criteria_score",
-    "timing_score",
-    "budget_score",
-    "eb_score",
-    "process_score",
-    "paper_score",
-  ];
+function scrubUnknown(v) {
+  if (!isMeaningfulString(v)) return undefined;
+  const t = v.trim();
+  const lower = t.toLowerCase();
+  if (lower === "unknown") return undefined;
+  if (t === "[Champion's Name]" || t === "[Champion's Title]") return undefined;
+  if (t === "[Economic Buyer's Name]" || t === "[Economic Buyer's Title]") return undefined;
+  return t;
+}
 
-  let total = 0;
-  let max = 0;
+/**
+ * Strips model junk like:
+ *  - "Score 3 (Customer-validated): blah"
+ *  - "Score 2: blah"
+ *  - "Customer-validated: blah" (we strip any known "Label:" prefix later)
+ */
+function stripScorePrefix(text) {
+  if (!isMeaningfulString(text)) return "";
+  let s = text.trim();
 
-  for (const key of scoreKeys) {
-    if (deal[key] === null || deal[key] === undefined) continue;
-    const n = Number(deal[key]);
-    if (Number.isFinite(n)) total += n;
+  // Remove leading "Score X (...):"
+  s = s.replace(/^Score\s*[0-3]\s*(\([^)]+\))?\s*:\s*/i, "");
+  // Remove leading "Score X -" or "Score X —"
+  s = s.replace(/^Score\s*[0-3]\s*[-—]\s*/i, "");
+
+  return s.trim();
+}
+
+async function getScoreDefinitions(orgId) {
+  const now = Date.now();
+  const cached = defsCache.get(orgId);
+  if (cached && now - cached.at < DEF_TTL_MS) return cached.map;
+
+  const map = new Map();
+  const q = `
+    SELECT category, score, label, criteria
+    FROM score_definitions
+    WHERE org_id = $1
+  `;
+  const res = await defPool.query(q, [orgId]);
+
+  for (const row of res.rows) {
+    const cat = String(row.category || "").trim().toLowerCase();
+    const score = Number(row.score);
+    if (!cat || !Number.isFinite(score)) continue;
+
+    map.set(`${cat}|${score}`, {
+      label: row.label || "",
+      criteria: row.criteria || "",
+    });
   }
 
-  // If you have a max-score model per stage, set max accordingly.
-  // Placeholder default; can be overwritten upstream.
-  max = 27;
-
-  return { totalScore: total, maxScore: max };
+  defsCache.set(orgId, { at: now, map });
+  return map;
 }
 
-export async function saveDealData(deal, updates) {
-  const orgId = deal.org_id;
-  const oppId = deal.id;
-
-  const updated = await updateOpportunity(orgId, oppId, updates);
-  return updated;
+function mergedScoreFor(deal, updates, cat) {
+  const k = `${cat}_score`;
+  const v = updates[k] !== undefined ? updates[k] : deal?.[k];
+  return Number.isFinite(Number(v)) ? Number(v) : 0;
 }
 
-export async function handleSaveDealToolCall({
-  orgId,
-  opportunityId,
-  callId,
-  runId,
-  args,
-  definitions,
-  meta,
-}) {
+function computeAiForecast(totalScore, maxScore) {
+  // Keep simple + stable. Tune later in one place.
+  // Defaults: Commit ~= 80%+, Best Case ~= 55%+
+  const commitCut = Math.round(maxScore * 0.8);
+  const bestCaseCut = Math.round(maxScore * 0.55);
+
+  if (totalScore >= commitCut) return "Commit";
+  if (totalScore >= bestCaseCut) return "Best Case";
+  return "Pipeline";
+}
+
+function computeTopRisk(deal, updates) {
+  const stage = String(deal?.forecast_stage || "Pipeline");
+
+  const gap = (cat) => mergedScoreFor(deal, updates, cat);
+
+  if (stage.includes("Commit")) {
+    if (gap("paper") < 3) return "Commit risk: Paper process not locked.";
+    if (gap("eb") < 3) return "Commit risk: Economic Buyer not confirmed/direct.";
+    if (gap("process") < 3) return "Commit risk: Decision process not documented.";
+    if (gap("budget") < 3) return "Commit risk: Budget not confirmed/locked.";
+    return "Commit risk: No material gaps detected.";
+  }
+
+  if (stage.includes("Best Case")) {
+    if (gap("eb") < 2) return "Best Case risk: Economic Buyer access is weak/unknown.";
+    if (gap("paper") < 2) return "Best Case risk: Paper process not started/unclear.";
+    if (gap("process") < 2) return "Best Case risk: Decision process is assumed/unknown.";
+    if (gap("budget") < 2) return "Best Case risk: Budget is unclear/unconfirmed.";
+    if (gap("competition") < 3) return "Best Case risk: Competitive position not a known edge.";
+    return "Best Case risk: Primary gaps appear manageable.";
+  }
+
+  // Pipeline: foundation-first
+  if (gap("pain") < 3) return "Pipeline risk: Pain is not quantified/real enough yet.";
+  if (gap("metrics") < 3) return "Pipeline risk: Metrics are not customer-validated.";
+  if (gap("champion") < 3) return "Pipeline risk: No true champion/mobilizer identified.";
+  if (gap("budget") < 2) return "Pipeline risk: Budget not established early enough.";
+  return "Pipeline risk: Foundation looks real; next risk is EB/process progression.";
+}
+
+/**
+ * Build deterministic summary:
+ *   "<Label>: <Criteria> Evidence: <evidence>"
+ * Evidence is optional, but Label+Criteria always included.
+ *
+ * Evidence sourcing:
+ * - Prefer tool-provided summary (updates)
+ * - Else use existing DB summary as evidence (deal)
+ * - Strip any "Score X..." prefixes
+ * - Strip any leading "<some label>:" prefix if it matches the label from definitions
+ */
+function buildSummary({ label, criteria, evidenceRaw }) {
+  const labelClean = isMeaningfulString(label) ? label.trim() : "Unknown";
+  const criteriaClean = isMeaningfulString(criteria) ? criteria.trim() : "No criteria defined.";
+
+  let ev = stripScorePrefix(evidenceRaw);
+  if (isMeaningfulString(ev)) {
+    // If evidence starts with "Label:" already, strip it (normalize)
+    const lower = ev.toLowerCase();
+    const ll = `${labelClean.toLowerCase()}:`;
+    if (lower.startsWith(ll)) ev = ev.slice(ll.length).trim();
+  } else {
+    ev = "";
+  }
+
+  return `${labelClean}: ${criteriaClean}${ev ? ` Evidence: ${ev}` : ""}`;
+}
+
+export async function handleFunctionCall(args, callId) {
+  console.log("🛠️ Tool Triggered: save_deal_data");
+
+  const deal = args._deal || {};
+  const orgId = Number(deal.org_id) || 1;
+  const currentAccount = deal.account_name || "Unknown Account";
+
   try {
-    const deal = await getOpportunityById(orgId, opportunityId);
-    if (!deal) throw new Error(`Opportunity not found: orgId=${orgId} id=${opportunityId}`);
+    const updates = { ...args };
+    delete updates._deal;
 
-    const currentAccount = deal.account_name || deal.account || `opp_${deal.id}`;
+    // Defensive: never persist unknown keys
+    delete updates.call_id;
+    delete updates.type;
 
-    // Build updates from tool args (only keys provided)
-    const updates = {};
+    // Normalize “Unknown” placeholders for name/title fields (avoid overwrites)
+    if ("champion_name" in updates) updates.champion_name = scrubUnknown(updates.champion_name);
+    if ("champion_title" in updates) updates.champion_title = scrubUnknown(updates.champion_title);
+    if ("eb_name" in updates) updates.eb_name = scrubUnknown(updates.eb_name);
+    if ("eb_title" in updates) updates.eb_title = scrubUnknown(updates.eb_title);
 
-    // Common score fields
-    for (const [k, v] of Object.entries(args || {})) {
-      if (k.endsWith("_score")) updates[k] = toIntOrNull(v);
-      else if (k.endsWith("_summary")) updates[k] = cleanText(v);
-      else if (k.endsWith("_tip")) updates[k] = cleanText(v);
-      else if (k.endsWith("_name")) updates[k] = cleanText(v);
-      else if (k.endsWith("_title")) updates[k] = cleanText(v);
-      else updates[k] = v; // allow additional fields if tool evolves
+    // Strip empty strings so db.js won't overwrite
+    pruneEmptyStringFields(updates);
+
+    // 1) Clamp any scores present (0–3)
+    for (const cat of categories) {
+      const k = `${cat}_score`;
+      if (updates[k] !== undefined) updates[k] = clampScore(updates[k]);
     }
 
-    // Risk fields (optional)
-    if (args?.risk_summary !== undefined) updates.risk_summary = cleanText(args.risk_summary);
-    if (args?.risk_flags !== undefined) updates.risk_flags = safeArray(args.risk_flags);
+    // 2) Pull definitions for Label + Criteria
+    const defMap = await getScoreDefinitions(orgId);
 
-    // Increment run_count if present in schema
-    if (deal.run_count !== undefined && deal.run_count !== null) {
-      updates.run_count = Number(deal.run_count) + 1;
+    // 3) Force summaries to always include Label + Criteria (+ optional Evidence)
+    //    Evidence comes from:
+    //      - updates[cat_summary] if provided
+    //      - else deal[cat_summary] (existing) as evidence
+    for (const cat of categories) {
+      const scoreK = `${cat}_score`;
+      const summaryK = `${cat}_summary`;
+
+      const effectiveScore =
+        updates[scoreK] !== undefined ? updates[scoreK] : deal?.[scoreK];
+      const s = Number.isFinite(Number(effectiveScore)) ? Number(effectiveScore) : 0;
+
+      const def = defMap.get(`${cat}|${s}`) || { label: "Unknown", criteria: "No criteria defined." };
+
+      const evidenceRaw =
+        updates[summaryK] !== undefined ? updates[summaryK] : deal?.[summaryK];
+
+      updates[summaryK] = buildSummary({
+        label: def.label,
+        criteria: def.criteria,
+        evidenceRaw,
+      });
     }
 
-    // Update totals
-    const nextDealForTotals = { ...deal, ...updates };
-    const { totalScore, maxScore } = computeTotalsFromDeal(nextDealForTotals);
+    // 4) Deterministic risk_summary (ignore model free-writing)
+    updates.risk_summary = computeTopRisk(deal, updates);
 
-    updates.total_score = totalScore;
-    updates.max_score = maxScore;
+    // 5) Deterministic ai_forecast (from merged total score)
+    const totalScore = categories
+      .map((cat) => mergedScoreFor(deal, updates, cat))
+      .reduce((a, b) => a + b, 0);
 
-    // Keep a compact audit snapshot
-    const scoreSnapshot = {};
-    const summarySnapshot = {};
+    const maxScore = categories.length * 3; // MEDDPICC + Timing + Budget => 10 * 3 = 30
+    updates.ai_forecast = computeAiForecast(totalScore, maxScore);
+
+    // 6) HARD STABILITY: ignore truly empty calls (should not happen now, but keep)
+    const meaningfulKeys = Object.keys(updates).filter((k) => updates[k] !== undefined);
+    if (meaningfulKeys.length === 0) {
+      console.log("⚠️ Ignoring empty save_deal_data call (no-op).");
+      return deal;
+    }
+
+    
+    // -------------------- AUDIT EVENT (production) --------------------
+    // Append-only, structured, delta-focused event for opportunity_audit_events table.
+    // No transcripts/banter; only what is needed for explainability + analytics.
+    const runId = (typeof crypto.randomUUID === "function")
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random()}`;
+
+    // Determine which categories were touched in THIS save (by any _score/_summary/_tip key)
+    const touchedCats = new Set();
+    for (const k of Object.keys(updates)) {
+      for (const cat of categories) {
+        if (k === `${cat}_score` || k === `${cat}_summary` || k === `${cat}_tip`) touchedCats.add(cat);
+      }
+    }
+
+    // Snapshot definitions used at time of scoring (ONLY for touched categories)
+    const definitions = {};
+    for (const cat of touchedCats) {
+      const score = mergedScoreFor(deal, updates, cat);
+      const def = defMap.get(`${cat}|${score}`) || { label: "", criteria: "" };
+      definitions[cat] = {
+        score,
+        label: def.label || "",
+        criteria: def.criteria || "",
+      };
+    }
+
+    // Delta payload: include only meaningful updates (exclude internal keys)
+    const delta = {};
     for (const [k, v] of Object.entries(updates)) {
-      if (k.endsWith("_score")) scoreSnapshot[k] = v;
-      if (k.endsWith("_summary")) summarySnapshot[k] = v;
+      if (k.startsWith("_")) continue;
+      if (v === undefined) continue;
+      delta[k] = v;
     }
 
-    // Insert audit event (delta-focused)
-    const delta = buildDelta(updates);
-
-    await insertAuditEvent({
+    updates._audit_event = {
       org_id: orgId,
-      opportunity_id: opportunityId,
+      opportunity_id: deal.id,
+      ts: new Date().toISOString(),
       run_id: runId,
       call_id: callId || null,
+
       actor_type: "agent",
       event_type: "score_save",
-      schema_version: 1,
-      prompt_version: meta?.prompt_version || "v1",
-      logic_version: meta?.logic_version || "v1",
-      forecast_stage: deal.stage || deal.forecast_stage || null,
-      ai_forecast: updates.ai_forecast || deal.ai_forecast || null,
-      total_score: totalScore,
-      max_score: maxScore,
-      risk_summary: updates.risk_summary || deal.risk_summary || null,
-      risk_flags: updates.risk_flags || deal.risk_flags || null,
-      delta,
-      definitions: definitions || null,
-      meta: {
-        ...meta,
-        account: currentAccount,
-        changed_keys: Object.keys(updates).filter((k) => updates[k] !== undefined && !k.startsWith("_")),
-        scores: scoreSnapshot,
-        summaries: summarySnapshot,
-      },
-    });
+      schema_version: AUDIT_SCHEMA_VERSION,
+      prompt_version: PROMPT_VERSION,
+      logic_version: LOGIC_VERSION,
 
-    const updatedDeal = await saveDealData(deal, updates);
+      forecast_stage: deal.forecast_stage || null,
+      ai_forecast: updates.ai_forecast || null,
+      total_score: (typeof totalScore !== "undefined" ? totalScore : null),
+      max_score: (typeof maxScore !== "undefined" ? maxScore : null),
+
+      risk_summary: updates.risk_summary || null,
+      risk_flags: updates.risk_flags || null,
+
+      delta,
+      definitions: Object.keys(definitions).length ? definitions : null,
+      meta: {
+        account_name: deal.account_name || null,
+        opportunity_name: deal.opportunity_name || null,
+      },
+    };
+
+const updatedDeal = await saveDealData(deal, updates);
 
     console.log(
       `✅ Saved deal id=${updatedDeal.id} account="${currentAccount}" ai_forecast=${updatedDeal.ai_forecast} run_count=${updatedDeal.run_count}`
