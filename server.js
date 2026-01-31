@@ -55,55 +55,6 @@ function safeJsonParse(data) {
   }
 }
 
-// Score definition cache (per call) to provide human labels for scores quickly.
-async function loadScoreLabelsByType(orgId) {
-  // score_definitions schema: (org_id, category, score, label, criteria)
-  // Return: Map<category, Map<score:int, label:string>>
-  const out = new Map();
-  const q = `
-    SELECT category, score, label
-    FROM score_definitions
-    WHERE org_id = $1
-  `;
-  const { rows } = await pool.query(q, [orgId]);
-  for (const r of rows) {
-    const cat = String(r.category || "").trim();
-    const score = Number(r.score);
-    const label = (r.label ?? "").toString();
-    if (!cat || Number.isNaN(score)) continue;
-    if (!out.has(cat)) out.set(cat, new Map());
-    out.get(cat).set(score, label);
-  }
-  return out;
-}
-
-function scoreLabel(scoreLabelsByType, type, score) {
-  const t = String(type || "").toLowerCase();
-  const s = Number(score);
-  const label = scoreLabelsByType?.get?.(t)?.get?.(s);
-  return label || (s === 0 ? "Unknown" : null) || "Unknown";
-}
-
-function buildCategoryPromptLine({ type, displayName, score, label, champName, champTitle }) {
-  // One short statement + one question. No verbal coaching.
-  const safeLabel = label || "Unknown";
-
-  if (type === "champion" && champName) {
-    const who = champTitle ? `${champName} (${champTitle})` : champName;
-    if (Number(score) >= 3) {
-      return `Last review ${displayName} was ${safeLabel}. Has anything changed that could introduce risk with ${who}'s advocacy?`;
-    }
-    return `Last review ${displayName} was ${safeLabel}. Has ${who} shown they're actively advocating for our solution internally over other options?`;
-  }
-
-  if (Number(score) >= 3) {
-    return `Last review ${displayName} was ${safeLabel}. Has anything changed that could introduce risk?`;
-  }
-
-  return `Last review ${displayName} was ${safeLabel}. Have we made progress since the last review?`;
-}
-
-
 function compact(obj, keys) {
   const out = {};
   for (const k of keys) if (obj?.[k] !== undefined) out[k] = obj[k];
@@ -465,17 +416,9 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
 
   // 1-sentence recall (keep it short)
   const recallBits = [];
-  if (deal.risk_summary) recallBits.push(`Risk Summary: ${deal.risk_summary}`);
-  // Speak only Pain (no general recap). Include last score for concise rigor.
-  if (deal.pain_score !== null && deal.pain_score !== undefined) {
-    if (deal.pain_summary) {
-      recallBits.push(`Pain (last score ${deal.pain_score}): ${deal.pain_summary}`);
-    } else {
-      recallBits.push(`Pain (last score ${deal.pain_score}).`);
-    }
-  } else if (deal.pain_summary) {
-    recallBits.push(`Pain: ${deal.pain_summary}`);
-  }
+  if (deal.pain_summary) recallBits.push(`Pain: ${deal.pain_summary}`);
+  if (deal.metrics_summary) recallBits.push(`Metrics: ${deal.metrics_summary}`);
+  if (deal.budget_summary) recallBits.push(`Budget: ${deal.budget_summary}`);
 
   const recallLine =
     recallBits.length > 0
@@ -484,15 +427,28 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
 
   const firstGap = computeFirstGap(deal, stage);
 
-  const gapLabel = scoreLabel(scoreLabelsByType, firstGap.key, firstGap.score);
-  const gapQuestion = buildCategoryPromptLine({
-    type: firstGap.key,
-    displayName: firstGap.name,
-    score: firstGap.score,
-    label: gapLabel,
-    champName: deal?.champion_name,
-    champTitle: deal?.champion_title,
-  });
+  const gapQuestion = (() => {
+    if (String(stage).includes("Pipeline")) {
+      if (firstGap.name === "Pain")
+        return "What specific business problem is the customer trying to solve, and what happens if they do nothing?";
+      if (firstGap.name === "Metrics")
+        return "What measurable outcome has the customer agreed matters, and who validated it?";
+      if (firstGap.name === "Champion")
+        return "Who is driving this internally, what is their role, and how have they shown advocacy?";
+      if (firstGap.name === "Budget")
+        return "Has budget been discussed or confirmed, and at what level?";
+      return `What changed since last time on ${firstGap.name}?`;
+    }
+
+    if (String(stage).includes("Commit")) {
+      return `This is Commit — what evidence do we have that ${firstGap.name} is fully locked?`;
+    }
+    if (String(stage).includes("Best Case")) {
+      return `What would need to happen to strengthen ${firstGap.name} to a clear 3?`;
+    }
+
+    return `What is the latest on ${firstGap.name}?`;
+  })();
 
   // Enforce a deterministic spoken sequence to prevent "Last review" from leading.
   // FIRST DEAL: Greeting -> Recall -> First question
@@ -574,7 +530,6 @@ wss.on("connection", async (twilioWs) => {
   let orgId = 1;
   let repName = null;
   let repFirstName = null;
-  let scoreLabelsByType = null;
 
   let dealQueue = [];
   let currentDealIndex = 0;
@@ -762,8 +717,7 @@ function kickModel(reason) {
               nextDeal,
               repFirstName || repName || "Rep",
               dealQueue.length,
-              false,
-              scoreLabelsByType
+              false
             );
 
             safeSend(openAiWs, {
@@ -891,8 +845,7 @@ function kickModel(reason) {
               nextDeal,
               repFirstName || repName || "Rep",
               dealQueue.length,
-              false,
-              scoreLabelsByType
+              false
             );
 
             safeSend(openAiWs, {
@@ -1031,6 +984,3 @@ function kickModel(reason) {
 server.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT}`);
 });
-    // Load score labels once per call (fast lookup for spoken labels)
-    scoreLabelsByType = await loadScoreLabelsByType(orgId);
-
