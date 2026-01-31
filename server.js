@@ -535,11 +535,17 @@ wss.on("connection", async (twilioWs) => {
   let currentDealIndex = 0;
   let openAiReady = false;
 
-  // Turn-control stability (CRITICAL: prevent overlapping response.create)
-  // OpenAI rejects response.create if a prior response is still active.
-  let openAiResponseActive = false;   // true between response.created -> response.done
-  let responseCreateInFlight = false; // we sent response.create but haven't seen response.created yet
-  let responseCreateQueued = false;   // a single queued create to run after response.done
+  // Turn-control stability (prevent overlapping response.create -> fixes OpenAI active_response error)
+  let awaitingModel = false;
+
+  // OpenAI considers a response "active" from response.created until response.done.
+  // We must not call response.create while active, or OpenAI will reject it.
+  let responseActive = false;          // true between response.created -> response.done
+  let responseCreateInFlight = false;  // we sent response.create, waiting for response.created
+  let responseCreateQueued = false;    // queue ONE create to run after response.done
+
+  // Debounce extra VAD triggers
+  let lastResponseCreateAt = 0;
 
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
@@ -564,13 +570,20 @@ wss.on("connection", async (twilioWs) => {
   });
 
   function kickModel(reason) {
-    // Never call response.create while OpenAI response is active or a create is in-flight.
-    if (openAiResponseActive || responseCreateInFlight) {
+    const now = Date.now();
+
+    // debounce: some environments emit multiple speech_stopped frames rapidly
+    if (now - lastResponseCreateAt < 900) return;
+
+    // If OpenAI still has an active response OR we already sent response.create and haven't seen response.created,
+    // queue exactly one follow-up create and wait for response.done to flush it.
+    if (responseActive || responseCreateInFlight) {
       responseCreateQueued = true;
       console.log(`⏸️ response.create queued (${reason})`);
       return;
     }
 
+    lastResponseCreateAt = now;
     responseCreateInFlight = true;
     console.log(`⚡ response.create (${reason})`);
     safeSend(openAiWs, { type: "response.create" });
@@ -579,7 +592,9 @@ wss.on("connection", async (twilioWs) => {
     // Throttle hard to prevent VAD storms
     if (awaitingModel) return;
     if (now - lastResponseCreateAt < 1200) return;
-    openAiResponseActive = true; // set true immediately to avoid races (don’t wait for response.created)
+
+    awaitingModel = true;
+    responseActive = true; // set true immediately to avoid races (don’t wait for response.created)
     lastResponseCreateAt = now;
 
     console.log(`⚡ response.create (${reason})`);
@@ -602,6 +617,7 @@ wss.on("connection", async (twilioWs) => {
         ],
       },
     });
+    awaitingModel = false;
     kickModel("advance_blocked_continue");
   }
 
@@ -636,53 +652,27 @@ wss.on("connection", async (twilioWs) => {
     }
     const response = parsed.json;
 
-    // --- OpenAI response lifecycle tracking ---
-    if (response.type === "response.created") {
-      openAiResponseActive = true;
-      responseCreateInFlight = false;
-      console.log("🟦 OpenAI response.created");
-    }
-
-    if (response.type === "response.done") {
-      openAiResponseActive = false;
-      responseCreateInFlight = false;
-      console.log("🟩 OpenAI response.done");
-      if (responseCreateQueued) {
-        responseCreateQueued = false;
-        setTimeout(() => kickModel("queued_continue"), 80);
-      }
-    }
-
     if (response.type === "error") {
+      console.error("❌ OpenAI error frame:", response);
       const code = response.error?.code || "";
-      console.error("❌ OpenAI error frame:", response);
       if (code === "conversation_already_has_active_response") {
-        // OpenAI still considers a response active; queue continuation and wait for response.done.
-        openAiResponseActive = true;
+        // OpenAI still has an active response; queue a single continuation.
+        responseActive = true;
         responseCreateInFlight = false;
-        responseCreateQueued = true;
-      } else {
-        // For other errors, clear in-flight so the system can recover.
-        responseCreateInFlight = false;
-      }
-      return;
-    }
-
-
-    if (response.type === "error") {
-      console.error("❌ OpenAI error frame:", response);
-      // If OpenAI says there is an active response, treat as active and wait for response.done
-      const code = response?.error?.code;
-      if (code === "conversation_already_has_active_response") {
-        // Treat as active; queue a single follow-up create after response.done.
-        openAiResponseActive = true;
         responseCreateQueued = true;
         return;
       }
+      // For other errors, clear in-flight so we can recover
+      responseCreateInFlight = false;
+      return;
+    }
     }
 
     if (response.type === "response.created") {
-      // keep active; we already set it true on create
+      responseActive = true;
+      responseCreateInFlight = false;
+      awaitingModel = true;
+      console.log("🟦 OpenAI response.created");
     }
 
 
@@ -696,7 +686,7 @@ wss.on("connection", async (twilioWs) => {
       sawSpeechStarted = false;
 
       const now = Date.now();
-      if (now - lastSpeechStoppedAt < 900) return;
+      if (now - lastSpeechStoppedAt < 1800) return;
       lastSpeechStoppedAt = now;
 
       kickModel("speech_stopped");
@@ -727,6 +717,8 @@ wss.on("connection", async (twilioWs) => {
               output: JSON.stringify({ status: "success" }),
             },
           });
+
+          awaitingModel = false;
           currentDealIndex++;
 
           if (currentDealIndex < dealQueue.length) {
@@ -746,7 +738,8 @@ wss.on("connection", async (twilioWs) => {
             });
 
             setTimeout(() => {
-              openAiResponseActive = false;
+              awaitingModel = false;
+              responseActive = false;
               responseCreateQueued = false;
               kickModel("next_deal_first_question");
             }, 350);
@@ -800,14 +793,21 @@ wss.on("connection", async (twilioWs) => {
 
         // Queue a single follow-up response after the current one completes
         responseCreateQueued = true;
+        awaitingModel = true;
       }
 
       if (response.type === "response.done") {
-        openAiResponseActive = false;
+      responseActive = false;
+      responseCreateInFlight = false;
+      console.log("🟩 OpenAI response.done");
+        responseActive = false;
+        awaitingModel = false;
         if (responseCreateQueued) {
           responseCreateQueued = false;
           setTimeout(() => kickModel("queued_continue"), 150);
         }
+
+        awaitingModel = false;
 
         const transcript = (
           response.response?.output
@@ -868,7 +868,8 @@ wss.on("connection", async (twilioWs) => {
             });
 
             setTimeout(() => {
-              openAiResponseActive = false;
+              awaitingModel = false;
+              responseActive = false;
               responseCreateQueued = false;
               kickModel("next_deal_first_question");
             }, 350);
@@ -889,6 +890,7 @@ wss.on("connection", async (twilioWs) => {
       }
     } catch (err) {
       console.error("❌ OpenAI Message Handler Error:", err);
+      awaitingModel = false;
     }
   });
 
@@ -982,7 +984,8 @@ wss.on("connection", async (twilioWs) => {
     });
 
     setTimeout(() => {
-      openAiResponseActive = false;
+      awaitingModel = false;
+      responseActive = false;
       responseCreateQueued = false;
       kickModel("first_question");
     }, 350);
