@@ -416,9 +416,17 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
 
   // 1-sentence recall (keep it short)
   const recallBits = [];
-  if (deal.pain_summary) recallBits.push(`Pain: ${deal.pain_summary}`);
-  if (deal.metrics_summary) recallBits.push(`Metrics: ${deal.metrics_summary}`);
-  if (deal.budget_summary) recallBits.push(`Budget: ${deal.budget_summary}`);
+  if (deal.risk_summary) recallBits.push(`Risk Summary: ${deal.risk_summary}`);
+  // Speak only Pain (no general recap). Include last score for concise rigor.
+  if (deal.pain_score !== null && deal.pain_score !== undefined) {
+    if (deal.pain_summary) {
+      recallBits.push(`Pain (last score ${deal.pain_score}): ${deal.pain_summary}`);
+    } else {
+      recallBits.push(`Pain (last score ${deal.pain_score}).`);
+    }
+  } else if (deal.pain_summary) {
+    recallBits.push(`Pain: ${deal.pain_summary}`);
+  }
 
   const recallLine =
     recallBits.length > 0
