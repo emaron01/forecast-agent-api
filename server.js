@@ -278,7 +278,6 @@ const saveDealDataTool = {
   },
 };
 
-
 const advanceDealTool = {
   type: "function",
   name: "advance_deal",
@@ -455,7 +454,7 @@ wss.on("connection", async (twilioWs) => {
   let dealQueue = [];
   let currentDealIndex = 0;
   
-  // 🟢 THIS WAS THE MISSING LINE CAUSING THE CRASH 🟢
+  // 🟢🟢 MULTI-TENANT ISOLATION (Restored) 🟢🟢
   let orgId = 1; 
 
   let repName = "Guest";
@@ -471,6 +470,9 @@ wss.on("connection", async (twilioWs) => {
   let responseDoneArrived = false; // Did response.done arrive for this turn?
   let lastResponseCreateAt = 0;
   let sawSpeechStarted = false;
+  
+  // LOADING GUARDS (Fix for race conditions)
+  let isLoadingDeals = false;
 
   const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
     headers: {
@@ -547,6 +549,9 @@ wss.on("connection", async (twilioWs) => {
     });
 
     openAiReady = true;
+    
+    // Attempt launch here in case OpenAI connects LAST
+    attemptLaunch().catch(e => console.error("Launch error (OpenAI):", e));
   });
 
   /// ---------------- OpenAI inbound frames ----------------
@@ -669,7 +674,6 @@ wss.on("connection", async (twilioWs) => {
             const transcript = response.response?.output?.flatMap(o => o.content||[]).map(c=>c.transcript||c.text||"").join(" ") || "";
             if (transcript.includes("NEXT_DEAL_TRIGGER")) {
                console.log("📝 AI Triggered Next Deal via text: " + transcript);
-               // Note: Real logic should prefer advance_deal tool, but this is a fallback log
             }
         }
     }
@@ -698,6 +702,7 @@ wss.on("connection", async (twilioWs) => {
         console.log("🎬 Stream started:", streamSid);
         console.log(`🔎 Rep: ${repName} | orgId=${orgId}`);
 
+        // Attempt launch here in case Twilio connects LAST
         await attemptLaunch();
       }
 
@@ -725,27 +730,33 @@ wss.on("connection", async (twilioWs) => {
   /// ---------------- Deal loading + initial prompt ----------------
   async function attemptLaunch() {
     if (!openAiReady || !repName) return;
+    
+    // Prevent double-loading race conditions
+    if (isLoadingDeals || dealQueue.length > 0) return;
 
-    if (dealQueue.length === 0) {
-      const result = await pool.query(
-        `
-        SELECT o.*, org.product_truths AS org_product_data
-        FROM opportunities o
-        JOIN organizations org ON o.org_id = org.id
-        WHERE o.org_id = $1
-          AND o.rep_name = $2
-          AND o.review_now = TRUE
-          AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost')
-        ORDER BY o.id ASC
-        `,
-        [orgId, repName]
-      );
+    isLoadingDeals = true;
+    try {
+        const result = await pool.query(
+            `
+            SELECT o.*, org.product_truths AS org_product_data
+            FROM opportunities o
+            JOIN organizations org ON o.org_id = org.id
+            WHERE o.org_id = $1
+            AND o.rep_name = $2
+            AND o.review_now = TRUE
+            AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost')
+            ORDER BY o.id ASC
+            `,
+            [orgId, repName]
+        );
 
-      dealQueue = result.rows;
-      currentDealIndex = 0;
-      touched = new Set();
+        dealQueue = result.rows;
+        currentDealIndex = 0;
+        touched = new Set();
 
-      console.log(`📊 Loaded ${dealQueue.length} review_now deals for ${repName}`);
+        console.log(`📊 Loaded ${dealQueue.length} review_now deals for ${repName}`);
+    } finally {
+        isLoadingDeals = false;
     }
 
     if (dealQueue.length === 0) {
