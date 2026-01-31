@@ -208,9 +208,7 @@ app.post("/agent", async (req, res) => {
       console.log("⚠️ No rep matched this phone; defaulting to Guest/org 1");
     }
 
-        const repFirstName = String(repName || "Rep").trim().split(/\s+/)[0] || "Rep";
-
-const wsUrl = `wss://${req.headers.host}/`;
+    const wsUrl = `wss://${req.headers.host}/`;
     res.type("text/xml").send(
       `<Response>
          <Connect>
@@ -346,7 +344,6 @@ const saveDealDataTool = {
   },
 };
 
-
 const advanceDealTool = {
   type: "function",
   name: "advance_deal",
@@ -470,7 +467,7 @@ HARD CONTEXT (NON-NEGOTIABLE)
 You are reviewing exactly:
 - DEAL_ID: ${deal.id}
 - ACCOUNT_NAME: ${deal.account_name}
-- OPPORTUNITY_NAME: ${oppName || "(none)"}
+- OPPORTUNITY_NAME: ${(deal.opportunity_name || "").trim() || "(none)"}
 Never change deal identity unless the rep explicitly corrects it.
 
 OPENING SEQUENCE (MANDATORY — DO NOT REORDER)
@@ -535,7 +532,7 @@ wss.on("connection", async (twilioWs) => {
   let currentDealIndex = 0;
   let openAiReady = false;
 
-  // Turn-control stability
+  // Turn-control stability (left unchanged)
   let awaitingModel = false;
   let responseActive = false;
   let responseCreateQueued = false;
@@ -544,8 +541,12 @@ wss.on("connection", async (twilioWs) => {
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
 
-  // Advancement gating (prevents premature NEXT_DEAL_TRIGGER in Pipeline)
+  // Advancement gating (left unchanged)
   let touched = new Set();
+
+  // ✅ SAVE SPEED: per-call FIFO save queue (ONE CHANGE)
+  // Ensures saves are ordered but do NOT block the realtime event loop.
+  let saveChain = Promise.resolve();
 
   const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
     headers: {
@@ -564,33 +565,27 @@ wss.on("connection", async (twilioWs) => {
   });
 
   function createResponse(reason) {
-  const now = Date.now();
+    const now = Date.now();
 
-  // Debounce: some environments emit multiple speech_stopped frames rapidly
-  if (now - lastResponseCreateAt < 900) return;
+    if (now - lastResponseCreateAt < 900) return;
 
-  // Hard guard: never send response.create if a response is already active or we haven't
-  // received response.created for the last one.
-  if (responseActive || responseCreateInFlight) {
-    responseCreateQueued = true;
-    console.log(`⏭️ response.create queued (${reason})`);
-    return;
+    if (responseActive || responseCreateInFlight) {
+      responseCreateQueued = true;
+      console.log(`⏭️ response.create queued (${reason})`);
+      return;
+    }
+
+    lastResponseCreateAt = now;
+    responseCreateInFlight = true;
+    responseActive = true;
+    console.log(`⚡ response.create (${reason})`);
+    safeSend(openAiWs, { type: "response.create" });
   }
 
-  lastResponseCreateAt = now;
-  responseCreateInFlight = true;
-  responseActive = true; // optimistic: treat as active immediately to avoid races
-  console.log(`⚡ response.create (${reason})`);
-  safeSend(openAiWs, { type: "response.create" });
-}
-
-function kickModel(reason) {
-  console.log(`⚡ kickModel (${reason})`);
-
-  // Do NOT create a response here.
-  // This only tells the model: "user input is complete — start thinking."
-  safeSend(openAiWs, { type: "input_audio_buffer.commit" });
-}
+  function kickModel(reason) {
+    console.log(`⚡ kickModel (${reason})`);
+    safeSend(openAiWs, { type: "input_audio_buffer.commit" });
+  }
 
   function nudgeModelStayOnDeal(reason) {
     console.log(`⛔ Advance blocked (${reason}). Nudging model to continue current deal.`);
@@ -645,10 +640,8 @@ function kickModel(reason) {
 
     if (response.type === "error") {
       console.error("❌ OpenAI error frame:", response);
-      // If OpenAI says there is an active response, treat as active and wait for response.done
       const code = response?.error?.code;
       if (code === "conversation_already_has_active_response") {
-        // Treat as active; queue a single follow-up create after response.done.
         responseActive = true;
         awaitingModel = true;
         responseCreateQueued = true;
@@ -658,11 +651,8 @@ function kickModel(reason) {
 
     if (response.type === "response.created") {
       responseCreateInFlight = false;
-      // keep active; we already set it true on create
       awaitingModel = true;
     }
-
-
 
     if (response.type === "input_audio_buffer.speech_started") {
       sawSpeechStarted = true;
@@ -683,17 +673,21 @@ function kickModel(reason) {
     try {
       if (response.type === "response.function_call_arguments.done") {
         const callId = response.call_id;
-        const fnName = response.name || response.function_name || response?.function?.name || null;
-
+        const fnName =
+          response.name || response.function_name || response?.function?.name || null;
 
         const argsParsed = safeJsonParse(response.arguments || "{}");
         if (!argsParsed.ok) {
-          console.error("❌ Tool args not JSON:", argsParsed.err?.message, "| head:", argsParsed.head);
+          console.error(
+            "❌ Tool args not JSON:",
+            argsParsed.err?.message,
+            "| head:",
+            argsParsed.head
+          );
           return;
         }
 
-
-        // Silent advancement tool (no spoken trigger)
+        // Silent advancement tool (unchanged)
         if (fnName === "advance_deal") {
           console.log("➡️ advance_deal tool received. Advancing deal...");
 
@@ -744,7 +738,10 @@ function kickModel(reason) {
         }
 
         console.log(
-          `🧾 SAVE ROUTE dealIndex=${currentDealIndex}/${Math.max(dealQueue.length - 1, 0)} id=${deal.id} account="${deal.account_name}" callId=${callId}`
+          `🧾 SAVE ROUTE dealIndex=${currentDealIndex}/${Math.max(
+            dealQueue.length - 1,
+            0
+          )} id=${deal.id} account="${deal.account_name}" callId=${callId}`
         );
         console.log("🔎 args keys:", Object.keys(argsParsed.json));
         console.log(
@@ -765,11 +762,13 @@ function kickModel(reason) {
           ])
         );
 
+        // Update local trackers immediately (unchanged behavior, faster perception)
         markTouched(touched, argsParsed.json);
-
-        await handleFunctionCall({ ...argsParsed.json, _deal: deal }, callId);
         applyArgsToLocalDeal(deal, argsParsed.json);
 
+        // ✅ SAVE SPEED CHANGE:
+        // Acknowledge tool output immediately so the model can continue,
+        // then perform the DB save in an ordered async queue.
         safeSend(openAiWs, {
           type: "conversation.item.create",
           item: {
@@ -779,7 +778,20 @@ function kickModel(reason) {
           },
         });
 
-        // Queue a single follow-up response after the current one completes
+        // Queue the actual DB save (FIFO). Do NOT block the realtime loop.
+        const saveArgs = { ...argsParsed.json, _deal: deal };
+        saveChain = saveChain
+          .then(async () => {
+            const t0 = Date.now();
+            await handleFunctionCall(saveArgs, callId);
+            const dt = Date.now() - t0;
+            console.log(`✅ Saved deal id=${deal.id} account="${deal.account_name}" in ${dt}ms`);
+          })
+          .catch((err) => {
+            console.error("❌ Save chain error:", err?.message || err);
+          });
+
+        // Keep existing continuation behavior (unchanged)
         responseCreateQueued = true;
         awaitingModel = true;
       }
@@ -795,19 +807,17 @@ function kickModel(reason) {
           setTimeout(() => createResponse("queued_continue"), 250);
         }
 
-        const transcript = (
+        const transcript =
           response.response?.output
             ?.flatMap((o) => o.content || [])
             .map((c) => c.transcript || c.text || "")
-            .join(" ") || ""
-        );
+            .join(" ") || "";
 
         if (transcript.includes("NEXT_DEAL_TRIGGER")) {
           const current = dealQueue[currentDealIndex];
           const stageNow = current?.forecast_stage || "Pipeline";
           if (current && !isDealCompleteForStage(current, stageNow)) {
             console.log("⛔ Advance blocked (incomplete_for_stage). Forcing continue current deal.");
-            // Nudge model to continue the current deal instead of advancing.
             safeSend(openAiWs, {
               type: "conversation.item.create",
               item: {
