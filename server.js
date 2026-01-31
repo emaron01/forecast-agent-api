@@ -347,6 +347,17 @@ const saveDealDataTool = {
 };
 
 
+const advanceDealTool = {
+  type: "function",
+  name: "advance_deal",
+  description:
+    "Advance to the next deal ONLY when you are finished with the current deal. This tool call is silent.",
+  parameters: {
+    type: "object",
+    properties: {},
+    required: [],
+  },
+};
 
 /// ============================================================================
 /// SECTION 8: System Prompt Builder (getSystemPrompt)
@@ -505,6 +516,7 @@ After EACH rep answer:
 END OF DEAL
 When finished with a deal:
 - Say: "Okay — let’s move to the next one."
+- Then call the advance_deal tool silently.
 `.trim();
 }
 
@@ -526,19 +538,10 @@ wss.on("connection", async (twilioWs) => {
   // Turn-control stability
   let awaitingModel = false;
   let responseActive = false;
-  // True between sending `response.create` and receiving `response.created`.
-  // Prevents overlapping creates that trigger `conversation_already_has_active_response`.
-  let responseCreateInFlight = false;
   let responseCreateQueued = false;
   let lastResponseCreateAt = 0;
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
-
-  // Gate VAD: only react to `input_audio_buffer.speech_*` once we've actually received
-  // user audio from Twilio for the current turn. This prevents "ghost" speech_stopped
-  // events from firing a second response.create during the model's first prompt.
-  let gotAnyUserAudio = false;
-  let lastUserAudioAt = 0;
 
   // Advancement gating (prevents premature NEXT_DEAL_TRIGGER in Pipeline)
   let touched = new Set();
@@ -562,8 +565,8 @@ wss.on("connection", async (twilioWs) => {
   function kickModel(reason) {
     const now = Date.now();
 
-    // If a response is in progress OR we've already requested one, queue a single follow-up create
-    if (responseActive || responseCreateInFlight) {
+    // If a response is in progress, queue a single follow-up create
+    if (responseActive) {
       responseCreateQueued = true;
       return;
     }
@@ -574,7 +577,6 @@ wss.on("connection", async (twilioWs) => {
 
     awaitingModel = true;
     responseActive = true; // set true immediately to avoid races (don’t wait for response.created)
-    responseCreateInFlight = true;
     lastResponseCreateAt = now;
 
     console.log(`⚡ response.create (${reason})`);
@@ -615,7 +617,7 @@ wss.on("connection", async (twilioWs) => {
           threshold: 0.6,
           silence_duration_ms: 1100,
         },
-        tools: [saveDealDataTool],
+        tools: [saveDealDataTool, advanceDealTool],
       },
     });
 
@@ -646,38 +648,29 @@ wss.on("connection", async (twilioWs) => {
     }
 
     if (response.type === "response.created") {
-      // OpenAI acknowledged our `response.create`.
-      responseCreateInFlight = false;
-      // Keep active; we already set it true on create.
+      // keep active; we already set it true on create
       awaitingModel = true;
     }
 
 
 
     if (response.type === "input_audio_buffer.speech_started") {
-      // Only trust VAD speech events if we actually saw user audio recently,
-      // and the model is not currently speaking.
-      const recentUserAudio = gotAnyUserAudio && Date.now() - lastUserAudioAt < 8000;
-      if (!recentUserAudio) return;
-      if (responseActive || responseCreateInFlight) return;
       sawSpeechStarted = true;
     }
 
     if (response.type === "input_audio_buffer.speech_stopped") {
-      const recentUserAudio = gotAnyUserAudio && Date.now() - lastUserAudioAt < 8000;
-      if (!recentUserAudio) return;
+      // Never create a new response while the model is already responding.
+      // This is the primary guardrail against `conversation_already_has_active_response`.
+      if (responseActive || awaitingModel) return;
+
+      // Only react if OpenAI VAD actually detected speech since the last stop.
       if (!sawSpeechStarted) return;
       sawSpeechStarted = false;
-
-      // If the model is still mid-turn, ignore this stop (prevents echo / race loops).
-      if (responseActive || responseCreateInFlight) return;
 
       const now = Date.now();
       if (now - lastSpeechStoppedAt < 1800) return;
       lastSpeechStoppedAt = now;
 
-      // We've consumed this user turn; require new audio before reacting again.
-      gotAnyUserAudio = false;
       kickModel("speech_stopped");
     }
 
@@ -695,6 +688,48 @@ wss.on("connection", async (twilioWs) => {
 
 
         // Silent advancement tool (no spoken trigger)
+        if (fnName === "advance_deal") {
+          console.log("➡️ advance_deal tool received. Advancing deal...");
+
+          safeSend(openAiWs, {
+            type: "conversation.item.create",
+            item: {
+              type: "function_call_output",
+              call_id: callId,
+              output: JSON.stringify({ status: "success" }),
+            },
+          });
+
+          awaitingModel = false;
+          currentDealIndex++;
+
+          if (currentDealIndex < dealQueue.length) {
+            const nextDeal = dealQueue[currentDealIndex];
+            console.log(`👉 Context switch -> id=${nextDeal.id} account="${nextDeal.account_name}"`);
+
+            const instructions = getSystemPrompt(
+              nextDeal,
+              repFirstName || repName || "Rep",
+              dealQueue.length,
+              false
+            );
+
+            safeSend(openAiWs, {
+              type: "session.update",
+              session: { instructions },
+            });
+
+            setTimeout(() => {
+              awaitingModel = false;
+              responseActive = false;
+              responseCreateQueued = false;
+              kickModel("next_deal_first_question");
+            }, 350);
+          } else {
+            console.log("🏁 All deals done.");
+          }
+          return;
+        }
 
         const deal = dealQueue[currentDealIndex];
         if (!deal) {
@@ -746,11 +781,12 @@ wss.on("connection", async (twilioWs) => {
       if (response.type === "response.done") {
         responseActive = false;
         awaitingModel = false;
-        responseCreateInFlight = false;
         if (responseCreateQueued) {
           responseCreateQueued = false;
           setTimeout(() => kickModel("queued_continue"), 150);
         }
+
+        awaitingModel = false;
 
         const transcript = (
           response.response?.output
@@ -862,9 +898,6 @@ wss.on("connection", async (twilioWs) => {
       }
 
       if (data.event === "media" && data.media?.payload && openAiReady) {
-        // Gate VAD: only treat speech events as real if we actually saw user audio.
-        gotAnyUserAudio = true;
-        lastUserAudioAt = Date.now();
         safeSend(openAiWs, {
           type: "input_audio_buffer.append",
           audio: data.media.payload,
