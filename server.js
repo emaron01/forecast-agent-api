@@ -708,7 +708,7 @@ wss.on("connection", async (twilioWs) => {
             },
           });
 
-          awaitingModel = false;
+          awaitingModel = false; 
           currentDealIndex++;
 
           if (currentDealIndex < dealQueue.length) {
