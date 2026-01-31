@@ -526,13 +526,19 @@ wss.on("connection", async (twilioWs) => {
   // Turn-control stability
   let awaitingModel = false;
   let responseActive = false;
-  let responseCreateQueued = false;
-  let responseCreateAfterTool = false;
+  // True between sending `response.create` and receiving `response.created`.
+  // Prevents overlapping creates that trigger `conversation_already_has_active_response`.
   let responseCreateInFlight = false;
+  let responseCreateQueued = false;
   let lastResponseCreateAt = 0;
   let sawSpeechStarted = false;
-let expectingUserInput = false; // true only after model finishes speaking
   let lastSpeechStoppedAt = 0;
+
+  // Gate VAD: only react to `input_audio_buffer.speech_*` once we've actually received
+  // user audio from Twilio for the current turn. This prevents "ghost" speech_stopped
+  // events from firing a second response.create during the model's first prompt.
+  let gotAnyUserAudio = false;
+  let lastUserAudioAt = 0;
 
   // Advancement gating (prevents premature NEXT_DEAL_TRIGGER in Pipeline)
   let touched = new Set();
@@ -556,8 +562,8 @@ let expectingUserInput = false; // true only after model finishes speaking
   function kickModel(reason) {
     const now = Date.now();
 
-    // If a response is in progress, queue a single follow-up create
-    if (responseActive) {
+    // If a response is in progress OR we've already requested one, queue a single follow-up create
+    if (responseActive || responseCreateInFlight) {
       responseCreateQueued = true;
       return;
     }
@@ -568,8 +574,6 @@ let expectingUserInput = false; // true only after model finishes speaking
 
     awaitingModel = true;
     responseActive = true; // set true immediately to avoid races (don’t wait for response.created)
-    expectingUserInput = false;
-    sawSpeechStarted = false;
     responseCreateInFlight = true;
     lastResponseCreateAt = now;
 
@@ -636,39 +640,44 @@ let expectingUserInput = false; // true only after model finishes speaking
         // Treat as active; queue a single follow-up create after response.done.
         responseActive = true;
         awaitingModel = true;
-        responseCreateInFlight = false;
         responseCreateQueued = true;
         return;
       }
     }
 
     if (response.type === "response.created") {
-      // response stream has begun
-      awaitingModel = true;
+      // OpenAI acknowledged our `response.create`.
       responseCreateInFlight = false;
+      // Keep active; we already set it true on create.
+      awaitingModel = true;
     }
 
 
 
     if (response.type === "input_audio_buffer.speech_started") {
+      // Only trust VAD speech events if we actually saw user audio recently,
+      // and the model is not currently speaking.
+      const recentUserAudio = gotAnyUserAudio && Date.now() - lastUserAudioAt < 8000;
+      if (!recentUserAudio) return;
+      if (responseActive || responseCreateInFlight) return;
       sawSpeechStarted = true;
     }
 
     if (response.type === "input_audio_buffer.speech_stopped") {
+      const recentUserAudio = gotAnyUserAudio && Date.now() - lastUserAudioAt < 8000;
+      if (!recentUserAudio) return;
       if (!sawSpeechStarted) return;
       sawSpeechStarted = false;
+
+      // If the model is still mid-turn, ignore this stop (prevents echo / race loops).
+      if (responseActive || responseCreateInFlight) return;
 
       const now = Date.now();
       if (now - lastSpeechStoppedAt < 1800) return;
       lastSpeechStoppedAt = now;
 
-      // IMPORTANT: ignore VAD while the model is speaking / a response is in flight.
-      // This prevents echo/noise from triggering overlapping response.create calls.
-      if (responseActive || awaitingModel || responseCreateInFlight) {
-        console.log("🚫 VAD ignored (model busy)");
-        return;
-      }
-
+      // We've consumed this user turn; require new audio before reacting again.
+      gotAnyUserAudio = false;
       kickModel("speech_stopped");
     }
 
@@ -729,25 +738,18 @@ let expectingUserInput = false; // true only after model finishes speaking
           },
         });
 
-        // The current OpenAI response remains active while the tool call is being resolved.
-        // Creating a new response immediately can trigger `conversation_already_has_active_response`.
-        // Instead, request exactly one follow-up `response.create` after we receive `response.done`.
-        responseCreateAfterTool = true;
+        // Queue a single follow-up response after the current one completes
+        responseCreateQueued = true;
+        awaitingModel = true;
       }
 
       if (response.type === "response.done") {
         responseActive = false;
         awaitingModel = false;
+        responseCreateInFlight = false;
         if (responseCreateQueued) {
           responseCreateQueued = false;
           setTimeout(() => kickModel("queued_continue"), 150);
-        }
-
-        // If we just returned tool output, wait for THIS response to fully close
-        // before creating the follow-up response.
-        if (responseCreateAfterTool) {
-          responseCreateAfterTool = false;
-          setTimeout(() => kickModel("post_tool_continue"), 200);
         }
 
         const transcript = (
@@ -860,6 +862,9 @@ let expectingUserInput = false; // true only after model finishes speaking
       }
 
       if (data.event === "media" && data.media?.payload && openAiReady) {
+        // Gate VAD: only treat speech events as real if we actually saw user audio.
+        gotAnyUserAudio = true;
+        lastUserAudioAt = Date.now();
         safeSend(openAiWs, {
           type: "input_audio_buffer.append",
           audio: data.media.payload,
