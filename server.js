@@ -208,9 +208,9 @@ app.post("/agent", async (req, res) => {
       console.log("⚠️ No rep matched this phone; defaulting to Guest/org 1");
     }
 
-        const repFirstName = String(repName || "Rep").trim().split(/\s+/)[0] || "Rep";
+    const repFirstName = String(repName || "Rep").trim().split(/\s+/)[0] || "Rep";
 
-const wsUrl = `wss://${req.headers.host}/`;
+    const wsUrl = `wss://${req.headers.host}/`;
     res.type("text/xml").send(
       `<Response>
          <Connect>
@@ -347,6 +347,17 @@ const saveDealDataTool = {
 };
 
 
+const advanceDealTool = {
+  type: "function",
+  name: "advance_deal",
+  description:
+    "Advance to the next deal ONLY when you are finished with the current deal. This tool call is silent.",
+  parameters: {
+    type: "object",
+    properties: {},
+    required: [],
+  },
+};
 
 /// ============================================================================
 /// SECTION 8: System Prompt Builder (getSystemPrompt)
@@ -505,6 +516,7 @@ After EACH rep answer:
 END OF DEAL
 When finished with a deal:
 - Say: "Okay — let’s move to the next one."
+- Then call the advance_deal tool silently.
 `.trim();
 }
 
@@ -553,18 +565,18 @@ wss.on("connection", async (twilioWs) => {
   function kickModel(reason) {
     const now = Date.now();
 
-    // If a response is in progress, queue a single follow-up create
-    if (responseActive) {
-      responseCreateQueued = true;
+    // HARD LOCK: If OpenAI is busy or we just sent a request, ABORT.
+    // This stops the "conversation_already_has_active_response" crash.
+    if (responseActive || awaitingModel) {
+      console.log(`🚫 Nudge skipped (${reason}): Response already active.`);
       return;
     }
 
-    // Throttle hard to prevent VAD storms
-    if (awaitingModel) return;
-    if (now - lastResponseCreateAt < 1200) return;
+    // Increased throttle to 1.5 seconds to give the API breathing room
+    if (now - lastResponseCreateAt < 1500) return;
 
     awaitingModel = true;
-    responseActive = true; // set true immediately to avoid races (don’t wait for response.created)
+    responseActive = true; 
     lastResponseCreateAt = now;
 
     console.log(`⚡ response.create (${reason})`);
@@ -587,7 +599,7 @@ wss.on("connection", async (twilioWs) => {
         ],
       },
     });
-    awaitingModel = false;
+    // kickModel handles the active check, so this is safe now
     kickModel("advance_blocked_continue");
   }
 
@@ -602,10 +614,10 @@ wss.on("connection", async (twilioWs) => {
         voice: "verse",
         turn_detection: {
           type: "server_vad",
-          threshold: 0.6,
-          silence_duration_ms: 1100,
+          threshold: 0.5,           // Slightly more sensitive to voice
+          silence_duration_ms: 1500 // Increased from 1100 to 1500 to stop premature cutting
         },
-        tools: [saveDealDataTool],
+        tools: [saveDealDataTool, advanceDealTool],
       },
     });
 
@@ -627,20 +639,17 @@ wss.on("connection", async (twilioWs) => {
       // If OpenAI says there is an active response, treat as active and wait for response.done
       const code = response?.error?.code;
       if (code === "conversation_already_has_active_response") {
-        // Treat as active; queue a single follow-up create after response.done.
         responseActive = true;
         awaitingModel = true;
-        responseCreateQueued = true;
+        // Do NOT queue immediate retry loop; wait for next legit trigger
         return;
       }
     }
 
     if (response.type === "response.created") {
-      // keep active; we already set it true on create
       awaitingModel = true;
+      responseActive = true;
     }
-
-
 
     if (response.type === "input_audio_buffer.speech_started") {
       sawSpeechStarted = true;
@@ -671,6 +680,49 @@ wss.on("connection", async (twilioWs) => {
 
 
         // Silent advancement tool (no spoken trigger)
+        if (fnName === "advance_deal") {
+          console.log("➡️ advance_deal tool received. Advancing deal...");
+
+          safeSend(openAiWs, {
+            type: "conversation.item.create",
+            item: {
+              type: "function_call_output",
+              call_id: callId,
+              output: JSON.stringify({ status: "success" }),
+            },
+          });
+
+          // Wait for context switch to settle before nudging
+          awaitingModel = false; 
+          currentDealIndex++;
+
+          if (currentDealIndex < dealQueue.length) {
+            const nextDeal = dealQueue[currentDealIndex];
+            console.log(`👉 Context switch -> id=${nextDeal.id} account="${nextDeal.account_name}"`);
+
+            const instructions = getSystemPrompt(
+              nextDeal,
+              repFirstName || repName || "Rep",
+              dealQueue.length,
+              false
+            );
+
+            safeSend(openAiWs, {
+              type: "session.update",
+              session: { instructions },
+            });
+
+            setTimeout(() => {
+              // Ensure flags are clear before next deal start
+              responseActive = false;
+              awaitingModel = false;
+              kickModel("next_deal_first_question");
+            }, 350);
+          } else {
+            console.log("🏁 All deals done.");
+          }
+          return;
+        }
 
         const deal = dealQueue[currentDealIndex];
         if (!deal) {
@@ -682,26 +734,12 @@ wss.on("connection", async (twilioWs) => {
           `🧾 SAVE ROUTE dealIndex=${currentDealIndex}/${Math.max(dealQueue.length - 1, 0)} id=${deal.id} account="${deal.account_name}" callId=${callId}`
         );
         console.log("🔎 args keys:", Object.keys(argsParsed.json));
-        console.log(
-          "🔎 args preview:",
-          compact(argsParsed.json, [
-            "pain_score",
-            "metrics_score",
-            "champion_score",
-            "budget_score",
-            "eb_score",
-            "criteria_score",
-            "process_score",
-            "competition_score",
-            "paper_score",
-            "timing_score",
-            "risk_summary",
-            "rep_comments",
-          ])
-        );
 
         markTouched(touched, argsParsed.json);
 
+        // Fire-and-forget save (don't await locally if you want speed, but for safety we await)
+        // To fix race condition, we treat this as a background task mostly, 
+        // but we MUST send the output frame or OpenAI hangs.
         await handleFunctionCall({ ...argsParsed.json, _deal: deal }, callId);
         applyArgsToLocalDeal(deal, argsParsed.json);
 
@@ -714,20 +752,25 @@ wss.on("connection", async (twilioWs) => {
           },
         });
 
-        // Queue a single follow-up response after the current one completes
+        // Queue follow-up response
         responseCreateQueued = true;
-        awaitingModel = true;
+        
+        // IMPORTANT: We do NOT set awaitingModel=true here because the response.done 
+        // will arrive for the function_call item, and WE want to trigger the next speech 
+        // via responseCreateQueued logic in response.done
       }
 
       if (response.type === "response.done") {
+        // RESET FLAGS CLEANLY
         responseActive = false;
         awaitingModel = false;
+        sawSpeechStarted = false; 
+
         if (responseCreateQueued) {
           responseCreateQueued = false;
-          setTimeout(() => kickModel("queued_continue"), 150);
+          // Delay follow-up to ensure OpenAI state is clear
+          setTimeout(() => kickModel("queued_continue"), 400); 
         }
-
-        awaitingModel = false;
 
         const transcript = (
           response.response?.output
@@ -736,12 +779,13 @@ wss.on("connection", async (twilioWs) => {
             .join(" ") || ""
         );
 
+        if (transcript) console.log("📝 TRANSCRIPT:", transcript);
+
         if (transcript.includes("NEXT_DEAL_TRIGGER")) {
           const current = dealQueue[currentDealIndex];
           const stageNow = current?.forecast_stage || "Pipeline";
           if (current && !isDealCompleteForStage(current, stageNow)) {
             console.log("⛔ Advance blocked (incomplete_for_stage). Forcing continue current deal.");
-            // Nudge model to continue the current deal instead of advancing.
             safeSend(openAiWs, {
               type: "conversation.item.create",
               item: {
@@ -788,9 +832,8 @@ wss.on("connection", async (twilioWs) => {
             });
 
             setTimeout(() => {
-              awaitingModel = false;
               responseActive = false;
-              responseCreateQueued = false;
+              awaitingModel = false;
               kickModel("next_deal_first_question");
             }, 350);
           } else {
@@ -810,7 +853,9 @@ wss.on("connection", async (twilioWs) => {
       }
     } catch (err) {
       console.error("❌ OpenAI Message Handler Error:", err);
+      // Safety release
       awaitingModel = false;
+      responseActive = false;
     }
   });
 
@@ -904,9 +949,8 @@ wss.on("connection", async (twilioWs) => {
     });
 
     setTimeout(() => {
-      awaitingModel = false;
       responseActive = false;
-      responseCreateQueued = false;
+      awaitingModel = false;
       kickModel("first_question");
     }, 350);
   }
