@@ -538,8 +538,8 @@ wss.on("connection", async (twilioWs) => {
   // Turn-control stability
   let awaitingModel = false;
   let responseActive = false;
-  let responseCreateInFlight = false;
   let responseCreateQueued = false;
+  let responseCreateInFlight = false;
   let lastResponseCreateAt = 0;
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
@@ -563,37 +563,34 @@ wss.on("connection", async (twilioWs) => {
     console.error("Headers:", res?.headers);
   });
 
-  function kickModel(reason) {
-    const now = Date.now();
+  function createResponse(reason) {
+  const now = Date.now();
 
-    // debounce: some environments emit multiple speech_stopped frames rapidly
-    if (now - lastResponseCreateAt < 900) return;
+  // Debounce: some environments emit multiple speech_stopped frames rapidly
+  if (now - lastResponseCreateAt < 900) return;
 
-    // HARD GUARD: never overlap responses
-    if (responseActive || responseCreateInFlight) {
-      responseCreateQueued = true;
-      console.log(`⏭️ response.create queued (${reason})`);
-      return;
-    }
-
-    lastResponseCreateAt = now;
-    responseCreateInFlight = true;
-    responseActive = true; // set immediately to avoid races
-    console.log(`⚡ response.create (${reason})`);
-    safeSend(openAiWs, { type: "response.create" });
+  // Hard guard: never send response.create if a response is already active or we haven't
+  // received response.created for the last one.
+  if (responseActive || responseCreateInFlight) {
+    responseCreateQueued = true;
+    console.log(`⏭️ response.create queued (${reason})`);
+    return;
   }
 
-    // Throttle hard to prevent VAD storms
-    if (awaitingModel) return;
-    if (now - lastResponseCreateAt < 1200) return;
+  lastResponseCreateAt = now;
+  responseCreateInFlight = true;
+  responseActive = true; // optimistic: treat as active immediately to avoid races
+  console.log(`⚡ response.create (${reason})`);
+  safeSend(openAiWs, { type: "response.create" });
+}
 
-    awaitingModel = true;
-    responseActive = true; // set true immediately to avoid races (don’t wait for response.created)
-    lastResponseCreateAt = now;
+function kickModel(reason) {
+  console.log(`⚡ kickModel (${reason})`);
 
-    console.log(`⚡ response.create (${reason})`);
-    safeSend(openAiWs, { type: "response.create" });
-  }
+  // Do NOT create a response here.
+  // This only tells the model: "user input is complete — start thinking."
+  safeSend(openAiWs, { type: "input_audio_buffer.commit" });
+}
 
   function nudgeModelStayOnDeal(reason) {
     console.log(`⛔ Advance blocked (${reason}). Nudging model to continue current deal.`);
@@ -612,7 +609,7 @@ wss.on("connection", async (twilioWs) => {
       },
     });
     awaitingModel = false;
-    kickModel("advance_blocked_continue");
+    createResponse("advance_blocked_continue");
   }
 
   openAiWs.on("open", () => {
@@ -660,8 +657,8 @@ wss.on("connection", async (twilioWs) => {
     }
 
     if (response.type === "response.created") {
-      // keep active; we already set it true on create
       responseCreateInFlight = false;
+      // keep active; we already set it true on create
       awaitingModel = true;
     }
 
@@ -679,7 +676,8 @@ wss.on("connection", async (twilioWs) => {
       if (now - lastSpeechStoppedAt < 1800) return;
       lastSpeechStoppedAt = now;
 
-      kickModel("speech_stopped");
+      awaitingModel = true;
+      createResponse("speech_stopped");
     }
 
     try {
@@ -731,7 +729,7 @@ wss.on("connection", async (twilioWs) => {
               awaitingModel = false;
               responseActive = false;
               responseCreateQueued = false;
-              kickModel("next_deal_first_question");
+              createResponse("next_deal_first_question");
             }, 350);
           } else {
             console.log("🏁 All deals done.");
@@ -788,16 +786,14 @@ wss.on("connection", async (twilioWs) => {
 
       if (response.type === "response.done") {
         responseActive = false;
-        awaitingModel = false;
         responseCreateInFlight = false;
+        awaitingModel = false;
+        sawSpeechStarted = false;
 
         if (responseCreateQueued) {
           responseCreateQueued = false;
-          setTimeout(() => kickModel("queued_continue"), 200);
+          setTimeout(() => createResponse("queued_continue"), 250);
         }
-      }
-
-        awaitingModel = false;
 
         const transcript = (
           response.response?.output
@@ -826,7 +822,7 @@ wss.on("connection", async (twilioWs) => {
                 ],
               },
             });
-            setTimeout(() => kickModel("advance_blocked_continue"), 200);
+            setTimeout(() => createResponse("advance_blocked_continue"), 200);
             return;
           }
 
@@ -861,7 +857,7 @@ wss.on("connection", async (twilioWs) => {
               awaitingModel = false;
               responseActive = false;
               responseCreateQueued = false;
-              kickModel("next_deal_first_question");
+              createResponse("next_deal_first_question");
             }, 350);
           } else {
             console.log("🏁 All deals done.");
@@ -908,7 +904,7 @@ wss.on("connection", async (twilioWs) => {
         await attemptLaunch();
       }
 
-      if (data.event === "media" && data.media?.payload && openAiReady && !responseActive) {
+      if (data.event === "media" && data.media?.payload && openAiReady) {
         safeSend(openAiWs, {
           type: "input_audio_buffer.append",
           audio: data.media.payload,
@@ -977,7 +973,7 @@ wss.on("connection", async (twilioWs) => {
       awaitingModel = false;
       responseActive = false;
       responseCreateQueued = false;
-      kickModel("first_question");
+      createResponse("first_question");
     }, 350);
   }
 });
