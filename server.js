@@ -535,18 +535,11 @@ wss.on("connection", async (twilioWs) => {
   let currentDealIndex = 0;
   let openAiReady = false;
 
-  // Turn-control stability (prevent overlapping response.create -> fixes OpenAI active_response error)
+  // Turn-control stability
   let awaitingModel = false;
-
-  // OpenAI considers a response "active" from response.created until response.done.
-  // We must not call response.create while active, or OpenAI will reject it.
-  let responseActive = false;          // true between response.created -> response.done
-  let responseCreateInFlight = false;  // we sent response.create, waiting for response.created
-  let responseCreateQueued = false;    // queue ONE create to run after response.done
-
-  // Debounce extra VAD triggers
+  let responseActive = false;
+  let responseCreateQueued = false;
   let lastResponseCreateAt = 0;
-
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
 
@@ -572,22 +565,11 @@ wss.on("connection", async (twilioWs) => {
   function kickModel(reason) {
     const now = Date.now();
 
-    // debounce: some environments emit multiple speech_stopped frames rapidly
-    if (now - lastResponseCreateAt < 900) return;
-
-    // If OpenAI still has an active response OR we already sent response.create and haven't seen response.created,
-    // queue exactly one follow-up create and wait for response.done to flush it.
-    if (responseActive || responseCreateInFlight) {
+    // If a response is in progress, queue a single follow-up create
+    if (responseActive) {
       responseCreateQueued = true;
-      console.log(`⏸️ response.create queued (${reason})`);
       return;
     }
-
-    lastResponseCreateAt = now;
-    responseCreateInFlight = true;
-    console.log(`⚡ response.create (${reason})`);
-    safeSend(openAiWs, { type: "response.create" });
-  }
 
     // Throttle hard to prevent VAD storms
     if (awaitingModel) return;
@@ -654,25 +636,20 @@ wss.on("connection", async (twilioWs) => {
 
     if (response.type === "error") {
       console.error("❌ OpenAI error frame:", response);
-      const code = response.error?.code || "";
+      // If OpenAI says there is an active response, treat as active and wait for response.done
+      const code = response?.error?.code;
       if (code === "conversation_already_has_active_response") {
-        // OpenAI still has an active response; queue a single continuation.
+        // Treat as active; queue a single follow-up create after response.done.
         responseActive = true;
-        responseCreateInFlight = false;
+        awaitingModel = true;
         responseCreateQueued = true;
         return;
       }
-      // For other errors, clear in-flight so we can recover
-      responseCreateInFlight = false;
-      return;
-    }
     }
 
     if (response.type === "response.created") {
-      responseActive = true;
-      responseCreateInFlight = false;
+      // keep active; we already set it true on create
       awaitingModel = true;
-      console.log("🟦 OpenAI response.created");
     }
 
 
@@ -797,9 +774,6 @@ wss.on("connection", async (twilioWs) => {
       }
 
       if (response.type === "response.done") {
-      responseActive = false;
-      responseCreateInFlight = false;
-      console.log("🟩 OpenAI response.done");
         responseActive = false;
         awaitingModel = false;
         if (responseCreateQueued) {
