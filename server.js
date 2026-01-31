@@ -55,6 +55,56 @@ function safeJsonParse(data) {
   }
 }
 
+// Score definition cache (per call) to provide human labels for scores quickly.
+async function loadScoreLabelsByType(orgId) {
+  const map = new Map(); // type -> Map(score_value -> label)
+  try {
+    const r = await pool.query(
+      `SELECT type, score_value, label
+       FROM score_definitions
+       WHERE org_id = $1`,
+      [orgId]
+    );
+    for (const row of r.rows) {
+      const type = String(row.type || "").toLowerCase();
+      const score = Number(row.score_value);
+      const label = row.label ?? null;
+      if (!map.has(type)) map.set(type, new Map());
+      map.get(type).set(score, label);
+    }
+  } catch (e) {
+    console.warn("⚠️ Could not load score_definitions labels:", e?.message || e);
+  }
+  return map;
+}
+
+function scoreLabel(scoreLabelsByType, type, score) {
+  const t = String(type || "").toLowerCase();
+  const s = Number(score);
+  const label = scoreLabelsByType?.get?.(t)?.get?.(s);
+  return label || (s === 0 ? "Unknown" : null) || "Unknown";
+}
+
+function buildCategoryPromptLine({ type, displayName, score, label, champName, champTitle }) {
+  // One short statement + one question. No verbal coaching.
+  const safeLabel = label || "Unknown";
+
+  if (type === "champion" && champName) {
+    const who = champTitle ? `${champName} (${champTitle})` : champName;
+    if (Number(score) >= 3) {
+      return `Last review ${displayName} was ${safeLabel}. Has anything changed that could introduce risk with ${who}'s advocacy?`;
+    }
+    return `Last review ${displayName} was ${safeLabel}. Has ${who} shown they're actively advocating for our solution internally over other options?`;
+  }
+
+  if (Number(score) >= 3) {
+    return `Last review ${displayName} was ${safeLabel}. Has anything changed that could introduce risk?`;
+  }
+
+  return `Last review ${displayName} was ${safeLabel}. Have we made progress since the last review?`;
+}
+
+
 function compact(obj, keys) {
   const out = {};
   for (const k of keys) if (obj?.[k] !== undefined) out[k] = obj[k];
@@ -435,28 +485,15 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
 
   const firstGap = computeFirstGap(deal, stage);
 
-  const gapQuestion = (() => {
-    if (String(stage).includes("Pipeline")) {
-      if (firstGap.name === "Pain")
-        return "What specific business problem is the customer trying to solve, and what happens if they do nothing?";
-      if (firstGap.name === "Metrics")
-        return "What measurable outcome has the customer agreed matters, and who validated it?";
-      if (firstGap.name === "Champion")
-        return "Who is driving this internally, what is their role, and how have they shown advocacy?";
-      if (firstGap.name === "Budget")
-        return "Has budget been discussed or confirmed, and at what level?";
-      return `What changed since last time on ${firstGap.name}?`;
-    }
-
-    if (String(stage).includes("Commit")) {
-      return `This is Commit — what evidence do we have that ${firstGap.name} is fully locked?`;
-    }
-    if (String(stage).includes("Best Case")) {
-      return `What would need to happen to strengthen ${firstGap.name} to a clear 3?`;
-    }
-
-    return `What is the latest on ${firstGap.name}?`;
-  })();
+  const gapLabel = scoreLabel(scoreLabelsByType, firstGap.key, firstGap.score);
+  const gapQuestion = buildCategoryPromptLine({
+    type: firstGap.key,
+    displayName: firstGap.name,
+    score: firstGap.score,
+    label: gapLabel,
+    champName: deal?.champion_name,
+    champTitle: deal?.champion_title,
+  });
 
   // Enforce a deterministic spoken sequence to prevent "Last review" from leading.
   // FIRST DEAL: Greeting -> Recall -> First question
@@ -538,6 +575,7 @@ wss.on("connection", async (twilioWs) => {
   let orgId = 1;
   let repName = null;
   let repFirstName = null;
+  let scoreLabelsByType = null;
 
   let dealQueue = [];
   let currentDealIndex = 0;
@@ -725,7 +763,8 @@ function kickModel(reason) {
               nextDeal,
               repFirstName || repName || "Rep",
               dealQueue.length,
-              false
+              false,
+              scoreLabelsByType
             );
 
             safeSend(openAiWs, {
@@ -853,7 +892,8 @@ function kickModel(reason) {
               nextDeal,
               repFirstName || repName || "Rep",
               dealQueue.length,
-              false
+              false,
+              scoreLabelsByType
             );
 
             safeSend(openAiWs, {
@@ -992,3 +1032,6 @@ function kickModel(reason) {
 server.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT}`);
 });
+    // Load score labels once per call (fast lookup for spoken labels)
+    scoreLabelsByType = await loadScoreLabelsByType(orgId);
+
