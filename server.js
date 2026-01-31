@@ -20,7 +20,7 @@ import { handleFunctionCall } from "./muscle.js";
 /// ============================================================================
 /// SECTION 1: CONFIG
 /// ============================================================================
-const PORT = process.env.PORT || 10000; 
+const PORT = process.env.PORT || 10000;
 
 const MODEL_URL = process.env.MODEL_API_URL; // wss://api.openai.com/v1/realtime
 const MODEL_NAME = process.env.MODEL_NAME;
@@ -416,17 +416,9 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
 
   // 1-sentence recall (keep it short)
   const recallBits = [];
-  if (deal.risk_summary) recallBits.push(`Risk Summary: ${deal.risk_summary}`);
-  // Speak only Pain (no general recap). Include last score for concise rigor.
-  if (deal.pain_score !== null && deal.pain_score !== undefined) {
-    if (deal.pain_summary) {
-      recallBits.push(`Pain (last score ${deal.pain_score}): ${deal.pain_summary}`);
-    } else {
-      recallBits.push(`Pain (last score ${deal.pain_score}).`);
-    }
-  } else if (deal.pain_summary) {
-    recallBits.push(`Pain: ${deal.pain_summary}`);
-  }
+  if (deal.pain_summary) recallBits.push(`Pain: ${deal.pain_summary}`);
+  if (deal.metrics_summary) recallBits.push(`Metrics: ${deal.metrics_summary}`);
+  if (deal.budget_summary) recallBits.push(`Budget: ${deal.budget_summary}`);
 
   const recallLine =
     recallBits.length > 0
