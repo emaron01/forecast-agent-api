@@ -347,17 +347,6 @@ const saveDealDataTool = {
 };
 
 
-const advanceDealTool = {
-  type: "function",
-  name: "advance_deal",
-  description:
-    "Advance to the next deal ONLY when you are finished with the current deal. This tool call is silent.",
-  parameters: {
-    type: "object",
-    properties: {},
-    required: [],
-  },
-};
 
 /// ============================================================================
 /// SECTION 8: System Prompt Builder (getSystemPrompt)
@@ -516,7 +505,6 @@ After EACH rep answer:
 END OF DEAL
 When finished with a deal:
 - Say: "Okay — let’s move to the next one."
-- Then call the advance_deal tool silently.
 `.trim();
 }
 
@@ -617,7 +605,7 @@ wss.on("connection", async (twilioWs) => {
           threshold: 0.6,
           silence_duration_ms: 1100,
         },
-        tools: [saveDealDataTool, advanceDealTool],
+        tools: [saveDealDataTool],
       },
     });
 
@@ -683,48 +671,6 @@ wss.on("connection", async (twilioWs) => {
 
 
         // Silent advancement tool (no spoken trigger)
-        if (fnName === "advance_deal") {
-          console.log("➡️ advance_deal tool received. Advancing deal...");
-
-          safeSend(openAiWs, {
-            type: "conversation.item.create",
-            item: {
-              type: "function_call_output",
-              call_id: callId,
-              output: JSON.stringify({ status: "success" }),
-            },
-          });
-
-          awaitingModel = false;
-          currentDealIndex++;
-
-          if (currentDealIndex < dealQueue.length) {
-            const nextDeal = dealQueue[currentDealIndex];
-            console.log(`👉 Context switch -> id=${nextDeal.id} account="${nextDeal.account_name}"`);
-
-            const instructions = getSystemPrompt(
-              nextDeal,
-              repFirstName || repName || "Rep",
-              dealQueue.length,
-              false
-            );
-
-            safeSend(openAiWs, {
-              type: "session.update",
-              session: { instructions },
-            });
-
-            setTimeout(() => {
-              awaitingModel = false;
-              responseActive = false;
-              responseCreateQueued = false;
-              kickModel("next_deal_first_question");
-            }, 350);
-          } else {
-            console.log("🏁 All deals done.");
-          }
-          return;
-        }
 
         const deal = dealQueue[currentDealIndex];
         if (!deal) {
