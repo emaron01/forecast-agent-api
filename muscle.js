@@ -1,341 +1,273 @@
-// muscle.js (ES module)
-// Tool handler (save_deal_data)
-// Goals:
-// - Clamp scores 0–3 (integers)
-// - Build deterministic summaries that ALWAYS include: Label + Criteria + (optional) Evidence
-// - Deterministic risk_summary (stage-aware)
-// - Deterministic ai_forecast from total score
-// - Avoid junk overwrites (empty strings, "Unknown", placeholders)
+/**
+ * muscle.js
+ * - Core tool handler for saving category data, auditing, and light deal state updates.
+ * - MUST export handleFunctionCall as a named export.
+ */
 
-import crypto from "crypto";
-import pkg from "pg";
-import { saveDealData } from "./db.js";
-const { Pool } = pkg;
-
-// ---- Score definition cache (per org) ----
-const defPool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
-
-const defsCache = new Map(); // orgId -> { at:number, map: Map("cat|score"-> {label,criteria}) }
-const DEF_TTL_MS = 5 * 60 * 1000;
-
-const AUDIT_SCHEMA_VERSION = 1;
-const PROMPT_VERSION = "server_prompt_v3";
-const LOGIC_VERSION = "muscle_v3";
-
-const categories = [
-  "pain",
-  "metrics",
-  "champion",
-  "eb",
-  "criteria",
-  "process",
-  "competition",
-  "paper",
-  "timing",
-  "budget",
-];
-
-function clampScore(x) {
-  const n = Number(x);
-  if (!Number.isFinite(n)) return undefined;
-  if (n < 0) return 0;
-  if (n > 3) return 3;
-  return Math.round(n);
+function nowIso() {
+  return new Date().toISOString();
 }
 
-function isMeaningfulString(v) {
-  return typeof v === "string" && v.trim().length > 0;
-}
-
-function pruneEmptyStringFields(updates) {
-  for (const [k, v] of Object.entries(updates)) {
-    if (typeof v === "string" && v.trim() === "") delete updates[k];
-  }
-}
-
-function scrubUnknown(v) {
-  if (!isMeaningfulString(v)) return undefined;
-  const t = v.trim();
-  const lower = t.toLowerCase();
-  if (lower === "unknown") return undefined;
-  if (t === "[Champion's Name]" || t === "[Champion's Title]") return undefined;
-  if (t === "[Economic Buyer's Name]" || t === "[Economic Buyer's Title]") return undefined;
-  return t;
+function cleanText(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s.length ? s : null;
 }
 
 /**
- * Strips model junk like:
- *  - "Score 3 (Customer-validated): blah"
- *  - "Score 2: blah"
- *  - "Customer-validated: blah" (we strip any known "Label:" prefix later)
+ * Detect which category is being saved from tool args.
+ * We store <category>_score, <category>_summary, <category>_tip.
  */
-function stripScorePrefix(text) {
-  if (!isMeaningfulString(text)) return "";
-  let s = text.trim();
-
-  // Remove leading "Score X (...):"
-  s = s.replace(/^Score\s*[0-3]\s*(\([^)]+\))?\s*:\s*/i, "");
-  // Remove leading "Score X -" or "Score X —"
-  s = s.replace(/^Score\s*[0-3]\s*[-—]\s*/i, "");
-
-  return s.trim();
+function detectCategoryFromArgs(args) {
+  const keys = Object.keys(args || {});
+  const scoreKey = keys.find((k) => k.endsWith("_score"));
+  if (!scoreKey) return null;
+  return scoreKey.replace(/_score$/, "");
 }
 
-async function getScoreDefinitions(orgId) {
-  const now = Date.now();
-  const cached = defsCache.get(orgId);
-  if (cached && now - cached.at < DEF_TTL_MS) return cached.map;
+/**
+ * Build a "delta" JSON payload for opportunity_audit_events.
+ * Keep it compact: only store fields the tool provided for this save.
+ */
+function buildDelta(args) {
+  const out = {};
+  for (const [k, v] of Object.entries(args || {})) {
+    if (k === "org_id" || k === "opportunity_id" || k === "rep_name" || k === "call_id") continue;
+    out[k] = v;
+  }
+  return out;
+}
 
-  const map = new Map();
+/**
+ * Compute running total score/max score if present in opportunity row
+ * (kept minimal: muscle does not invent weights; server/db own scoring tables).
+ */
+async function recomputeTotalScore(pool, orgId, opportunityId) {
+  // Keep your existing schema assumptions: category columns end in _score
+  // We'll sum whatever exists for MEDDPICC+TB (safe generic).
+  const { rows } = await pool.query(
+    `SELECT *
+       FROM opportunities
+      WHERE org_id = $1 AND id = $2
+      LIMIT 1`,
+    [orgId, opportunityId]
+  );
+  if (!rows.length) return { total_score: null, max_score: null };
+
+  const row = rows[0];
+  let total = 0;
+  let hasAny = false;
+
+  for (const [k, v] of Object.entries(row)) {
+    if (!k.endsWith("_score")) continue;
+    if (typeof v !== "number") continue;
+    total += v;
+    hasAny = true;
+  }
+
+  // max_score depends on what categories exist; keep null if unknown.
+  return { total_score: hasAny ? total : null, max_score: null };
+}
+
+/**
+ * Insert audit event row.
+ */
+async function insertAuditEvent(pool, {
+  orgId,
+  opportunityId,
+  actorType,
+  eventType,
+  forecastStage,
+  aiForecast,
+  totalScore,
+  maxScore,
+  riskSummary,
+  riskFlags,
+  delta,
+  definitions,
+  meta,
+  runId,
+  callId,
+  schemaVersion = 1,
+  promptVersion = "v1",
+  logicVersion = "v1",
+}) {
   const q = `
-    SELECT category, score, label, criteria
-    FROM score_definitions
-    WHERE org_id = $1
+    INSERT INTO opportunity_audit_events
+      (org_id, opportunity_id, actor_type, event_type, schema_version, prompt_version, logic_version,
+       forecast_stage, ai_forecast, total_score, max_score, risk_summary, risk_flags, delta, definitions, meta, run_id, call_id)
+    VALUES
+      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16::jsonb,$17,$18)
+    RETURNING id
   `;
-  const res = await defPool.query(q, [orgId]);
 
-  for (const row of res.rows) {
-    const cat = String(row.category || "").trim().toLowerCase();
-    const score = Number(row.score);
-    if (!cat || !Number.isFinite(score)) continue;
+  const { rows } = await pool.query(q, [
+    orgId,
+    opportunityId,
+    actorType,
+    eventType,
+    schemaVersion,
+    promptVersion,
+    logicVersion,
+    forecastStage,
+    aiForecast,
+    totalScore,
+    maxScore,
+    riskSummary,
+    riskFlags,
+    JSON.stringify(delta || {}),
+    JSON.stringify(definitions || {}),
+    JSON.stringify(meta || {}),
+    runId,
+    callId,
+  ]);
 
-    map.set(`${cat}|${score}`, {
-      label: row.label || "",
-      criteria: row.criteria || "",
-    });
-  }
-
-  defsCache.set(orgId, { at: now, map });
-  return map;
-}
-
-function mergedScoreFor(deal, updates, cat) {
-  const k = `${cat}_score`;
-  const v = updates[k] !== undefined ? updates[k] : deal?.[k];
-  return Number.isFinite(Number(v)) ? Number(v) : 0;
-}
-
-function computeAiForecast(totalScore, maxScore) {
-  // Keep simple + stable. Tune later in one place.
-  // Defaults: Commit ~= 80%+, Best Case ~= 55%+
-  const commitCut = Math.round(maxScore * 0.8);
-  const bestCaseCut = Math.round(maxScore * 0.55);
-
-  if (totalScore >= commitCut) return "Commit";
-  if (totalScore >= bestCaseCut) return "Best Case";
-  return "Pipeline";
-}
-
-function computeTopRisk(deal, updates) {
-  const stage = String(deal?.forecast_stage || "Pipeline");
-
-  const gap = (cat) => mergedScoreFor(deal, updates, cat);
-
-  if (stage.includes("Commit")) {
-    if (gap("paper") < 3) return "Commit risk: Paper process not locked.";
-    if (gap("eb") < 3) return "Commit risk: Economic Buyer not confirmed/direct.";
-    if (gap("process") < 3) return "Commit risk: Decision process not documented.";
-    if (gap("budget") < 3) return "Commit risk: Budget not confirmed/locked.";
-    return "Commit risk: No material gaps detected.";
-  }
-
-  if (stage.includes("Best Case")) {
-    if (gap("eb") < 2) return "Best Case risk: Economic Buyer access is weak/unknown.";
-    if (gap("paper") < 2) return "Best Case risk: Paper process not started/unclear.";
-    if (gap("process") < 2) return "Best Case risk: Decision process is assumed/unknown.";
-    if (gap("budget") < 2) return "Best Case risk: Budget is unclear/unconfirmed.";
-    if (gap("competition") < 3) return "Best Case risk: Competitive position not a known edge.";
-    return "Best Case risk: Primary gaps appear manageable.";
-  }
-
-  // Pipeline: foundation-first
-  if (gap("pain") < 3) return "Pipeline risk: Pain is not quantified/real enough yet.";
-  if (gap("metrics") < 3) return "Pipeline risk: Metrics are not customer-validated.";
-  if (gap("champion") < 3) return "Pipeline risk: No true champion/mobilizer identified.";
-  if (gap("budget") < 2) return "Pipeline risk: Budget not established early enough.";
-  return "Pipeline risk: Foundation looks real; next risk is EB/process progression.";
+  return rows[0]?.id ?? null;
 }
 
 /**
- * Build deterministic summary:
- *   "<Label>: <Criteria> Evidence: <evidence>"
- * Evidence is optional, but Label+Criteria always included.
- *
- * Evidence sourcing:
- * - Prefer tool-provided summary (updates)
- * - Else use existing DB summary as evidence (deal)
- * - Strip any "Score X..." prefixes
- * - Strip any leading "<some label>:" prefix if it matches the label from definitions
+ * Main tool handler (named export)
  */
-function buildSummary({ label, criteria, evidenceRaw }) {
-  const labelClean = isMeaningfulString(label) ? label.trim() : "Unknown";
-  const criteriaClean = isMeaningfulString(criteria) ? criteria.trim() : "No criteria defined.";
-
-  let ev = stripScorePrefix(evidenceRaw);
-  if (isMeaningfulString(ev)) {
-    // If evidence starts with "Label:" already, strip it (normalize)
-    const lower = ev.toLowerCase();
-    const ll = `${labelClean.toLowerCase()}:`;
-    if (lower.startsWith(ll)) ev = ev.slice(ll.length).trim();
-  } else {
-    ev = "";
+export async function handleFunctionCall({ toolName, args, pool }) {
+  if (toolName !== "save_deal_data") {
+    return { ok: true, ignored: toolName };
   }
 
-  return `${labelClean}: ${criteriaClean}${ev ? ` Evidence: ${ev}` : ""}`;
-}
+  const orgId = Number(args.org_id);
+  const opportunityId = Number(args.opportunity_id);
+  if (!orgId || !opportunityId) {
+    throw new Error("save_deal_data requires org_id and opportunity_id");
+  }
 
-export async function handleFunctionCall(args, callId) {
-  console.log("🛠️ Tool Triggered: save_deal_data");
+  const repName = cleanText(args.rep_name);
+  const callId = cleanText(args.call_id);
 
-  const deal = args._deal || {};
-  const orgId = Number(deal.org_id) || 1;
-  const currentAccount = deal.account_name || "Unknown Account";
+  const category = detectCategoryFromArgs(args);
+  const delta = buildDelta(args);
 
+  // Update opportunity columns that are present in args (score/summary/tip + optional extras)
+  // Only allow known patterns: *_score, *_summary, *_tip, *_name, *_title, etc.
+  const allowed = Object.keys(args).filter((k) =>
+    /_(score|summary|tip|name|title|source|notes)$/.test(k)
+  );
+
+  const sets = [];
+  const vals = [];
+  let i = 1;
+
+  for (const k of allowed) {
+    sets.push(`${k} = $${++i}`);
+    vals.push(args[k]);
+  }
+
+  // Also update last_summary/risk_summary if provided by tool.
+  // (keeping backwards compatibility)
+  if (args.last_summary != null) {
+    sets.push(`last_summary = $${++i}`);
+    vals.push(args.last_summary);
+  }
+  if (args.risk_summary != null) {
+    sets.push(`risk_summary = $${++i}`);
+    vals.push(args.risk_summary);
+  }
+
+  // Always stamp updated_at if exists
+  sets.push(`updated_at = NOW()`);
+
+  // Start transaction
+  const client = await pool.connect();
   try {
-    const updates = { ...args };
-    delete updates._deal;
+    await client.query("BEGIN");
 
-    // Defensive: never persist unknown keys
-    delete updates.call_id;
-    delete updates.type;
-
-    // Normalize “Unknown” placeholders for name/title fields (avoid overwrites)
-    if ("champion_name" in updates) updates.champion_name = scrubUnknown(updates.champion_name);
-    if ("champion_title" in updates) updates.champion_title = scrubUnknown(updates.champion_title);
-    if ("eb_name" in updates) updates.eb_name = scrubUnknown(updates.eb_name);
-    if ("eb_title" in updates) updates.eb_title = scrubUnknown(updates.eb_title);
-
-    // Strip empty strings so db.js won't overwrite
-    pruneEmptyStringFields(updates);
-
-    // 1) Clamp any scores present (0–3)
-    for (const cat of categories) {
-      const k = `${cat}_score`;
-      if (updates[k] !== undefined) updates[k] = clampScore(updates[k]);
+    if (sets.length) {
+      const q = `
+        UPDATE opportunities
+           SET ${sets.join(", ")}
+         WHERE org_id = $1
+           AND id = $2
+      `;
+      await client.query(q, [orgId, opportunityId, ...vals]);
     }
 
-    // 2) Pull definitions for Label + Criteria
-    const defMap = await getScoreDefinitions(orgId);
-
-    // 3) Force summaries to always include Label + Criteria (+ optional Evidence)
-    //    Evidence comes from:
-    //      - updates[cat_summary] if provided
-    //      - else deal[cat_summary] (existing) as evidence
-    for (const cat of categories) {
-      const scoreK = `${cat}_score`;
-      const summaryK = `${cat}_summary`;
-
-      const effectiveScore =
-        updates[scoreK] !== undefined ? updates[scoreK] : deal?.[scoreK];
-      const s = Number.isFinite(Number(effectiveScore)) ? Number(effectiveScore) : 0;
-
-      const def = defMap.get(`${cat}|${s}`) || { label: "Unknown", criteria: "No criteria defined." };
-
-      const evidenceRaw =
-        updates[summaryK] !== undefined ? updates[summaryK] : deal?.[summaryK];
-
-      updates[summaryK] = buildSummary({
-        label: def.label,
-        criteria: def.criteria,
-        evidenceRaw,
-      });
-    }
-
-    // 4) Deterministic risk_summary (ignore model free-writing)
-    updates.risk_summary = computeTopRisk(deal, updates);
-
-    // 5) Deterministic ai_forecast (from merged total score)
-    const totalScore = categories
-      .map((cat) => mergedScoreFor(deal, updates, cat))
-      .reduce((a, b) => a + b, 0);
-
-    const maxScore = categories.length * 3; // MEDDPICC + Timing + Budget => 10 * 3 = 30
-    updates.ai_forecast = computeAiForecast(totalScore, maxScore);
-
-    // 6) HARD STABILITY: ignore truly empty calls (should not happen now, but keep)
-    const meaningfulKeys = Object.keys(updates).filter((k) => updates[k] !== undefined);
-    if (meaningfulKeys.length === 0) {
-      console.log("⚠️ Ignoring empty save_deal_data call (no-op).");
-      return deal;
-    }
-
-    
-    // -------------------- AUDIT EVENT (production) --------------------
-    // Append-only, structured, delta-focused event for opportunity_audit_events table.
-    // No transcripts/banter; only what is needed for explainability + analytics.
-    const runId = (typeof crypto.randomUUID === "function")
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random()}`;
-
-    // Determine which categories were touched in THIS save (by any _score/_summary/_tip key)
-    const touchedCats = new Set();
-    for (const k of Object.keys(updates)) {
-      for (const cat of categories) {
-        if (k === `${cat}_score` || k === `${cat}_summary` || k === `${cat}_tip`) touchedCats.add(cat);
-      }
-    }
-
-    // Snapshot definitions used at time of scoring (ONLY for touched categories)
-    const definitions = {};
-    for (const cat of touchedCats) {
-      const score = mergedScoreFor(deal, updates, cat);
-      const def = defMap.get(`${cat}|${score}`) || { label: "", criteria: "" };
-      definitions[cat] = {
-        score,
-        label: def.label || "",
-        criteria: def.criteria || "",
-      };
-    }
-
-    // Delta payload: include only meaningful updates (exclude internal keys)
-    const delta = {};
-    for (const [k, v] of Object.entries(updates)) {
-      if (k.startsWith("_")) continue;
-      if (v === undefined) continue;
-      delta[k] = v;
-    }
-
-    updates._audit_event = {
-      org_id: orgId,
-      opportunity_id: deal.id,
-      ts: new Date().toISOString(),
-      run_id: runId,
-      call_id: callId || null,
-
-      actor_type: "agent",
-      event_type: "score_save",
-      schema_version: AUDIT_SCHEMA_VERSION,
-      prompt_version: PROMPT_VERSION,
-      logic_version: LOGIC_VERSION,
-
-      forecast_stage: deal.forecast_stage || null,
-      ai_forecast: updates.ai_forecast || null,
-      total_score: (typeof totalScore !== "undefined" ? totalScore : null),
-      max_score: (typeof maxScore !== "undefined" ? maxScore : null),
-
-      risk_summary: updates.risk_summary || null,
-      risk_flags: updates.risk_flags || null,
-
-      delta,
-      definitions: Object.keys(definitions).length ? definitions : null,
-      meta: {
-        account_name: deal.account_name || null,
-        opportunity_name: deal.opportunity_name || null,
-      },
-    };
-
-const updatedDeal = await saveDealData(deal, updates);
-
-    console.log(
-      `✅ Saved deal id=${updatedDeal.id} account="${currentAccount}" ai_forecast=${updatedDeal.ai_forecast} run_count=${updatedDeal.run_count}`
+    // Pull latest opp row for audit context fields
+    const { rows } = await client.query(
+      `SELECT id, org_id, stage, ai_forecast, total_score, risk_summary
+         FROM opportunities
+        WHERE org_id = $1 AND id = $2
+        LIMIT 1`,
+      [orgId, opportunityId]
     );
 
-    return updatedDeal;
-  } catch (err) {
-    console.error("❌ save_deal_data failed:", err?.message || err);
-    throw err;
+    const opp = rows[0] || {};
+    const recomputed = await recomputeTotalScore(client, orgId, opportunityId);
+
+    // Update total_score if we computed it and opportunity has column
+    if (recomputed.total_score != null) {
+      await client.query(
+        `UPDATE opportunities
+            SET total_score = $3
+          WHERE org_id = $1 AND id = $2`,
+        [orgId, opportunityId, recomputed.total_score]
+      );
+      opp.total_score = recomputed.total_score;
+    }
+
+    // Create audit event (compact delta)
+    const runId = args.run_id || null; // if you pass it later
+    const auditId = await insertAuditEvent(client, {
+      orgId,
+      opportunityId,
+      actorType: "agent",
+      eventType: "score_save",
+      forecastStage: opp.stage ?? null,
+      aiForecast: opp.ai_forecast ?? null,
+      totalScore: opp.total_score ?? null,
+      maxScore: null,
+      riskSummary: opp.risk_summary ?? null,
+      riskFlags: args.risk_flags ?? null,
+      delta,
+      definitions: args.definitions ?? null,
+      meta: {
+        rep_name: repName,
+        category,
+        saved_at: nowIso(),
+      },
+      runId: runId || cryptoRandomUUIDSafe(),
+      callId,
+      schemaVersion: 1,
+      promptVersion: args.prompt_version || "v1",
+      logicVersion: args.logic_version || "v1",
+    });
+
+    await client.query("COMMIT");
+
+    return {
+      ok: true,
+      saved: true,
+      opportunity_id: opportunityId,
+      audit_event_id: auditId,
+    };
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
   }
+}
+
+/**
+ * Safe UUID if crypto.randomUUID exists; otherwise null-ish.
+ */
+function cryptoRandomUUIDSafe() {
+  try {
+    // Node 18+ supports global crypto.randomUUID in many runtimes
+    // but not all; guard it.
+    // eslint-disable-next-line no-undef
+    if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
+      // eslint-disable-next-line no-undef
+      return globalThis.crypto.randomUUID();
+    }
+  } catch {}
+  // fallback: pseudo
+  return `run_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
