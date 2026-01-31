@@ -531,6 +531,7 @@ wss.on("connection", async (twilioWs) => {
   let responseCreateInFlight = false;
   let lastResponseCreateAt = 0;
   let sawSpeechStarted = false;
+let expectingUserInput = false; // true only after model finishes speaking
   let lastSpeechStoppedAt = 0;
 
   // Advancement gating (prevents premature NEXT_DEAL_TRIGGER in Pipeline)
@@ -567,6 +568,8 @@ wss.on("connection", async (twilioWs) => {
 
     awaitingModel = true;
     responseActive = true; // set true immediately to avoid races (don’t wait for response.created)
+    expectingUserInput = false;
+    sawSpeechStarted = false;
     responseCreateInFlight = true;
     lastResponseCreateAt = now;
 
