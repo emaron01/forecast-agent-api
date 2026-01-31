@@ -16,27 +16,11 @@ import WebSocket, { WebSocketServer } from "ws";
 import { Pool } from "pg";
 
 import { handleFunctionCall } from "./muscle.js";
-import { performance } from "node:perf_hooks";
 
 /// ============================================================================
 /// SECTION 1: CONFIG
 /// ============================================================================
 const PORT = process.env.PORT || 10000;
-
-// -----------------------------------------------------------------------------
-// Debug logging (enable with DEBUG_LOGS=1)
-// -----------------------------------------------------------------------------
-const DEBUG_LOGS = process.env.DEBUG_LOGS === "1";
-function dbg(msg, data) {
-  if (!DEBUG_LOGS) return;
-  try {
-    if (data === undefined) console.log(`🧪 ${msg}`);
-    else console.log(`🧪 ${msg}`, typeof data === "string" ? data : JSON.stringify(data));
-  } catch {
-    console.log(`🧪 ${msg}`, data);
-  }
-}
-
 
 const MODEL_URL = process.env.MODEL_API_URL; // wss://api.openai.com/v1/realtime
 const MODEL_NAME = process.env.MODEL_NAME;
@@ -73,25 +57,24 @@ function safeJsonParse(data) {
 
 // Score definition cache (per call) to provide human labels for scores quickly.
 async function loadScoreLabelsByType(orgId) {
-  const map = new Map(); // type -> Map(score_value -> label)
-  try {
-    const r = await pool.query(
-      `SELECT type, score_value, label
-       FROM score_definitions
-       WHERE org_id = $1`,
-      [orgId]
-    );
-    for (const row of r.rows) {
-      const type = String(row.type || "").toLowerCase();
-      const score = Number(row.score_value);
-      const label = row.label ?? null;
-      if (!map.has(type)) map.set(type, new Map());
-      map.get(type).set(score, label);
-    }
-  } catch (e) {
-    console.warn("⚠️ Could not load score_definitions labels:", e?.message || e);
+  // score_definitions schema: (org_id, category, score, label, criteria)
+  // Return: Map<category, Map<score:int, label:string>>
+  const out = new Map();
+  const q = `
+    SELECT category, score, label
+    FROM score_definitions
+    WHERE org_id = $1
+  `;
+  const { rows } = await pool.query(q, [orgId]);
+  for (const r of rows) {
+    const cat = String(r.category || "").trim();
+    const score = Number(r.score);
+    const label = (r.label ?? "").toString();
+    if (!cat || Number.isNaN(score)) continue;
+    if (!out.has(cat)) out.set(cat, new Map());
+    out.get(cat).set(score, label);
   }
-  return map;
+  return out;
 }
 
 function scoreLabel(scoreLabelsByType, type, score) {
@@ -128,7 +111,6 @@ function compact(obj, keys) {
 }
 
 function safeSend(ws, payload) {
-  dbg("safeSend", payload?.type ? { type: payload.type } : { type: "unknown" });
   try {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
   } catch (e) {
@@ -627,7 +609,6 @@ wss.on("connection", async (twilioWs) => {
   });
 
   function createResponse(reason) {
-  dbg("createResponse_call", { reason, responseActive, awaitingModel, responseCreateInFlight, responseCreateQueued });
   const now = Date.now();
 
   // Debounce: some environments emit multiple speech_stopped frames rapidly
@@ -995,17 +976,6 @@ function kickModel(reason) {
   async function attemptLaunch() {
     if (!openAiReady || !repName) return;
 
-    // Load score labels once per call (fast lookup for labels)
-    if (!scoreLabelsByType) {
-      try {
-        scoreLabelsByType = await loadScoreLabelsByType(orgId);
-        console.log(`🧾 Loaded score labels for orgId=${orgId}`);
-      } catch (e) {
-        console.error("❌ Failed to load score labels:", e?.message || e);
-        scoreLabelsByType = null;
-      }
-    }
-
     if (dealQueue.length === 0) {
       const result = await pool.query(
         `
@@ -1061,3 +1031,6 @@ function kickModel(reason) {
 server.listen(PORT, () => {
   console.log(`🚀 Server listening on port ${PORT}`);
 });
+    // Load score labels once per call (fast lookup for spoken labels)
+    scoreLabelsByType = await loadScoreLabelsByType(orgId);
+
