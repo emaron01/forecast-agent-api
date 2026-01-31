@@ -1,5 +1,14 @@
 // server.js (ES module)
 // Forecast Agent Conductor: Twilio <Stream> + OpenAI Realtime + deal queue + tool routing.
+//
+// LOCKED BEHAVIOR (DO NOT REFACTOR):
+// - Incremental saves per category (Option A) via save_deal_data tool calls
+// - Deterministic backend scoring/risk/forecast in muscle.js (model provides evidence only)
+// - Score labels + criteria come from score_definitions table (muscle.js)
+// - review_now = TRUE only
+// - MEDDPICC+TB includes Budget (10 categories, max score 30)
+// - Stage-aware questioning; Pipeline focuses ONLY on Pain/Metrics/Champion/Budget
+// - Mandatory call pickup greeting (FIRST DEAL ONLY) + mandatory deal opening (SUBSEQUENT DEALS)
 
 import express from "express";
 import http from "http";
@@ -199,9 +208,9 @@ app.post("/agent", async (req, res) => {
       console.log("⚠️ No rep matched this phone; defaulting to Guest/org 1");
     }
 
-    const repFirstName = String(repName || "Rep").trim().split(/\s+/)[0] || "Rep";
+        const repFirstName = String(repName || "Rep").trim().split(/\s+/)[0] || "Rep";
 
-    const wsUrl = `wss://${req.headers.host}/`;
+const wsUrl = `wss://${req.headers.host}/`;
     res.type("text/xml").send(
       `<Response>
          <Connect>
@@ -222,6 +231,7 @@ app.post("/agent", async (req, res) => {
 
 /// ============================================================================
 /// SECTION 5B: DEBUG (READ-ONLY)
+//  (CORS only for localhost)
 /// ============================================================================
 app.use("/debug/opportunities", (req, res, next) => {
   const origin = req.headers.origin || "";
@@ -368,14 +378,14 @@ function getSystemPrompt(deal, repName, totalCount, isFirstDeal) {
   const oppName = (deal.opportunity_name || "").trim();
   const oppNamePart = oppName ? ` — ${oppName}` : "";
 
-  // First-deal greeting
+  // First-deal greeting (REPLACES both prior blocks to avoid repeating deal context)
   const callPickup =
     `Hi ${repName}, this is Matthew from Sales Forecaster. ` +
     `Today we are reviewing ${totalCount} deals. ` +
     `Let's jump in starting with ${deal.account_name}${oppNamePart} ` +
     `for ${amountStr} in CRM Forecast Stage ${stage} closing ${closeDateStr}.`;
 
-  // Deal opening
+  // Deal opening (USED FOR SUBSEQUENT DEALS ONLY)
   const dealOpening =
     `Let’s look at ${deal.account_name}${oppNamePart}, ` +
     `${stage}, ${amountStr}, closing ${closeDateStr}.`;
@@ -404,7 +414,7 @@ function getSystemPrompt(deal, repName, totalCount, isFirstDeal) {
 Champion scoring in Pipeline: a past user or someone who booked a demo is NOT automatically a Champion. A 3 requires proven internal advocacy, influence, and active action in the current cycle.`;
   }
 
-  // 1-sentence recall
+  // 1-sentence recall (keep it short)
   const recallBits = [];
   if (deal.pain_summary) recallBits.push(`Pain: ${deal.pain_summary}`);
   if (deal.metrics_summary) recallBits.push(`Metrics: ${deal.metrics_summary}`);
@@ -440,6 +450,9 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
     return `What is the latest on ${firstGap.name}?`;
   })();
 
+  // Enforce a deterministic spoken sequence to prevent "Last review" from leading.
+  // FIRST DEAL: Greeting -> Recall -> First question
+  // SUBSEQUENT: Deal opening -> Recall -> First question
   const firstLine = isFirstDeal ? callPickup : dealOpening;
 
   return `
@@ -514,21 +527,25 @@ wss.on("connection", async (twilioWs) => {
   console.log("🔥 Twilio WebSocket connected");
 
   let streamSid = null;
+  let orgId = 1;
+  let repName = null;
+  let repFirstName = null;
+
   let dealQueue = [];
   let currentDealIndex = 0;
-  let repName = "Guest";
-  let repFirstName = "Rep";
   let openAiReady = false;
 
-  // --- STATE MACHINE FLAGS (The Fix) ---
-  let awaitingModel = false;    // Have we asked the model to speak?
-  let responseActive = false;   // Is the model currently speaking/generating?
-  
-  // DOUBLE-LOCK GUARDS
-  let isProcessingTool = false; // Are we currently running a tool/saving DB?
-  let responseDoneArrived = false; // Did response.done arrive for this turn?
+  // Turn-control stability
+  let awaitingModel = false;
+  let responseActive = false;
+  let responseCreateInFlight = false;
+  let responseCreateQueued = false;
   let lastResponseCreateAt = 0;
   let sawSpeechStarted = false;
+  let lastSpeechStoppedAt = 0;
+
+  // Advancement gating (prevents premature NEXT_DEAL_TRIGGER in Pipeline)
+  let touched = new Set();
 
   const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
     headers: {
@@ -541,26 +558,40 @@ wss.on("connection", async (twilioWs) => {
     console.error("❌ OpenAI WebSocket error:", err?.message || err);
   });
 
-  // --- SAFE KICK FUNCTION ---
-  function createResponse(reason) {
-    // 1. HARD LOCK: If OpenAI is busy OR we are saving to DB, NEVER send a request.
-    if (responseActive || awaitingModel || isProcessingTool) {
-      console.log(`🚫 Nudge skipped (${reason}): Response/Tool active.`);
+  openAiWs.on("unexpected-response", (req, res) => {
+    console.error("❌ OpenAI WS unexpected response:", res?.statusCode, res?.statusMessage);
+    console.error("Headers:", res?.headers);
+  });
+
+  function kickModel(reason) {
+    const now = Date.now();
+
+    // debounce: some environments emit multiple speech_stopped frames rapidly
+    if (now - lastResponseCreateAt < 900) return;
+
+    // HARD GUARD: never overlap responses
+    if (responseActive || responseCreateInFlight) {
+      responseCreateQueued = true;
+      console.log(`⏭️ response.create queued (${reason})`);
       return;
     }
 
-    // 2. THROTTLE: Don't spam.
-    const now = Date.now();
-    if (now - lastResponseCreateAt < 1000) return;
+    lastResponseCreateAt = now;
+    responseCreateInFlight = true;
+    responseActive = true; // set immediately to avoid races
+    console.log(`⚡ response.create (${reason})`);
+    safeSend(openAiWs, { type: "response.create" });
+  }
+
+    // Throttle hard to prevent VAD storms
+    if (awaitingModel) return;
+    if (now - lastResponseCreateAt < 1200) return;
+
+    awaitingModel = true;
+    responseActive = true; // set true immediately to avoid races (don’t wait for response.created)
+    lastResponseCreateAt = now;
 
     console.log(`⚡ response.create (${reason})`);
-    awaitingModel = true;
-    responseActive = true; 
-    lastResponseCreateAt = now;
-    
-    // Reset turn flags
-    responseDoneArrived = false;
-    
     safeSend(openAiWs, { type: "response.create" });
   }
 
@@ -574,18 +605,14 @@ wss.on("connection", async (twilioWs) => {
         content: [
           {
             type: "input_text",
-            text: "Continue reviewing the CURRENT deal. Do NOT move to the next deal yet. Ask the next required question.",
+            text:
+              "Continue reviewing the CURRENT deal. Do NOT move to the next deal yet. Ask the next required question.",
           },
         ],
       },
     });
-    // Don't call createResponse directly; rely on flow.
-    // Actually, we must force a response here or it will stall.
-    // Reset flags to allow immediate nudge
     awaitingModel = false;
-    responseActive = false;
-    isProcessingTool = false;
-    createResponse("advance_blocked_continue");
+    kickModel("advance_blocked_continue");
   }
 
   openAiWs.on("open", () => {
@@ -599,154 +626,271 @@ wss.on("connection", async (twilioWs) => {
         voice: "verse",
         turn_detection: {
           type: "server_vad",
-          threshold: 0.5,           // Slightly more sensitive to voice
-          silence_duration_ms: 1200 // Good balance
+          threshold: 0.6,
+          silence_duration_ms: 1100,
         },
         tools: [saveDealDataTool, advanceDealTool],
       },
     });
 
     openAiReady = true;
+    attemptLaunch().catch((e) => console.error("❌ attemptLaunch error:", e));
   });
 
   /// ---------------- OpenAI inbound frames ----------------
   openAiWs.on("message", async (data) => {
     const parsed = safeJsonParse(data);
-    if (!parsed.ok) return;
+    if (!parsed.ok) {
+      console.error("❌ OpenAI frame not JSON:", parsed.err?.message, "| head:", parsed.head);
+      return;
+    }
     const response = parsed.json;
 
-    // A. TRACK ACTIVITY
-    if (response.type === "response.created") {
-      awaitingModel = true;
-      responseActive = true;
-      responseDoneArrived = false;
+    if (response.type === "error") {
+      console.error("❌ OpenAI error frame:", response);
+      // If OpenAI says there is an active response, treat as active and wait for response.done
+      const code = response?.error?.code;
+      if (code === "conversation_already_has_active_response") {
+        // Treat as active; queue a single follow-up create after response.done.
+        responseActive = true;
+        awaitingModel = true;
+        responseCreateQueued = true;
+        return;
+      }
     }
+
+    if (response.type === "response.created") {
+      // keep active; we already set it true on create
+      responseCreateInFlight = false;
+      awaitingModel = true;
+    }
+
+
 
     if (response.type === "input_audio_buffer.speech_started") {
       sawSpeechStarted = true;
     }
 
     if (response.type === "input_audio_buffer.speech_stopped") {
-      if (sawSpeechStarted) {
-        sawSpeechStarted = false;
-        createResponse("speech_stopped");
-      }
+      if (!sawSpeechStarted) return;
+      sawSpeechStarted = false;
+
+      const now = Date.now();
+      if (now - lastSpeechStoppedAt < 1800) return;
+      lastSpeechStoppedAt = now;
+
+      kickModel("speech_stopped");
     }
 
-    // B. HANDLE TOOLS (Double-Lock Logic)
-    if (response.type === "response.function_call_arguments.done") {
+    try {
+      if (response.type === "response.function_call_arguments.done") {
         const callId = response.call_id;
         const fnName = response.name || response.function_name || response?.function?.name || null;
-        
-        // 🔒 LOCK: Mark tool as processing. responseActive stays TRUE.
-        isProcessingTool = true;
+
 
         const argsParsed = safeJsonParse(response.arguments || "{}");
         if (!argsParsed.ok) {
-           console.error("❌ Tool args not JSON");
-           isProcessingTool = false; 
-           return;
+          console.error("❌ Tool args not JSON:", argsParsed.err?.message, "| head:", argsParsed.head);
+          return;
         }
-        const args = argsParsed.json;
-        console.log(`🛠️ Tool Triggered: ${fnName}`);
 
-        if (fnName === "save_deal_data") {
-            const deal = dealQueue[currentDealIndex];
-            
-            markTouched(touched, args);
 
-            await handleFunctionCall({ ...args, _deal: deal }, callId);
-            applyArgsToLocalDeal(deal, args);
-            
-            // Send Output
+        // Silent advancement tool (no spoken trigger)
+        if (fnName === "advance_deal") {
+          console.log("➡️ advance_deal tool received. Advancing deal...");
+
+          safeSend(openAiWs, {
+            type: "conversation.item.create",
+            item: {
+              type: "function_call_output",
+              call_id: callId,
+              output: JSON.stringify({ status: "success" }),
+            },
+          });
+
+          awaitingModel = false;
+          currentDealIndex++;
+
+          if (currentDealIndex < dealQueue.length) {
+            const nextDeal = dealQueue[currentDealIndex];
+            console.log(`👉 Context switch -> id=${nextDeal.id} account="${nextDeal.account_name}"`);
+
+            const instructions = getSystemPrompt(
+              nextDeal,
+              repFirstName || repName || "Rep",
+              dealQueue.length,
+              false
+            );
+
             safeSend(openAiWs, {
-                type: "conversation.item.create",
-                item: { type: "function_call_output", call_id: callId, output: JSON.stringify({ status: "success" }) }
+              type: "session.update",
+              session: { instructions },
             });
 
-            // 🔓 UNLOCK: Tool is done.
-            isProcessingTool = false;
+            setTimeout(() => {
+              awaitingModel = false;
+              responseActive = false;
+              responseCreateQueued = false;
+              kickModel("next_deal_first_question");
+            }, 350);
+          } else {
+            console.log("🏁 All deals done.");
+          }
+          return;
+        }
 
-            // CHECK: Did response.done already arrive while we were saving?
-            if (responseDoneArrived) {
-                // If yes, we are the last ones holding the lock. Release it and nudge.
-                responseActive = false; 
-                awaitingModel = false;
-                setTimeout(() => createResponse("tool_finished_late"), 100);
-            }
-        } 
-        
-        else if (fnName === "advance_deal") {
-             safeSend(openAiWs, {
-                type: "conversation.item.create",
-                item: { type: "function_call_output", call_id: callId, output: JSON.stringify({ status: "success" }) }
+        const deal = dealQueue[currentDealIndex];
+        if (!deal) {
+          console.error("❌ Tool fired but no active deal (ignoring).");
+          return;
+        }
+
+        console.log(
+          `🧾 SAVE ROUTE dealIndex=${currentDealIndex}/${Math.max(dealQueue.length - 1, 0)} id=${deal.id} account="${deal.account_name}" callId=${callId}`
+        );
+        console.log("🔎 args keys:", Object.keys(argsParsed.json));
+        console.log(
+          "🔎 args preview:",
+          compact(argsParsed.json, [
+            "pain_score",
+            "metrics_score",
+            "champion_score",
+            "budget_score",
+            "eb_score",
+            "criteria_score",
+            "process_score",
+            "competition_score",
+            "paper_score",
+            "timing_score",
+            "risk_summary",
+            "rep_comments",
+          ])
+        );
+
+        markTouched(touched, argsParsed.json);
+
+        await handleFunctionCall({ ...argsParsed.json, _deal: deal }, callId);
+        applyArgsToLocalDeal(deal, argsParsed.json);
+
+        safeSend(openAiWs, {
+          type: "conversation.item.create",
+          item: {
+            type: "function_call_output",
+            call_id: callId,
+            output: JSON.stringify({ status: "success" }),
+          },
+        });
+
+        // Queue a single follow-up response after the current one completes
+        responseCreateQueued = true;
+        awaitingModel = true;
+      }
+
+      if (response.type === "response.done") {
+        responseActive = false;
+        awaitingModel = false;
+        responseCreateInFlight = false;
+
+        if (responseCreateQueued) {
+          responseCreateQueued = false;
+          setTimeout(() => kickModel("queued_continue"), 200);
+        }
+      }
+
+        awaitingModel = false;
+
+        const transcript = (
+          response.response?.output
+            ?.flatMap((o) => o.content || [])
+            .map((c) => c.transcript || c.text || "")
+            .join(" ") || ""
+        );
+
+        if (transcript.includes("NEXT_DEAL_TRIGGER")) {
+          const current = dealQueue[currentDealIndex];
+          const stageNow = current?.forecast_stage || "Pipeline";
+          if (current && !isDealCompleteForStage(current, stageNow)) {
+            console.log("⛔ Advance blocked (incomplete_for_stage). Forcing continue current deal.");
+            // Nudge model to continue the current deal instead of advancing.
+            safeSend(openAiWs, {
+              type: "conversation.item.create",
+              item: {
+                type: "message",
+                role: "system",
+                content: [
+                  {
+                    type: "text",
+                    text:
+                      "DO NOT advance to the next deal yet. Continue the CURRENT deal. Ask exactly ONE question to close the next gap based on stage rules.",
+                  },
+                ],
+              },
             });
-            isProcessingTool = false;
-            
-            // Advance logic
-            currentDealIndex++;
-            touched = new Set();
+            setTimeout(() => kickModel("advance_blocked_continue"), 200);
+            return;
+          }
 
-            if (currentDealIndex < dealQueue.length) {
-                const nextDeal = dealQueue[currentDealIndex];
-                console.log(`👉 Context switch -> ${nextDeal.account_name}`);
-                
-                const instructions = getSystemPrompt(
-                  nextDeal, 
-                  repFirstName || repName || "Rep", 
-                  dealQueue.length, 
-                  false
-                );
-                
-                safeSend(openAiWs, { type: "session.update", session: { instructions } });
-                
-                // Force next question
-                setTimeout(() => {
-                    responseActive = false;
-                    awaitingModel = false;
-                    createResponse("next_deal_first_question");
-                }, 350);
-            } else {
-                console.log("🏁 All deals done.");
-            }
+          const currentDeal = dealQueue[currentDealIndex];
+          if (!currentDeal) return;
+
+          if (!okToAdvance(currentDeal, touched)) {
+            return nudgeModelStayOnDeal("pipeline_incomplete");
+          }
+
+          console.log("🚀 NEXT_DEAL_TRIGGER accepted. Advancing deal...");
+          currentDealIndex++;
+          touched = new Set();
+
+          if (currentDealIndex < dealQueue.length) {
+            const nextDeal = dealQueue[currentDealIndex];
+            console.log(`👉 Context switch -> id=${nextDeal.id} account="${nextDeal.account_name}"`);
+
+            const instructions = getSystemPrompt(
+              nextDeal,
+              repFirstName || repName || "Rep",
+              dealQueue.length,
+              false
+            );
+
+            safeSend(openAiWs, {
+              type: "session.update",
+              session: { instructions },
+            });
+
+            setTimeout(() => {
+              awaitingModel = false;
+              responseActive = false;
+              responseCreateQueued = false;
+              kickModel("next_deal_first_question");
+            }, 350);
+          } else {
+            console.log("🏁 All deals done.");
+          }
         }
-    }
+      }
 
-    // C. HANDLE COMPLETION
-    if (response.type === "response.done") {
-        responseDoneArrived = true;
-
-        // CHECK: Is a tool still running?
-        if (isProcessingTool) {
-            // 🔒 WAIT: Don't clear responseActive yet. The tool will clear it when done.
-            console.log("⏳ response.done arrived, but tool is still processing. Waiting...");
-        } else {
-            // 🔓 RELEASE: No tool running, so we are truly done.
-            responseActive = false;
-            awaitingModel = false;
-            
-            // Handle Next Deal Trigger via text (Legacy fallback)
-            const transcript = response.response?.output?.flatMap(o => o.content||[]).map(c=>c.transcript||c.text||"").join(" ") || "";
-            if (transcript.includes("NEXT_DEAL_TRIGGER")) {
-               // ... (Existing trigger logic logic can go here if needed, but advance_deal tool is preferred)
-               console.log("📝 AI: " + transcript);
-            }
-            
-            // Check for explicit "queued continue" scenarios if needed, but tool logic handles most.
-            // If response was just text (no tool), we do nothing and wait for user speech.
-        }
-    }
-
-    // D. AUDIO RELAY
-    if (response.type === "response.audio.delta" && response.delta && streamSid) {
-      safeSend(twilioWs, { event: "media", streamSid, media: { payload: response.delta } });
+      if (response.type === "response.audio.delta" && response.delta && streamSid) {
+        twilioWs.send(
+          JSON.stringify({
+            event: "media",
+            streamSid,
+            media: { payload: response.delta },
+          })
+        );
+      }
+    } catch (err) {
+      console.error("❌ OpenAI Message Handler Error:", err);
+      awaitingModel = false;
     }
   });
 
   /// ---------------- Twilio inbound frames ----------------
   twilioWs.on("message", async (msg) => {
     const parsed = safeJsonParse(msg);
-    if (!parsed.ok) return;
+    if (!parsed.ok) {
+      console.error("❌ Twilio frame not JSON:", parsed.err?.message, "| head:", parsed.head);
+      return;
+    }
     const data = parsed.json;
 
     try {
@@ -764,7 +908,7 @@ wss.on("connection", async (twilioWs) => {
         await attemptLaunch();
       }
 
-      if (data.event === "media" && data.media?.payload && openAiReady) {
+      if (data.event === "media" && data.media?.payload && openAiReady && !responseActive) {
         safeSend(openAiWs, {
           type: "input_audio_buffer.append",
           audio: data.media.payload,
@@ -809,6 +953,11 @@ wss.on("connection", async (twilioWs) => {
       touched = new Set();
 
       console.log(`📊 Loaded ${dealQueue.length} review_now deals for ${repName}`);
+      if (dealQueue[0]) {
+        console.log(
+          `👉 Starting deal -> id=${dealQueue[0].id} account="${dealQueue[0].account_name}"`
+        );
+      }
     }
 
     if (dealQueue.length === 0) {
@@ -827,7 +976,8 @@ wss.on("connection", async (twilioWs) => {
     setTimeout(() => {
       awaitingModel = false;
       responseActive = false;
-      createResponse("first_question");
+      responseCreateQueued = false;
+      kickModel("first_question");
     }, 350);
   }
 });
