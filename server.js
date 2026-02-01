@@ -612,7 +612,8 @@ SAVING BEHAVIOR
 - Never write empty fields over existing data. Only send fields you intend to update.
 
 WHAT TO DO NEXT
-- Ask this question now:
+- First, speak the Deal Intro lines exactly as specified above (opener, Risk Summary, Pain Summary).
+- Then ask this question now:
 "${firstQuestion}"
 
 - After that, proceed through the next categories in strict order (do not skip forward).
