@@ -28,6 +28,9 @@ const OPENAI_API_KEY = process.env.MODEL_API_KEY;
 
 const DATABASE_URL = process.env.DATABASE_URL;
 
+// Single debug flag (must not crash if unset)
+const DEBUG_AGENT = String(process.env.DEBUG_AGENT || "") === "1";
+
 if (!MODEL_URL || !MODEL_NAME || !OPENAI_API_KEY) {
   throw new Error("⚠️ MODEL_API_URL, MODEL_NAME, and MODEL_API_KEY must be set!");
 }
