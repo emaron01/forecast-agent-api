@@ -28,9 +28,6 @@ const OPENAI_API_KEY = process.env.MODEL_API_KEY;
 
 const DATABASE_URL = process.env.DATABASE_URL;
 
-// Single debug flag (must not crash if unset)
-const DEBUG_AGENT = String(process.env.DEBUG_AGENT || "") === "1";
-
 if (!MODEL_URL || !MODEL_NAME || !OPENAI_API_KEY) {
   throw new Error("⚠️ MODEL_API_URL, MODEL_NAME, and MODEL_API_KEY must be set!");
 }
@@ -83,35 +80,6 @@ function scoreNum(x) {
  * - Pipeline focuses ONLY on Pain, Metrics, Champion, Budget.
  * - Do NOT ask Paper/Legal/Procurement in Pipeline.
  */
-function isDealCompleteForStage(deal, stage) {
-  const stageStr = String(stage || deal?.forecast_stage || "Pipeline");
-
-  // Pipeline: only Pain, Metrics, Champion, Budget (do NOT require late-stage fields)
-  if (stageStr.includes("Pipeline")) {
-    return (
-      scoreNum(deal.pain_score) >= 3 &&
-      scoreNum(deal.metrics_score) >= 3 &&
-      scoreNum(deal.champion_score) >= 3 &&
-      scoreNum(deal.budget_score) >= 3
-    );
-  }
-
-  // Best Case / Commit: keep prior MEDDPICC+TB completeness (all 10 categories)
-  const requiredKeys = [
-    "pain_score",
-    "metrics_score",
-    "champion_score",
-    "eb_score",
-    "criteria_score",
-    "process_score",
-    "competition_score",
-    "paper_score",
-    "timing_score",
-    "budget_score",
-  ];
-  return requiredKeys.every((k) => scoreNum(deal?.[k]) >= 3);
-}
-
 function computeFirstGap(deal, stage) {
   const stageStr = String(stage || deal?.forecast_stage || "Pipeline");
 
@@ -540,13 +508,10 @@ wss.on("connection", async (twilioWs) => {
 
   // Turn-control stability
   let awaitingModel = false;
-  let responseActive = false;
-  let responseCreateQueued = false;
-  let responseCreateInFlight = false;
-  let responseInProgress = false; // hard guard: one response at a time
-  let lastResponseCreateAt = 0;
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
+  let lastKickAt = 0;
+  let lastDoneAt = 0;
 
   // Advancement gating (prevents premature NEXT_DEAL_TRIGGER in Pipeline)
   let touched = new Set();
@@ -567,45 +532,16 @@ wss.on("connection", async (twilioWs) => {
     console.error("Headers:", res?.headers);
   });
 
-  function createResponse(reason) {
+  function kickModel(reason) {
     const now = Date.now();
-
-    // Debounce: avoid rapid duplicate triggers (speech_stopped spam, etc.)
-    if (now - lastResponseCreateAt < 900) {
-      if (DEBUG_AGENT) {
-        console.log(`[DEBUG_AGENT] response.create DEBOUNCED (${reason})`);
-      }
-      return;
-    }
-
-    // If a response is already active or in-flight, just mark that we want
-    // one more turn AFTER the current response finishes.
-    if (responseActive || responseCreateInFlight || responseInProgress) {
-      responseCreateQueued = true;
-      if (DEBUG_AGENT) {
-        console.log(
-          `[DEBUG_AGENT] response.create QUEUED (active/in-flight/in-progress) (${reason})`
-        );
-      }
-      return;
-    }
-
-    lastResponseCreateAt = now;
-    responseCreateInFlight = true;
-    responseActive = true;
-    responseInProgress = true;
-
+    if (awaitingModel) return;
+    // hard cooldown to prevent response.create storms
+    if (now - lastKickAt < 2000) return;
+    lastKickAt = now;
+    awaitingModel = true;
     console.log(`⚡ response.create (${reason})`);
     safeSend(openAiWs, { type: "response.create" });
   }
-
-function kickModel(reason) {
-  console.log(`⚡ kickModel (${reason})`);
-
-  // Do NOT create a response here.
-  // This only tells the model: "user input is complete — start thinking."
-  safeSend(openAiWs, { type: "input_audio_buffer.commit" });
-}
 
   function nudgeModelStayOnDeal(reason) {
     console.log(`⛔ Advance blocked (${reason}). Nudging model to continue current deal.`);
@@ -624,7 +560,7 @@ function kickModel(reason) {
       },
     });
     awaitingModel = false;
-    createResponse("advance_blocked_continue");
+    kickModel("advance_blocked_continue");
   }
 
   openAiWs.on("open", () => {
@@ -660,36 +596,11 @@ function kickModel(reason) {
 
     if (response.type === "error") {
       console.error("❌ OpenAI error frame:", response);
-      const code = response?.error?.code;
-
-      if (code === "conversation_already_has_active_response") {
-        // Treat as: "okay, something is already running; wait for response.done"
-        responseActive = true;
-        responseInProgress = true;
-        awaitingModel = true;
-        responseCreateQueued = true;
-        return;
-      }
-
-      // For any other error, clear flags so we don't deadlock.
-      responseActive = false;
-      responseCreateInFlight = false;
-      responseInProgress = false;
       awaitingModel = false;
       return;
     }
 
-    if (response.type === "response.created") {
-      responseCreateInFlight = false;
-      // keep active; we already set it true on create
-      awaitingModel = true;
-    }
-
-
-
     if (response.type === "input_audio_buffer.speech_started") {
-      // Ignore VAD events while the model response is in progress
-      if (responseInProgress) return;
       sawSpeechStarted = true;
     }
 
@@ -701,8 +612,7 @@ function kickModel(reason) {
       if (now - lastSpeechStoppedAt < 1800) return;
       lastSpeechStoppedAt = now;
 
-      awaitingModel = true;
-      createResponse("speech_stopped");
+      kickModel("speech_stopped");
     }
 
     try {
@@ -752,9 +662,7 @@ function kickModel(reason) {
 
             setTimeout(() => {
               awaitingModel = false;
-              responseActive = false;
-              responseCreateQueued = false;
-              createResponse("next_deal_first_question");
+              kickModel("next_deal_first_question");
             }, 350);
           } else {
             console.log("🏁 All deals done.");
@@ -792,23 +700,7 @@ function kickModel(reason) {
 
         markTouched(touched, argsParsed.json);
 
-        // Enrich tool args with required identifiers for muscle.js
-        const toolArgs = {
-          ...argsParsed.json,
-          org_id: deal.org_id,
-          opportunity_id: deal.id,
-          rep_name: repName,
-          call_id: callId,
-        };
-
-        // Muscle.js: schema-aligned SAVE + audit
-        await handleFunctionCall({
-          toolName: "save_deal_data",
-          args: toolArgs,
-          pool,
-        });
-
-        // Keep local in-memory deal in sync for stage checks / NEXT_DEAL_TRIGGER
+        await handleFunctionCall({ ...argsParsed.json, _deal: deal }, callId);
         applyArgsToLocalDeal(deal, argsParsed.json);
 
         safeSend(openAiWs, {
@@ -820,22 +712,13 @@ function kickModel(reason) {
           },
         });
 
-        // Queue a single follow-up response after the current one completes
-        responseCreateQueued = true;
-        awaitingModel = true;
+        awaitingModel = false;
+        kickModel("post_tool_continue");
       }
 
       if (response.type === "response.done") {
-        responseActive = false;
-        responseCreateInFlight = false;
-        responseInProgress = false;
         awaitingModel = false;
-        sawSpeechStarted = false;
-
-        if (responseCreateQueued) {
-          responseCreateQueued = false;
-          setTimeout(() => createResponse("queued_continue"), 250);
-        }
+        lastDoneAt = Date.now();
 
         const transcript = (
           response.response?.output
@@ -844,30 +727,14 @@ function kickModel(reason) {
             .join(" ") || ""
         );
 
-        if (transcript.includes("NEXT_DEAL_TRIGGER")) {
-          const current = dealQueue[currentDealIndex];
-          const stageNow = current?.forecast_stage || "Pipeline";
-          if (current && !isDealCompleteForStage(current, stageNow)) {
-            console.log("⛔ Advance blocked (incomplete_for_stage). Forcing continue current deal.");
-            // Nudge model to continue the current deal instead of advancing.
-            safeSend(openAiWs, {
-              type: "conversation.item.create",
-              item: {
-                type: "message",
-                role: "system",
-                content: [
-                  {
-                    type: "text",
-                    text:
-                      "DO NOT advance to the next deal yet. Continue the CURRENT deal. Ask exactly ONE question to close the next gap based on stage rules.",
-                  },
-                ],
-              },
-            });
-            setTimeout(() => createResponse("advance_blocked_continue"), 200);
-            return;
-          }
+        if (transcript) {
+          console.log("🗣️ Model said:", transcript.slice(0, 160));
+        } else {
+          console.log("🗣️ Model done (no transcript)");
+        }
 
+
+        if (transcript.includes("NEXT_DEAL_TRIGGER")) {
           const currentDeal = dealQueue[currentDealIndex];
           if (!currentDeal) return;
 
@@ -897,9 +764,7 @@ function kickModel(reason) {
 
             setTimeout(() => {
               awaitingModel = false;
-              responseActive = false;
-              responseCreateQueued = false;
-              createResponse("next_deal_first_question");
+              kickModel("next_deal_first_question");
             }, 350);
           } else {
             console.log("🏁 All deals done.");
@@ -1000,6 +865,18 @@ function kickModel(reason) {
 
     if (dealQueue.length === 0) {
       console.log("⚠️ No review_now=TRUE deals found for this rep.");
+
+      const noDealsMsg = `Hi ${repFirstName || "there"}. I don’t see any deals marked review_now for you right now. If you want to run a forecast review, set review_now to true on the opportunities you want to cover — then call back.`;
+
+      const instructions = `You are Matthew, a calm enterprise sales leader. Say exactly: "${noDealsMsg}" Then stop talking.`;
+
+      safeSend(openAiWs, { type: "session.update", session: { instructions } });
+
+      setTimeout(() => {
+        awaitingModel = false;
+        kickModel("no_deals_message");
+      }, 250);
+
       return;
     }
 
@@ -1013,9 +890,7 @@ function kickModel(reason) {
 
     setTimeout(() => {
       awaitingModel = false;
-      responseActive = false;
-      responseCreateQueued = false;
-      createResponse("first_question");
+      kickModel("first_question");
     }, 350);
   }
 });

@@ -568,36 +568,34 @@ wss.on("connection", async (twilioWs) => {
   });
 
   function createResponse(reason) {
-    const now = Date.now();
+  const now = Date.now();
 
-    // Debounce: avoid rapid duplicate triggers (speech_stopped spam, etc.)
-    if (now - lastResponseCreateAt < 900) {
-      if (DEBUG_AGENT) {
-        console.log(`[DEBUG_AGENT] response.create DEBOUNCED (${reason})`);
-      }
-      return;
-    }
-
-    // If a response is already active or in-flight, just mark that we want
-    // one more turn AFTER the current response finishes.
-    if (responseActive || responseCreateInFlight || responseInProgress) {
-      responseCreateQueued = true;
-      if (DEBUG_AGENT) {
-        console.log(
-          `[DEBUG_AGENT] response.create QUEUED (active/in-flight/in-progress) (${reason})`
-        );
-      }
-      return;
-    }
-
-    lastResponseCreateAt = now;
-    responseCreateInFlight = true;
-    responseActive = true;
-    responseInProgress = true;
-
-    console.log(`⚡ response.create (${reason})`);
-    safeSend(openAiWs, { type: "response.create" });
+  // Hard guard: OpenAI allows only ONE active response at a time.
+  // If one is active, queue a single follow-up and wait for response.done.
+  if (responseInProgress) {
+    responseCreateQueued = true;
+    if (DEBUG_AGENT) console.log(`[DEBUG_AGENT] response.create BLOCKED (in progress) (${reason})`);
+    return;
   }
+
+  // Debounce: some environments emit multiple speech_stopped frames rapidly
+  if (now - lastResponseCreateAt < 900) return;
+
+  // Guard: never send response.create if a response is already active or we haven't
+  // received response.created for the last one.
+  if (responseActive || responseCreateInFlight) {
+    responseCreateQueued = true;
+    console.log(`⏭️ response.create queued (${reason})`);
+    return;
+  }
+
+  lastResponseCreateAt = now;
+  responseCreateInFlight = true;
+  responseActive = true; // optimistic: treat as active immediately to avoid races
+  responseInProgress = true; // ✅ set before sending to avoid races
+  console.log(`⚡ response.create (${reason})`);
+  safeSend(openAiWs, { type: "response.create" });
+}
 
 function kickModel(reason) {
   console.log(`⚡ kickModel (${reason})`);
@@ -660,23 +658,16 @@ function kickModel(reason) {
 
     if (response.type === "error") {
       console.error("❌ OpenAI error frame:", response);
+      // If OpenAI says there is an active response, treat as active and wait for response.done
       const code = response?.error?.code;
-
       if (code === "conversation_already_has_active_response") {
-        // Treat as: "okay, something is already running; wait for response.done"
+        // Treat as active; queue a single follow-up create after response.done.
         responseActive = true;
         responseInProgress = true;
         awaitingModel = true;
         responseCreateQueued = true;
         return;
       }
-
-      // For any other error, clear flags so we don't deadlock.
-      responseActive = false;
-      responseCreateInFlight = false;
-      responseInProgress = false;
-      awaitingModel = false;
-      return;
     }
 
     if (response.type === "response.created") {
@@ -792,23 +783,7 @@ function kickModel(reason) {
 
         markTouched(touched, argsParsed.json);
 
-        // Enrich tool args with required identifiers for muscle.js
-        const toolArgs = {
-          ...argsParsed.json,
-          org_id: deal.org_id,
-          opportunity_id: deal.id,
-          rep_name: repName,
-          call_id: callId,
-        };
-
-        // Muscle.js: schema-aligned SAVE + audit
-        await handleFunctionCall({
-          toolName: "save_deal_data",
-          args: toolArgs,
-          pool,
-        });
-
-        // Keep local in-memory deal in sync for stage checks / NEXT_DEAL_TRIGGER
+        await handleFunctionCall({ ...argsParsed.json, _deal: deal }, callId);
         applyArgsToLocalDeal(deal, argsParsed.json);
 
         safeSend(openAiWs, {
