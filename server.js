@@ -20,7 +20,7 @@ import { handleFunctionCall } from "./muscle.js";
 /// ============================================================================
 /// SECTION 1: CONFIG
 /// ============================================================================
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 10000; 
 
 const MODEL_URL = process.env.MODEL_API_URL; // wss://api.openai.com/v1/realtime
 const MODEL_NAME = process.env.MODEL_NAME;
