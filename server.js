@@ -751,9 +751,12 @@ function kickModel(reason) {
             });
 
             setTimeout(() => {
+              awaitingModel = false;
+              responseActive = false;
+              responseCreateQueued = false;
               createResponse("next_deal_first_question");
             }, 350);
-            } else {
+          } else {
             console.log("🏁 All deals done.");
           }
           return;
@@ -822,7 +825,7 @@ function kickModel(reason) {
         awaitingModel = true;
       }
 
-      if (response.type === "response.done") {
+      if (response.type === "response.done" || response.type === "response.completed") {
         responseActive = false;
         responseCreateInFlight = false;
         responseInProgress = false;
@@ -893,9 +896,12 @@ function kickModel(reason) {
             });
 
             setTimeout(() => {
+              awaitingModel = false;
+              responseActive = false;
+              responseCreateQueued = false;
               createResponse("next_deal_first_question");
             }, 350);
-            } else {
+          } else {
             console.log("🏁 All deals done.");
           }
         }
@@ -1006,9 +1012,12 @@ function kickModel(reason) {
     });
 
     setTimeout(() => {
-              createResponse("first_question");
-            }, 350);
-            }
+      awaitingModel = false;
+      responseActive = false;
+      responseCreateQueued = false;
+      createResponse("first_question");
+    }, 350);
+  }
 });
 
 /// ============================================================================
