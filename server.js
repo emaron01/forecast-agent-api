@@ -31,6 +31,36 @@ const DATABASE_URL = process.env.DATABASE_URL;
 // Single debug flag (must not crash if unset)
 const DEBUG_AGENT = String(process.env.DEBUG_AGENT || "") === "1";
 
+
+// Health score helpers (DO NOT affect SAVE; read-only calculation)
+function sumDealScores(deal) {
+  const fields = [
+    "pain_score",
+    "metrics_score",
+    "champion_score",
+    "eb_score",
+    "criteria_score",
+    "process_score",
+    "competition_score",
+    "paper_score",
+    "timing_score",
+    "budget_score",
+  ];
+  let total = 0;
+  for (const f of fields) {
+    const n = Number(deal?.[f] ?? 0);
+    total += Number.isFinite(n) ? n : 0;
+  }
+  return total;
+}
+
+function getHealthScoreOutOf30(deal) {
+  const n = Number(deal?.health_score);
+  if (Number.isFinite(n)) return n;
+  return sumDealScores(deal);
+}
+
+
 if (!MODEL_URL || !MODEL_NAME || !OPENAI_API_KEY) {
   throw new Error("⚠️ MODEL_API_URL, MODEL_NAME, and MODEL_API_KEY must be set!");
 }
@@ -365,64 +395,6 @@ const advanceDealTool = {
 /// ============================================================================
 /// SECTION 8: System Prompt Builder (getSystemPrompt)
 /// ============================================================================
-
-// Helper: keep spoken risk summary short and safe.
-function cleanSpokenRiskSummary(v) {
-  const s = (v || "").toString().trim();
-  if (!s) return "No prior risk summary recorded.";
-  // Collapse whitespace and cap length.
-  const compact = s.replace(/\s+/g, " ").trim();
-  return compact.length > 240 ? compact.slice(0, 237) + "..." : compact;
-}
-
-// Helper: choose the first category question in strict order, using last-review patterns.
-// NOTE: We do NOT speak numeric scores or scoring matrix.
-function getFirstCategoryQuestion(deal) {
-  const stage = (deal.forecast_stage || "Pipeline").toString();
-  const isBestOrCommit = stage.includes("Best Case") || stage.includes("Commit");
-
-  const order = isBestOrCommit
-    ? [
-        { key: "pain", label: "Pain" },
-        { key: "metrics", label: "Metrics" },
-        { key: "champion", label: "Champion" },
-        { key: "criteria", label: "Criteria" },
-        { key: "competition", label: "Competition" },
-        { key: "timing", label: "Timing" },
-        { key: "budget", label: "Budget" },
-        { key: "eb", label: "Economic Buyer" },
-        { key: "process", label: "Decision Process" },
-        { key: "paper", label: "Paper Process" },
-      ]
-    : [
-        { key: "pain", label: "Pain" },
-        { key: "metrics", label: "Metrics" },
-        { key: "champion", label: "Champion" },
-        { key: "competition", label: "Competition" },
-        { key: "budget", label: "Budget" },
-      ];
-
-  for (const c of order) {
-    const score = Number(deal[`${c.key}_score`] ?? 0);
-
-    // Score == 0: treat as not previously reviewed (no "last review" statement).
-    if (score === 0) {
-      return `Let’s start with ${c.label}. What’s the latest?`;
-    }
-
-    // Score >= 3: ask only the risk check.
-    if (score >= 3) {
-      return `Last review ${c.label} was strong. Has anything changed that could introduce new risk?`;
-    }
-
-    // Score 1-2: last-review progress question without revealing numbers/labels.
-    return `Last review ${c.label} was not strong. Have we made progress since the last review?`;
-  }
-
-  // Fallback (should be rare): start with Pain.
-  return "Let’s start with Pain. What’s the latest?";
-}
-
 function getSystemPrompt(deal, repName, totalCount, isFirstDeal) {
   const stage = deal.forecast_stage || "Pipeline";
 
@@ -515,6 +487,7 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
   // FIRST DEAL: Greeting -> Recall -> First question
   // SUBSEQUENT: Deal opening -> Recall -> First question
   const firstLine = isFirstDeal ? callPickup : dealOpening;
+  const healthScoreOutOf30 = getHealthScoreOutOf30(deal);
 
   return `
 SYSTEM PROMPT — SALES LEADER FORECAST REVIEW AGENT
@@ -534,31 +507,34 @@ You are reviewing exactly:
 - OPPORTUNITY_NAME: ${oppName || "(none)"}
 Never change deal identity unless the rep explicitly corrects it.
 
+HEALTH SCORE AUTHORITY (NON-NEGOTIABLE)
+- HEALTH_SCORE_OUT_OF_30: ${healthScoreOutOf30}
+- You MUST NOT compute or estimate the total score yourself.
+- You MUST treat HEALTH_SCORE_OUT_OF_30 as authoritative and speak it verbatim only at the end-of-deal wrap.
+- Never reveal any individual category scores, scoring logic, or scoring matrix. If asked "how did you get that score", reply only:
+  "Your score is based on the completeness and strength of your MEDDPICC answers."
+
+NO INVENTED ANSWERS (NON-NEGOTIABLE)
+- Never invent or assume facts for any category (especially Champion).
+- A category may only be populated/scored AFTER the rep has answered a question about that category (or you explicitly extracted it from a prior rep answer).
+- If you do not have rep-provided evidence, ask the question and wait. Do not fill blanks.
+
+END OF DEAL WRAP (MANDATORY)
+After all required categories for the stage are reviewed, speak ONLY in this exact order:
+1) Updated Risk Summary (plain language, grounded only in rep-provided facts)
+2) "Your Deal Health Score is ${healthScoreOutOf30} out of 30."
+3) Suggested Next Steps (plain language, grounded only in rep-provided facts)
+Do not ask for confirmation. Do not reveal category scores.
+
+
+
 OPENING SEQUENCE (MANDATORY — DO NOT REORDER)
 You MUST speak these lines in this exact order, with no other words in between:
 1) "${firstLine}"
-2) "Risk summary: ${cleanSpokenRiskSummary(deal.risk_summary)}"
-3) "${getFirstCategoryQuestion(deal)}"
+2) "${recallLine}"
+3) "${gapQuestion}"
 
-HEALTH SCORE (NON-NEGOTIABLE)
-- The Health Score is ALWAYS out of 30.
-- The correct Health Score for this deal is: ${Number(deal.health_score ?? 0)} out of 30.
-- You MUST speak the final Health Score exactly as provided above. Do NOT compute it yourself.
-- Never reveal individual category scores, scoring logic, or the scoring matrix.
-
-END-OF-DEAL WRAP (MANDATORY)
-- You may ONLY speak the end-of-deal wrap after all required categories for this stage are reviewed.
-- Spoken wrap order (exact):
-  1) Updated Risk Summary (brief)
-  2) "Your Deal Health Score is X out of 30." (use the provided X; do not compute)
-  3) Suggested Next Steps (brief, plain language)
-- Before you call advance_deal, you MUST save the final:
-  - risk_summary
-  - next_steps
-  using save_deal_data for the current deal. Then call advance_deal.
-
-
-STAGE STRATEGY (STRICT)STAGE STRATEGY (STRICT)
+STAGE STRATEGY (STRICT)
 ${stageMode}
 ${stageFocus}
 ${stageRules}
@@ -797,40 +773,6 @@ function kickModel(reason) {
         // Silent advancement tool (no spoken trigger)
         if (fnName === "advance_deal") {
           console.log("➡️ advance_deal tool received. Advancing deal...");
-
-          // Hard guard: do NOT advance unless end-of-deal wrap fields exist.
-          // (We require risk_summary + next_steps to be saved for analytics and dashboard.)
-          const cur = dealQueue[currentDealIndex] || {};
-          const hasRisk = !!(cur.risk_summary && String(cur.risk_summary).trim());
-          const hasNext = !!(cur.next_steps && String(cur.next_steps).trim());
-
-          if (!hasRisk || !hasNext) {
-            console.log("⛔ advance_deal blocked: missing risk_summary and/or next_steps. Forcing save before advance.");
-
-            safeSend(openAiWs, {
-              type: "conversation.item.create",
-              item: {
-                type: "function_call_output",
-                call_id: callId,
-                output: JSON.stringify({
-                  status: "error",
-                  error: "missing_end_of_deal_fields",
-                  missing: {
-                    risk_summary: !hasRisk,
-                    next_steps: !hasNext,
-                  },
-                  instruction:
-                    "Before advance_deal, call save_deal_data with risk_summary and next_steps for the current deal.",
-                }),
-              },
-            });
-
-            // Prompt the model to produce the missing fields.
-            responseCreateQueued = true;
-            awaitingModel = true;
-            return;
-          }
-
 
           safeSend(openAiWs, {
             type: "conversation.item.create",
