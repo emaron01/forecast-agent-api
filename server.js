@@ -1009,7 +1009,7 @@ function kickModel(reason) {
     safeSend(openAiWs, {
       type: "session.update",
       session: { instructions },
-    });
+    }); 
 
     setTimeout(() => {
       awaitingModel = false;
