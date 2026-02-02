@@ -153,7 +153,7 @@ export async function handleFunctionCall({ toolName, args, pool }) {
 
   const sets = [];
   const vals = [];
-  let i = 2;
+  let i = 1;
 
   for (const k of allowed) {
     sets.push(`${k} = $${++i}`);
@@ -191,7 +191,7 @@ export async function handleFunctionCall({ toolName, args, pool }) {
 
     // Pull latest opp row for audit context fields
     const { rows } = await client.query(
-      `SELECT id, org_id, forecast_stage, ai_forecast, health_score, risk_summary
+      `SELECT id, org_id, stage, ai_forecast, total_score, risk_summary
          FROM opportunities
         WHERE org_id = $1 AND id = $2
         LIMIT 1`,
@@ -201,6 +201,17 @@ export async function handleFunctionCall({ toolName, args, pool }) {
     const opp = rows[0] || {};
     const recomputed = await recomputeTotalScore(client, orgId, opportunityId);
 
+    // Update total_score if we computed it and opportunity has column
+    if (recomputed.total_score != null) {
+      await client.query(
+        `UPDATE opportunities
+            SET total_score = $3
+          WHERE org_id = $1 AND id = $2`,
+        [orgId, opportunityId, recomputed.total_score]
+      );
+      opp.total_score = recomputed.total_score;
+    }
+
     // Create audit event (compact delta)
     const runId = args.run_id || null; // if you pass it later
     const auditId = await insertAuditEvent(client, {
@@ -208,10 +219,10 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       opportunityId,
       actorType: "agent",
       eventType: "score_save",
-      forecastStage: opp.forecast_stage ?? null,
+      forecastStage: opp.stage ?? null,
       aiForecast: opp.ai_forecast ?? null,
-      totalScore: opp.health_score ?? null,
-      maxScore: 30,
+      totalScore: opp.total_score ?? null,
+      maxScore: null,
       riskSummary: opp.risk_summary ?? null,
       riskFlags: args.risk_flags ?? null,
       delta,

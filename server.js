@@ -365,8 +365,39 @@ const advanceDealTool = {
 /// ============================================================================
 /// SECTION 8: System Prompt Builder (getSystemPrompt)
 /// ============================================================================
-function getSystemPrompt(deal, repName, totalCount, isFirstDeal) {
+function getSystemPrompt(deal, repName, totalCount, isFirstDeal, scoreLabelsByCat) {
   const stage = deal.forecast_stage || "Pipeline";
+
+function labelForScoreLocal(category, score) {
+  try {
+    const catMap = scoreLabelsByCat?.get?.(category);
+    const lab = catMap?.get?.(Number(score));
+    if (lab) return lab;
+  } catch {}
+  if (Number(score) >= 3) return "Strong";
+  if (Number(score) === 2) return "Developing";
+  if (Number(score) === 1) return "Soft";
+  return "Unknown";
+}
+
+// Build a compact "last review" label snapshot for the model (read-only).
+// This allows the model to say: "Last review <Category> was <Label>..."
+const categoriesOrderedPipeline = ["pain","metrics","champion","competition","budget"];
+const categoriesOrderedBestCaseCommit = ["pain","metrics","champion","criteria","competition","timing","budget","eb","process","paper"];
+
+const normalizedCat = (c) => String(c || "").trim().toLowerCase();
+const catToDbPrefix = (c) => normalizedCat(c); // prefixes match columns: <prefix>_score
+
+const labelSnapshot = [];
+const allCats = new Set([...categoriesOrderedPipeline, ...categoriesOrderedBestCaseCommit]);
+for (const c of allCats) {
+  const prefix = catToDbPrefix(c);
+  const score = Number(deal[`${prefix}_score`] ?? 0);
+  const label = labelForScoreLocal(prefix, score);
+  labelSnapshot.push(`${prefix}: score=${score} label="${label}"`);
+}
+
+const healthScore = deal.health_score ?? null;
 
   const amountStr = new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -417,16 +448,12 @@ function getSystemPrompt(deal, repName, totalCount, isFirstDeal) {
 Champion scoring in Pipeline: a past user or someone who booked a demo is NOT automatically a Champion. A 3 requires proven internal advocacy, influence, and active action in the current cycle.`;
   }
 
-  // 1-sentence recall (keep it short)
-  const recallBits = [];
-  if (deal.pain_summary) recallBits.push(`Pain: ${deal.pain_summary}`);
-  if (deal.metrics_summary) recallBits.push(`Metrics: ${deal.metrics_summary}`);
-  if (deal.budget_summary) recallBits.push(`Budget: ${deal.budget_summary}`);
+  // 1-sentence recall (INTRO: Risk Summary ONLY — do not speak Pain at intro)
+const recallLine =
+  deal.risk_summary && String(deal.risk_summary).trim().length > 0
+    ? `Risk Summary: ${deal.risk_summary}`
+    : "Risk Summary: (none captured yet).";
 
-  const recallLine =
-    recallBits.length > 0
-      ? `Last review: ${recallBits.slice(0, 3).join(" | ")}.`
-      : "Last review: no prior notes captured.";
 
   const firstGap = computeFirstGap(deal, stage);
 
@@ -476,27 +503,45 @@ You are reviewing exactly:
 - OPPORTUNITY_NAME: ${oppName || "(none)"}
 Never change deal identity unless the rep explicitly corrects it.
 
+
+LAST REVIEW SCORECARD SNAPSHOT (READ-ONLY)
+- Health score from DB (always out of 30): ${healthScore == null ? "(none yet)" : healthScore}
+- Category last-review labels (use these labels verbatim when you say "Last review <Category> was <Label>"):
+${labelSnapshot.map((l) => `  - ${l}`).join("\n")}
+
 OPENING SEQUENCE (MANDATORY — DO NOT REORDER)
-You MUST speak these lines in this exact order, with no other words in between:
-1) "${firstLine}"
-2) "${recallLine}"
-3) "${gapQuestion}"
+You MUST speak these lines in this exact order, with no other words in betweeSCORING & TRUTHFULNESS RULES (CRITICAL)
+- Never invent facts, names, roles, or answers. Never answer your own questions.
+- Only the rep's spoken input can populate a category.
+- If you do not have evidence: ask a question and wait.
+- Do not reveal individual category scores, scoring logic, or the scoring matrix under any circumstance.
+  If asked "how did you get that score", say only:
+  "Your score is based on the completeness and strength of your MEDDPICC answers."
 
-STAGE STRATEGY (STRICT)
-${stageMode}
-${stageFocus}
-${stageRules}
+CATEGORY QUESTIONING RULES (STRICT)
+- Ask exactly ONE primary question per category.
+- If the rep is vague, ask at most ONE clarification question for that category.
+- No verbal coaching. No verbal summaries. No repeating what the rep just said.
+- Coaching and reframing are allowed ONLY silently via *_summary and *_tip saved fields.
 
-GENERAL FLOW (ALL STAGES)
-- Ask one clear question at a time.
-- Wait for the rep to finish speaking.
-- Save to the scorecard.
-- Move on.
-Never rapid-fire. Never interrupt.
+CATEGORY REVIEW PATTERNS (LOCKED)
+- If the current category score is 0: treat as never asked; do NOT say "Last review...". Ask the primary question.
+- If the current category score is 1–2 (below strong):
+  Say: "Last review <Category> was <Label>. Have we made progress since the last review?"
+  Then:
+  - Clear improvement: capture evidence → save → rescore.
+  - Unclear/vague: ask ONE challenging follow-up → then score based on evidence.
+  - No change: confirm quickly → move on. (Do not overwrite summaries/tips with blanks.)
+- If the current category score is ≥ 3 (strong):
+  Say: "Last review <Category> was strong. Has anything changed that could introduce new risk?"
+  If "No": move on immediately (no save required).
+  If "Yes": capture → rescore down as needed → save.
 
-SCORING RULES (CRITICAL)
-- You do not invent labels or criteria.
-- Labels and criteria come from scorecard definitions.
+DEGRADATION (EXPLICITLY ALLOWED)
+- Any category may drop (including 3 → 0) if evidence supports it. Truth > momentum.
+
+
+rd definitions.
 - Be conservative: NEVER assign a 3 unless the rep provides explicit, current evidence.
 - If evidence is weak, vague, second-hand, or based on assumptions: score 1–2 and capture the uncertainty.
 - You provide evidence only; backend normalizes summaries.
@@ -516,10 +561,15 @@ After EACH rep answer:
 1) Call save_deal_data silently (no spoken preface).
 2) Then ask the next single best question.
 
-END OF DEAL
-When finished with a deal:
-- Say: "Okay — let’s move to the next one."
-- Then call the advance_deal tool silently.
+END OF DEAL WRAP (MANDATORY)
+After all required categories for the current forecast stage are reviewed:
+Speak, in this exact order:
+1) Updated Risk Summary (plain language).
+2) "Your Deal Health Score is X out of 30."  (X must come from the DB health score shown above; never change the denominator.)
+3) Suggested Next Steps (plain language; short).
+
+Then call the advance_deal tool silently to move to the next deal.
+Do not ask the rep to confirm. Do not invite edits.
 `.trim();
 }
 
@@ -535,6 +585,7 @@ wss.on("connection", async (twilioWs) => {
   let repFirstName = null;
 
   let dealQueue = [];
+  let scoreLabelsByCat = null;
   let currentDealIndex = 0;
   let openAiReady = false;
 
@@ -742,7 +793,8 @@ function kickModel(reason) {
               nextDeal,
               repFirstName || repName || "Rep",
               dealQueue.length,
-              false
+              false,
+              scoreLabelsByCat
             );
 
             safeSend(openAiWs, {
@@ -887,7 +939,8 @@ function kickModel(reason) {
               nextDeal,
               repFirstName || repName || "Rep",
               dealQueue.length,
-              false
+              false,
+              scoreLabelsByCat
             );
 
             safeSend(openAiWs, {
@@ -967,7 +1020,44 @@ function kickModel(reason) {
     if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
   });
 
-  /// ---------------- Deal loading + initial prompt ----------------
+  
+
+// ---- Score definition labels (read-only, for conversational "Last review <Label>" lines)
+// Cache per org_id to avoid repeated DB hits. This does NOT affect save logic.
+const scoreLabelCache = new Map(); // org_id -> Map(category -> Map(score -> label))
+
+async function getScoreLabelsForOrg(orgId) {
+  if (scoreLabelCache.has(orgId)) return scoreLabelCache.get(orgId);
+  const res = await pool.query(
+    `SELECT category, score, label FROM score_definitions WHERE org_id = $1`,
+    [orgId]
+  );
+  const byCat = new Map();
+  for (const row of res.rows) {
+    const cat = String(row.category);
+    const sc = Number(row.score);
+    const lab = row.label == null ? "" : String(row.label);
+    if (!byCat.has(cat)) byCat.set(cat, new Map());
+    byCat.get(cat).set(sc, lab);
+  }
+  scoreLabelCache.set(orgId, byCat);
+  return byCat;
+}
+
+function labelForScore(scoreLabelsByCat, category, score) {
+  try {
+    const catMap = scoreLabelsByCat?.get?.(category);
+    const lab = catMap?.get?.(Number(score));
+    if (lab) return lab;
+  } catch {}
+  // Safe fallback if definitions are missing
+  if (Number(score) >= 3) return "Strong";
+  if (Number(score) === 2) return "Developing";
+  if (Number(score) === 1) return "Soft";
+  return "Unknown";
+}
+
+/// ---------------- Deal loading + initial prompt ----------------
   async function attemptLaunch() {
     if (!openAiReady || !repName) return;
 
@@ -987,6 +1077,12 @@ function kickModel(reason) {
       );
 
       dealQueue = result.rows;
+      try {
+        scoreLabelsByCat = await getScoreLabelsForOrg(orgId);
+      } catch (e) {
+        console.error("❌ Failed to load score_definitions labels (non-fatal)", e);
+        scoreLabelsByCat = null;
+      }
       currentDealIndex = 0;
       touched = new Set();
 
@@ -1004,7 +1100,7 @@ function kickModel(reason) {
     }
 
     const deal = dealQueue[currentDealIndex];
-    const instructions = getSystemPrompt(deal, repFirstName || repName, dealQueue.length, true);
+    const instructions = getSystemPrompt(deal, repFirstName || repName, dealQueue.length, true, scoreLabelsByCat);
 
     safeSend(openAiWs, {
       type: "session.update",
