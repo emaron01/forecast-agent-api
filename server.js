@@ -572,15 +572,21 @@ wss.on("connection", async (twilioWs) => {
 
     // Debounce: avoid rapid duplicate triggers (speech_stopped spam, etc.)
     if (now - lastResponseCreateAt < 900) {
-      if (DEBUG_AGENT) console.log(`[DEBUG_AGENT] response.create DEBOUNCED (${reason})`);
+      if (DEBUG_AGENT) {
+        console.log(`[DEBUG_AGENT] response.create DEBOUNCED (${reason})`);
+      }
       return;
     }
 
-    // Hard gate: OpenAI allows only ONE active response at a time.
-    // If a response is active/in-flight, queue exactly one follow-up after response.done.
+    // If a response is already active or in-flight, just mark that we want
+    // one more turn AFTER the current response finishes.
     if (responseActive || responseCreateInFlight || responseInProgress) {
       responseCreateQueued = true;
-      if (DEBUG_AGENT) console.log(`[DEBUG_AGENT] response.create QUEUED (active) (${reason})`);
+      if (DEBUG_AGENT) {
+        console.log(
+          `[DEBUG_AGENT] response.create QUEUED (active/in-flight/in-progress) (${reason})`
+        );
+      }
       return;
     }
 
@@ -695,6 +701,13 @@ function kickModel(reason) {
       if (now - lastSpeechStoppedAt < 1800) return;
       lastSpeechStoppedAt = now;
 
+      // If the model is already responding, do NOT try to start another response.
+      // Just queue a single continuation for after response.done.
+      if (responseActive || responseCreateInFlight || responseInProgress) {
+        responseCreateQueued = true;
+        return;
+      }
+
       awaitingModel = true;
       createResponse("speech_stopped");
     }
@@ -744,11 +757,7 @@ function kickModel(reason) {
               session: { instructions },
             });
 
-            setTimeout(() => {
-              awaitingModel = false;
-              responseActive = false;
-              responseCreateQueued = false;
-              createResponse("next_deal_first_question");
+            setTimeout(() => {              createResponse("next_deal_first_question");
             }, 350);
           } else {
             console.log("🏁 All deals done.");
@@ -889,11 +898,7 @@ function kickModel(reason) {
               session: { instructions },
             });
 
-            setTimeout(() => {
-              awaitingModel = false;
-              responseActive = false;
-              responseCreateQueued = false;
-              createResponse("next_deal_first_question");
+            setTimeout(() => {              createResponse("next_deal_first_question");
             }, 350);
           } else {
             console.log("🏁 All deals done.");
@@ -1005,11 +1010,7 @@ function kickModel(reason) {
       session: { instructions },
     });
 
-    setTimeout(() => {
-      awaitingModel = false;
-      responseActive = false;
-      responseCreateQueued = false;
-      createResponse("first_question");
+    setTimeout(() => {      createResponse("first_question");
     }, 350);
   }
 });
