@@ -701,13 +701,6 @@ function kickModel(reason) {
       if (now - lastSpeechStoppedAt < 1800) return;
       lastSpeechStoppedAt = now;
 
-      // If the model is already responding, do NOT try to start another response.
-      // Just queue a single continuation for after response.done.
-      if (responseActive || responseCreateInFlight || responseInProgress) {
-        responseCreateQueued = true;
-        return;
-      }
-
       awaitingModel = true;
       createResponse("speech_stopped");
     }
@@ -757,9 +750,10 @@ function kickModel(reason) {
               session: { instructions },
             });
 
-            setTimeout(() => {              createResponse("next_deal_first_question");
+            setTimeout(() => {
+              createResponse("next_deal_first_question");
             }, 350);
-          } else {
+            } else {
             console.log("🏁 All deals done.");
           }
           return;
@@ -898,9 +892,10 @@ function kickModel(reason) {
               session: { instructions },
             });
 
-            setTimeout(() => {              createResponse("next_deal_first_question");
+            setTimeout(() => {
+              createResponse("next_deal_first_question");
             }, 350);
-          } else {
+            } else {
             console.log("🏁 All deals done.");
           }
         }
@@ -1010,9 +1005,10 @@ function kickModel(reason) {
       session: { instructions },
     });
 
-    setTimeout(() => {      createResponse("first_question");
-    }, 350);
-  }
+    setTimeout(() => {
+              createResponse("first_question");
+            }, 350);
+            }
 });
 
 /// ============================================================================
