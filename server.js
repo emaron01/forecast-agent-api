@@ -86,30 +86,40 @@ function scoreNum(x) {
 function isDealCompleteForStage(deal, stage) {
   const stageStr = String(stage || deal?.forecast_stage || "Pipeline");
 
-  // Pipeline: only Pain, Metrics, Champion, Budget (do NOT require late-stage fields)
+  const reviewed = (scoreKey, summaryKey, tipKey) => {
+    const s = scoreNum(deal?.[scoreKey]);
+    const summary = String(deal?.[summaryKey] || "").trim();
+    const tip = String(deal?.[tipKey] || "").trim();
+    return s > 0 || summary.length > 0 || tip.length > 0;
+  };
+
   if (stageStr.includes("Pipeline")) {
     return (
-      scoreNum(deal.pain_score) >= 3 &&
-      scoreNum(deal.metrics_score) >= 3 &&
-      scoreNum(deal.champion_score) >= 3 &&
-      scoreNum(deal.budget_score) >= 3
+      reviewed("pain_score", "pain_summary", "pain_tip") &&
+      reviewed("metrics_score", "metrics_summary", "metrics_tip") &&
+      reviewed("champion_score", "champion_summary", "champion_tip") &&
+      reviewed("competition_score", "competition_summary", "competition_tip") &&
+      reviewed("budget_score", "budget_summary", "budget_tip")
     );
   }
 
-  // Best Case / Commit: keep prior MEDDPICC+TB completeness (all 10 categories)
-  const requiredKeys = [
-    "pain_score",
-    "metrics_score",
-    "champion_score",
-    "eb_score",
-    "criteria_score",
-    "process_score",
-    "competition_score",
-    "paper_score",
-    "timing_score",
-    "budget_score",
-  ];
-  return requiredKeys.every((k) => scoreNum(deal?.[k]) >= 3);
+  if (stageStr.includes("Best Case") || stageStr.includes("Commit")) {
+    return (
+      reviewed("pain_score", "pain_summary", "pain_tip") &&
+      reviewed("metrics_score", "metrics_summary", "metrics_tip") &&
+      reviewed("champion_score", "champion_summary", "champion_tip") &&
+      reviewed("criteria_score", "criteria_summary", "criteria_tip") &&
+      reviewed("competition_score", "competition_summary", "competition_tip") &&
+      reviewed("timing_score", "timing_summary", "timing_tip") &&
+      reviewed("budget_score", "budget_summary", "budget_tip") &&
+      reviewed("eb_score", "eb_summary", "eb_tip") &&
+      reviewed("process_score", "process_summary", "process_tip") &&
+      reviewed("paper_score", "paper_summary", "paper_tip")
+    );
+  }
+
+  // default: do not block
+  return true;
 }
 
 function computeFirstGap(deal, stage) {
@@ -119,34 +129,25 @@ function computeFirstGap(deal, stage) {
     { name: "Pain", key: "pain_score", val: deal.pain_score },
     { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
     { name: "Champion", key: "champion_score", val: deal.champion_score },
+    { name: "Competition", key: "competition_score", val: deal.competition_score },
     { name: "Budget", key: "budget_score", val: deal.budget_score },
   ];
 
   const bestCaseOrder = [
+    { name: "Pain", key: "pain_score", val: deal.pain_score },
+    { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
+    { name: "Champion", key: "champion_score", val: deal.champion_score },
+    { name: "Criteria", key: "criteria_score", val: deal.criteria_score },
+    { name: "Competition", key: "competition_score", val: deal.competition_score },
+    { name: "Timing", key: "timing_score", val: deal.timing_score },
+    { name: "Budget", key: "budget_score", val: deal.budget_score },
     { name: "Economic Buyer", key: "eb_score", val: deal.eb_score },
     { name: "Decision Process", key: "process_score", val: deal.process_score },
     { name: "Paper Process", key: "paper_score", val: deal.paper_score },
-    { name: "Competition", key: "competition_score", val: deal.competition_score },
-    { name: "Budget", key: "budget_score", val: deal.budget_score },
-    { name: "Decision Criteria", key: "criteria_score", val: deal.criteria_score },
-    { name: "Timing", key: "timing_score", val: deal.timing_score },
-    { name: "Champion", key: "champion_score", val: deal.champion_score },
-    { name: "Pain", key: "pain_score", val: deal.pain_score },
-    { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
   ];
 
-  const commitOrder = [
-    { name: "Paper Process", key: "paper_score", val: deal.paper_score },
-    { name: "Economic Buyer", key: "eb_score", val: deal.eb_score },
-    { name: "Decision Process", key: "process_score", val: deal.process_score },
-    { name: "Budget", key: "budget_score", val: deal.budget_score },
-    { name: "Decision Criteria", key: "criteria_score", val: deal.criteria_score },
-    { name: "Champion", key: "champion_score", val: deal.champion_score },
-    { name: "Timing", key: "timing_score", val: deal.timing_score },
-    { name: "Competition", key: "competition_score", val: deal.competition_score },
-    { name: "Pain", key: "pain_score", val: deal.pain_score },
-    { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
-  ];
+  const commitOrder = bestCaseOrder;
+
 
   let order = pipelineOrder;
   if (stageStr.includes("Commit")) order = commitOrder;
@@ -172,7 +173,11 @@ function markTouched(touchedSet, args) {
 function okToAdvance(deal, touchedSet) {
   const stage = String(deal?.forecast_stage || "Pipeline");
   if (stage.includes("Pipeline")) {
-    const req = ["pain", "metrics", "champion", "budget"];
+    const req = ["pain", "metrics", "champion", "competition", "budget"];
+    return req.every((c) => touchedSet.has(c));
+  }
+  if (stage.includes("Best Case") || stage.includes("Commit")) {
+    const req = ["pain","metrics","champion","criteria","competition","timing","budget","eb","process","paper"];
     return req.every((c) => touchedSet.has(c));
   }
   return true;
@@ -423,6 +428,10 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
   if (deal.metrics_summary) recallBits.push(`Metrics: ${deal.metrics_summary}`);
   if (deal.budget_summary) recallBits.push(`Budget: ${deal.budget_summary}`);
 
+  const riskIntroLine = deal.risk_summary
+    ? `Risk: ${deal.risk_summary}`
+    : \"Risk: no prior risk summary captured.\";
+
   const recallLine =
     recallBits.length > 0
       ? `Last review: ${recallBits.slice(0, 3).join(" | ")}.`
@@ -479,7 +488,7 @@ Never change deal identity unless the rep explicitly corrects it.
 OPENING SEQUENCE (MANDATORY — DO NOT REORDER)
 You MUST speak these lines in this exact order, with no other words in between:
 1) "${firstLine}"
-2) "${recallLine}"
+2) "${riskIntroLine}"
 3) "${gapQuestion}"
 
 STAGE STRATEGY (STRICT)
@@ -494,17 +503,33 @@ GENERAL FLOW (ALL STAGES)
 - Move on.
 Never rapid-fire. Never interrupt.
 
+CATEGORY ORDER (STRICT — NEVER REORDER)
+Pipeline:
+1) Pain 2) Metrics 3) Champion 4) Competition 5) Budget
+Best Case / Commit:
+1) Pain 2) Metrics 3) Champion 4) Criteria 5) Competition 6) Timing 7) Budget 8) Economic Buyer 9) Decision Process 10) Paper Process
+
+QUESTION BEHAVIOR (STRICT)
+- Ask exactly ONE primary question per category.
+- If the rep is unclear or incomplete, ask at most ONE clarification question for that same category.
+- Do NOT speak labels, summaries, or coaching tips during category questioning.
+- Coaching tips and summaries MUST be written silently into *_tip and *_summary only.
+
 SCORING RULES (CRITICAL)
 - You do not invent labels or criteria.
 - Labels and criteria come from scorecard definitions.
-- Be conservative: NEVER assign a 3 unless the rep provides explicit, current evidence.
+- Be conservative: NEVER assign >=3 unless the rep provides explicit, current evidence.
 - If evidence is weak, vague, second-hand, or based on assumptions: score 1–2 and capture the uncertainty.
-- You provide evidence only; backend normalizes summaries.
-- Do not argue with the rep.
+- Any category may DROP (including >=3 → 0) if evidence supports it. Truth > momentum.
 
-RISK
-- Do not debate risk live.
-- Risk is recorded in the scorecard (deterministic backend).
+CATEGORY REVIEW WORDING (STRICT)
+- If last score == 0: treat as never reviewed; ask the category question directly (do NOT say "Last review ...").
+- If last score is 1 or 2: say: "Last review <Category> was <Label>. Have we made progress since the last review?"
+  - If unclear/vague: ask one challenging follow-up (accuracy > speed).
+  - If no change: confirm and move on.
+- If last score is >=3: say: "Last review <Category> was strong. Has anything changed that could introduce new risk?"
+  - If no: move on.
+  - If yes: capture, rescore down if needed, save.
 
 SAVING BEHAVIOR (STRICT)
 - Never say "Saving", "Updating", or anything similar.
@@ -516,13 +541,12 @@ After EACH rep answer:
 1) Call save_deal_data silently (no spoken preface).
 2) Then ask the next single best question.
 
-END OF DEAL
-When finished with a deal:
-- Say: "Okay — let’s move to the next one."
-- Then call the advance_deal tool silently.
-`.trim();
-}
-
+END OF DEAL (SPOKEN — IN THIS ORDER)
+After all required categories for the stage are reviewed:
+1) Speak the UPDATED Risk Summary (plain language).
+2) Speak: "Your Deal Health Score is X out of 30."
+3) Speak Suggested Next Steps (plain language).
+Then move to the next deal.
 /// ============================================================================
 /// SECTION 9: WebSocket Server (Twilio WS <-> OpenAI WS)
 /// ============================================================================
