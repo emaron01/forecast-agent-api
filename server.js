@@ -20,7 +20,7 @@ import { handleFunctionCall } from "./muscle.js";
 /// ============================================================================
 /// SECTION 1: CONFIG
 /// ============================================================================
-const PORT = process.env.PORT || 10000; 
+const PORT = process.env.PORT || 10000;
 
 const MODEL_URL = process.env.MODEL_API_URL; // wss://api.openai.com/v1/realtime
 const MODEL_NAME = process.env.MODEL_NAME;
@@ -45,50 +45,6 @@ const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
-
-
-// ----------------------------------------------------------------------------
-// Score definition cache (schema: score_definitions(org_id, category, score, label, criteria))
-// Used ONLY to speak "Last review <Category> was <Label> ..." without inventing labels.
-// ----------------------------------------------------------------------------
-const scoreDefCache = new Map(); // orgId -> { loadedAt, byKey: Map("pain:2" -> {label, criteria}) }
-const SCORE_DEF_TTL_MS = 10 * 60 * 1000;
-
-async function getScoreDefMap(orgId) {
-  const now = Date.now();
-  const cached = scoreDefCache.get(orgId);
-  if (cached && now - cached.loadedAt < SCORE_DEF_TTL_MS) return cached.byKey;
-
-  const { rows } = await pool.query(
-    `
-    SELECT category, score, label, criteria
-    FROM score_definitions
-    WHERE org_id = $1
-    ORDER BY category ASC, score ASC
-    `,
-    [orgId]
-  );
-
-  const byKey = new Map();
-  for (const r of rows) {
-    const cat = String(r.category || "").trim().toLowerCase();
-    const sc = Number(r.score);
-    byKey.set(`${cat}:${sc}`, {
-      label: r.label != null ? String(r.label) : null,
-      criteria: r.criteria != null ? String(r.criteria) : null,
-    });
-  }
-
-  scoreDefCache.set(orgId, { loadedAt: now, byKey });
-  if (DEBUG_AGENT) dlog("Loaded score_definitions", { orgId, rows: rows.length });
-  return byKey;
-}
-
-function getScoreLabel(scoreDefs, categoryKey, score) {
-  const key = `${String(categoryKey).toLowerCase()}:${Number(score)}`;
-  const rec = scoreDefs?.get(key);
-  return rec?.label || `Score ${Number(score)}`;
-}
 
 /// ============================================================================
 /// SECTION 3: HELPERS
@@ -127,69 +83,70 @@ function scoreNum(x) {
  * - Pipeline focuses ONLY on Pain, Metrics, Champion, Budget.
  * - Do NOT ask Paper/Legal/Procurement in Pipeline.
  */
-function isReviewed(deal, key) {
-  const scoreKey = `${key}_score`;
-  const summaryKey = `${key}_summary`;
-  const tipKey = `${key}_tip`;
-
-  const s = scoreNum(deal?.[scoreKey]);
-  if (s > 0) return true;
-
-  const hasSummary = !!(deal?.[summaryKey] && String(deal[summaryKey]).trim().length);
-  const hasTip = !!(deal?.[tipKey] && String(deal[tipKey]).trim().length);
-  return hasSummary || hasTip;
-}
-
 function isDealCompleteForStage(deal, stage) {
   const stageStr = String(stage || deal?.forecast_stage || "Pipeline");
 
-  // Pipeline completeness is about REVIEWED categories, not forcing "3".
+  // Pipeline: only Pain, Metrics, Champion, Budget (do NOT require late-stage fields)
   if (stageStr.includes("Pipeline")) {
-  const required = ["pain", "metrics", "champion", "competition", "budget"];
-  return required.every((k) => isReviewed(deal, k));
-}
+    return (
+      scoreNum(deal.pain_score) >= 3 &&
+      scoreNum(deal.metrics_score) >= 3 &&
+      scoreNum(deal.champion_score) >= 3 &&
+      scoreNum(deal.budget_score) >= 3
+    );
+  }
 
-  // Best Case / Commit: all 10 categories reviewed (not necessarily 3+)
-  const required = [
-    "pain",
-    "metrics",
-    "champion",
-    "criteria",
-    "competition",
-    "timing",
-    "budget",
-    "eb",
-    "process",
-    "paper",
+  // Best Case / Commit: keep prior MEDDPICC+TB completeness (all 10 categories)
+  const requiredKeys = [
+    "pain_score",
+    "metrics_score",
+    "champion_score",
+    "eb_score",
+    "criteria_score",
+    "process_score",
+    "competition_score",
+    "paper_score",
+    "timing_score",
+    "budget_score",
   ];
-  return required.every((k) => isReviewed(deal, k));
+  return requiredKeys.every((k) => scoreNum(deal?.[k]) >= 3);
 }
 
 function computeFirstGap(deal, stage) {
   const stageStr = String(stage || deal?.forecast_stage || "Pipeline");
 
   const pipelineOrder = [
-  { name: "Pain", key: "pain_score", val: deal.pain_score },
-  { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
-  { name: "Champion", key: "champion_score", val: deal.champion_score },
-  { name: "Competition", key: "competition_score", val: deal.competition_score },
-  { name: "Budget", key: "budget_score", val: deal.budget_score },
-];
+    { name: "Pain", key: "pain_score", val: deal.pain_score },
+    { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
+    { name: "Champion", key: "champion_score", val: deal.champion_score },
+    { name: "Budget", key: "budget_score", val: deal.budget_score },
+  ];
 
-const bestCaseOrder = [
-  { name: "Pain", key: "pain_score", val: deal.pain_score },
-  { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
-  { name: "Champion", key: "champion_score", val: deal.champion_score },
-  { name: "Decision Criteria", key: "criteria_score", val: deal.criteria_score },
-  { name: "Competition", key: "competition_score", val: deal.competition_score },
-  { name: "Timing", key: "timing_score", val: deal.timing_score },
-  { name: "Budget", key: "budget_score", val: deal.budget_score },
-  { name: "Economic Buyer", key: "eb_score", val: deal.eb_score },
-  { name: "Decision Process", key: "process_score", val: deal.process_score },
-  { name: "Paper Process", key: "paper_score", val: deal.paper_score },
-];
+  const bestCaseOrder = [
+    { name: "Economic Buyer", key: "eb_score", val: deal.eb_score },
+    { name: "Decision Process", key: "process_score", val: deal.process_score },
+    { name: "Paper Process", key: "paper_score", val: deal.paper_score },
+    { name: "Competition", key: "competition_score", val: deal.competition_score },
+    { name: "Budget", key: "budget_score", val: deal.budget_score },
+    { name: "Decision Criteria", key: "criteria_score", val: deal.criteria_score },
+    { name: "Timing", key: "timing_score", val: deal.timing_score },
+    { name: "Champion", key: "champion_score", val: deal.champion_score },
+    { name: "Pain", key: "pain_score", val: deal.pain_score },
+    { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
+  ];
 
-const commitOrder = bestCaseOrder;
+  const commitOrder = [
+    { name: "Paper Process", key: "paper_score", val: deal.paper_score },
+    { name: "Economic Buyer", key: "eb_score", val: deal.eb_score },
+    { name: "Decision Process", key: "process_score", val: deal.process_score },
+    { name: "Budget", key: "budget_score", val: deal.budget_score },
+    { name: "Decision Criteria", key: "criteria_score", val: deal.criteria_score },
+    { name: "Champion", key: "champion_score", val: deal.champion_score },
+    { name: "Timing", key: "timing_score", val: deal.timing_score },
+    { name: "Competition", key: "competition_score", val: deal.competition_score },
+    { name: "Pain", key: "pain_score", val: deal.pain_score },
+    { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
+  ];
 
   let order = pipelineOrder;
   if (stageStr.includes("Commit")) order = commitOrder;
@@ -408,94 +365,7 @@ const advanceDealTool = {
 /// ============================================================================
 /// SECTION 8: System Prompt Builder (getSystemPrompt)
 /// ============================================================================
-function pickPipelineOrder(deal) {
-  const runCount = Number(deal?.run_count || 0);
-  // First-run: ask early vs beyond discovery question (NOT saved). Used only to set expectations.
-  // Pipeline category order is STRICT and does not change based on that answer.
-  const order = ["pain", "metrics", "champion", "competition", "budget"];
-  return runCount < 1 ? { needsModeQuestion: true, order } : { needsModeQuestion: false, order };
-}
-
-function stageCategoryOrder(deal) {
-  const stageStr = String(deal?.forecast_stage || "Pipeline");
-
-  if (stageStr.includes("Commit") || stageStr.includes("Best Case")) {
-    return {
-      stage: stageStr,
-      needsModeQuestion: false,
-      // Best Case / Commit strict order (10)
-      order: ["pain", "metrics", "champion", "criteria", "competition", "timing", "budget", "eb", "process", "paper"],
-    };
-  }
-
-  // Default: Pipeline
-  const p = pickPipelineOrder(deal);
-  return {
-    stage: stageStr,
-    needsModeQuestion: p.needsModeQuestion,
-    order: p.order,
-  };
-}
-
-function pickNextCategories(deal, order, maxN = 3) {
-  const chosen = [];
-  for (const k of order) {
-    if (chosen.length >= maxN) break;
-    // Prefer categories that are not strong yet (score < 3) OR not yet reviewed (score==0).
-    const sc = scoreNum(deal?.[`${k}_score`]);
-    if (sc < 3 || !isReviewed(deal, k)) chosen.push(k);
-  }
-  // If everything is strong/reviewed, still pick first few in order for quick risk check.
-  if (chosen.length === 0) {
-    for (const k of order) {
-      if (chosen.length >= maxN) break;
-      chosen.push(k);
-    }
-  }
-  return chosen;
-}
-
-function categoryName(key) {
-  const map = {
-    pain: "Pain",
-    metrics: "Metrics",
-    champion: "Champion",
-    competition: "Competition",
-    budget: "Budget",
-    timing: "Timing",
-    criteria: "Criteria",
-    eb: "Economic Buyer",
-    process: "Process",
-    paper: "Paper",
-  };
-  return map[key] || key;
-}
-
-function questionForCategory(scoreDefs, deal, key) {
-  const name = categoryName(key);
-  const sc = scoreNum(deal?.[`${key}_score`]);
-  const label = getScoreLabel(scoreDefs, key, sc);
-
-  // Score=0: treat as never asked; do NOT say "last review".
-  if (sc === 0) {
-    return `Let’s start with ${name}. What is the current status?`;
-  }
-
-  if (sc >= 3) {
-    return `Last review ${name} was strong. Has anything changed that could introduce new risk?`;
-  }
-  return `Last review ${name} was ${label}. Have we made progress since the last review?`;
-}
-
-function computeHealthScore(deal) {(deal) {
-  const keys = ["pain","metrics","champion","criteria","competition","timing","budget","eb","process","paper"];
-  let total = 0;
-  for (const k of keys) total += scoreNum(deal?.[`${k}_score`]);
-  const max = keys.length * 3; // current model
-  return { total, max };
-}
-
-function getSystemPrompt(deal, repName, totalCount, isFirstDeal, scoreDefs) {
+function getSystemPrompt(deal, repName, totalCount, isFirstDeal) {
   const stage = deal.forecast_stage || "Pipeline";
 
   const amountStr = new Intl.NumberFormat("en-US", {
@@ -511,117 +381,145 @@ function getSystemPrompt(deal, repName, totalCount, isFirstDeal, scoreDefs) {
   const oppName = (deal.opportunity_name || "").trim();
   const oppNamePart = oppName ? ` — ${oppName}` : "";
 
+  // First-deal greeting (REPLACES both prior blocks to avoid repeating deal context)
   const callPickup =
     `Hi ${repName}, this is Matthew from Sales Forecaster. ` +
     `Today we are reviewing ${totalCount} deals. ` +
     `Let's jump in starting with ${deal.account_name}${oppNamePart} ` +
     `for ${amountStr} in CRM Forecast Stage ${stage} closing ${closeDateStr}.`;
 
+  // Deal opening (USED FOR SUBSEQUENT DEALS ONLY)
   const dealOpening =
     `Let’s look at ${deal.account_name}${oppNamePart}, ` +
     `${stage}, ${amountStr}, closing ${closeDateStr}.`;
 
-  const opener = isFirstDeal ? callPickup : dealOpening;
+  let stageMode = "";
+  let stageFocus = "";
+  let stageRules = "";
 
-  // Spoken intro is strictly limited to Risk Summary ONLY (existing field).
-const risk = (deal.risk_summary || "").trim();
-const spokenRisk = risk ? `Risk Summary: ${risk}` : "Risk Summary: none captured yet.";
-
-  // Determine stage order and next categories
-  const stagePlan = stageCategoryOrder(deal);
-
-  // First-run Pipeline: ask the mode question first (do not save it).
-  const firstQuestion = stagePlan.needsModeQuestion
-    ? "Is this opportunity in the early stage, or has it progressed beyond Discovery?"
-    : questionForCategory(scoreDefs, deal, pickNextCategories(deal, stagePlan.order, 1)[0]);
-
-  const nextCats = stagePlan.needsModeQuestion
-    ? stagePlan.early.slice(0, 3) // after mode question, model will choose early/late; we provide both rules in prompt
-    : pickNextCategories(deal, stagePlan.order, 3);
-
-  if (DEBUG_AGENT) {
-    dlog("Deal start plan", {
-      opportunity_id: deal.id,
-      stage,
-      run_count: deal.run_count,
-      needsModeQuestion: stagePlan.needsModeQuestion,
-      nextCats,
-    });
+  if (String(stage).includes("Commit")) {
+    stageMode = "MODE: CLOSING ASSISTANT (COMMIT)";
+    stageFocus =
+      "FOCUS: Paper process, signature authority (EB), decision process, budget approved/allocated.";
+    stageRules =
+      "Logic: If any of these are weak, the deal does NOT belong in Commit. Do not hope — verify.";
+  } else if (String(stage).includes("Best Case")) {
+    stageMode = "MODE: DEAL STRATEGIST (BEST CASE)";
+    stageFocus =
+      "FOCUS: Economic Buyer access, decision process, paper readiness, competitive position, budget confirmation.";
+    stageRules =
+      "Logic: Identify gaps keeping the deal out of Commit. Probe readiness without pressure.";
+  } else {
+    stageMode = "MODE: PIPELINE ANALYST (PIPELINE)";
+    stageFocus = "FOCUS ONLY: Pain, Metrics, Champion, Budget.";
+    stageRules =
+      `RULES: Do NOT ask about paper process, legal, contracts, or procurement. Do NOT force completeness. Do NOT act late-stage.
+Champion scoring in Pipeline: a past user or someone who booked a demo is NOT automatically a Champion. A 3 requires proven internal advocacy, influence, and active action in the current cycle.`;
   }
 
+  // 1-sentence recall (keep it short)
+  const recallBits = [];
+  if (deal.pain_summary) recallBits.push(`Pain: ${deal.pain_summary}`);
+  if (deal.metrics_summary) recallBits.push(`Metrics: ${deal.metrics_summary}`);
+  if (deal.budget_summary) recallBits.push(`Budget: ${deal.budget_summary}`);
+
+  const recallLine =
+    recallBits.length > 0
+      ? `Last review: ${recallBits.slice(0, 3).join(" | ")}.`
+      : "Last review: no prior notes captured.";
+
+  const firstGap = computeFirstGap(deal, stage);
+
+  const gapQuestion = (() => {
+    if (String(stage).includes("Pipeline")) {
+      if (firstGap.name === "Pain")
+        return "What specific business problem is the customer trying to solve, and what happens if they do nothing?";
+      if (firstGap.name === "Metrics")
+        return "What measurable outcome has the customer agreed matters, and who validated it?";
+      if (firstGap.name === "Champion")
+        return "Who is driving this internally, what is their role, and how have they shown advocacy?";
+      if (firstGap.name === "Budget")
+        return "Has budget been discussed or confirmed, and at what level?";
+      return `What changed since last time on ${firstGap.name}?`;
+    }
+
+    if (String(stage).includes("Commit")) {
+      return `This is Commit — what evidence do we have that ${firstGap.name} is fully locked?`;
+    }
+    if (String(stage).includes("Best Case")) {
+      return `What would need to happen to strengthen ${firstGap.name} to a clear 3?`;
+    }
+
+    return `What is the latest on ${firstGap.name}?`;
+  })();
+
+  // Enforce a deterministic spoken sequence to prevent "Last review" from leading.
+  // FIRST DEAL: Greeting -> Recall -> First question
+  // SUBSEQUENT: Deal opening -> Recall -> First question
+  const firstLine = isFirstDeal ? callPickup : dealOpening;
+
   return `
-SYSTEM PROMPT — FORECAST REVIEW AGENT
+SYSTEM PROMPT — SALES LEADER FORECAST REVIEW AGENT
+You are Matthew, a calm, credible, experienced enterprise sales leader.
+Your role is to review live opportunities with a sales rep in order to improve forecast accuracy,
+strengthen deal rigor, and identify/mitigate risk early.
 
-You are Matthew. You are credible, skeptical, and rigorous (VP-level inspection).
-You are NOT a boss. You do NOT coach verbally. You keep spoken words short and factual.
+You are not a boss, not chatty, and not transactional.
+No pep talks, no ultimatums, no status requests.
+Your job is to ask smart questions, listen carefully, and update the scorecard.
+All coaching, evaluation, scoring, and recommendations belong in the scorecard, not spoken aloud.
 
-NON-NEGOTIABLE SPOKEN RULES
-- You may ONLY speak summaries at:
-  (1) Deal intro: Risk Summary only
-  (2) Deal wrap: Risk Summary + Health Score + Suggested Next Steps (in that order)
-- Do NOT speak coaching, tips, or long recap. Coaching is allowed ONLY in saved *_tip and *_summary fields (silent).
-- Do NOT repeat the rep's answer back.
+HARD CONTEXT (NON-NEGOTIABLE)
+You are reviewing exactly:
+- DEAL_ID: ${deal.id}
+- ACCOUNT_NAME: ${deal.account_name}
+- OPPORTUNITY_NAME: ${oppName || "(none)"}
+Never change deal identity unless the rep explicitly corrects it.
 
-DEAL INTRO (MUST SPEAK EXACTLY IN THIS ORDER)
-1) "${opener}"
-2) "${spokenRisk}"
-Then immediately ask the next question.
+OPENING SEQUENCE (MANDATORY — DO NOT REORDER)
+You MUST speak these lines in this exact order, with no other words in between:
+1) "${firstLine}"
+2) "${recallLine}"
+3) "${gapQuestion}"
 
-CATEGORY ORDER (STRICT)
-Pipeline: Pain → Metrics → Champion → Competition → Budget
-Best Case / Commit: Pain → Metrics → Champion → Criteria → Competition → Timing → Budget → Economic Buyer → Decision Process → Paper Process
+STAGE STRATEGY (STRICT)
+${stageMode}
+${stageFocus}
+${stageRules}
 
-FIRST-RUN PIPELINE MODE (run_count < 1)
-- Ask exactly once: "Is this opportunity in the early stage, or has it progressed beyond Discovery?"
-- Do NOT save that answer. Use it only to choose the Pipeline order above.
+GENERAL FLOW (ALL STAGES)
+- Ask one clear question at a time.
+- Wait for the rep to finish speaking.
+- Save to the scorecard.
+- Move on.
+Never rapid-fire. Never interrupt.
 
-CATEGORY QUESTIONING (STRICT)
-- For any category with score = 0: treat as never asked; do NOT say "last review". Ask the category question directly.
-- For any category with score = 1 or < 3:
-  Speak: "Last review <Category> was <Label>. Have we made progress since the last review?"
-  If unclear/vague: ask ONE challenging follow-up for accuracy.
-  If improvement: capture evidence → rescore up → save.
-  If no change: confirm briefly → (save optional; do NOT erase existing fields).
-- For any category with score >= 3:
-  Speak: "Last review <Category> was strong. Has anything changed that could introduce new risk?"
-  If no: move on (no save needed).
-  If yes: capture → rescore down (any amount if evidence) → silently update summary/tip → save.
+SCORING RULES (CRITICAL)
+- You do not invent labels or criteria.
+- Labels and criteria come from scorecard definitions.
+- Be conservative: NEVER assign a 3 unless the rep provides explicit, current evidence.
+- If evidence is weak, vague, second-hand, or based on assumptions: score 1–2 and capture the uncertainty.
+- You provide evidence only; backend normalizes summaries.
+- Do not argue with the rep.
 
-SAVING BEHAVIOR
-- All tool calls are silent.
-- Never say "saving", "updating", or similar.
-- Never write empty fields over existing data. Only send fields you intend to update.
+RISK
+- Do not debate risk live.
+- Risk is recorded in the scorecard (deterministic backend).
 
-WHAT TO DO NEXT
-- First, speak the Deal Intro lines exactly as specified above (opener, Risk Summary).
-- Then ask this question now:
-"${firstQuestion}"
+SAVING BEHAVIOR (STRICT)
+- Never say "Saving", "Updating", or anything similar.
+- Tool calls are silent.
+- Continue smoothly with the next question.
 
-- After that, proceed through the next categories in strict order (do not skip forward).
-- Start with these next categories (max 3 in this pass): ${nextCats.map((k) => categoryName(k)).join(", ")}.
+TOOL USE (CRITICAL)
+After EACH rep answer:
+1) Call save_deal_data silently (no spoken preface).
+2) Then ask the next single best question.
 
-DEAL WRAP (ONLY WHEN ALL REQUIRED CATEGORIES FOR THE STAGE ARE REVIEWED)
-After all required categories (including Best Case/Commit stage checks if applicable) have been covered:
-1) Silently generate an updated risk_summary and next_steps grounded ONLY in captured facts.
-2) Speak ONLY in this order:
-   - "Risk Summary: <risk_summary>"
-   - "Your Deal Health Score is <TOTAL> out of 30."
-   - "Suggested Next Steps: <next_steps>"
-3) Do NOT ask the rep for confirmation. Do NOT ask if they agree.
-4) Silently call save_deal_data to update ONLY risk_summary and next_steps (do not erase other fields).
-5) Then immediately proceed (advance_deal when stage-complete).
-   - Do NOT blank other fields.
-5) Then call advance_deal.
-
-QUESTION BEHAVIOR
-- Ask exactly ONE primary question per category.
-- If unclear/incomplete, ask at most ONE clarification question for that same category.
-- Do NOT speak labels, summaries, or coaching tips during category questions.
-- For every category you ask about, silently update label, short summary, and coaching tip.
-  - If no coaching tip is needed, leave it blank (do not invent one).
-
-HEALTH SCORE
-- Compute as sum of category scores; max is ${computeHealthScore(deal).max}.
+END OF DEAL
+When finished with a deal:
+- Say: "Okay — let’s move to the next one."
+- Then call the advance_deal tool silently.
 `.trim();
 }
 
@@ -639,7 +537,6 @@ wss.on("connection", async (twilioWs) => {
   let dealQueue = [];
   let currentDealIndex = 0;
   let openAiReady = false;
-  let scoreDefsForOrg = null;
 
   // Turn-control stability
   let awaitingModel = false;
@@ -1046,9 +943,6 @@ function kickModel(reason) {
         console.log("🎬 Stream started:", streamSid);
         console.log(`🔎 Rep: ${repName} | orgId=${orgId}`);
 
-        // Load score definitions for labels (no schema changes)
-        scoreDefsForOrg = await getScoreDefMap(orgId);
-
         await attemptLaunch();
       }
 
@@ -1075,8 +969,6 @@ function kickModel(reason) {
 
   /// ---------------- Deal loading + initial prompt ----------------
   async function attemptLaunch() {
-    if (!scoreDefsForOrg) scoreDefsForOrg = await getScoreDefMap(orgId);
-
     if (!openAiReady || !repName) return;
 
     if (dealQueue.length === 0) {
