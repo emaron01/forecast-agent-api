@@ -572,21 +572,15 @@ wss.on("connection", async (twilioWs) => {
 
     // Debounce: avoid rapid duplicate triggers (speech_stopped spam, etc.)
     if (now - lastResponseCreateAt < 900) {
-      if (DEBUG_AGENT) {
-        console.log(`[DEBUG_AGENT] response.create DEBOUNCED (${reason})`);
-      }
+      if (DEBUG_AGENT) console.log(`[DEBUG_AGENT] response.create DEBOUNCED (${reason})`);
       return;
     }
 
-    // If a response is already active or in-flight, just mark that we want
-    // one more turn AFTER the current response finishes.
+    // Hard gate: OpenAI allows only ONE active response at a time.
+    // If a response is active/in-flight, queue exactly one follow-up after response.done.
     if (responseActive || responseCreateInFlight || responseInProgress) {
       responseCreateQueued = true;
-      if (DEBUG_AGENT) {
-        console.log(
-          `[DEBUG_AGENT] response.create QUEUED (active/in-flight/in-progress) (${reason})`
-        );
-      }
+      if (DEBUG_AGENT) console.log(`[DEBUG_AGENT] response.create QUEUED (active) (${reason})`);
       return;
     }
 
