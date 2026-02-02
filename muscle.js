@@ -153,7 +153,7 @@ export async function handleFunctionCall({ toolName, args, pool }) {
 
   const sets = [];
   const vals = [];
-  let i = 1;
+  let i = 2;
 
   for (const k of allowed) {
     sets.push(`${k} = $${++i}`);
@@ -210,7 +210,7 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       eventType: "score_save",
       forecastStage: opp.forecast_stage ?? null,
       aiForecast: opp.ai_forecast ?? null,
-      totalScore: opp.health_score ?? recomputed.total_score ?? null,
+      totalScore: opp.health_score ?? null,
       maxScore: 30,
       riskSummary: opp.risk_summary ?? null,
       riskFlags: args.risk_flags ?? null,
