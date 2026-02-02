@@ -31,36 +31,6 @@ const DATABASE_URL = process.env.DATABASE_URL;
 // Single debug flag (must not crash if unset)
 const DEBUG_AGENT = String(process.env.DEBUG_AGENT || "") === "1";
 
-
-// Health score helpers (DO NOT affect SAVE; read-only calculation)
-function sumDealScores(deal) {
-  const fields = [
-    "pain_score",
-    "metrics_score",
-    "champion_score",
-    "eb_score",
-    "criteria_score",
-    "process_score",
-    "competition_score",
-    "paper_score",
-    "timing_score",
-    "budget_score",
-  ];
-  let total = 0;
-  for (const f of fields) {
-    const n = Number(deal?.[f] ?? 0);
-    total += Number.isFinite(n) ? n : 0;
-  }
-  return total;
-}
-
-function getHealthScoreOutOf30(deal) {
-  const n = Number(deal?.health_score);
-  if (Number.isFinite(n)) return n;
-  return sumDealScores(deal);
-}
-
-
 if (!MODEL_URL || !MODEL_NAME || !OPENAI_API_KEY) {
   throw new Error("⚠️ MODEL_API_URL, MODEL_NAME, and MODEL_API_KEY must be set!");
 }
@@ -487,7 +457,6 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
   // FIRST DEAL: Greeting -> Recall -> First question
   // SUBSEQUENT: Deal opening -> Recall -> First question
   const firstLine = isFirstDeal ? callPickup : dealOpening;
-  const healthScoreOutOf30 = getHealthScoreOutOf30(deal);
 
   return `
 SYSTEM PROMPT — SALES LEADER FORECAST REVIEW AGENT
@@ -506,27 +475,6 @@ You are reviewing exactly:
 - ACCOUNT_NAME: ${deal.account_name}
 - OPPORTUNITY_NAME: ${oppName || "(none)"}
 Never change deal identity unless the rep explicitly corrects it.
-
-HEALTH SCORE AUTHORITY (NON-NEGOTIABLE)
-- HEALTH_SCORE_OUT_OF_30: ${healthScoreOutOf30}
-- You MUST NOT compute or estimate the total score yourself.
-- You MUST treat HEALTH_SCORE_OUT_OF_30 as authoritative and speak it verbatim only at the end-of-deal wrap.
-- Never reveal any individual category scores, scoring logic, or scoring matrix. If asked "how did you get that score", reply only:
-  "Your score is based on the completeness and strength of your MEDDPICC answers."
-
-NO INVENTED ANSWERS (NON-NEGOTIABLE)
-- Never invent or assume facts for any category (especially Champion).
-- A category may only be populated/scored AFTER the rep has answered a question about that category (or you explicitly extracted it from a prior rep answer).
-- If you do not have rep-provided evidence, ask the question and wait. Do not fill blanks.
-
-END OF DEAL WRAP (MANDATORY)
-After all required categories for the stage are reviewed, speak ONLY in this exact order:
-1) Updated Risk Summary (plain language, grounded only in rep-provided facts)
-2) "Your Deal Health Score is ${healthScoreOutOf30} out of 30."
-3) Suggested Next Steps (plain language, grounded only in rep-provided facts)
-Do not ask for confirmation. Do not reveal category scores.
-
-
 
 OPENING SEQUENCE (MANDATORY — DO NOT REORDER)
 You MUST speak these lines in this exact order, with no other words in between:
