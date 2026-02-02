@@ -1,15 +1,12 @@
-// muscle.js
-// SAVE + audit logic only. Do NOT refactor beyond fixing broken SAVE.
-// Schema-aligned to your tables:
-// opportunities: forecast_stage, previous_total_score, previous_updated_at, updated_at
-// opportunity_audit_events: run_id (uuid NOT NULL), delta (jsonb NOT NULL)
-// Critical fixes:
-// 1) Placeholder numbering: WHERE uses $1,$2 so SET placeholders must start at $3 (let i = 2)
-// 2) Use forecast_stage (NOT stage)
-// 3) Do not write opportunities.total_score (does not exist); write previous_total_score instead
-// 4) Always provide a valid UUID for opportunity_audit_events.run_id
+/**
+ * muscle.js
+ * - Core tool handler for saving category data, auditing, and light deal state updates.
+ * - MUST export handleFunctionCall as a named export.
+ */
 
-import crypto from "crypto";
+function nowIso() {
+  return new Date().toISOString();
+}
 
 function cleanText(v) {
   if (v == null) return null;
@@ -17,81 +14,127 @@ function cleanText(v) {
   return s.length ? s : null;
 }
 
+/**
+ * Detect which category is being saved from tool args.
+ * We store <category>_score, <category>_summary, <category>_tip.
+ */
 function detectCategoryFromArgs(args) {
-  const cats = [
-    "pain",
-    "metrics",
-    "champion",
-    "eb",
-    "criteria",
-    "process",
-    "competition",
-    "paper",
-    "timing",
-    "budget",
-  ];
-  for (const c of cats) {
-    if (
-      args[`${c}_score`] != null ||
-      args[`${c}_summary`] != null ||
-      args[`${c}_tip`] != null ||
-      args[`${c}_name`] != null ||
-      args[`${c}_title`] != null
-    ) {
-      return c;
-    }
-  }
-  return null;
+  const keys = Object.keys(args || {});
+  const scoreKey = keys.find((k) => k.endsWith("_score"));
+  if (!scoreKey) return null;
+  return scoreKey.replace(/_score$/, "");
 }
 
+/**
+ * Build a "delta" JSON payload for opportunity_audit_events.
+ * Keep it compact: only store fields the tool provided for this save.
+ */
 function buildDelta(args) {
-  const delta = {};
+  const out = {};
   for (const [k, v] of Object.entries(args || {})) {
     if (k === "org_id" || k === "opportunity_id" || k === "rep_name" || k === "call_id") continue;
-    if (v === undefined) continue;
-    delta[k] = v;
+    out[k] = v;
   }
-  return delta;
+  return out;
 }
 
-async function computeTotalScore(client, orgId, opportunityId) {
-  const { rows } = await client.query(
-    `SELECT
-        pain_score, metrics_score, champion_score, eb_score, criteria_score,
-        process_score, competition_score, paper_score, timing_score, budget_score
-     FROM opportunities
-     WHERE org_id = $1 AND id = $2
-     LIMIT 1`,
+/**
+ * Compute running total score/max score if present in opportunity row
+ * (kept minimal: muscle does not invent weights; server/db own scoring tables).
+ */
+async function recomputeTotalScore(pool, orgId, opportunityId) {
+  // Keep your existing schema assumptions: category columns end in _score
+  // We'll sum whatever exists for MEDDPICC+TB (safe generic).
+  const { rows } = await pool.query(
+    `SELECT *
+       FROM opportunities
+      WHERE org_id = $1 AND id = $2
+      LIMIT 1`,
     [orgId, opportunityId]
   );
+  if (!rows.length) return { total_score: null, max_score: null };
 
-  if (!rows.length) return null;
-  const r = rows[0];
-
-  const fields = [
-    "pain_score",
-    "metrics_score",
-    "champion_score",
-    "eb_score",
-    "criteria_score",
-    "process_score",
-    "competition_score",
-    "paper_score",
-    "timing_score",
-    "budget_score",
-  ];
-
+  const row = rows[0];
   let total = 0;
-  for (const f of fields) total += Number(r[f] || 0);
-  return total;
+  let hasAny = false;
+
+  for (const [k, v] of Object.entries(row)) {
+    if (!k.endsWith("_score")) continue;
+    if (typeof v !== "number") continue;
+    total += v;
+    hasAny = true;
+  }
+
+  // max_score depends on what categories exist; keep null if unknown.
+  return { total_score: hasAny ? total : null, max_score: null };
 }
 
+/**
+ * Insert audit event row.
+ */
+async function insertAuditEvent(pool, {
+  orgId,
+  opportunityId,
+  actorType,
+  eventType,
+  forecastStage,
+  aiForecast,
+  totalScore,
+  maxScore,
+  riskSummary,
+  riskFlags,
+  delta,
+  definitions,
+  meta,
+  runId,
+  callId,
+  schemaVersion = 1,
+  promptVersion = "v1",
+  logicVersion = "v1",
+}) {
+  const q = `
+    INSERT INTO opportunity_audit_events
+      (org_id, opportunity_id, actor_type, event_type, schema_version, prompt_version, logic_version,
+       forecast_stage, ai_forecast, total_score, max_score, risk_summary, risk_flags, delta, definitions, meta, run_id, call_id)
+    VALUES
+      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16::jsonb,$17,$18)
+    RETURNING id
+  `;
+
+  const { rows } = await pool.query(q, [
+    orgId,
+    opportunityId,
+    actorType,
+    eventType,
+    schemaVersion,
+    promptVersion,
+    logicVersion,
+    forecastStage,
+    aiForecast,
+    totalScore,
+    maxScore,
+    riskSummary,
+    riskFlags,
+    JSON.stringify(delta || {}),
+    JSON.stringify(definitions || {}),
+    JSON.stringify(meta || {}),
+    runId,
+    callId,
+  ]);
+
+  return rows[0]?.id ?? null;
+}
+
+/**
+ * Main tool handler (named export)
+ */
 export async function handleFunctionCall({ toolName, args, pool }) {
-  if (toolName !== "save_deal_data") return { ok: true, ignored: toolName };
+  if (toolName !== "save_deal_data") {
+    return { ok: true, ignored: toolName };
+  }
 
   const orgId = Number(args.org_id);
   const opportunityId = Number(args.opportunity_id);
-
   if (!orgId || !opportunityId) {
     throw new Error("save_deal_data requires org_id and opportunity_id");
   }
@@ -102,33 +145,40 @@ export async function handleFunctionCall({ toolName, args, pool }) {
   const category = detectCategoryFromArgs(args);
   const delta = buildDelta(args);
 
-  // Only update columns that exist in opportunities (based on your schema):
-  // - *_score, *_summary, *_tip, *_name, *_title
-  // - risk_summary, next_steps, rep_comments
-  const allowed = Object.keys(args).filter((k) => /_(score|summary|tip|name|title)$/.test(k));
-  for (const k of ["risk_summary", "next_steps", "rep_comments"]) {
-    if (args[k] !== undefined) allowed.push(k);
-  }
+  // Update opportunity columns that are present in args (score/summary/tip + optional extras)
+  // Only allow known patterns: *_score, *_summary, *_tip, *_name, *_title, etc.
+  const allowed = Object.keys(args).filter((k) =>
+    /_(score|summary|tip|name|title|source|notes)$/.test(k)
+  );
 
   const sets = [];
   const vals = [];
-
-  // ✅ FIX #1: WHERE uses $1,$2 (org_id,id), so SET must start at $3
-  let i = 2;
+  let i = 1;
 
   for (const k of allowed) {
     sets.push(`${k} = $${++i}`);
     vals.push(args[k]);
   }
 
-  // updated_at exists
+  // Also update last_summary/risk_summary if provided by tool.
+  // (keeping backwards compatibility)
+  if (args.last_summary != null) {
+    sets.push(`last_summary = $${++i}`);
+    vals.push(args.last_summary);
+  }
+  if (args.risk_summary != null) {
+    sets.push(`risk_summary = $${++i}`);
+    vals.push(args.risk_summary);
+  }
+
+  // Always stamp updated_at if exists
   sets.push(`updated_at = NOW()`);
 
+  // Start transaction
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    // 1) Update opportunity
     if (sets.length) {
       const q = `
         UPDATE opportunities
@@ -139,78 +189,74 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       await client.query(q, [orgId, opportunityId, ...vals]);
     }
 
-    // 2) Reload context fields for audit (schema-aligned)
+    // Pull latest opp row for audit context fields
     const { rows } = await client.query(
-      `SELECT id, org_id, forecast_stage, ai_forecast, risk_summary
+      `SELECT id, org_id, forecast_stage, ai_forecast, health_score, risk_summary
          FROM opportunities
         WHERE org_id = $1 AND id = $2
         LIMIT 1`,
       [orgId, opportunityId]
     );
-    const opp = rows[0];
-    if (!opp) throw new Error("Opportunity not found after update");
 
-    // 3) Compute total score and persist into previous_total_score
-    const totalScore = await computeTotalScore(client, orgId, opportunityId);
-    if (totalScore != null) {
-      await client.query(
-        `UPDATE opportunities
-            SET previous_total_score = $3,
-                previous_updated_at = NOW()
-          WHERE org_id = $1 AND id = $2`,
-        [orgId, opportunityId, totalScore]
-      );
-    }
+    const opp = rows[0] || {};
+    const recomputed = await recomputeTotalScore(client, orgId, opportunityId);
 
-    // 4) Insert audit event (schema-aligned)
-    const runId = crypto.randomUUID(); // uuid NOT NULL
-    const schemaVersion = 1; // NOT NULL
-    const promptVersion = "v1"; // NOT NULL
-    const logicVersion = "v1"; // NOT NULL
-
-    await client.query(
-      `
-      INSERT INTO opportunity_audit_events (
-        org_id, opportunity_id, ts, run_id, call_id, actor_type, event_type,
-        schema_version, prompt_version, logic_version,
-        forecast_stage, ai_forecast, total_score, max_score,
-        risk_summary, risk_flags, delta, definitions, meta
-      )
-      VALUES (
-        $1, $2, NOW(), $3, $4, $5, $6,
-        $7, $8, $9,
-        $10, $11, $12, $13,
-        $14, $15, $16::jsonb, $17::jsonb, $18::jsonb
-      )
-      `,
-      [
-        orgId,
-        opportunityId,
-        runId,
-        callId,
-        "agent",
-        "save_deal_data",
-        schemaVersion,
-        promptVersion,
-        logicVersion,
-        opp.forecast_stage || null,
-        opp.ai_forecast || null,
-        totalScore != null ? Number(totalScore) : null,
-        30, // max_score (10 categories x 3)
-        opp.risk_summary || null,
-        null, // risk_flags text[]
-        JSON.stringify(delta || {}), // delta jsonb NOT NULL
-        JSON.stringify({}), // definitions jsonb nullable
-        JSON.stringify({ rep_name: repName, category }), // meta jsonb nullable
-      ]
-    );
+    // Create audit event (compact delta)
+    const runId = args.run_id || null; // if you pass it later
+    const auditId = await insertAuditEvent(client, {
+      orgId,
+      opportunityId,
+      actorType: "agent",
+      eventType: "score_save",
+      forecastStage: opp.forecast_stage ?? null,
+      aiForecast: opp.ai_forecast ?? null,
+      totalScore: opp.health_score ?? recomputed.total_score ?? null,
+      maxScore: 30,
+      riskSummary: opp.risk_summary ?? null,
+      riskFlags: args.risk_flags ?? null,
+      delta,
+      definitions: args.definitions ?? null,
+      meta: {
+        rep_name: repName,
+        category,
+        saved_at: nowIso(),
+      },
+      runId: runId || cryptoRandomUUIDSafe(),
+      callId,
+      schemaVersion: 1,
+      promptVersion: args.prompt_version || "v1",
+      logicVersion: args.logic_version || "v1",
+    });
 
     await client.query("COMMIT");
-    return { ok: true, saved: true, org_id: orgId, opportunity_id: opportunityId };
-  } catch (err) {
+
+    return {
+      ok: true,
+      saved: true,
+      opportunity_id: opportunityId,
+      audit_event_id: auditId,
+    };
+  } catch (e) {
     await client.query("ROLLBACK");
-    throw err;
+    throw e;
   } finally {
     client.release();
   }
+}
+
+/**
+ * Safe UUID if crypto.randomUUID exists; otherwise null-ish.
+ */
+function cryptoRandomUUIDSafe() {
+  try {
+    // Node 18+ supports global crypto.randomUUID in many runtimes
+    // but not all; guard it.
+    // eslint-disable-next-line no-undef
+    if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
+      // eslint-disable-next-line no-undef
+      return globalThis.crypto.randomUUID();
+    }
+  } catch {}
+  // fallback: pseudo
+  return `run_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }

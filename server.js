@@ -1017,7 +1017,7 @@ function kickModel(reason) {
       responseCreateQueued = false;
       createResponse("first_question");
     }, 350);
-  } 
+  }
 });
 
 /// ============================================================================
