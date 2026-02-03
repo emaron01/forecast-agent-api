@@ -76,6 +76,41 @@ function parseEndWrapFromTranscript(transcript) {
   return { riskSummary, nextSteps };
 }
 
+function buildFallbackEndWrap(deal, stage) {
+  const stageStr = String(stage || deal?.forecast_stage || "Pipeline");
+  const pipelineCats = [
+    { name: "Pain", key: "pain_score" },
+    { name: "Metrics", key: "metrics_score" },
+    { name: "Internal Sponsor", key: "champion_score" },
+    { name: "Competition", key: "competition_score" },
+    { name: "Budget", key: "budget_score" },
+  ];
+  const bestCommitCats = [
+    { name: "Pain", key: "pain_score" },
+    { name: "Metrics", key: "metrics_score" },
+    { name: "Internal Sponsor", key: "champion_score" },
+    { name: "Criteria", key: "criteria_score" },
+    { name: "Competition", key: "competition_score" },
+    { name: "Timing", key: "timing_score" },
+    { name: "Budget", key: "budget_score" },
+    { name: "Economic Buyer", key: "eb_score" },
+    { name: "Decision Process", key: "process_score" },
+    { name: "Paper Process", key: "paper_score" },
+  ];
+  const cats = stageStr.includes("Commit") || stageStr.includes("Best Case")
+    ? bestCommitCats
+    : pipelineCats;
+  const gaps = cats.filter((c) => scoreNum(deal?.[c.key]) < 3).map((c) => c.name);
+  const gapStr = gaps.length ? gaps.join(", ") : "no material gaps";
+  const riskSummary = gaps.length
+    ? `Key risks: insufficient evidence in ${gapStr}.`
+    : "No material risk gaps identified.";
+  const nextSteps = gaps.length
+    ? `Strengthen ${gapStr} with concrete, buyer-validated evidence.`
+    : "Continue to validate and maintain current evidence.";
+  return { riskSummary, nextSteps };
+}
+
 function safeSend(ws, payload) {
   try {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
@@ -667,6 +702,8 @@ wss.on("connection", async (twilioWs) => {
   let forceSavePending = false;
   let repSpeechDetected = false;
   let repSpeaking = false;
+  let repSpeechStartedAt = 0;
+  const REP_SPEECH_MIN_MS = 500;
   // Count of in-flight/active responses (used only for gating; must start at 0)
   let responseOutstanding = 0;
   let lastResponseCreateAt = 0;
@@ -867,6 +904,7 @@ function kickModel(reason) {
     if (response.type === "input_audio_buffer.speech_started") {
       repSpeechDetected = true;
       repSpeaking = true;
+      repSpeechStartedAt = Date.now();
     }
 
     if (response.type === "input_audio_buffer.speech_stopped") {
@@ -874,8 +912,17 @@ function kickModel(reason) {
         // Ignore false stops when no rep speech was detected
         return;
       }
+      const speechDurationMs = repSpeechStartedAt ? Date.now() - repSpeechStartedAt : 0;
+      if (speechDurationMs < REP_SPEECH_MIN_MS) {
+        // Ignore very short noises (drops, clicks, etc.)
+        repSpeaking = false;
+        repSpeechDetected = false;
+        repSpeechStartedAt = 0;
+        return;
+      }
       repSpeaking = false;
       repSpeechDetected = false;
+      repSpeechStartedAt = 0;
       // Rep finished speaking
       repTurnCompleteAt = Date.now();
       lastRepSpeechAt = repTurnCompleteAt;
@@ -885,6 +932,7 @@ function kickModel(reason) {
       if (saveDeadlineTimer) clearTimeout(saveDeadlineTimer);
       saveDeadlineTimer = setTimeout(() => {
         if (forceSavePending) return;
+        if (!repTurnCompleteAt) return;
         if (!saveSinceRepTurn && forceSaveAttempts < 2 && !endOfDealWrapPending) {
           forceSaveAttempts += 1;
           forceSavePending = true;
@@ -1307,28 +1355,27 @@ function kickModel(reason) {
 
         // Server-authoritative end-wrap save using spoken content, if present.
         if (endOfDealWrapPending && !endWrapSaved) {
+          const deal = dealQueue[currentDealIndex];
           const wrap = parseEndWrapFromTranscript(transcript);
-          if (wrap) {
-            const deal = dealQueue[currentDealIndex];
-            if (deal) {
-              await handleFunctionCall({
-                toolName: "save_deal_data",
-                args: {
-                  risk_summary: wrap.riskSummary,
-                  next_steps: wrap.nextSteps,
-                  org_id: deal.org_id,
-                  opportunity_id: deal.id,
-                  rep_name: repName,
-                  call_id: `end_wrap_server_${Date.now()}`,
-                },
-                pool,
-              });
-              endWrapSaved = true;
-              endWrapFinalized = true;
-              if (endWrapDeadlineTimer) clearTimeout(endWrapDeadlineTimer);
-              endWrapDeadlineTimer = null;
-              console.log("✅ End-wrap saved by server from transcript.");
-            }
+          const finalWrap = wrap || (deal ? buildFallbackEndWrap(deal, deal.forecast_stage) : null);
+          if (deal && finalWrap) {
+            await handleFunctionCall({
+              toolName: "save_deal_data",
+              args: {
+                risk_summary: finalWrap.riskSummary,
+                next_steps: finalWrap.nextSteps,
+                org_id: deal.org_id,
+                opportunity_id: deal.id,
+                rep_name: repName,
+                call_id: `end_wrap_server_${Date.now()}`,
+              },
+              pool,
+            });
+            endWrapSaved = true;
+            endWrapFinalized = true;
+            if (endWrapDeadlineTimer) clearTimeout(endWrapDeadlineTimer);
+            endWrapDeadlineTimer = null;
+            console.log(wrap ? "✅ End-wrap saved by server from transcript." : "✅ End-wrap saved by server (fallback).");
           }
         }
 
