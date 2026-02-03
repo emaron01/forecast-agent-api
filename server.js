@@ -653,6 +653,7 @@ wss.on("connection", async (twilioWs) => {
   let endWrapSaved = false;
   let endWrapForceAttempts = 0;
   let endWrapDeadlineTimer = null;
+  let lastAutoAdvanceAt = 0;
   let lastRepSpeechAt = 0;
   let repTurnCompleteAt = 0;
   let saveSinceRepTurn = true;
@@ -724,6 +725,8 @@ wss.on("connection", async (twilioWs) => {
     endWrapSaved = false;
     endWrapForceAttempts = 0;
     pendingToolContinuation = false;
+    touched = new Set();
+    if (reason === "auto_end_wrap") lastAutoAdvanceAt = Date.now();
     currentDealIndex++;
 
     if (currentDealIndex < dealQueue.length) {
@@ -897,6 +900,19 @@ function kickModel(reason) {
         // Silent advancement tool (no spoken trigger)
         if (fnName === "advance_deal") {
           console.log("➡️ advance_deal tool received. Advancing deal...");
+
+          // If we just auto-advanced due to server-side wrap, ignore stale tool calls.
+          if (!endOfDealWrapPending && lastAutoAdvanceAt && Date.now() - lastAutoAdvanceAt < 10000) {
+            safeSend(openAiWs, {
+              type: "conversation.item.create",
+              item: {
+                type: "function_call_output",
+                call_id: callId,
+                output: JSON.stringify({ status: "success", ignored: "stale_advance" }),
+              },
+            });
+            return;
+          }
 
           if (!endWrapSaved) {
             console.log("⛔ Advance blocked (end wrap not saved). Forcing end wrap + save.");
@@ -1107,8 +1123,13 @@ function kickModel(reason) {
           endWrapSaved = false;
           endWrapForceAttempts = 0;
           if (endWrapDeadlineTimer) clearTimeout(endWrapDeadlineTimer);
-          endWrapDeadlineTimer = setTimeout(async () => {
+          endWrapDeadlineTimer = setTimeout(async function endWrapDeadlineTick() {
             if (!endWrapSaved) {
+              // If the model is still speaking, wait a bit longer.
+              if (responseActive || responseInProgress) {
+                endWrapDeadlineTimer = setTimeout(endWrapDeadlineTick, 2000);
+                return;
+              }
               // Re-fetch actual health score for the forced wrap
               let forcedHealthScore = deal.health_score;
               try {
@@ -1141,7 +1162,7 @@ function kickModel(reason) {
               });
               createResponse("force_end_wrap_save");
             }
-          }, 2500);
+          }, 6000);
           let wrapRiskSummary = deal.risk_summary || "";
           let wrapNextSteps = deal.next_steps || "";
           let wrapHealthScore = deal.health_score;
@@ -1224,29 +1245,6 @@ function kickModel(reason) {
           setTimeout(() => createResponse("queued_continue"), 250);
         }
 
-        // If end wrap is saved, auto-advance even if model fails to call advance_deal.
-        if (endOfDealWrapPending && endWrapSaved) {
-          endOfDealWrapPending = false;
-          setTimeout(() => advanceToNextDeal("auto_end_wrap"), 200);
-        } else if (endOfDealWrapPending && !endWrapSaved && endWrapForceAttempts < 2) {
-          endWrapForceAttempts += 1;
-          safeSend(openAiWs, {
-            type: "conversation.item.create",
-            item: {
-              type: "message",
-              role: "system",
-              content: [
-                {
-                  type: "input_text",
-                  text:
-                    "End-of-deal wrap is incomplete. You MUST save risk_summary and next_steps now, then call advance_deal.",
-                },
-              ],
-            },
-          });
-          setTimeout(() => createResponse("force_end_wrap_followup"), 200);
-        }
-
         const transcript = (
           response.response?.output
             ?.flatMap((o) => o.content || [])
@@ -1278,6 +1276,29 @@ function kickModel(reason) {
               console.log("✅ End-wrap saved by server from transcript.");
             }
           }
+        }
+
+        // If end wrap is saved, auto-advance even if model fails to call advance_deal.
+        if (endOfDealWrapPending && endWrapSaved) {
+          endOfDealWrapPending = false;
+          setTimeout(() => advanceToNextDeal("auto_end_wrap"), 200);
+        } else if (endOfDealWrapPending && !endWrapSaved && endWrapForceAttempts < 2) {
+          endWrapForceAttempts += 1;
+          safeSend(openAiWs, {
+            type: "conversation.item.create",
+            item: {
+              type: "message",
+              role: "system",
+              content: [
+                {
+                  type: "input_text",
+                  text:
+                    "End-of-deal wrap is incomplete. You MUST save risk_summary and next_steps now, then call advance_deal.",
+                },
+              ],
+            },
+          });
+          setTimeout(() => createResponse("force_end_wrap_followup"), 200);
         }
 
         if (transcript.includes("NEXT_DEAL_TRIGGER")) {
