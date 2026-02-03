@@ -544,6 +544,8 @@ wss.on("connection", async (twilioWs) => {
   let responseCreateQueued = false;
   let responseCreateInFlight = false;
   let responseInProgress = false; // hard guard: one response at a time
+  // Count of in-flight/active responses (used only for gating; must start at 0)
+  let responseOutstanding = 0;
   let lastResponseCreateAt = 0;
   let sawSpeechStarted = false;
   let lastSpeechStoppedAt = 0;
