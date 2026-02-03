@@ -669,6 +669,43 @@ wss.on("connection", async (twilioWs) => {
     createResponse(`forced_${reason}`);
   }
 
+  function advanceToNextDeal(reason) {
+    console.log(`➡️ Advancing deal (${reason})`);
+    endOfDealWrapPending = false;
+    endWrapSaved = false;
+    pendingToolContinuation = false;
+    currentDealIndex++;
+
+    if (currentDealIndex < dealQueue.length) {
+      const nextDeal = dealQueue[currentDealIndex];
+      console.log(`👉 Context switch -> id=${nextDeal.id} account="${nextDeal.account_name}"`);
+
+      const instructions = getSystemPrompt(
+        nextDeal,
+        repFirstName || repName || "Rep",
+        dealQueue.length,
+        false
+      );
+
+      safeSend(openAiWs, {
+        type: "session.update",
+        session: { instructions },
+      });
+
+      setTimeout(() => {
+        awaitingModel = false;
+        responseActive = false;
+        responseCreateQueued = false;
+        pendingToolContinuation = false;
+        endOfDealWrapPending = false;
+        endWrapSaved = false;
+        createResponse("next_deal_first_question");
+      }, 350);
+    } else {
+      console.log("🏁 All deals done.");
+    }
+  }
+
 function kickModel(reason) {
   console.log(`⚡ kickModel (${reason})`);
 
@@ -839,39 +876,7 @@ function kickModel(reason) {
           });
 
           awaitingModel = false;
-          endOfDealWrapPending = false;
-          endWrapSaved = false;
-          pendingToolContinuation = false;
-          currentDealIndex++;
-
-          if (currentDealIndex < dealQueue.length) {
-            const nextDeal = dealQueue[currentDealIndex];
-            console.log(`👉 Context switch -> id=${nextDeal.id} account="${nextDeal.account_name}"`);
-
-            const instructions = getSystemPrompt(
-              nextDeal,
-              repFirstName || repName || "Rep",
-              dealQueue.length,
-              false
-            );
-
-            safeSend(openAiWs, {
-              type: "session.update",
-              session: { instructions },
-            });
-
-            setTimeout(() => {
-              awaitingModel = false;
-              responseActive = false;
-              responseCreateQueued = false;
-              pendingToolContinuation = false;
-              endOfDealWrapPending = false;
-              endWrapSaved = false;
-              createResponse("next_deal_first_question");
-            }, 350);
-          } else {
-            console.log("🏁 All deals done.");
-          }
+          advanceToNextDeal("tool");
           return;
         }
 
@@ -1092,6 +1097,12 @@ function kickModel(reason) {
         } else if (responseCreateQueued) {
           responseCreateQueued = false;
           setTimeout(() => createResponse("queued_continue"), 250);
+        }
+
+        // If end wrap is saved, auto-advance even if model fails to call advance_deal.
+        if (endOfDealWrapPending && endWrapSaved) {
+          endOfDealWrapPending = false;
+          setTimeout(() => advanceToNextDeal("auto_end_wrap"), 200);
         }
 
         const transcript = (
