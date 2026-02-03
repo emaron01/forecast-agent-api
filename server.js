@@ -546,6 +546,9 @@ wss.on("connection", async (twilioWs) => {
   let responseInProgress = false; // hard guard: one response at a time
   let waitingForUser = false; // only listen for speech when true
   let pendingPostToolResponse = false; // continue after tool outputs
+  let pendingUserTurn = false; // waiting for user speech completion
+  let userResponseFallbackTimer = null;
+  let postToolAwaitingContinuation = false;
   // Count of in-flight/active responses (used only for gating; must start at 0)
   let responseOutstanding = 0;
   let lastResponseCreateAt = 0;
@@ -599,6 +602,12 @@ wss.on("connection", async (twilioWs) => {
     responseActive = true;
     responseInProgress = true;
     waitingForUser = false;
+    pendingUserTurn = false;
+    postToolAwaitingContinuation = false;
+    if (userResponseFallbackTimer) {
+      clearTimeout(userResponseFallbackTimer);
+      userResponseFallbackTimer = null;
+    }
 
     console.log(`⚡ response.create (${reason})`);
     responseOutstanding += 1;
@@ -674,6 +683,12 @@ function kickModel(reason) {
         responseActive = true;
         responseInProgress = true;
         waitingForUser = false;
+        pendingUserTurn = false;
+        postToolAwaitingContinuation = false;
+        if (userResponseFallbackTimer) {
+          clearTimeout(userResponseFallbackTimer);
+          userResponseFallbackTimer = null;
+        }
         awaitingModel = true;
         responseCreateQueued = true;
         return;
@@ -691,6 +706,10 @@ function kickModel(reason) {
       responseCreateInFlight = false;
       // keep active; we already set it true on create
       awaitingModel = true;
+      if (userResponseFallbackTimer) {
+        clearTimeout(userResponseFallbackTimer);
+        userResponseFallbackTimer = null;
+      }
     }
 
 
@@ -699,10 +718,12 @@ function kickModel(reason) {
       // Only track speech when we're actually waiting for the rep
       if (!waitingForUser) return;
       sawSpeechStarted = true;
+      pendingUserTurn = true;
+      waitingForUser = false;
     }
 
     if (response.type === "input_audio_buffer.speech_stopped") {
-      if (!waitingForUser) return;
+      if (!pendingUserTurn) return;
       if (!sawSpeechStarted) return;
       sawSpeechStarted = false;
 
@@ -710,7 +731,21 @@ function kickModel(reason) {
       if (now - lastSpeechStoppedAt < 1800) return;
       lastSpeechStoppedAt = now;
 
-      createResponse("speech_stopped");
+      // Commit user audio and let server_vad create a response.
+      safeSend(openAiWs, { type: "input_audio_buffer.commit" });
+
+      // Fallback: if no response arrives, create one after a short wait.
+      if (userResponseFallbackTimer) clearTimeout(userResponseFallbackTimer);
+      userResponseFallbackTimer = setTimeout(() => {
+        if (
+          responseOutstanding === 0 &&
+          !responseActive &&
+          !responseCreateInFlight &&
+          !responseInProgress
+        ) {
+          createResponse("speech_stopped_fallback");
+        }
+      }, 1200);
     }
 
     try {
@@ -830,6 +865,7 @@ function kickModel(reason) {
 
         // Continue after the current response finishes
         pendingPostToolResponse = true;
+        postToolAwaitingContinuation = true;
       }
 
       if (response.type === "response.done") {
@@ -841,6 +877,12 @@ function kickModel(reason) {
           responseInProgress = false;
         }
         sawSpeechStarted = false;
+        pendingUserTurn = false;
+        postToolAwaitingContinuation = false;
+        if (userResponseFallbackTimer) {
+          clearTimeout(userResponseFallbackTimer);
+          userResponseFallbackTimer = null;
+        }
 
         if (pendingPostToolResponse) {
           pendingPostToolResponse = false;
@@ -923,6 +965,10 @@ function kickModel(reason) {
       }
 
       if (response.type === "response.audio.delta" && response.delta && streamSid) {
+        if (postToolAwaitingContinuation) {
+          postToolAwaitingContinuation = false;
+          pendingPostToolResponse = false;
+        }
         twilioWs.send(
           JSON.stringify({
             event: "media",
