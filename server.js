@@ -64,6 +64,18 @@ function compact(obj, keys) {
   return out;
 }
 
+function parseEndWrapFromTranscript(transcript) {
+  if (!transcript) return null;
+  const riskMatch = transcript.match(
+    /(?:Updated\s+)?Risk Summary:\s*([\s\S]*?)(?:Suggested Next Steps:|Your Deal Health Score is|$)/i
+  );
+  const nextMatch = transcript.match(/Suggested Next Steps:\s*([\s\S]*)$/i);
+  const riskSummary = riskMatch ? riskMatch[1].trim() : "";
+  const nextSteps = nextMatch ? nextMatch[1].trim() : "";
+  if (!riskSummary || !nextSteps) return null;
+  return { riskSummary, nextSteps };
+}
+
 function safeSend(ws, payload) {
   try {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
@@ -1225,6 +1237,32 @@ function kickModel(reason) {
             .map((c) => c.transcript || c.text || "")
             .join(" ") || ""
         );
+
+        // Server-authoritative end-wrap save using spoken content, if present.
+        if (endOfDealWrapPending && !endWrapSaved) {
+          const wrap = parseEndWrapFromTranscript(transcript);
+          if (wrap) {
+            const deal = dealQueue[currentDealIndex];
+            if (deal) {
+              await handleFunctionCall({
+                toolName: "save_deal_data",
+                args: {
+                  risk_summary: wrap.riskSummary,
+                  next_steps: wrap.nextSteps,
+                  org_id: deal.org_id,
+                  opportunity_id: deal.id,
+                  rep_name: repName,
+                  call_id: `end_wrap_server_${Date.now()}`,
+                },
+                pool,
+              });
+              endWrapSaved = true;
+              if (endWrapDeadlineTimer) clearTimeout(endWrapDeadlineTimer);
+              endWrapDeadlineTimer = null;
+              console.log("✅ End-wrap saved by server from transcript.");
+            }
+          }
+        }
 
         if (transcript.includes("NEXT_DEAL_TRIGGER")) {
           const current = dealQueue[currentDealIndex];
