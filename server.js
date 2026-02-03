@@ -543,8 +543,9 @@ Then proceed to the next category.
 
 MANDATORY WORKFLOW (NON-NEGOTIABLE)
 After EVERY single rep answer, you MUST:
-1. IMMEDIATELY call the save_deal_data tool with score, summary, and tip based on what the rep just said
-2. THEN speak your next question (no pause, no acknowledgment of saving)
+1. Say: "Got it — moving to the next category." (or just "Got it.") 
+2. IMMEDIATELY call the save_deal_data tool with score, summary, and tip based on what the rep just said
+3. THEN speak your next question (no pause, no acknowledgment of saving)
 
 CRITICAL RULES:
 - Tool calls are 100% silent - never mention saving or updating
@@ -563,10 +564,13 @@ HEALTH SCORE (spoken only at end)
 - Never reveal category scores.
 - If asked how it was calculated: "Your score is based on the completeness and strength of your MEDDPICC answers."
 
-END-OF-DEAL WRAP
-When finished with a deal:
-- Say: "Okay — let’s move to the next one."
-- Then call the advance_deal tool silently.
+END-OF-DEAL WRAP (spoken)
+After all required categories for the deal type are reviewed:
+Speak in this exact order:
+1) Updated Risk Summary
+2) "Your Deal Health Score is X out of 30."
+3) Suggested Next Steps (plain language)
+Do NOT ask for rep confirmation. Do NOT invite edits. Then call the advance_deal tool silently.
 `.trim();
 }
 
@@ -596,6 +600,7 @@ wss.on("connection", async (twilioWs) => {
   let lastAudioDeltaAt = 0;
   let lastResponseDoneAt = 0;
   let lastToolOutputAt = 0;
+  let endOfDealWrapPending = false;
   // Count of in-flight/active responses (used only for gating; must start at 0)
   let responseOutstanding = 0;
   let lastResponseCreateAt = 0;
@@ -653,10 +658,8 @@ wss.on("connection", async (twilioWs) => {
 
   function forceContinueAfterTool(reason) {
     // If the model gets stuck after function_call_output, force a new response.
-    // If OpenAI says an active response exists, cancel it and try again.
     console.log(`🧯 Forcing continue (${reason})`);
-    safeSend(openAiWs, { type: "response.cancel" });
-    setTimeout(() => createResponse(`forced_${reason}`), 150);
+    createResponse(`forced_${reason}`);
   }
 
 function kickModel(reason) {
@@ -782,6 +785,7 @@ function kickModel(reason) {
           });
 
           awaitingModel = false;
+          endOfDealWrapPending = false;
           pendingToolContinuation = false;
           currentDealIndex++;
 
@@ -806,6 +810,7 @@ function kickModel(reason) {
               responseActive = false;
               responseCreateQueued = false;
               pendingToolContinuation = false;
+              endOfDealWrapPending = false;
               createResponse("next_deal_first_question");
             }, 350);
           } else {
@@ -886,6 +891,30 @@ function kickModel(reason) {
             forceContinueAfterTool("tool_watchdog");
           }
         }, 950);
+
+        // If the deal is complete, force the end-of-deal wrap before advancing.
+        if (!endOfDealWrapPending && isDealCompleteForStage(deal, deal.forecast_stage)) {
+          endOfDealWrapPending = true;
+          safeSend(openAiWs, {
+            type: "conversation.item.create",
+            item: {
+              type: "message",
+              role: "system",
+              content: [
+                {
+                  type: "text",
+                  text:
+                    "End-of-deal wrap now. Speak ONLY: (1) Updated Risk Summary, (2) Deal Health Score out of 30, (3) Suggested Next Steps. Then call advance_deal.",
+                },
+              ],
+            },
+          });
+          if (responseOutstanding === 0 && !responseActive && !responseCreateInFlight && !responseInProgress) {
+            createResponse("end_of_deal_wrap");
+          } else {
+            responseCreateQueued = true;
+          }
+        }
       }
 
       if (response.type === "response.done") {

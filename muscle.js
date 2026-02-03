@@ -203,6 +203,16 @@ export async function handleFunctionCall({ toolName, args, pool }) {
   let i = 2;
 
   for (const k of allowed) {
+    // Prevent wiping summaries with empty strings
+    if (k.endsWith("_summary")) {
+      const cleaned = cleanText(args[k]);
+      if (!cleaned) continue;
+      args[k] = cleaned;
+    }
+    // Always persist tip (empty allowed) to satisfy required output
+    if (k.endsWith("_tip") && args[k] == null) {
+      args[k] = "";
+    }
     sets.push(`${k} = $${++i}`);
     vals.push(args[k]);
   }
