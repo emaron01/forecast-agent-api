@@ -135,30 +135,30 @@ function isDealCompleteForStage(deal, stage, touchedSet) {
   return requiredKeys.every((k) => scoreNum(deal?.[k]) >= 3);
 }
 
-function computeFirstGap(deal, stage) {
+function computeFirstGap(deal, stage, touchedSet) {
   const stageStr = String(stage || deal?.forecast_stage || "Pipeline");
 
-  // Pipeline: Pain → Metrics → Champion → Competition → Budget
+  // Pipeline: Pain → Metrics → Internal Sponsor → Competition → Budget
   const pipelineOrder = [
-    { name: "Pain", key: "pain_score", val: deal.pain_score },
-    { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
-    { name: "Internal Sponsor", key: "champion_score", val: deal.champion_score },
-    { name: "Competition", key: "competition_score", val: deal.competition_score },
-    { name: "Budget", key: "budget_score", val: deal.budget_score },
+    { name: "Pain", key: "pain_score", val: deal.pain_score, touchedKey: "pain" },
+    { name: "Metrics", key: "metrics_score", val: deal.metrics_score, touchedKey: "metrics" },
+    { name: "Internal Sponsor", key: "champion_score", val: deal.champion_score, touchedKey: "champion" },
+    { name: "Competition", key: "competition_score", val: deal.competition_score, touchedKey: "competition" },
+    { name: "Budget", key: "budget_score", val: deal.budget_score, touchedKey: "budget" },
   ];
 
   // Best Case / Commit: Pain → Metrics → Internal Sponsor → Criteria → Competition → Timing → Budget → Economic Buyer → Decision Process → Paper Process
   const bestCaseCommitOrder = [
-    { name: "Pain", key: "pain_score", val: deal.pain_score },
-    { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
-    { name: "Internal Sponsor", key: "champion_score", val: deal.champion_score },
-    { name: "Criteria", key: "criteria_score", val: deal.criteria_score },
-    { name: "Competition", key: "competition_score", val: deal.competition_score },
-    { name: "Timing", key: "timing_score", val: deal.timing_score },
-    { name: "Budget", key: "budget_score", val: deal.budget_score },
-    { name: "Economic Buyer", key: "eb_score", val: deal.eb_score },
-    { name: "Decision Process", key: "process_score", val: deal.process_score },
-    { name: "Paper Process", key: "paper_score", val: deal.paper_score },
+    { name: "Pain", key: "pain_score", val: deal.pain_score, touchedKey: "pain" },
+    { name: "Metrics", key: "metrics_score", val: deal.metrics_score, touchedKey: "metrics" },
+    { name: "Internal Sponsor", key: "champion_score", val: deal.champion_score, touchedKey: "champion" },
+    { name: "Criteria", key: "criteria_score", val: deal.criteria_score, touchedKey: "criteria" },
+    { name: "Competition", key: "competition_score", val: deal.competition_score, touchedKey: "competition" },
+    { name: "Timing", key: "timing_score", val: deal.timing_score, touchedKey: "timing" },
+    { name: "Budget", key: "budget_score", val: deal.budget_score, touchedKey: "budget" },
+    { name: "Economic Buyer", key: "eb_score", val: deal.eb_score, touchedKey: "eb" },
+    { name: "Decision Process", key: "process_score", val: deal.process_score, touchedKey: "process" },
+    { name: "Paper Process", key: "paper_score", val: deal.paper_score, touchedKey: "paper" },
   ];
 
   let order = pipelineOrder;
@@ -166,7 +166,15 @@ function computeFirstGap(deal, stage) {
     order = bestCaseCommitOrder;
   }
 
-  return order.find((s) => scoreNum(s.val) < 3) || order[0];
+  // Primary rule: follow strict order and ask any category not yet touched in this review,
+  // even if the prior score was already strong.
+  if (touchedSet && touchedSet.size > 0) {
+    const nextUntouched = order.find((s) => !touchedSet.has(s.touchedKey));
+    if (nextUntouched) return nextUntouched;
+  }
+
+  // Fallback: if nothing touched yet, start at the first category.
+  return order[0];
 }
 
 function applyArgsToLocalDeal(deal, args) {
@@ -390,7 +398,7 @@ const advanceDealTool = {
 /// ============================================================================
 /// SECTION 8: System Prompt Builder (getSystemPrompt)
 /// ============================================================================
-function getSystemPrompt(deal, repName, totalCount, isFirstDeal) {
+function getSystemPrompt(deal, repName, totalCount, isFirstDeal, touchedSet) {
   const stage = deal.forecast_stage || "Pipeline";
 
   const amountStr = new Intl.NumberFormat("en-US", {
@@ -447,7 +455,7 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
     ? `Existing Risk Summary: ${deal.risk_summary}`
     : "No prior risk summary recorded.";
 
-  const firstGap = computeFirstGap(deal, stage);
+  const firstGap = computeFirstGap(deal, stage, touchedSet);
 
   const gapQuestion = (() => {
     if (String(stage).includes("Pipeline")) {
@@ -536,6 +544,10 @@ For each category you touch:
 - Update the category score (integer) consistent with your scoring definitions.
 - Update label/summary/tip ONLY in the dedicated fields for that category (e.g., pain_summary, pain_tip, etc.).
 - If no meaningful coaching tip is needed, leave the tip blank (do not invent filler).
+- Be skeptical by default. You are an auditor, not a cheerleader.
+- Only give a 3 when the rep provides concrete, current-cycle evidence that fully meets the definition.
+- If evidence is vague, aspirational, or second‑hand, score lower and explain the gap in the summary/tip.
+- Favor truth over momentum: it is better to downgrade than to accept weak proof.
 
 Unknowns:
 - If the rep explicitly says it's unknown or not applicable, score accordingly (typically 0/Unknown) and write a short summary reflecting that.
@@ -719,7 +731,8 @@ wss.on("connection", async (twilioWs) => {
         nextDeal,
         repFirstName || repName || "Rep",
         dealQueue.length,
-        false
+        false,
+        touched
       );
 
       safeSend(openAiWs, {
@@ -1307,7 +1320,8 @@ function kickModel(reason) {
               nextDeal,
               repFirstName || repName || "Rep",
               dealQueue.length,
-              false
+              false,
+              touched
             );
 
             safeSend(openAiWs, {
@@ -1425,7 +1439,13 @@ function kickModel(reason) {
     }
 
     const deal = dealQueue[currentDealIndex];
-    const instructions = getSystemPrompt(deal, repFirstName || repName, dealQueue.length, true);
+    const instructions = getSystemPrompt(
+      deal,
+      repFirstName || repName,
+      dealQueue.length,
+      true,
+      touched
+    );
 
     safeSend(openAiWs, {
       type: "session.update",
