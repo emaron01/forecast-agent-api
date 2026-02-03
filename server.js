@@ -602,6 +602,7 @@ wss.on("connection", async (twilioWs) => {
   let lastToolOutputAt = 0;
   let endOfDealWrapPending = false;
   let endWrapSaved = false;
+  let endWrapDeadlineTimer = null;
   let repTurnCompleteAt = 0;
   let saveSinceRepTurn = true;
   let forceSaveAttempts = 0;
@@ -900,23 +901,28 @@ function kickModel(reason) {
           ])
         );
 
-        // Ignore malformed save calls (must include a score)
         const hasScoreKey = Object.keys(argsParsed.json).some((k) => k.endsWith("_score"));
-        if (!hasScoreKey) {
+        const isEndWrapSave =
+          argsParsed.json.risk_summary != null || argsParsed.json.next_steps != null;
+
+        // Ignore malformed save calls (must include a score OR be end-wrap save)
+        if (!hasScoreKey && !isEndWrapSave) {
           console.warn("⚠️ Ignoring save_deal_data without *_score keys.");
           return;
         }
 
-        // Prevent rapid-fire saves without rep speech
-        if (!repTurnCompleteAt || saveSinceRepTurn) {
+        // Prevent rapid-fire saves without rep speech (except end-wrap save)
+        if (!isEndWrapSave && (!repTurnCompleteAt || saveSinceRepTurn)) {
           console.warn("⚠️ Ignoring save_deal_data without new rep speech.");
           return;
         }
 
         markTouched(touched, argsParsed.json);
 
-        if (argsParsed.json.risk_summary != null || argsParsed.json.next_steps != null) {
+        if (isEndWrapSave) {
           endWrapSaved = true;
+          if (endWrapDeadlineTimer) clearTimeout(endWrapDeadlineTimer);
+          endWrapDeadlineTimer = null;
         }
 
         // Enrich tool args with required identifiers for muscle.js
@@ -969,6 +975,26 @@ function kickModel(reason) {
         if (!endOfDealWrapPending && isDealCompleteForStage(deal, deal.forecast_stage)) {
           endOfDealWrapPending = true;
           endWrapSaved = false;
+          if (endWrapDeadlineTimer) clearTimeout(endWrapDeadlineTimer);
+          endWrapDeadlineTimer = setTimeout(() => {
+            if (!endWrapSaved) {
+              safeSend(openAiWs, {
+                type: "conversation.item.create",
+                item: {
+                  type: "message",
+                  role: "system",
+                  content: [
+                    {
+                      type: "input_text",
+                      text:
+                        "You MUST now call save_deal_data with risk_summary and next_steps, then speak the end-of-deal wrap and call advance_deal.",
+                    },
+                  ],
+                },
+              });
+              createResponse("force_end_wrap_save");
+            }
+          }, 2500);
           let wrapRiskSummary = deal.risk_summary || "";
           let wrapNextSteps = deal.next_steps || "";
           let wrapHealthScore = deal.health_score;
