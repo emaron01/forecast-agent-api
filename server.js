@@ -866,8 +866,14 @@ function kickModel(reason) {
       saveSinceRepTurn = false;
       forceSaveAttempts = 0;
       if (saveDeadlineTimer) clearTimeout(saveDeadlineTimer);
-      saveDeadlineTimer = setTimeout(() => {
-        // Force save if no save occurred after rep spoke
+      const tryForceSave = () => {
+        // Force save only when no response is active and audio has been quiet
+        const responseBusy = responseActive || responseInProgress || responseOutstanding > 0;
+        const audioRecent = lastAudioDeltaAt && lastAudioDeltaAt >= repTurnCompleteAt;
+        if (responseBusy || audioRecent) {
+          saveDeadlineTimer = setTimeout(tryForceSave, 800);
+          return;
+        }
         if (!saveSinceRepTurn && forceSaveAttempts < 2 && !endOfDealWrapPending) {
           forceSaveAttempts += 1;
           safeSend(openAiWs, {
@@ -886,7 +892,8 @@ function kickModel(reason) {
           });
           createResponse("force_tool_save");
         }
-      }, 3000);
+      };
+      saveDeadlineTimer = setTimeout(tryForceSave, 3000);
     }
 
     try {
