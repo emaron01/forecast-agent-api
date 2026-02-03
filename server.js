@@ -551,6 +551,9 @@ For each category you touch:
 - Only give a 3 when the rep provides concrete, current-cycle evidence that fully meets the definition.
 - If evidence is vague, aspirational, or second‑hand, score lower and explain the gap in the summary/tip.
 - Favor truth over momentum: it is better to downgrade than to accept weak proof.
+- MEDDPICC rigor is mandatory: a named person ≠ a Champion, and a stated metric ≠ validated Metrics.
+- Champion (Internal Sponsor) requires: power/influence, active advocacy, and a concrete action they drove in this cycle.
+- Metrics require: measurable outcome, baseline + target, and buyer validation (not just rep belief).
 
 Unknowns:
 - If the rep explicitly says it's unknown or not applicable, score accordingly (typically 0/Unknown) and write a short summary reflecting that.
@@ -651,6 +654,7 @@ wss.on("connection", async (twilioWs) => {
   let lastToolOutputAt = 0;
   let endOfDealWrapPending = false;
   let endWrapSaved = false;
+  let endWrapFinalized = false;
   let endWrapForceAttempts = 0;
   let endWrapDeadlineTimer = null;
   let lastAutoAdvanceAt = 0;
@@ -727,6 +731,7 @@ wss.on("connection", async (twilioWs) => {
     pendingToolContinuation = false;
     touched = new Set();
     if (reason === "auto_end_wrap") lastAutoAdvanceAt = Date.now();
+    endWrapFinalized = false;
     currentDealIndex++;
 
     if (currentDealIndex < dealQueue.length) {
@@ -913,6 +918,18 @@ function kickModel(reason) {
             });
             return;
           }
+          // If end-wrap already finalized, ignore any late advance_deal tool calls.
+          if (endWrapFinalized) {
+            safeSend(openAiWs, {
+              type: "conversation.item.create",
+              item: {
+                type: "function_call_output",
+                call_id: callId,
+                output: JSON.stringify({ status: "success", ignored: "wrap_finalized" }),
+              },
+            });
+            return;
+          }
 
           if (!endWrapSaved) {
             console.log("⛔ Advance blocked (end wrap not saved). Forcing end wrap + save.");
@@ -1066,6 +1083,7 @@ function kickModel(reason) {
 
         if (isEndWrapSave) {
           endWrapSaved = true;
+          endWrapFinalized = true;
           if (endWrapDeadlineTimer) clearTimeout(endWrapDeadlineTimer);
           endWrapDeadlineTimer = null;
           console.log("✅ End-wrap save recorded (risk_summary/next_steps).");
@@ -1118,7 +1136,7 @@ function kickModel(reason) {
         }, 950);
 
         // If the deal is complete, force the end-of-deal wrap before advancing.
-        if (!endOfDealWrapPending && isDealCompleteForStage(deal, deal.forecast_stage, touched)) {
+        if (!endWrapFinalized && !endOfDealWrapPending && isDealCompleteForStage(deal, deal.forecast_stage, touched)) {
           endOfDealWrapPending = true;
           endWrapSaved = false;
           endWrapForceAttempts = 0;
@@ -1271,6 +1289,7 @@ function kickModel(reason) {
                 pool,
               });
               endWrapSaved = true;
+              endWrapFinalized = true;
               if (endWrapDeadlineTimer) clearTimeout(endWrapDeadlineTimer);
               endWrapDeadlineTimer = null;
               console.log("✅ End-wrap saved by server from transcript.");
@@ -1282,7 +1301,7 @@ function kickModel(reason) {
         if (endOfDealWrapPending && endWrapSaved) {
           endOfDealWrapPending = false;
           setTimeout(() => advanceToNextDeal("auto_end_wrap"), 200);
-        } else if (endOfDealWrapPending && !endWrapSaved && endWrapForceAttempts < 2) {
+        } else if (endOfDealWrapPending && !endWrapSaved && !endWrapFinalized && endWrapForceAttempts < 2) {
           endWrapForceAttempts += 1;
           safeSend(openAiWs, {
             type: "conversation.item.create",
