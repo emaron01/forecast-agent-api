@@ -456,6 +456,9 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
     : "No prior risk summary recorded.";
 
   const firstGap = computeFirstGap(deal, stage, touchedSet);
+  console.log(
+    `🧭 Next category: ${firstGap.name} (stage=${stage}, touched=${touchedSet ? Array.from(touchedSet).join(",") : ""})`
+  );
 
   const gapQuestion = (() => {
     if (String(stage).includes("Pipeline")) {
