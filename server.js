@@ -83,32 +83,43 @@ function scoreNum(x) {
  * - Pipeline focuses ONLY on Pain, Metrics, Champion, Budget.
  * - Do NOT ask Paper/Legal/Procurement in Pipeline.
  */
-function isDealCompleteForStage(deal, stage) {
+function isDealCompleteForStage(deal, stage, touchedSet) {
   const stageStr = String(stage || deal?.forecast_stage || "Pipeline");
+  const isPipeline = stageStr.includes("Pipeline");
+  const requiredCats = isPipeline
+    ? ["pain", "metrics", "champion", "competition", "budget"]
+    : [
+        "pain",
+        "metrics",
+        "champion",
+        "criteria",
+        "competition",
+        "timing",
+        "budget",
+        "eb",
+        "process",
+        "paper",
+      ];
 
-  // Pipeline: only Pain, Metrics, Champion, Budget (do NOT require late-stage fields)
-  if (stageStr.includes("Pipeline")) {
-    return (
-      scoreNum(deal.pain_score) >= 3 &&
-      scoreNum(deal.metrics_score) >= 3 &&
-      scoreNum(deal.champion_score) >= 3 &&
-      scoreNum(deal.budget_score) >= 3
-    );
+  if (touchedSet && touchedSet.size > 0) {
+    return requiredCats.every((c) => touchedSet.has(c));
   }
 
-  // Best Case / Commit: keep prior MEDDPICC+TB completeness (all 10 categories)
-  const requiredKeys = [
-    "pain_score",
-    "metrics_score",
-    "champion_score",
-    "eb_score",
-    "criteria_score",
-    "process_score",
-    "competition_score",
-    "paper_score",
-    "timing_score",
-    "budget_score",
-  ];
+  // Fallback (conservative): only consider "complete" when scores are strong
+  const requiredKeys = isPipeline
+    ? ["pain_score", "metrics_score", "champion_score", "competition_score", "budget_score"]
+    : [
+        "pain_score",
+        "metrics_score",
+        "champion_score",
+        "criteria_score",
+        "competition_score",
+        "timing_score",
+        "budget_score",
+        "eb_score",
+        "process_score",
+        "paper_score",
+      ];
   return requiredKeys.every((k) => scoreNum(deal?.[k]) >= 3);
 }
 
@@ -162,11 +173,22 @@ function markTouched(touchedSet, args) {
 
 function okToAdvance(deal, touchedSet) {
   const stage = String(deal?.forecast_stage || "Pipeline");
-  if (stage.includes("Pipeline")) {
-    const req = ["pain", "metrics", "champion", "budget"];
-    return req.every((c) => touchedSet.has(c));
-  }
-  return true;
+  const isPipeline = stage.includes("Pipeline");
+  const req = isPipeline
+    ? ["pain", "metrics", "champion", "competition", "budget"]
+    : [
+        "pain",
+        "metrics",
+        "champion",
+        "criteria",
+        "competition",
+        "timing",
+        "budget",
+        "eb",
+        "process",
+        "paper",
+      ];
+  return req.every((c) => touchedSet.has(c));
 }
 
 /// ============================================================================
@@ -402,7 +424,7 @@ function getSystemPrompt(deal, repName, totalCount, isFirstDeal) {
       "Logic: Identify gaps keeping the deal out of Commit. Probe readiness without pressure.";
   } else {
     stageMode = "MODE: PIPELINE ANALYST (PIPELINE)";
-    stageFocus = "FOCUS ONLY: Pain, Metrics, Champion, Budget.";
+    stageFocus = "FOCUS ONLY: Pain, Metrics, Champion, Competition, Budget.";
     stageRules =
       `RULES: Do NOT ask about paper process, legal, contracts, or procurement. Do NOT force completeness. Do NOT act late-stage.
 Champion scoring in Pipeline: a past user or someone who booked a demo is NOT automatically a Champion. A 3 requires proven internal advocacy, influence, and active action in the current cycle.`;
@@ -562,7 +584,7 @@ After all required categories for the deal type are reviewed:
 1. Synthesize an Updated Risk Summary based on everything discussed.
 2. Speak the wrap in this exact order:
    a) "Updated Risk Summary: <your synthesized risk summary>"
-   b) "Your Deal Health Score is [USE ACTUAL DB SCORE] out of 30."
+   b) Say: "Your Deal Health Score is X out of 30." Use the exact score provided in the system message.
    c) "Suggested Next Steps: <your recommended next steps>"
 3. IMMEDIATELY call save_deal_data with:
    - risk_summary: <the risk summary you just spoke>
@@ -847,8 +869,8 @@ function kickModel(reason) {
         if (fnName === "advance_deal") {
           console.log("➡️ advance_deal tool received. Advancing deal...");
 
-          if (endOfDealWrapPending && !endWrapSaved) {
-            console.log("⛔ Advance blocked (end wrap not saved). Forcing save of wrap fields.");
+          if (!endWrapSaved) {
+            console.log("⛔ Advance blocked (end wrap not saved). Forcing end wrap + save.");
             // Get actual health score
             let blockedHealthScore = dealQueue[currentDealIndex]?.health_score;
             try {
@@ -870,11 +892,12 @@ function kickModel(reason) {
                     type: "input_text",
                     text:
                       "STOP. Before advancing, you MUST complete the end-of-deal wrap:\n" +
-                      "1) Speak your synthesized Risk Summary.\n" +
-                      `2) Say EXACTLY: \"Your Deal Health Score is ${actualScore} out of 30.\"\n` +
-                      "3) Speak your synthesized Next Steps.\n" +
-                      "4) Call save_deal_data with risk_summary and next_steps fields.\n" +
-                      "5) THEN call advance_deal again.",
+                      "1) If you already spoke the wrap, do NOT repeat it; just save the same Risk Summary + Next Steps.\n" +
+                      "2) Otherwise, speak your synthesized Risk Summary now.\n" +
+                      `3) Say EXACTLY: \"Your Deal Health Score is ${actualScore} out of 30.\"\n` +
+                      "4) Speak your synthesized Next Steps.\n" +
+                      "5) Call save_deal_data with risk_summary and next_steps fields.\n" +
+                      "6) THEN call advance_deal again.",
                   },
                 ],
               },
@@ -928,10 +951,50 @@ function kickModel(reason) {
         const hasScoreKey = Object.keys(argsParsed.json).some((k) => k.endsWith("_score"));
         const isEndWrapSave =
           argsParsed.json.risk_summary != null || argsParsed.json.next_steps != null;
+        const riskSummaryVal = String(argsParsed.json.risk_summary || "").trim();
+        const nextStepsVal = String(argsParsed.json.next_steps || "").trim();
+        const isEndWrapEmpty = isEndWrapSave && !riskSummaryVal && !nextStepsVal;
 
         // Ignore malformed save calls (must include a score OR be end-wrap save)
         if (!hasScoreKey && !isEndWrapSave) {
+          if (endOfDealWrapPending) {
+            safeSend(openAiWs, {
+              type: "conversation.item.create",
+              item: {
+                type: "message",
+                role: "system",
+                content: [
+                  {
+                    type: "input_text",
+                    text:
+                      "End-of-deal wrap save is missing. You MUST call save_deal_data with NON-EMPTY risk_summary and next_steps, then call advance_deal.",
+                  },
+                ],
+              },
+            });
+            createResponse("force_end_wrap_fields");
+          }
           console.warn("⚠️ Ignoring save_deal_data without *_score keys.");
+          return;
+        }
+
+        if (isEndWrapEmpty) {
+          safeSend(openAiWs, {
+            type: "conversation.item.create",
+            item: {
+              type: "message",
+              role: "system",
+              content: [
+                {
+                  type: "input_text",
+                  text:
+                    "End-of-deal wrap requires NON-EMPTY risk_summary and next_steps. Speak them, then call save_deal_data with both fields.",
+                },
+              ],
+            },
+          });
+          createResponse("force_end_wrap_fields");
+          console.warn("⚠️ End-wrap save missing risk_summary/next_steps (empty).");
           return;
         }
 
@@ -1009,7 +1072,7 @@ function kickModel(reason) {
         }, 950);
 
         // If the deal is complete, force the end-of-deal wrap before advancing.
-        if (!endOfDealWrapPending && isDealCompleteForStage(deal, deal.forecast_stage)) {
+        if (!endOfDealWrapPending && isDealCompleteForStage(deal, deal.forecast_stage, touched)) {
           endOfDealWrapPending = true;
           endWrapSaved = false;
           if (endWrapDeadlineTimer) clearTimeout(endWrapDeadlineTimer);
@@ -1156,7 +1219,7 @@ function kickModel(reason) {
                 role: "system",
                 content: [
                   {
-                    type: "text",
+                    type: "input_text",
                     text:
                       "DO NOT advance to the next deal yet. Continue the CURRENT deal. Ask exactly ONE question to close the next gap based on stage rules.",
                   },
