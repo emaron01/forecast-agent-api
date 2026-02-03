@@ -601,6 +601,7 @@ wss.on("connection", async (twilioWs) => {
   let lastResponseDoneAt = 0;
   let lastToolOutputAt = 0;
   let endOfDealWrapPending = false;
+  let endWrapSaved = false;
   let repTurnCompleteAt = 0;
   let saveSinceRepTurn = true;
   let forceSaveAttempts = 0;
@@ -805,6 +806,26 @@ function kickModel(reason) {
         if (fnName === "advance_deal") {
           console.log("➡️ advance_deal tool received. Advancing deal...");
 
+          if (endOfDealWrapPending && !endWrapSaved) {
+            console.log("⛔ Advance blocked (end wrap not saved). Forcing save of wrap fields.");
+            safeSend(openAiWs, {
+              type: "conversation.item.create",
+              item: {
+                type: "message",
+                role: "system",
+                content: [
+                  {
+                    type: "input_text",
+                    text:
+                      "Before advancing, you MUST call save_deal_data to save risk_summary and next_steps, then speak the end-of-deal wrap, then call advance_deal.",
+                  },
+                ],
+              },
+            });
+            createResponse("force_end_wrap_save");
+            return;
+          }
+
           safeSend(openAiWs, {
             type: "conversation.item.create",
             item: {
@@ -816,6 +837,7 @@ function kickModel(reason) {
 
           awaitingModel = false;
           endOfDealWrapPending = false;
+          endWrapSaved = false;
           pendingToolContinuation = false;
           currentDealIndex++;
 
@@ -841,6 +863,7 @@ function kickModel(reason) {
               responseCreateQueued = false;
               pendingToolContinuation = false;
               endOfDealWrapPending = false;
+              endWrapSaved = false;
               createResponse("next_deal_first_question");
             }, 350);
           } else {
@@ -892,6 +915,10 @@ function kickModel(reason) {
 
         markTouched(touched, argsParsed.json);
 
+        if (argsParsed.json.risk_summary != null || argsParsed.json.next_steps != null) {
+          endWrapSaved = true;
+        }
+
         // Enrich tool args with required identifiers for muscle.js
         const toolArgs = {
           ...argsParsed.json,
@@ -941,6 +968,7 @@ function kickModel(reason) {
         // If the deal is complete, force the end-of-deal wrap before advancing.
         if (!endOfDealWrapPending && isDealCompleteForStage(deal, deal.forecast_stage)) {
           endOfDealWrapPending = true;
+          endWrapSaved = false;
           let wrapRiskSummary = deal.risk_summary || "";
           let wrapNextSteps = deal.next_steps || "";
           let wrapHealthScore = deal.health_score;
@@ -987,7 +1015,7 @@ function kickModel(reason) {
                     `1) ${riskLine}\n` +
                     `2) ${scoreLine}\n` +
                     `3) ${nextStepsLine}\n` +
-                    "Then call advance_deal.",
+                    "Then call save_deal_data with risk_summary and next_steps, THEN call advance_deal.",
                 },
               ],
             },

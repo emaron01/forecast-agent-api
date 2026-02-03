@@ -14,6 +14,32 @@ function cleanText(v) {
   return s.length ? s : null;
 }
 
+function vpTipForCategory(category) {
+  const tips = {
+    pain:
+      "Quantify the business impact, clarify who feels it most, and tie it to a deadline the buyer owns.",
+    metrics:
+      "Define one measurable outcome with a baseline and target, and get the buyer to confirm it in writing.",
+    champion:
+      "Confirm the internal sponsor’s influence and actions this cycle, and secure a concrete next step they will drive.",
+    competition:
+      "Document the competitive alternative and your differentiation in the buyer’s words, then validate it with the sponsor.",
+    budget:
+      "Identify the funding source, approval path, and exact amount required; secure the approver’s acknowledgement.",
+    criteria:
+      "Get the decision criteria prioritized by the buyer and map how you meet the top two in their language.",
+    process:
+      "Map the decision process step‑by‑step, owners and dates, and validate where the deal can stall.",
+    paper:
+      "Confirm contracting steps, legal review owner, and the earliest signature date the buyer will commit to.",
+    timing:
+      "Anchor the close to a buyer‑owned event and validate the critical path milestones to reach it.",
+    eb:
+      "Identify the economic buyer, confirm their priorities, and secure direct access or a committed intro.",
+  };
+  return tips[category] || "Validate the critical evidence and confirm ownership for this category.";
+}
+
 async function getScoreLabel(pool, orgId, category, score) {
   if (!category || score == null) return null;
   const { rows } = await pool.query(
@@ -198,9 +224,9 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       if (hasScore && scoreNum >= 3) {
         args[tipKey] = `Maintain current evidence; monitor for changes in ${category}.`;
       } else if (hasScore) {
-        args[tipKey] = `Ask for concrete evidence to raise ${category} to a 3.`;
+        args[tipKey] = vpTipForCategory(category);
       } else {
-        args[tipKey] = `Capture evidence to establish ${category} before scoring.`;
+        args[tipKey] = vpTipForCategory(category);
       }
     }
   }
@@ -230,7 +256,7 @@ export async function handleFunctionCall({ toolName, args, pool }) {
     vals.push(args[k]);
   }
 
-  // Also update last_summary/risk_summary if provided by tool.
+  // Also update last_summary/risk_summary/next_steps if provided by tool.
   // (keeping backwards compatibility)
   if (args.last_summary != null) {
     sets.push(`last_summary = $${++i}`);
@@ -239,6 +265,10 @@ export async function handleFunctionCall({ toolName, args, pool }) {
   if (args.risk_summary != null) {
     sets.push(`risk_summary = $${++i}`);
     vals.push(args.risk_summary);
+  }
+  if (args.next_steps != null) {
+    sets.push(`next_steps = $${++i}`);
+    vals.push(args.next_steps);
   }
 
   // Always stamp updated_at if exists
