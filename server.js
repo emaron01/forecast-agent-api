@@ -544,6 +544,8 @@ wss.on("connection", async (twilioWs) => {
   let responseCreateQueued = false;
   let responseCreateInFlight = false;
   let responseInProgress = false; // hard guard: one response at a time
+  let waitingForUser = false; // only listen for speech when true
+  let pendingPostToolResponse = false; // continue after tool outputs
   // Count of in-flight/active responses (used only for gating; must start at 0)
   let responseOutstanding = 0;
   let lastResponseCreateAt = 0;
@@ -596,6 +598,7 @@ wss.on("connection", async (twilioWs) => {
     responseCreateInFlight = true;
     responseActive = true;
     responseInProgress = true;
+    waitingForUser = false;
 
     console.log(`⚡ response.create (${reason})`);
     responseOutstanding += 1;
@@ -670,6 +673,7 @@ function kickModel(reason) {
         responseOutstanding = Math.max(1, responseOutstanding);
         responseActive = true;
         responseInProgress = true;
+        waitingForUser = false;
         awaitingModel = true;
         responseCreateQueued = true;
         return;
@@ -692,12 +696,13 @@ function kickModel(reason) {
 
 
     if (response.type === "input_audio_buffer.speech_started") {
-      // Ignore VAD events while the model response is in progress
-      if (responseInProgress) return;
+      // Only track speech when we're actually waiting for the rep
+      if (!waitingForUser) return;
       sawSpeechStarted = true;
     }
 
     if (response.type === "input_audio_buffer.speech_stopped") {
+      if (!waitingForUser) return;
       if (!sawSpeechStarted) return;
       sawSpeechStarted = false;
 
@@ -705,7 +710,6 @@ function kickModel(reason) {
       if (now - lastSpeechStoppedAt < 1800) return;
       lastSpeechStoppedAt = now;
 
-      awaitingModel = true;
       createResponse("speech_stopped");
     }
 
@@ -824,8 +828,8 @@ function kickModel(reason) {
           },
         });
 
-        // Do NOT create a new response here.
-        // Tool calls are part of an active response; the model will continue after output.
+        // Continue after the current response finishes
+        pendingPostToolResponse = true;
       }
 
       if (response.type === "response.done") {
@@ -835,13 +839,17 @@ function kickModel(reason) {
           responseActive = false;
           responseCreateInFlight = false;
           responseInProgress = false;
-          awaitingModel = false;
         }
         sawSpeechStarted = false;
 
-        if (responseCreateQueued) {
+        if (pendingPostToolResponse) {
+          pendingPostToolResponse = false;
+          setTimeout(() => createResponse("post_tool_continue"), 250);
+        } else if (responseCreateQueued) {
           responseCreateQueued = false;
           setTimeout(() => createResponse("queued_continue"), 250);
+        } else {
+          waitingForUser = true;
         }
 
         const transcript = (
