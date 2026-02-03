@@ -509,19 +509,18 @@ Unknowns:
 CATEGORY CHECK PATTERNS (spoken)
 - For categories with prior score >= 3:
   Say: "Last review <Category> was strong. Has anything changed that could introduce new risk?"
-  If rep says NO: move on to next category WITHOUT saving. Do NOT call save_deal_data.
-  If rep says YES: ask ONE follow-up to get concrete details, then silently update and save.
+  If rep says "NO" or "nothing changed": say "Got it." and move to next category WITHOUT saving.
+  If rep provides ANY other answer: ask ONE follow-up if needed, then SAVE with updated score/summary/tip.
 
 - For categories with prior score 1 or 2:
   Say: "Last review <Category> was <Label>. Have we made progress since the last review?"
-  If clear improvement: capture evidence, silently update and save.
-  If no change: confirm, then move on WITHOUT saving.
-  If vague: ask ONE clarifying question.
+  ALWAYS SAVE after the rep answers (whether improved, same, or worse).
 
 - For categories with prior score 0 (or empty):
   Treat as "not previously established."
   Do NOT say "last review was…" or reference any prior state.
-  Ask the primary question directly without any preamble about previous reviews.
+  Ask the primary question directly.
+  ALWAYS SAVE after the rep answers.
 
 DEGRADATION (silent)
 Any category may drop (including 3 → 0) if evidence supports it. No score protection. Truth > momentum.
@@ -535,22 +534,22 @@ If the rep provides info that answers a future category while answering the curr
 Then proceed to the next category.
 
 MANDATORY WORKFLOW (NON-NEGOTIABLE)
-After each rep answer:
+After EVERY rep answer, you MUST:
 1. Say: "Got it." (brief acknowledgment)
-2. Determine if a save is required based on the CATEGORY CHECK PATTERNS above:
-   - Score >= 3 + no change → NO save, move on
-   - Score >= 3 + new risk → save with updated score/summary/tip
-   - Score 1-2 + improvement → save with updated score/summary/tip
-   - Score 1-2 + no change → NO save, move on
-   - Score 0 or new info → save with score/summary/tip
-3. If save is required: call save_deal_data silently, THEN speak next question
-4. If no save required: speak next question immediately
+2. IMMEDIATELY call save_deal_data with score, summary, and tip for what the rep just said
+3. THEN speak your next question (no pause)
+
+THE ONLY EXCEPTION - Skip save ONLY when ALL of these are true:
+- The category's prior score was >= 3 (strong)
+- You asked "Has anything changed that could introduce new risk?"
+- The rep explicitly answered "No" or "Nothing has changed"
+In that specific case: just say "Got it." and move to the next category question without saving.
 
 CRITICAL RULES:
 - Tool calls are 100% silent - never mention saving or updating
-- If the rep says "I don't know" or provides weak evidence, save with a low score (0-1)
-- Do NOT save when moving on from a stable score-3 category with no new risk
-- Do NOT save when confirming no change on a score 1-2 category
+- Default is to SAVE. Only skip save for the specific exception above.
+- If the rep says "I don't know" or provides weak evidence, still save with a low score (0-1)
+- If in doubt, SAVE. It's better to save than to skip.
 
 HEALTH SCORE (spoken only at end)
 - Health Score is ALWAYS out of 30.
@@ -809,7 +808,7 @@ function kickModel(reason) {
       forceSaveAttempts = 0;
       if (saveDeadlineTimer) clearTimeout(saveDeadlineTimer);
       saveDeadlineTimer = setTimeout(() => {
-        // Only nudge if conversation seems stuck (no save AND no advance to next question)
+        // Force save if no save occurred after rep spoke
         if (!saveSinceRepTurn && forceSaveAttempts < 2 && !endOfDealWrapPending) {
           forceSaveAttempts += 1;
           safeSend(openAiWs, {
@@ -821,14 +820,14 @@ function kickModel(reason) {
                 {
                   type: "input_text",
                   text:
-                    "Continue the review. If the rep provided new information or the category score is <3, call save_deal_data with score/summary/tip. If the category was already strong (score 3) and nothing changed, just move to the next category question.",
+                    "The rep just answered. You MUST call save_deal_data NOW with score, summary, and tip for their answer. Then ask the next category question.",
                 },
               ],
             },
           });
-          createResponse("nudge_continue");
+          createResponse("force_tool_save");
         }
-      }, 5000);
+      }, 4000);
     }
 
     try {
