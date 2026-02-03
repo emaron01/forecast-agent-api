@@ -884,6 +884,7 @@ function kickModel(reason) {
       forceSavePending = false;
       if (saveDeadlineTimer) clearTimeout(saveDeadlineTimer);
       saveDeadlineTimer = setTimeout(() => {
+        if (forceSavePending) return;
         if (!saveSinceRepTurn && forceSaveAttempts < 2 && !endOfDealWrapPending) {
           forceSaveAttempts += 1;
           forceSavePending = true;
@@ -1126,6 +1127,13 @@ function kickModel(reason) {
           pool,
         });
 
+        // If this was the end-wrap save, advance immediately (no need to wait for response.done).
+        if (isEndWrapSave && !endWrapAdvanceQueued) {
+          endWrapAdvanceQueued = true;
+          endOfDealWrapPending = false;
+          setTimeout(() => advanceToNextDeal("auto_end_wrap"), 200);
+        }
+
         // Keep local in-memory deal in sync for stage checks / NEXT_DEAL_TRIGGER
         applyArgsToLocalDeal(deal, argsParsed.json);
 
@@ -1141,6 +1149,7 @@ function kickModel(reason) {
         // Mark that we need to continue after this response completes
         pendingToolContinuation = true;
         saveSinceRepTurn = true;
+        forceSavePending = false;
         if (saveDeadlineTimer) clearTimeout(saveDeadlineTimer);
         saveDeadlineTimer = null;
         lastToolOutputAt = Date.now();
