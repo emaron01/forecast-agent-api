@@ -604,6 +604,7 @@ wss.on("connection", async (twilioWs) => {
   let repTurnCompleteAt = 0;
   let saveSinceRepTurn = true;
   let forceSaveAttempts = 0;
+  let saveDeadlineTimer = null;
   // Count of in-flight/active responses (used only for gating; must start at 0)
   let responseOutstanding = 0;
   let lastResponseCreateAt = 0;
@@ -764,6 +765,27 @@ function kickModel(reason) {
       repTurnCompleteAt = Date.now();
       saveSinceRepTurn = false;
       forceSaveAttempts = 0;
+      if (saveDeadlineTimer) clearTimeout(saveDeadlineTimer);
+      saveDeadlineTimer = setTimeout(() => {
+        if (!saveSinceRepTurn && forceSaveAttempts < 2) {
+          forceSaveAttempts += 1;
+          safeSend(openAiWs, {
+            type: "conversation.item.create",
+            item: {
+              type: "message",
+              role: "system",
+              content: [
+                {
+                  type: "input_text",
+                  text:
+                    "You MUST call save_deal_data now for the rep's last answer. Include score, summary, and tip. Then continue to the next question.",
+                },
+              ],
+            },
+          });
+          createResponse("force_tool_save");
+        }
+      }, 4000);
     }
 
     try {
@@ -855,6 +877,19 @@ function kickModel(reason) {
           ])
         );
 
+        // Ignore malformed save calls (must include a score)
+        const hasScoreKey = Object.keys(argsParsed.json).some((k) => k.endsWith("_score"));
+        if (!hasScoreKey) {
+          console.warn("⚠️ Ignoring save_deal_data without *_score keys.");
+          return;
+        }
+
+        // Prevent rapid-fire saves without rep speech
+        if (!repTurnCompleteAt || saveSinceRepTurn) {
+          console.warn("⚠️ Ignoring save_deal_data without new rep speech.");
+          return;
+        }
+
         markTouched(touched, argsParsed.json);
 
         // Enrich tool args with required identifiers for muscle.js
@@ -888,6 +923,8 @@ function kickModel(reason) {
         // Mark that we need to continue after this response completes
         pendingToolContinuation = true;
         saveSinceRepTurn = true;
+        if (saveDeadlineTimer) clearTimeout(saveDeadlineTimer);
+        saveDeadlineTimer = null;
         lastToolOutputAt = Date.now();
         if (toolContinueTimer) clearTimeout(toolContinueTimer);
         toolContinueTimer = setTimeout(() => {
@@ -979,30 +1016,13 @@ function kickModel(reason) {
           pendingToolContinuation = false;
           if (toolContinueTimer) clearTimeout(toolContinueTimer);
           toolContinueTimer = null;
-          setTimeout(() => createResponse("post_tool_continue"), 200);
+          const spokeSinceTool = lastAudioDeltaAt && lastAudioDeltaAt >= lastToolOutputAt;
+          if (!spokeSinceTool) {
+            setTimeout(() => createResponse("post_tool_continue"), 200);
+          }
         } else if (responseCreateQueued) {
           responseCreateQueued = false;
           setTimeout(() => createResponse("queued_continue"), 250);
-        }
-
-        // If the rep spoke but no save happened, force a tool save prompt.
-        if (repTurnCompleteAt && !saveSinceRepTurn && forceSaveAttempts < 2) {
-          forceSaveAttempts += 1;
-          safeSend(openAiWs, {
-            type: "conversation.item.create",
-            item: {
-              type: "message",
-              role: "system",
-              content: [
-                {
-                  type: "input_text",
-                  text:
-                    "You MUST call save_deal_data now for the rep's last answer. Include score, summary, and tip. Then continue to the next question.",
-                },
-              ],
-            },
-          });
-          createResponse("force_tool_save");
         }
 
         const transcript = (
