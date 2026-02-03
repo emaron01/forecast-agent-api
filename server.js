@@ -751,9 +751,8 @@ function kickModel(reason) {
             });
 
             setTimeout(() => {
+              // NOTE: do not clear responseActive here. We only unlock on response.done.
               awaitingModel = false;
-              responseActive = false;
-              responseCreateQueued = false;
               createResponse("next_deal_first_question");
             }, 350);
           } else {
@@ -825,7 +824,7 @@ function kickModel(reason) {
         awaitingModel = true;
       }
 
-      if (response.type === "response.done" || response.type === "response.completed") {
+      if (response.type === "response.done") {
         responseActive = false;
         responseCreateInFlight = false;
         responseInProgress = false;
@@ -896,9 +895,8 @@ function kickModel(reason) {
             });
 
             setTimeout(() => {
+              // NOTE: do not clear responseActive here. We only unlock on response.done.
               awaitingModel = false;
-              responseActive = false;
-              responseCreateQueued = false;
               createResponse("next_deal_first_question");
             }, 350);
           } else {
@@ -1009,14 +1007,13 @@ function kickModel(reason) {
     safeSend(openAiWs, {
       type: "session.update",
       session: { instructions },
-    }); 
+    });
 
     setTimeout(() => {
-      awaitingModel = false;
-      responseActive = false;
-      responseCreateQueued = false;
-      createResponse("first_question");
-    }, 350);
+              // NOTE: do not clear responseActive here. We only unlock on response.done.
+              awaitingModel = false;
+              createResponse("first_question");
+            }, 350);
   }
 });
 
