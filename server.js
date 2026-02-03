@@ -664,6 +664,8 @@ wss.on("connection", async (twilioWs) => {
   let forceSaveAttempts = 0;
   let saveDeadlineTimer = null;
   let forceSavePending = false;
+  let repSpeechDetected = false;
+  let repSpeaking = false;
   // Count of in-flight/active responses (used only for gating; must start at 0)
   let responseOutstanding = 0;
   let lastResponseCreateAt = 0;
@@ -860,7 +862,18 @@ function kickModel(reason) {
 
 
 
+    if (response.type === "input_audio_buffer.speech_started") {
+      repSpeechDetected = true;
+      repSpeaking = true;
+    }
+
     if (response.type === "input_audio_buffer.speech_stopped") {
+      if (!repSpeechDetected) {
+        // Ignore false stops when no rep speech was detected
+        return;
+      }
+      repSpeaking = false;
+      repSpeechDetected = false;
       // Rep finished speaking
       repTurnCompleteAt = Date.now();
       lastRepSpeechAt = repTurnCompleteAt;
