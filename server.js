@@ -601,6 +601,9 @@ wss.on("connection", async (twilioWs) => {
   let lastResponseDoneAt = 0;
   let lastToolOutputAt = 0;
   let endOfDealWrapPending = false;
+  let repTurnCompleteAt = 0;
+  let saveSinceRepTurn = true;
+  let forceSaveAttempts = 0;
   // Count of in-flight/active responses (used only for gating; must start at 0)
   let responseOutstanding = 0;
   let lastResponseCreateAt = 0;
@@ -756,7 +759,12 @@ function kickModel(reason) {
 
 
 
-    // Server VAD handles speech detection automatically - we don't need to manage it
+    if (response.type === "input_audio_buffer.speech_stopped") {
+      // Rep finished speaking; next response MUST include a save_deal_data call
+      repTurnCompleteAt = Date.now();
+      saveSinceRepTurn = false;
+      forceSaveAttempts = 0;
+    }
 
     try {
       if (response.type === "response.function_call_arguments.done") {
@@ -879,6 +887,7 @@ function kickModel(reason) {
 
         // Mark that we need to continue after this response completes
         pendingToolContinuation = true;
+        saveSinceRepTurn = true;
         lastToolOutputAt = Date.now();
         if (toolContinueTimer) clearTimeout(toolContinueTimer);
         toolContinueTimer = setTimeout(() => {
@@ -937,6 +946,26 @@ function kickModel(reason) {
         } else if (responseCreateQueued) {
           responseCreateQueued = false;
           setTimeout(() => createResponse("queued_continue"), 250);
+        }
+
+        // If the rep spoke but no save happened, force a tool save prompt.
+        if (repTurnCompleteAt && !saveSinceRepTurn && forceSaveAttempts < 2) {
+          forceSaveAttempts += 1;
+          safeSend(openAiWs, {
+            type: "conversation.item.create",
+            item: {
+              type: "message",
+              role: "system",
+              content: [
+                {
+                  type: "text",
+                  text:
+                    "You MUST call save_deal_data now for the rep's last answer. Include score, summary, and tip. Then continue to the next question.",
+                },
+              ],
+            },
+          });
+          createResponse("force_tool_save");
         }
 
         const transcript = (
