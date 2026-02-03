@@ -580,7 +580,7 @@ wss.on("connection", async (twilioWs) => {
 
     // If a response is already active or in-flight, just mark that we want
     // one more turn AFTER the current response finishes.
-    if (responseActive || responseCreateInFlight || responseInProgress) {
+    if (responseOutstanding > 0 || responseActive || responseCreateInFlight || responseInProgress) {
       responseCreateQueued = true;
       if (DEBUG_AGENT) {
         console.log(
@@ -596,6 +596,7 @@ wss.on("connection", async (twilioWs) => {
     responseInProgress = true;
 
     console.log(`⚡ response.create (${reason})`);
+    responseOutstanding += 1;
     safeSend(openAiWs, { type: "response.create" });
   }
 
@@ -663,7 +664,8 @@ function kickModel(reason) {
       const code = response?.error?.code;
 
       if (code === "conversation_already_has_active_response") {
-        // Treat as: "okay, something is already running; wait for response.done"
+        // Treat as: "something is already running; wait for response.done"
+        responseOutstanding = Math.max(1, responseOutstanding);
         responseActive = true;
         responseInProgress = true;
         awaitingModel = true;
@@ -751,8 +753,9 @@ function kickModel(reason) {
             });
 
             setTimeout(() => {
-              // NOTE: do not clear responseActive here. We only unlock on response.done.
               awaitingModel = false;
+              responseActive = false;
+              responseCreateQueued = false;
               createResponse("next_deal_first_question");
             }, 350);
           } else {
@@ -825,10 +828,14 @@ function kickModel(reason) {
       }
 
       if (response.type === "response.done") {
-        responseActive = false;
-        responseCreateInFlight = false;
-        responseInProgress = false;
-        awaitingModel = false;
+        responseOutstanding = Math.max(0, responseOutstanding - 1);
+        // Only unlock when OpenAI says the response is fully done.
+        if (responseOutstanding === 0) {
+          responseActive = false;
+          responseCreateInFlight = false;
+          responseInProgress = false;
+          awaitingModel = false;
+        }
         sawSpeechStarted = false;
 
         if (responseCreateQueued) {
@@ -895,8 +902,9 @@ function kickModel(reason) {
             });
 
             setTimeout(() => {
-              // NOTE: do not clear responseActive here. We only unlock on response.done.
               awaitingModel = false;
+              responseActive = false;
+              responseCreateQueued = false;
               createResponse("next_deal_first_question");
             }, 350);
           } else {
@@ -1010,10 +1018,11 @@ function kickModel(reason) {
     });
 
     setTimeout(() => {
-              // NOTE: do not clear responseActive here. We only unlock on response.done.
-              awaitingModel = false;
-              createResponse("first_question");
-            }, 350);
+      awaitingModel = false;
+      responseActive = false;
+      responseCreateQueued = false;
+      createResponse("first_question");
+    }, 350);
   }
 });
 
