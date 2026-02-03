@@ -624,6 +624,7 @@ wss.on("connection", async (twilioWs) => {
   let lastToolOutputAt = 0;
   let endOfDealWrapPending = false;
   let endWrapSaved = false;
+  let endWrapForceAttempts = 0;
   let endWrapDeadlineTimer = null;
   let lastRepSpeechAt = 0;
   let repTurnCompleteAt = 0;
@@ -694,6 +695,7 @@ wss.on("connection", async (twilioWs) => {
     console.log(`➡️ Advancing deal (${reason})`);
     endOfDealWrapPending = false;
     endWrapSaved = false;
+    endWrapForceAttempts = 0;
     pendingToolContinuation = false;
     currentDealIndex++;
 
@@ -848,7 +850,7 @@ function kickModel(reason) {
           });
           createResponse("force_tool_save");
         }
-      }, 4000);
+      }, 3000);
     }
 
     try {
@@ -1075,6 +1077,7 @@ function kickModel(reason) {
         if (!endOfDealWrapPending && isDealCompleteForStage(deal, deal.forecast_stage, touched)) {
           endOfDealWrapPending = true;
           endWrapSaved = false;
+          endWrapForceAttempts = 0;
           if (endWrapDeadlineTimer) clearTimeout(endWrapDeadlineTimer);
           endWrapDeadlineTimer = setTimeout(async () => {
             if (!endWrapSaved) {
@@ -1197,6 +1200,23 @@ function kickModel(reason) {
         if (endOfDealWrapPending && endWrapSaved) {
           endOfDealWrapPending = false;
           setTimeout(() => advanceToNextDeal("auto_end_wrap"), 200);
+        } else if (endOfDealWrapPending && !endWrapSaved && endWrapForceAttempts < 2) {
+          endWrapForceAttempts += 1;
+          safeSend(openAiWs, {
+            type: "conversation.item.create",
+            item: {
+              type: "message",
+              role: "system",
+              content: [
+                {
+                  type: "input_text",
+                  text:
+                    "End-of-deal wrap is incomplete. You MUST save risk_summary and next_steps now, then call advance_deal.",
+                },
+              ],
+            },
+          });
+          setTimeout(() => createResponse("force_end_wrap_followup"), 200);
         }
 
         const transcript = (
@@ -1209,7 +1229,7 @@ function kickModel(reason) {
         if (transcript.includes("NEXT_DEAL_TRIGGER")) {
           const current = dealQueue[currentDealIndex];
           const stageNow = current?.forecast_stage || "Pipeline";
-          if (current && !isDealCompleteForStage(current, stageNow)) {
+          if (current && !isDealCompleteForStage(current, stageNow, touched)) {
             console.log("⛔ Advance blocked (incomplete_for_stage). Forcing continue current deal.");
             // Nudge model to continue the current deal instead of advancing.
             safeSend(openAiWs, {
