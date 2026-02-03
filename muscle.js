@@ -173,7 +173,7 @@ export async function handleFunctionCall({ toolName, args, pool }) {
     const hasScore = Number.isFinite(scoreNum);
 
     // Ensure tip key exists so DB column is written (can be empty string)
-    if (args?.[tipKey] === undefined) args[tipKey] = "";
+    if (args?.[tipKey] === undefined || args?.[tipKey] == null) args[tipKey] = "";
 
     if (hasScore && args?.[summaryKey] != null) {
       const rawSummary = cleanText(args[summaryKey]);
@@ -188,6 +188,19 @@ export async function handleFunctionCall({ toolName, args, pool }) {
           // If no label definition exists, still keep the summary clean.
           args[summaryKey] = rawSummary;
         }
+      }
+    }
+
+    // If tip is missing/blank, generate a minimal deterministic coaching tip
+    // without inventing facts.
+    const cleanedTip = cleanText(args[tipKey]);
+    if (!cleanedTip) {
+      if (hasScore && scoreNum >= 3) {
+        args[tipKey] = `Maintain current evidence; monitor for changes in ${category}.`;
+      } else if (hasScore) {
+        args[tipKey] = `Ask for concrete evidence to raise ${category} to a 3.`;
+      } else {
+        args[tipKey] = `Capture evidence to establish ${category} before scoring.`;
       }
     }
   }

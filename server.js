@@ -904,6 +904,39 @@ function kickModel(reason) {
         // If the deal is complete, force the end-of-deal wrap before advancing.
         if (!endOfDealWrapPending && isDealCompleteForStage(deal, deal.forecast_stage)) {
           endOfDealWrapPending = true;
+          let wrapRiskSummary = deal.risk_summary || "";
+          let wrapNextSteps = deal.next_steps || "";
+          let wrapHealthScore = deal.health_score;
+          try {
+            const { rows } = await pool.query(
+              `
+              SELECT risk_summary, next_steps, health_score
+                FROM opportunities
+               WHERE org_id = $1 AND id = $2
+               LIMIT 1
+              `,
+              [deal.org_id, deal.id]
+            );
+            if (rows[0]) {
+              wrapRiskSummary = rows[0].risk_summary || "";
+              wrapNextSteps = rows[0].next_steps || "";
+              wrapHealthScore = rows[0].health_score ?? wrapHealthScore;
+            }
+          } catch (e) {
+            console.error("❌ End-of-deal wrap fetch error:", e?.message || e);
+          }
+
+          const riskLine = wrapRiskSummary
+            ? `Updated Risk Summary: ${wrapRiskSummary}`
+            : "Updated Risk Summary: No material risk updates recorded.";
+          const scoreLine =
+            Number.isFinite(Number(wrapHealthScore)) && wrapHealthScore !== null
+              ? `Your Deal Health Score is ${Number(wrapHealthScore)} out of 30.`
+              : "Your Deal Health Score is out of 30.";
+          const nextStepsLine = wrapNextSteps
+            ? `Suggested Next Steps: ${wrapNextSteps}`
+            : "Suggested Next Steps: Continue driving evidence to strengthen this deal.";
+
           safeSend(openAiWs, {
             type: "conversation.item.create",
             item: {
@@ -911,9 +944,13 @@ function kickModel(reason) {
               role: "system",
               content: [
                 {
-                  type: "text",
+                  type: "input_text",
                   text:
-                    "End-of-deal wrap now. Speak ONLY: (1) Updated Risk Summary, (2) Deal Health Score out of 30, (3) Suggested Next Steps. Then call advance_deal.",
+                    "End-of-deal wrap now. Speak ONLY these three lines in order:\n" +
+                    `1) ${riskLine}\n` +
+                    `2) ${scoreLine}\n` +
+                    `3) ${nextStepsLine}\n` +
+                    "Then call advance_deal.",
                 },
               ],
             },
@@ -958,7 +995,7 @@ function kickModel(reason) {
               role: "system",
               content: [
                 {
-                  type: "text",
+                  type: "input_text",
                   text:
                     "You MUST call save_deal_data now for the rep's last answer. Include score, summary, and tip. Then continue to the next question.",
                 },
