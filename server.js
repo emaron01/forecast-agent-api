@@ -115,42 +115,33 @@ function isDealCompleteForStage(deal, stage) {
 function computeFirstGap(deal, stage) {
   const stageStr = String(stage || deal?.forecast_stage || "Pipeline");
 
+  // Pipeline: Pain → Metrics → Champion → Competition → Budget
   const pipelineOrder = [
     { name: "Pain", key: "pain_score", val: deal.pain_score },
     { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
-    { name: "Champion", key: "champion_score", val: deal.champion_score },
+    { name: "Internal Sponsor", key: "champion_score", val: deal.champion_score },
+    { name: "Competition", key: "competition_score", val: deal.competition_score },
     { name: "Budget", key: "budget_score", val: deal.budget_score },
   ];
 
-  const bestCaseOrder = [
+  // Best Case / Commit: Pain → Metrics → Internal Sponsor → Criteria → Competition → Timing → Budget → Economic Buyer → Decision Process → Paper Process
+  const bestCaseCommitOrder = [
+    { name: "Pain", key: "pain_score", val: deal.pain_score },
+    { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
+    { name: "Internal Sponsor", key: "champion_score", val: deal.champion_score },
+    { name: "Criteria", key: "criteria_score", val: deal.criteria_score },
+    { name: "Competition", key: "competition_score", val: deal.competition_score },
+    { name: "Timing", key: "timing_score", val: deal.timing_score },
+    { name: "Budget", key: "budget_score", val: deal.budget_score },
     { name: "Economic Buyer", key: "eb_score", val: deal.eb_score },
     { name: "Decision Process", key: "process_score", val: deal.process_score },
     { name: "Paper Process", key: "paper_score", val: deal.paper_score },
-    { name: "Competition", key: "competition_score", val: deal.competition_score },
-    { name: "Budget", key: "budget_score", val: deal.budget_score },
-    { name: "Decision Criteria", key: "criteria_score", val: deal.criteria_score },
-    { name: "Timing", key: "timing_score", val: deal.timing_score },
-    { name: "Champion", key: "champion_score", val: deal.champion_score },
-    { name: "Pain", key: "pain_score", val: deal.pain_score },
-    { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
-  ];
-
-  const commitOrder = [
-    { name: "Paper Process", key: "paper_score", val: deal.paper_score },
-    { name: "Economic Buyer", key: "eb_score", val: deal.eb_score },
-    { name: "Decision Process", key: "process_score", val: deal.process_score },
-    { name: "Budget", key: "budget_score", val: deal.budget_score },
-    { name: "Decision Criteria", key: "criteria_score", val: deal.criteria_score },
-    { name: "Champion", key: "champion_score", val: deal.champion_score },
-    { name: "Timing", key: "timing_score", val: deal.timing_score },
-    { name: "Competition", key: "competition_score", val: deal.competition_score },
-    { name: "Pain", key: "pain_score", val: deal.pain_score },
-    { name: "Metrics", key: "metrics_score", val: deal.metrics_score },
   ];
 
   let order = pipelineOrder;
-  if (stageStr.includes("Commit")) order = commitOrder;
-  else if (stageStr.includes("Best Case")) order = bestCaseOrder;
+  if (stageStr.includes("Commit") || stageStr.includes("Best Case")) {
+    order = bestCaseCommitOrder;
+  }
 
   return order.find((s) => scoreNum(s.val) < 3) || order[0];
 }
@@ -518,17 +509,19 @@ Unknowns:
 CATEGORY CHECK PATTERNS (spoken)
 - For categories with prior score >= 3:
   Say: "Last review <Category> was strong. Has anything changed that could introduce new risk?"
-  If no: move on without saving.
-  If yes: ask ONE follow-up to get concrete details, then silently update and save.
+  If rep says NO: move on to next category WITHOUT saving. Do NOT call save_deal_data.
+  If rep says YES: ask ONE follow-up to get concrete details, then silently update and save.
 
 - For categories with prior score 1 or 2:
   Say: "Last review <Category> was <Label>. Have we made progress since the last review?"
   If clear improvement: capture evidence, silently update and save.
-  If no change: confirm, then move on without saving.
+  If no change: confirm, then move on WITHOUT saving.
   If vague: ask ONE clarifying question.
 
 - For categories with prior score 0 (or empty):
-  Treat as "not previously established." Ask the primary question without referencing last review.
+  Treat as "not previously established."
+  Do NOT say "last review was…" or reference any prior state.
+  Ask the primary question directly without any preamble about previous reviews.
 
 DEGRADATION (silent)
 Any category may drop (including 3 → 0) if evidence supports it. No score protection. Truth > momentum.
@@ -542,35 +535,43 @@ If the rep provides info that answers a future category while answering the curr
 Then proceed to the next category.
 
 MANDATORY WORKFLOW (NON-NEGOTIABLE)
-After EVERY single rep answer, you MUST:
-1. Say: "Got it — moving to the next category." (or just "Got it.") 
-2. IMMEDIATELY call the save_deal_data tool with score, summary, and tip based on what the rep just said
-3. THEN speak your next question (no pause, no acknowledgment of saving)
+After each rep answer:
+1. Say: "Got it." (brief acknowledgment)
+2. Determine if a save is required based on the CATEGORY CHECK PATTERNS above:
+   - Score >= 3 + no change → NO save, move on
+   - Score >= 3 + new risk → save with updated score/summary/tip
+   - Score 1-2 + improvement → save with updated score/summary/tip
+   - Score 1-2 + no change → NO save, move on
+   - Score 0 or new info → save with score/summary/tip
+3. If save is required: call save_deal_data silently, THEN speak next question
+4. If no save required: speak next question immediately
 
 CRITICAL RULES:
 - Tool calls are 100% silent - never mention saving or updating
-- Never ask a question without saving the previous answer first  
-- You MUST use save_deal_data after every rep response
-- If the rep says "I don't know" or provides weak evidence, still save with a low score (0-1)
-
-RESPONSE FORMAT:
-When the rep answers your question:
-[FIRST: Call save_deal_data tool with score/summary/tip for what they just told you]
-[THEN: Speak your next question immediately]
+- If the rep says "I don't know" or provides weak evidence, save with a low score (0-1)
+- Do NOT save when moving on from a stable score-3 category with no new risk
+- Do NOT save when confirming no change on a score 1-2 category
 
 HEALTH SCORE (spoken only at end)
 - Health Score is ALWAYS out of 30.
 - Never change the denominator.
-- Never reveal category scores.
+- Never reveal individual category scores.
 - If asked how it was calculated: "Your score is based on the completeness and strength of your MEDDPICC answers."
 
-END-OF-DEAL WRAP (spoken)
+END-OF-DEAL WRAP (spoken + save)
 After all required categories for the deal type are reviewed:
-Speak in this exact order:
-1) Updated Risk Summary
-2) "Your Deal Health Score is X out of 30."
-3) Suggested Next Steps (plain language)
-Do NOT ask for rep confirmation. Do NOT invite edits. Then call the advance_deal tool silently.
+1. Synthesize an Updated Risk Summary based on everything discussed.
+2. Speak the wrap in this exact order:
+   a) "Updated Risk Summary: <your synthesized risk summary>"
+   b) "Your Deal Health Score is [USE ACTUAL DB SCORE] out of 30."
+   c) "Suggested Next Steps: <your recommended next steps>"
+3. IMMEDIATELY call save_deal_data with:
+   - risk_summary: <the risk summary you just spoke>
+   - next_steps: <the next steps you just spoke>
+   (Do NOT include any score fields in this save)
+4. THEN call advance_deal tool silently.
+
+Do NOT ask for rep confirmation. Do NOT invite edits.
 `.trim();
 }
 
@@ -801,14 +802,15 @@ function kickModel(reason) {
 
 
     if (response.type === "input_audio_buffer.speech_stopped") {
-      // Rep finished speaking; next response MUST include a save_deal_data call
+      // Rep finished speaking
       repTurnCompleteAt = Date.now();
       lastRepSpeechAt = repTurnCompleteAt;
       saveSinceRepTurn = false;
       forceSaveAttempts = 0;
       if (saveDeadlineTimer) clearTimeout(saveDeadlineTimer);
       saveDeadlineTimer = setTimeout(() => {
-        if (!saveSinceRepTurn && forceSaveAttempts < 2) {
+        // Only nudge if conversation seems stuck (no save AND no advance to next question)
+        if (!saveSinceRepTurn && forceSaveAttempts < 2 && !endOfDealWrapPending) {
           forceSaveAttempts += 1;
           safeSend(openAiWs, {
             type: "conversation.item.create",
@@ -819,14 +821,14 @@ function kickModel(reason) {
                 {
                   type: "input_text",
                   text:
-                    "You MUST call save_deal_data now for the rep's last answer. Include score, summary, and tip. Then continue to the next question.",
+                    "Continue the review. If the rep provided new information or the category score is <3, call save_deal_data with score/summary/tip. If the category was already strong (score 3) and nothing changed, just move to the next category question.",
                 },
               ],
             },
           });
-          createResponse("force_tool_save");
+          createResponse("nudge_continue");
         }
-      }, 4000);
+      }, 5000);
     }
 
     try {
@@ -848,6 +850,17 @@ function kickModel(reason) {
 
           if (endOfDealWrapPending && !endWrapSaved) {
             console.log("⛔ Advance blocked (end wrap not saved). Forcing save of wrap fields.");
+            // Get actual health score
+            let blockedHealthScore = dealQueue[currentDealIndex]?.health_score;
+            try {
+              const { rows } = await pool.query(
+                `SELECT health_score FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,
+                [dealQueue[currentDealIndex]?.org_id, dealQueue[currentDealIndex]?.id]
+              );
+              if (rows[0]) blockedHealthScore = rows[0].health_score ?? blockedHealthScore;
+            } catch (e) {}
+            const actualScore = Number.isFinite(Number(blockedHealthScore)) ? Number(blockedHealthScore) : 0;
+
             safeSend(openAiWs, {
               type: "conversation.item.create",
               item: {
@@ -857,7 +870,12 @@ function kickModel(reason) {
                   {
                     type: "input_text",
                     text:
-                      "Before advancing, you MUST call save_deal_data to save risk_summary and next_steps, then speak the end-of-deal wrap, then call advance_deal.",
+                      "STOP. Before advancing, you MUST complete the end-of-deal wrap:\n" +
+                      "1) Speak your synthesized Risk Summary.\n" +
+                      `2) Say EXACTLY: \"Your Deal Health Score is ${actualScore} out of 30.\"\n` +
+                      "3) Speak your synthesized Next Steps.\n" +
+                      "4) Call save_deal_data with risk_summary and next_steps fields.\n" +
+                      "5) THEN call advance_deal again.",
                   },
                 ],
               },
@@ -996,8 +1014,19 @@ function kickModel(reason) {
           endOfDealWrapPending = true;
           endWrapSaved = false;
           if (endWrapDeadlineTimer) clearTimeout(endWrapDeadlineTimer);
-          endWrapDeadlineTimer = setTimeout(() => {
+          endWrapDeadlineTimer = setTimeout(async () => {
             if (!endWrapSaved) {
+              // Re-fetch actual health score for the forced wrap
+              let forcedHealthScore = deal.health_score;
+              try {
+                const { rows } = await pool.query(
+                  `SELECT health_score FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,
+                  [deal.org_id, deal.id]
+                );
+                if (rows[0]) forcedHealthScore = rows[0].health_score ?? forcedHealthScore;
+              } catch (e) {}
+              const actualScore = Number.isFinite(Number(forcedHealthScore)) ? Number(forcedHealthScore) : 0;
+
               safeSend(openAiWs, {
                 type: "conversation.item.create",
                 item: {
@@ -1007,7 +1036,12 @@ function kickModel(reason) {
                     {
                       type: "input_text",
                       text:
-                        "You MUST now call save_deal_data with risk_summary and next_steps, then speak the end-of-deal wrap and call advance_deal.",
+                        "You MUST complete the end-of-deal wrap NOW:\n" +
+                        "1) Speak your synthesized Risk Summary.\n" +
+                        `2) Say EXACTLY: \"Your Deal Health Score is ${actualScore} out of 30.\"\n` +
+                        "3) Speak your synthesized Next Steps.\n" +
+                        "4) Call save_deal_data with risk_summary and next_steps.\n" +
+                        "5) Call advance_deal.",
                     },
                   ],
                 },
@@ -1037,16 +1071,12 @@ function kickModel(reason) {
             console.error("❌ End-of-deal wrap fetch error:", e?.message || e);
           }
 
-          const riskLine = wrapRiskSummary
-            ? `Updated Risk Summary: ${wrapRiskSummary}`
-            : "Updated Risk Summary: No material risk updates recorded.";
-          const scoreLine =
+          // The agent MUST synthesize risk_summary and next_steps, not use DB values.
+          // But we provide the ACTUAL health_score so it speaks the real number.
+          const actualHealthScore =
             Number.isFinite(Number(wrapHealthScore)) && wrapHealthScore !== null
-              ? `Your Deal Health Score is ${Number(wrapHealthScore)} out of 30.`
-              : "Your Deal Health Score is out of 30.";
-          const nextStepsLine = wrapNextSteps
-            ? `Suggested Next Steps: ${wrapNextSteps}`
-            : "Suggested Next Steps: Continue driving evidence to strengthen this deal.";
+              ? Number(wrapHealthScore)
+              : 0;
 
           safeSend(openAiWs, {
             type: "conversation.item.create",
@@ -1057,11 +1087,13 @@ function kickModel(reason) {
                 {
                   type: "input_text",
                   text:
-                    "End-of-deal wrap now. Speak ONLY these three lines in order:\n" +
-                    `1) ${riskLine}\n` +
-                    `2) ${scoreLine}\n` +
-                    `3) ${nextStepsLine}\n` +
-                    "Then call save_deal_data with risk_summary and next_steps (do NOT include any score), THEN call advance_deal.",
+                    "End-of-deal wrap now. You MUST:\n" +
+                    "1) SYNTHESIZE an Updated Risk Summary based on everything discussed in this deal review. Speak it aloud.\n" +
+                    `2) Say EXACTLY: \"Your Deal Health Score is ${actualHealthScore} out of 30.\" (do not change this number)\n` +
+                    "3) SYNTHESIZE Suggested Next Steps based on the gaps and risks identified. Speak them aloud.\n" +
+                    "4) THEN call save_deal_data with risk_summary and next_steps fields (do NOT include any score fields).\n" +
+                    "5) THEN call advance_deal.\n" +
+                    "Do NOT ask for confirmation. Do NOT invite edits.",
                 },
               ],
             },
