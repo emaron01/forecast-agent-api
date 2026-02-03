@@ -658,6 +658,7 @@ wss.on("connection", async (twilioWs) => {
   let endWrapForceAttempts = 0;
   let endWrapDeadlineTimer = null;
   let lastAutoAdvanceAt = 0;
+  let endWrapAdvanceQueued = false;
   let lastRepSpeechAt = 0;
   let repTurnCompleteAt = 0;
   let saveSinceRepTurn = true;
@@ -735,6 +736,7 @@ wss.on("connection", async (twilioWs) => {
     touched = new Set();
     if (reason === "auto_end_wrap") lastAutoAdvanceAt = Date.now();
     endWrapFinalized = false;
+    endWrapAdvanceQueued = false;
     currentDealIndex++;
 
     if (currentDealIndex < dealQueue.length) {
@@ -1322,7 +1324,8 @@ function kickModel(reason) {
         }
 
         // If end wrap is saved, auto-advance even if model fails to call advance_deal.
-        if (endOfDealWrapPending && endWrapSaved) {
+        if (endWrapSaved && !endWrapAdvanceQueued) {
+          endWrapAdvanceQueued = true;
           endOfDealWrapPending = false;
           setTimeout(() => advanceToNextDeal("auto_end_wrap"), 200);
         } else if (endOfDealWrapPending && !endWrapSaved && !endWrapFinalized && endWrapForceAttempts < 2) {
