@@ -14,6 +14,22 @@ function cleanText(v) {
   return s.length ? s : null;
 }
 
+async function getScoreLabel(pool, orgId, category, score) {
+  if (!category || score == null) return null;
+  const { rows } = await pool.query(
+    `
+    SELECT label
+      FROM score_definitions
+     WHERE org_id = $1
+       AND category = $2
+       AND score = $3
+     LIMIT 1
+    `,
+    [orgId, category, score]
+  );
+  return rows[0]?.label ?? null;
+}
+
 /**
  * Detect which category is being saved from tool args.
  * We store <category>_score, <category>_summary, <category>_tip.
@@ -144,6 +160,37 @@ export async function handleFunctionCall({ toolName, args, pool }) {
 
   const category = detectCategoryFromArgs(args);
   const delta = buildDelta(args);
+
+  // Enforce: summary saved as "Label: <summary>" and always write *_tip key.
+  // This makes saved data consistent even if the model omits label/tip.
+  if (category) {
+    const scoreKey = `${category}_score`;
+    const summaryKey = `${category}_summary`;
+    const tipKey = `${category}_tip`;
+
+    const scoreVal = args?.[scoreKey];
+    const scoreNum = Number(scoreVal);
+    const hasScore = Number.isFinite(scoreNum);
+
+    // Ensure tip key exists so DB column is written (can be empty string)
+    if (args?.[tipKey] === undefined) args[tipKey] = "";
+
+    if (hasScore && args?.[summaryKey] != null) {
+      const rawSummary = cleanText(args[summaryKey]);
+      if (rawSummary) {
+        const label = await getScoreLabel(pool, orgId, category, scoreNum);
+        if (label) {
+          const prefix = `${label}:`;
+          args[summaryKey] = rawSummary.startsWith(prefix)
+            ? rawSummary
+            : `${label}: ${rawSummary}`;
+        } else {
+          // If no label definition exists, still keep the summary clean.
+          args[summaryKey] = rawSummary;
+        }
+      }
+    }
+  }
 
   // Update opportunity columns that are present in args (score/summary/tip + optional extras)
   // Only allow known patterns: *_score, *_summary, *_tip, *_name, *_title, etc.

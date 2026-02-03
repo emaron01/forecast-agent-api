@@ -592,6 +592,10 @@ wss.on("connection", async (twilioWs) => {
   let responseCreateInFlight = false;
   let responseInProgress = false; // hard guard: one response at a time
   let pendingToolContinuation = false; // need to continue after tool output
+  let toolContinueTimer = null;
+  let lastAudioDeltaAt = 0;
+  let lastResponseDoneAt = 0;
+  let lastToolOutputAt = 0;
   // Count of in-flight/active responses (used only for gating; must start at 0)
   let responseOutstanding = 0;
   let lastResponseCreateAt = 0;
@@ -645,6 +649,14 @@ wss.on("connection", async (twilioWs) => {
     console.log(`⚡ response.create (${reason})`);
     responseOutstanding += 1;
     safeSend(openAiWs, { type: "response.create" });
+  }
+
+  function forceContinueAfterTool(reason) {
+    // If the model gets stuck after function_call_output, force a new response.
+    // If OpenAI says an active response exists, cancel it and try again.
+    console.log(`🧯 Forcing continue (${reason})`);
+    safeSend(openAiWs, { type: "response.cancel" });
+    setTimeout(() => createResponse(`forced_${reason}`), 150);
   }
 
 function kickModel(reason) {
@@ -728,6 +740,8 @@ function kickModel(reason) {
       responseInProgress = false;
       awaitingModel = false;
       pendingToolContinuation = false;
+      if (toolContinueTimer) clearTimeout(toolContinueTimer);
+      toolContinueTimer = null;
       return;
     }
 
@@ -860,9 +874,22 @@ function kickModel(reason) {
 
         // Mark that we need to continue after this response completes
         pendingToolContinuation = true;
+        lastToolOutputAt = Date.now();
+        if (toolContinueTimer) clearTimeout(toolContinueTimer);
+        toolContinueTimer = setTimeout(() => {
+          // If we haven't heard any audio delta or response.done since tool output,
+          // the model is likely stuck waiting—force continuation.
+          const sinceTool = Date.now() - lastToolOutputAt;
+          const audioRecent = lastAudioDeltaAt && lastAudioDeltaAt >= lastToolOutputAt;
+          const doneRecent = lastResponseDoneAt && lastResponseDoneAt >= lastToolOutputAt;
+          if (!audioRecent && !doneRecent && sinceTool >= 900) {
+            forceContinueAfterTool("tool_watchdog");
+          }
+        }, 950);
       }
 
       if (response.type === "response.done") {
+        lastResponseDoneAt = Date.now();
         responseOutstanding = Math.max(0, responseOutstanding - 1);
         // Only unlock when OpenAI says the response is fully done.
         if (responseOutstanding === 0) {
@@ -875,6 +902,8 @@ function kickModel(reason) {
         // Handle continuation after tool output
         if (pendingToolContinuation) {
           pendingToolContinuation = false;
+          if (toolContinueTimer) clearTimeout(toolContinueTimer);
+          toolContinueTimer = null;
           setTimeout(() => createResponse("post_tool_continue"), 200);
         } else if (responseCreateQueued) {
           responseCreateQueued = false;
@@ -952,6 +981,7 @@ function kickModel(reason) {
       }
 
       if (response.type === "response.audio.delta" && response.delta && streamSid) {
+        lastAudioDeltaAt = Date.now();
         twilioWs.send(
           JSON.stringify({
             event: "media",
