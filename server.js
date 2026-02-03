@@ -650,7 +650,6 @@ wss.on("connection", async (twilioWs) => {
 
   openAiWs.on("unexpected-response", (req, res) => {
     console.error("❌ OpenAI WS unexpected response:", res?.statusCode, res?.statusMessage);
-    console.error("Headers:", res?.headers);
   });
 
   function createResponse(reason) {
