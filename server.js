@@ -663,6 +663,7 @@ wss.on("connection", async (twilioWs) => {
   let saveSinceRepTurn = true;
   let forceSaveAttempts = 0;
   let saveDeadlineTimer = null;
+  let forceSavePending = false;
   // Count of in-flight/active responses (used only for gating; must start at 0)
   let responseOutstanding = 0;
   let lastResponseCreateAt = 0;
@@ -865,17 +866,12 @@ function kickModel(reason) {
       lastRepSpeechAt = repTurnCompleteAt;
       saveSinceRepTurn = false;
       forceSaveAttempts = 0;
+      forceSavePending = false;
       if (saveDeadlineTimer) clearTimeout(saveDeadlineTimer);
-      const tryForceSave = () => {
-        // Force save only when no response is active and audio has been quiet
-        const responseBusy = responseActive || responseInProgress || responseOutstanding > 0;
-        const audioRecent = lastAudioDeltaAt && lastAudioDeltaAt >= repTurnCompleteAt;
-        if (responseBusy || audioRecent) {
-          saveDeadlineTimer = setTimeout(tryForceSave, 800);
-          return;
-        }
+      saveDeadlineTimer = setTimeout(() => {
         if (!saveSinceRepTurn && forceSaveAttempts < 2 && !endOfDealWrapPending) {
           forceSaveAttempts += 1;
+          forceSavePending = true;
           safeSend(openAiWs, {
             type: "conversation.item.create",
             item: {
@@ -890,10 +886,13 @@ function kickModel(reason) {
               ],
             },
           });
-          createResponse("force_tool_save");
+          if (!responseActive && !responseInProgress && responseOutstanding === 0) {
+            createResponse("force_tool_save");
+          } else {
+            responseCreateQueued = true;
+          }
         }
-      };
-      saveDeadlineTimer = setTimeout(tryForceSave, 3000);
+      }, 3000);
     }
 
     try {
@@ -1268,6 +1267,11 @@ function kickModel(reason) {
         } else if (responseCreateQueued) {
           responseCreateQueued = false;
           setTimeout(() => createResponse("queued_continue"), 250);
+        }
+
+        if (forceSavePending && !saveSinceRepTurn && !endOfDealWrapPending) {
+          forceSavePending = false;
+          setTimeout(() => createResponse("force_tool_save"), 200);
         }
 
         const transcript = (
