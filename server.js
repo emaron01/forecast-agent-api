@@ -550,6 +550,7 @@ wss.on("connection", async (twilioWs) => {
   let responseCreateQueued = false;
   let responseCreateInFlight = false;
   let responseInProgress = false; // hard guard: one response at a time
+  let pendingToolContinuation = false; // need to continue after tool output
   // Count of in-flight/active responses (used only for gating; must start at 0)
   let responseOutstanding = 0;
   let lastResponseCreateAt = 0;
@@ -685,6 +686,7 @@ function kickModel(reason) {
       responseCreateInFlight = false;
       responseInProgress = false;
       awaitingModel = false;
+      pendingToolContinuation = false;
       return;
     }
 
@@ -725,6 +727,7 @@ function kickModel(reason) {
           });
 
           awaitingModel = false;
+          pendingToolContinuation = false;
           currentDealIndex++;
 
           if (currentDealIndex < dealQueue.length) {
@@ -747,6 +750,7 @@ function kickModel(reason) {
               awaitingModel = false;
               responseActive = false;
               responseCreateQueued = false;
+              pendingToolContinuation = false;
               createResponse("next_deal_first_question");
             }, 350);
           } else {
@@ -813,7 +817,8 @@ function kickModel(reason) {
           },
         });
 
-        // Model will automatically continue after receiving function output
+        // Mark that we need to continue after this response completes
+        pendingToolContinuation = true;
       }
 
       if (response.type === "response.done") {
@@ -826,8 +831,11 @@ function kickModel(reason) {
           awaitingModel = false;
         }
 
-        // Handle queued responses if any
-        if (responseCreateQueued) {
+        // Handle continuation after tool output
+        if (pendingToolContinuation) {
+          pendingToolContinuation = false;
+          setTimeout(() => createResponse("post_tool_continue"), 200);
+        } else if (responseCreateQueued) {
           responseCreateQueued = false;
           setTimeout(() => createResponse("queued_continue"), 250);
         }
