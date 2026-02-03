@@ -293,7 +293,7 @@ const saveDealDataTool = {
   type: "function",
   name: "save_deal_data",
   description:
-    "Save MEDDPICC+TB updates for the CURRENT deal only. Scores MUST be integers 0-3. Do not invent facts. Do not overwrite evidence with blanks.",
+    "REQUIRED after EVERY rep answer. Save the score (0-3), summary, and coaching tip for the category you just asked about. Always provide at least: <category>_score, <category>_summary, <category>_tip. Example: If you asked about Pain, save pain_score, pain_summary, pain_tip.",
   parameters: {
     type: "object",
     properties: {
@@ -506,15 +506,21 @@ RISK
 - Do not debate risk live.
 - Risk is recorded in the scorecard (deterministic backend).
 
-SAVING BEHAVIOR (STRICT)
-- Never say "Saving", "Updating", or anything similar.
-- Tool calls are silent.
-- Continue smoothly with the next question.
+MANDATORY WORKFLOW (NON-NEGOTIABLE)
+After EVERY single rep answer, you MUST:
+1. IMMEDIATELY call the save_deal_data tool with score, summary, and tip based on what the rep just said
+2. THEN speak your next question (no pause, no acknowledgment of saving)
 
-TOOL USE (CRITICAL)
-After EACH rep answer:
-1) Call save_deal_data silently (no spoken preface).
-2) Then ask the next single best question.
+CRITICAL RULES:
+- Tool calls are 100% silent - never mention saving or updating
+- Never ask a question without saving the previous answer first  
+- You MUST use save_deal_data after every rep response
+- If the rep says "I don't know" or provides weak evidence, still save with a low score (1-2)
+
+RESPONSE FORMAT:
+When the rep answers your question:
+[FIRST: Call save_deal_data tool with score/summary/tip for what they just told you]
+[THEN: Speak your next question immediately]
 
 END OF DEAL
 When finished with a deal:
@@ -633,6 +639,7 @@ function kickModel(reason) {
     safeSend(openAiWs, {
       type: "session.update",
       session: {
+        modalities: ["text", "audio"],
         input_audio_format: "g711_ulaw",
         output_audio_format: "g711_ulaw",
         voice: "verse",
@@ -642,6 +649,7 @@ function kickModel(reason) {
           silence_duration_ms: 1100,
         },
         tools: [saveDealDataTool, advanceDealTool],
+        tool_choice: "auto",
       },
     });
 
