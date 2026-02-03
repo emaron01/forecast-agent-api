@@ -518,13 +518,13 @@ Unknowns:
 CATEGORY CHECK PATTERNS (spoken)
 - For categories with prior score >= 3:
   Say: "Last review <Category> was strong. Has anything changed that could introduce new risk?"
-  If no: move on (no save required unless the system already does heartbeat saves).
+  If no: move on without saving.
   If yes: ask ONE follow-up to get concrete details, then silently update and save.
 
 - For categories with prior score 1 or 2:
   Say: "Last review <Category> was <Label>. Have we made progress since the last review?"
   If clear improvement: capture evidence, silently update and save.
-  If no change: confirm, then save only if the system already does heartbeat saves; otherwise move on.
+  If no change: confirm, then move on without saving.
   If vague: ask ONE clarifying question.
 
 - For categories with prior score 0 (or empty):
@@ -603,6 +603,7 @@ wss.on("connection", async (twilioWs) => {
   let endOfDealWrapPending = false;
   let endWrapSaved = false;
   let endWrapDeadlineTimer = null;
+  let lastRepSpeechAt = 0;
   let repTurnCompleteAt = 0;
   let saveSinceRepTurn = true;
   let forceSaveAttempts = 0;
@@ -765,6 +766,7 @@ function kickModel(reason) {
     if (response.type === "input_audio_buffer.speech_stopped") {
       // Rep finished speaking; next response MUST include a save_deal_data call
       repTurnCompleteAt = Date.now();
+      lastRepSpeechAt = repTurnCompleteAt;
       saveSinceRepTurn = false;
       forceSaveAttempts = 0;
       if (saveDeadlineTimer) clearTimeout(saveDeadlineTimer);
@@ -917,6 +919,19 @@ function kickModel(reason) {
           return;
         }
 
+        // Prevent overwriting strong categories on hesitation with empty evidence.
+        // If score is 0 and summary is empty, ignore the save.
+        if (!isEndWrapSave && hasScoreKey) {
+          const scoreKey = Object.keys(argsParsed.json).find((k) => k.endsWith("_score"));
+          const summaryKey = scoreKey?.replace(/_score$/, "_summary");
+          const scoreVal = Number(argsParsed.json[scoreKey]);
+          const summaryVal = String(argsParsed.json[summaryKey] || "").trim();
+          if (scoreVal === 0 && summaryVal.length === 0 && lastRepSpeechAt) {
+            console.warn("⚠️ Ignoring score=0 without summary (likely hesitation).");
+            return;
+          }
+        }
+
         markTouched(touched, argsParsed.json);
 
         if (isEndWrapSave) {
@@ -1041,7 +1056,7 @@ function kickModel(reason) {
                     `1) ${riskLine}\n` +
                     `2) ${scoreLine}\n` +
                     `3) ${nextStepsLine}\n` +
-                    "Then call save_deal_data with risk_summary and next_steps, THEN call advance_deal.",
+                    "Then call save_deal_data with risk_summary and next_steps (do NOT include any score), THEN call advance_deal.",
                 },
               ],
             },
