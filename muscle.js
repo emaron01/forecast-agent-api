@@ -236,12 +236,14 @@ export async function handleFunctionCall({ toolName, args, pool }) {
   const allowed = Object.keys(args).filter((k) =>
     /_(score|summary|tip|name|title|source|notes)$/.test(k)
   );
+  // Avoid double-assigning special summary fields handled below.
+  const safeAllowed = allowed.filter((k) => k !== "risk_summary" && k !== "next_steps");
 
   const sets = [];
   const vals = [];
   let i = 2;
 
-  for (const k of allowed) {
+  for (const k of safeAllowed) {
     // Prevent wiping summaries with empty strings
     if (k.endsWith("_summary")) {
       const cleaned = cleanText(args[k]);
@@ -256,12 +258,7 @@ export async function handleFunctionCall({ toolName, args, pool }) {
     vals.push(args[k]);
   }
 
-  // Also update last_summary/risk_summary/next_steps if provided by tool.
-  // (keeping backwards compatibility)
-  if (args.last_summary != null) {
-    sets.push(`last_summary = $${++i}`);
-    vals.push(args.last_summary);
-  }
+  // Also update risk_summary/next_steps if provided by tool.
   if (args.risk_summary != null) {
     sets.push(`risk_summary = $${++i}`);
     vals.push(args.risk_summary);

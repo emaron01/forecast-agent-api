@@ -1022,6 +1022,7 @@ function kickModel(reason) {
           endWrapSaved = true;
           if (endWrapDeadlineTimer) clearTimeout(endWrapDeadlineTimer);
           endWrapDeadlineTimer = null;
+          console.log("✅ End-wrap save recorded (risk_summary/next_steps).");
         }
 
         // Enrich tool args with required identifiers for muscle.js
