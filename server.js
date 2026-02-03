@@ -824,9 +824,8 @@ function kickModel(reason) {
           },
         });
 
-        // Queue a single follow-up response after the current one completes
-        responseCreateQueued = true;
-        awaitingModel = true;
+        // Do NOT create a new response here.
+        // Tool calls are part of an active response; the model will continue after output.
       }
 
       if (response.type === "response.done") {
