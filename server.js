@@ -544,16 +544,9 @@ wss.on("connection", async (twilioWs) => {
   let responseCreateQueued = false;
   let responseCreateInFlight = false;
   let responseInProgress = false; // hard guard: one response at a time
-  let waitingForUser = false; // only listen for speech when true
-  let pendingPostToolResponse = false; // continue after tool outputs
-  let pendingUserTurn = false; // waiting for user speech completion
-  let userResponseFallbackTimer = null;
-  let postToolAwaitingContinuation = false;
   // Count of in-flight/active responses (used only for gating; must start at 0)
   let responseOutstanding = 0;
   let lastResponseCreateAt = 0;
-  let sawSpeechStarted = false;
-  let lastSpeechStoppedAt = 0;
 
   // Advancement gating (prevents premature NEXT_DEAL_TRIGGER in Pipeline)
   let touched = new Set();
@@ -577,7 +570,7 @@ wss.on("connection", async (twilioWs) => {
   function createResponse(reason) {
     const now = Date.now();
 
-    // Debounce: avoid rapid duplicate triggers (speech_stopped spam, etc.)
+    // Debounce: avoid rapid duplicate triggers
     if (now - lastResponseCreateAt < 900) {
       if (DEBUG_AGENT) {
         console.log(`[DEBUG_AGENT] response.create DEBOUNCED (${reason})`);
@@ -585,8 +578,7 @@ wss.on("connection", async (twilioWs) => {
       return;
     }
 
-    // If a response is already active or in-flight, just mark that we want
-    // one more turn AFTER the current response finishes.
+    // If a response is already active or in-flight, queue for later
     if (responseOutstanding > 0 || responseActive || responseCreateInFlight || responseInProgress) {
       responseCreateQueued = true;
       if (DEBUG_AGENT) {
@@ -601,13 +593,6 @@ wss.on("connection", async (twilioWs) => {
     responseCreateInFlight = true;
     responseActive = true;
     responseInProgress = true;
-    waitingForUser = false;
-    pendingUserTurn = false;
-    postToolAwaitingContinuation = false;
-    if (userResponseFallbackTimer) {
-      clearTimeout(userResponseFallbackTimer);
-      userResponseFallbackTimer = null;
-    }
 
     console.log(`⚡ response.create (${reason})`);
     responseOutstanding += 1;
@@ -682,13 +667,6 @@ function kickModel(reason) {
         responseOutstanding = Math.max(1, responseOutstanding);
         responseActive = true;
         responseInProgress = true;
-        waitingForUser = false;
-        pendingUserTurn = false;
-        postToolAwaitingContinuation = false;
-        if (userResponseFallbackTimer) {
-          clearTimeout(userResponseFallbackTimer);
-          userResponseFallbackTimer = null;
-        }
         awaitingModel = true;
         responseCreateQueued = true;
         return;
@@ -706,47 +684,11 @@ function kickModel(reason) {
       responseCreateInFlight = false;
       // keep active; we already set it true on create
       awaitingModel = true;
-      if (userResponseFallbackTimer) {
-        clearTimeout(userResponseFallbackTimer);
-        userResponseFallbackTimer = null;
-      }
     }
 
 
 
-    if (response.type === "input_audio_buffer.speech_started") {
-      // Only track speech when we're actually waiting for the rep
-      if (!waitingForUser) return;
-      sawSpeechStarted = true;
-      pendingUserTurn = true;
-      waitingForUser = false;
-    }
-
-    if (response.type === "input_audio_buffer.speech_stopped") {
-      if (!pendingUserTurn) return;
-      if (!sawSpeechStarted) return;
-      sawSpeechStarted = false;
-
-      const now = Date.now();
-      if (now - lastSpeechStoppedAt < 1800) return;
-      lastSpeechStoppedAt = now;
-
-      // Commit user audio and let server_vad create a response.
-      safeSend(openAiWs, { type: "input_audio_buffer.commit" });
-
-      // Fallback: if no response arrives, create one after a short wait.
-      if (userResponseFallbackTimer) clearTimeout(userResponseFallbackTimer);
-      userResponseFallbackTimer = setTimeout(() => {
-        if (
-          responseOutstanding === 0 &&
-          !responseActive &&
-          !responseCreateInFlight &&
-          !responseInProgress
-        ) {
-          createResponse("speech_stopped_fallback");
-        }
-      }, 1200);
-    }
+    // Server VAD handles speech detection automatically - we don't need to manage it
 
     try {
       if (response.type === "response.function_call_arguments.done") {
@@ -863,9 +805,7 @@ function kickModel(reason) {
           },
         });
 
-        // Continue after the current response finishes
-        pendingPostToolResponse = true;
-        postToolAwaitingContinuation = true;
+        // Model will automatically continue after receiving function output
       }
 
       if (response.type === "response.done") {
@@ -875,23 +815,13 @@ function kickModel(reason) {
           responseActive = false;
           responseCreateInFlight = false;
           responseInProgress = false;
-        }
-        sawSpeechStarted = false;
-        pendingUserTurn = false;
-        postToolAwaitingContinuation = false;
-        if (userResponseFallbackTimer) {
-          clearTimeout(userResponseFallbackTimer);
-          userResponseFallbackTimer = null;
+          awaitingModel = false;
         }
 
-        if (pendingPostToolResponse) {
-          pendingPostToolResponse = false;
-          setTimeout(() => createResponse("post_tool_continue"), 250);
-        } else if (responseCreateQueued) {
+        // Handle queued responses if any
+        if (responseCreateQueued) {
           responseCreateQueued = false;
           setTimeout(() => createResponse("queued_continue"), 250);
-        } else {
-          waitingForUser = true;
         }
 
         const transcript = (
@@ -965,10 +895,6 @@ function kickModel(reason) {
       }
 
       if (response.type === "response.audio.delta" && response.delta && streamSid) {
-        if (postToolAwaitingContinuation) {
-          postToolAwaitingContinuation = false;
-          pendingPostToolResponse = false;
-        }
         twilioWs.send(
           JSON.stringify({
             event: "media",
