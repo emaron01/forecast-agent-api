@@ -951,8 +951,18 @@ function kickModel(reason) {
 
     if (response.type === "input_audio_buffer.speech_stopped") {
       if (!repSpeechDetected) {
-        // Ignore false stops when no rep speech was detected
-        return;
+        // Fallback: if we only receive a speech_stopped event, treat it as a valid turn
+        // when the model is not speaking (prevents "no saves" due to missing speech_started).
+        const modelRecentlySpoke =
+          lastAudioDeltaAt && Date.now() - lastAudioDeltaAt < 1000;
+        const responseBusy = responseActive || responseInProgress || responseOutstanding > 0;
+        if (!modelRecentlySpoke && !responseBusy) {
+          repSpeechDetected = true;
+          repSpeechStartedAt = Date.now() - REP_SPEECH_MIN_MS;
+        } else {
+          // Ignore false stops when no rep speech was detected
+          return;
+        }
       }
       const now = Date.now();
       if (now - repSpeechLastEventAt < REP_DEBOUNCE_MS) return;
