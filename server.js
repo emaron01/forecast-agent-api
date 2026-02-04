@@ -530,14 +530,12 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
       return `What changed since last time on ${firstGap.name}?`;
     }
 
-    if (String(stage).includes("Commit")) {
-      return `This is Commit — what evidence do we have that ${firstGap.name} is fully locked?`;
-    }
-    if (String(stage).includes("Best Case")) {
-      return `What would need to happen to strengthen ${firstGap.name} to a clear 3?`;
+    // Best Case / Commit should follow the locked "Last review..." phrasing per master doc.
+    if (String(stage).includes("Commit") || String(stage).includes("Best Case")) {
+      return `Last review ${firstGap.name} was <Label>. Have we made progress since the last review?`;
     }
 
-    return `What is the latest on ${firstGap.name}?`;
+    return `Last review ${firstGap.name} was <Label>. Have we made progress since the last review?`;
   })();
 
   const firstLine = isFirstDeal ? callPickup : dealOpening;
