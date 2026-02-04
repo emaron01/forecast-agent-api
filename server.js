@@ -5,6 +5,10 @@ const { Pool } = require("pg");
 const WebSocket = require("ws");
 const cors = require("cors");
 
+// 🔒 LOCKED BEHAVIOR (OWNER-APPROVED ONLY)
+// Prompts, save logic, move-on logic, and handshakes are locked.
+// Do NOT change these unless explicitly approved by the owner.
+
 // --- [BLOCK 1: CONFIGURATION] ---
 const PORT = process.env.PORT || 10000;
 const OPENAI_API_KEY = process.env.MODEL_API_KEY; // Using your specific Env Var
@@ -34,80 +38,235 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 // --- [BLOCK 3: SYSTEM PROMPT] ---
-function getSystemPrompt(deal, repName, dealsLeft, totalCount) {
-    const runCount = Number(deal.run_count) || 0;
-    const isNewDeal = runCount === 0;
-    const category = deal.forecast_stage || "Pipeline";
-    const amountStr = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(deal.amount || 0);
-    const closeDateStr = deal.close_date ? new Date(deal.close_date).toLocaleDateString() : "TBD";
-
-    // 1. SESSION CONTEXT
-    const isSessionStart = (dealsLeft === totalCount - 1) || (dealsLeft === totalCount); 
-
-    // 2. GAP FINDER
-    const scores = [
-        { name: 'Pain', val: deal.pain_score }, { name: 'Metrics', val: deal.metrics_score },
-        { name: 'Champion', val: deal.champion_score }, { name: 'Economic Buyer', val: deal.eb_score },
-        { name: 'Decision Criteria', val: deal.criteria_score }, { name: 'Decision Process', val: deal.process_score },
-        { name: 'Competition', val: deal.competition_score }, { name: 'Paper Process', val: deal.paper_score },
-        { name: 'Timing', val: deal.timing_score }
-    ];
-    const firstGap = scores.find(s => (Number(s.val) || 0) < 3) || { name: 'Pain' };
-
-    // 3. INTRO CONSTRUCTION
-    let openingLine = "";
-    if (isSessionStart) {
-        openingLine = `Hi ${repName}. Matthew here. We're reviewing ${totalCount} deals. First up: ${deal.account_name}.`;
-    } else {
-        openingLine = `Okay, saved. Next: ${deal.account_name}.`;
+function formatScoreDefinitions(defs) {
+  if (!Array.isArray(defs) || defs.length === 0) return "No criteria available.";
+  const byCat = new Map();
+  for (const row of defs) {
+    const cat = row.category || "unknown";
+    if (!byCat.has(cat)) byCat.set(cat, []);
+    byCat.get(cat).push(row);
+  }
+  const lines = [];
+  for (const [cat, rows] of byCat.entries()) {
+    rows.sort((a, b) => Number(a.score) - Number(b.score));
+    lines.push(`${cat.toUpperCase()}:`);
+    for (const r of rows) {
+      const score = r.score;
+      const label = r.label || "";
+      const criteria = r.criteria || "";
+      lines.push(`- ${score}: ${label} — ${criteria}`);
     }
+  }
+  return lines.join("\n");
+}
 
-    if (isNewDeal) {
-        openingLine += ` ${amountStr}, closing ${closeDateStr}. New deal. What's the specific challenge we are solving?`;
-    } else {
-        openingLine += ` ${amountStr}. Last risk: "${deal.risk_summary || 'None'}". Status on ${firstGap.name}?`;
+function getSystemPrompt(deal, repName, totalCount, isSessionStart, scoreDefs) {
+  const stage = deal.forecast_stage || "Pipeline";
+  const amountStr = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(Number(deal.amount || 0));
+  const closeDateStr = deal.close_date
+    ? new Date(deal.close_date).toLocaleDateString()
+    : "TBD";
+  const oppName = (deal.opportunity_name || "").trim();
+  const oppNamePart = oppName ? ` — ${oppName}` : "";
+
+  const callPickup =
+    `Hi ${repName}, this is Matthew from Sales Forecaster. ` +
+    `Today we are reviewing ${totalCount} deals. ` +
+    `Let's jump in starting with ${deal.account_name}${oppNamePart} ` +
+    `for ${amountStr} in CRM Forecast Stage ${stage} closing ${closeDateStr}.`;
+
+  const dealOpening =
+    `Let’s look at ${deal.account_name}${oppNamePart}, ` +
+    `${stage}, ${amountStr}, closing ${closeDateStr}.`;
+
+  const riskRecall = deal.risk_summary
+    ? `Existing Risk Summary: ${deal.risk_summary}`
+    : "No prior risk summary recorded.";
+
+  const order = stage.includes("Commit") || stage.includes("Best Case")
+    ? [
+        { name: "Pain", val: deal.pain_score },
+        { name: "Metrics", val: deal.metrics_score },
+        { name: "Internal Sponsor", val: deal.champion_score },
+        { name: "Criteria", val: deal.criteria_score },
+        { name: "Competition", val: deal.competition_score },
+        { name: "Timing", val: deal.timing_score },
+        { name: "Budget", val: deal.budget_score },
+        { name: "Economic Buyer", val: deal.eb_score },
+        { name: "Decision Process", val: deal.process_score },
+        { name: "Paper Process", val: deal.paper_score },
+      ]
+    : [
+        { name: "Pain", val: deal.pain_score },
+        { name: "Metrics", val: deal.metrics_score },
+        { name: "Internal Sponsor", val: deal.champion_score },
+        { name: "Competition", val: deal.competition_score },
+        { name: "Budget", val: deal.budget_score },
+      ];
+  const firstGap = order.find((s) => (Number(s.val) || 0) < 3) || order[0];
+
+  const gapQuestion = (() => {
+    if (stage.includes("Pipeline")) {
+      if (firstGap.name === "Pain")
+        return "What specific business problem is the customer trying to solve, and what happens if they do nothing?";
+      if (firstGap.name === "Metrics")
+        return "What measurable outcome has the customer agreed matters, and who validated it?";
+      if (firstGap.name === "Internal Sponsor")
+        return "Who is driving this internally, what is their role, and how have they shown advocacy?";
+      if (firstGap.name === "Budget")
+        return "Has budget been discussed or confirmed, and at what level?";
+      return `What changed since last time on ${firstGap.name}?`;
     }
+    if (stage.includes("Commit")) {
+      return `This is Commit — what evidence do we have that ${firstGap.name} is fully locked?`;
+    }
+    if (stage.includes("Best Case")) {
+      return `What would need to happen to strengthen ${firstGap.name} to a clear 3?`;
+    }
+    return `What is the latest on ${firstGap.name}?`;
+  })();
 
-    return `
-### ROLE
-You are a **MEDDPICC Scorer**. Your job is to Listen, Judge, and Record.
+  const firstLine = isSessionStart ? callPickup : dealOpening;
+  const criteriaBlock = formatScoreDefinitions(scoreDefs);
 
-### MANDATORY OPENING
-You MUST open exactly with: "${openingLine}"
+  return `
+SYSTEM PROMPT — SALES FORECAST AGENT
+You are a Sales Forecast Agent applying MEDDPICC + Timing + Budget to sales opportunities.
+Your job is to run fast, rigorous deal reviews that the rep can be honest in.
 
-### THE "JUDGE & SAVE" PROTOCOL (REAL-TIME)
-As soon as the user answers your question:
-1. **JUDGE:** Compare their answer to the Scoring Rubric below (0-3).
-2. **ASSIGN:** Determine the specific score (e.g., Pain = 1).
-3. **SAVE:** Call 'save_deal_data' with that score IMMEDIATELY.
-4. **ASK:** Move to the next question.
+NON-NEGOTIABLES
+- Do NOT invent facts. Never assume answers that were not stated by the rep.
+- Do NOT reveal category scores, scoring logic, scoring matrix, or how a category is computed.
+- Do NOT speak coaching tips, category summaries, or "what I heard." Coaching and summaries are allowed ONLY in the written fields that will be saved (e.g., *_summary, *_tip, risk_summary, next_steps).
+- Use concise spoken language. Keep momentum. No dead air after saves—always ask the next question.
+- Never use the word "champion." Use "internal sponsor" or "coach" instead.
 
-**DO NOT** simply transcribe what they say. You must evaluate it.
-**DO NOT** read the score out loud. Save it silently.
+HARD CONTEXT (NON-NEGOTIABLE)
+You are reviewing exactly:
+- DEAL_ID: ${deal.id}
+- ACCOUNT_NAME: ${deal.account_name}
+- OPPORTUNITY_NAME: ${oppName || "(none)"}
+- STAGE: ${stage}
+Never change deal identity unless the rep explicitly corrects it.
 
-### SCORING RUBRIC (EXACT DEFINITIONS)
-- **PAIN:** 0=None, 1=Vague, 2=Clear, 3=Quantified ($$$).
-- **METRICS:** 0=Unknown, 1=Soft, 2=Rep-defined, 3=Customer-validated.
-- **CHAMPION:** 0=None, 1=Coach, 2=Mobilizer, 3=Champion (Power).
-- **EB:** 0=Unknown, 1=Identified, 2=Indirect, 3=Direct relationship.
-- **CRITERIA:** 0=Unknown, 1=Vague, 2=Defined, 3=Locked in favor.
-- **PROCESS:** 0=Unknown, 1=Assumed, 2=Understood, 3=Documented.
-- **COMPETITION:** 0=Unknown, 1=Assumed, 2=Identified, 3=Known edge.
-- **PAPER:** 0=Unknown, 1=Not started, 2=Known Started, 3=Waiting for Signature.
-- **TIMING:** 0=Unknown, 1=Assumed, 2=Flexible, 3=Real Consequence/Event.
+DEAL INTRO (spoken)
+At the start of this deal, you may speak ONLY:
+1) "${firstLine}"
+2) "${riskRecall}"
+Then immediately ask the first category question: "${gapQuestion}"
 
-### DATA EXTRACTION RULES
-- **SUMMARIES:** Start every summary field with the Score Label (e.g., "Score 2 (Known Started): Legal confirmed receipt").
-- **TIPS:** Provide a specific "Next Step" to reach Score 3.
-- **POWER PLAYERS:** You MUST extract Name AND Title for Champion and Economic Buyer.
+CATEGORY ORDER (strict)
+Pipeline deals (strict order):
+1) Pain
+2) Metrics
+3) Internal Sponsor (do NOT say champion)
+4) Competition
+5) Budget
 
-### COMPLETION PROTOCOL (STRICT)
-**ONLY** when you are ready to leave the deal:
-1. **CHECK:** Did I save the scores?
-2. **SAY:** "Health Score: [Sum]/27. Risk: [Top Risk]. NEXT_DEAL_TRIGGER."
+Best Case / Commit deals (strict order):
+1) Pain
+2) Metrics
+3) Internal Sponsor
+4) Criteria
+5) Competition
+6) Timing
+7) Budget
+8) Economic Buyer
+9) Decision Process
+10) Paper Process
 
-**CRITICAL:** You MUST say the exact phrase "NEXT_DEAL_TRIGGER" to advance to the next account.
-`;
+Rules:
+- Never skip ahead.
+- Never reorder.
+- Never revisit a category unless the rep introduces NEW information for that category.
+
+QUESTIONING RULES (spoken)
+- Exactly ONE primary question per category.
+- At most ONE clarification question if the answer is vague or incomplete.
+- No spoken summaries. No spoken coaching. No repeating the rep's answer back.
+- After capturing enough info, proceed: silently update fields and save, then immediately ask the next category question.
+
+SCORING / WRITTEN OUTPUT RULES (silent)
+For each category you touch:
+- Update the category score (integer) consistent with your scoring definitions.
+- Update label/summary/tip ONLY in the dedicated fields for that category (e.g., pain_summary, pain_tip, etc.).
+- If no meaningful coaching tip is needed, leave the tip blank (do not invent filler).
+- Be skeptical by default. You are an auditor, not a cheerleader.
+- Only give a 3 when the rep provides concrete, current-cycle evidence that fully meets the definition.
+- If evidence is vague, aspirational, or second-hand, score lower and explain the gap in the summary/tip.
+- Favor truth over momentum: it is better to downgrade than to accept weak proof.
+- MEDDPICC rigor is mandatory: a named person ≠ a Champion, and a stated metric ≠ validated Metrics.
+- Champion (Internal Sponsor) requires: power/influence, active advocacy, and a concrete action they drove in this cycle.
+- Metrics require: measurable outcome, baseline + target, and buyer validation (not just rep belief).
+
+SCORING CRITERIA (AUTHORITATIVE)
+Use these exact definitions as the litmus test for labels and scores:
+${criteriaBlock}
+
+IMPORTANT:
+The criteria are ONLY for scoring. Do NOT ask extra questions beyond the ONE allowed clarification.
+
+Unknowns:
+- If the rep explicitly says it's unknown or not applicable, score accordingly (typically 0/Unknown) and write a short summary reflecting that.
+
+CATEGORY CHECK PATTERNS (spoken)
+- For categories with prior score >= 3:
+  Say: "Last review <Category> was strong. Has anything changed that could introduce new risk?"
+  If rep says NO: move on to next category WITHOUT saving. Do NOT call save_deal_data.
+  If rep provides ANY other answer: ask ONE follow-up if needed, then SAVE with updated score/summary/tip.
+
+- For categories with prior score 1 or 2:
+  Say: "Last review <Category> was <Label>. Have we made progress since the last review?"
+  If clear improvement: capture evidence, silently update and save.
+  If no change: confirm, then move on (save only if the system already does heartbeat saves).
+  If vague: ask ONE clarifying question.
+
+- For categories with prior score 0 (or empty):
+  Treat as "not previously established."
+  Do NOT say "last review was…" or reference any prior state.
+  Ask the primary question directly.
+  ALWAYS SAVE after the rep answers.
+
+DEGRADATION (silent)
+Any category may drop (including 3 → 0) if evidence supports it. No score protection. Truth > momentum.
+If degradation happens: capture the new risk, rescore downward, silently update summary/tip, save.
+
+CROSS-CATEGORY ANSWERS
+If the rep provides info that answers a future category while answering the current one:
+- Silently extract it and store it for that future category.
+- When you reach that category later, do NOT re-ask; say only:
+  "I already captured that earlier based on your previous answer."
+Then proceed to the next category.
+
+MANDATORY WORKFLOW (NON-NEGOTIABLE)
+After each rep answer:
+1) If a save is required, call save_deal_data silently with score/summary/tip.
+2) Then immediately ask the next category question.
+No spoken acknowledgments, summaries, or coaching.
+
+CRITICAL RULES:
+- Tool calls are 100% silent - never mention saving or updating
+- Follow the category check patterns exactly for when to save vs move on
+- If the rep says "I don't know" or provides weak evidence, still save with a low score (0-1)
+
+HEALTH SCORE (spoken only at end)
+- Health Score is ALWAYS out of 30.
+- Never change the denominator.
+- Never reveal individual category scores.
+- If asked how it was calculated: "Your score is based on the completeness and strength of your MEDDPICC answers."
+
+END-OF-DEAL WRAP (spoken)
+After all required categories for the deal type are reviewed:
+Speak in this exact order:
+1) Updated Risk Summary
+2) "Your Deal Health Score is X out of 30."
+3) Suggested Next Steps (plain language)
+Do NOT ask for rep confirmation. Do NOT invite edits. Then call the advance_deal tool silently.
+`.trim();
 }
 // --- [BLOCK 4: SMART RECEPTIONIST] ---
 app.post("/agent", async (req, res) => {
@@ -157,6 +316,7 @@ wss.on("connection", async (ws) => {
   let repName = null; 
   let orgId = 1;
   let openAiReady = false;
+  let scoreDefinitions = [];
 
   const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
     headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "OpenAI-Beta": "realtime=v1" },
@@ -219,8 +379,37 @@ wss.on("connection", async (ws) => {
     try {
       const response = JSON.parse(data);
       if (response.type === "response.function_call_arguments.done") {
-        const args = JSON.parse(response.arguments);
-        handleFunctionCall(args, response.call_id);
+        const fnName = response.name || response.function_name || response?.function?.name || null;
+        const args = JSON.parse(response.arguments || "{}");
+        if (fnName === "save_deal_data") {
+          handleFunctionCall(args, response.call_id);
+        } else if (fnName === "advance_deal") {
+          const nextIndex = currentDealIndex + 1;
+          if (nextIndex < dealQueue.length) {
+            currentDealIndex = nextIndex;
+            const nextDeal = dealQueue[currentDealIndex];
+            const instructions = getSystemPrompt(
+              nextDeal,
+              repName?.split(" ")[0] || repName,
+              dealQueue.length,
+              false,
+              scoreDefinitions
+            );
+            openAiWs.send(
+              JSON.stringify({
+                type: "session.update",
+                session: { instructions },
+              })
+            );
+            setTimeout(() => openAiWs.send(JSON.stringify({ type: "response.create" })), 200);
+          }
+          openAiWs.send(
+            JSON.stringify({
+              type: "conversation.item.create",
+              item: { type: "function_call_output", call_id: response.call_id, output: JSON.stringify({ status: "success" }) },
+            })
+          );
+        }
       }
       
 // 3. INDEX ADVANCER (DIGITAL TRIGGER + CRASH FIX)
@@ -248,12 +437,33 @@ wss.on("connection", async (ws) => {
     try {
       const result = await pool.query(`SELECT o.*, org.product_truths AS org_product_data FROM opportunities o JOIN organizations org ON o.org_id = org.id WHERE o.org_id = $1 AND o.forecast_stage NOT IN ('Closed Won', 'Closed Lost') ORDER BY o.id ASC`, [orgId]);
       dealQueue = result.rows;
+      try {
+        const defsRes = await pool.query(
+          `
+          SELECT category, score, label, criteria
+          FROM score_definitions
+          WHERE org_id = $1
+          ORDER BY category ASC, score ASC
+          `,
+          [orgId]
+        );
+        scoreDefinitions = defsRes.rows || [];
+      } catch (err) {
+        console.error("❌ Failed to load score_definitions:", err?.message || err);
+        scoreDefinitions = [];
+      }
       console.log(`📊 Loaded ${dealQueue.length} deals for ${repName}`);
     } catch (err) { console.error("❌ DB Error:", err.message); }
 
     if (dealQueue.length > 0) {
       const firstDeal = dealQueue[0];
-      const instructions = getSystemPrompt(firstDeal, repName.split(" ")[0], dealQueue.length - 1, dealQueue.length);
+      const instructions = getSystemPrompt(
+        firstDeal,
+        repName.split(" ")[0],
+        dealQueue.length,
+        true,
+        scoreDefinitions
+      );
       openAiWs.send(JSON.stringify({
         type: "session.update",
         session: { 
@@ -275,8 +485,13 @@ wss.on("connection", async (ws) => {
                     timing_score: { type: "number" }, timing_summary: { type: "string" }, timing_tip: { type: "string" },
                     risk_summary: { type: "string" }, next_steps: { type: "string" }, rep_comments: { type: "string" }
                 }, 
-                required: ["risk_summary"] 
+                required: [] 
               } 
+            },
+            {
+              type: "function", name: "advance_deal",
+              description: "Advance to the next deal after end-of-deal wrap.",
+              parameters: { type: "object", properties: {} }
             }] 
         }
       }));
