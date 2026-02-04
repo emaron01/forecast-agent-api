@@ -1,9 +1,11 @@
-require("dotenv").config();
-const http = require("http");
-const express = require("express");
-const { Pool } = require("pg");
-const WebSocket = require("ws");
-const cors = require("cors");
+import dotenv from "dotenv";
+import http from "http";
+import express from "express";
+import { Pool } from "pg";
+import WebSocket from "ws";
+import cors from "cors";
+
+dotenv.config();
 
 // 🔒 LOCKED BEHAVIOR (OWNER-APPROVED ONLY)
 // Prompts, save logic, move-on logic, and handshakes are locked.
