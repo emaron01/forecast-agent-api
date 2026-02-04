@@ -703,7 +703,11 @@ wss.on("connection", async (twilioWs) => {
   let repSpeechDetected = false;
   let repSpeaking = false;
   let repSpeechStartedAt = 0;
-  const REP_SPEECH_MIN_MS = 500;
+  let repSpeechLastEventAt = 0;
+  let repSpeechStopTimer = null;
+  const REP_SPEECH_MIN_MS = 700;
+  const REP_SILENCE_MS = 500;
+  const REP_DEBOUNCE_MS = 200;
   // Count of in-flight/active responses (used only for gating; must start at 0)
   let responseOutstanding = 0;
   let lastResponseCreateAt = 0;
@@ -904,68 +908,76 @@ function kickModel(reason) {
     if (response.type === "input_audio_buffer.speech_started") {
       // Ignore rep speech while the model is still speaking (avoid false saves).
       if (responseActive || responseInProgress || responseOutstanding > 0) return;
+      const now = Date.now();
+      if (now - repSpeechLastEventAt < REP_DEBOUNCE_MS) return;
+      repSpeechLastEventAt = now;
       repSpeechDetected = true;
       repSpeaking = true;
-      repSpeechStartedAt = Date.now();
+      repSpeechStartedAt = now;
+      if (repSpeechStopTimer) clearTimeout(repSpeechStopTimer);
+      repSpeechStopTimer = null;
     }
 
     if (response.type === "input_audio_buffer.speech_stopped") {
       if (responseActive || responseInProgress || responseOutstanding > 0) {
         // Ignore stops while model is still speaking (likely barge-in/noise)
-        repSpeechDetected = false;
-        repSpeaking = false;
-        repSpeechStartedAt = 0;
         return;
       }
       if (!repSpeechDetected) {
         // Ignore false stops when no rep speech was detected
         return;
       }
-      const speechDurationMs = repSpeechStartedAt ? Date.now() - repSpeechStartedAt : 0;
-      if (speechDurationMs < REP_SPEECH_MIN_MS) {
-        // Ignore very short noises (drops, clicks, etc.)
-        repSpeaking = false;
+      const now = Date.now();
+      if (now - repSpeechLastEventAt < REP_DEBOUNCE_MS) return;
+      repSpeechLastEventAt = now;
+      if (repSpeechStopTimer) clearTimeout(repSpeechStopTimer);
+      repSpeechStopTimer = setTimeout(() => {
+        // If speech restarted, do nothing
+        if (repSpeaking) return;
+        const speechDurationMs = repSpeechStartedAt ? Date.now() - repSpeechStartedAt : 0;
+        if (speechDurationMs < REP_SPEECH_MIN_MS) {
+          // Ignore very short noises (drops, clicks, etc.)
+          repSpeechDetected = false;
+          repSpeechStartedAt = 0;
+          return;
+        }
         repSpeechDetected = false;
         repSpeechStartedAt = 0;
-        return;
-      }
-      repSpeaking = false;
-      repSpeechDetected = false;
-      repSpeechStartedAt = 0;
-      // Rep finished speaking
-      repTurnCompleteAt = Date.now();
-      lastRepSpeechAt = repTurnCompleteAt;
-      saveSinceRepTurn = false;
-      forceSaveAttempts = 0;
-      forceSavePending = false;
-      if (saveDeadlineTimer) clearTimeout(saveDeadlineTimer);
-      saveDeadlineTimer = setTimeout(() => {
-        if (forceSavePending) return;
-        if (!repTurnCompleteAt) return;
-        if (!saveSinceRepTurn && forceSaveAttempts < 2 && !endOfDealWrapPending) {
-          forceSaveAttempts += 1;
-          forceSavePending = true;
-          safeSend(openAiWs, {
-            type: "conversation.item.create",
-            item: {
-              type: "message",
-              role: "system",
-              content: [
-                {
-                  type: "input_text",
-                  text:
-                    "The rep just answered. You MUST call save_deal_data NOW with score, summary, and tip for their answer. Then ask the next category question.",
-                },
-              ],
-            },
-          });
-          if (!responseActive && !responseInProgress && responseOutstanding === 0) {
-            createResponse("force_tool_save");
-          } else {
-            responseCreateQueued = true;
+        // Rep finished speaking
+        repTurnCompleteAt = Date.now();
+        lastRepSpeechAt = repTurnCompleteAt;
+        saveSinceRepTurn = false;
+        forceSaveAttempts = 0;
+        forceSavePending = false;
+        if (saveDeadlineTimer) clearTimeout(saveDeadlineTimer);
+        saveDeadlineTimer = setTimeout(() => {
+          if (forceSavePending) return;
+          if (!repTurnCompleteAt) return;
+          if (!saveSinceRepTurn && forceSaveAttempts < 2 && !endOfDealWrapPending) {
+            forceSaveAttempts += 1;
+            forceSavePending = true;
+            safeSend(openAiWs, {
+              type: "conversation.item.create",
+              item: {
+                type: "message",
+                role: "system",
+                content: [
+                  {
+                    type: "input_text",
+                    text:
+                      "The rep just answered. You MUST call save_deal_data NOW with score, summary, and tip for their answer. Then ask the next category question.",
+                  },
+                ],
+              },
+            });
+            if (!responseActive && !responseInProgress && responseOutstanding === 0) {
+              createResponse("force_tool_save");
+            } else {
+              responseCreateQueued = true;
+            }
           }
-        }
-      }, 3000);
+        }, 3000);
+      }, REP_SILENCE_MS);
     }
 
     try {
