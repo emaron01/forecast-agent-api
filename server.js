@@ -723,6 +723,7 @@ wss.on("connection", async (twilioWs) => {
   let lastRepSpeechAt = 0;
   let repTurnCompleteAt = 0;
   let repTurnConfirmed = false;
+  let lastRepTurnConfirmedAt = 0;
   let saveSinceRepTurn = true;
   let forceSaveAttempts = 0;
   let saveDeadlineTimer = null;
@@ -963,6 +964,7 @@ function kickModel(reason) {
       // Rep finished speaking
       repTurnCompleteAt = Date.now();
       repTurnConfirmed = true;
+      lastRepTurnConfirmedAt = repTurnCompleteAt;
       lastRepSpeechAt = repTurnCompleteAt;
       saveSinceRepTurn = false;
       forceSaveAttempts = 0;
@@ -970,7 +972,9 @@ function kickModel(reason) {
       if (saveDeadlineTimer) clearTimeout(saveDeadlineTimer);
       saveDeadlineTimer = setTimeout(() => {
         if (forceSavePending) return;
-        if (!repTurnCompleteAt || !repTurnConfirmed) return;
+        const now = Date.now();
+        const repTurnFresh = lastRepTurnConfirmedAt && now - lastRepTurnConfirmedAt < 6000;
+        if (!repTurnCompleteAt || !repTurnConfirmed || !repTurnFresh) return;
         if (!saveSinceRepTurn && forceSaveAttempts < 1 && !endOfDealWrapPending) {
           forceSaveAttempts += 1;
           forceSavePending = true;
@@ -1168,8 +1172,9 @@ function kickModel(reason) {
           return;
         }
 
-        // Prevent rapid-fire saves without confirmed rep speech (except end-wrap save)
-        if (!isEndWrapSave && (!repTurnCompleteAt || saveSinceRepTurn || !repTurnConfirmed)) {
+        // Prevent rapid-fire saves without confirmed, recent rep speech (except end-wrap save)
+        const repTurnFresh = lastRepTurnConfirmedAt && Date.now() - lastRepTurnConfirmedAt < 6000;
+        if (!isEndWrapSave && (!repTurnCompleteAt || saveSinceRepTurn || !repTurnConfirmed || !repTurnFresh)) {
           console.warn("⚠️ Ignoring save_deal_data without new rep speech.");
           return;
         }
