@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 import http from "http";
 import express from "express";
 import { Pool } from "pg";
-import WebSocket from "ws";
+import WebSocket, { WebSocketServer } from "ws";
 import cors from "cors";
 
 dotenv.config();
@@ -37,7 +37,7 @@ const pool = new Pool({
 
 // --- [BLOCK X: SERVER + WEBSOCKET INIT] ---
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocketServer({ server });
 
 // --- [BLOCK 3: SYSTEM PROMPT] ---
 function formatScoreDefinitions(defs) {
