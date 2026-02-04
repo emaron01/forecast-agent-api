@@ -76,28 +76,6 @@ function parseEndWrapFromTranscript(transcript) {
   return { riskSummary, nextSteps };
 }
 
-function formatScoreDefinitions(defs) {
-  if (!Array.isArray(defs) || defs.length === 0) return "No criteria available.";
-  const byCat = new Map();
-  for (const row of defs) {
-    const cat = row.category || "unknown";
-    if (!byCat.has(cat)) byCat.set(cat, []);
-    byCat.get(cat).push(row);
-  }
-  const lines = [];
-  for (const [cat, rows] of byCat.entries()) {
-    rows.sort((a, b) => Number(a.score) - Number(b.score));
-    lines.push(`${cat.toUpperCase()}:`);
-    for (const r of rows) {
-      const score = r.score;
-      const label = r.label || "";
-      const criteria = r.criteria || "";
-      lines.push(`- ${score}: ${label} — ${criteria}`);
-    }
-  }
-  return lines.join("\n");
-}
-
 function buildFallbackEndWrap(deal, stage) {
   const stageStr = String(stage || deal?.forecast_stage || "Pipeline");
   const pipelineCats = [
@@ -455,7 +433,7 @@ const advanceDealTool = {
 /// ============================================================================
 /// SECTION 8: System Prompt Builder (getSystemPrompt)
 /// ============================================================================
-function getSystemPrompt(deal, repName, totalCount, isFirstDeal, touchedSet, scoreDefs) {
+function getSystemPrompt(deal, repName, totalCount, isFirstDeal, touchedSet) {
   const stage = deal.forecast_stage || "Pipeline";
 
   const amountStr = new Intl.NumberFormat("en-US", {
@@ -542,8 +520,6 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
 
   const firstLine = isFirstDeal ? callPickup : dealOpening;
 
-  const criteriaBlock = formatScoreDefinitions(scoreDefs);
-
   return `
 SYSTEM PROMPT — SALES FORECAST AGENT
 You are a Sales Forecast Agent applying MEDDPICC + Timing + Budget to sales opportunities.
@@ -613,13 +589,6 @@ For each category you touch:
 - MEDDPICC rigor is mandatory: a named person ≠ a Champion, and a stated metric ≠ validated Metrics.
 - Champion (Internal Sponsor) requires: power/influence, active advocacy, and a concrete action they drove in this cycle.
 - Metrics require: measurable outcome, baseline + target, and buyer validation (not just rep belief).
-
-SCORING CRITERIA (AUTHORITATIVE)
-Use these exact definitions as the litmus test for labels and scores:
-${criteriaBlock}
-
-IMPORTANT:
-The criteria are ONLY for scoring. Do NOT ask extra questions beyond the ONE allowed clarification.
 
 Unknowns:
 - If the rep explicitly says it's unknown or not applicable, score accordingly (typically 0/Unknown) and write a short summary reflecting that.
@@ -706,7 +675,6 @@ wss.on("connection", async (twilioWs) => {
   let dealQueue = [];
   let currentDealIndex = 0;
   let openAiReady = false;
-  let scoreDefinitions = [];
 
   // Turn-control stability
   let awaitingModel = false;
@@ -735,11 +703,7 @@ wss.on("connection", async (twilioWs) => {
   let repSpeechDetected = false;
   let repSpeaking = false;
   let repSpeechStartedAt = 0;
-  let repSpeechLastEventAt = 0;
-  let repSpeechStopTimer = null;
-  const REP_SPEECH_MIN_MS = 300;
-  const REP_SILENCE_MS = 200;
-  const REP_DEBOUNCE_MS = 200;
+  const REP_SPEECH_MIN_MS = 500;
   // Count of in-flight/active responses (used only for gating; must start at 0)
   let responseOutstanding = 0;
   let lastResponseCreateAt = 0;
@@ -821,8 +785,7 @@ wss.on("connection", async (twilioWs) => {
         repFirstName || repName || "Rep",
         dealQueue.length,
         false,
-        touched,
-        scoreDefinitions
+        touched
       );
 
       safeSend(openAiWs, {
@@ -939,82 +902,70 @@ function kickModel(reason) {
 
 
     if (response.type === "input_audio_buffer.speech_started") {
-      const now = Date.now();
-      if (now - repSpeechLastEventAt < REP_DEBOUNCE_MS) return;
-      repSpeechLastEventAt = now;
+      // Ignore rep speech while the model is still speaking (avoid false saves).
+      if (responseActive || responseInProgress || responseOutstanding > 0) return;
       repSpeechDetected = true;
       repSpeaking = true;
-      repSpeechStartedAt = now;
-      if (repSpeechStopTimer) clearTimeout(repSpeechStopTimer);
-      repSpeechStopTimer = null;
+      repSpeechStartedAt = Date.now();
     }
 
     if (response.type === "input_audio_buffer.speech_stopped") {
-      if (!repSpeechDetected) {
-        // Fallback: if we only receive a speech_stopped event, treat it as a valid turn
-        // when the model is not speaking (prevents "no saves" due to missing speech_started).
-        const modelRecentlySpoke =
-          lastAudioDeltaAt && Date.now() - lastAudioDeltaAt < 1000;
-        const responseBusy = responseActive || responseInProgress || responseOutstanding > 0;
-        if (!modelRecentlySpoke && !responseBusy) {
-          repSpeechDetected = true;
-          repSpeechStartedAt = Date.now() - REP_SPEECH_MIN_MS;
-        } else {
-          // Ignore false stops when no rep speech was detected
-          return;
-        }
+      if (responseActive || responseInProgress || responseOutstanding > 0) {
+        // Ignore stops while model is still speaking (likely barge-in/noise)
+        repSpeechDetected = false;
+        repSpeaking = false;
+        repSpeechStartedAt = 0;
+        return;
       }
-      const now = Date.now();
-      if (now - repSpeechLastEventAt < REP_DEBOUNCE_MS) return;
-      repSpeechLastEventAt = now;
-      if (repSpeechStopTimer) clearTimeout(repSpeechStopTimer);
-      repSpeechStopTimer = setTimeout(() => {
-        // If speech restarted, do nothing
-        if (repSpeaking) return;
-        const speechDurationMs = repSpeechStartedAt ? Date.now() - repSpeechStartedAt : 0;
-        if (speechDurationMs < REP_SPEECH_MIN_MS) {
-          // Ignore very short noises (drops, clicks, etc.)
-          repSpeechDetected = false;
-          repSpeechStartedAt = 0;
-          return;
-        }
+      if (!repSpeechDetected) {
+        // Ignore false stops when no rep speech was detected
+        return;
+      }
+      const speechDurationMs = repSpeechStartedAt ? Date.now() - repSpeechStartedAt : 0;
+      if (speechDurationMs < REP_SPEECH_MIN_MS) {
+        // Ignore very short noises (drops, clicks, etc.)
+        repSpeaking = false;
         repSpeechDetected = false;
         repSpeechStartedAt = 0;
-        // Rep finished speaking
-        repTurnCompleteAt = Date.now();
-        lastRepSpeechAt = repTurnCompleteAt;
-        saveSinceRepTurn = false;
-        forceSaveAttempts = 0;
-        forceSavePending = false;
-        if (saveDeadlineTimer) clearTimeout(saveDeadlineTimer);
-        saveDeadlineTimer = setTimeout(() => {
-          if (forceSavePending) return;
-          if (!repTurnCompleteAt) return;
-          if (!saveSinceRepTurn && forceSaveAttempts < 2 && !endOfDealWrapPending) {
-            forceSaveAttempts += 1;
-            forceSavePending = true;
-            safeSend(openAiWs, {
-              type: "conversation.item.create",
-              item: {
-                type: "message",
-                role: "system",
-                content: [
-                  {
-                    type: "input_text",
-                    text:
-                      "The rep just answered. You MUST call save_deal_data NOW with score, summary, and tip for their answer. Then ask the next category question.",
-                  },
-                ],
-              },
-            });
-            if (!responseActive && !responseInProgress && responseOutstanding === 0) {
-              createResponse("force_tool_save");
-            } else {
-              responseCreateQueued = true;
-            }
+        return;
+      }
+      repSpeaking = false;
+      repSpeechDetected = false;
+      repSpeechStartedAt = 0;
+      // Rep finished speaking
+      repTurnCompleteAt = Date.now();
+      lastRepSpeechAt = repTurnCompleteAt;
+      saveSinceRepTurn = false;
+      forceSaveAttempts = 0;
+      forceSavePending = false;
+      if (saveDeadlineTimer) clearTimeout(saveDeadlineTimer);
+      saveDeadlineTimer = setTimeout(() => {
+        if (forceSavePending) return;
+        if (!repTurnCompleteAt) return;
+        if (!saveSinceRepTurn && forceSaveAttempts < 2 && !endOfDealWrapPending) {
+          forceSaveAttempts += 1;
+          forceSavePending = true;
+          safeSend(openAiWs, {
+            type: "conversation.item.create",
+            item: {
+              type: "message",
+              role: "system",
+              content: [
+                {
+                  type: "input_text",
+                  text:
+                    "The rep just answered. You MUST call save_deal_data NOW with score, summary, and tip for their answer. Then ask the next category question.",
+                },
+              ],
+            },
+          });
+          if (!responseActive && !responseInProgress && responseOutstanding === 0) {
+            createResponse("force_tool_save");
+          } else {
+            responseCreateQueued = true;
           }
-        }, 3000);
-      }, REP_SILENCE_MS);
+        }
+      }, 3000);
     }
 
     try {
@@ -1505,8 +1456,7 @@ function kickModel(reason) {
               repFirstName || repName || "Rep",
               dealQueue.length,
               false,
-              touched,
-              scoreDefinitions
+              touched
             );
 
             safeSend(openAiWs, {
@@ -1607,21 +1557,6 @@ function kickModel(reason) {
       );
 
       dealQueue = result.rows;
-      try {
-        const defsRes = await pool.query(
-          `
-          SELECT category, score, label, criteria
-          FROM score_definitions
-          WHERE org_id = $1
-          ORDER BY category ASC, score ASC
-          `,
-          [orgId]
-        );
-        scoreDefinitions = defsRes.rows || [];
-      } catch (e) {
-        console.error("❌ Failed to load score_definitions:", e?.message || e);
-        scoreDefinitions = [];
-      }
       currentDealIndex = 0;
       touched = new Set();
 
@@ -1644,8 +1579,7 @@ function kickModel(reason) {
       repFirstName || repName,
       dealQueue.length,
       true,
-      touched,
-      scoreDefinitions
+      touched
     );
 
     safeSend(openAiWs, {
