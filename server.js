@@ -728,6 +728,7 @@ wss.on("connection", async (twilioWs) => {
   let endWrapAdvanceQueued = false;
   let lastRepSpeechAt = 0;
   let repTurnCompleteAt = 0;
+  let repTurnConfirmed = false;
   let saveSinceRepTurn = true;
   let forceSaveAttempts = 0;
   let saveDeadlineTimer = null;
@@ -967,6 +968,7 @@ function kickModel(reason) {
       repSpeechStartedAt = 0;
       // Rep finished speaking
       repTurnCompleteAt = Date.now();
+      repTurnConfirmed = true;
       lastRepSpeechAt = repTurnCompleteAt;
       saveSinceRepTurn = false;
       forceSaveAttempts = 0;
@@ -974,8 +976,8 @@ function kickModel(reason) {
       if (saveDeadlineTimer) clearTimeout(saveDeadlineTimer);
       saveDeadlineTimer = setTimeout(() => {
         if (forceSavePending) return;
-        if (!repTurnCompleteAt) return;
-        if (!saveSinceRepTurn && forceSaveAttempts < 2 && !endOfDealWrapPending) {
+        if (!repTurnCompleteAt || !repTurnConfirmed) return;
+        if (!saveSinceRepTurn && forceSaveAttempts < 1 && !endOfDealWrapPending) {
           forceSaveAttempts += 1;
           forceSavePending = true;
           safeSend(openAiWs, {
@@ -1172,8 +1174,8 @@ function kickModel(reason) {
           return;
         }
 
-        // Prevent rapid-fire saves without rep speech (except end-wrap save)
-        if (!isEndWrapSave && (!repTurnCompleteAt || saveSinceRepTurn)) {
+        // Prevent rapid-fire saves without confirmed rep speech (except end-wrap save)
+        if (!isEndWrapSave && (!repTurnCompleteAt || saveSinceRepTurn || !repTurnConfirmed)) {
           console.warn("⚠️ Ignoring save_deal_data without new rep speech.");
           return;
         }
@@ -1240,6 +1242,7 @@ function kickModel(reason) {
         pendingToolContinuation = true;
         saveSinceRepTurn = true;
         forceSavePending = false;
+        repTurnConfirmed = false;
         if (saveDeadlineTimer) clearTimeout(saveDeadlineTimer);
         saveDeadlineTimer = null;
         lastToolOutputAt = Date.now();
