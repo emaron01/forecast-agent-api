@@ -98,6 +98,18 @@ function formatScoreDefinitions(defs) {
   return lines.join("\n");
 }
 
+function buildLabelMap(defs) {
+  const map = {};
+  if (!Array.isArray(defs)) return map;
+  for (const row of defs) {
+    const cat = row.category;
+    if (!cat) continue;
+    if (!map[cat]) map[cat] = {};
+    map[cat][Number(row.score)] = row.label || "";
+  }
+  return map;
+}
+
 function buildFallbackEndWrap(deal, stage) {
   const stageStr = String(stage || deal?.forecast_stage || "Pipeline");
   const pipelineCats = [
@@ -455,7 +467,7 @@ const advanceDealTool = {
 /// ============================================================================
 /// SECTION 8: System Prompt Builder (getSystemPrompt)
 /// ============================================================================
-function getSystemPrompt(deal, repName, totalCount, isFirstDeal, touchedSet, scoreDefs) {
+function getSystemPrompt(deal, repName, totalCount, isFirstDeal, touchedSet, scoreDefs, labelMap) {
   const stage = deal.forecast_stage || "Pipeline";
 
   const amountStr = new Intl.NumberFormat("en-US", {
@@ -518,24 +530,42 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
   );
 
   const gapQuestion = (() => {
-    if (String(stage).includes("Pipeline")) {
-      if (firstGap.name === "Pain")
-        return "What specific business problem is the customer trying to solve, and what happens if they do nothing?";
-      if (firstGap.name === "Metrics")
-        return "What measurable outcome has the customer agreed matters, and who validated it?";
-      if (firstGap.name === "Champion")
-        return "Who is driving this internally, what is their role, and how have they shown advocacy?";
-      if (firstGap.name === "Budget")
-        return "Has budget been discussed or confirmed, and at what level?";
-      return `What changed since last time on ${firstGap.name}?`;
-    }
+    const scoreKey = firstGap.key;
+    const scoreVal = Number(deal?.[scoreKey] ?? 0);
+    const labelKeyMap = {
+      pain_score: "pain",
+      metrics_score: "metrics",
+      champion_score: "champion",
+      criteria_score: "criteria",
+      competition_score: "competition",
+      timing_score: "timing",
+      budget_score: "budget",
+      eb_score: "economic_buyer",
+      process_score: "process",
+      paper_score: "paper",
+    };
+    const labelCategory = labelKeyMap[scoreKey] || "";
+    const label =
+      (labelCategory && labelMap && labelMap[labelCategory]?.[scoreVal]) || "Unknown";
 
-    // Best Case / Commit should follow the locked "Last review..." phrasing per master doc.
-    if (String(stage).includes("Commit") || String(stage).includes("Best Case")) {
-      return `Last review ${firstGap.name} was <Label>. Have we made progress since the last review?`;
+    if (scoreVal >= 3) {
+      return `Last review ${firstGap.name} was strong. Has anything changed that could introduce new risk?`;
     }
-
-    return `Last review ${firstGap.name} was <Label>. Have we made progress since the last review?`;
+    if (scoreVal === 0) {
+      if (String(stage).includes("Pipeline")) {
+        if (firstGap.name === "Pain")
+          return "What specific business problem is the customer trying to solve, and what happens if they do nothing?";
+        if (firstGap.name === "Metrics")
+          return "What measurable outcome has the customer agreed matters, and who validated it?";
+        if (firstGap.name === "Champion")
+          return "Who is driving this internally, what is their role, and how have they shown advocacy?";
+        if (firstGap.name === "Budget")
+          return "Has budget been discussed or confirmed, and at what level?";
+        return `What changed since last time on ${firstGap.name}?`;
+      }
+      return `What is the latest on ${firstGap.name}?`;
+    }
+    return `Last review ${firstGap.name} was ${label}. Have we made progress since the last review?`;
   })();
 
   const firstLine = isFirstDeal ? callPickup : dealOpening;
@@ -701,6 +731,7 @@ wss.on("connection", async (twilioWs) => {
   let currentDealIndex = 0;
   let openAiReady = false;
   let scoreDefinitions = [];
+  let scoreLabelMap = {};
 
   // Turn-control stability
   let awaitingModel = false;
@@ -814,7 +845,8 @@ wss.on("connection", async (twilioWs) => {
         dealQueue.length,
         false,
         touched,
-        scoreDefinitions
+        scoreDefinitions,
+        scoreLabelMap
       );
 
       safeSend(openAiWs, {
@@ -1603,9 +1635,11 @@ function kickModel(reason) {
           [orgId]
         );
         scoreDefinitions = defsRes.rows || [];
+        scoreLabelMap = buildLabelMap(scoreDefinitions);
       } catch (e) {
         console.error("❌ Failed to load score_definitions:", e?.message || e);
         scoreDefinitions = [];
+        scoreLabelMap = {};
       }
       currentDealIndex = 0;
       touched = new Set();
@@ -1630,7 +1664,8 @@ function kickModel(reason) {
       dealQueue.length,
       true,
       touched,
-      scoreDefinitions
+      scoreDefinitions,
+      scoreLabelMap
     );
 
     safeSend(openAiWs, {
