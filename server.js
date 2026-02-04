@@ -76,6 +76,28 @@ function parseEndWrapFromTranscript(transcript) {
   return { riskSummary, nextSteps };
 }
 
+function formatScoreDefinitions(defs) {
+  if (!Array.isArray(defs) || defs.length === 0) return "No criteria available.";
+  const byCat = new Map();
+  for (const row of defs) {
+    const cat = row.category || "unknown";
+    if (!byCat.has(cat)) byCat.set(cat, []);
+    byCat.get(cat).push(row);
+  }
+  const lines = [];
+  for (const [cat, rows] of byCat.entries()) {
+    rows.sort((a, b) => Number(a.score) - Number(b.score));
+    lines.push(`${cat.toUpperCase()}:`);
+    for (const r of rows) {
+      const score = r.score;
+      const label = r.label || "";
+      const criteria = r.criteria || "";
+      lines.push(`- ${score}: ${label} — ${criteria}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 function buildFallbackEndWrap(deal, stage) {
   const stageStr = String(stage || deal?.forecast_stage || "Pipeline");
   const pipelineCats = [
@@ -433,7 +455,7 @@ const advanceDealTool = {
 /// ============================================================================
 /// SECTION 8: System Prompt Builder (getSystemPrompt)
 /// ============================================================================
-function getSystemPrompt(deal, repName, totalCount, isFirstDeal, touchedSet) {
+function getSystemPrompt(deal, repName, totalCount, isFirstDeal, touchedSet, scoreDefs) {
   const stage = deal.forecast_stage || "Pipeline";
 
   const amountStr = new Intl.NumberFormat("en-US", {
@@ -520,6 +542,8 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
 
   const firstLine = isFirstDeal ? callPickup : dealOpening;
 
+  const criteriaBlock = formatScoreDefinitions(scoreDefs);
+
   return `
 SYSTEM PROMPT — SALES FORECAST AGENT
 You are a Sales Forecast Agent applying MEDDPICC + Timing + Budget to sales opportunities.
@@ -589,6 +613,13 @@ For each category you touch:
 - MEDDPICC rigor is mandatory: a named person ≠ a Champion, and a stated metric ≠ validated Metrics.
 - Champion (Internal Sponsor) requires: power/influence, active advocacy, and a concrete action they drove in this cycle.
 - Metrics require: measurable outcome, baseline + target, and buyer validation (not just rep belief).
+
+SCORING CRITERIA (AUTHORITATIVE)
+Use these exact definitions as the litmus test for labels and scores:
+${criteriaBlock}
+
+IMPORTANT:
+The criteria are ONLY for scoring. Do NOT ask extra questions beyond the ONE allowed clarification.
 
 Unknowns:
 - If the rep explicitly says it's unknown or not applicable, score accordingly (typically 0/Unknown) and write a short summary reflecting that.
@@ -675,6 +706,7 @@ wss.on("connection", async (twilioWs) => {
   let dealQueue = [];
   let currentDealIndex = 0;
   let openAiReady = false;
+  let scoreDefinitions = [];
 
   // Turn-control stability
   let awaitingModel = false;
@@ -785,7 +817,8 @@ wss.on("connection", async (twilioWs) => {
         repFirstName || repName || "Rep",
         dealQueue.length,
         false,
-        touched
+        touched,
+        scoreDefinitions
       );
 
       safeSend(openAiWs, {
@@ -1557,6 +1590,21 @@ function kickModel(reason) {
       );
 
       dealQueue = result.rows;
+      try {
+        const defsRes = await pool.query(
+          `
+          SELECT category, score, label, criteria
+          FROM score_definitions
+          WHERE org_id = $1
+          ORDER BY category ASC, score ASC
+          `,
+          [orgId]
+        );
+        scoreDefinitions = defsRes.rows || [];
+      } catch (e) {
+        console.error("❌ Failed to load score_definitions:", e?.message || e);
+        scoreDefinitions = [];
+      }
       currentDealIndex = 0;
       touched = new Set();
 
@@ -1579,7 +1627,8 @@ function kickModel(reason) {
       repFirstName || repName,
       dealQueue.length,
       true,
-      touched
+      touched,
+      scoreDefinitions
     );
 
     safeSend(openAiWs, {
