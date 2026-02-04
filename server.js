@@ -618,6 +618,9 @@ SCORING CRITERIA (AUTHORITATIVE)
 Use these exact definitions as the litmus test for labels and scores:
 ${criteriaBlock}
 
+IMPORTANT:
+The criteria are ONLY for scoring. Do NOT ask extra questions beyond the ONE allowed clarification.
+
 Unknowns:
 - If the rep explicitly says it's unknown or not applicable, score accordingly (typically 0/Unknown) and write a short summary reflecting that.
 
@@ -734,10 +737,9 @@ wss.on("connection", async (twilioWs) => {
   let repSpeechStartedAt = 0;
   let repSpeechLastEventAt = 0;
   let repSpeechStopTimer = null;
-  const REP_SPEECH_MIN_MS = 400;
-  const REP_SILENCE_MS = 300;
+  const REP_SPEECH_MIN_MS = 300;
+  const REP_SILENCE_MS = 200;
   const REP_DEBOUNCE_MS = 200;
-  const MODEL_AUDIO_GUARD_MS = 500;
   // Count of in-flight/active responses (used only for gating; must start at 0)
   let responseOutstanding = 0;
   let lastResponseCreateAt = 0;
@@ -937,10 +939,6 @@ function kickModel(reason) {
 
 
     if (response.type === "input_audio_buffer.speech_started") {
-      // Ignore rep speech while the model is still speaking (avoid false saves).
-      const modelRecentlySpoke =
-        lastAudioDeltaAt && Date.now() - lastAudioDeltaAt < MODEL_AUDIO_GUARD_MS;
-      if ((responseActive || responseInProgress || responseOutstanding > 0) && modelRecentlySpoke) return;
       const now = Date.now();
       if (now - repSpeechLastEventAt < REP_DEBOUNCE_MS) return;
       repSpeechLastEventAt = now;
@@ -952,12 +950,6 @@ function kickModel(reason) {
     }
 
     if (response.type === "input_audio_buffer.speech_stopped") {
-      const modelRecentlySpoke =
-        lastAudioDeltaAt && Date.now() - lastAudioDeltaAt < MODEL_AUDIO_GUARD_MS;
-      if ((responseActive || responseInProgress || responseOutstanding > 0) && modelRecentlySpoke) {
-        // Ignore stops while model is still speaking (likely barge-in/noise)
-        return;
-      }
       if (!repSpeechDetected) {
         // Ignore false stops when no rep speech was detected
         return;
