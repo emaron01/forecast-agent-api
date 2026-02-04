@@ -76,6 +76,28 @@ function parseEndWrapFromTranscript(transcript) {
   return { riskSummary, nextSteps };
 }
 
+function formatScoreDefinitions(defs) {
+  if (!Array.isArray(defs) || defs.length === 0) return "No criteria available.";
+  const byCat = new Map();
+  for (const row of defs) {
+    const cat = row.category || "unknown";
+    if (!byCat.has(cat)) byCat.set(cat, []);
+    byCat.get(cat).push(row);
+  }
+  const lines = [];
+  for (const [cat, rows] of byCat.entries()) {
+    rows.sort((a, b) => Number(a.score) - Number(b.score));
+    lines.push(`${cat.toUpperCase()}:`);
+    for (const r of rows) {
+      const score = r.score;
+      const label = r.label || "";
+      const criteria = r.criteria || "";
+      lines.push(`- ${score}: ${label} — ${criteria}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 function buildFallbackEndWrap(deal, stage) {
   const stageStr = String(stage || deal?.forecast_stage || "Pipeline");
   const pipelineCats = [
@@ -433,7 +455,7 @@ const advanceDealTool = {
 /// ============================================================================
 /// SECTION 8: System Prompt Builder (getSystemPrompt)
 /// ============================================================================
-function getSystemPrompt(deal, repName, totalCount, isFirstDeal, touchedSet) {
+function getSystemPrompt(deal, repName, totalCount, isFirstDeal, touchedSet, scoreDefs) {
   const stage = deal.forecast_stage || "Pipeline";
 
   const amountStr = new Intl.NumberFormat("en-US", {
@@ -520,6 +542,8 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
 
   const firstLine = isFirstDeal ? callPickup : dealOpening;
 
+  const criteriaBlock = formatScoreDefinitions(scoreDefs);
+
   return `
 SYSTEM PROMPT — SALES FORECAST AGENT
 You are a Sales Forecast Agent applying MEDDPICC + Timing + Budget to sales opportunities.
@@ -589,6 +613,10 @@ For each category you touch:
 - MEDDPICC rigor is mandatory: a named person ≠ a Champion, and a stated metric ≠ validated Metrics.
 - Champion (Internal Sponsor) requires: power/influence, active advocacy, and a concrete action they drove in this cycle.
 - Metrics require: measurable outcome, baseline + target, and buyer validation (not just rep belief).
+
+SCORING CRITERIA (AUTHORITATIVE)
+Use these exact definitions as the litmus test for labels and scores:
+${criteriaBlock}
 
 Unknowns:
 - If the rep explicitly says it's unknown or not applicable, score accordingly (typically 0/Unknown) and write a short summary reflecting that.
@@ -675,6 +703,7 @@ wss.on("connection", async (twilioWs) => {
   let dealQueue = [];
   let currentDealIndex = 0;
   let openAiReady = false;
+  let scoreDefinitions = [];
 
   // Turn-control stability
   let awaitingModel = false;
@@ -705,9 +734,10 @@ wss.on("connection", async (twilioWs) => {
   let repSpeechStartedAt = 0;
   let repSpeechLastEventAt = 0;
   let repSpeechStopTimer = null;
-  const REP_SPEECH_MIN_MS = 700;
-  const REP_SILENCE_MS = 500;
+  const REP_SPEECH_MIN_MS = 400;
+  const REP_SILENCE_MS = 300;
   const REP_DEBOUNCE_MS = 200;
+  const MODEL_AUDIO_GUARD_MS = 500;
   // Count of in-flight/active responses (used only for gating; must start at 0)
   let responseOutstanding = 0;
   let lastResponseCreateAt = 0;
@@ -789,7 +819,8 @@ wss.on("connection", async (twilioWs) => {
         repFirstName || repName || "Rep",
         dealQueue.length,
         false,
-        touched
+        touched,
+        scoreDefinitions
       );
 
       safeSend(openAiWs, {
@@ -907,7 +938,9 @@ function kickModel(reason) {
 
     if (response.type === "input_audio_buffer.speech_started") {
       // Ignore rep speech while the model is still speaking (avoid false saves).
-      if (responseActive || responseInProgress || responseOutstanding > 0) return;
+      const modelRecentlySpoke =
+        lastAudioDeltaAt && Date.now() - lastAudioDeltaAt < MODEL_AUDIO_GUARD_MS;
+      if ((responseActive || responseInProgress || responseOutstanding > 0) && modelRecentlySpoke) return;
       const now = Date.now();
       if (now - repSpeechLastEventAt < REP_DEBOUNCE_MS) return;
       repSpeechLastEventAt = now;
@@ -919,7 +952,9 @@ function kickModel(reason) {
     }
 
     if (response.type === "input_audio_buffer.speech_stopped") {
-      if (responseActive || responseInProgress || responseOutstanding > 0) {
+      const modelRecentlySpoke =
+        lastAudioDeltaAt && Date.now() - lastAudioDeltaAt < MODEL_AUDIO_GUARD_MS;
+      if ((responseActive || responseInProgress || responseOutstanding > 0) && modelRecentlySpoke) {
         // Ignore stops while model is still speaking (likely barge-in/noise)
         return;
       }
@@ -1468,7 +1503,8 @@ function kickModel(reason) {
               repFirstName || repName || "Rep",
               dealQueue.length,
               false,
-              touched
+              touched,
+              scoreDefinitions
             );
 
             safeSend(openAiWs, {
@@ -1569,6 +1605,21 @@ function kickModel(reason) {
       );
 
       dealQueue = result.rows;
+      try {
+        const defsRes = await pool.query(
+          `
+          SELECT category, score, label, criteria
+          FROM score_definitions
+          WHERE org_id = $1
+          ORDER BY category ASC, score ASC
+          `,
+          [orgId]
+        );
+        scoreDefinitions = defsRes.rows || [];
+      } catch (e) {
+        console.error("❌ Failed to load score_definitions:", e?.message || e);
+        scoreDefinitions = [];
+      }
       currentDealIndex = 0;
       touched = new Set();
 
@@ -1591,7 +1642,8 @@ function kickModel(reason) {
       repFirstName || repName,
       dealQueue.length,
       true,
-      touched
+      touched,
+      scoreDefinitions
     );
 
     safeSend(openAiWs, {
