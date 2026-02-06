@@ -17,7 +17,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ runId: str
     if (!run) return NextResponse.json({ ok: false, error: "Invalid runId" }, { status: 404 });
     if (run.status === "DONE") return NextResponse.json({ ok: false, error: "Run already complete" }, { status: 409 });
     if (run.status === "ERROR") return NextResponse.json({ ok: false, error: run.error || "Run is in error state" }, { status: 409 });
-    if (run.status === "RUNNING" || run.inFlight) return NextResponse.json({ ok: false, error: "Run is busy", run }, { status: 409 });
+    if (run.inFlight) return NextResponse.json({ ok: false, error: "Run is busy", run }, { status: 409 });
 
     const body = await req.json().catch(() => ({}));
     const text = String(body?.text || "").trim();

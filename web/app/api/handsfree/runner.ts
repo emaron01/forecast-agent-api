@@ -39,7 +39,7 @@ export async function runUntilPauseOrEnd(args: {
   if (!run) throw new Error("Invalid runId");
 
   // Re-entrancy guard: avoid interleaving messages/state.
-  if (run.inFlight || run.status === "RUNNING") return run;
+  if (run.inFlight) return run;
   run.inFlight = true;
 
   try {
