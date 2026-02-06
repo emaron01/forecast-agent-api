@@ -17,9 +17,9 @@ declare global {
 }
 
 function defaultPromptPath() {
-  // Default to the user's canonical location; can be overridden in env.
-  // NOTE: This is intentionally an absolute path because the prompt is maintained outside the repo.
-  return "c:\\Users\\maron\\OneDrive\\Ai Agent\\master Dco Prompts.txt";
+  // Default to a bundled, repo-shipped prompt file (works in Render/Linux).
+  // Can be overridden with MASTER_DCO_PROMPT_PATH for local editing.
+  return "prompts/master Dco Prompts.txt";
 }
 
 export async function loadMasterDcoPrompt(): Promise<MasterPromptRecord> {
@@ -31,7 +31,12 @@ export async function loadMasterDcoPrompt(): Promise<MasterPromptRecord> {
       const envPath = String(process.env.MASTER_DCO_PROMPT_PATH || "").trim();
       const sourcePath = envPath || defaultPromptPath();
 
-      const absPath = path.isAbsolute(sourcePath) ? sourcePath : path.resolve(process.cwd(), sourcePath);
+      // path.isAbsolute does not treat Windows drive paths as absolute on Linux/macOS.
+      const isWindowsDriveAbs = /^[a-zA-Z]:[\\/]/.test(sourcePath);
+      const absPath =
+        path.isAbsolute(sourcePath) || isWindowsDriveAbs
+          ? sourcePath
+          : path.resolve(process.cwd(), sourcePath);
       const buf = await readFile(absPath);
 
       // Keep text verbatim: do NOT trim or normalize newlines.
