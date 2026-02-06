@@ -35,6 +35,8 @@ export default function Home() {
   const [speak, setSpeak] = useState(true);
   const [voice, setVoice] = useState(true);
   const [audioBlocked, setAudioBlocked] = useState(false);
+  const [ttsError, setTtsError] = useState<string>("");
+  const [ttsLastOkAt, setTtsLastOkAt] = useState<number>(0);
   const [micBlocked, setMicBlocked] = useState(false);
   const [listening, setListening] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -138,14 +140,32 @@ export default function Home() {
   const speakAssistant = async (assistantText: string) => {
     const t = String(assistantText || "").trim();
     if (!speak || !t) return;
-    const ttsRes = await fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: t }),
-    });
-    const tts = await ttsRes.json().catch(() => ({}));
-    if (ttsRes.ok && tts.ok && tts.audio_base64) {
+    try {
+      setTtsError("");
+      const ttsRes = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: t }),
+      });
+      const rawText = await ttsRes.text();
+      let tts: any = {};
+      try {
+        tts = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        tts = { ok: false, error: rawText || "TTS returned non-JSON" };
+      }
+
+      if (!ttsRes.ok || !tts?.ok || !tts?.audio_base64) {
+        const msg =
+          String(tts?.error || rawText || "TTS failed").slice(0, 500);
+        setTtsError(`TTS error (${ttsRes.status}): ${msg}`);
+        return;
+      }
+
       await playAudio(String(tts.audio_base64), String(tts.mime || "audio/mpeg"));
+      setTtsLastOkAt(Date.now());
+    } catch (e: any) {
+      setTtsError(`TTS error: ${String(e?.message || e)}`.slice(0, 500));
     }
   };
 
@@ -610,6 +630,14 @@ export default function Home() {
         <div style={{ marginTop: 6 }}>
           <audio ref={audioRef} controls style={{ width: "100%" }} />
         </div>
+        {ttsError ? (
+          <div style={{ marginTop: 8, color: "#b00020", whiteSpace: "pre-wrap" }}>{ttsError}</div>
+        ) : null}
+        {!ttsError && ttsLastOkAt ? (
+          <div style={{ marginTop: 8, color: "#666" }}>
+            Last TTS OK: <code>{new Date(ttsLastOkAt).toLocaleTimeString()}</code>
+          </div>
+        ) : null}
       </div>
 
       {isRunning ? (
