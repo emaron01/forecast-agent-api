@@ -1,8 +1,0 @@
-{
-  "/api/agent/init/route": "app/api/agent/init/route.js",
-  "/api/respond/route": "app/api/respond/route.js",
-  "/api/stt/route": "app/api/stt/route.js",
-  "/api/tts/route": "app/api/tts/route.js",
-  "/debug/opportunities/route": "app/debug/opportunities/route.js",
-  "/page": "app/page.js"
-}
