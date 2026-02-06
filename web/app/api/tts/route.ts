@@ -5,7 +5,10 @@ export const runtime = "nodejs";
 function resolveBaseUrl() {
   const raw = (process.env.OPENAI_BASE_URL || process.env.MODEL_API_URL || "").trim();
   if (!raw) return "";
-  const noTrail = raw.replace(/\/+$/, "");
+  // Allow re-using old Realtime URLs (wss://.../v1/realtime) by converting them.
+  const wsNormalized = raw.replace(/^wss:\/\//i, "https://").replace(/^ws:\/\//i, "http://");
+  const strippedRealtime = wsNormalized.replace(/\/v1\/realtime(?:\/calls)?$/i, "/v1");
+  const noTrail = strippedRealtime.replace(/\/+$/, "");
   // Accept either https://api.openai.com or https://api.openai.com/v1
   return noTrail.endsWith("/v1") ? noTrail : `${noTrail}/v1`;
 }
