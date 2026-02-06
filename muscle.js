@@ -184,6 +184,15 @@ export async function handleFunctionCall({ toolName, args, pool }) {
   const repName = cleanText(args.rep_name);
   const callId = cleanText(args.call_id);
 
+  // Normalize common camelCase variants (models sometimes emit these).
+  // DB columns and the rest of the app expect snake_case.
+  if (args && args.risk_summary == null && args.riskSummary != null) {
+    args.risk_summary = args.riskSummary;
+  }
+  if (args && args.next_steps == null && args.nextSteps != null) {
+    args.next_steps = args.nextSteps;
+  }
+
   const category = detectCategoryFromArgs(args);
   const delta = buildDelta(args);
 
@@ -258,14 +267,16 @@ export async function handleFunctionCall({ toolName, args, pool }) {
     vals.push(args[k]);
   }
 
-  // Also update risk_summary/next_steps if provided by tool.
-  if (args.risk_summary != null) {
+  // Also update risk_summary/next_steps if provided by tool (only persist non-empty to avoid wiping).
+  const riskSummaryCleaned = cleanText(args.risk_summary);
+  if (riskSummaryCleaned) {
     sets.push(`risk_summary = $${++i}`);
-    vals.push(args.risk_summary);
+    vals.push(riskSummaryCleaned);
   }
-  if (args.next_steps != null) {
+  const nextStepsCleaned = cleanText(args.next_steps);
+  if (nextStepsCleaned) {
     sets.push(`next_steps = $${++i}`);
-    vals.push(args.next_steps);
+    vals.push(nextStepsCleaned);
   }
 
   // Always stamp updated_at if exists
@@ -297,6 +308,14 @@ export async function handleFunctionCall({ toolName, args, pool }) {
 
     const opp = rows[0] || {};
     const recomputed = await recomputeTotalScore(client, orgId, opportunityId);
+
+    // Persist computed health_score so the agent always has a real number to speak (never invent).
+    if (recomputed.total_score != null && Number.isFinite(recomputed.total_score)) {
+      await client.query(
+        `UPDATE opportunities SET health_score = $3, updated_at = NOW() WHERE org_id = $1 AND id = $2`,
+        [orgId, opportunityId, recomputed.total_score]
+      );
+    }
 
     // Create audit event (compact delta)
     const runId = args.run_id || null; // if you pass it later

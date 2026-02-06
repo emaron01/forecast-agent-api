@@ -660,9 +660,11 @@ CATEGORY CHECK PATTERNS (spoken)
 
 - For categories with prior score 1 or 2:
   MUST ASK THIS WAY: "Last review <Category> was <Label>. Have we made progress since the last review?"
-  If clear improvement or downgraded: capture evidence, rescore up or down, silently update and save.
-  If no change: confirm, then move on (save same score only if heartbeat saves already exist).
-  If vague: ask ONE clarifying question.
+  If clear improvement: capture evidence, rescore upward, silently update label/summary/coaching tip, save.
+  If degradation (worse): capture evidence, rescore downward, silently update label/summary/coaching tip, save.
+  If unclear/vague: ask ONE challenging follow-up (accuracy > speed).
+  If no change / unchanged / no / no progress / etc.: confirm, then move on WITHOUT saving.
+  CRITICAL: Preserve existing summaries/tips when no change is reported. Do NOT overwrite good detail with empty or less detailed content.
 
 - For categories with prior score 0 (or empty):
   Treat as "not previously established."
@@ -694,22 +696,22 @@ CRITICAL RULES:
 - If the rep says "I don't know" or provides weak evidence, still save with a low score (0-1)
 
 HEALTH SCORE (spoken only at end)
-- Health Score is ALWAYS out of 30.
-- Never change the denominator.
-- Never reveal individual category scores.
+- Health Score is ALWAYS out of 30 and is COMPUTED BY THE SYSTEM from category scores.
+- You must NEVER invent or guess the number. A system message will give you the exact score to say when it is time for the end-of-deal wrap; use that number exactly.
+- Never change the denominator. Never reveal individual category scores.
 - If asked how it was calculated: "Your score is based on the completeness and strength of your MEDDPICC answers."
 
-END-OF-DEAL WRAP (spoken + save)
+END-OF-DEAL WRAP (spoken + save — BOTH steps required)
 After all required categories for the deal type are reviewed:
-1. Synthesize an Updated Risk Summary based on everything discussed.
+1. Synthesize an Updated Risk Summary and Suggested Next Steps based on everything discussed.
 2. Speak the wrap in this exact order:
    a) "Updated Risk Summary: <your synthesized risk summary>"
-   b) Say: "Your Deal Health Score is X out of 30." Use the exact score provided in the system message.
+   b) Say: "Your Deal Health Score is X out of 30." (X will be provided in a system message — use it exactly; do not make up a number)
    c) "Suggested Next Steps: <your recommended next steps>"
-3. IMMEDIATELY call save_deal_data with:
-   - risk_summary: <the risk summary you just spoke>
-   - next_steps: <the next steps you just spoke>
-   (Do NOT include any score fields in this save)
+3. IMMEDIATELY call save_deal_data with NON-EMPTY text for BOTH:
+   - risk_summary: the exact risk summary you just spoke (required; saves the END summary)
+   - next_steps: the exact next steps you just spoke (required; saves the END next steps)
+   Do NOT include any score fields in this save. Do NOT call advance_deal until you have called save_deal_data with both risk_summary and next_steps.
 4. THEN call advance_deal tool silently.
 
 Do NOT ask for rep confirmation. Do NOT invite edits.
@@ -851,7 +853,7 @@ wss.on("connection", async (twilioWs) => {
 
       safeSend(openAiWs, {
         type: "session.update",
-        session: { instructions },
+        session: { type: "realtime", instructions },
       });
 
       setTimeout(() => {
@@ -902,6 +904,7 @@ function kickModel(reason) {
     safeSend(openAiWs, {
       type: "session.update",
       session: {
+        type: "realtime",
         modalities: ["text", "audio"],
         input_audio_format: "g711_ulaw",
         output_audio_format: "g711_ulaw",
@@ -1045,6 +1048,17 @@ function kickModel(reason) {
           return;
         }
 
+        // Normalize common camelCase variants (models sometimes emit these).
+        // The rest of this server expects snake_case.
+        if (argsParsed.json) {
+          if (argsParsed.json.risk_summary == null && argsParsed.json.riskSummary != null) {
+            argsParsed.json.risk_summary = argsParsed.json.riskSummary;
+          }
+          if (argsParsed.json.next_steps == null && argsParsed.json.nextSteps != null) {
+            argsParsed.json.next_steps = argsParsed.json.nextSteps;
+          }
+        }
+
 
         // Silent advancement tool (no spoken trigger)
         if (fnName === "advance_deal") {
@@ -1159,7 +1173,7 @@ function kickModel(reason) {
           argsParsed.json.risk_summary != null || argsParsed.json.next_steps != null;
         const riskSummaryVal = String(argsParsed.json.risk_summary || "").trim();
         const nextStepsVal = String(argsParsed.json.next_steps || "").trim();
-        const isEndWrapEmpty = isEndWrapSave && !riskSummaryVal && !nextStepsVal;
+        const isEndWrapInvalid = isEndWrapSave && (!riskSummaryVal || !nextStepsVal);
 
         // Ignore malformed save calls (must include a score OR be end-wrap save)
         if (!hasScoreKey && !isEndWrapSave) {
@@ -1184,7 +1198,7 @@ function kickModel(reason) {
           return;
         }
 
-        if (isEndWrapEmpty) {
+        if (isEndWrapInvalid) {
           safeSend(openAiWs, {
             type: "conversation.item.create",
             item: {
@@ -1200,7 +1214,7 @@ function kickModel(reason) {
             },
           });
           createResponse("force_end_wrap_fields");
-          console.warn("⚠️ End-wrap save missing risk_summary/next_steps (empty).");
+          console.warn("⚠️ End-wrap save missing risk_summary/next_steps (one or both empty).");
           return;
         }
 
@@ -1528,7 +1542,7 @@ function kickModel(reason) {
 
             safeSend(openAiWs, {
               type: "session.update",
-              session: { instructions },
+              session: { type: "realtime", instructions },
             });
 
             setTimeout(() => {
@@ -1670,7 +1684,7 @@ function kickModel(reason) {
 
     safeSend(openAiWs, {
       type: "session.update",
-      session: { instructions },
+      session: { type: "realtime", instructions },
     });
 
     setTimeout(() => {
