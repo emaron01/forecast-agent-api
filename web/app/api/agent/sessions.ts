@@ -8,6 +8,11 @@ declare global {
     {
       orgId: number;
       repName: string;
+      // Master DCO prompt cached per session
+      masterPromptText?: string;
+      masterPromptSha256?: string;
+      masterPromptLoadedAt?: number;
+      masterPromptSourcePath?: string;
       deals: any[];
       index: number;
       scoreDefs: any[];
@@ -28,6 +33,10 @@ const sessions =
     {
       orgId: number;
       repName: string;
+      masterPromptText?: string;
+      masterPromptSha256?: string;
+      masterPromptLoadedAt?: number;
+      masterPromptSourcePath?: string;
       deals: any[];
       index: number;
       scoreDefs: any[];

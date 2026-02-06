@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { Pool } from "pg";
 import { randomUUID } from "crypto";
-import { buildPrompt } from "../../../../lib/prompt";
+import { buildNoDealsPrompt, buildPrompt } from "../../../../lib/prompt";
 import { buildTools } from "../../../../lib/tools";
+import { loadMasterDcoPrompt } from "../../../../lib/masterDcoPrompt";
 
 export const runtime = "nodejs";
 
@@ -45,52 +46,60 @@ export async function POST(req: Request) {
     const scoreDefs = defsRes.rows || [];
     const sessionId = randomUUID();
     const touched = new Set<string>();
-    sessions.set(sessionId, { orgId, repName, deals, index: 0, scoreDefs, touched, items: [], wrapSaved: false });
+    const mp = await loadMasterDcoPrompt();
+    sessions.set(sessionId, {
+      orgId,
+      repName,
+      masterPromptText: mp.text,
+      masterPromptSha256: mp.sha256,
+      masterPromptLoadedAt: mp.loadedAt,
+      masterPromptSourcePath: mp.sourcePath,
+      deals,
+      index: 0,
+      scoreDefs,
+      touched,
+      items: [],
+      wrapSaved: false,
+    });
 
     const deal = deals[0];
-    const instructions = deal
+    const contextBlock = deal
       ? buildPrompt(deal, repName.split(" ")[0] || repName, deals.length, true, touched, scoreDefs)
-      : [
-          "SYSTEM PROMPT — SALES FORECAST AGENT",
-          "You are Matthew from Sales Forecaster. Speak only English.",
-          "We are doing a structured forecast review.",
-          "No deals were found for this rep. Do NOT chat generally.",
-          "Ask the rep to provide a deal to review with:",
-          "- account name",
-          "- opportunity name (optional)",
-          "- forecast stage",
-          "- amount",
-          "- close date",
-          "Then ask the first MEDDPICC gap question for the provided stage.",
-        ].join("\n");
+      : buildNoDealsPrompt(repName.split(" ")[0] || repName, "No deals were found for this rep.");
+    const instructions = `${mp.text}\n\n${contextBlock}`;
 
     return NextResponse.json({
       sessionId,
       instructions,
       tools: buildTools(),
+      masterPromptSha256: mp.sha256,
     });
   } catch (e: any) {
-    const fallbackInstructions = [
-      "SYSTEM PROMPT — SALES FORECAST AGENT",
-      "You are Matthew from Sales Forecaster. Speak only English.",
-      "We are doing a structured forecast review.",
-      "I couldn't load deals from the system.",
-      "Ask the rep to provide a deal to review with:",
-      "- account name",
-      "- opportunity name (optional)",
-      "- forecast stage",
-      "- amount",
-      "- close date",
-      "Then ask the first MEDDPICC gap question for the provided stage.",
-    ].join("\n");
+    const mp = await loadMasterDcoPrompt();
+    const fallbackContext = buildNoDealsPrompt("Rep", "I couldn't load deals from the system.");
+    const fallbackInstructions = `${mp.text}\n\n${fallbackContext}`;
     const sessionId = randomUUID();
-    sessions.set(sessionId, { orgId: 1, repName: "Rep", deals: [], index: 0, scoreDefs: [], touched: new Set<string>(), items: [], wrapSaved: false });
+    sessions.set(sessionId, {
+      orgId: 1,
+      repName: "Rep",
+      masterPromptText: mp.text,
+      masterPromptSha256: mp.sha256,
+      masterPromptLoadedAt: mp.loadedAt,
+      masterPromptSourcePath: mp.sourcePath,
+      deals: [],
+      index: 0,
+      scoreDefs: [],
+      touched: new Set<string>(),
+      items: [],
+      wrapSaved: false,
+    });
     return NextResponse.json({
       sessionId,
       instructions: fallbackInstructions,
       tools: buildTools(),
       error: "Init failed",
       detail: e?.message || String(e),
+      masterPromptSha256: mp.sha256,
     });
   }
 }

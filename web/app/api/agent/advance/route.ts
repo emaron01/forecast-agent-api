@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sessions } from "../sessions";
 import { buildPrompt } from "../../../../lib/prompt";
+import { loadMasterDcoPrompt } from "../../../../lib/masterDcoPrompt";
 
 export const runtime = "nodejs";
 
@@ -19,7 +20,23 @@ export async function POST(req: Request) {
   }
 
   const deal = session.deals[session.index];
-  const instructions = buildPrompt(
+  const mp = session.masterPromptText
+    ? {
+        text: session.masterPromptText,
+        sha256: session.masterPromptSha256 || "",
+        loadedAt: session.masterPromptLoadedAt || Date.now(),
+        sourcePath: session.masterPromptSourcePath || "",
+      }
+    : await loadMasterDcoPrompt();
+
+  if (!session.masterPromptText) {
+    session.masterPromptText = mp.text;
+    session.masterPromptSha256 = mp.sha256;
+    session.masterPromptLoadedAt = mp.loadedAt;
+    session.masterPromptSourcePath = mp.sourcePath;
+  }
+
+  const contextBlock = buildPrompt(
     deal,
     session.repName.split(" ")[0] || session.repName,
     session.deals.length,
@@ -27,6 +44,7 @@ export async function POST(req: Request) {
     session.touched,
     session.scoreDefs
   );
+  const instructions = `${mp.text}\n\n${contextBlock}`;
 
   return NextResponse.json({ done: false, instructions });
 }

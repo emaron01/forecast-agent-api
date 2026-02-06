@@ -115,14 +115,14 @@ function buildFallbackEndWrap(deal, stage) {
   const pipelineCats = [
     { name: "Pain", key: "pain_score" },
     { name: "Metrics", key: "metrics_score" },
-    { name: "Internal Sponsor", key: "champion_score" },
+    { name: "Champion", key: "champion_score" },
     { name: "Competition", key: "competition_score" },
     { name: "Budget", key: "budget_score" },
   ];
   const bestCommitCats = [
     { name: "Pain", key: "pain_score" },
     { name: "Metrics", key: "metrics_score" },
-    { name: "Internal Sponsor", key: "champion_score" },
+    { name: "Champion", key: "champion_score" },
     { name: "Criteria", key: "criteria_score" },
     { name: "Competition", key: "competition_score" },
     { name: "Timing", key: "timing_score" },
@@ -207,20 +207,20 @@ function isDealCompleteForStage(deal, stage, touchedSet) {
 function computeFirstGap(deal, stage, touchedSet) {
   const stageStr = String(stage || deal?.forecast_stage || "Pipeline");
 
-  // Pipeline: Pain → Metrics → Internal Sponsor → Competition → Budget
+  // Pipeline: Pain → Metrics → Champion → Competition → Budget
   const pipelineOrder = [
     { name: "Pain", key: "pain_score", val: deal.pain_score, touchedKey: "pain" },
     { name: "Metrics", key: "metrics_score", val: deal.metrics_score, touchedKey: "metrics" },
-    { name: "Internal Sponsor", key: "champion_score", val: deal.champion_score, touchedKey: "champion" },
+    { name: "Champion", key: "champion_score", val: deal.champion_score, touchedKey: "champion" },
     { name: "Competition", key: "competition_score", val: deal.competition_score, touchedKey: "competition" },
     { name: "Budget", key: "budget_score", val: deal.budget_score, touchedKey: "budget" },
   ];
 
-  // Best Case / Commit: Pain → Metrics → Internal Sponsor → Criteria → Competition → Timing → Budget → Economic Buyer → Decision Process → Paper Process
+  // Best Case / Commit: Pain → Metrics → Champion → Criteria → Competition → Timing → Budget → Economic Buyer → Decision Process → Paper Process
   const bestCaseCommitOrder = [
     { name: "Pain", key: "pain_score", val: deal.pain_score, touchedKey: "pain" },
     { name: "Metrics", key: "metrics_score", val: deal.metrics_score, touchedKey: "metrics" },
-    { name: "Internal Sponsor", key: "champion_score", val: deal.champion_score, touchedKey: "champion" },
+    { name: "Champion", key: "champion_score", val: deal.champion_score, touchedKey: "champion" },
     { name: "Criteria", key: "criteria_score", val: deal.criteria_score, touchedKey: "criteria" },
     { name: "Competition", key: "competition_score", val: deal.competition_score, touchedKey: "competition" },
     { name: "Timing", key: "timing_score", val: deal.timing_score, touchedKey: "timing" },
@@ -549,7 +549,7 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
       (labelCategory && labelMap && labelMap[labelCategory]?.[scoreVal]) || "Unknown";
 
     if (scoreVal >= 3) {
-      return `Last review ${firstGap.name} was strong. Has anything changed that could introduce new risk?`;
+      return `Last review ${firstGap.name} was strong.\nHas anything changed that could introduce new risk?`;
     }
     if (scoreVal === 0) {
       if (String(stage).includes("Pipeline")) {
@@ -565,7 +565,7 @@ Champion scoring in Pipeline: a past user or someone who booked a demo is NOT au
       }
       return `What is the latest on ${firstGap.name}?`;
     }
-    return `Last review ${firstGap.name} was ${label}. Have we made progress since the last review?`;
+    return `Last review ${firstGap.name} was ${label}.\nHave we made progress since the last review?`;
   })();
 
   const firstLine = isFirstDeal ? callPickup : dealOpening;
@@ -578,6 +578,7 @@ You are a Sales Forecast Agent applying MEDDPICC + Timing + Budget to sales oppo
 Your job is to run fast, rigorous deal reviews that the rep can be honest in.
 
 NON-NEGOTIABLES
+- Speak only English. Do not switch languages.
 - Do NOT invent facts. Never assume answers that were not stated by the rep.
 - Do NOT reveal category scores, scoring logic, scoring matrix, or how a category is computed.
 - Do NOT speak coaching tips, category summaries, or "what I heard." Coaching and summaries are allowed ONLY in the written fields that will be saved (e.g., *_summary, *_tip, risk_summary, next_steps).
@@ -598,18 +599,24 @@ At the start of this deal, you may speak ONLY:
 2) "${riskRecall}"
 Then immediately ask the first category question: "${gapQuestion}"
 
+Explicitly NOT spoken at intro:
+- Any category summary/recap (Pain/Metrics/Budget/Champion/etc.)
+- Any MEDDPICC walkthrough
+- Any advice or coaching
+- Any "last time you said…" recap
+
 CATEGORY ORDER (strict)
 Pipeline deals (strict order):
 1) Pain
 2) Metrics
-3) Internal Sponsor (do NOT say champion)
+3) Champion
 4) Competition
 5) Budget
 
 Best Case / Commit deals (strict order):
 1) Pain
 2) Metrics
-3) Internal Sponsor
+3) Champion
 4) Criteria
 5) Competition
 6) Timing
@@ -639,7 +646,7 @@ For each category you touch:
 - If evidence is vague, aspirational, or second‑hand, score lower and explain the gap in the summary/tip.
 - Favor truth over momentum: it is better to downgrade than to accept weak proof.
 - MEDDPICC rigor is mandatory: a named person ≠ a Champion, and a stated metric ≠ validated Metrics.
-- Champion (Internal Sponsor) requires: power/influence, active advocacy, and a concrete action they drove in this cycle.
+- Champion requires: power/influence, active advocacy, and a concrete action they drove in this cycle.
 - Metrics require: measurable outcome, baseline + target, and buyer validation (not just rep belief).
 
 SCORING CRITERIA (AUTHORITATIVE)
@@ -654,12 +661,16 @@ Unknowns:
 
 CATEGORY CHECK PATTERNS (spoken)
 - For categories with prior score >= 3:
-  Say: "Last review <Category> was strong. Has anything changed that could introduce new risk?"
+  Say (exact):
+  "Last review <Category> was strong.
+  Has anything changed that could introduce new risk?"
   If rep says "NO" or "nothing changed": say "Got it." and move to next category WITHOUT saving.
   If rep provides ANY other answer: ask ONE follow-up if needed, then SAVE with updated score/summary/tip (upgrade or downgrade based on evidence).
 
 - For categories with prior score 1 or 2:
-  MUST ASK THIS WAY: "Last review <Category> was <Label>. Have we made progress since the last review?"
+  MUST ASK THIS WAY (exact):
+  "Last review <Category> was <Label>.
+  Have we made progress since the last review?"
   If clear improvement: capture evidence, rescore upward, silently update label/summary/coaching tip, save.
   If degradation (worse): capture evidence, rescore downward, silently update label/summary/coaching tip, save.
   If unclear/vague: ask ONE challenging follow-up (accuracy > speed).
