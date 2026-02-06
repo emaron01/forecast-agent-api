@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 
 function resolveBaseUrl() {
-  const raw = (process.env.OPENAI_BASE_URL || process.env.MODEL_API_URL || "").trim();
+  const raw = (process.env.OPENAI_BASE_URL || process.env.MODEL_API_URL || process.env.MODEL_URL || "").trim();
   if (!raw) return "";
   // Allow re-using old Realtime URLs (wss://.../v1/realtime) by converting them.
   const wsNormalized = raw.replace(/^wss:\/\//i, "https://").replace(/^ws:\/\//i, "http://");
@@ -16,12 +16,12 @@ function resolveBaseUrl() {
 export async function POST(req: Request) {
   try {
     const baseUrl = resolveBaseUrl();
-    const apiKey = process.env.MODEL_API_KEY || process.env.OPENAI_API_KEY;
+    const apiKey = String(process.env.MODEL_API_KEY || process.env.OPENAI_API_KEY || "").trim();
     const model = process.env.TRANSCRIBE_MODEL;
 
     if (!baseUrl)
       return NextResponse.json(
-        { ok: false, error: "Missing OPENAI_BASE_URL (or MODEL_API_URL)" },
+        { ok: false, error: "Missing OPENAI_BASE_URL (or MODEL_API_URL or MODEL_URL)" },
         { status: 500 }
       );
     if (!apiKey) return NextResponse.json({ ok: false, error: "Missing MODEL_API_KEY" }, { status: 500 });
