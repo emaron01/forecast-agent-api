@@ -33,12 +33,30 @@ export default function Home() {
   const [run, setRun] = useState<HandsFreeRun | null>(null);
   const [answer, setAnswer] = useState("");
   const [speak, setSpeak] = useState(true);
+  const [voice, setVoice] = useState(true);
   const [audioBlocked, setAudioBlocked] = useState(false);
+  const [micBlocked, setMicBlocked] = useState(false);
+  const [listening, setListening] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastAudioUrlRef = useRef<string>("");
   const speakingRef = useRef(false);
   const lastSpokenAtRef = useRef<number>(0);
+
+  const streamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const recorderMimeRef = useRef<string>("");
+  const segmentTimeoutRef = useRef<number | null>(null);
+
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const lastVoiceAtRef = useRef<number>(0);
+  const heardVoiceRef = useRef<boolean>(false);
+
+  const sttInFlightRef = useRef<boolean>(false);
+  const lastSentAtRef = useRef<number>(0);
 
   const runId = run?.runId || "";
   const status = run?.status || "DONE";
@@ -46,6 +64,24 @@ export default function Home() {
   const canStart = useMemo(() => !busy && !runId, [busy, runId]);
   const isWaiting = status === "WAITING_FOR_USER";
   const isRunning = status === "RUNNING";
+
+  const pickRecorderMime = () => {
+    if (typeof MediaRecorder === "undefined") return "";
+    const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/ogg"];
+    for (const t of candidates) {
+      try {
+        if ((MediaRecorder as any).isTypeSupported?.(t)) return t;
+      } catch {}
+    }
+    return "";
+  };
+
+  const extForMime = (mime: string) => {
+    const m = (mime || "").toLowerCase();
+    if (m.includes("ogg")) return "ogg";
+    if (m.includes("webm")) return "webm";
+    return "webm";
+  };
 
   const unlockAudio = async () => {
     try {
@@ -77,8 +113,23 @@ export default function Home() {
     if (!audioRef.current) return;
     audioRef.current.src = url;
     try {
-      await audioRef.current.play();
+      const a = audioRef.current;
+      await a.play();
       setAudioBlocked(false);
+      await new Promise<void>((resolve) => {
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          a.removeEventListener("ended", finish);
+          a.removeEventListener("error", finish);
+          resolve();
+        };
+        a.addEventListener("ended", finish);
+        a.addEventListener("error", finish);
+        // Safety: in case events never fire.
+        window.setTimeout(finish, 120000);
+      });
     } catch {
       setAudioBlocked(true);
     }
@@ -142,9 +193,233 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.messages?.length, speak]);
 
+  const stopListening = () => {
+    setListening(false);
+    if (segmentTimeoutRef.current) {
+      window.clearTimeout(segmentTimeoutRef.current);
+      segmentTimeoutRef.current = null;
+    }
+    try {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") mediaRecorderRef.current.stop();
+    } catch {}
+    mediaRecorderRef.current = null;
+    chunksRef.current = [];
+    heardVoiceRef.current = false;
+    lastVoiceAtRef.current = 0;
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    try {
+      audioCtxRef.current?.close();
+    } catch {}
+    audioCtxRef.current = null;
+    analyserRef.current = null;
+  };
+
+  const stopMic = () => {
+    stopListening();
+    try {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+    } catch {}
+    streamRef.current = null;
+    setMicBlocked(false);
+  };
+
+  const ensureMic = async () => {
+    if (streamRef.current) return streamRef.current;
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error("getUserMedia not available");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      setMicBlocked(false);
+      return stream;
+    } catch (e: any) {
+      setMicBlocked(true);
+      throw e;
+    }
+  };
+
+  const startVADMonitor = () => {
+    const stream = streamRef.current;
+    if (!stream) return;
+
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new AudioContext();
+      const src = audioCtxRef.current.createMediaStreamSource(stream);
+      const analyser = audioCtxRef.current.createAnalyser();
+      analyser.fftSize = 2048;
+      src.connect(analyser);
+      analyserRef.current = analyser;
+    }
+
+    const analyser = analyserRef.current;
+    if (!analyser) return;
+
+    const buf = new Uint8Array(analyser.fftSize);
+    const SILENCE_MS = 900;
+    const THRESH = 0.02;
+
+    const tick = () => {
+      if (!listening) return;
+      analyser.getByteTimeDomainData(buf);
+      let sumSq = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const v = (buf[i] - 128) / 128;
+        sumSq += v * v;
+      }
+      const rms = Math.sqrt(sumSq / buf.length);
+      const now = Date.now();
+      if (rms > THRESH) {
+        heardVoiceRef.current = true;
+        lastVoiceAtRef.current = now;
+      }
+      if (
+        mediaRecorderRef.current &&
+        mediaRecorderRef.current.state === "recording" &&
+        heardVoiceRef.current &&
+        lastVoiceAtRef.current &&
+        now - lastVoiceAtRef.current > SILENCE_MS
+      ) {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch {}
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    if (!rafRef.current) rafRef.current = requestAnimationFrame(tick);
+  };
+
+  const handleAudioTurn = async (blob: Blob) => {
+    if (!runId) return;
+    if (sttInFlightRef.current) return;
+    // Avoid accidental double-sends in quick succession.
+    if (Date.now() - lastSentAtRef.current < 300) return;
+
+    sttInFlightRef.current = true;
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      const ext = extForMime(blob.type || recorderMimeRef.current);
+      fd.set("file", blob, `audio.${ext}`);
+      const sttRes = await fetch("/api/stt", { method: "POST", body: fd });
+      const stt = await sttRes.json().catch(() => ({}));
+      if (!sttRes.ok || !stt.ok) throw new Error(stt?.error || "STT failed");
+      const transcript = String(stt.text || "").trim();
+      if (!transcript) throw new Error("Empty transcript");
+
+      lastSentAtRef.current = Date.now();
+      const res = await fetch(`/api/handsfree/${runId}/input`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: transcript }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Input failed");
+      setRun(json.run as HandsFreeRun);
+    } catch (e: any) {
+      setRun((prev) => (prev ? { ...prev, status: "ERROR", error: e?.message || String(e) } : prev));
+    } finally {
+      sttInFlightRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  const startListeningSegment = async () => {
+    if (!voice) return;
+    if (!runId) return;
+    if (!isWaiting) return;
+    if (listening) return;
+    // Don't listen while assistant is speaking / audio is playing.
+    if (speakingRef.current) return;
+    if (audioRef.current && !audioRef.current.paused) return;
+    if (sttInFlightRef.current) return;
+
+    await ensureMic();
+    const stream = streamRef.current;
+    if (!stream) return;
+
+    // Reset segment state
+    heardVoiceRef.current = false;
+    lastVoiceAtRef.current = 0;
+    chunksRef.current = [];
+
+    const mime = pickRecorderMime();
+    recorderMimeRef.current = mime;
+    const mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+    mr.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+    };
+    mr.onstop = async () => {
+      setListening(false);
+      if (segmentTimeoutRef.current) {
+        window.clearTimeout(segmentTimeoutRef.current);
+        segmentTimeoutRef.current = null;
+      }
+      const blobType = recorderMimeRef.current || mr.mimeType || "audio/webm";
+      const blob = new Blob(chunksRef.current, { type: blobType });
+      chunksRef.current = [];
+
+      // Ignore segments where we never detected speech.
+      if (!heardVoiceRef.current || blob.size < 500) {
+        // Restart listening if we're still waiting for user input.
+        if (voice && runId && (run?.status || "DONE") === "WAITING_FOR_USER") {
+          window.setTimeout(() => void startListeningSegment(), 150);
+        }
+        return;
+      }
+      await handleAudioTurn(blob);
+      // After backend responds, if still waiting, listen again automatically.
+      if (voice && runId && (run?.status || "DONE") === "WAITING_FOR_USER") {
+        window.setTimeout(() => void startListeningSegment(), 150);
+      }
+    };
+
+    mediaRecorderRef.current = mr;
+    setListening(true);
+    mr.start();
+    startVADMonitor();
+
+    // Safety: cap each segment length.
+    segmentTimeoutRef.current = window.setTimeout(() => {
+      try {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") mediaRecorderRef.current.stop();
+      } catch {}
+    }, 25000);
+  };
+
+  useEffect(() => {
+    // When the runner is waiting for user input, auto-start listening.
+    if (!runId) return;
+    if (!voice) return;
+    if (!isWaiting) {
+      // If we moved out of waiting, stop listening.
+      if (listening) stopListening();
+      return;
+    }
+    void startListeningSegment();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runId, voice, isWaiting, run?.updatedAt]);
+
+  useEffect(() => {
+    // Cleanup on unmount
+    return () => {
+      try {
+        if (lastAudioUrlRef.current) URL.revokeObjectURL(lastAudioUrlRef.current);
+      } catch {}
+      stopMic();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const start = async () => {
     if (!canStart) return;
     if (speak) await unlockAudio();
+    if (voice) {
+      // Request mic permission up front (hands-free voice mode).
+      await ensureMic().catch(() => {});
+    }
     setBusy(true);
     try {
       const res = await fetch("/api/handsfree/start", {
@@ -210,6 +485,7 @@ export default function Home() {
   };
 
   const restart = () => {
+    stopMic();
     setRun(null);
     setAnswer("");
     setBusy(false);
@@ -245,6 +521,10 @@ export default function Home() {
         <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
           <input type="checkbox" checked={speak} onChange={(e) => setSpeak(e.target.checked)} disabled={busy} />
           Speak
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} disabled={busy || !!runId} />
+          Voice (hands-free)
         </label>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
@@ -288,6 +568,11 @@ export default function Home() {
       {audioBlocked ? (
         <div style={{ marginTop: 12, color: "#b26a00" }}>
           Audio is blocked by the browser. Click <strong>Start</strong> again or interact with the page to enable audio playback.
+        </div>
+      ) : null}
+      {micBlocked ? (
+        <div style={{ marginTop: 12, color: "#b00020" }}>
+          Microphone permission is blocked. Allow microphone access for this site to use hands-free voice replies.
         </div>
       ) : null}
 
@@ -334,23 +619,26 @@ export default function Home() {
       {isWaiting ? (
         <div style={{ marginTop: 16, padding: 12, borderRadius: 12, border: "1px solid #e5e5e5", background: "#fafafa" }}>
           <div style={{ marginBottom: 8 }}>
-            <strong>Input required</strong> (the runner is paused)
+            <strong>Input required</strong> (the runner is paused){voice ? <> · {listening ? "Listening…" : "Preparing mic…"}</> : null}
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              value={answer}
-              onChange={(e) => setAnswer(e.target.value)}
-              placeholder="Type your answer…"
-              style={{ flex: 1, padding: 10 }}
-              disabled={busy || !runId}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void sendAnswer();
-              }}
-            />
-            <button onClick={sendAnswer} disabled={busy || !runId || !answer.trim()}>
-              Send
-            </button>
-          </div>
+          <details style={{ marginTop: 8 }}>
+            <summary style={{ cursor: "pointer" }}>Type instead (optional)</summary>
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <input
+                value={answer}
+                onChange={(e) => setAnswer(e.target.value)}
+                placeholder="Type your answer…"
+                style={{ flex: 1, padding: 10 }}
+                disabled={busy || !runId}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void sendAnswer();
+                }}
+              />
+              <button onClick={sendAnswer} disabled={busy || !runId || !answer.trim()}>
+                Send
+              </button>
+            </div>
+          </details>
         </div>
       ) : null}
     </main>
