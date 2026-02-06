@@ -38,12 +38,14 @@ export default function Home() {
   const [ttsError, setTtsError] = useState<string>("");
   const [ttsLastOkAt, setTtsLastOkAt] = useState<number>(0);
   const [micBlocked, setMicBlocked] = useState(false);
+  const [micError, setMicError] = useState<string>("");
   const [listening, setListening] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastAudioUrlRef = useRef<string>("");
   const speakingRef = useRef(false);
   const lastSpokenAtRef = useRef<number>(0);
+  const runRef = useRef<HandsFreeRun | null>(null);
 
   const streamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -66,6 +68,10 @@ export default function Home() {
   const canStart = useMemo(() => !busy && !runId, [busy, runId]);
   const isWaiting = status === "WAITING_FOR_USER";
   const isRunning = status === "RUNNING";
+
+  useEffect(() => {
+    runRef.current = run;
+  }, [run]);
 
   const pickRecorderMime = () => {
     if (typeof MediaRecorder === "undefined") return "";
@@ -134,6 +140,17 @@ export default function Home() {
       });
     } catch {
       setAudioBlocked(true);
+    } finally {
+      // If the runner is waiting and voice mode is on, begin listening after audio completes.
+      // This prevents a stall where we attempted to listen while audio was still playing.
+      window.setTimeout(() => {
+        try {
+          const r = runRef.current;
+          if (voice && r?.runId && r.status === "WAITING_FOR_USER") {
+            void startListeningSegment();
+          }
+        } catch {}
+      }, 150);
     }
   };
 
@@ -244,6 +261,7 @@ export default function Home() {
     } catch {}
     streamRef.current = null;
     setMicBlocked(false);
+    setMicError("");
   };
 
   const ensureMic = async () => {
@@ -253,9 +271,11 @@ export default function Home() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       setMicBlocked(false);
+      setMicError("");
       return stream;
     } catch (e: any) {
       setMicBlocked(true);
+      setMicError(String(e?.message || e || "Microphone permission error"));
       throw e;
     }
   };
@@ -356,7 +376,11 @@ export default function Home() {
     if (audioRef.current && !audioRef.current.paused) return;
     if (sttInFlightRef.current) return;
 
-    await ensureMic();
+    try {
+      await ensureMic();
+    } catch {
+      return;
+    }
     const stream = streamRef.current;
     if (!stream) return;
 
@@ -418,7 +442,7 @@ export default function Home() {
       if (listening) stopListening();
       return;
     }
-    void startListeningSegment();
+    void startListeningSegment().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId, voice, isWaiting, run?.updatedAt]);
 
@@ -593,6 +617,7 @@ export default function Home() {
       {micBlocked ? (
         <div style={{ marginTop: 12, color: "#b00020" }}>
           Microphone permission is blocked. Allow microphone access for this site to use hands-free voice replies.
+          {micError ? <div style={{ marginTop: 6, color: "#b00020" }}>{micError}</div> : null}
         </div>
       ) : null}
 
