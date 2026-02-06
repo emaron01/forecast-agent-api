@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     const baseUrl = resolveBaseUrl();
     const apiKey = String(process.env.MODEL_API_KEY || process.env.OPENAI_API_KEY || "").trim();
     const model = process.env.TTS_MODEL;
-    const voice = process.env.TTS_VOICE;
+    const voice = String(process.env.TTS_VOICE || "").trim().toLowerCase();
     const responseFormat = process.env.TTS_FORMAT || "mp3";
 
     if (!baseUrl)
