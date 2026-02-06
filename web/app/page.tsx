@@ -39,6 +39,9 @@ export default function Home() {
   const [ttsLastOkAt, setTtsLastOkAt] = useState<number>(0);
   const [micBlocked, setMicBlocked] = useState(false);
   const [micError, setMicError] = useState<string>("");
+  const [sttError, setSttError] = useState<string>("");
+  const [lastTranscript, setLastTranscript] = useState<string>("");
+  const [sttLastOkAt, setSttLastOkAt] = useState<number>(0);
   const [listening, setListening] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -298,7 +301,8 @@ export default function Home() {
 
     const buf = new Uint8Array(analyser.fftSize);
     const SILENCE_MS = 900;
-    const THRESH = 0.02;
+    // Slightly more sensitive than before to avoid missing quiet mics.
+    const THRESH = 0.012;
 
     const tick = () => {
       if (!listening) return;
@@ -340,6 +344,7 @@ export default function Home() {
     sttInFlightRef.current = true;
     setBusy(true);
     try {
+      setSttError("");
       const fd = new FormData();
       const ext = extForMime(blob.type || recorderMimeRef.current);
       fd.set("file", blob, `audio.${ext}`);
@@ -348,6 +353,8 @@ export default function Home() {
       if (!sttRes.ok || !stt.ok) throw new Error(stt?.error || "STT failed");
       const transcript = String(stt.text || "").trim();
       if (!transcript) throw new Error("Empty transcript");
+      setLastTranscript(transcript);
+      setSttLastOkAt(Date.now());
 
       lastSentAtRef.current = Date.now();
       const res = await fetch(`/api/handsfree/${runId}/input`, {
@@ -359,6 +366,7 @@ export default function Home() {
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Input failed");
       setRun(json.run as HandsFreeRun);
     } catch (e: any) {
+      setSttError(String(e?.message || e).slice(0, 500));
       setRun((prev) => (prev ? { ...prev, status: "ERROR", error: e?.message || String(e) } : prev));
     } finally {
       sttInFlightRef.current = false;
@@ -405,8 +413,12 @@ export default function Home() {
       const blob = new Blob(chunksRef.current, { type: blobType });
       chunksRef.current = [];
 
-      // Ignore segments where we never detected speech.
-      if (!heardVoiceRef.current || blob.size < 500) {
+      // If VAD didn't trip, we used to discard the segment.
+      // In practice, quiet mics often fail VAD; if we captured a non-trivial blob,
+      // still send it to STT rather than dropping user speech.
+      const hasAudio = blob.size >= 8000; // ~0.5s+ typically
+      const shouldStt = heardVoiceRef.current || hasAudio;
+      if (!shouldStt) {
         // Restart listening if we're still waiting for user input.
         if (voice && runId && (run?.status || "DONE") === "WAITING_FOR_USER") {
           window.setTimeout(() => void startListeningSegment(), 150);
@@ -661,6 +673,20 @@ export default function Home() {
         {!ttsError && ttsLastOkAt ? (
           <div style={{ marginTop: 8, color: "#666" }}>
             Last TTS OK: <code>{new Date(ttsLastOkAt).toLocaleTimeString()}</code>
+          </div>
+        ) : null}
+        {sttError ? (
+          <div style={{ marginTop: 8, color: "#b00020", whiteSpace: "pre-wrap" }}>STT error: {sttError}</div>
+        ) : null}
+        {!sttError && sttLastOkAt ? (
+          <div style={{ marginTop: 8, color: "#666" }}>
+            Last STT OK: <code>{new Date(sttLastOkAt).toLocaleTimeString()}</code>
+          </div>
+        ) : null}
+        {lastTranscript ? (
+          <div style={{ marginTop: 8 }}>
+            <div style={{ fontSize: 12, color: "#666" }}>Last transcript</div>
+            <div style={{ whiteSpace: "pre-wrap" }}>{lastTranscript}</div>
           </div>
         ) : null}
       </div>
