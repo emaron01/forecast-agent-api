@@ -24,8 +24,20 @@ function lastNonEmptyLine(text: string) {
 function shouldPauseForUser(assistantText: string) {
   const last = lastNonEmptyLine(assistantText);
   if (!last) return false;
-  // Pause only if the last line is a short, direct question.
+  // Pause if the last line is a short, direct question.
   if (last.length <= 650 && /\?\s*$/.test(last)) return true;
+
+  // Many good "one direct question" prompts are imperative and may not end with '?'
+  // (e.g., "Walk me through ...", "Tell me ...").
+  // Treat these as rep-turn handoff to avoid getting stuck "RUNNING" while the rep is expected to answer.
+  if (
+    last.length <= 650 &&
+    /^(what|who|when|where|why|how|walk me through|talk me through|tell me|describe|share|list|confirm|give me)\b/i.test(
+      last
+    )
+  )
+    return true;
+
   // Some models include the question earlier and end with a brief instruction.
   // If there is a question very near the end, still pause.
   const tail = String(assistantText || "").slice(-800);
@@ -63,7 +75,7 @@ export async function runUntilPauseOrEnd(args: {
       // Safety guards: avoid runaway model loops.
       // Latency is a product requirement: reps won't wait for multi-call "autopilot" after each answer.
       // Keep turns tight: normally we expect a single call to save + ask the next question.
-      const maxModelCallsThisInvocation = args.kickoff ? 8 : 2;
+      const maxModelCallsThisInvocation = args.kickoff ? 2 : 2;
       const maxTotalModelCalls = 250;
 
       let nextText = args.kickoff
@@ -97,16 +109,8 @@ export async function runUntilPauseOrEnd(args: {
           return run;
         }
 
-        // Product guard: the kickoff must always hand the turn to the rep after the first assistant message,
-        // even if the model didn't end with a clean question marker. This prevents "intro + wrap" runs.
-        if (args.kickoff && calls === 1) {
-          run.status = "WAITING_FOR_USER";
-          run.waitingPrompt = assistantText || "Please reply to continue.";
-          run.updatedAt = Date.now();
-          return run;
-        }
-
-        // Pause only on a short direct question on the last non-empty line.
+        // Hands-free requirement: after ANY assistant message, we should be ready to accept rep speech.
+        // If the assistant's last line looks like a direct prompt (question or imperative), pause immediately.
         if (shouldPauseForUser(assistantText)) {
           run.status = "WAITING_FOR_USER";
           run.waitingPrompt = assistantText;
@@ -114,10 +118,10 @@ export async function runUntilPauseOrEnd(args: {
           return run;
         }
 
-        // No obvious question; one quick corrective retry (kept bounded by maxModelCallsThisInvocation).
+        // No obvious prompt; one quick corrective retry (kept bounded by maxModelCallsThisInvocation).
         nextText = args.kickoff
-          ? "Proceed to the next workflow step."
-          : "Ask the next required question now. Do not summarize; keep it to one direct question.";
+          ? "Proceed to the next workflow step. Ask ONE direct question to the rep. End with a question mark."
+          : "Ask the next required question now. Keep it to ONE direct question. End with a question mark.";
       }
 
       // If we hit our guard without reaching a pause/end, fail safe by pausing.

@@ -38,6 +38,7 @@ export default function Home() {
   const BUILD_TAG = "handsfree-v1";
   const SHOW_SCORES = (process.env.NEXT_PUBLIC_SHOW_SCORES || "1") !== "0";
   const SHOW_DEBUG = (process.env.NEXT_PUBLIC_DEBUG_LOG || "0") === "1";
+  const FORCE_MIC_STT = (process.env.NEXT_PUBLIC_FORCE_MIC_STT || "1") !== "0";
 
   const [repName, setRepName] = useState("Erik M");
   const [orgId, setOrgId] = useState("1");
@@ -69,7 +70,6 @@ export default function Home() {
   const [answer, setAnswer] = useState("");
   const [speak, setSpeak] = useState(true);
   const [voice, setVoice] = useState(true);
-  const [autoStartTalking, setAutoStartTalking] = useState(true);
   const [submitOnSilenceMs, setSubmitOnSilenceMs] = useState(900);
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [ttsError, setTtsError] = useState<string>("");
@@ -156,7 +156,6 @@ export default function Home() {
     onUtterance: (finalText) => {
       // Submit only when we are actually waiting for user input.
       if (!voice) return;
-      if (!autoStartTalking) return;
       const t = String(finalText || "").trim();
       if (!t) return;
       logDebug("info", `Speech utterance (${t.length} chars)`);
@@ -168,7 +167,14 @@ export default function Home() {
         return;
       }
       if (mode === "FULL_REVIEW") {
-        if (!runId || !isWaiting) return;
+        if (!runId) return;
+        // Hands-free: if the user answers slightly early (status still RUNNING), queue it and flush on WAITING.
+        if (!isWaiting) {
+          pendingUtteranceRef.current = t;
+          setAnswer(t);
+          logDebug("warn", "Queued speech utterance (not waiting yet)");
+          return;
+        }
       } else {
         if (!selectedCategory || !opportunityId.trim()) return;
       }
@@ -339,7 +345,9 @@ export default function Home() {
       window.setTimeout(() => {
         try {
           const r = runRef.current;
-          if (!voice || !autoStartTalking || !speech.supported) return;
+          // If we're using mic+STT, don't start Web Speech at all.
+          if (!voice || FORCE_MIC_STT) return;
+          if (!speech.supported) return;
           if (r?.runId && r.status === "WAITING_FOR_USER") {
             if (!speech.listening) speech.start();
           } else if (mode === "CATEGORY_UPDATE" && selectedCategory) {
@@ -391,7 +399,9 @@ export default function Home() {
       window.setTimeout(() => {
         try {
           const r = runRef.current;
-          if (!voice || !autoStartTalking || !speech.supported) return;
+          // If we're using mic+STT, don't start Web Speech at all.
+          if (!voice || FORCE_MIC_STT) return;
+          if (!speech.supported) return;
           // Don't listen while audio is playing.
           if (audioRef.current && !audioRef.current.paused) return;
           if (mode === "FULL_REVIEW") {
@@ -569,11 +579,14 @@ export default function Home() {
 
   const useMicSttFallback = useMemo(() => {
     if (!voice) return false;
-    // Use mic+STT when Web Speech isn't available or is erroring (common: permission / gesture issues).
+    // Default to mic+STT for reliable hands-free turn-taking (no push-to-talk / no browser SR quirks).
+    // Web Speech can still be enabled by setting NEXT_PUBLIC_FORCE_MIC_STT=0.
+    if (FORCE_MIC_STT) return true;
+    // Otherwise use mic+STT when Web Speech isn't available or is erroring (common: permission / gesture issues).
     if (!speech.supported) return true;
     if (speech.error) return true;
     return false;
-  }, [speech.error, speech.supported, voice]);
+  }, [FORCE_MIC_STT, speech.error, speech.supported, voice]);
 
   const handleAudioTurn = async (blob: Blob) => {
     if (sttInFlightRef.current) return;
@@ -748,7 +761,6 @@ export default function Home() {
   useEffect(() => {
     // Mic+STT fallback: automatically listen when Web Speech can't be used.
     if (!useMicSttFallback) return;
-    if (!autoStartTalking) return;
     if (!voice) return;
     if (busy) return;
     if (mode === "FULL_REVIEW") {
@@ -758,12 +770,18 @@ export default function Home() {
     }
     if (audioRef.current && !audioRef.current.paused) return;
     if (speakingRef.current) return;
+    if (listening) return;
     void startListeningSegment();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [useMicSttFallback, autoStartTalking, voice, busy, mode, runId, isWaiting, selectedCategory, opportunityId]);
+  }, [useMicSttFallback, voice, busy, mode, runId, isWaiting, selectedCategory, opportunityId, listening]);
 
   useEffect(() => {
     // Hands-free voice (browser SpeechRecognition): auto-start when waiting.
+    // If mic+STT is active, do NOT run Web Speech in parallel (avoids double-submits and TTS echo capture).
+    if (useMicSttFallback) {
+      if (speech.listening) speech.stop();
+      return;
+    }
     if (!voice || !speech.supported) {
       if (speech.listening) speech.stop();
       return;
@@ -779,7 +797,6 @@ export default function Home() {
       if (speech.listening) speech.stop();
       return;
     }
-    if (!autoStartTalking) return;
 
     if (mode === "FULL_REVIEW") {
       if (runId && isWaiting) {
@@ -801,7 +818,7 @@ export default function Home() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voice, speech.supported, autoStartTalking, mode, runId, isWaiting, run?.updatedAt, selectedCategory]);
+  }, [useMicSttFallback, voice, speech.supported, mode, runId, isWaiting, run?.updatedAt, selectedCategory, busy, speech.error]);
 
   useEffect(() => {
     // Cleanup on unmount
@@ -1067,21 +1084,12 @@ export default function Home() {
           <label className="small">
             <input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} disabled={busy} /> Voice
           </label>
-          <label className="small">
-            <input
-              type="checkbox"
-              checked={autoStartTalking}
-              onChange={(e) => setAutoStartTalking(e.target.checked)}
-              disabled={busy || !voice}
-            />{" "}
-            Auto-start
-          </label>
           <label className="small">Silence ms</label>
           <input
             value={String(submitOnSilenceMs)}
             onChange={(e) => setSubmitOnSilenceMs(Number(e.target.value || "900") || 900)}
             style={{ width: 110 }}
-            disabled={busy || !voice}
+            disabled={busy || !voice || useMicSttFallback}
             inputMode="numeric"
           />
           <button onClick={restart} disabled={busy}>
@@ -1110,7 +1118,7 @@ export default function Home() {
             </span>
           ) : null}
           <span className="pill">
-            Listening: <b>{speech.listening ? "ON" : "OFF"}</b>
+            Listening: <b>{speech.listening || listening ? "ON" : "OFF"}</b>
           </span>
         </div>
         <div className="small">
@@ -1324,13 +1332,9 @@ export default function Home() {
                     : "Full review will pause when input is needed."
                   : "Category update — answer the targeted question."}
               </div>
-              {voice && speech.supported ? (
-                <button onClick={() => (speech.listening ? speech.stop() : speech.start())} disabled={busy}>
-                  {speech.listening ? "Stop talking" : "Start talking"}
-                </button>
-              ) : (
-                <span className="small">Voice off (typing only).</span>
-              )}
+              <span className="small">
+                Hands-free is automatic. {useMicSttFallback ? "Mic+STT" : speech.supported ? "Web Speech" : "Voice off"}.
+              </span>
             </div>
 
             {speech.error ? (
