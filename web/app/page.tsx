@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSpeechRecognition } from "../lib/useSpeechRecognition";
 
 type HandsFreeStatus = "RUNNING" | "WAITING_FOR_USER" | "DONE" | "ERROR";
 type HandsFreeMessage = { role: "assistant" | "user" | "system"; text: string; at: number };
@@ -29,11 +30,30 @@ export default function Home() {
 
   const [repName, setRepName] = useState("Erik M");
   const [orgId, setOrgId] = useState("1");
+  const [opportunityId, setOpportunityId] = useState("");
+  const [mode, setMode] = useState<"FULL_REVIEW" | "CATEGORY_UPDATE">("FULL_REVIEW");
+  const [selectedCategory, setSelectedCategory] = useState<
+    | "metrics"
+    | "economic_buyer"
+    | "criteria"
+    | "process"
+    | "paper"
+    | "pain"
+    | "champion"
+    | "competition"
+    | "timing"
+    | "budget"
+    | ""
+  >("");
+  const [catSessionId, setCatSessionId] = useState<string>("");
+  const [catMessages, setCatMessages] = useState<HandsFreeMessage[]>([]);
   const [busy, setBusy] = useState(false);
   const [run, setRun] = useState<HandsFreeRun | null>(null);
   const [answer, setAnswer] = useState("");
   const [speak, setSpeak] = useState(true);
   const [voice, setVoice] = useState(true);
+  const [autoStartTalking, setAutoStartTalking] = useState(true);
+  const [submitOnSilenceMs, setSubmitOnSilenceMs] = useState(900);
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [ttsError, setTtsError] = useState<string>("");
   const [ttsLastOkAt, setTtsLastOkAt] = useState<number>(0);
@@ -74,6 +94,112 @@ export default function Home() {
   const canStart = useMemo(() => !busy && !runId, [busy, runId]);
   const isWaiting = status === "WAITING_FOR_USER";
   const isRunning = status === "RUNNING";
+
+  const categories = useMemo(
+    () =>
+      [
+        { key: "metrics" as const, label: "Metrics" },
+        { key: "economic_buyer" as const, label: "Economic Buyer" },
+        { key: "criteria" as const, label: "Decision Criteria" },
+        { key: "process" as const, label: "Decision Process" },
+        { key: "paper" as const, label: "Paper Process" },
+        { key: "pain" as const, label: "Identify Pain" },
+        // UI label must NOT say “Champion”
+        { key: "champion" as const, label: "Internal Sponsor" },
+        { key: "competition" as const, label: "Competition" },
+        { key: "timing" as const, label: "Timing" },
+        { key: "budget" as const, label: "Budget" },
+      ] as const,
+    []
+  );
+
+  const appendCat = (role: "assistant" | "user" | "system", text: string) => {
+    const t = String(text || "").trim();
+    if (!t) return;
+    setCatMessages((m) => [...m, { role, text: t, at: Date.now() }]);
+  };
+
+  const isCatWaiting = mode === "CATEGORY_UPDATE";
+
+  const speech = useSpeechRecognition({
+    autoRestart: true,
+    silenceMs: submitOnSilenceMs,
+    onUtterance: (finalText) => {
+      // Submit only when we are actually waiting for user input.
+      if (!voice) return;
+      if (!autoStartTalking) return;
+      if (mode === "FULL_REVIEW") {
+        if (!runId || !isWaiting) return;
+      } else {
+        if (!selectedCategory || !opportunityId.trim()) return;
+      }
+      void submitText(finalText);
+    },
+  });
+
+  const submitText = async (raw: string) => {
+    const text = String(raw || "").trim();
+    if (!text || busy) return;
+    if (speak) await unlockAudio();
+    setBusy(true);
+    setAnswer("");
+    try {
+      setPerf((p) => ({ ...p, agentMs: undefined }));
+      if (mode === "FULL_REVIEW") {
+        if (!runId) throw new Error("No active full-review run");
+        const res = await fetch(`/api/handsfree/${runId}/input`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json?.ok) throw new Error(json?.error || "Input failed");
+        setRun(json.run as HandsFreeRun);
+      } else {
+        const oppId = Number(opportunityId);
+        if (!oppId) throw new Error("Missing opportunity id");
+        if (!selectedCategory) throw new Error("Pick a category first");
+        appendCat("user", text);
+        const res = await fetch(`/api/opportunities/${oppId}/update-category`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orgId: Number(orgId),
+            sessionId: catSessionId || undefined,
+            category: selectedCategory,
+            text,
+          }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json?.ok) throw new Error(json?.error || "Update failed");
+        if (json?.sessionId) setCatSessionId(String(json.sessionId));
+        if (json?.assistantText) appendCat("assistant", String(json.assistantText));
+      }
+    } catch (e: any) {
+      const msg = String(e?.message || e).slice(0, 500);
+      if (mode === "FULL_REVIEW") {
+        setRun((prev) =>
+          prev
+            ? { ...prev, status: "ERROR", error: msg }
+            : {
+                runId,
+                sessionId: "",
+                status: "ERROR",
+                error: msg,
+                masterPromptSha256: undefined,
+                masterPromptLoadedAt: undefined,
+                messages: [],
+                modelCalls: 0,
+                updatedAt: Date.now(),
+              }
+        );
+      } else {
+        appendCat("system", `Error: ${msg}`);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     runRef.current = run;
@@ -147,16 +273,14 @@ export default function Home() {
     } catch {
       setAudioBlocked(true);
     } finally {
-      // If the runner is waiting and voice mode is on, begin listening after audio completes.
-      // This prevents a stall where we attempted to listen while audio was still playing.
+      // After audio finishes, resume hands-free speech capture if enabled.
       window.setTimeout(() => {
         try {
           const r = runRef.current;
-          if (voice && r?.runId && r.status === "WAITING_FOR_USER") {
-            void startListeningSegment();
-          }
+          if (!voice || !autoStartTalking || !speech.supported) return;
+          if (r?.runId && r.status === "WAITING_FOR_USER") speech.start();
         } catch {}
-      }, 150);
+      }, 200);
     }
   };
 
@@ -374,7 +498,6 @@ export default function Home() {
       if (!transcript) {
         // Not fatal: just retry listening (quiet mic / noise suppression).
         setSttError("Empty transcript (retrying…)");
-        window.setTimeout(() => void startListeningSegment(), 200);
         return;
       }
       setLastTranscript(transcript);
@@ -393,13 +516,6 @@ export default function Home() {
       setRun(json.run as HandsFreeRun);
     } catch (e: any) {
       setSttError(String(e?.message || e).slice(0, 500));
-      // Retry listening on STT errors while still waiting; don't hard-fail the run.
-      window.setTimeout(() => {
-        try {
-          const r = runRef.current;
-          if (voice && r?.runId && r.status === "WAITING_FOR_USER") void startListeningSegment();
-        } catch {}
-      }, 400);
     } finally {
       sttInFlightRef.current = false;
       setBusy(false);
@@ -455,17 +571,9 @@ export default function Home() {
       const hasAudio = blob.size >= 8000; // ~0.5s+ typically
       const shouldStt = heardVoiceRef.current || hasAudio;
       if (!shouldStt) {
-        // Restart listening if we're still waiting for user input.
-        if (voice && runId && (run?.status || "DONE") === "WAITING_FOR_USER") {
-          window.setTimeout(() => void startListeningSegment(), 150);
-        }
         return;
       }
       await handleAudioTurn(blob);
-      // After backend responds, if still waiting, listen again automatically.
-      if (voice && runId && (run?.status || "DONE") === "WAITING_FOR_USER") {
-        window.setTimeout(() => void startListeningSegment(), 150);
-      }
     };
 
     mediaRecorderRef.current = mr;
@@ -496,17 +604,32 @@ export default function Home() {
   };
 
   useEffect(() => {
-    // When the runner is waiting for user input, auto-start listening.
-    if (!runId) return;
-    if (!voice) return;
-    if (!isWaiting) {
-      // If we moved out of waiting, stop listening.
-      if (listening) stopListening();
+    // Hands-free voice (browser SpeechRecognition): auto-start when waiting.
+    if (!voice || !speech.supported) {
+      if (speech.listening) speech.stop();
       return;
     }
-    void startListeningSegment().catch(() => {});
+    if (!autoStartTalking) return;
+
+    if (mode === "FULL_REVIEW") {
+      if (runId && isWaiting) {
+        // Don't listen while assistant audio is playing.
+        if (audioRef.current && !audioRef.current.paused) return;
+        speech.start();
+      } else if (speech.listening) {
+        speech.stop();
+      }
+    } else {
+      // Category update mode: keep listening while the category panel is active.
+      if (selectedCategory) {
+        if (audioRef.current && !audioRef.current.paused) return;
+        speech.start();
+      } else if (speech.listening) {
+        speech.stop();
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runId, voice, isWaiting, run?.updatedAt]);
+  }, [voice, speech.supported, autoStartTalking, mode, runId, isWaiting, run?.updatedAt, selectedCategory]);
 
   useEffect(() => {
     // Cleanup on unmount
@@ -522,10 +645,6 @@ export default function Home() {
   const start = async () => {
     if (!canStart) return;
     if (speak) await unlockAudio();
-    if (voice) {
-      // Request mic permission up front (hands-free voice mode).
-      await ensureMic().catch(() => {});
-    }
     setBusy(true);
     try {
       setPerf({});
@@ -538,6 +657,7 @@ export default function Home() {
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Start failed");
       lastSpokenAtRef.current = 0;
       setRun(json.run as HandsFreeRun);
+      setMode("FULL_REVIEW");
     } catch (e: any) {
       setRun({
         runId: "",
@@ -556,37 +676,39 @@ export default function Home() {
   };
 
   const sendAnswer = async () => {
-    const text = answer.trim();
-    if (!text || !runId || busy) return;
-    if (speak) await unlockAudio();
+    await submitText(answer);
+  };
+
+  const startCategoryUpdate = async (categoryKey: typeof categories[number]["key"]) => {
+    const oppId = Number(opportunityId);
+    if (!oppId) {
+      appendCat("system", "Enter an opportunity id first.");
+      setMode("CATEGORY_UPDATE");
+      setSelectedCategory(categoryKey);
+      return;
+    }
+    setMode("CATEGORY_UPDATE");
+    setSelectedCategory(categoryKey);
+    setCatSessionId("");
+    setCatMessages([]);
     setBusy(true);
-    setAnswer("");
     try {
-      setPerf((p) => ({ ...p, agentMs: undefined }));
-      const res = await fetch(`/api/handsfree/${runId}/input`, {
+      const res = await fetch(`/api/opportunities/${oppId}/update-category`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          orgId: Number(orgId),
+          sessionId: undefined,
+          category: categoryKey,
+          text: "",
+        }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Input failed");
-      setRun(json.run as HandsFreeRun);
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Start failed");
+      if (json?.sessionId) setCatSessionId(String(json.sessionId));
+      if (json?.assistantText) appendCat("assistant", String(json.assistantText));
     } catch (e: any) {
-      setRun((prev) =>
-        prev
-          ? { ...prev, status: "ERROR", error: e?.message || String(e) }
-          : {
-              runId,
-              sessionId: "",
-              status: "ERROR",
-              error: e?.message || String(e),
-              masterPromptSha256: undefined,
-              masterPromptLoadedAt: undefined,
-              messages: [],
-              modelCalls: 0,
-              updatedAt: Date.now(),
-            }
-      );
+      appendCat("system", `Error: ${String(e?.message || e)}`.slice(0, 500));
     } finally {
       setBusy(false);
     }
@@ -597,6 +719,10 @@ export default function Home() {
     setRun(null);
     setAnswer("");
     setBusy(false);
+    setMode("FULL_REVIEW");
+    setSelectedCategory("");
+    setCatSessionId("");
+    setCatMessages([]);
   };
 
   return (
@@ -626,23 +752,88 @@ export default function Home() {
             disabled={!!runId || busy}
           />
         </label>
+        <label style={{ display: "grid", gap: 6 }}>
+          <span style={{ fontSize: 12, color: "#444" }}>Opportunity ID (for Category Update)</span>
+          <input
+            value={opportunityId}
+            onChange={(e) => setOpportunityId(e.target.value)}
+            style={{ padding: 8, width: 200 }}
+            disabled={busy}
+            inputMode="numeric"
+          />
+        </label>
         <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
           <input type="checkbox" checked={speak} onChange={(e) => setSpeak(e.target.checked)} disabled={busy} />
           Speak
         </label>
         <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} disabled={busy || !!runId} />
-          Voice (hands-free)
+          <input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} disabled={busy} />
+          Voice (hands-free, browser)
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <input
+            type="checkbox"
+            checked={autoStartTalking}
+            onChange={(e) => setAutoStartTalking(e.target.checked)}
+            disabled={busy || !voice}
+          />
+          Auto-start “Start talking”
+        </label>
+        <label style={{ display: "grid", gap: 6 }}>
+          <span style={{ fontSize: 12, color: "#444" }}>Silence submit (ms)</span>
+          <input
+            value={String(submitOnSilenceMs)}
+            onChange={(e) => setSubmitOnSilenceMs(Number(e.target.value || "900") || 900)}
+            style={{ padding: 8, width: 160 }}
+            disabled={busy || !voice}
+            inputMode="numeric"
+          />
         </label>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <button onClick={start} disabled={!canStart}>
-            Start
+            Run Full Review
           </button>
           <button onClick={restart} disabled={busy}>
             Restart
           </button>
         </div>
+      </div>
+
+      <div style={{ marginTop: 10, padding: 12, borderRadius: 12, border: "1px solid #e5e5e5", background: "#fafafa" }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <strong>Category Update</strong>
+          <span style={{ color: "#666", fontSize: 12 }}>
+            (updates only one category; does not run the full rubric)
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+          {categories.map((c) => (
+            <button
+              key={c.key}
+              onClick={() => void startCategoryUpdate(c.key)}
+              disabled={busy}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid #ddd",
+                background: selectedCategory === c.key && mode === "CATEGORY_UPDATE" ? "#e8f0fe" : "#fff",
+              }}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+        {!speech.supported ? (
+          <div style={{ marginTop: 10, color: "#b26a00" }}>
+            Browser speech recognition is unavailable here. You can still type.
+          </div>
+        ) : null}
+        {speech.error ? (
+          <div style={{ marginTop: 10, color: "#b26a00" }}>
+            Speech recognition: <code>{speech.error}</code>
+          </div>
+        ) : null}
       </div>
 
       <div style={{ marginTop: 12 }}>
@@ -697,8 +888,8 @@ export default function Home() {
           background: "#fff",
         }}
       >
-        {run?.messages?.length ? (
-          run.messages.map((m, i) => (
+        {(mode === "FULL_REVIEW" ? run?.messages : catMessages)?.length ? (
+          (mode === "FULL_REVIEW" ? run?.messages || [] : catMessages).map((m, i) => (
             <div key={`${m.at}-${i}`} style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 12, color: "#666" }}>
                 <strong style={{ color: m.role === "assistant" ? "#1a73e8" : m.role === "user" ? "#0b8043" : "#666" }}>
@@ -710,7 +901,9 @@ export default function Home() {
             </div>
           ))
         ) : (
-          <div style={{ color: "#666" }}>Click <strong>Start</strong> to begin. The agent will speak first and then pause only when it needs your input.</div>
+          <div style={{ color: "#666" }}>
+            Click <strong>Run Full Review</strong> to begin (Mode A), or choose a category above to update just that category (Mode B).
+          </div>
         )}
       </div>
 
@@ -758,26 +951,84 @@ export default function Home() {
       {isWaiting ? (
         <div style={{ marginTop: 16, padding: 12, borderRadius: 12, border: "1px solid #e5e5e5", background: "#fafafa" }}>
           <div style={{ marginBottom: 8 }}>
-            <strong>Input required</strong> (the runner is paused){voice ? <> · {listening ? "Listening…" : "Preparing mic…"}</> : null}
+            <strong>Input required</strong> (the runner is paused)
           </div>
-          <details style={{ marginTop: 8 }}>
-            <summary style={{ cursor: "pointer" }}>Type instead (optional)</summary>
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-              <input
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
-                placeholder="Type your answer…"
-                style={{ flex: 1, padding: 10 }}
-                disabled={busy || !runId}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void sendAnswer();
-                }}
-              />
-              <button onClick={sendAnswer} disabled={busy || !runId || !answer.trim()}>
-                Send
-              </button>
-            </div>
-          </details>
+          <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {voice && speech.supported ? (
+              <>
+                <button
+                  onClick={() => (speech.listening ? speech.stop() : speech.start())}
+                  disabled={busy}
+                >
+                  {speech.listening ? "Stop talking" : "Start talking"}
+                </button>
+                <span style={{ color: "#666", fontSize: 12 }}>
+                  {speech.listening ? "Listening…" : "Mic idle"}
+                </span>
+              </>
+            ) : null}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <input
+              value={answer}
+              onChange={(e) => setAnswer(e.target.value)}
+              placeholder={speech.combinedText ? speech.combinedText : "Type your answer…"}
+              style={{ flex: 1, padding: 10 }}
+              disabled={busy || !runId}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void sendAnswer();
+              }}
+            />
+            <button onClick={sendAnswer} disabled={busy || !runId || !answer.trim()}>
+              Send
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {isCatWaiting ? (
+        <div style={{ marginTop: 16, padding: 12, borderRadius: 12, border: "1px solid #e5e5e5", background: "#fafafa" }}>
+          <div style={{ marginBottom: 8 }}>
+            <strong>Category input</strong>
+            {selectedCategory ? (
+              <span style={{ color: "#666" }}>
+                {" "}
+                · Selected: <code>{selectedCategory}</code>
+              </span>
+            ) : null}
+          </div>
+          <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {voice && speech.supported ? (
+              <>
+                <button
+                  onClick={() => (speech.listening ? speech.stop() : speech.start())}
+                  disabled={busy}
+                >
+                  {speech.listening ? "Stop talking" : "Start talking"}
+                </button>
+                <span style={{ color: "#666", fontSize: 12 }}>
+                  {speech.listening ? "Listening…" : "Mic idle"}
+                </span>
+              </>
+            ) : (
+              <span style={{ color: "#666", fontSize: 12 }}>Voice off (typing only).</span>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <input
+              value={answer}
+              onChange={(e) => setAnswer(e.target.value)}
+              placeholder={speech.combinedText ? speech.combinedText : "Type your answer…"}
+              style={{ flex: 1, padding: 10 }}
+              disabled={busy || !selectedCategory}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void sendAnswer();
+              }}
+            />
+            <button onClick={sendAnswer} disabled={busy || !selectedCategory || !answer.trim()}>
+              Send
+            </button>
+          </div>
         </div>
       ) : null}
     </main>
