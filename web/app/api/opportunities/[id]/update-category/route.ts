@@ -383,7 +383,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
 
     const body = await req.json().catch(() => ({}));
     const orgId = Number(body?.orgId || 0);
-    const sessionId = String(body?.sessionId || "").trim();
+    let sessionId = String(body?.sessionId || "").trim();
     const category = String(body?.category || "").trim() as CategoryKey;
     const text = String(body?.text || "").trim();
 
@@ -406,12 +406,17 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
         turns: [{ role: "assistant" as const, text: q, at: Date.now() }],
       };
       categoryUpdateSessions.set(newId, session);
-      return NextResponse.json({
-        ok: true,
-        sessionId: newId,
-        assistantText: q,
-        category: { key: category, label: catLabel },
-      });
+      // If caller didn't provide text, just start and ask the question.
+      // If caller DID provide text, treat it as the rep's answer and continue in the same request.
+      if (!text) {
+        return NextResponse.json({
+          ok: true,
+          sessionId: newId,
+          assistantText: q,
+          category: { key: category, label: catLabel },
+        });
+      }
+      sessionId = newId;
     }
 
     const session = categoryUpdateSessions.get(sessionId);
