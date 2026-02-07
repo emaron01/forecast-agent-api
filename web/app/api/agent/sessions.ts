@@ -13,6 +13,11 @@ declare global {
       masterPromptSha256?: string;
       masterPromptLoadedAt?: number;
       masterPromptSourcePath?: string;
+      // Category progression tracking (separate from DB saves)
+      reviewed: Set<string>;
+      lastCategoryKey?: string;
+      lastCheckType?: "strong" | "progress";
+      skipSaveCategoryKey?: string;
       deals: any[];
       index: number;
       scoreDefs: any[];
@@ -37,6 +42,10 @@ const sessions =
       masterPromptSha256?: string;
       masterPromptLoadedAt?: number;
       masterPromptSourcePath?: string;
+      reviewed: Set<string>;
+      lastCategoryKey?: string;
+      lastCheckType?: "strong" | "progress";
+      skipSaveCategoryKey?: string;
       deals: any[];
       index: number;
       scoreDefs: any[];

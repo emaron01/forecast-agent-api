@@ -11,6 +11,10 @@ export type ForecastSession = {
   masterPromptSha256?: string;
   masterPromptLoadedAt?: number;
   masterPromptSourcePath?: string;
+  reviewed: Set<string>;
+  lastCategoryKey?: string;
+  lastCheckType?: "strong" | "progress";
+  skipSaveCategoryKey?: string;
   deals: any[];
   index: number;
   scoreDefs: any[];
@@ -18,6 +22,39 @@ export type ForecastSession = {
   items: any[];
   wrapSaved: boolean;
 };
+
+function normalizeCategoryKeyFromLabel(label: string) {
+  const s = String(label || "").trim().toLowerCase();
+  if (!s) return "";
+  if (s.startsWith("pain")) return "pain";
+  if (s.startsWith("metrics")) return "metrics";
+  if (s.startsWith("champion")) return "champion";
+  if (s.startsWith("criteria")) return "criteria";
+  if (s.startsWith("competition")) return "competition";
+  if (s.startsWith("timing")) return "timing";
+  if (s.startsWith("budget")) return "budget";
+  if (s.startsWith("economic buyer") || s.startsWith("eb")) return "eb";
+  if (s.startsWith("decision process")) return "process";
+  if (s.startsWith("paper process")) return "paper";
+  return "";
+}
+
+function parseLastCheckFromAssistant(text: string): { categoryKey?: string; checkType?: "strong" | "progress" } {
+  const t = String(text || "");
+  const m = t.match(/Last review\s+(.+?)\s+was/i);
+  const rawCat = m?.[1] || "";
+  const categoryKey = normalizeCategoryKeyFromLabel(rawCat);
+  const isStrong = /Last review\s+.+?\s+was\s+strong\./i.test(t) && /introduce new risk\?/i.test(t);
+  const isProgress = /Have we made progress since the last review\?/i.test(t);
+  const checkType: "strong" | "progress" | undefined = isStrong ? "strong" : isProgress ? "progress" : undefined;
+  return categoryKey && checkType ? { categoryKey, checkType } : {};
+}
+
+function isNoChangeReply(userText: string) {
+  const t = String(userText || "").trim().toLowerCase();
+  if (!t) return false;
+  return /^(no|nope|nah|unchanged|no change|nothing changed|nothing new|same)\b/.test(t);
+}
 
 function resolveBaseUrl() {
   const raw = (process.env.OPENAI_BASE_URL || process.env.MODEL_API_URL || process.env.MODEL_URL || "").trim();
@@ -100,6 +137,16 @@ export async function runResponsesTurn(args: {
 
   // Build a running input list (user messages + model outputs + tool outputs).
   const input: any[] = Array.isArray(session.items) ? [...session.items] : [];
+
+  // If the previous assistant turn was a locked "check pattern" and the rep says "no change",
+  // we must move on without overwriting summaries/tips (per master prompt contract).
+  if (session.lastCategoryKey && session.lastCheckType && isNoChangeReply(text)) {
+    session.reviewed.add(session.lastCategoryKey);
+    session.skipSaveCategoryKey = session.lastCategoryKey;
+  } else {
+    session.skipSaveCategoryKey = undefined;
+  }
+
   input.push(userMsg(text));
 
   // Load master prompt once per session (cached globally too).
@@ -125,7 +172,7 @@ export async function runResponsesTurn(args: {
           firstName(session.repName),
           session.deals.length,
           session.index === 0,
-          session.touched,
+          session.reviewed,
           session.scoreDefs
         )
       : buildNoDealsPrompt(firstName(session.repName), "No deals available in the system for this rep.");
@@ -179,11 +226,12 @@ export async function runResponsesTurn(args: {
         const wrapNext = cleanText(toolArgs.next_steps);
         const wrapComplete = !!wrapRisk && !!wrapNext;
 
-        // Track touched categories
+        // Track touched + reviewed categories
         for (const key of Object.keys(toolArgs || {})) {
           if (key.endsWith("_score") || key.endsWith("_summary") || key.endsWith("_tip")) {
             const category = key.replace(/_score$/, "").replace(/_summary$/, "").replace(/_tip$/, "");
             session.touched.add(category);
+            session.reviewed.add(category);
           }
         }
 
@@ -191,6 +239,19 @@ export async function runResponsesTurn(args: {
         if (!activeDeal) {
           input.push(toolOutput(callId, { status: "error", error: "No active deal" }));
           continue;
+        }
+
+        // If the rep said "no change" for a locked check pattern, do NOT overwrite DB fields.
+        // We still return success so the model can proceed to the next question.
+        if (session.skipSaveCategoryKey) {
+          const prefix = `${session.skipSaveCategoryKey}_`;
+          const touchesSkipped = Object.keys(toolArgs || {}).some((k) => k.startsWith(prefix));
+          if (touchesSkipped) {
+            // Clear skip so it applies to one category only.
+            session.skipSaveCategoryKey = undefined;
+            input.push(toolOutput(callId, { status: "success", skipped: true }));
+            continue;
+          }
         }
 
         const result = await handleFunctionCall({
@@ -238,8 +299,8 @@ export async function runResponsesTurn(args: {
         const requiredCats = isPipeline
           ? ["pain", "metrics", "champion", "competition", "budget"]
           : ["pain", "metrics", "champion", "criteria", "competition", "timing", "budget", "eb", "process", "paper"];
-        const allTouched = requiredCats.every((cat) => session.touched.has(cat));
-        if (allTouched && !session.wrapSaved) {
+        const allReviewed = requiredCats.every((cat) => session.reviewed.has(cat) || session.touched.has(cat));
+        if (allReviewed && !session.wrapSaved) {
           const hs = await fetchHealthScore(pool, session.orgId, activeDeal.id);
           input.push(
             userMsg(
@@ -279,6 +340,10 @@ export async function runResponsesTurn(args: {
         // Advance deal in session
         session.index += 1;
         session.touched = new Set<string>();
+        session.reviewed = new Set<string>();
+        session.lastCategoryKey = undefined;
+        session.lastCheckType = undefined;
+        session.skipSaveCategoryKey = undefined;
         session.items = [];
         session.wrapSaved = false;
         input.length = 0; // reset conversation items for next deal
@@ -301,6 +366,14 @@ export async function runResponsesTurn(args: {
   session.items = input;
 
   const assistantText = extractAssistantText(Array.isArray(lastResponse?.output) ? lastResponse.output : []);
+  const parsed = parseLastCheckFromAssistant(assistantText);
+  if (parsed.categoryKey && parsed.checkType) {
+    session.lastCategoryKey = parsed.categoryKey;
+    session.lastCheckType = parsed.checkType;
+  } else {
+    session.lastCategoryKey = undefined;
+    session.lastCheckType = undefined;
+  }
   const done = session.index >= session.deals.length;
   return { assistantText, done };
 }

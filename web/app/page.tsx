@@ -63,6 +63,7 @@ export default function Home() {
   const rafRef = useRef<number | null>(null);
   const lastVoiceAtRef = useRef<number>(0);
   const heardVoiceRef = useRef<boolean>(false);
+  const firstVoiceAtRef = useRef<number>(0);
 
   const sttInFlightRef = useRef<boolean>(false);
   const lastSentAtRef = useRef<number>(0);
@@ -308,10 +309,11 @@ export default function Home() {
     if (!analyser) return;
 
     const buf = new Uint8Array(analyser.fftSize);
-    // Tune for responsiveness (reduces "dead air" wait time).
-    const SILENCE_MS = 450;
+    // Tune for responsiveness while avoiding cutoffs mid-sentence.
+    const SILENCE_MS = 500;
     // Slightly more sensitive than before to avoid missing quiet mics.
     const THRESH = 0.012;
+    const MIN_SPEECH_MS = 650;
 
     const tick = () => {
       if (!listening) return;
@@ -324,6 +326,9 @@ export default function Home() {
       const rms = Math.sqrt(sumSq / buf.length);
       const now = Date.now();
       if (rms > THRESH) {
+        if (!heardVoiceRef.current) {
+          firstVoiceAtRef.current = now;
+        }
         heardVoiceRef.current = true;
         lastVoiceAtRef.current = now;
       }
@@ -332,6 +337,8 @@ export default function Home() {
         mediaRecorderRef.current.state === "recording" &&
         heardVoiceRef.current &&
         lastVoiceAtRef.current &&
+        firstVoiceAtRef.current &&
+        now - firstVoiceAtRef.current > MIN_SPEECH_MS &&
         now - lastVoiceAtRef.current > SILENCE_MS
       ) {
         try {
@@ -420,6 +427,7 @@ export default function Home() {
     // Reset segment state
     heardVoiceRef.current = false;
     lastVoiceAtRef.current = 0;
+    firstVoiceAtRef.current = 0;
     chunksRef.current = [];
 
     const mime = pickRecorderMime();
