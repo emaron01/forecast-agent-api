@@ -621,12 +621,21 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       risks: rollupText.risks,
     });
 
+    const overallPercent =
+      overall.overall_max && Number(overall.overall_max) > 0
+        ? Math.max(0, Math.min(100, Math.round((Number(overall.overall_score) / Number(overall.overall_max)) * 100)))
+        : 0;
+    const partialNote = unassessedCategories.length
+      ? "Overall score reflects only updated categories; remaining categories not assessed yet."
+      : "";
+
     const assistantText = [
       `${catLabel} updated.`,
       `Score: ${score} / 3`,
       `Label: ${label || "(none)"}`,
       tip ? `Tip: ${tip}` : "",
-      overall.overall_max ? `Overall: ${overall.overall_score} / ${overall.overall_max}` : `Overall: ${overall.overall_score}`,
+      partialNote,
+      `Overall: ${overallPercent}%`,
     ].filter(Boolean).join("\n");
 
     session.turns.push({ role: "assistant", text: assistantText, at: Date.now() });
