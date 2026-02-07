@@ -23,7 +23,7 @@ import { handleFunctionCall } from "./muscle.js";
 const PORT = process.env.PORT || 10000;
 
 const MODEL_URL = process.env.MODEL_API_URL; // wss://api.openai.com/v1/realtime
-const MODEL_NAME = process.env.MODEL_NAME;
+const MODEL_API_NAME = process.env.MODEL_API_NAME;
 const OPENAI_API_KEY = process.env.MODEL_API_KEY;
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -31,8 +31,8 @@ const DATABASE_URL = process.env.DATABASE_URL;
 // Single debug flag (must not crash if unset)
 const DEBUG_AGENT = String(process.env.DEBUG_AGENT || "") === "1";
 
-if (!MODEL_URL || !MODEL_NAME || !OPENAI_API_KEY) {
-  throw new Error("⚠️ MODEL_API_URL, MODEL_NAME, and MODEL_API_KEY must be set!");
+if (!MODEL_URL || !MODEL_API_NAME || !OPENAI_API_KEY) {
+  throw new Error("⚠️ MODEL_API_URL, MODEL_API_NAME, and MODEL_API_KEY must be set!");
 }
 if (!DATABASE_URL) {
   throw new Error("⚠️ DATABASE_URL must be set!");
@@ -783,7 +783,7 @@ wss.on("connection", async (twilioWs) => {
   // Advancement gating (prevents premature NEXT_DEAL_TRIGGER in Pipeline)
   let touched = new Set();
 
-  const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_NAME}`, {
+  const openAiWs = new WebSocket(`${MODEL_URL}?model=${MODEL_API_NAME}`, {
     headers: {
       Authorization: `Bearer ${OPENAI_API_KEY}`,
       "OpenAI-Beta": "realtime=v1",
