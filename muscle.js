@@ -40,6 +40,22 @@ function vpTipForCategory(category) {
   return tips[category] || "Validate the critical evidence and confirm ownership for this category.";
 }
 
+/**
+ * Map health_score (0-30) to an AI verdict stage for analytics.
+ * - Commit: 24+
+ * - Best Case: 18-23
+ * - Pipeline: 0-17
+ *
+ * Note: This does NOT change CRM forecast_stage; it writes ai_verdict only.
+ */
+function computeAiVerdictFromHealthScore(healthScore) {
+  const n = Number(healthScore);
+  if (!Number.isFinite(n)) return null;
+  if (n >= 24) return "Commit";
+  if (n >= 18) return "Best Case";
+  return "Pipeline";
+}
+
 async function getScoreLabel(pool, orgId, category, score) {
   if (!category || score == null) return null;
   const { rows } = await pool.query(
@@ -311,10 +327,33 @@ export async function handleFunctionCall({ toolName, args, pool }) {
 
     // Persist computed health_score so the agent always has a real number to speak (never invent).
     if (recomputed.total_score != null && Number.isFinite(recomputed.total_score)) {
-      await client.query(
-        `UPDATE opportunities SET health_score = $3, updated_at = NOW() WHERE org_id = $1 AND id = $2`,
-        [orgId, opportunityId, recomputed.total_score]
-      );
+      const aiVerdict = computeAiVerdictFromHealthScore(recomputed.total_score);
+      try {
+        await client.query(
+          `UPDATE opportunities
+              SET health_score = $3,
+                  ai_verdict = $4,
+                  baseline_health_score = COALESCE(baseline_health_score, $3),
+                  baseline_health_score_ts = COALESCE(baseline_health_score_ts, NOW()),
+                  updated_at = NOW()
+            WHERE org_id = $1 AND id = $2`,
+          [orgId, opportunityId, recomputed.total_score, aiVerdict]
+        );
+      } catch (e) {
+        // If ai_verdict column doesn't exist yet, still persist health_score.
+        // Postgres undefined_column error code is 42703.
+        if (String(e?.code || "") === "42703") {
+          await client.query(
+            `UPDATE opportunities SET health_score = $3, updated_at = NOW() WHERE org_id = $1 AND id = $2`,
+            [orgId, opportunityId, recomputed.total_score]
+          );
+        } else {
+          throw e;
+        }
+      }
+
+      // Keep in-memory opp consistent for audit event fields below.
+      opp.health_score = recomputed.total_score;
     }
 
     // Create audit event (compact delta)
