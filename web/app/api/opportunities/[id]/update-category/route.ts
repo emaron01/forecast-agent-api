@@ -381,7 +381,21 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     const opportunityId = Number.parseInt(String(resolvedParams?.id ?? ""), 10);
     if (!opportunityId) return NextResponse.json({ ok: false, error: "Invalid opportunity id" }, { status: 400 });
 
-    const body = await req.json().catch(() => ({}));
+    // Be defensive: some runtimes (or client invocations) can cause req.json() to fail.
+    // Fall back to parsing raw text to avoid "Missing orgId" due to empty body.
+    const body = await (async () => {
+      try {
+        return await req.json();
+      } catch {
+        try {
+          const raw = await req.text();
+          if (!raw) return {};
+          return JSON.parse(raw);
+        } catch {
+          return {};
+        }
+      }
+    })();
     const orgId = Number(body?.orgId || 0);
     let sessionId = String(body?.sessionId || "").trim();
     const category = String(body?.category || "").trim() as CategoryKey;
