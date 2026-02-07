@@ -308,7 +308,8 @@ export default function Home() {
     if (!analyser) return;
 
     const buf = new Uint8Array(analyser.fftSize);
-    const SILENCE_MS = 650;
+    // Tune for responsiveness (reduces "dead air" wait time).
+    const SILENCE_MS = 450;
     // Slightly more sensitive than before to avoid missing quiet mics.
     const THRESH = 0.012;
 
@@ -465,12 +466,25 @@ export default function Home() {
     mr.start();
     startVADMonitor();
 
-    // Safety: cap each segment length.
+    // Safety: cap each segment length (prevents long waits if VAD misses).
     segmentTimeoutRef.current = window.setTimeout(() => {
       try {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") mediaRecorderRef.current.stop();
       } catch {}
-    }, 25000);
+    }, 12000);
+
+    // If we haven't detected any speech quickly, stop and restart (keeps loop snappy).
+    window.setTimeout(() => {
+      try {
+        if (!voice) return;
+        const r = runRef.current;
+        if (!r?.runId || r.status !== "WAITING_FOR_USER") return;
+        if (!mediaRecorderRef.current || mediaRecorderRef.current.state !== "recording") return;
+        if (!heardVoiceRef.current) {
+          mediaRecorderRef.current.stop();
+        }
+      } catch {}
+    }, 2500);
   };
 
   useEffect(() => {
