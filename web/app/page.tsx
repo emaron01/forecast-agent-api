@@ -122,6 +122,7 @@ export default function Home() {
   const firstVoiceAtRef = useRef<number>(0);
   const noiseFloorRmsRef = useRef<number>(0);
   const voiceStreakRef = useRef<number>(0);
+  const vadWarmedRef = useRef<boolean>(false);
 
   const sttInFlightRef = useRef<boolean>(false);
   const lastSentAtRef = useRef<number>(0);
@@ -530,18 +531,50 @@ export default function Home() {
     }
   };
 
-  const startVADMonitor = () => {
+  const ensureVadNodes = async () => {
     const stream = streamRef.current;
     if (!stream) return;
 
+    // IMPORTANT: Some browsers require a user gesture to start/resume AudioContext.
+    // If the context is suspended, analyser RMS will look like silence forever -> VAD never trips.
+    const AC = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext | undefined;
+    if (!AC) return;
+
     if (!audioCtxRef.current) {
-      audioCtxRef.current = new AudioContext();
+      audioCtxRef.current = new AC();
       const src = audioCtxRef.current.createMediaStreamSource(stream);
       const analyser = audioCtxRef.current.createAnalyser();
       analyser.fftSize = 2048;
       src.connect(analyser);
       analyserRef.current = analyser;
     }
+
+    try {
+      await audioCtxRef.current.resume();
+    } catch {
+      // If resume fails (no gesture), we'll retry later; keep going.
+    }
+  };
+
+  const warmMicAndVadFromGesture = async (reason: string) => {
+    if (!voice || !useMicSttFallback || !keepMicOpen) return;
+    try {
+      await ensureMic();
+      await ensureVadNodes();
+      vadWarmedRef.current = true;
+      logDebug("info", `Mic+VAD warmed (${reason})`);
+    } catch {
+      logDebug("warn", `Mic+VAD warm failed (${reason})`);
+    }
+  };
+
+  const startVADMonitor = () => {
+    const stream = streamRef.current;
+    if (!stream) return;
+
+    // Best-effort: if AudioContext was created without a gesture, it may be suspended.
+    // This async call won't block the tick loop.
+    void ensureVadNodes();
 
     const analyser = analyserRef.current;
     if (!analyser) return;
@@ -749,13 +782,15 @@ export default function Home() {
       const blobType = recorderMimeRef.current || mr.mimeType || "audio/webm";
       const blob = new Blob(chunksRef.current, { type: blobType });
       chunksRef.current = [];
+      const segMs = recordStartedAtRef.current ? Date.now() - recordStartedAtRef.current : 0;
       if (recordStartedAtRef.current) {
         setPerf((p) => ({ ...p, recordMs: Date.now() - recordStartedAtRef.current }));
       }
 
       // Only send to STT when we believe there was speech.
       // This prevents sending silence/noise segments that often produce empty transcripts.
-      const shouldStt = heardVoiceRef.current;
+      const hasLikelySpeechBlob = blob.size >= 25000 && segMs >= Math.max(350, Number(micMinSpeechMs) || 550);
+      const shouldStt = heardVoiceRef.current || hasLikelySpeechBlob;
       if (!shouldStt) {
         logDebug("info", `No speech detected (blob ${Math.round(blob.size / 1024)} KB) — retrying`);
         // Quick retry loop to keep hands-free responsive.
@@ -765,6 +800,12 @@ export default function Home() {
           } catch {}
         }, 120);
         return;
+      }
+      if (!heardVoiceRef.current && hasLikelySpeechBlob) {
+        logDebug(
+          "warn",
+          `VAD missed speech; sending segment to STT anyway (${Math.round(blob.size / 1024)} KB, ${Math.round(segMs)} ms)`
+        );
       }
       await handleAudioTurn(blob);
     };
@@ -877,15 +918,8 @@ export default function Home() {
   const start = async () => {
     if (!canStart) return;
     if (speak) await unlockAudio();
-    // Open mic on the same user gesture and keep it open for the session.
-    if (voice && useMicSttFallback && keepMicOpen) {
-      try {
-        await ensureMic();
-        logDebug("info", "Mic opened (kept open for session)");
-      } catch {
-        logDebug("warn", "Mic not opened on start (permission or device issue)");
-      }
-    }
+    // Open mic + warm VAD on the same user gesture and keep it open for the session.
+    await warmMicAndVadFromGesture("start");
     setBusy(true);
     try {
       setPerf({});
@@ -919,15 +953,8 @@ export default function Home() {
   const startFullDealReview = async () => {
     if (busy) return;
     if (speak) await unlockAudio();
-    // Open mic on the same user gesture and keep it open for the session.
-    if (voice && useMicSttFallback && keepMicOpen) {
-      try {
-        await ensureMic();
-        logDebug("info", "Mic opened (kept open for session)");
-      } catch {
-        logDebug("warn", "Mic not opened on start (permission or device issue)");
-      }
-    }
+    // Open mic + warm VAD on the same user gesture and keep it open for the session.
+    await warmMicAndVadFromGesture("full_review");
     setBusy(true);
     try {
       const oppId = Number(opportunityId);
@@ -981,15 +1008,8 @@ export default function Home() {
     setBusy(true);
     try {
       if (speak) await unlockAudio();
-      // Open mic on the same user gesture and keep it open for the session.
-      if (voice && useMicSttFallback && keepMicOpen) {
-        try {
-          await ensureMic();
-          logDebug("info", "Mic opened (kept open for session)");
-        } catch {
-          logDebug("warn", "Mic not opened on category start (permission or device issue)");
-        }
-      }
+      // Open mic + warm VAD on the same user gesture and keep it open for the session.
+      await warmMicAndVadFromGesture(`category_${categoryKey}`);
       const res = await fetch(`/api/opportunities/${oppId}/update-category`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1487,8 +1507,7 @@ export default function Home() {
                   <button
                     onClick={async () => {
                       try {
-                        await ensureMic();
-                        logDebug("info", "Mic opened (manual warm)");
+                        await warmMicAndVadFromGesture("manual_warm");
                       } catch {
                         logDebug("error", "Mic warm failed");
                       }
