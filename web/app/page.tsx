@@ -36,6 +36,7 @@ function b64ToBlob(b64: string, mime: string) {
 
 export default function Home() {
   const BUILD_TAG = "handsfree-v1";
+  const SHOW_SCORES = (process.env.NEXT_PUBLIC_SHOW_SCORES || "1") !== "0";
 
   const [repName, setRepName] = useState("Erik M");
   const [orgId, setOrgId] = useState("1");
@@ -56,6 +57,12 @@ export default function Home() {
   >("");
   const [catSessionId, setCatSessionId] = useState<string>("");
   const [catMessages, setCatMessages] = useState<HandsFreeMessage[]>([]);
+  const [oppState, setOppState] = useState<{
+    healthPercent?: number | null;
+    rollup?: { summary?: string; next_steps?: string; risks?: string; updated_at?: any } | null;
+    categories?: Array<{ category: string; score: number; label: string; tip: string; evidence: string; updated_at?: any }>;
+    opportunity?: any;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [run, setRun] = useState<HandsFreeRun | null>(null);
   const [answer, setAnswer] = useState("");
@@ -183,6 +190,7 @@ export default function Home() {
         if (!res.ok || !json?.ok) throw new Error(json?.error || "Update failed");
         if (json?.sessionId) setCatSessionId(String(json.sessionId));
         if (json?.assistantText) appendCat("assistant", String(json.assistantText));
+        await loadOpportunityState();
       }
     } catch (e: any) {
       const msg = String(e?.message || e).slice(0, 500);
@@ -760,6 +768,22 @@ export default function Home() {
     }
   };
 
+  const loadOpportunityState = async () => {
+    const oppId = Number(opportunityId);
+    if (!oppId) {
+      setOppState(null);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/opportunities/${oppId}/state?orgId=${encodeURIComponent(String(orgId || ""))}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json?.ok) setOppState(json);
+    } catch {}
+  };
+
   const restart = () => {
     stopMic();
     setRun(null);
@@ -777,6 +801,35 @@ export default function Home() {
     return String(last || "").trim();
   }, [activeMessages]);
   const wrap = useMemo(() => extractWrap(lastAssistantText), [lastAssistantText]);
+
+  const rollup = oppState?.rollup || null;
+  const tileRows = useMemo(() => {
+    const fromApi = Array.isArray(oppState?.categories) ? oppState?.categories : [];
+    const m = new Map<string, any>();
+    for (const r of fromApi) m.set(String(r.category), r);
+    return categories.map((c) => {
+      const row = m.get(c.key);
+      return {
+        key: c.key,
+        catLabel: c.label,
+        score: Number(row?.score ?? 0),
+        scoreLabel: String(row?.label ?? ""),
+        tip: String(row?.tip ?? ""),
+        evidence: String(row?.evidence ?? ""),
+      };
+    });
+  }, [categories, oppState?.categories]);
+
+  const scoreColor = (s: number) => {
+    if (s >= 3) return "var(--good)";
+    if (s >= 2) return "var(--warn)";
+    return "var(--bad)";
+  };
+
+  useEffect(() => {
+    void loadOpportunityState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId, opportunityId]);
 
   return (
     <main className="wrap">
@@ -884,7 +937,7 @@ export default function Home() {
           <div className="cols">
             <div className="box">
               <h3>Risk Summary</h3>
-              <p>{wrap.riskSummary || "—"}</p>
+              <p>{rollup?.risks || wrap.riskSummary || "—"}</p>
             </div>
             <div className="box">
               <h3>Next Steps</h3>
@@ -894,8 +947,13 @@ export default function Home() {
                 </button>
               </div>
               <p>
-                <b>Next steps:</b> {wrap.nextSteps || "—"}
+                <b>Next steps:</b> {rollup?.next_steps || wrap.nextSteps || "—"}
               </p>
+              {rollup?.summary ? (
+                <p style={{ marginTop: 10 }}>
+                  <b>Summary:</b> {rollup.summary}
+                </p>
+              ) : null}
               {run?.masterPromptSha256 ? (
                 <p style={{ marginTop: 6 }} className="small">
                   Master prompt: <code>{run.masterPromptSha256.slice(0, 12)}…</code>
@@ -905,13 +963,27 @@ export default function Home() {
           </div>
 
           <div className="med">
-            {categories.map((c) => (
-              <div key={c.key} className={`cat ${selectedCategory === c.key ? "active" : ""}`}>
+            {tileRows.map((c) => (
+              <div
+                key={c.key}
+                className={`cat ${selectedCategory === c.key ? "active" : ""}`}
+                style={{ borderTop: `3px solid ${scoreColor(c.score)}` }}
+              >
                 <div className="ch">
-                  <b>{c.label}</b>
-                  <span className="score">{selectedCategory === c.key && mode === "CATEGORY_UPDATE" ? "Updating" : ""}</span>
+                  <b>{c.catLabel}</b>
+                  <span className="score" style={{ color: scoreColor(c.score) }}>
+                    {SHOW_SCORES ? `${Number(c.score || 0)}/3` : ""}
+                  </span>
                 </div>
-                <div className="evi">Update only this category and recompute rollup.</div>
+                <div className="small" style={{ color: "var(--accent)", fontWeight: 800 }}>
+                  {c.scoreLabel || "—"}
+                </div>
+                <div className="tip">
+                  <b>Tip:</b> {c.tip || "—"}
+                </div>
+                <div className="evi">
+                  <b>Evidence:</b> {c.evidence || "—"}
+                </div>
                 <div className="catBtnRow">
                   <button onClick={() => void startCategoryUpdate(c.key)} disabled={busy}>
                     Update
@@ -1227,6 +1299,10 @@ export default function Home() {
         .evi {
           color: var(--muted);
           font-size: 11px;
+        }
+        .tip {
+          color: var(--warn);
+          font-size: 12px;
         }
         .catBtnRow {
           margin-top: auto;
