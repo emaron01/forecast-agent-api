@@ -162,6 +162,29 @@ function parseStrictJson(text: string) {
   return JSON.parse(unfenced);
 }
 
+function parseLooseObject(raw: string) {
+  // Accept a non-JSON "object-like" payload such as:
+  // {category:paper,orgId:1,text:hello world}
+  // This can happen when shells strip quotes from JSON arguments.
+  const s = String(raw || "").trim();
+  if (!s.startsWith("{") || !s.endsWith("}")) return null;
+  const inner = s.slice(1, -1).trim();
+  if (!inner) return {};
+
+  const parts = inner.split(/,(?=[a-zA-Z_][a-zA-Z0-9_]*:)/g);
+  const out: any = {};
+  for (const p of parts) {
+    const idx = p.indexOf(":");
+    if (idx <= 0) continue;
+    const k = p.slice(0, idx).trim();
+    const vRaw = p.slice(idx + 1).trim();
+    if (!k) continue;
+    const n = Number(vRaw);
+    out[k] = Number.isFinite(n) && String(n) === vRaw ? n : vRaw;
+  }
+  return out;
+}
+
 async function upsertAssessment(args: {
   orgId: number;
   opportunityId: number;
@@ -391,7 +414,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
         // If the JSON itself is a quoted JSON string, parse again.
         if (typeof body === "string" && body.trim().startsWith("{")) body = JSON.parse(body);
       } catch {
-        body = {};
+        body = parseLooseObject(raw) || {};
       }
     } else {
       // Fallback: some Next internals may not provide raw text; try json().
