@@ -103,6 +103,25 @@ async function fetchRubric(orgId: number, category: CategoryKey) {
   return (rows || []) as ScoreDefRow[];
 }
 
+async function fetchLabelForScore(orgId: number, category: CategoryKey, score: number) {
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT label
+        FROM score_definitions
+       WHERE org_id = $1
+         AND category = $2
+         AND score = $3
+       LIMIT 1
+      `,
+      [orgId, category, score]
+    );
+    return String(rows?.[0]?.label || "").trim();
+  } catch {
+    return "";
+  }
+}
+
 async function callModelJSON(args: { instructions: string; input: string }) {
   const baseUrl = resolveBaseUrl();
   const apiKey = String(process.env.MODEL_API_KEY || process.env.OPENAI_API_KEY || "").trim();
@@ -148,36 +167,45 @@ async function upsertAssessment(args: {
   opportunityId: number;
   category: CategoryKey;
   score: number;
+  label: string;
+  tip: string;
   evidence: string;
   turns: any[];
 }) {
   try {
     const q = `
       INSERT INTO opportunity_category_assessments
-        (org_id, opportunity_id, category, score, evidence, turns, updated_at)
+        (org_id, opportunity_id, category, score, label, tip, evidence, turns, updated_at)
       VALUES
-        ($1,$2,$3,$4,$5,$6::jsonb,NOW())
+        ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,NOW())
       ON CONFLICT (org_id, opportunity_id, category)
       DO UPDATE SET
         score = EXCLUDED.score,
+        label = EXCLUDED.label,
+        tip = EXCLUDED.tip,
         evidence = EXCLUDED.evidence,
         turns = EXCLUDED.turns,
         updated_at = NOW()
-      RETURNING org_id, opportunity_id, category, score, evidence, updated_at
+      RETURNING org_id, opportunity_id, category, score, label, tip, evidence, updated_at
     `;
     const { rows } = await pool.query(q, [
       args.orgId,
       args.opportunityId,
       args.category,
       args.score,
+      String(args.label || "").trim(),
+      String(args.tip || "").trim(),
       String(args.evidence || "").trim(),
       JSON.stringify(args.turns || []),
     ]);
     return rows?.[0] || null;
   } catch (e: any) {
-    if (String(e?.code || "") === "42P01") {
-      // undefined_table (migration not applied yet)
+    const code = String(e?.code || "");
+    if (code === "42P01") {
       throw new Error("DB migration missing: opportunity_category_assessments");
+    }
+    if (code === "42703") {
+      throw new Error("DB migration missing: opportunity_category_assessments label/tip columns");
     }
     throw e;
   }
@@ -206,7 +234,7 @@ async function fetchAssessments(orgId: number, opportunityId: number) {
   try {
     const { rows } = await pool.query(
       `
-      SELECT category, score, evidence, updated_at
+      SELECT category, score, label, tip, evidence, updated_at
         FROM opportunity_category_assessments
        WHERE org_id = $1 AND opportunity_id = $2
        ORDER BY category ASC
@@ -215,8 +243,12 @@ async function fetchAssessments(orgId: number, opportunityId: number) {
     );
     return rows || [];
   } catch (e: any) {
-    if (String(e?.code || "") === "42P01") {
+    const code = String(e?.code || "");
+    if (code === "42P01") {
       throw new Error("DB migration missing: opportunity_category_assessments");
+    }
+    if (code === "42703") {
+      throw new Error("DB migration missing: opportunity_category_assessments label/tip columns");
     }
     throw e;
   }
@@ -292,7 +324,7 @@ async function upsertRollup(args: {
 async function regenerateRollupText(args: {
   orgId: number;
   opportunityId: number;
-  assessments: Array<{ category: string; score: number; evidence: string }>;
+  assessments: Array<{ category: string; score: number; label?: string; tip?: string; evidence: string }>;
   overallScore: number;
   overallMax: number;
 }) {
@@ -300,21 +332,28 @@ async function regenerateRollupText(args: {
     "You are generating derived rollup outputs for a sales opportunity.",
     "CRITICAL:",
     "- Do NOT rescore any category. Scores provided are authoritative.",
-    "- Use ONLY the provided per-category evidence; do not invent facts.",
+    "- Use ONLY the provided per-category evidence/tips; do not invent facts.",
     "- Output MUST be strict JSON with keys: summary, next_steps, risks.",
   ].join("\n");
 
-  const byCat = new Map<string, { score: number; evidence: string }>();
+  const byCat = new Map<string, { score: number; label: string; tip: string; evidence: string }>();
   for (const a of args.assessments || []) {
-    byCat.set(String(a.category), { score: Number(a.score) || 0, evidence: String(a.evidence || "").trim() });
+    byCat.set(String(a.category), {
+      score: Number(a.score) || 0,
+      label: String((a as any).label || "").trim(),
+      tip: String((a as any).tip || "").trim(),
+      evidence: String(a.evidence || "").trim(),
+    });
   }
 
   const lines = ALL_CATEGORIES.map((catKey) => {
     const v = byCat.get(catKey);
     const cat = displayCategory(catKey);
     const score = v ? v.score : 0;
+    const label = v ? v.label : "";
+    const tip = v ? v.tip : "";
     const ev = v ? v.evidence : "";
-    return `CATEGORY: ${cat}\nSCORE: ${score}\nEVIDENCE:\n${ev || "(none)"}\n`;
+    return `CATEGORY: ${cat}\nSCORE: ${score}\nLABEL: ${label || "(none)"}\nTIP: ${tip || "(none)"}\nEVIDENCE:\n${ev || "(none)"}\n`;
   }).join("\n");
 
   const input = [
@@ -398,12 +437,12 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
       "",
       "Rules:",
       "- Ask at most ONE follow-up question if information is insufficient.",
-      "- Otherwise finalize with a score 0-3 and a short evidence statement.",
+      "- Otherwise finalize with a score 0-3, a coaching tip, and a short evidence statement (rationale).",
       "- Use ONLY the rubric definitions provided. Do not invent facts.",
       "- Output MUST be strict JSON only. No markdown, no extra text.",
       "",
       "JSON schema:",
-      `{"action":"followup","question":"..."} OR {"action":"finalize","score":0,"evidence":"..."}`,
+      `{"action":"followup","question":"..."} OR {"action":"finalize","score":0,"tip":"...","evidence":"..."}`,
     ].join("\n");
 
     const transcript = session.turns
@@ -438,15 +477,19 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
 
     const score = Math.max(0, Math.min(3, Number(obj?.score)));
     const evidence = String(obj?.evidence || "").trim();
+    const tip = String(obj?.tip || "").trim();
     if (!Number.isFinite(score)) {
       return NextResponse.json({ ok: false, error: "Invalid score from model" }, { status: 502 });
     }
+    const label = await fetchLabelForScore(orgId, category, score);
 
     const saved = await upsertAssessment({
       orgId,
       opportunityId,
       category,
       score,
+      label,
+      tip,
       evidence,
       turns: session.turns,
     });
@@ -455,6 +498,8 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     const assessments = (await fetchAssessments(orgId, opportunityId)) as Array<{
       category: string;
       score: number;
+      label: string;
+      tip: string;
       evidence: string;
     }>;
     const weights = await fetchWeights(orgId);
@@ -482,8 +527,10 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     const assistantText = [
       `${catLabel} updated.`,
       `Score: ${score} / 3`,
+      `Label: ${label || "(none)"}`,
+      tip ? `Tip: ${tip}` : "",
       overall.overall_max ? `Overall: ${overall.overall_score} / ${overall.overall_max}` : `Overall: ${overall.overall_score}`,
-    ].join("\n");
+    ].filter(Boolean).join("\n");
 
     session.turns.push({ role: "assistant", text: assistantText, at: Date.now() });
     session.updatedAt = Date.now();
