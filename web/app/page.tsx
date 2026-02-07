@@ -189,7 +189,11 @@ export default function Home() {
         const json = await res.json().catch(() => ({}));
         if (!res.ok || !json?.ok) throw new Error(json?.error || "Update failed");
         if (json?.sessionId) setCatSessionId(String(json.sessionId));
-        if (json?.assistantText) appendCat("assistant", String(json.assistantText));
+        if (json?.assistantText) {
+          const t = String(json.assistantText);
+          appendCat("assistant", t);
+          await speakAssistant(t);
+        }
         await loadOpportunityState();
       }
     } catch (e: any) {
@@ -295,7 +299,11 @@ export default function Home() {
         try {
           const r = runRef.current;
           if (!voice || !autoStartTalking || !speech.supported) return;
-          if (r?.runId && r.status === "WAITING_FOR_USER") speech.start();
+          if (r?.runId && r.status === "WAITING_FOR_USER") {
+            speech.start();
+          } else if (mode === "CATEGORY_UPDATE" && selectedCategory) {
+            speech.start();
+          }
         } catch {}
       }, 200);
     }
@@ -747,6 +755,7 @@ export default function Home() {
     setCatMessages([]);
     setBusy(true);
     try {
+      if (speak) await unlockAudio();
       const res = await fetch(`/api/opportunities/${oppId}/update-category`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -760,7 +769,11 @@ export default function Home() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Start failed");
       if (json?.sessionId) setCatSessionId(String(json.sessionId));
-      if (json?.assistantText) appendCat("assistant", String(json.assistantText));
+      if (json?.assistantText) {
+        const t = String(json.assistantText);
+        appendCat("assistant", t);
+        await speakAssistant(t);
+      }
     } catch (e: any) {
       appendCat("system", `Error: ${String(e?.message || e)}`.slice(0, 500));
     } finally {
@@ -795,6 +808,25 @@ export default function Home() {
     setCatMessages([]);
   };
 
+  const stopNow = async () => {
+    try {
+      if (speech.listening) speech.stop();
+    } catch {}
+    stopMic();
+
+    // If a handsfree run is active, mark it DONE server-side.
+    // (No-op if no run.)
+    setBusy(true);
+    try {
+      if (runId) {
+        await fetch(`/api/handsfree/${runId}/stop`, { method: "POST" }).catch(() => {});
+        setRun((prev) => (prev ? { ...prev, status: "DONE", updatedAt: Date.now() } : prev));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const activeMessages = mode === "FULL_REVIEW" ? run?.messages || [] : catMessages;
   const lastAssistantText = useMemo(() => {
     const last = [...activeMessages].reverse().find((m) => m.role === "assistant")?.text || "";
@@ -806,6 +838,9 @@ export default function Home() {
   const opp = oppState?.opportunity || null;
   const accountName = String(opp?.account_name || "").trim();
   const oppName = String(opp?.opportunity_name || "").trim();
+  const closeDateStr = opp?.close_date ? new Date(opp.close_date).toLocaleDateString() : "";
+  const forecastStage = String(opp?.forecast_stage || "").trim();
+  const aiForecast = String(opp?.ai_forecast || "").trim();
   const championName = String(opp?.champion_name || "").trim();
   const championTitle = String(opp?.champion_title || "").trim();
   const ebName = String(opp?.eb_name || "").trim();
@@ -831,6 +866,14 @@ export default function Home() {
     if (s >= 3) return "var(--good)";
     if (s >= 2) return "var(--warn)";
     return "var(--bad)";
+  };
+
+  const aiForecastPillClass = (v: string) => {
+    const t = String(v || "").trim().toLowerCase();
+    if (t === "commit") return "ok";
+    if (t === "best case" || t === "best_case" || t === "bestcase") return "warn";
+    if (t === "pipeline") return "blue";
+    return "";
   };
 
   useEffect(() => {
@@ -888,6 +931,9 @@ export default function Home() {
           <button onClick={restart} disabled={busy}>
             Reset
           </button>
+          <button onClick={stopNow} disabled={busy && !runId}>
+            Stop
+          </button>
         </div>
       </div>
 
@@ -930,6 +976,16 @@ export default function Home() {
                     <b>Opp:</b> {oppName} ·{" "}
                   </>
                 ) : null}
+                {closeDateStr ? (
+                  <>
+                    <b>Close:</b> {closeDateStr} ·{" "}
+                  </>
+                ) : null}
+                {forecastStage ? (
+                  <>
+                    <b>Forecast Stage:</b> {forecastStage} ·{" "}
+                  </>
+                ) : null}
                 <b>Org:</b> {orgId} · <b>Rep:</b> {repName || "—"} · <b>Selected category:</b>{" "}
                 {selectedCategory ? (
                   <span style={{ color: "var(--accent)" }}>
@@ -964,6 +1020,11 @@ export default function Home() {
               {speech.supported ? <span className="pill ok">Speech OK</span> : <span className="pill warn">Speech N/A</span>}
               {audioBlocked ? <span className="pill warn">Audio blocked</span> : null}
               {micBlocked ? <span className="pill err">Mic blocked</span> : null}
+              {aiForecast ? (
+                <span className={`pill ${aiForecastPillClass(aiForecast)}`}>
+                  AI: <b>{aiForecast}</b>
+                </span>
+              ) : null}
             </div>
           </div>
 
@@ -1220,6 +1281,10 @@ export default function Home() {
         .pill.ok {
           color: var(--good);
           border-color: rgba(34, 197, 94, 0.35);
+        }
+        .pill.blue {
+          color: var(--accent);
+          border-color: rgba(96, 165, 250, 0.35);
         }
         .pill.err {
           color: var(--bad);
