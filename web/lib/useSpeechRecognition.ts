@@ -154,9 +154,10 @@ export function useSpeechRecognition(opts: UseSpeechRecognitionOptions = {}) {
     try {
       r.start();
       setListening(true);
-    } catch {
-      // Ignore: browsers can throw if start() called twice.
-      setListening(true);
+    } catch (e: any) {
+      // Some browsers require a user gesture to start, or throw if started too quickly.
+      setError(String(e?.name || e?.message || "speech_start_failed"));
+      setListening(false);
     }
   }, [ensureRecognition]);
 

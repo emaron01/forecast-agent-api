@@ -337,6 +337,11 @@ export default function Home() {
     const t = String(assistantText || "").trim();
     if (!speak || !t) return;
     try {
+      // Don't listen while the assistant is speaking; Web Speech can capture the TTS audio
+      // and then fail to restart cleanly.
+      try {
+        if (speech.listening) speech.stop();
+      } catch {}
       setTtsError("");
       const ttsRes = await fetch("/api/tts", {
         method: "POST",
@@ -362,6 +367,21 @@ export default function Home() {
       setTtsLastOkAt(Date.now());
     } catch (e: any) {
       setTtsError(`TTS error: ${String(e?.message || e)}`.slice(0, 500));
+    } finally {
+      // If we're waiting for the user, restart listening even if TTS failed.
+      window.setTimeout(() => {
+        try {
+          const r = runRef.current;
+          if (!voice || !autoStartTalking || !speech.supported) return;
+          // Don't listen while audio is playing.
+          if (audioRef.current && !audioRef.current.paused) return;
+          if (mode === "FULL_REVIEW") {
+            if (r?.runId && r.status === "WAITING_FOR_USER") speech.start();
+          } else {
+            if (selectedCategory) speech.start();
+          }
+        } catch {}
+      }, 250);
     }
   };
 
@@ -870,6 +890,7 @@ export default function Home() {
   const closeDateStr = opp?.close_date ? new Date(opp.close_date).toLocaleDateString() : "";
   const forecastStage = String(opp?.forecast_stage || "").trim();
   const aiForecast = String(opp?.ai_forecast || "").trim();
+  const healthPercent = typeof oppState?.healthPercent === "number" ? oppState?.healthPercent : null;
   const championName = String(opp?.champion_name || "").trim();
   const championTitle = String(opp?.champion_title || "").trim();
   const ebName = String(opp?.eb_name || "").trim();
@@ -903,6 +924,14 @@ export default function Home() {
     if (t === "best case" || t === "best_case" || t === "bestcase") return "warn";
     if (t === "pipeline") return "blue";
     return "";
+  };
+
+  const healthPillClass = (p: number | null) => {
+    const n = Number(p);
+    if (!Number.isFinite(n)) return "";
+    if (n >= 80) return "ok";
+    if (n >= 60) return "warn";
+    return "err";
   };
 
   useEffect(() => {
@@ -1049,6 +1078,11 @@ export default function Home() {
               {speech.supported ? <span className="pill ok">Speech OK</span> : <span className="pill warn">Speech N/A</span>}
               {audioBlocked ? <span className="pill warn">Audio blocked</span> : null}
               {micBlocked ? <span className="pill err">Mic blocked</span> : null}
+              {healthPercent != null ? (
+                <span className={`pill ${healthPillClass(healthPercent)}`}>
+                  Health: <b>{healthPercent}%</b>
+                </span>
+              ) : null}
               {aiForecast ? (
                 <span className={`pill ${aiForecastPillClass(aiForecast)}`}>
                   AI: <b>{aiForecast}</b>
