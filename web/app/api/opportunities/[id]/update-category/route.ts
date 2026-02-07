@@ -280,15 +280,20 @@ async function fetchAssessments(orgId: number, opportunityId: number) {
 function computeOverallScore(args: {
   assessments: Array<{ category: string; score: number }>;
   weights: Record<string, number>;
+  includedCategories?: string[];
 }) {
   const cats = args.assessments || [];
   const weights = args.weights || {};
+  const included =
+    Array.isArray(args.includedCategories) && args.includedCategories.length
+      ? args.includedCategories.map(String)
+      : ALL_CATEGORIES;
   let total = 0;
   let max = 0;
   const byCat = new Map<string, number>();
   for (const a of cats) byCat.set(String(a.category), Number(a.score) || 0);
 
-  for (const catKey of ALL_CATEGORIES) {
+  for (const catKey of included) {
     const score = byCat.get(catKey) ?? 0;
     const pointsMax =
       Number.isFinite(Number(weights[catKey])) && Number(weights[catKey]) > 0 ? Number(weights[catKey]) : 3;
@@ -298,7 +303,7 @@ function computeOverallScore(args: {
   }
   // Round for stable display/storage.
   const round2 = (n: number) => Math.round(n * 100) / 100;
-  return { overall_score: round2(total), overall_max: round2(max || 30) };
+  return { overall_score: round2(total), overall_max: round2(max || 0) };
 }
 
 async function upsertRollup(args: {
@@ -350,13 +355,21 @@ async function regenerateRollupText(args: {
   assessments: Array<{ category: string; score: number; label?: string; tip?: string; evidence: string }>;
   overallScore: number;
   overallMax: number;
+  assessedCategories: string[];
+  unassessedCategories: string[];
 }) {
+  const partialDisclaimer =
+    "Overall score reflects only updated categories; remaining categories not assessed yet.";
+
   const instructions = [
     "You are generating derived rollup outputs for a sales opportunity.",
     "CRITICAL:",
     "- Do NOT rescore any category. Scores provided are authoritative.",
     "- Use ONLY the provided per-category evidence/tips; do not invent facts.",
     "- Output MUST be strict JSON with keys: summary, next_steps, risks.",
+    "- Do NOT present the score as a failing grade when coverage is incomplete.",
+    `- If not all categories are assessed, the summary MUST start with this exact sentence: "${partialDisclaimer}"`,
+    '- Do NOT use "out of 30" language. Prefer percent language.',
   ].join("\n");
 
   const byCat = new Map<string, { score: number; label: string; tip: string; evidence: string }>();
@@ -381,7 +394,12 @@ async function regenerateRollupText(args: {
 
   const input = [
     `Opportunity: ${args.opportunityId} (org ${args.orgId})`,
-    `Overall score: ${args.overallScore} / ${args.overallMax}`,
+    `Assessed categories: ${args.assessedCategories.join(", ") || "(none)"}`,
+    `Unassessed categories: ${args.unassessedCategories.join(", ") || "(none)"}`,
+    `Overall score (assessed-only points): ${args.overallScore} / ${args.overallMax}`,
+    `Overall percent (assessed-only): ${
+      args.overallMax > 0 ? Math.round((Number(args.overallScore) / Number(args.overallMax)) * 100) : 0
+    }%`,
     "",
     "Per-category assessments:",
     lines,
@@ -391,8 +409,14 @@ async function regenerateRollupText(args: {
 
   const { text } = await callModelJSON({ instructions, input });
   const obj = parseStrictJson(text);
+  const rawSummary = String(obj?.summary || "").trim();
+  const summary = rawSummary && rawSummary.startsWith(partialDisclaimer)
+    ? rawSummary
+    : args.unassessedCategories.length
+      ? `${partialDisclaimer}\n\n${rawSummary || ""}`.trim()
+      : rawSummary;
   return {
-    summary: String(obj?.summary || "").trim(),
+    summary,
     next_steps: String(obj?.next_steps || "").trim(),
     risks: String(obj?.risks || "").trim(),
   };
@@ -569,10 +593,14 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       tip: string;
       evidence: string;
     }>;
+    const assessedCategories = assessments.map((a) => String(a.category));
+    const unassessedCategories = ALL_CATEGORIES.filter((c) => !assessedCategories.includes(c));
     const weights = await fetchWeights(orgId);
+    // Partial rollup mode: percent should reflect assessed coverage only.
     const overall = computeOverallScore({
       assessments: assessments.map((a) => ({ category: a.category, score: Number(a.score) || 0 })),
       weights,
+      includedCategories: assessedCategories.length ? assessedCategories : [],
     });
     const rollupText = await regenerateRollupText({
       orgId,
@@ -580,6 +608,8 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       assessments,
       overallScore: overall.overall_score,
       overallMax: overall.overall_max,
+      assessedCategories,
+      unassessedCategories,
     });
     const rollupSaved = await upsertRollup({
       orgId,
