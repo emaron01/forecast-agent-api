@@ -341,9 +341,9 @@ export default function Home() {
           const r = runRef.current;
           if (!voice || !autoStartTalking || !speech.supported) return;
           if (r?.runId && r.status === "WAITING_FOR_USER") {
-            speech.start();
+            if (!speech.listening) speech.start();
           } else if (mode === "CATEGORY_UPDATE" && selectedCategory) {
-            speech.start();
+            if (!speech.listening) speech.start();
           }
         } catch {}
       }, 200);
@@ -395,9 +395,13 @@ export default function Home() {
           // Don't listen while audio is playing.
           if (audioRef.current && !audioRef.current.paused) return;
           if (mode === "FULL_REVIEW") {
-            if (r?.runId && r.status === "WAITING_FOR_USER") speech.start();
+            if (r?.runId && r.status === "WAITING_FOR_USER") {
+              if (!speech.listening) speech.start();
+            }
           } else {
-            if (selectedCategory) speech.start();
+            if (selectedCategory) {
+              if (!speech.listening) speech.start();
+            }
           }
         } catch {}
       }, 250);
@@ -782,7 +786,7 @@ export default function Home() {
         // Don't listen while assistant audio is playing.
         if (audioRef.current && !audioRef.current.paused) return;
         logDebug("info", "SpeechRecognition start (full review waiting)");
-        speech.start();
+        if (!speech.listening) speech.start();
       } else if (speech.listening) {
         speech.stop();
       }
@@ -791,7 +795,7 @@ export default function Home() {
       if (selectedCategory) {
         if (audioRef.current && !audioRef.current.paused) return;
         logDebug("info", "SpeechRecognition start (category update active)");
-        speech.start();
+        if (!speech.listening) speech.start();
       } else if (speech.listening) {
         speech.stop();
       }
