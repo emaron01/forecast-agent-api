@@ -25,7 +25,11 @@ function shouldPauseForUser(assistantText: string) {
   const last = lastNonEmptyLine(assistantText);
   if (!last) return false;
   // Pause only if the last line is a short, direct question.
-  if (last.length <= 350 && /\?\s*$/.test(last)) return true;
+  if (last.length <= 650 && /\?\s*$/.test(last)) return true;
+  // Some models include the question earlier and end with a brief instruction.
+  // If there is a question very near the end, still pause.
+  const tail = String(assistantText || "").slice(-800);
+  if (tail.includes("?")) return true;
   return false;
 }
 
@@ -57,7 +61,9 @@ export async function runUntilPauseOrEnd(args: {
       if (userText) append(run, "user", userText);
 
       // Safety guards: avoid runaway model loops.
-      const maxModelCallsThisInvocation = 12;
+      // Latency is a product requirement: reps won't wait for multi-call "autopilot" after each answer.
+      // Keep turns tight: normally we expect a single call to save + ask the next question.
+      const maxModelCallsThisInvocation = args.kickoff ? 8 : 2;
       const maxTotalModelCalls = 250;
 
       let nextText = args.kickoff
@@ -99,8 +105,10 @@ export async function runUntilPauseOrEnd(args: {
           return run;
         }
 
-        // No obvious question; continue autonomously with a deterministic nudge.
-        nextText = "Proceed to the next workflow step.";
+        // No obvious question; one quick corrective retry (kept bounded by maxModelCallsThisInvocation).
+        nextText = args.kickoff
+          ? "Proceed to the next workflow step."
+          : "Ask the next required question now. Do not summarize; keep it to one direct question.";
       }
 
       // If we hit our guard without reaching a pause/end, fail safe by pausing.

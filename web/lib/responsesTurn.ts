@@ -135,8 +135,20 @@ export async function runResponsesTurn(args: {
 
   const tools = buildTools();
 
-  // Build a running input list (user messages + model outputs + tool outputs).
-  const input: any[] = Array.isArray(session.items) ? [...session.items] : [];
+  // IMPORTANT:
+  // We intentionally do NOT send a "running history" to the Responses API.
+  // Instead we use `previous_response_id` *within this turn* to attach tool outputs
+  // to the tool calls that were emitted in the immediately preceding response.
+  //
+  // This avoids invalid histories where `function_call_output` items exist without
+  // a server-known tool call, which triggers:
+  // "No tool call found for function call output with call_id ..."
+  //
+  // The deal context is always re-provided via `instructions`, and category state
+  // is tracked server-side in `session.touched/reviewed`.
+  let nextInput: any[] = [];
+  let previousResponseId: string | null = null;
+  const assistantTexts: string[] = [];
 
   // If the previous assistant turn was a locked "check pattern" and the rep says "no change",
   // we must move on without overwriting summaries/tips (per master prompt contract).
@@ -147,7 +159,7 @@ export async function runResponsesTurn(args: {
     session.skipSaveCategoryKey = undefined;
   }
 
-  input.push(userMsg(text));
+  nextInput.push(userMsg(text));
 
   // Load master prompt once per session (cached globally too).
   if (!session.masterPromptText) {
@@ -189,7 +201,8 @@ export async function runResponsesTurn(args: {
         instructions,
         tools,
         tool_choice: "auto",
-        input,
+        ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
+        input: nextInput,
       }),
     });
 
@@ -200,13 +213,19 @@ export async function runResponsesTurn(args: {
     }
 
     lastResponse = json;
+    const respId = String(json?.id || json?.response_id || "").trim();
+    if (respId) previousResponseId = respId;
     const output = Array.isArray(json?.output) ? json.output : [];
 
-    // Append model outputs to running input.
-    for (const item of output) input.push(item);
+    const chunkText = extractAssistantText(output);
+    if (chunkText) assistantTexts.push(chunkText);
 
     const toolCalls = output.filter((it: any) => it?.type === "function_call");
     if (!toolCalls.length) break;
+
+    const toolOutputs: any[] = [];
+    const extraInputs: any[] = [];
+    let advancedThisBatch = false;
 
     for (const call of toolCalls) {
       const name = String(call?.name || "");
@@ -237,7 +256,7 @@ export async function runResponsesTurn(args: {
 
         const activeDeal = session.deals[session.index];
         if (!activeDeal) {
-          input.push(toolOutput(callId, { status: "error", error: "No active deal" }));
+          toolOutputs.push(toolOutput(callId, { status: "error", error: "No active deal" }));
           continue;
         }
 
@@ -249,7 +268,7 @@ export async function runResponsesTurn(args: {
           if (touchesSkipped) {
             // Clear skip so it applies to one category only.
             session.skipSaveCategoryKey = undefined;
-            input.push(toolOutput(callId, { status: "success", skipped: true }));
+            toolOutputs.push(toolOutput(callId, { status: "success", skipped: true }));
             continue;
           }
         }
@@ -271,7 +290,7 @@ export async function runResponsesTurn(args: {
           if (v !== undefined) (activeDeal as any)[k] = v;
         }
 
-        input.push(toolOutput(callId, { status: "success", result }));
+        toolOutputs.push(toolOutput(callId, { status: "success", result }));
 
         // Record wrap saved for THIS review only when BOTH fields are non-empty.
         if (wrapComplete) {
@@ -280,7 +299,7 @@ export async function runResponsesTurn(args: {
           // If the model tried to save wrap fields but missed one, force correction.
           session.wrapSaved = false;
           const hs = await fetchHealthScore(pool, session.orgId, activeDeal.id);
-          input.push(
+          extraInputs.push(
             userMsg(
               "End-of-deal wrap save is incomplete. You MUST save BOTH fields:\n" +
                 "1) Speak Updated Risk Summary (if not already spoken).\n" +
@@ -302,7 +321,7 @@ export async function runResponsesTurn(args: {
         const allReviewed = requiredCats.every((cat) => session.reviewed.has(cat) || session.touched.has(cat));
         if (allReviewed && !session.wrapSaved) {
           const hs = await fetchHealthScore(pool, session.orgId, activeDeal.id);
-          input.push(
+          extraInputs.push(
             userMsg(
               "All required categories reviewed. You MUST complete the end-of-deal wrap now:\n" +
                 "1) Speak 'Updated Risk Summary: <your synthesis>'\n" +
@@ -322,8 +341,8 @@ export async function runResponsesTurn(args: {
         if (!session.wrapSaved) {
           const activeDeal = session.deals[session.index];
           const hs = activeDeal ? await fetchHealthScore(pool, session.orgId, activeDeal.id) : 0;
-          input.push(toolOutput(callId, { status: "error", error: "end_wrap_not_saved" }));
-          input.push(
+          toolOutputs.push(toolOutput(callId, { status: "error", error: "end_wrap_not_saved" }));
+          extraInputs.push(
             userMsg(
               "STOP. Before advancing, you MUST complete the end-of-deal wrap and save it:\n" +
                 "1) Speak Updated Risk Summary.\n" +
@@ -344,28 +363,37 @@ export async function runResponsesTurn(args: {
         session.lastCategoryKey = undefined;
         session.lastCheckType = undefined;
         session.skipSaveCategoryKey = undefined;
-        session.items = [];
         session.wrapSaved = false;
-        input.length = 0; // reset conversation items for next deal
+        advancedThisBatch = true;
 
         if (session.index >= session.deals.length) {
-          input.push(toolOutput(callId, { status: "success", done: true }));
+          toolOutputs.push(toolOutput(callId, { status: "success", done: true }));
           break;
         }
 
-        input.push(toolOutput(callId, { status: "success" }));
+        toolOutputs.push(toolOutput(callId, { status: "success" }));
         continue;
       }
 
       // Unknown tool: return no-op
-      input.push(toolOutput(callId, { status: "success", ignored: name }));
+      toolOutputs.push(toolOutput(callId, { status: "success", ignored: name }));
     }
+
+    // Next model call should receive tool outputs (+ any corrective user nudges).
+    // If we advanced deals, add a strong reset nudge so the model does not blend contexts.
+    if (advancedThisBatch) {
+      extraInputs.push(
+        userMsg("New deal context starts now. Ignore any prior deal; follow the current deal instructions and ask the next required question.")
+      );
+    }
+    nextInput = [...toolOutputs, ...extraInputs];
   }
 
-  // Persist updated running items back to session for next turn.
-  session.items = input;
+  // We do not persist Responses API item history across turns.
+  // Keep the field for backwards compatibility but ensure it stays empty.
+  session.items = [];
 
-  const assistantText = extractAssistantText(Array.isArray(lastResponse?.output) ? lastResponse.output : []);
+  const assistantText = assistantTexts.join("\n\n").trim();
   const parsed = parseLastCheckFromAssistant(assistantText);
   if (parsed.categoryKey && parsed.checkType) {
     session.lastCategoryKey = parsed.categoryKey;

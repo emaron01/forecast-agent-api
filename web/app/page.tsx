@@ -368,7 +368,7 @@ export default function Home() {
       fd.set("language", "en");
       const sttRes = await fetch("/api/stt", { method: "POST", body: fd });
       const stt = await sttRes.json().catch(() => ({}));
-      if (!sttRes.ok || !stt.ok) throw new Error(stt?.error || "STT failed");
+      if (!sttRes.ok || !stt.ok) throw new Error(`STT error: ${stt?.error || "STT failed"}`);
       const transcript = String(stt.text || "").trim();
       setPerf((p) => ({ ...p, sttMs: Date.now() - sttStart }));
       if (!transcript) {
@@ -388,7 +388,7 @@ export default function Home() {
         body: JSON.stringify({ text: transcript }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) throw new Error(json?.error || "Input failed");
+      if (!res.ok || !json?.ok) throw new Error(`Agent error: ${json?.error || "Input failed"}`);
       setPerf((p) => ({ ...p, agentMs: Date.now() - agentStart }));
       setRun(json.run as HandsFreeRun);
     } catch (e: any) {
@@ -728,7 +728,7 @@ export default function Home() {
           </div>
         ) : null}
         {sttError ? (
-          <div style={{ marginTop: 8, color: "#b00020", whiteSpace: "pre-wrap" }}>STT error: {sttError}</div>
+          <div style={{ marginTop: 8, color: "#b00020", whiteSpace: "pre-wrap" }}>Turn error: {sttError}</div>
         ) : null}
         {!sttError && sttLastOkAt ? (
           <div style={{ marginTop: 8, color: "#666" }}>
