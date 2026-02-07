@@ -42,6 +42,7 @@ export default function Home() {
   const [sttError, setSttError] = useState<string>("");
   const [lastTranscript, setLastTranscript] = useState<string>("");
   const [sttLastOkAt, setSttLastOkAt] = useState<number>(0);
+  const [perf, setPerf] = useState<{ recordMs?: number; sttMs?: number; agentMs?: number; ttsMs?: number }>({});
   const [listening, setListening] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -55,6 +56,7 @@ export default function Home() {
   const chunksRef = useRef<Blob[]>([]);
   const recorderMimeRef = useRef<string>("");
   const segmentTimeoutRef = useRef<number | null>(null);
+  const recordStartedAtRef = useRef<number>(0);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -271,7 +273,13 @@ export default function Home() {
     if (streamRef.current) return streamRef.current;
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("getUserMedia not available");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       streamRef.current = stream;
       setMicBlocked(false);
       setMicError("");
@@ -300,7 +308,7 @@ export default function Home() {
     if (!analyser) return;
 
     const buf = new Uint8Array(analyser.fftSize);
-    const SILENCE_MS = 900;
+    const SILENCE_MS = 650;
     // Slightly more sensitive than before to avoid missing quiet mics.
     const THRESH = 0.012;
 
@@ -345,18 +353,27 @@ export default function Home() {
     setBusy(true);
     try {
       setSttError("");
+      const sttStart = Date.now();
       const fd = new FormData();
       const ext = extForMime(blob.type || recorderMimeRef.current);
       fd.set("file", blob, `audio.${ext}`);
+      fd.set("language", "en");
       const sttRes = await fetch("/api/stt", { method: "POST", body: fd });
       const stt = await sttRes.json().catch(() => ({}));
       if (!sttRes.ok || !stt.ok) throw new Error(stt?.error || "STT failed");
       const transcript = String(stt.text || "").trim();
-      if (!transcript) throw new Error("Empty transcript");
+      setPerf((p) => ({ ...p, sttMs: Date.now() - sttStart }));
+      if (!transcript) {
+        // Not fatal: just retry listening (quiet mic / noise suppression).
+        setSttError("Empty transcript (retrying…)");
+        window.setTimeout(() => void startListeningSegment(), 200);
+        return;
+      }
       setLastTranscript(transcript);
       setSttLastOkAt(Date.now());
 
       lastSentAtRef.current = Date.now();
+      const agentStart = Date.now();
       const res = await fetch(`/api/handsfree/${runId}/input`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -364,10 +381,17 @@ export default function Home() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Input failed");
+      setPerf((p) => ({ ...p, agentMs: Date.now() - agentStart }));
       setRun(json.run as HandsFreeRun);
     } catch (e: any) {
       setSttError(String(e?.message || e).slice(0, 500));
-      setRun((prev) => (prev ? { ...prev, status: "ERROR", error: e?.message || String(e) } : prev));
+      // Retry listening on STT errors while still waiting; don't hard-fail the run.
+      window.setTimeout(() => {
+        try {
+          const r = runRef.current;
+          if (voice && r?.runId && r.status === "WAITING_FOR_USER") void startListeningSegment();
+        } catch {}
+      }, 400);
     } finally {
       sttInFlightRef.current = false;
       setBusy(false);
@@ -412,6 +436,9 @@ export default function Home() {
       const blobType = recorderMimeRef.current || mr.mimeType || "audio/webm";
       const blob = new Blob(chunksRef.current, { type: blobType });
       chunksRef.current = [];
+      if (recordStartedAtRef.current) {
+        setPerf((p) => ({ ...p, recordMs: Date.now() - recordStartedAtRef.current }));
+      }
 
       // If VAD didn't trip, we used to discard the segment.
       // In practice, quiet mics often fail VAD; if we captured a non-trivial blob,
@@ -434,6 +461,7 @@ export default function Home() {
 
     mediaRecorderRef.current = mr;
     setListening(true);
+    recordStartedAtRef.current = Date.now();
     mr.start();
     startVADMonitor();
 
@@ -478,6 +506,7 @@ export default function Home() {
     }
     setBusy(true);
     try {
+      setPerf({});
       const res = await fetch("/api/handsfree/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -511,6 +540,7 @@ export default function Home() {
     setBusy(true);
     setAnswer("");
     try {
+      setPerf((p) => ({ ...p, agentMs: undefined }));
       const res = await fetch(`/api/handsfree/${runId}/input`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -687,6 +717,14 @@ export default function Home() {
           <div style={{ marginTop: 8 }}>
             <div style={{ fontSize: 12, color: "#666" }}>Last transcript</div>
             <div style={{ whiteSpace: "pre-wrap" }}>{lastTranscript}</div>
+          </div>
+        ) : null}
+        {perf.recordMs || perf.sttMs || perf.agentMs ? (
+          <div style={{ marginTop: 8, color: "#666", fontSize: 12 }}>
+            Timings:{" "}
+            {typeof perf.recordMs === "number" ? <span>record {perf.recordMs}ms · </span> : null}
+            {typeof perf.sttMs === "number" ? <span>stt {perf.sttMs}ms · </span> : null}
+            {typeof perf.agentMs === "number" ? <span>agent {perf.agentMs}ms</span> : null}
           </div>
         ) : null}
       </div>
