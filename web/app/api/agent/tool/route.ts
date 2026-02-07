@@ -85,7 +85,7 @@ export async function POST(req: Request) {
         saved: true,
         result,
         enforceWrap: true,
-        message: "All required categories reviewed. You MUST now complete the end-of-deal wrap: 1) Speak 'Updated Risk Summary: <your synthesis>', 2) Say 'Your Deal Health Score is X out of 30', 3) Speak 'Suggested Next Steps: <your recommendations>', 4) Call save_deal_data with risk_summary and next_steps, 5) Call advance_deal.",
+        message: "All required categories reviewed. You MUST now complete the end-of-deal wrap: 1) Speak 'Updated Risk Summary: <your synthesis>', 2) Say 'Your Deal Health Score is at X percent', 3) Speak 'Suggested Next Steps: <your recommendations>', 4) Call save_deal_data with risk_summary and next_steps, 5) Call advance_deal.",
       });
     }
 

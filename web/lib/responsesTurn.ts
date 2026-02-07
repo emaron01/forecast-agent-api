@@ -128,6 +128,14 @@ async function fetchHealthScore(pool: Pool, orgId: number, opportunityId: number
   }
 }
 
+function healthPercentFromScore(healthScore: number) {
+  const hs = Number(healthScore);
+  if (!Number.isFinite(hs)) return 0;
+  // Health is still computed server-side as 0-30 internally; we just speak percent.
+  const pct = Math.round((hs / 30) * 100);
+  return Math.max(0, Math.min(100, pct));
+}
+
 export async function runResponsesTurn(args: {
   pool: Pool;
   session: ForecastSession;
@@ -312,11 +320,12 @@ export async function runResponsesTurn(args: {
           // If the model tried to save wrap fields but missed one, force correction.
           session.wrapSaved = false;
           const hs = await fetchHealthScore(pool, session.orgId, activeDeal.id);
+          const hp = healthPercentFromScore(hs);
           extraInputs.push(
             userMsg(
               "End-of-deal wrap save is incomplete. You MUST save BOTH fields:\n" +
                 "1) Speak Updated Risk Summary (if not already spoken).\n" +
-                `2) Say EXACTLY: \"Your Deal Health Score is ${hs} out of 30.\" (do not change this number)\n` +
+                `2) Say EXACTLY: \"Your Deal Health Score is at ${hp} percent.\" (do not change this number)\n` +
                 "3) Speak Suggested Next Steps (if not already spoken).\n" +
                 "4) Call save_deal_data with NON-EMPTY risk_summary AND NON-EMPTY next_steps.\n" +
                 "5) Then call advance_deal.\n" +
@@ -334,11 +343,12 @@ export async function runResponsesTurn(args: {
         const allReviewed = requiredCats.every((cat) => session.reviewed.has(cat) || session.touched.has(cat));
         if (allReviewed && !session.wrapSaved) {
           const hs = await fetchHealthScore(pool, session.orgId, activeDeal.id);
+          const hp = healthPercentFromScore(hs);
           extraInputs.push(
             userMsg(
               "All required categories reviewed. You MUST complete the end-of-deal wrap now:\n" +
                 "1) Speak 'Updated Risk Summary: <your synthesis>'\n" +
-                `2) Say EXACTLY: \"Your Deal Health Score is ${hs} out of 30.\" (do not change this number)\n` +
+                `2) Say EXACTLY: \"Your Deal Health Score is at ${hp} percent.\" (do not change this number)\n` +
                 "3) Speak 'Suggested Next Steps: <your recommendations>'\n" +
                 "4) Call save_deal_data with NON-EMPTY risk_summary and next_steps\n" +
                 "5) Call advance_deal.\n" +
@@ -354,12 +364,13 @@ export async function runResponsesTurn(args: {
         if (!session.wrapSaved) {
           const activeDeal = session.deals[session.index];
           const hs = activeDeal ? await fetchHealthScore(pool, session.orgId, activeDeal.id) : 0;
+          const hp = healthPercentFromScore(hs);
           toolOutputs.push(toolOutput(callId, { status: "error", error: "end_wrap_not_saved" }));
           extraInputs.push(
             userMsg(
               "STOP. Before advancing, you MUST complete the end-of-deal wrap and save it:\n" +
                 "1) Speak Updated Risk Summary.\n" +
-                `2) Say EXACTLY: \"Your Deal Health Score is ${hs} out of 30.\" (do not change this number)\n` +
+                `2) Say EXACTLY: \"Your Deal Health Score is at ${hp} percent.\" (do not change this number)\n` +
                 "3) Speak Suggested Next Steps.\n" +
                 "4) Call save_deal_data with NON-EMPTY risk_summary AND NON-EMPTY next_steps.\n" +
                 "5) Then call advance_deal.\n" +

@@ -125,7 +125,7 @@ After all required categories for the stage are reviewed:
 Spoken, in this exact order:
 1.	Updated Risk Summary
 2.	Deal Health Score (spoken exactly as):
-“Your Deal Health Score is X out of 30.”
+“Your Deal Health Score is at X percent.”
 3.	Suggested Next Steps (plain language)
 🚫 The agent does NOT:
 •	Ask for rep confirmation
@@ -281,7 +281,7 @@ After all required categories for the stage are reviewed:
 Spoken, in this exact order:
 1.	Updated Risk Summary
 2.	Deal Health Score
-“Your Deal Health Score is X out of 30.”
+“Your Deal Health Score is at X percent.”
 3.	Suggested Next Steps (plain language)
 🚫 The agent does NOT:
 •	Ask for confirmation
