@@ -26,15 +26,23 @@ function roundInt(n: number) {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
-function computeHealthPercent(args: { rollupOverallScore?: any; rollupOverallMax?: any; opportunityHealthScore?: any }) {
-  const os = Number(args.rollupOverallScore);
-  const om = Number(args.rollupOverallMax);
-  if (Number.isFinite(os) && Number.isFinite(om) && om > 0) {
-    return roundInt((os / om) * 100);
+function computeHealthPercentFromOpportunity(healthScore: any) {
+  const hs = Number(healthScore);
+  if (!Number.isFinite(hs)) return null;
+  // Internal score is 0-30; UI speaks percent.
+  return roundInt((hs / 30) * 100);
+}
+
+function splitLabelEvidence(summary: any) {
+  const s = String(summary ?? "").trim();
+  if (!s) return { label: "", evidence: "" };
+  const idx = s.indexOf(":");
+  if (idx > 0) {
+    const label = s.slice(0, idx).trim();
+    const evidence = s.slice(idx + 1).trim();
+    return { label, evidence };
   }
-  const hs = Number(args.opportunityHealthScore);
-  if (Number.isFinite(hs)) return roundInt((hs / 30) * 100);
-  return null;
+  return { label: "", evidence: s };
 }
 
 export async function GET(
@@ -54,7 +62,7 @@ export async function GET(
 
     const oppRes = await pool.query(
       `
-      SELECT id, org_id, account_name, opportunity_name, rep_name, forecast_stage, amount, close_date, updated_at, health_score
+      SELECT *
         FROM opportunities
        WHERE org_id = $1 AND id = $2
        LIMIT 1
@@ -64,45 +72,44 @@ export async function GET(
     const opportunity = oppRes.rows?.[0] || null;
     if (!opportunity) return NextResponse.json({ ok: false, error: "Opportunity not found" }, { status: 404 });
 
-    const rollupRes = await pool.query(
-      `
-      SELECT org_id, opportunity_id, overall_score, overall_max, summary, next_steps, risks, updated_at
-        FROM opportunity_rollups
-       WHERE org_id = $1 AND opportunity_id = $2
-       LIMIT 1
-      `,
-      [orgId, opportunityId]
-    );
-    const rollup = rollupRes.rows?.[0] || null;
-
-    const aRes = await pool.query(
-      `
-      SELECT category, score, label, tip, evidence, updated_at
-        FROM opportunity_category_assessments
-       WHERE org_id = $1 AND opportunity_id = $2
-      `,
-      [orgId, opportunityId]
-    );
-    const byCat = new Map<string, any>();
-    for (const r of aRes.rows || []) byCat.set(String(r.category), r);
-
     const categories = ALL_CATEGORIES.map((c) => {
-      const row = byCat.get(c);
+      const opp: any = opportunity || {};
+      const map: Record<string, { score: string; summary: string; tip: string }> = {
+        metrics: { score: "metrics_score", summary: "metrics_summary", tip: "metrics_tip" },
+        economic_buyer: { score: "eb_score", summary: "eb_summary", tip: "eb_tip" },
+        criteria: { score: "criteria_score", summary: "criteria_summary", tip: "criteria_tip" },
+        process: { score: "process_score", summary: "process_summary", tip: "process_tip" },
+        paper: { score: "paper_score", summary: "paper_summary", tip: "paper_tip" },
+        pain: { score: "pain_score", summary: "pain_summary", tip: "pain_tip" },
+        champion: { score: "champion_score", summary: "champion_summary", tip: "champion_tip" },
+        competition: { score: "competition_score", summary: "competition_summary", tip: "competition_tip" },
+        timing: { score: "timing_score", summary: "timing_summary", tip: "timing_tip" },
+        budget: { score: "budget_score", summary: "budget_summary", tip: "budget_tip" },
+      };
+      const fallback = map[c];
+      const fallbackScore = fallback ? Number(opp?.[fallback.score] ?? 0) : 0;
+      const fallbackTip = fallback ? String(opp?.[fallback.tip] ?? "") : "";
+      const summary = fallback ? opp?.[fallback.summary] : "";
+      const split = splitLabelEvidence(summary);
       return {
         category: c,
-        score: Number(row?.score ?? 0),
-        label: String(row?.label ?? ""),
-        tip: String(row?.tip ?? ""),
-        evidence: String(row?.evidence ?? ""),
-        updated_at: row?.updated_at ?? null,
+        score: Number(fallbackScore ?? 0),
+        label: String(split.label ?? ""),
+        tip: String(fallbackTip ?? ""),
+        evidence: String(split.evidence ?? ""),
+        updated_at: opportunity?.updated_at ?? null,
       };
     });
 
-    const healthPercent = computeHealthPercent({
-      rollupOverallScore: rollup?.overall_score,
-      rollupOverallMax: rollup?.overall_max,
-      opportunityHealthScore: opportunity?.health_score,
-    });
+    const healthPercent = computeHealthPercentFromOpportunity((opportunity as any)?.health_score);
+
+    const rollup = {
+      // We don't maintain a separate rollup table; this is the canonical stored wrap on opportunities.
+      summary: "",
+      next_steps: String((opportunity as any)?.next_steps || "").trim(),
+      risks: String((opportunity as any)?.risk_summary || "").trim(),
+      updated_at: (opportunity as any)?.updated_at ?? null,
+    };
 
     return NextResponse.json({
       ok: true,
@@ -112,13 +119,6 @@ export async function GET(
       categories,
     });
   } catch (e: any) {
-    const code = String(e?.code || "");
-    if (code === "42P01") {
-      return NextResponse.json({ ok: false, error: "DB migration missing for Mode B tables" }, { status: 500 });
-    }
-    if (code === "42703") {
-      return NextResponse.json({ ok: false, error: "DB migration missing for Mode B label/tip columns" }, { status: 500 });
-    }
     return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
   }
 }

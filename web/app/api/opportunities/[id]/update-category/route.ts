@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Pool } from "pg";
 import { randomUUID } from "crypto";
 import { categoryUpdateSessions, type CategoryKey } from "../../categoryUpdateSessions";
+import { handleFunctionCall } from "../../../../../../muscle.js";
 
 export const runtime = "nodejs";
 
@@ -24,6 +25,17 @@ const ALL_CATEGORIES: CategoryKey[] = [
   "timing",
   "budget",
 ];
+
+function roundInt(n: number) {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function computeHealthPercentFromOpportunity(healthScore: any) {
+  const hs = Number(healthScore);
+  if (!Number.isFinite(hs)) return null;
+  return roundInt((hs / 30) * 100);
+}
 
 function resolveBaseUrl() {
   const raw = (process.env.OPENAI_BASE_URL || process.env.MODEL_API_URL || process.env.MODEL_URL || "").trim();
@@ -51,6 +63,33 @@ function displayCategory(category: CategoryKey) {
     default:
       return category.charAt(0).toUpperCase() + category.slice(1);
   }
+}
+
+function oppPrefixForCategory(category: CategoryKey) {
+  switch (category) {
+    case "economic_buyer":
+      return "eb";
+    default:
+      return category;
+  }
+}
+
+function splitLabelEvidence(summary: any) {
+  const s = String(summary ?? "").trim();
+  if (!s) return { label: "", evidence: "" };
+  const idx = s.indexOf(":");
+  if (idx > 0) {
+    const label = s.slice(0, idx).trim();
+    const evidence = s.slice(idx + 1).trim();
+    return { label, evidence };
+  }
+  return { label: "", evidence: s };
+}
+
+function isNoChangeReply(userText: string) {
+  const t = String(userText || "").trim().toLowerCase();
+  if (!t) return false;
+  return /^(no|nope|nah|unchanged|no change|nothing changed|nothing new|same)\b/.test(t);
 }
 
 function firstQuestionForCategory(category: CategoryKey) {
@@ -82,6 +121,18 @@ function firstQuestionForCategory(category: CategoryKey) {
   }
 }
 
+function openerQuestion(args: { category: CategoryKey; lastScore: number; lastLabel: string }) {
+  const cat = displayCategory(args.category);
+  if (args.lastScore >= 3) {
+    return `Last review, ${cat} looked strong.\nHas anything changed that could introduce new risk?`;
+  }
+  if (args.lastScore >= 1) {
+    const lbl = String(args.lastLabel || "").trim();
+    return `Last review, ${cat} was ${lbl ? `"${lbl}"` : "partially met"}.\nWhat has changed since then?`;
+  }
+  return firstQuestionForCategory(args.category);
+}
+
 function rubricText(defs: ScoreDefRow[]) {
   const rows = [...(defs || [])].sort((a, b) => Number(a.score) - Number(b.score));
   return rows
@@ -103,23 +154,12 @@ async function fetchRubric(orgId: number, category: CategoryKey) {
   return (rows || []) as ScoreDefRow[];
 }
 
-async function fetchLabelForScore(orgId: number, category: CategoryKey, score: number) {
-  try {
-    const { rows } = await pool.query(
-      `
-      SELECT label
-        FROM score_definitions
-       WHERE org_id = $1
-         AND category = $2
-         AND score = $3
-       LIMIT 1
-      `,
-      [orgId, category, score]
-    );
-    return String(rows?.[0]?.label || "").trim();
-  } catch {
-    return "";
-  }
+async function fetchOpportunity(orgId: number, opportunityId: number) {
+  const { rows } = await pool.query(`SELECT * FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`, [
+    orgId,
+    opportunityId,
+  ]);
+  return rows?.[0] || null;
 }
 
 async function callModelJSON(args: { instructions: string; input: string }) {
@@ -157,7 +197,6 @@ async function callModelJSON(args: { instructions: string; input: string }) {
 
 function parseStrictJson(text: string) {
   const s = String(text || "").trim();
-  // tolerate fenced blocks
   const unfenced = s.replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim();
   return JSON.parse(unfenced);
 }
@@ -165,7 +204,6 @@ function parseStrictJson(text: string) {
 function parseLooseObject(raw: string) {
   // Accept a non-JSON "object-like" payload such as:
   // {category:paper,orgId:1,text:hello world}
-  // This can happen when shells strip quotes from JSON arguments.
   const s = String(raw || "").trim();
   if (!s.startsWith("{") || !s.endsWith("}")) return null;
   const inner = s.slice(1, -1).trim();
@@ -185,267 +223,72 @@ function parseLooseObject(raw: string) {
   return out;
 }
 
-async function upsertAssessment(args: {
+function computeAssessedOnlyPercentFromOpportunity(opp: any) {
+  if (!opp) return { percent: null as number | null, assessed: 0, unassessed: ALL_CATEGORIES.length };
+  let assessed = 0;
+  let totalScore = 0;
+  for (const c of ALL_CATEGORIES) {
+    const prefix = oppPrefixForCategory(c);
+    const score = Number(opp?.[`${prefix}_score`] ?? 0) || 0;
+    const summary = String(opp?.[`${prefix}_summary`] ?? "").trim();
+    const tip = String(opp?.[`${prefix}_tip`] ?? "").trim();
+    const isAssessed = !!summary || !!tip || score > 0;
+    if (!isAssessed) continue;
+    assessed += 1;
+    totalScore += Math.max(0, Math.min(3, score));
+  }
+  const unassessed = ALL_CATEGORIES.length - assessed;
+  if (!assessed) return { percent: null as number | null, assessed, unassessed };
+  const percent = roundInt((totalScore / (assessed * 3)) * 100);
+  return { percent, assessed, unassessed };
+}
+
+async function saveToOpportunities(args: {
   orgId: number;
   opportunityId: number;
   category: CategoryKey;
   score: number;
-  label: string;
-  tip: string;
   evidence: string;
-  turns: any[];
-}) {
-  try {
-    const q = `
-      INSERT INTO opportunity_category_assessments
-        (org_id, opportunity_id, category, score, label, tip, evidence, turns, updated_at)
-      VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,NOW())
-      ON CONFLICT (org_id, opportunity_id, category)
-      DO UPDATE SET
-        score = EXCLUDED.score,
-        label = EXCLUDED.label,
-        tip = EXCLUDED.tip,
-        evidence = EXCLUDED.evidence,
-        turns = EXCLUDED.turns,
-        updated_at = NOW()
-      RETURNING org_id, opportunity_id, category, score, label, tip, evidence, updated_at
-    `;
-    const { rows } = await pool.query(q, [
-      args.orgId,
-      args.opportunityId,
-      args.category,
-      args.score,
-      String(args.label || "").trim(),
-      String(args.tip || "").trim(),
-      String(args.evidence || "").trim(),
-      JSON.stringify(args.turns || []),
-    ]);
-    return rows?.[0] || null;
-  } catch (e: any) {
-    const code = String(e?.code || "");
-    if (code === "42P01") {
-      throw new Error("DB migration missing: opportunity_category_assessments");
-    }
-    if (code === "42703") {
-      throw new Error("DB migration missing: opportunity_category_assessments label/tip columns");
-    }
-    throw e;
-  }
-}
-
-async function fetchWeights(orgId: number): Promise<Record<string, number>> {
-  try {
-    const { rows } = await pool.query(
-      `
-      SELECT category, points_max
-        FROM opportunity_category_weights
-       WHERE org_id = $1
-      `,
-      [orgId]
-    );
-    const out: Record<string, number> = {};
-    for (const r of rows || []) out[String(r.category)] = Number(r.points_max) || 0;
-    return out;
-  } catch (e: any) {
-    if (String(e?.code || "") === "42P01") return {};
-    throw e;
-  }
-}
-
-async function fetchAssessments(orgId: number, opportunityId: number) {
-  try {
-    const { rows } = await pool.query(
-      `
-      SELECT category, score, label, tip, evidence, updated_at
-        FROM opportunity_category_assessments
-       WHERE org_id = $1 AND opportunity_id = $2
-       ORDER BY category ASC
-      `,
-      [orgId, opportunityId]
-    );
-    return rows || [];
-  } catch (e: any) {
-    const code = String(e?.code || "");
-    if (code === "42P01") {
-      throw new Error("DB migration missing: opportunity_category_assessments");
-    }
-    if (code === "42703") {
-      throw new Error("DB migration missing: opportunity_category_assessments label/tip columns");
-    }
-    throw e;
-  }
-}
-
-function computeOverallScore(args: {
-  assessments: Array<{ category: string; score: number }>;
-  weights: Record<string, number>;
-  includedCategories?: string[];
-}) {
-  const cats = args.assessments || [];
-  const weights = args.weights || {};
-  const included =
-    Array.isArray(args.includedCategories) && args.includedCategories.length
-      ? args.includedCategories.map(String)
-      : ALL_CATEGORIES;
-  let total = 0;
-  let max = 0;
-  const byCat = new Map<string, number>();
-  for (const a of cats) byCat.set(String(a.category), Number(a.score) || 0);
-
-  for (const catKey of included) {
-    const score = byCat.get(catKey) ?? 0;
-    const pointsMax =
-      Number.isFinite(Number(weights[catKey])) && Number(weights[catKey]) > 0 ? Number(weights[catKey]) : 3;
-    const points = (Math.max(0, Math.min(3, score)) / 3) * pointsMax;
-    total += points;
-    max += pointsMax;
-  }
-  // Round for stable display/storage.
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-  return { overall_score: round2(total), overall_max: round2(max || 0) };
-}
-
-async function upsertRollup(args: {
-  orgId: number;
-  opportunityId: number;
-  overallScore: number;
-  overallMax: number;
-  summary: string;
+  tip: string;
+  riskSummary: string;
   nextSteps: string;
-  risks: string;
 }) {
-  try {
-    const q = `
-      INSERT INTO opportunity_rollups
-        (org_id, opportunity_id, overall_score, overall_max, summary, next_steps, risks, updated_at)
-      VALUES
-        ($1,$2,$3,$4,$5,$6,$7,NOW())
-      ON CONFLICT (org_id, opportunity_id)
-      DO UPDATE SET
-        overall_score = EXCLUDED.overall_score,
-        overall_max = EXCLUDED.overall_max,
-        summary = EXCLUDED.summary,
-        next_steps = EXCLUDED.next_steps,
-        risks = EXCLUDED.risks,
-        updated_at = NOW()
-      RETURNING org_id, opportunity_id, overall_score, overall_max, summary, next_steps, risks, updated_at
-    `;
-    const { rows } = await pool.query(q, [
-      args.orgId,
-      args.opportunityId,
-      args.overallScore,
-      args.overallMax,
-      String(args.summary || "").trim(),
-      String(args.nextSteps || "").trim(),
-      String(args.risks || "").trim(),
-    ]);
-    return rows?.[0] || null;
-  } catch (e: any) {
-    if (String(e?.code || "") === "42P01") {
-      throw new Error("DB migration missing: opportunity_rollups");
-    }
-    throw e;
-  }
-}
-
-async function regenerateRollupText(args: {
-  orgId: number;
-  opportunityId: number;
-  assessments: Array<{ category: string; score: number; label?: string; tip?: string; evidence: string }>;
-  overallScore: number;
-  overallMax: number;
-  assessedCategories: string[];
-  unassessedCategories: string[];
-}) {
-  const partialDisclaimer =
-    "Overall score reflects only updated categories; remaining categories not assessed yet.";
-
-  const instructions = [
-    "You are generating derived rollup outputs for a sales opportunity.",
-    "CRITICAL:",
-    "- Do NOT rescore any category. Scores provided are authoritative.",
-    "- Use ONLY the provided per-category evidence/tips; do not invent facts.",
-    "- Output MUST be strict JSON with keys: summary, next_steps, risks.",
-    "- Do NOT present the score as a failing grade when coverage is incomplete.",
-    `- If not all categories are assessed, the summary MUST start with this exact sentence: "${partialDisclaimer}"`,
-    '- Do NOT use "out of 30" language. Prefer percent language.',
-  ].join("\n");
-
-  const byCat = new Map<string, { score: number; label: string; tip: string; evidence: string }>();
-  for (const a of args.assessments || []) {
-    byCat.set(String(a.category), {
-      score: Number(a.score) || 0,
-      label: String((a as any).label || "").trim(),
-      tip: String((a as any).tip || "").trim(),
-      evidence: String(a.evidence || "").trim(),
-    });
-  }
-
-  const lines = ALL_CATEGORIES.map((catKey) => {
-    const v = byCat.get(catKey);
-    const cat = displayCategory(catKey);
-    const score = v ? v.score : 0;
-    const label = v ? v.label : "";
-    const tip = v ? v.tip : "";
-    const ev = v ? v.evidence : "";
-    return `CATEGORY: ${cat}\nSCORE: ${score}\nLABEL: ${label || "(none)"}\nTIP: ${tip || "(none)"}\nEVIDENCE:\n${ev || "(none)"}\n`;
-  }).join("\n");
-
-  const input = [
-    `Opportunity: ${args.opportunityId} (org ${args.orgId})`,
-    `Assessed categories: ${args.assessedCategories.join(", ") || "(none)"}`,
-    `Unassessed categories: ${args.unassessedCategories.join(", ") || "(none)"}`,
-    `Overall score (assessed-only points): ${args.overallScore} / ${args.overallMax}`,
-    `Overall percent (assessed-only): ${
-      args.overallMax > 0 ? Math.round((Number(args.overallScore) / Number(args.overallMax)) * 100) : 0
-    }%`,
-    "",
-    "Per-category assessments:",
-    lines,
-    "",
-    "Return JSON only.",
-  ].join("\n");
-
-  const { text } = await callModelJSON({ instructions, input });
-  const obj = parseStrictJson(text);
-  const rawSummary = String(obj?.summary || "").trim();
-  const summary = rawSummary && rawSummary.startsWith(partialDisclaimer)
-    ? rawSummary
-    : args.unassessedCategories.length
-      ? `${partialDisclaimer}\n\n${rawSummary || ""}`.trim()
-      : rawSummary;
-  return {
-    summary,
-    next_steps: String(obj?.next_steps || "").trim(),
-    risks: String(obj?.risks || "").trim(),
+  const prefix = oppPrefixForCategory(args.category);
+  const toolArgs: any = {
+    org_id: args.orgId,
+    opportunity_id: args.opportunityId,
+    [`${prefix}_score`]: Math.max(0, Math.min(3, Number(args.score) || 0)),
+    // IMPORTANT: pass evidence only; muscle will prefix the rubric label.
+    [`${prefix}_summary`]: String(args.evidence || "").trim(),
+    [`${prefix}_tip`]: String(args.tip || "").trim(),
+    risk_summary: String(args.riskSummary || "").trim(),
+    next_steps: String(args.nextSteps || "").trim(),
   };
+
+  await handleFunctionCall({ toolName: "save_deal_data", args: toolArgs, pool });
 }
 
 export async function POST(req: Request, { params }: { params: { id: string } | Promise<{ id: string }> }) {
   try {
     const resolvedParams = await Promise.resolve(params as any);
     const opportunityId = Number.parseInt(String(resolvedParams?.id ?? ""), 10);
-    if (!opportunityId) return NextResponse.json({ ok: false, error: "Invalid opportunity id" }, { status: 400 });
+    if (!Number.isFinite(opportunityId) || opportunityId <= 0) {
+      return NextResponse.json({ ok: false, error: "Invalid opportunity id" }, { status: 400 });
+    }
 
-    // Parse body from raw text first (most reliable across runtimes/clients).
-    // NOTE: Request bodies are streams; avoid multiple reads that can yield empty bodies.
     const raw = await req.text().catch(() => "");
     let body: any = {};
     if (raw) {
       try {
         body = JSON.parse(raw);
-        // If the JSON itself is a quoted JSON string, parse again.
         if (typeof body === "string" && body.trim().startsWith("{")) body = JSON.parse(body);
       } catch {
         body = parseLooseObject(raw) || {};
       }
     } else {
-      // Fallback: some Next internals may not provide raw text; try json().
       body = await req.json().catch(() => ({}));
     }
 
-    // Keep orgId parsing behavior, but allow query fallback for debugging clients.
     const url = new URL(req.url);
     const orgId = Number(body?.orgId || url.searchParams.get("orgId") || 0);
     let sessionId = String(body?.sessionId || "").trim();
@@ -464,8 +307,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
                   contentType: req.headers.get("content-type"),
                   rawLen: raw.length,
                   rawHead: raw.slice(0, 200),
-                  parsedType: typeof body,
-                  parsedKeys: body && typeof body === "object" ? Object.keys(body).slice(0, 20) : [],
+                  parsedKeys: Object.keys(body || {}),
                 },
               }
             : {}),
@@ -473,79 +315,124 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
         { status: 400 }
       );
     }
-    if (!category) return NextResponse.json({ ok: false, error: "Missing category" }, { status: 400 });
+    if (!ALL_CATEGORIES.includes(category)) {
+      return NextResponse.json({ ok: false, error: "Invalid category" }, { status: 400 });
+    }
 
-    const catLabel = displayCategory(category);
+    const opp = await fetchOpportunity(orgId, opportunityId);
+    if (!opp) return NextResponse.json({ ok: false, error: "Opportunity not found" }, { status: 404 });
 
-    // Start: return the first targeted question (no model call required).
+    const prefix = oppPrefixForCategory(category);
+    const lastScore = Number(opp?.[`${prefix}_score`] ?? 0) || 0;
+    const lastTip = String(opp?.[`${prefix}_tip`] ?? "").trim();
+    const lastSummary = String(opp?.[`${prefix}_summary`] ?? "").trim();
+    const split = splitLabelEvidence(lastSummary);
+    const lastLabel = split.label;
+    const lastEvidence = split.evidence;
+
+    // Session start
     if (!sessionId) {
-      const newId = randomUUID();
-      const q = firstQuestionForCategory(category);
-      const session = {
-        sessionId: newId,
+      sessionId = randomUUID();
+      categoryUpdateSessions.set(sessionId, {
+        sessionId,
         orgId,
         opportunityId,
         category,
+        turns: [],
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        turns: [{ role: "assistant" as const, text: q, at: Date.now() }],
-      };
-      categoryUpdateSessions.set(newId, session);
-      // If caller didn't provide text, just start and ask the question.
-      // If caller DID provide text, treat it as the rep's answer and continue in the same request.
-      if (!text) {
-        return NextResponse.json({
-          ok: true,
-          sessionId: newId,
-          assistantText: q,
-          category: { key: category, label: catLabel },
-        });
-      }
-      sessionId = newId;
+      });
     }
 
     const session = categoryUpdateSessions.get(sessionId);
-    if (!session) return NextResponse.json({ ok: false, error: "Invalid sessionId" }, { status: 400 });
+    if (!session) {
+      return NextResponse.json({ ok: false, error: "Unknown sessionId" }, { status: 400 });
+    }
     if (session.orgId !== orgId || session.opportunityId !== opportunityId || session.category !== category) {
-      return NextResponse.json({ ok: false, error: "Session mismatch" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "sessionId does not match org/opportunity/category" }, { status: 400 });
     }
 
-    // If no user text, just repeat last assistant prompt.
-    if (!text) {
-      const lastAssistant = [...(session.turns || [])].reverse().find((t) => t.role === "assistant")?.text || "";
-      return NextResponse.json({ ok: true, sessionId, assistantText: lastAssistant });
+    // If this is the first call, ask opener unless we got text for one-shot.
+    if (!session.turns.length && !text) {
+      const q = openerQuestion({ category, lastScore, lastLabel });
+      session.turns.push({ role: "assistant", text: q, at: Date.now() });
+      session.updatedAt = Date.now();
+      return NextResponse.json({ ok: true, sessionId, category, assistantText: q });
     }
 
-    session.turns.push({ role: "user", text, at: Date.now() });
-    session.updatedAt = Date.now();
+    if (text) {
+      session.turns.push({ role: "user", text, at: Date.now() });
+      session.updatedAt = Date.now();
+
+      // One-shot drift guard: if they simply confirm "no change" and we already have a stored assessment,
+      // don't churn the DB or wrap text.
+      const hasStoredAssessment = lastScore > 0 || !!lastEvidence || !!lastTip;
+      const hasAnyAssistant = session.turns.some((t) => t?.role === "assistant");
+      if (!hasAnyAssistant && hasStoredAssessment && isNoChangeReply(text)) {
+        return NextResponse.json({
+          ok: true,
+          sessionId,
+          category,
+          material_change: false,
+          assistantText: "Got it — no material change. Leaving the saved assessment and wrap as-is.",
+          healthPercent: computeHealthPercentFromOpportunity(opp?.health_score),
+        });
+      }
+
+      // Drift guard: if rep indicates "no change" to a check-in opener, don't churn stored values.
+      const lastAssistant = [...session.turns].reverse().find((t) => t?.role === "assistant")?.text || "";
+      const isCheckInOpener =
+        typeof lastAssistant === "string" &&
+        (lastAssistant.startsWith("Last review,") || /Has anything changed/i.test(lastAssistant));
+      if (isCheckInOpener && isNoChangeReply(text)) {
+        return NextResponse.json({
+          ok: true,
+          sessionId,
+          category,
+          material_change: false,
+          assistantText: "Got it — no material change. Leaving the saved assessment and wrap as-is.",
+          healthPercent: computeHealthPercentFromOpportunity(opp?.health_score),
+        });
+      }
+    }
 
     const defs = await fetchRubric(orgId, category);
-    const rubric = rubricText(defs);
-
     const instructions = [
-      "You are updating EXACTLY ONE category assessment for a sales opportunity.",
-      `CATEGORY: ${catLabel}`,
+      "You are an Expert Sales Leader running a targeted update for ONE category only.",
+      "CRITICAL:",
+      "- Do NOT evaluate or change any other categories.",
+      "- If the rep indicates there is no material change, set material_change=false and do not propose updates.",
+      "- If you need more information to score, ask ONE focused follow-up question.",
+      "- Otherwise, produce a final update for this category: score (0-3), evidence, and coaching tip.",
+      "- Also update wrap outputs (risk_summary and next_steps) using ONLY the known evidence. If coverage is incomplete, be accurate and not harsh.",
+      "- Do NOT use the word 'champion' in any user-facing text; use 'Internal Sponsor'.",
+      '- Do NOT use "out of 30" phrasing; if you mention overall health, use a percent.',
       "",
-      "Rules:",
-      "- Ask at most ONE follow-up question if information is insufficient.",
-      "- Otherwise finalize with a score 0-3, a coaching tip, and a short evidence statement (rationale).",
-      "- Use ONLY the rubric definitions provided. Do not invent facts.",
-      "- Output MUST be strict JSON only. No markdown, no extra text.",
-      "",
-      "JSON schema:",
-      `{"action":"followup","question":"..."} OR {"action":"finalize","score":0,"tip":"...","evidence":"..."}`,
+      "Output MUST be strict JSON with one of these shapes:",
+      `- {"action":"followup","question":"..."} `,
+      `- {"action":"finalize","material_change":true,"score":0-3,"evidence":"...","tip":"...","risk_summary":"...","next_steps":"..."} `,
+      `- {"action":"finalize","material_change":false} `,
     ].join("\n");
 
-    const transcript = session.turns
-      .map((t) => `${t.role.toUpperCase()}: ${t.text}`)
-      .join("\n");
-
     const input = [
-      `Rubric definitions (authoritative for this category):`,
-      rubric || "(no rubric found)",
+      `Opportunity: ${opportunityId} (org ${orgId})`,
+      `Category: ${displayCategory(category)}`,
+      "",
+      "Category rubric (0-3):",
+      rubricText(defs) || "(no rubric rows found)",
+      "",
+      "Current stored state (from opportunities):",
+      `- last_score: ${lastScore}`,
+      `- last_label: ${lastLabel || "(none)"}`,
+      `- last_evidence: ${lastEvidence || "(none)"}`,
+      `- last_tip: ${lastTip || "(none)"}`,
+      `- current_risk_summary: ${String(opp?.risk_summary || "").trim() || "(none)"}`,
+      `- current_next_steps: ${String(opp?.next_steps || "").trim() || "(none)"}`,
       "",
       "Conversation so far:",
-      transcript,
+      ...session.turns.map((t) => `${t.role.toUpperCase()}: ${String(t.text || "").trim()}`),
+      "",
+      "Return JSON only.",
     ].join("\n");
 
     const { text: modelText } = await callModelJSON({ instructions, input });
@@ -553,100 +440,83 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     const action = String(obj?.action || "").trim();
 
     if (action === "followup") {
-      const q = String(obj?.question || "").trim() || `Can you share one concrete example that supports ${catLabel}?`;
+      const q = String(obj?.question || "").trim();
+      if (!q) return NextResponse.json({ ok: false, error: "Model followup missing question" }, { status: 500 });
       session.turns.push({ role: "assistant", text: q, at: Date.now() });
       session.updatedAt = Date.now();
-      return NextResponse.json({ ok: true, sessionId, assistantText: q });
+      return NextResponse.json({ ok: true, sessionId, category, assistantText: q });
     }
 
     if (action !== "finalize") {
-      return NextResponse.json(
-        { ok: false, error: "Model returned invalid action", detail: modelText.slice(0, 500) },
-        { status: 502 }
-      );
+      return NextResponse.json({ ok: false, error: "Model returned invalid action" }, { status: 500 });
     }
 
-    const score = Math.max(0, Math.min(3, Number(obj?.score)));
+    const material = Boolean(obj?.material_change);
+    if (!material) {
+      return NextResponse.json({
+        ok: true,
+        sessionId,
+        category,
+        material_change: false,
+        assistantText: "No material change — leaving the saved assessment and wrap as-is.",
+        healthPercent: computeHealthPercentFromOpportunity(opp?.health_score),
+      });
+    }
+
+    const score = Number(obj?.score);
     const evidence = String(obj?.evidence || "").trim();
     const tip = String(obj?.tip || "").trim();
-    if (!Number.isFinite(score)) {
-      return NextResponse.json({ ok: false, error: "Invalid score from model" }, { status: 502 });
-    }
-    const label = await fetchLabelForScore(orgId, category, score);
+    const riskSummary = String(obj?.risk_summary || "").trim();
+    const nextSteps = String(obj?.next_steps || "").trim();
 
-    const saved = await upsertAssessment({
+    if (!Number.isFinite(score) || score < 0 || score > 3) {
+      return NextResponse.json({ ok: false, error: "Model returned invalid score" }, { status: 500 });
+    }
+    if (!evidence) return NextResponse.json({ ok: false, error: "Model returned empty evidence" }, { status: 500 });
+    if (!tip) return NextResponse.json({ ok: false, error: "Model returned empty tip" }, { status: 500 });
+
+    await saveToOpportunities({
       orgId,
       opportunityId,
       category,
       score,
-      label,
-      tip,
       evidence,
-      turns: session.turns,
+      tip,
+      riskSummary,
+      nextSteps,
     });
 
-    // Deterministic rollup from stored scores + DB weights.
-    const assessments = (await fetchAssessments(orgId, opportunityId)) as Array<{
-      category: string;
-      score: number;
-      label: string;
-      tip: string;
-      evidence: string;
-    }>;
-    const assessedCategories = assessments.map((a) => String(a.category));
-    const unassessedCategories = ALL_CATEGORIES.filter((c) => !assessedCategories.includes(c));
-    const weights = await fetchWeights(orgId);
-    // Partial rollup mode: percent should reflect assessed coverage only.
-    const overall = computeOverallScore({
-      assessments: assessments.map((a) => ({ category: a.category, score: Number(a.score) || 0 })),
-      weights,
-      includedCategories: assessedCategories.length ? assessedCategories : [],
-    });
-    const rollupText = await regenerateRollupText({
-      orgId,
-      opportunityId,
-      assessments,
-      overallScore: overall.overall_score,
-      overallMax: overall.overall_max,
-      assessedCategories,
-      unassessedCategories,
-    });
-    const rollupSaved = await upsertRollup({
-      orgId,
-      opportunityId,
-      overallScore: overall.overall_score,
-      overallMax: overall.overall_max,
-      summary: rollupText.summary,
-      nextSteps: rollupText.next_steps,
-      risks: rollupText.risks,
-    });
+    const oppAfter = await fetchOpportunity(orgId, opportunityId);
+    const healthPercent = computeHealthPercentFromOpportunity(oppAfter?.health_score);
+    const assessedOnly = computeAssessedOnlyPercentFromOpportunity(oppAfter);
+    const disclaimer =
+      assessedOnly.unassessed > 0
+        ? "Overall score reflects only updated categories; remaining categories not assessed yet."
+        : "";
 
-    const overallPercent =
-      overall.overall_max && Number(overall.overall_max) > 0
-        ? Math.max(0, Math.min(100, Math.round((Number(overall.overall_score) / Number(overall.overall_max)) * 100)))
-        : 0;
-    const partialNote = unassessedCategories.length
-      ? "Overall score reflects only updated categories; remaining categories not assessed yet."
-      : "";
+    categoryUpdateSessions.delete(sessionId);
 
     const assistantText = [
-      `${catLabel} updated.`,
-      `Score: ${score} / 3`,
-      `Label: ${label || "(none)"}`,
-      tip ? `Tip: ${tip}` : "",
-      partialNote,
-      `Overall: ${overallPercent}%`,
-    ].filter(Boolean).join("\n");
-
-    session.turns.push({ role: "assistant", text: assistantText, at: Date.now() });
-    session.updatedAt = Date.now();
+      `Updated ${displayCategory(category)}.`,
+      assessedOnly.percent != null ? `Overall: ${assessedOnly.percent}%` : healthPercent != null ? `Overall: ${healthPercent}%` : "",
+      disclaimer ? disclaimer : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
 
     return NextResponse.json({
       ok: true,
       sessionId,
+      category,
+      material_change: true,
+      result: {
+        score: Math.max(0, Math.min(3, Number(score) || 0)),
+        evidence,
+        tip,
+      },
+      healthPercent,
+      assessedOnlyPercent: assessedOnly.percent,
       assistantText,
-      categoryResult: saved,
-      rollup: rollupSaved,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
