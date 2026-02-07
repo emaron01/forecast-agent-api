@@ -18,6 +18,15 @@ type HandsFreeRun = {
   updatedAt: number;
 };
 
+function extractWrap(text: string) {
+  const t = String(text || "");
+  const riskMatch = t.match(/Updated\s+Risk\s+Summary:\s*([\s\S]*?)(?:Suggested\s+Next\s+Steps:|$)/i);
+  const nextMatch = t.match(/Suggested\s+Next\s+Steps:\s*([\s\S]*)$/i);
+  const riskSummary = String(riskMatch?.[1] || "").trim();
+  const nextSteps = String(nextMatch?.[1] || "").trim();
+  return { riskSummary, nextSteps };
+}
+
 function b64ToBlob(b64: string, mime: string) {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
@@ -675,6 +684,43 @@ export default function Home() {
     }
   };
 
+  const startFullDealReview = async () => {
+    if (busy) return;
+    if (speak) await unlockAudio();
+    setBusy(true);
+    try {
+      const oppId = Number(opportunityId);
+      if (oppId) {
+        const res = await fetch(`/api/opportunities/${oppId}/review`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orgId: Number(orgId), repName }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json?.ok) throw new Error(json?.error || "Full deal review failed");
+        lastSpokenAtRef.current = 0;
+        setRun(json.run as HandsFreeRun);
+        setMode("FULL_REVIEW");
+        return;
+      }
+      await start();
+    } catch (e: any) {
+      setRun({
+        runId: "",
+        sessionId: "",
+        status: "ERROR",
+        error: e?.message || String(e),
+        masterPromptSha256: undefined,
+        masterPromptLoadedAt: undefined,
+        messages: [],
+        modelCalls: 0,
+        updatedAt: Date.now(),
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const sendAnswer = async () => {
     await submitText(answer);
   };
@@ -725,312 +771,514 @@ export default function Home() {
     setCatMessages([]);
   };
 
+  const activeMessages = mode === "FULL_REVIEW" ? run?.messages || [] : catMessages;
+  const lastAssistantText = useMemo(() => {
+    const last = [...activeMessages].reverse().find((m) => m.role === "assistant")?.text || "";
+    return String(last || "").trim();
+  }, [activeMessages]);
+  const wrap = useMemo(() => extractWrap(lastAssistantText), [lastAssistantText]);
+
   return (
-    <main style={{ padding: 24, fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif", maxWidth: 980, margin: "0 auto" }}>
-      <h1>Forecast Agent (Hands-Free, non‑Realtime)</h1>
+    <main className="wrap">
+      <div className="top">
+        <div>
+          <h1>Forecast Agent – Audit Dashboard</h1>
+          <div className="sub">
+            Hands-free dashboard for Full Deal Review (Mode A) and Category Update (Mode B). Build: <code>{BUILD_TAG}</code>
+          </div>
+        </div>
 
-      <p style={{ marginTop: 6, color: "#555" }}>
-        Build: <code>{BUILD_TAG}</code> · Runner is server-driven (Start once, then auto-advances until it needs you).
-      </p>
-
-      <div style={{ display: "flex", gap: 12, marginBottom: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-        <label style={{ display: "grid", gap: 6 }}>
-          <span style={{ fontSize: 12, color: "#444" }}>Rep name</span>
-          <input
-            value={repName}
-            onChange={(e) => setRepName(e.target.value)}
-            style={{ padding: 8, minWidth: 220 }}
-            disabled={!!runId || busy}
-          />
-        </label>
-        <label style={{ display: "grid", gap: 6 }}>
-          <span style={{ fontSize: 12, color: "#444" }}>Org ID</span>
-          <input
-            value={orgId}
-            onChange={(e) => setOrgId(e.target.value)}
-            style={{ padding: 8, width: 120 }}
-            disabled={!!runId || busy}
-          />
-        </label>
-        <label style={{ display: "grid", gap: 6 }}>
-          <span style={{ fontSize: 12, color: "#444" }}>Opportunity ID (for Category Update)</span>
+        <div className="row">
+          <label className="small">Org</label>
+          <input value={orgId} onChange={(e) => setOrgId(e.target.value)} style={{ width: 90 }} disabled={busy} />
+          <label className="small">Rep</label>
+          <input value={repName} onChange={(e) => setRepName(e.target.value)} style={{ width: 180 }} disabled={!!runId || busy} />
+          <label className="small">Opportunity</label>
           <input
             value={opportunityId}
             onChange={(e) => setOpportunityId(e.target.value)}
-            style={{ padding: 8, width: 200 }}
+            style={{ width: 130 }}
+            placeholder="123"
             disabled={busy}
             inputMode="numeric"
           />
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <input type="checkbox" checked={speak} onChange={(e) => setSpeak(e.target.checked)} disabled={busy} />
-          Speak
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} disabled={busy} />
-          Voice (hands-free, browser)
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <input
-            type="checkbox"
-            checked={autoStartTalking}
-            onChange={(e) => setAutoStartTalking(e.target.checked)}
-            disabled={busy || !voice}
-          />
-          Auto-start “Start talking”
-        </label>
-        <label style={{ display: "grid", gap: 6 }}>
-          <span style={{ fontSize: 12, color: "#444" }}>Silence submit (ms)</span>
+          <label className="small">
+            <input type="checkbox" checked={speak} onChange={(e) => setSpeak(e.target.checked)} disabled={busy} /> Speak
+          </label>
+          <label className="small">
+            <input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} disabled={busy} /> Voice
+          </label>
+          <label className="small">
+            <input
+              type="checkbox"
+              checked={autoStartTalking}
+              onChange={(e) => setAutoStartTalking(e.target.checked)}
+              disabled={busy || !voice}
+            />{" "}
+            Auto-start
+          </label>
+          <label className="small">Silence ms</label>
           <input
             value={String(submitOnSilenceMs)}
             onChange={(e) => setSubmitOnSilenceMs(Number(e.target.value || "900") || 900)}
-            style={{ padding: 8, width: 160 }}
+            style={{ width: 110 }}
             disabled={busy || !voice}
             inputMode="numeric"
           />
-        </label>
-
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <button onClick={start} disabled={!canStart}>
-            Run Full Review
-          </button>
           <button onClick={restart} disabled={busy}>
-            Restart
+            Reset
           </button>
         </div>
       </div>
 
-      <div style={{ marginTop: 10, padding: 12, borderRadius: 12, border: "1px solid #e5e5e5", background: "#fafafa" }}>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <strong>Category Update</strong>
-          <span style={{ color: "#666", fontSize: 12 }}>
-            (updates only one category; does not run the full rubric)
+      <div className="status">
+        <div className="row">
+          <span className={`pill ${run?.error ? "err" : runId ? "ok" : "warn"}`}>
+            {run?.error ? "ERROR" : runId ? "OK" : "IDLE"}
+          </span>
+          <span className="pill">
+            Mode: <b>{mode === "FULL_REVIEW" ? "Full Deal Review" : "Category Update"}</b>
+          </span>
+          <span className="pill">
+            Status: <b>{run?.status || "—"}</b>
+          </span>
+          {runId ? (
+            <span className="pill">
+              Run: <code>{runId.slice(0, 8)}…</code>
+            </span>
+          ) : null}
+          <span className="pill">
+            Listening: <b>{speech.listening ? "ON" : "OFF"}</b>
           </span>
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-          {categories.map((c) => (
-            <button
-              key={c.key}
-              onClick={() => void startCategoryUpdate(c.key)}
-              disabled={busy}
-              style={{
-                padding: "8px 10px",
-                borderRadius: 10,
-                border: "1px solid #ddd",
-                background: selectedCategory === c.key && mode === "CATEGORY_UPDATE" ? "#e8f0fe" : "#fff",
-              }}
-            >
-              {c.label}
-            </button>
-          ))}
+        <div className="small">
+          {run?.error ? `Error: ${run.error}` : isWaiting ? "Waiting for your answer." : isRunning ? "Running…" : "Ready."}
         </div>
-        {!speech.supported ? (
-          <div style={{ marginTop: 10, color: "#b26a00" }}>
-            Browser speech recognition is unavailable here. You can still type.
-          </div>
-        ) : null}
-        {speech.error ? (
-          <div style={{ marginTop: 10, color: "#b26a00" }}>
-            Speech recognition: <code>{speech.error}</code>
-          </div>
-        ) : null}
       </div>
 
-      <div style={{ marginTop: 12 }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <div>
-            Status:{" "}
-            <strong>
-              {run?.status || "(not started)"}
-            </strong>
-          </div>
-          {runId ? (
+      <div className="grid">
+        <div className="card">
+          <div className="hdr">
             <div>
-              Run: <code>{runId}</code> · Model calls: <code>{run?.modelCalls ?? 0}</code>
+              <div className="title">
+                Opportunity <span style={{ color: "var(--muted)" }}>#{opportunityId || "—"}</span>
+              </div>
+              <div className="kv">
+                <b>Org:</b> {orgId} · <b>Rep:</b> {repName || "—"} · <b>Selected category:</b>{" "}
+                {selectedCategory ? (
+                  <span style={{ color: "var(--accent)" }}>
+                    {categories.find((c) => c.key === selectedCategory)?.label || selectedCategory}
+                  </span>
+                ) : (
+                  "—"
+                )}
+              </div>
             </div>
-          ) : null}
-          {run?.masterPromptSha256 ? (
-            <div>
-              Master prompt: <code>{run.masterPromptSha256.slice(0, 12)}…</code>
-              {run.masterPromptLoadedAt ? (
-                <>
-                  {" "}
-                  (<span style={{ color: "#666" }}>{new Date(run.masterPromptLoadedAt).toLocaleString()}</span>)
-                </>
+            <div className="meta">
+              {speech.supported ? <span className="pill ok">Speech OK</span> : <span className="pill warn">Speech N/A</span>}
+              {audioBlocked ? <span className="pill warn">Audio blocked</span> : null}
+              {micBlocked ? <span className="pill err">Mic blocked</span> : null}
+            </div>
+          </div>
+
+          <div className="cols">
+            <div className="box">
+              <h3>Risk Summary</h3>
+              <p>{wrap.riskSummary || "—"}</p>
+            </div>
+            <div className="box">
+              <h3>Next Steps</h3>
+              <div style={{ marginBottom: 10 }}>
+                <button className="btnPrimary" onClick={startFullDealReview} disabled={busy}>
+                  Full Deal Review
+                </button>
+              </div>
+              <p>
+                <b>Next steps:</b> {wrap.nextSteps || "—"}
+              </p>
+              {run?.masterPromptSha256 ? (
+                <p style={{ marginTop: 6 }} className="small">
+                  Master prompt: <code>{run.masterPromptSha256.slice(0, 12)}…</code>
+                </p>
               ) : null}
             </div>
-          ) : null}
-          {run?.error ? <div style={{ color: "#b00020" }}>Error: {run.error}</div> : null}
-        </div>
-      </div>
+          </div>
 
-      {audioBlocked ? (
-        <div style={{ marginTop: 12, color: "#b26a00" }}>
-          Audio is blocked by the browser. Click <strong>Start</strong> again or interact with the page to enable audio playback.
-        </div>
-      ) : null}
-      {micBlocked ? (
-        <div style={{ marginTop: 12, color: "#b00020" }}>
-          Microphone permission is blocked. Allow microphone access for this site to use hands-free voice replies.
-          {micError ? <div style={{ marginTop: 6, color: "#b00020" }}>{micError}</div> : null}
-        </div>
-      ) : null}
-
-      <div
-        ref={scrollRef}
-        style={{
-          marginTop: 16,
-          border: "1px solid #e5e5e5",
-          borderRadius: 12,
-          padding: 12,
-          height: 420,
-          overflow: "auto",
-          background: "#fff",
-        }}
-      >
-        {(mode === "FULL_REVIEW" ? run?.messages : catMessages)?.length ? (
-          (mode === "FULL_REVIEW" ? run?.messages || [] : catMessages).map((m, i) => (
-            <div key={`${m.at}-${i}`} style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 12, color: "#666" }}>
-                <strong style={{ color: m.role === "assistant" ? "#1a73e8" : m.role === "user" ? "#0b8043" : "#666" }}>
-                  {m.role.toUpperCase()}
-                </strong>{" "}
-                · {new Date(m.at).toLocaleTimeString()}
+          <div className="med">
+            {categories.map((c) => (
+              <div key={c.key} className={`cat ${selectedCategory === c.key ? "active" : ""}`}>
+                <div className="ch">
+                  <b>{c.label}</b>
+                  <span className="score">{selectedCategory === c.key && mode === "CATEGORY_UPDATE" ? "Updating" : ""}</span>
+                </div>
+                <div className="evi">Update only this category and recompute rollup.</div>
+                <div className="catBtnRow">
+                  <button onClick={() => void startCategoryUpdate(c.key)} disabled={busy}>
+                    Update
+                  </button>
+                </div>
               </div>
-              <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.4 }}>{m.text}</div>
+            ))}
+          </div>
+
+          <details style={{ marginTop: 12 }}>
+            <summary className="small">Conversation</summary>
+            <div ref={scrollRef} className="chat">
+              {activeMessages?.length ? (
+                activeMessages.map((m, i) => (
+                  <div key={`${m.at}-${i}`} className="msg">
+                    <div className="msgMeta">
+                      <strong className={`role ${m.role}`}>{m.role.toUpperCase()}</strong> ·{" "}
+                      {new Date(m.at).toLocaleTimeString()}
+                    </div>
+                    <div className="msgBody">{m.text}</div>
+                  </div>
+                ))
+              ) : (
+                <div className="small">Click a category Update button or run Full Deal Review.</div>
+              )}
             </div>
-          ))
-        ) : (
-          <div style={{ color: "#666" }}>
-            Click <strong>Run Full Review</strong> to begin (Mode A), or choose a category above to update just that category (Mode B).
-          </div>
-        )}
-      </div>
+          </details>
 
-      <div style={{ marginTop: 12 }}>
-        <strong>Audio</strong>
-        <div style={{ marginTop: 6 }}>
-          <audio ref={audioRef} controls style={{ width: "100%" }} />
-        </div>
-        {ttsError ? (
-          <div style={{ marginTop: 8, color: "#b00020", whiteSpace: "pre-wrap" }}>{ttsError}</div>
-        ) : null}
-        {!ttsError && ttsLastOkAt ? (
-          <div style={{ marginTop: 8, color: "#666" }}>
-            Last TTS OK: <code>{new Date(ttsLastOkAt).toLocaleTimeString()}</code>
-          </div>
-        ) : null}
-        {sttError ? (
-          <div style={{ marginTop: 8, color: "#b00020", whiteSpace: "pre-wrap" }}>Turn error: {sttError}</div>
-        ) : null}
-        {!sttError && sttLastOkAt ? (
-          <div style={{ marginTop: 8, color: "#666" }}>
-            Last STT OK: <code>{new Date(sttLastOkAt).toLocaleTimeString()}</code>
-          </div>
-        ) : null}
-        {lastTranscript ? (
-          <div style={{ marginTop: 8 }}>
-            <div style={{ fontSize: 12, color: "#666" }}>Last transcript</div>
-            <div style={{ whiteSpace: "pre-wrap" }}>{lastTranscript}</div>
-          </div>
-        ) : null}
-        {perf.recordMs || perf.sttMs || perf.agentMs ? (
-          <div style={{ marginTop: 8, color: "#666", fontSize: 12 }}>
-            Timings:{" "}
-            {typeof perf.recordMs === "number" ? <span>record {perf.recordMs}ms · </span> : null}
-            {typeof perf.sttMs === "number" ? <span>stt {perf.sttMs}ms · </span> : null}
-            {typeof perf.agentMs === "number" ? <span>agent {perf.agentMs}ms</span> : null}
-          </div>
-        ) : null}
-      </div>
-
-      {isRunning ? (
-        <div style={{ marginTop: 12, color: "#555" }}>Running… (auto-advancing)</div>
-      ) : null}
-
-      {isWaiting ? (
-        <div style={{ marginTop: 16, padding: 12, borderRadius: 12, border: "1px solid #e5e5e5", background: "#fafafa" }}>
-          <div style={{ marginBottom: 8 }}>
-            <strong>Input required</strong> (the runner is paused)
-          </div>
-          <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            {voice && speech.supported ? (
-              <>
-                <button
-                  onClick={() => (speech.listening ? speech.stop() : speech.start())}
-                  disabled={busy}
-                >
+          <div className="inputCard">
+            <div className="row" style={{ justifyContent: "space-between", width: "100%" }}>
+              <div className="small">
+                {mode === "FULL_REVIEW"
+                  ? isWaiting
+                    ? "Full review paused — answer to continue."
+                    : "Full review will pause when input is needed."
+                  : "Category update — answer the targeted question."}
+              </div>
+              {voice && speech.supported ? (
+                <button onClick={() => (speech.listening ? speech.stop() : speech.start())} disabled={busy}>
                   {speech.listening ? "Stop talking" : "Start talking"}
                 </button>
-                <span style={{ color: "#666", fontSize: 12 }}>
-                  {speech.listening ? "Listening…" : "Mic idle"}
-                </span>
-              </>
-            ) : null}
-          </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            <input
-              value={answer}
-              onChange={(e) => setAnswer(e.target.value)}
-              placeholder={speech.combinedText ? speech.combinedText : "Type your answer…"}
-              style={{ flex: 1, padding: 10 }}
-              disabled={busy || !runId}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void sendAnswer();
-              }}
-            />
-            <button onClick={sendAnswer} disabled={busy || !runId || !answer.trim()}>
-              Send
-            </button>
-          </div>
-        </div>
-      ) : null}
+              ) : (
+                <span className="small">Voice off (typing only).</span>
+              )}
+            </div>
 
-      {isCatWaiting ? (
-        <div style={{ marginTop: 16, padding: 12, borderRadius: 12, border: "1px solid #e5e5e5", background: "#fafafa" }}>
-          <div style={{ marginBottom: 8 }}>
-            <strong>Category input</strong>
-            {selectedCategory ? (
-              <span style={{ color: "#666" }}>
-                {" "}
-                · Selected: <code>{selectedCategory}</code>
-              </span>
+            {speech.error ? (
+              <div className="small" style={{ marginTop: 8, color: "var(--warn)" }}>
+                Speech: <code>{speech.error}</code>
+              </div>
             ) : null}
-          </div>
-          <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            {voice && speech.supported ? (
-              <>
-                <button
-                  onClick={() => (speech.listening ? speech.stop() : speech.start())}
-                  disabled={busy}
-                >
-                  {speech.listening ? "Stop talking" : "Start talking"}
-                </button>
-                <span style={{ color: "#666", fontSize: 12 }}>
-                  {speech.listening ? "Listening…" : "Mic idle"}
-                </span>
-              </>
-            ) : (
-              <span style={{ color: "#666", fontSize: 12 }}>Voice off (typing only).</span>
-            )}
-          </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            <input
-              value={answer}
-              onChange={(e) => setAnswer(e.target.value)}
-              placeholder={speech.combinedText ? speech.combinedText : "Type your answer…"}
-              style={{ flex: 1, padding: 10 }}
-              disabled={busy || !selectedCategory}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void sendAnswer();
-              }}
-            />
-            <button onClick={sendAnswer} disabled={busy || !selectedCategory || !answer.trim()}>
-              Send
-            </button>
+            {micError ? (
+              <div className="small" style={{ marginTop: 8, color: "var(--bad)" }}>
+                Mic: {micError}
+              </div>
+            ) : null}
+
+            <div className="row" style={{ marginTop: 10, width: "100%" }}>
+              <input
+                value={answer}
+                onChange={(e) => setAnswer(e.target.value)}
+                placeholder={speech.combinedText ? speech.combinedText : "Type your answer…"}
+                style={{ flex: 1, minWidth: 260 }}
+                disabled={busy || (mode === "FULL_REVIEW" ? !runId : !selectedCategory)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void sendAnswer();
+                }}
+              />
+              <button onClick={sendAnswer} disabled={busy || !answer.trim()}>
+                Send
+              </button>
+            </div>
           </div>
         </div>
-      ) : null}
+
+        <div className="card">
+          <div className="hdr">
+            <div className="title">Audio</div>
+            <div className="meta">
+              {ttsError ? <span className="pill err">TTS error</span> : <span className="pill">TTS</span>}
+              {sttError ? <span className="pill err">STT error</span> : <span className="pill">STT</span>}
+            </div>
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <audio ref={audioRef} controls style={{ width: "100%" }} />
+          </div>
+          {ttsError ? <div className="small" style={{ marginTop: 10, color: "var(--bad)" }}>{ttsError}</div> : null}
+          {sttError ? <div className="small" style={{ marginTop: 10, color: "var(--bad)" }}>{sttError}</div> : null}
+          {lastTranscript ? (
+            <div style={{ marginTop: 10 }}>
+              <div className="small">Last transcript</div>
+              <div className="small" style={{ whiteSpace: "pre-wrap" }}>{lastTranscript}</div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <style jsx global>{`
+        :root {
+          --bg: #0b1220;
+          --panel: #121b2e;
+          --panel2: #0f172a;
+          --border: #24324d;
+          --text: #e6edf7;
+          --muted: #9fb0c8;
+          --accent: #60a5fa;
+          --good: #22c55e;
+          --warn: #f59e0b;
+          --bad: #ef4444;
+        }
+        body {
+          margin: 0;
+          background: var(--bg);
+          color: var(--text);
+          font-family: Segoe UI, system-ui, -apple-system, Arial, sans-serif;
+        }
+        code {
+          color: var(--text);
+        }
+        .wrap {
+          max-width: 1200px;
+          margin: 0 auto;
+          padding: 18px;
+        }
+        .top {
+          display: flex;
+          gap: 12px;
+          align-items: flex-end;
+          flex-wrap: wrap;
+          justify-content: space-between;
+          margin-bottom: 14px;
+        }
+        h1 {
+          font-size: 18px;
+          margin: 0 0 6px 0;
+        }
+        .sub {
+          color: var(--muted);
+          font-size: 12px;
+        }
+        .row {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+        input,
+        select,
+        button {
+          background: var(--panel);
+          color: var(--text);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 10px 12px;
+          font-size: 13px;
+          outline: none;
+        }
+        input:focus,
+        select:focus {
+          border-color: var(--accent);
+          box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.18);
+        }
+        button {
+          cursor: pointer;
+        }
+        button:hover {
+          border-color: var(--accent);
+        }
+        button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        .btnPrimary {
+          width: 100%;
+          padding: 14px 14px;
+          font-weight: 800;
+          border-radius: 12px;
+          border-color: rgba(96, 165, 250, 0.45);
+          background: linear-gradient(180deg, rgba(96, 165, 250, 0.18), rgba(96, 165, 250, 0.06));
+        }
+        .status {
+          width: 100%;
+          background: var(--panel2);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          padding: 10px 12px;
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 14px;
+          flex-wrap: wrap;
+        }
+        .pill {
+          font-size: 12px;
+          padding: 4px 8px;
+          border-radius: 999px;
+          border: 1px solid var(--border);
+          color: var(--muted);
+        }
+        .pill.ok {
+          color: var(--good);
+          border-color: rgba(34, 197, 94, 0.35);
+        }
+        .pill.err {
+          color: var(--bad);
+          border-color: rgba(239, 68, 68, 0.35);
+        }
+        .pill.warn {
+          color: var(--warn);
+          border-color: rgba(245, 158, 11, 0.35);
+        }
+        .grid {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 12px;
+        }
+        .card {
+          background: var(--panel);
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          padding: 14px;
+        }
+        .hdr {
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          align-items: flex-start;
+          flex-wrap: wrap;
+        }
+        .title {
+          font-size: 18px;
+          font-weight: 800;
+          margin: 0;
+        }
+        .meta {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          align-items: center;
+        }
+        .kv {
+          font-size: 12px;
+          color: var(--muted);
+          margin-top: 6px;
+        }
+        .kv b {
+          color: var(--text);
+          font-weight: 700;
+        }
+        .cols {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+          margin-top: 12px;
+        }
+        @media (max-width: 900px) {
+          .cols {
+            grid-template-columns: 1fr;
+          }
+        }
+        .box {
+          background: var(--panel2);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          padding: 10px;
+        }
+        .box h3 {
+          margin: 0 0 6px 0;
+          font-size: 12px;
+          color: var(--muted);
+          text-transform: uppercase;
+          letter-spacing: 0.8px;
+        }
+        .box p {
+          margin: 0;
+          font-size: 13px;
+          line-height: 1.4;
+          white-space: pre-wrap;
+        }
+        .med {
+          margin-top: 12px;
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+          gap: 10px;
+        }
+        .cat {
+          background: #0f172a;
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          padding: 10px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          min-height: 120px;
+        }
+        .cat.active {
+          outline: 2px solid rgba(96, 165, 250, 0.25);
+        }
+        .cat .ch {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .cat .ch b {
+          font-size: 13px;
+        }
+        .score {
+          font-weight: 900;
+          color: var(--muted);
+          font-size: 12px;
+        }
+        .evi {
+          color: var(--muted);
+          font-size: 11px;
+        }
+        .catBtnRow {
+          margin-top: auto;
+          display: flex;
+          justify-content: center; /* center update buttons under each category */
+        }
+        details {
+          margin-top: 12px;
+        }
+        .small {
+          font-size: 11px;
+          color: var(--muted);
+        }
+        .chat {
+          margin-top: 10px;
+          background: var(--panel2);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          padding: 10px;
+          max-height: 360px;
+          overflow: auto;
+        }
+        .msg {
+          margin-bottom: 10px;
+        }
+        .msgMeta {
+          font-size: 12px;
+          color: var(--muted);
+          margin-bottom: 4px;
+        }
+        .msgBody {
+          white-space: pre-wrap;
+          line-height: 1.4;
+          font-size: 13px;
+        }
+        .role.assistant {
+          color: var(--accent);
+        }
+        .role.user {
+          color: var(--good);
+        }
+        .role.system {
+          color: var(--muted);
+        }
+        .inputCard {
+          margin-top: 12px;
+          background: var(--panel2);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          padding: 10px;
+        }
+      `}</style>
     </main>
   );
 }
