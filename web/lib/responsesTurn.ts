@@ -145,11 +145,11 @@ export async function runResponsesTurn(args: {
   const { pool, session } = args;
   const baseUrl = resolveBaseUrl();
   const apiKey = String(process.env.MODEL_API_KEY || process.env.OPENAI_API_KEY || "").trim();
-  const model = process.env.MODEL_NAME || process.env.MODEL_API_NAME;
+  const model = process.env.MODEL_API_NAME;
 
   if (!baseUrl) throw new Error("Missing OPENAI_BASE_URL (or MODEL_API_URL or MODEL_URL)");
   if (!apiKey) throw new Error("Missing MODEL_API_KEY");
-  if (!model) throw new Error("Missing MODEL_NAME");
+  if (!model) throw new Error("Missing MODEL_API_NAME");
 
   const text = String(args.text || "").trim();
   if (!text) throw new Error("Missing text");

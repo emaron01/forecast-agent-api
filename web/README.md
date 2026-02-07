@@ -7,7 +7,7 @@ Minimal Next.js WebRTC client to test mic/speaker with OpenAI Realtime (no Twili
 1) Create `web/.env.local` with:
 ```
 MODEL_API_KEY=your_openai_api_key
-MODEL_NAME=gpt-4o-realtime-preview
+MODEL_API_NAME=gpt-4o-realtime-preview
 MODEL_VOICE=verse
 ```
 
