@@ -113,6 +113,8 @@ export default function Home() {
   const lastVoiceAtRef = useRef<number>(0);
   const heardVoiceRef = useRef<boolean>(false);
   const firstVoiceAtRef = useRef<number>(0);
+  const noiseFloorRmsRef = useRef<number>(0);
+  const voiceStreakRef = useRef<number>(0);
 
   const sttInFlightRef = useRef<boolean>(false);
   const lastSentAtRef = useRef<number>(0);
@@ -536,10 +538,11 @@ export default function Home() {
 
     const buf = new Uint8Array(analyser.fftSize);
     // Tune for responsiveness while avoiding cutoffs mid-sentence.
-    const SILENCE_MS = 500;
-    // Slightly more sensitive than before to avoid missing quiet mics.
-    const THRESH = 0.012;
-    const MIN_SPEECH_MS = 650;
+    const SILENCE_MS = 650;
+    const MIN_SPEECH_MS = 550;
+    const FLOOR_MIN = 0.004; // minimum plausible noise floor
+    const THRESH_MIN = 0.007; // minimum detection threshold (quiet mics)
+    const THRESH_MULT = 3.2; // adaptive multiplier over noise floor
 
     const tick = () => {
       if (!listening) return;
@@ -551,10 +554,26 @@ export default function Home() {
       }
       const rms = Math.sqrt(sumSq / buf.length);
       const now = Date.now();
-      if (rms > THRESH) {
-        if (!heardVoiceRef.current) {
-          firstVoiceAtRef.current = now;
-        }
+      // Adaptive thresholding:
+      // Learn a noise floor during the segment and trigger on sustained energy above it.
+      if (!heardVoiceRef.current) {
+        const prev = noiseFloorRmsRef.current || 0;
+        const base = prev > 0 ? prev : Math.max(FLOOR_MIN, rms);
+        // Exponential moving average towards current RMS when we're presumably in "silence".
+        noiseFloorRmsRef.current = base * 0.96 + rms * 0.04;
+      }
+      const floor = Math.max(FLOOR_MIN, noiseFloorRmsRef.current || 0);
+      const thresh = Math.max(THRESH_MIN, floor * THRESH_MULT);
+
+      if (rms > thresh) {
+        voiceStreakRef.current += 1;
+      } else {
+        voiceStreakRef.current = 0;
+      }
+
+      // Require >1 consecutive frames above threshold to reduce false positives.
+      if (voiceStreakRef.current >= 2) {
+        if (!heardVoiceRef.current) firstVoiceAtRef.current = now;
         heardVoiceRef.current = true;
         lastVoiceAtRef.current = now;
       }
@@ -694,6 +713,8 @@ export default function Home() {
     heardVoiceRef.current = false;
     lastVoiceAtRef.current = 0;
     firstVoiceAtRef.current = 0;
+    noiseFloorRmsRef.current = 0;
+    voiceStreakRef.current = 0;
     chunksRef.current = [];
 
     const mime = pickRecorderMime();
@@ -701,6 +722,13 @@ export default function Home() {
     const mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
     mr.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+    };
+    mr.onerror = (e: any) => {
+      logDebug("error", `MediaRecorder error: ${String(e?.error?.name || e?.name || e?.message || e)}`.slice(0, 300));
+      setSttError("Recorder error (see debug log)");
+      try {
+        if (mr.state !== "inactive") mr.stop();
+      } catch {}
     };
     mr.onstop = async () => {
       setListening(false);
@@ -715,12 +743,17 @@ export default function Home() {
         setPerf((p) => ({ ...p, recordMs: Date.now() - recordStartedAtRef.current }));
       }
 
-      // If VAD didn't trip, we used to discard the segment.
-      // In practice, quiet mics often fail VAD; if we captured a non-trivial blob,
-      // still send it to STT rather than dropping user speech.
-      const hasAudio = blob.size >= 8000; // ~0.5s+ typically
-      const shouldStt = heardVoiceRef.current || hasAudio;
+      // Only send to STT when we believe there was speech.
+      // This prevents sending silence/noise segments that often produce empty transcripts.
+      const shouldStt = heardVoiceRef.current;
       if (!shouldStt) {
+        logDebug("info", `No speech detected (blob ${Math.round(blob.size / 1024)} KB) — retrying`);
+        // Quick retry loop to keep hands-free responsive.
+        window.setTimeout(() => {
+          try {
+            void startListeningSegment();
+          } catch {}
+        }, 120);
         return;
       }
       await handleAudioTurn(blob);
@@ -755,7 +788,7 @@ export default function Home() {
           mediaRecorderRef.current.stop();
         }
       } catch {}
-    }, 2500);
+    }, 3500);
   };
 
   useEffect(() => {
