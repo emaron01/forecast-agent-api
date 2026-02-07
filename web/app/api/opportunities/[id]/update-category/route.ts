@@ -375,9 +375,10 @@ async function regenerateRollupText(args: {
   };
 }
 
-export async function POST(req: Request, ctx: { params: { id: string } }) {
+export async function POST(req: Request, { params }: { params: { id: string } | Promise<{ id: string }> }) {
   try {
-    const opportunityId = Number(ctx?.params?.id);
+    const resolvedParams = await Promise.resolve(params as any);
+    const opportunityId = Number.parseInt(String(resolvedParams?.id ?? ""), 10);
     if (!opportunityId) return NextResponse.json({ ok: false, error: "Invalid opportunity id" }, { status: 400 });
 
     const body = await req.json().catch(() => ({}));

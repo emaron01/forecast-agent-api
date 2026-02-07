@@ -39,13 +39,14 @@ function computeHealthPercent(args: { rollupOverallScore?: any; rollupOverallMax
 
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } | Promise<{ id: string }> }
 ) {
   try {
     const url = new URL(req.url);
     const orgId = Number(url.searchParams.get("orgId") || "0");
     if (!orgId) return NextResponse.json({ ok: false, error: "Missing orgId" }, { status: 400 });
-    const idStr = params?.id ?? "";
+    const resolvedParams = await Promise.resolve(params as any);
+    const idStr = resolvedParams?.id ?? "";
     const opportunityId = Number.parseInt(idStr, 10);
     if (!Number.isFinite(opportunityId) || opportunityId <= 0) {
       return NextResponse.json({ ok: false, error: "Invalid opportunity id" }, { status: 400 });
