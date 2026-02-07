@@ -41,13 +41,26 @@ function normalizeCategoryKeyFromLabel(label: string) {
 
 function parseLastCheckFromAssistant(text: string): { categoryKey?: string; checkType?: "strong" | "progress" } {
   const t = String(text || "");
-  const m = t.match(/Last review\s+(.+?)\s+was/i);
+  const m = t.match(/Last review\s+(.+?)\s+was\b/i);
   const rawCat = m?.[1] || "";
   const categoryKey = normalizeCategoryKeyFromLabel(rawCat);
-  const isStrong = /Last review\s+.+?\s+was\s+strong\./i.test(t) && /introduce new risk\?/i.test(t);
-  const isProgress = /Have we made progress since the last review\?/i.test(t);
-  const checkType: "strong" | "progress" | undefined = isStrong ? "strong" : isProgress ? "progress" : undefined;
-  return categoryKey && checkType ? { categoryKey, checkType } : {};
+  if (!categoryKey) return {};
+
+  // Be tolerant: small punctuation/wording differences should not break state tracking.
+  const hasStrongMarker = /Last review\s+.+?\s+was\s+strong\b/i.test(t);
+  const hasChangeQuestion = /has anything changed\b/i.test(t) || /anything changed\b/i.test(t) || /any change\b/i.test(t);
+  const isStrong = hasStrongMarker && hasChangeQuestion;
+
+  const isProgress =
+    /have we\s+made\s+progress\b/i.test(t) ||
+    /made\s+progress\s+since\s+the\s+last\s+review\b/i.test(t) ||
+    /any\s+progress\b/i.test(t) ||
+    (/last review\b/i.test(t) && /progress\b/i.test(t));
+
+  // If we can identify the category in a "Last review ..." pattern but the phrasing varies,
+  // default to treating it as a "progress" style check so that a "no change" reply advances.
+  const checkType: "strong" | "progress" = isStrong ? "strong" : isProgress ? "progress" : "progress";
+  return { categoryKey, checkType };
 }
 
 function isNoChangeReply(userText: string) {
