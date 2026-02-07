@@ -28,6 +28,8 @@ export function useSpeechRecognition(opts: UseSpeechRecognitionOptions = {}) {
   const wantListeningRef = useRef(false);
   const silenceTimerRef = useRef<number | null>(null);
   const lastHeardAtRef = useRef<number>(0);
+  const interimRef = useRef<string>("");
+  const finalRef = useRef<string>("");
 
   const lang = opts.lang || "en-US";
   const autoRestart = opts.autoRestart ?? true;
@@ -40,22 +42,29 @@ export function useSpeechRecognition(opts: UseSpeechRecognitionOptions = {}) {
     }
   };
 
+  const clearTranscript = useCallback(() => {
+    interimRef.current = "";
+    finalRef.current = "";
+    setFinalText("");
+    setInterimText("");
+  }, []);
+
   const armSilenceTimer = useCallback(() => {
     clearSilenceTimer();
     silenceTimerRef.current = window.setTimeout(() => {
       const now = Date.now();
       if (!wantListeningRef.current) return;
       if (!listening) return;
-      if (!finalText.trim()) return;
+      const combined = `${finalRef.current} ${interimRef.current}`.trim();
+      if (!combined) return;
       if (now - (lastHeardAtRef.current || 0) < silenceMs) return;
       try {
-        opts.onUtterance?.(finalText.trim());
+        opts.onUtterance?.(combined);
       } finally {
-        setFinalText("");
-        setInterimText("");
+        clearTranscript();
       }
     }, silenceMs + 50);
-  }, [finalText, listening, opts, silenceMs]);
+  }, [listening, opts, silenceMs]);
 
   const ensureRecognition = useCallback(() => {
     if (!supported || recognitionRef.current) return recognitionRef.current;
@@ -85,11 +94,14 @@ export function useSpeechRecognition(opts: UseSpeechRecognitionOptions = {}) {
         else interim += text;
       }
 
-      if (interim) setInterimText(interim.trim());
+      const nextInterim = interim.trim();
+      interimRef.current = nextInterim;
+      if (nextInterim) setInterimText(nextInterim);
       else setInterimText("");
 
       if (appendedFinal.trim()) {
-        setFinalText((prev) => `${prev} ${appendedFinal}`.trim());
+        finalRef.current = `${finalRef.current} ${appendedFinal}`.trim();
+        setFinalText(finalRef.current);
       }
 
       armSilenceTimer();
@@ -98,6 +110,20 @@ export function useSpeechRecognition(opts: UseSpeechRecognitionOptions = {}) {
     r.onend = () => {
       setListening(false);
       clearSilenceTimer();
+
+      // Some browsers end recognition when the user pauses, without reliably emitting final segments.
+      // If we still have a transcript buffered, treat end as an utterance boundary.
+      if (wantListeningRef.current) {
+        const combined = `${finalRef.current} ${interimRef.current}`.trim();
+        if (combined) {
+          try {
+            opts.onUtterance?.(combined);
+          } finally {
+            clearTranscript();
+          }
+        }
+      }
+
       // Auto-restart is critical for hands-free; browsers end sessions frequently.
       if (wantListeningRef.current && autoRestart) {
         try {
@@ -146,10 +172,9 @@ export function useSpeechRecognition(opts: UseSpeechRecognitionOptions = {}) {
   }, []);
 
   const reset = useCallback(() => {
-    setFinalText("");
-    setInterimText("");
+    clearTranscript();
     setError("");
-  }, []);
+  }, [clearTranscript]);
 
   useEffect(() => {
     return () => {

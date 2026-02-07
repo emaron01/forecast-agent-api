@@ -86,6 +86,7 @@ export default function Home() {
   const speakingRef = useRef(false);
   const lastSpokenAtRef = useRef<number>(0);
   const runRef = useRef<HandsFreeRun | null>(null);
+  const pendingUtteranceRef = useRef<string>("");
 
   const streamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -144,14 +145,37 @@ export default function Home() {
       // Submit only when we are actually waiting for user input.
       if (!voice) return;
       if (!autoStartTalking) return;
+      const t = String(finalText || "").trim();
+      if (!t) return;
+      // If we're busy (agent running / network), queue the utterance so it doesn't get dropped.
+      if (busy) {
+        pendingUtteranceRef.current = t;
+        setAnswer(t);
+        return;
+      }
       if (mode === "FULL_REVIEW") {
         if (!runId || !isWaiting) return;
       } else {
         if (!selectedCategory || !opportunityId.trim()) return;
       }
-      void submitText(finalText);
+      void submitText(t);
     },
   });
+
+  useEffect(() => {
+    // Flush a queued utterance once we're ready.
+    const t = String(pendingUtteranceRef.current || "").trim();
+    if (!t) return;
+    if (busy) return;
+    if (mode === "FULL_REVIEW") {
+      if (!runId || !isWaiting) return;
+    } else {
+      if (!selectedCategory || !opportunityId.trim()) return;
+    }
+    pendingUtteranceRef.current = "";
+    void submitText(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, mode, runId, isWaiting, selectedCategory, opportunityId]);
 
   const submitText = async (raw: string) => {
     const text = String(raw || "").trim();
@@ -631,6 +655,11 @@ export default function Home() {
   useEffect(() => {
     // Hands-free voice (browser SpeechRecognition): auto-start when waiting.
     if (!voice || !speech.supported) {
+      if (speech.listening) speech.stop();
+      return;
+    }
+    // Avoid capturing while network/agent work is in-flight.
+    if (busy) {
       if (speech.listening) speech.stop();
       return;
     }
