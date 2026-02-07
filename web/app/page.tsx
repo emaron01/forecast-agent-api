@@ -71,6 +71,13 @@ export default function Home() {
   const [speak, setSpeak] = useState(true);
   const [voice, setVoice] = useState(true);
   const [submitOnSilenceMs, setSubmitOnSilenceMs] = useState(900);
+  // Mic tuning (for mic+STT hands-free)
+  const [keepMicOpen, setKeepMicOpen] = useState(true);
+  const [micVadSilenceMs, setMicVadSilenceMs] = useState(650);
+  const [micMinSpeechMs, setMicMinSpeechMs] = useState(550);
+  const [micNoSpeechRestartMs, setMicNoSpeechRestartMs] = useState(3500);
+  const [micMaxSegmentMs, setMicMaxSegmentMs] = useState(12000);
+  const [micOpen, setMicOpen] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [ttsError, setTtsError] = useState<string>("");
   const [ttsLastOkAt, setTtsLastOkAt] = useState<number>(0);
@@ -496,6 +503,7 @@ export default function Home() {
     streamRef.current = null;
     setMicBlocked(false);
     setMicError("");
+    setMicOpen(false);
   };
 
   const ensureMic = async () => {
@@ -512,10 +520,12 @@ export default function Home() {
       streamRef.current = stream;
       setMicBlocked(false);
       setMicError("");
+      setMicOpen(true);
       return stream;
     } catch (e: any) {
       setMicBlocked(true);
       setMicError(String(e?.message || e || "Microphone permission error"));
+      setMicOpen(false);
       throw e;
     }
   };
@@ -538,8 +548,8 @@ export default function Home() {
 
     const buf = new Uint8Array(analyser.fftSize);
     // Tune for responsiveness while avoiding cutoffs mid-sentence.
-    const SILENCE_MS = 650;
-    const MIN_SPEECH_MS = 550;
+    const SILENCE_MS = Math.max(200, Number(micVadSilenceMs) || 650);
+    const MIN_SPEECH_MS = Math.max(200, Number(micMinSpeechMs) || 550);
     const FLOOR_MIN = 0.004; // minimum plausible noise floor
     const THRESH_MIN = 0.007; // minimum detection threshold (quiet mics)
     const THRESH_MULT = 3.2; // adaptive multiplier over noise floor
@@ -771,7 +781,7 @@ export default function Home() {
       try {
         if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") mediaRecorderRef.current.stop();
       } catch {}
-    }, 12000);
+    }, Math.max(1500, Number(micMaxSegmentMs) || 12000));
 
     // If we haven't detected any speech quickly, stop and restart (keeps loop snappy).
     window.setTimeout(() => {
@@ -788,7 +798,7 @@ export default function Home() {
           mediaRecorderRef.current.stop();
         }
       } catch {}
-    }, 3500);
+    }, Math.max(800, Number(micNoSpeechRestartMs) || 3500));
   };
 
   useEffect(() => {
@@ -867,6 +877,15 @@ export default function Home() {
   const start = async () => {
     if (!canStart) return;
     if (speak) await unlockAudio();
+    // Open mic on the same user gesture and keep it open for the session.
+    if (voice && useMicSttFallback && keepMicOpen) {
+      try {
+        await ensureMic();
+        logDebug("info", "Mic opened (kept open for session)");
+      } catch {
+        logDebug("warn", "Mic not opened on start (permission or device issue)");
+      }
+    }
     setBusy(true);
     try {
       setPerf({});
@@ -900,6 +919,15 @@ export default function Home() {
   const startFullDealReview = async () => {
     if (busy) return;
     if (speak) await unlockAudio();
+    // Open mic on the same user gesture and keep it open for the session.
+    if (voice && useMicSttFallback && keepMicOpen) {
+      try {
+        await ensureMic();
+        logDebug("info", "Mic opened (kept open for session)");
+      } catch {
+        logDebug("warn", "Mic not opened on start (permission or device issue)");
+      }
+    }
     setBusy(true);
     try {
       const oppId = Number(opportunityId);
@@ -953,6 +981,15 @@ export default function Home() {
     setBusy(true);
     try {
       if (speak) await unlockAudio();
+      // Open mic on the same user gesture and keep it open for the session.
+      if (voice && useMicSttFallback && keepMicOpen) {
+        try {
+          await ensureMic();
+          logDebug("info", "Mic opened (kept open for session)");
+        } catch {
+          logDebug("warn", "Mic not opened on category start (permission or device issue)");
+        }
+      }
       const res = await fetch(`/api/opportunities/${oppId}/update-category`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1117,6 +1154,15 @@ export default function Home() {
           <label className="small">
             <input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} disabled={busy} /> Voice
           </label>
+          <label className="small">
+            <input
+              type="checkbox"
+              checked={keepMicOpen}
+              onChange={(e) => setKeepMicOpen(e.target.checked)}
+              disabled={busy || !voice || !useMicSttFallback}
+            />{" "}
+            Keep mic open
+          </label>
           <label className="small">Silence ms</label>
           <input
             value={String(submitOnSilenceMs)}
@@ -1153,6 +1199,11 @@ export default function Home() {
           <span className="pill">
             Listening: <b>{speech.listening || listening ? "ON" : "OFF"}</b>
           </span>
+          {useMicSttFallback ? (
+            <span className={`pill ${micOpen ? "ok" : micBlocked ? "err" : "warn"}`}>
+              Mic: <b>{micOpen ? "OPEN" : "CLOSED"}</b>
+            </span>
+          ) : null}
         </div>
         <div className="small">
           {run?.error ? `Error: ${run.error}` : isWaiting ? "Waiting for your answer." : isRunning ? "Running…" : "Ready."}
@@ -1396,6 +1447,62 @@ export default function Home() {
                 Send
               </button>
             </div>
+
+            {useMicSttFallback ? (
+              <details style={{ marginTop: 10 }}>
+                <summary className="small">Mic tuning (ms)</summary>
+                <div className="row" style={{ marginTop: 10 }}>
+                  <label className="small">VAD silence</label>
+                  <input
+                    value={String(micVadSilenceMs)}
+                    onChange={(e) => setMicVadSilenceMs(Number(e.target.value || "650") || 650)}
+                    style={{ width: 110 }}
+                    disabled={busy}
+                    inputMode="numeric"
+                  />
+                  <label className="small">Min speech</label>
+                  <input
+                    value={String(micMinSpeechMs)}
+                    onChange={(e) => setMicMinSpeechMs(Number(e.target.value || "550") || 550)}
+                    style={{ width: 110 }}
+                    disabled={busy}
+                    inputMode="numeric"
+                  />
+                  <label className="small">No-speech restart</label>
+                  <input
+                    value={String(micNoSpeechRestartMs)}
+                    onChange={(e) => setMicNoSpeechRestartMs(Number(e.target.value || "3500") || 3500)}
+                    style={{ width: 140 }}
+                    disabled={busy}
+                    inputMode="numeric"
+                  />
+                  <label className="small">Max segment</label>
+                  <input
+                    value={String(micMaxSegmentMs)}
+                    onChange={(e) => setMicMaxSegmentMs(Number(e.target.value || "12000") || 12000)}
+                    style={{ width: 120 }}
+                    disabled={busy}
+                    inputMode="numeric"
+                  />
+                  <button
+                    onClick={async () => {
+                      try {
+                        await ensureMic();
+                        logDebug("info", "Mic opened (manual warm)");
+                      } catch {
+                        logDebug("error", "Mic warm failed");
+                      }
+                    }}
+                    disabled={busy || !voice}
+                  >
+                    Warm mic now
+                  </button>
+                </div>
+                <div className="small" style={{ marginTop: 8 }}>
+                  These apply to mic+STT turn detection (Category Update and Full Deal Review).
+                </div>
+              </details>
+            ) : null}
           </div>
         </div>
 
