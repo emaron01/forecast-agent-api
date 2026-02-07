@@ -707,9 +707,9 @@ CRITICAL RULES:
 - If the rep says "I don't know" or provides weak evidence, still save with a low score (0-1)
 
 HEALTH SCORE (spoken only at end)
-- Health Score is ALWAYS out of 30 and is COMPUTED BY THE SYSTEM from category scores.
-- You must NEVER invent or guess the number. A system message will give you the exact score to say when it is time for the end-of-deal wrap; use that number exactly.
-- Never change the denominator. Never reveal individual category scores.
+- Health Score is ALWAYS SPOKEN AS A PERCENT and is COMPUTED BY THE SYSTEM from category scores (internally 0-30).
+- You must NEVER invent or guess the number. A system message will give you the exact percent to say when it is time for the end-of-deal wrap; use that number exactly.
+- Never reveal individual category scores.
 - If asked how it was calculated: "Your score is based on the completeness and strength of your MEDDPICC answers."
 
 END-OF-DEAL WRAP (spoken + save — BOTH steps required)
@@ -717,7 +717,7 @@ After all required categories for the deal type are reviewed:
 1. Synthesize an Updated Risk Summary and Suggested Next Steps based on everything discussed.
 2. Speak the wrap in this exact order:
    a) "Updated Risk Summary: <your synthesized risk summary>"
-   b) Say: "Your Deal Health Score is X out of 30." (X will be provided in a system message — use it exactly; do not make up a number)
+   b) Say: "Your Deal Health Score is at X percent." (X will be provided in a system message — use it exactly; do not make up a number)
    c) "Suggested Next Steps: <your recommended next steps>"
 3. IMMEDIATELY call save_deal_data with NON-EMPTY text for BOTH:
    - risk_summary: the exact risk summary you just spoke (required; saves the END summary)
@@ -1112,6 +1112,7 @@ function kickModel(reason) {
               if (rows[0]) blockedHealthScore = rows[0].health_score ?? blockedHealthScore;
             } catch (e) {}
             const actualScore = Number.isFinite(Number(blockedHealthScore)) ? Number(blockedHealthScore) : 0;
+            const actualPercent = Math.max(0, Math.min(100, Math.round((actualScore / 30) * 100)));
 
             safeSend(openAiWs, {
               type: "conversation.item.create",
@@ -1125,7 +1126,7 @@ function kickModel(reason) {
                       "STOP. Before advancing, you MUST complete the end-of-deal wrap:\n" +
                       "1) If you already spoke the wrap, do NOT repeat it; just save the same Risk Summary + Next Steps.\n" +
                       "2) Otherwise, speak your synthesized Risk Summary now.\n" +
-                      `3) Say EXACTLY: \"Your Deal Health Score is ${actualScore} out of 30.\"\n` +
+                      `3) Say EXACTLY: \"Your Deal Health Score is at ${actualPercent} percent.\"\n` +
                       "4) Speak your synthesized Next Steps.\n" +
                       "5) Call save_deal_data with risk_summary and next_steps fields.\n" +
                       "6) THEN call advance_deal again.",
@@ -1337,6 +1338,7 @@ function kickModel(reason) {
                 if (rows[0]) forcedHealthScore = rows[0].health_score ?? forcedHealthScore;
               } catch (e) {}
               const actualScore = Number.isFinite(Number(forcedHealthScore)) ? Number(forcedHealthScore) : 0;
+              const actualPercent = Math.max(0, Math.min(100, Math.round((actualScore / 30) * 100)));
 
               safeSend(openAiWs, {
                 type: "conversation.item.create",
@@ -1349,7 +1351,7 @@ function kickModel(reason) {
                       text:
                         "You MUST complete the end-of-deal wrap NOW:\n" +
                         "1) Speak your synthesized Risk Summary.\n" +
-                        `2) Say EXACTLY: \"Your Deal Health Score is ${actualScore} out of 30.\"\n` +
+                        `2) Say EXACTLY: \"Your Deal Health Score is at ${actualPercent} percent.\"\n` +
                         "3) Speak your synthesized Next Steps.\n" +
                         "4) Call save_deal_data with risk_summary and next_steps.\n" +
                         "5) Call advance_deal.",
@@ -1388,6 +1390,7 @@ function kickModel(reason) {
             Number.isFinite(Number(wrapHealthScore)) && wrapHealthScore !== null
               ? Number(wrapHealthScore)
               : 0;
+          const actualHealthPercent = Math.max(0, Math.min(100, Math.round((actualHealthScore / 30) * 100)));
 
           safeSend(openAiWs, {
             type: "conversation.item.create",
@@ -1400,7 +1403,7 @@ function kickModel(reason) {
                   text:
                     "End-of-deal wrap now. You MUST:\n" +
                     "1) SYNTHESIZE an Updated Risk Summary based on everything discussed in this deal review. Speak it aloud.\n" +
-                    `2) Say EXACTLY: \"Your Deal Health Score is ${actualHealthScore} out of 30.\" (do not change this number)\n` +
+                    `2) Say EXACTLY: \"Your Deal Health Score is at ${actualHealthPercent} percent.\" (do not change this number)\n` +
                     "3) SYNTHESIZE Suggested Next Steps based on the gaps and risks identified. Speak them aloud.\n" +
                     "4) THEN call save_deal_data with risk_summary and next_steps fields (do NOT include any score fields).\n" +
                     "5) THEN call advance_deal.\n" +
