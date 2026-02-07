@@ -381,27 +381,51 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     const opportunityId = Number.parseInt(String(resolvedParams?.id ?? ""), 10);
     if (!opportunityId) return NextResponse.json({ ok: false, error: "Invalid opportunity id" }, { status: 400 });
 
-    // Be defensive: some runtimes (or client invocations) can cause req.json() to fail.
-    // Fall back to parsing raw text to avoid "Missing orgId" due to empty body.
-    const body = await (async () => {
+    // Parse body from raw text first (most reliable across runtimes/clients).
+    // NOTE: Request bodies are streams; avoid multiple reads that can yield empty bodies.
+    const raw = await req.text().catch(() => "");
+    let body: any = {};
+    if (raw) {
       try {
-        return await req.json();
+        body = JSON.parse(raw);
+        // If the JSON itself is a quoted JSON string, parse again.
+        if (typeof body === "string" && body.trim().startsWith("{")) body = JSON.parse(body);
       } catch {
-        try {
-          const raw = await req.text();
-          if (!raw) return {};
-          return JSON.parse(raw);
-        } catch {
-          return {};
-        }
+        body = {};
       }
-    })();
-    const orgId = Number(body?.orgId || 0);
+    } else {
+      // Fallback: some Next internals may not provide raw text; try json().
+      body = await req.json().catch(() => ({}));
+    }
+
+    // Keep orgId parsing behavior, but allow query fallback for debugging clients.
+    const url = new URL(req.url);
+    const orgId = Number(body?.orgId || url.searchParams.get("orgId") || 0);
     let sessionId = String(body?.sessionId || "").trim();
     const category = String(body?.category || "").trim() as CategoryKey;
     const text = String(body?.text || "").trim();
 
-    if (!orgId) return NextResponse.json({ ok: false, error: "Missing orgId" }, { status: 400 });
+    if (!orgId) {
+      const debug = process.env.NODE_ENV !== "production";
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Missing orgId",
+          ...(debug
+            ? {
+                debug: {
+                  contentType: req.headers.get("content-type"),
+                  rawLen: raw.length,
+                  rawHead: raw.slice(0, 200),
+                  parsedType: typeof body,
+                  parsedKeys: body && typeof body === "object" ? Object.keys(body).slice(0, 20) : [],
+                },
+              }
+            : {}),
+        },
+        { status: 400 }
+      );
+    }
     if (!category) return NextResponse.json({ ok: false, error: "Missing category" }, { status: 400 });
 
     const catLabel = displayCategory(category);
