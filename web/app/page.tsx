@@ -803,6 +803,13 @@ export default function Home() {
   const wrap = useMemo(() => extractWrap(lastAssistantText), [lastAssistantText]);
 
   const rollup = oppState?.rollup || null;
+  const opp = oppState?.opportunity || null;
+  const accountName = String(opp?.account_name || "").trim();
+  const oppName = String(opp?.opportunity_name || "").trim();
+  const championName = String(opp?.champion_name || "").trim();
+  const championTitle = String(opp?.champion_title || "").trim();
+  const ebName = String(opp?.eb_name || "").trim();
+  const ebTitle = String(opp?.eb_title || "").trim();
   const tileRows = useMemo(() => {
     const fromApi = Array.isArray(oppState?.categories) ? oppState?.categories : [];
     const m = new Map<string, any>();
@@ -914,9 +921,15 @@ export default function Home() {
           <div className="hdr">
             <div>
               <div className="title">
-                Opportunity <span style={{ color: "var(--muted)" }}>#{opportunityId || "—"}</span>
+                {accountName || "Opportunity"}{" "}
+                <span style={{ color: "var(--muted)" }}>#{opportunityId || "—"}</span>
               </div>
               <div className="kv">
+                {oppName ? (
+                  <>
+                    <b>Opp:</b> {oppName} ·{" "}
+                  </>
+                ) : null}
                 <b>Org:</b> {orgId} · <b>Rep:</b> {repName || "—"} · <b>Selected category:</b>{" "}
                 {selectedCategory ? (
                   <span style={{ color: "var(--accent)" }}>
@@ -924,6 +937,26 @@ export default function Home() {
                   </span>
                 ) : (
                   "—"
+                )}
+              </div>
+              <div className="kv" style={{ marginTop: 8 }}>
+                <b>Internal Sponsor:</b>{" "}
+                {championName ? (
+                  <>
+                    {championName}
+                    {championTitle ? <span style={{ color: "var(--muted)" }}>{` · ${championTitle}`}</span> : null}
+                  </>
+                ) : (
+                  <span style={{ color: "var(--muted)" }}>—</span>
+                )}{" "}
+                · <b>Economic Buyer:</b>{" "}
+                {ebName ? (
+                  <>
+                    {ebName}
+                    {ebTitle ? <span style={{ color: "var(--muted)" }}>{` · ${ebTitle}`}</span> : null}
+                  </>
+                ) : (
+                  <span style={{ color: "var(--muted)" }}>—</span>
                 )}
               </div>
             </div>
