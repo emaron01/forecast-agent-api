@@ -26,13 +26,30 @@ function roundInt(n: number) {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
-export async function GET(req: Request, ctx: { params: { id: string } }) {
+function computeHealthPercent(args: { rollupOverallScore?: any; rollupOverallMax?: any; opportunityHealthScore?: any }) {
+  const os = Number(args.rollupOverallScore);
+  const om = Number(args.rollupOverallMax);
+  if (Number.isFinite(os) && Number.isFinite(om) && om > 0) {
+    return roundInt((os / om) * 100);
+  }
+  const hs = Number(args.opportunityHealthScore);
+  if (Number.isFinite(hs)) return roundInt((hs / 30) * 100);
+  return null;
+}
+
+export async function GET(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
   try {
     const url = new URL(req.url);
     const orgId = Number(url.searchParams.get("orgId") || "0");
-    const opportunityId = Number(ctx?.params?.id);
     if (!orgId) return NextResponse.json({ ok: false, error: "Missing orgId" }, { status: 400 });
-    if (!opportunityId) return NextResponse.json({ ok: false, error: "Invalid opportunity id" }, { status: 400 });
+    const idStr = params?.id ?? "";
+    const opportunityId = Number.parseInt(idStr, 10);
+    if (!Number.isFinite(opportunityId) || opportunityId <= 0) {
+      return NextResponse.json({ ok: false, error: "Invalid opportunity id" }, { status: 400 });
+    }
 
     const oppRes = await pool.query(
       `
@@ -44,6 +61,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
       [orgId, opportunityId]
     );
     const opportunity = oppRes.rows?.[0] || null;
+    if (!opportunity) return NextResponse.json({ ok: false, error: "Opportunity not found" }, { status: 404 });
 
     const rollupRes = await pool.query(
       `
@@ -79,8 +97,11 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
       };
     });
 
-    const hs = Number(opportunity?.health_score);
-    const healthPercent = Number.isFinite(hs) ? roundInt((hs / 30) * 100) : null;
+    const healthPercent = computeHealthPercent({
+      rollupOverallScore: rollup?.overall_score,
+      rollupOverallMax: rollup?.overall_max,
+      opportunityHealthScore: opportunity?.health_score,
+    });
 
     return NextResponse.json({
       ok: true,
