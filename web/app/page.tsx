@@ -37,6 +37,7 @@ function b64ToBlob(b64: string, mime: string) {
 export default function Home() {
   const BUILD_TAG = "handsfree-v1";
   const SHOW_SCORES = (process.env.NEXT_PUBLIC_SHOW_SCORES || "1") !== "0";
+  const SHOW_DEBUG = (process.env.NEXT_PUBLIC_DEBUG_LOG || "0") === "1";
 
   const [repName, setRepName] = useState("Erik M");
   const [orgId, setOrgId] = useState("1");
@@ -79,6 +80,7 @@ export default function Home() {
   const [lastTranscript, setLastTranscript] = useState<string>("");
   const [sttLastOkAt, setSttLastOkAt] = useState<number>(0);
   const [perf, setPerf] = useState<{ recordMs?: number; sttMs?: number; agentMs?: number; ttsMs?: number }>({});
+  const [debugEvents, setDebugEvents] = useState<Array<{ at: number; level: "info" | "warn" | "error"; msg: string }>>([]);
   const [listening, setListening] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -87,6 +89,16 @@ export default function Home() {
   const lastSpokenAtRef = useRef<number>(0);
   const runRef = useRef<HandsFreeRun | null>(null);
   const pendingUtteranceRef = useRef<string>("");
+
+  const logDebug = (level: "info" | "warn" | "error", msg: string) => {
+    const m = String(msg || "").trim();
+    if (!m) return;
+    setDebugEvents((prev) => {
+      const next = [...prev, { at: Date.now(), level, msg: m }];
+      // Keep it bounded.
+      return next.length > 200 ? next.slice(-200) : next;
+    });
+  };
 
   const streamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -147,10 +159,12 @@ export default function Home() {
       if (!autoStartTalking) return;
       const t = String(finalText || "").trim();
       if (!t) return;
+      logDebug("info", `Speech utterance (${t.length} chars)`);
       // If we're busy (agent running / network), queue the utterance so it doesn't get dropped.
       if (busy) {
         pendingUtteranceRef.current = t;
         setAnswer(t);
+        logDebug("warn", "Queued speech utterance (busy)");
         return;
       }
       if (mode === "FULL_REVIEW") {
@@ -173,6 +187,7 @@ export default function Home() {
       if (!selectedCategory || !opportunityId.trim()) return;
     }
     pendingUtteranceRef.current = "";
+    logDebug("info", "Flushing queued speech utterance");
     void submitText(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busy, mode, runId, isWaiting, selectedCategory, opportunityId]);
@@ -184,6 +199,7 @@ export default function Home() {
     setBusy(true);
     setAnswer("");
     try {
+      logDebug("info", `Submit (${mode}) "${text.slice(0, 120)}${text.length > 120 ? "…" : ""}"`);
       setPerf((p) => ({ ...p, agentMs: undefined }));
       if (mode === "FULL_REVIEW") {
         if (!runId) throw new Error("No active full-review run");
@@ -222,6 +238,7 @@ export default function Home() {
       }
     } catch (e: any) {
       const msg = String(e?.message || e).slice(0, 500);
+      logDebug("error", `submitText error: ${msg}`);
       if (mode === "FULL_REVIEW") {
         setRun((prev) =>
           prev
@@ -360,6 +377,7 @@ export default function Home() {
         const msg =
           String(tts?.error || rawText || "TTS failed").slice(0, 500);
         setTtsError(`TTS error (${ttsRes.status}): ${msg}`);
+        logDebug("error", `TTS error (${ttsRes.status}): ${msg}`);
         return;
       }
 
@@ -367,6 +385,7 @@ export default function Home() {
       setTtsLastOkAt(Date.now());
     } catch (e: any) {
       setTtsError(`TTS error: ${String(e?.message || e)}`.slice(0, 500));
+      logDebug("error", `TTS exception: ${String(e?.message || e)}`.slice(0, 500));
     } finally {
       // If we're waiting for the user, restart listening even if TTS failed.
       window.setTimeout(() => {
@@ -544,8 +563,15 @@ export default function Home() {
     if (!rafRef.current) rafRef.current = requestAnimationFrame(tick);
   };
 
+  const useMicSttFallback = useMemo(() => {
+    if (!voice) return false;
+    // Use mic+STT when Web Speech isn't available or is erroring (common: permission / gesture issues).
+    if (!speech.supported) return true;
+    if (speech.error) return true;
+    return false;
+  }, [speech.error, speech.supported, voice]);
+
   const handleAudioTurn = async (blob: Blob) => {
-    if (!runId) return;
     if (sttInFlightRef.current) return;
     // Avoid accidental double-sends in quick succession.
     if (Date.now() - lastSentAtRef.current < 300) return;
@@ -554,6 +580,7 @@ export default function Home() {
     setBusy(true);
     try {
       setSttError("");
+      logDebug("info", `Mic segment → STT (${Math.round(blob.size / 1024)} KB)`);
       const sttStart = Date.now();
       const fd = new FormData();
       const ext = extForMime(blob.type || recorderMimeRef.current);
@@ -567,24 +594,55 @@ export default function Home() {
       if (!transcript) {
         // Not fatal: just retry listening (quiet mic / noise suppression).
         setSttError("Empty transcript (retrying…)");
+        logDebug("warn", "STT returned empty transcript");
         return;
       }
       setLastTranscript(transcript);
       setSttLastOkAt(Date.now());
+      logDebug("info", `STT transcript: "${transcript.slice(0, 140)}${transcript.length > 140 ? "…" : ""}"`);
 
       lastSentAtRef.current = Date.now();
-      const agentStart = Date.now();
-      const res = await fetch(`/api/handsfree/${runId}/input`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: transcript }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) throw new Error(`Agent error: ${json?.error || "Input failed"}`);
-      setPerf((p) => ({ ...p, agentMs: Date.now() - agentStart }));
-      setRun(json.run as HandsFreeRun);
+      if (mode === "FULL_REVIEW") {
+        if (!runId) throw new Error("No active full-review run");
+        const agentStart = Date.now();
+        const res = await fetch(`/api/handsfree/${runId}/input`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: transcript }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json?.ok) throw new Error(`Agent error: ${json?.error || "Input failed"}`);
+        setPerf((p) => ({ ...p, agentMs: Date.now() - agentStart }));
+        setRun(json.run as HandsFreeRun);
+      } else {
+        // Category update mic flow: reuse the same API path as typing.
+        const oppId = Number(opportunityId);
+        if (!oppId) throw new Error("Missing opportunity id");
+        if (!selectedCategory) throw new Error("Pick a category first");
+        appendCat("user", transcript);
+        const res = await fetch(`/api/opportunities/${oppId}/update-category`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orgId: Number(orgId),
+            sessionId: catSessionId || undefined,
+            category: selectedCategory,
+            text: transcript,
+          }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json?.ok) throw new Error(json?.error || "Update failed");
+        if (json?.sessionId) setCatSessionId(String(json.sessionId));
+        if (json?.assistantText) {
+          const t = String(json.assistantText);
+          appendCat("assistant", t);
+          await speakAssistant(t);
+        }
+        await loadOpportunityState();
+      }
     } catch (e: any) {
       setSttError(String(e?.message || e).slice(0, 500));
+      logDebug("error", `Mic/STT error: ${String(e?.message || e)}`.slice(0, 500));
     } finally {
       sttInFlightRef.current = false;
       setBusy(false);
@@ -593,8 +651,13 @@ export default function Home() {
 
   const startListeningSegment = async () => {
     if (!voice) return;
-    if (!runId) return;
-    if (!isWaiting) return;
+    if (busy) return;
+    if (mode === "FULL_REVIEW") {
+      if (!runId) return;
+      if (!isWaiting) return;
+    } else {
+      if (!selectedCategory || !opportunityId.trim()) return;
+    }
     if (listening) return;
     // Don't listen while assistant is speaking / audio is playing.
     if (speakingRef.current) return;
@@ -604,6 +667,7 @@ export default function Home() {
     try {
       await ensureMic();
     } catch {
+      logDebug("error", "Mic permission/getUserMedia failed");
       return;
     }
     const stream = streamRef.current;
@@ -648,6 +712,7 @@ export default function Home() {
     mediaRecorderRef.current = mr;
     setListening(true);
     recordStartedAtRef.current = Date.now();
+    logDebug("info", "Mic listening segment started");
     mr.start();
     startVADMonitor();
 
@@ -662,8 +727,12 @@ export default function Home() {
     window.setTimeout(() => {
       try {
         if (!voice) return;
-        const r = runRef.current;
-        if (!r?.runId || r.status !== "WAITING_FOR_USER") return;
+        if (mode === "FULL_REVIEW") {
+          const r = runRef.current;
+          if (!r?.runId || r.status !== "WAITING_FOR_USER") return;
+        } else {
+          if (!selectedCategory) return;
+        }
         if (!mediaRecorderRef.current || mediaRecorderRef.current.state !== "recording") return;
         if (!heardVoiceRef.current) {
           mediaRecorderRef.current.stop();
@@ -673,9 +742,32 @@ export default function Home() {
   };
 
   useEffect(() => {
+    // Mic+STT fallback: automatically listen when Web Speech can't be used.
+    if (!useMicSttFallback) return;
+    if (!autoStartTalking) return;
+    if (!voice) return;
+    if (busy) return;
+    if (mode === "FULL_REVIEW") {
+      if (!runId || !isWaiting) return;
+    } else {
+      if (!selectedCategory || !opportunityId.trim()) return;
+    }
+    if (audioRef.current && !audioRef.current.paused) return;
+    if (speakingRef.current) return;
+    void startListeningSegment();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useMicSttFallback, autoStartTalking, voice, busy, mode, runId, isWaiting, selectedCategory, opportunityId]);
+
+  useEffect(() => {
     // Hands-free voice (browser SpeechRecognition): auto-start when waiting.
     if (!voice || !speech.supported) {
       if (speech.listening) speech.stop();
+      return;
+    }
+    // If Web Speech is erroring, allow mic+STT fallback to handle capture.
+    if (speech.error) {
+      if (speech.listening) speech.stop();
+      logDebug("warn", `SpeechRecognition error: ${speech.error}`);
       return;
     }
     // Avoid capturing while network/agent work is in-flight.
@@ -689,6 +781,7 @@ export default function Home() {
       if (runId && isWaiting) {
         // Don't listen while assistant audio is playing.
         if (audioRef.current && !audioRef.current.paused) return;
+        logDebug("info", "SpeechRecognition start (full review waiting)");
         speech.start();
       } else if (speech.listening) {
         speech.stop();
@@ -697,6 +790,7 @@ export default function Home() {
       // Category update mode: keep listening while the category panel is active.
       if (selectedCategory) {
         if (audioRef.current && !audioRef.current.paused) return;
+        logDebug("info", "SpeechRecognition start (category update active)");
         speech.start();
       } else if (speech.listening) {
         speech.stop();
@@ -1168,6 +1262,54 @@ export default function Home() {
               )}
             </div>
           </details>
+
+          {SHOW_DEBUG ? (
+            <details style={{ marginTop: 12 }}>
+              <summary className="small">Debug log</summary>
+              <div className="chat" style={{ maxHeight: 260 }}>
+                <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+                  <div className="small">
+                    {speech.supported ? "Speech supported" : "Speech not supported"} · Speech listening:{" "}
+                    <b>{speech.listening ? "ON" : "OFF"}</b> · Mic segment listening: <b>{listening ? "ON" : "OFF"}</b>
+                  </div>
+                  <div className="row">
+                    <button
+                      onClick={() => {
+                        const txt = debugEvents
+                          .map((e) => `${new Date(e.at).toISOString()} [${e.level}] ${e.msg}`)
+                          .join("\n");
+                        void navigator.clipboard?.writeText(txt);
+                      }}
+                      disabled={!debugEvents.length}
+                    >
+                      Copy
+                    </button>
+                    <button onClick={() => setDebugEvents([])} disabled={!debugEvents.length}>
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                {debugEvents.length ? (
+                  debugEvents.map((e, i) => (
+                    <div key={`${e.at}-${i}`} className="msg" style={{ marginBottom: 6 }}>
+                      <div className="msgMeta">
+                        <strong className={`role ${e.level === "error" ? "assistant" : e.level === "warn" ? "system" : "user"}`}>
+                          {e.level.toUpperCase()}
+                        </strong>{" "}
+                        · {new Date(e.at).toLocaleTimeString()}
+                      </div>
+                      <div className="msgBody">{e.msg}</div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="small">No debug events yet.</div>
+                )}
+              </div>
+              <div className="small" style={{ marginTop: 8 }}>
+                Enable/disable with <code>NEXT_PUBLIC_DEBUG_LOG=1</code>.
+              </div>
+            </details>
+          ) : null}
 
           <div className="inputCard">
             <div className="row" style={{ justifyContent: "space-between", width: "100%" }}>

@@ -97,6 +97,15 @@ export async function runUntilPauseOrEnd(args: {
           return run;
         }
 
+        // Product guard: the kickoff must always hand the turn to the rep after the first assistant message,
+        // even if the model didn't end with a clean question marker. This prevents "intro + wrap" runs.
+        if (args.kickoff && calls === 1) {
+          run.status = "WAITING_FOR_USER";
+          run.waitingPrompt = assistantText || "Please reply to continue.";
+          run.updatedAt = Date.now();
+          return run;
+        }
+
         // Pause only on a short direct question on the last non-empty line.
         if (shouldPauseForUser(assistantText)) {
           run.status = "WAITING_FOR_USER";
