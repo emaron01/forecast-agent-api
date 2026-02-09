@@ -5,9 +5,10 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { processIngestionBatch, retryFailedStagingRows, stageIngestionRows } from "../../../lib/db";
 import { requireOrgContext } from "../../../lib/auth";
+import { resolvePublicTextId } from "../../../lib/publicId";
 
 const ProcessSchema = z.object({
-  mappingSetId: z.string().regex(/^\d+$/),
+  mapping_set_public_id: z.string().uuid(),
   returnTo: z.string().min(1),
 });
 
@@ -16,18 +17,19 @@ export async function triggerProcessAction(formData: FormData) {
   if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
 
   const parsed = ProcessSchema.parse({
-    mappingSetId: formData.get("mappingSetId"),
+    mapping_set_public_id: formData.get("mapping_set_public_id"),
     returnTo: formData.get("returnTo"),
   });
 
-  await processIngestionBatch({ organizationId: orgId, mappingSetId: parsed.mappingSetId });
+  const mappingSetId = await resolvePublicTextId("field_mapping_sets", parsed.mapping_set_public_id);
+  await processIngestionBatch({ organizationId: orgId, mappingSetId });
   revalidatePath("/admin/ingestion");
   redirect(parsed.returnTo);
 }
 
 const RetrySchema = z.object({
-  mappingSetId: z.string().regex(/^\d+$/),
-  stagingIds: z.string().optional(),
+  mapping_set_public_id: z.string().uuid(),
+  staging_public_ids: z.string().optional(),
   returnTo: z.string().min(1),
 });
 
@@ -36,25 +38,27 @@ export async function retryFailedAction(formData: FormData) {
   if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
 
   const parsed = RetrySchema.parse({
-    mappingSetId: formData.get("mappingSetId"),
-    stagingIds: formData.get("stagingIds") ?? undefined,
+    mapping_set_public_id: formData.get("mapping_set_public_id"),
+    staging_public_ids: formData.get("staging_public_ids") ?? undefined,
     returnTo: formData.get("returnTo"),
   });
 
-  const ids = parsed.stagingIds
-    ? String(parsed.stagingIds)
+  const publicIds = parsed.staging_public_ids
+    ? String(parsed.staging_public_ids)
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean)
     : undefined;
 
-  await retryFailedStagingRows({ organizationId: orgId, mappingSetId: parsed.mappingSetId, stagingIds: ids });
+  const mappingSetId = await resolvePublicTextId("field_mapping_sets", parsed.mapping_set_public_id);
+  const ids = publicIds ? await Promise.all(publicIds.map((pid) => resolvePublicTextId("ingestion_staging", pid))) : undefined;
+  await retryFailedStagingRows({ organizationId: orgId, mappingSetId, stagingIds: ids });
   revalidatePath("/admin/ingestion");
   redirect(parsed.returnTo);
 }
 
 const StageSchema = z.object({
-  mappingSetId: z.string().regex(/^\d+$/),
+  mapping_set_public_id: z.string().uuid(),
   rawJson: z.string().min(1),
   returnTo: z.string().min(1),
 });
@@ -64,7 +68,7 @@ export async function stageJsonRowsAction(formData: FormData) {
   if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
 
   const parsed = StageSchema.parse({
-    mappingSetId: formData.get("mappingSetId"),
+    mapping_set_public_id: formData.get("mapping_set_public_id"),
     rawJson: formData.get("rawJson"),
     returnTo: formData.get("returnTo"),
   });
@@ -77,7 +81,8 @@ export async function stageJsonRowsAction(formData: FormData) {
   }
   if (!Array.isArray(raw) || raw.length === 0) throw new Error("rawJson must be a non-empty JSON array");
 
-  await stageIngestionRows({ organizationId: orgId, mappingSetId: parsed.mappingSetId, rawRows: raw });
+  const mappingSetId = await resolvePublicTextId("field_mapping_sets", parsed.mapping_set_public_id);
+  await stageIngestionRows({ organizationId: orgId, mappingSetId, rawRows: raw });
   revalidatePath("/admin/ingestion");
   redirect(parsed.returnTo);
 }

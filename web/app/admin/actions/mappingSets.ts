@@ -5,9 +5,10 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createFieldMappingSet, deleteFieldMappingSet, updateFieldMappingSet } from "../../../lib/db";
 import { requireOrgContext } from "../../../lib/auth";
+import { resolvePublicTextId } from "../../../lib/publicId";
 
 const Schema = z.object({
-  mappingSetId: z.string().regex(/^\d+$/).optional(),
+  public_id: z.string().uuid().optional(),
   name: z.string().min(1),
   source_system: z.string().optional(),
 });
@@ -21,7 +22,7 @@ export async function createMappingSetAction(formData: FormData) {
   const { ctx, orgId } = await requireOrgContext();
   if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
 
-  const parsed = Schema.omit({ mappingSetId: true }).parse({
+  const parsed = Schema.omit({ public_id: true }).parse({
     name: formData.get("name"),
     source_system: formData.get("source_system"),
   });
@@ -40,15 +41,16 @@ export async function updateMappingSetAction(formData: FormData) {
   const { ctx, orgId } = await requireOrgContext();
   if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
 
-  const parsed = Schema.extend({ mappingSetId: z.string().regex(/^\d+$/) }).parse({
-    mappingSetId: formData.get("mappingSetId"),
+  const parsed = Schema.extend({ public_id: z.string().uuid() }).parse({
+    public_id: formData.get("public_id"),
     name: formData.get("name"),
     source_system: formData.get("source_system"),
   });
 
+  const mappingSetId = await resolvePublicTextId("field_mapping_sets", parsed.public_id);
   await updateFieldMappingSet({
     organizationId: orgId,
-    mappingSetId: parsed.mappingSetId,
+    mappingSetId,
     name: parsed.name,
     source_system: emptyToNull(parsed.source_system),
   });
@@ -63,13 +65,14 @@ export async function deleteMappingSetAction(formData: FormData) {
 
   const parsed = z
     .object({
-      mappingSetId: z.string().regex(/^\d+$/),
+      public_id: z.string().uuid(),
     })
     .parse({
-      mappingSetId: formData.get("mappingSetId"),
+      public_id: formData.get("public_id"),
     });
 
-  await deleteFieldMappingSet({ organizationId: orgId, mappingSetId: parsed.mappingSetId });
+  const mappingSetId = await resolvePublicTextId("field_mapping_sets", parsed.public_id);
+  await deleteFieldMappingSet({ organizationId: orgId, mappingSetId });
   revalidatePath("/admin/mapping-sets");
   redirect(`/admin/mapping-sets`);
 }

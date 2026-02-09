@@ -13,7 +13,13 @@ export default async function DashboardPage() {
 
   if (ctx.user.role === "MANAGER") {
     const reps = (
-      await getVisibleUsers({ currentUserId: ctx.user.id, orgId: ctx.user.org_id, role: "MANAGER" }).catch(() => [])
+      await getVisibleUsers({
+        currentUserId: ctx.user.id,
+        orgId: ctx.user.org_id,
+        role: "MANAGER",
+        hierarchy_level: ctx.user.hierarchy_level,
+        see_all_visibility: ctx.user.see_all_visibility,
+      }).catch(() => [])
     ).filter((u) => u.role === "REP" && u.active);
 
     return (
@@ -53,12 +59,12 @@ export default async function DashboardPage() {
               <tbody>
                 {reps.length ? (
                   reps.map((u) => (
-                    <tr key={u.id} className="border-t border-slate-100">
+                    <tr key={u.public_id} className="border-t border-slate-100">
                       <td className="px-4 py-3">{u.display_name}</td>
                       <td className="px-4 py-3">{u.email}</td>
                       <td className="px-4 py-3">{u.account_owner_name}</td>
                       <td className="px-4 py-3 text-right">
-                        <Link className="text-indigo-700 hover:underline" href={`/dashboard/rep/${encodeURIComponent(String(u.id))}`}>
+                        <Link className="text-indigo-700 hover:underline" href={`/dashboard/rep/${encodeURIComponent(String(u.public_id))}`}>
                           View
                         </Link>
                       </td>
@@ -82,7 +88,7 @@ export default async function DashboardPage() {
   // REP
   const opportunities = await listRecentOpportunitiesForAccountOwner({
     orgId: ctx.user.org_id,
-    accountOwnerName: ctx.user.account_owner_name,
+    accountOwnerName: ctx.user.account_owner_name || "",
     limit: 50,
   }).catch(() => []);
 
@@ -111,7 +117,7 @@ export default async function DashboardPage() {
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-slate-600">
               <tr>
-                <th className="px-4 py-3">id</th>
+                <th className="px-4 py-3">public_id</th>
                 <th className="px-4 py-3">account</th>
                 <th className="px-4 py-3">opportunity</th>
                 <th className="px-4 py-3">amount</th>
@@ -122,8 +128,8 @@ export default async function DashboardPage() {
             <tbody>
               {opportunities.length ? (
                 opportunities.map((o) => (
-                  <tr key={o.id} className="border-t border-slate-100">
-                    <td className="px-4 py-3 font-mono text-xs">{o.id}</td>
+                  <tr key={o.public_id} className="border-t border-slate-100">
+                    <td className="px-4 py-3 font-mono text-xs">{o.public_id}</td>
                     <td className="px-4 py-3">{o.account_name || ""}</td>
                     <td className="px-4 py-3">{o.opportunity_name || ""}</td>
                     <td className="px-4 py-3">{o.amount ?? ""}</td>

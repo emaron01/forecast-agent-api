@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireOrgContext } from "../../../lib/auth";
 import { listFieldMappings, listFieldMappingSets } from "../../../lib/db";
+import { resolvePublicTextId } from "../../../lib/publicId";
 import { uploadExcelOpportunitiesAction } from "../actions/excelOpportunities";
 import { ExcelUploadClient } from "./ExcelUploadClient";
 
@@ -19,7 +20,8 @@ export default async function ExcelOpportunitiesPage({
   const { ctx, orgId } = await requireOrgContext();
   if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
 
-  const mappingSetId = sp(searchParams.mappingSetId) || "";
+  const mappingSetPublicId = sp(searchParams.mappingSetPublicId) || "";
+  const mappingSetId = mappingSetPublicId ? await resolvePublicTextId("field_mapping_sets", mappingSetPublicId).catch(() => "") : "";
 
   const sets = (await listFieldMappingSets({ organizationId: orgId }).catch(() => []))
     .filter((s) => (s.source_system || "").toLowerCase().includes("excel"));
@@ -47,7 +49,7 @@ export default async function ExcelOpportunitiesPage({
 
       <ExcelUploadClient
         mappingSets={sets}
-        prefillSetId={mappingSetId}
+        prefillSetPublicId={mappingSetPublicId}
         prefillMappings={prefillMappings}
         action={uploadExcelOpportunitiesAction}
       />

@@ -9,7 +9,10 @@ export default async function AllUsersPage() {
   const ctx = await requireAuth();
   if (ctx.kind !== "master") redirect("/admin");
 
-  const users = await listAllUsersAcrossOrgs({ includeInactive: true, includeSuspendedOrgs: true }).catch(() => []);
+  const users = await listAllUsersAcrossOrgs({ includeInactive: true, includeSuspendedOrgs: true }).catch(
+    (): Awaited<ReturnType<typeof listAllUsersAcrossOrgs>> => []
+  );
+  const userById = new Map<number, (typeof users)[number]>(users.map((u) => [u.id, u]));
 
   return (
     <main>
@@ -37,7 +40,7 @@ export default async function AllUsersPage() {
               <th className="px-4 py-3">email</th>
               <th className="px-4 py-3">role</th>
               <th className="px-4 py-3">hierarchy</th>
-              <th className="px-4 py-3">mgr_id</th>
+              <th className="px-4 py-3">mgr_public_id</th>
               <th className="px-4 py-3">admin_full_analytics</th>
               <th className="px-4 py-3">user_active</th>
               <th className="px-4 py-3">org_active</th>
@@ -46,16 +49,18 @@ export default async function AllUsersPage() {
           <tbody>
             {users.length ? (
               users.map((u) => (
-                <tr key={u.id} className="border-t border-slate-100">
+                <tr key={u.public_id} className="border-t border-slate-100">
                   <td className="px-4 py-3">
                     <div className="text-slate-900">{u.org_name}</div>
-                    <div className="text-xs text-slate-500">id {u.org_id}</div>
+                    <div className="font-mono text-xs text-slate-500">{u.org_public_id}</div>
                   </td>
                   <td className="px-4 py-3">{u.display_name}</td>
                   <td className="px-4 py-3">{u.email}</td>
                   <td className="px-4 py-3">{u.role}</td>
                   <td className="px-4 py-3">{u.hierarchy_level}</td>
-                  <td className="px-4 py-3">{u.manager_user_id ?? ""}</td>
+                  <td className="px-4 py-3 font-mono text-xs">
+                    {u.manager_user_id != null ? userById.get(u.manager_user_id)?.public_id || "" : ""}
+                  </td>
                   <td className="px-4 py-3">{u.admin_has_full_analytics_access ? "true" : "false"}</td>
                   <td className="px-4 py-3">{u.active ? "true" : "false"}</td>
                   <td className="px-4 py-3">{u.org_active ? "true" : "false"}</td>

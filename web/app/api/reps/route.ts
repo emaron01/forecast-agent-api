@@ -31,7 +31,18 @@ export async function GET(req: Request) {
       .parse(url.searchParams.get("activeOnly") ?? undefined);
 
     const reps = await listReps({ organizationId, activeOnly });
-    return NextResponse.json({ ok: true, reps });
+    const publicReps = (reps || []).map((r: any) => ({
+      public_id: String(r.public_id),
+      rep_name: r.rep_name ?? null,
+      display_name: r.display_name ?? null,
+      crm_owner_id: r.crm_owner_id ?? null,
+      crm_owner_name: r.crm_owner_name ?? null,
+      user_public_id: r.user_public_id ?? null,
+      manager_rep_public_id: r.manager_rep_public_id ?? null,
+      role: r.role ?? null,
+      active: r.active == null ? null : !!r.active,
+    }));
+    return NextResponse.json({ ok: true, reps: publicReps });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 400 });
   }

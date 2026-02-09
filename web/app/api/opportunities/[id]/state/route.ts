@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getOpportunity, listOpportunityAuditEvents } from "../../../../../lib/db";
 import { getAuth } from "../../../../../lib/auth";
 import { pool } from "../../../../../lib/pool";
+import { resolvePublicId } from "../../../../../lib/publicId";
 
 export const runtime = "nodejs";
 
@@ -14,7 +15,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
     const url = new URL(req.url);
     const orgId = auth.kind === "user" ? auth.user.org_id : auth.orgId || 0;
     if (!orgId) return NextResponse.json({ ok: false, error: "Missing org context" }, { status: 400 });
-    const opportunityId = z.coerce.number().int().positive().parse(ctx.params.id);
+    const opportunityId = await resolvePublicId("opportunities", ctx.params.id);
     const limit = z.coerce.number().int().min(1).max(200).catch(50).parse(url.searchParams.get("limit"));
 
     const opportunity = await getOpportunity({ orgId, opportunityId });
@@ -48,7 +49,9 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
     }
 
     const auditEvents = await listOpportunityAuditEvents({ orgId, opportunityId, limit });
-    return NextResponse.json({ ok: true, opportunity, auditEvents });
+    const { id: _id, org_id: _org, rep_id: _repId, ...oppPublic } = opportunity as any;
+    const auditPublic = (auditEvents || []).map(({ id: _aid, org_id: _aorg, opportunity_id: _oppId, actor_rep_id: _ar, ...e }: any) => e);
+    return NextResponse.json({ ok: true, opportunity: oppPublic, auditEvents: auditPublic });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 400 });
   }

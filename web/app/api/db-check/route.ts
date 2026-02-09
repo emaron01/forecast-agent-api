@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { pool } from "../../../lib/pool";
 import { getAuth } from "../../../lib/auth";
+import { getOrganization } from "../../../lib/db";
+import { resolvePublicId } from "../../../lib/publicId";
 
 export const runtime = "nodejs";
 
@@ -31,8 +33,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 
+  const orgPublicIdParam = String(url.searchParams.get("orgPublicId") || "").trim();
   const orgId =
-    auth.kind === "user" ? auth.user.org_id : auth.orgId || Number(url.searchParams.get("orgId") || "0");
+    auth.kind === "user"
+      ? auth.user.org_id
+      : orgPublicIdParam
+        ? await resolvePublicId("organizations", orgPublicIdParam)
+        : auth.orgId || 0;
 
   try {
     if (!process.env.DATABASE_URL) {
@@ -64,11 +71,12 @@ export async function GET(req: Request) {
       counts.opportunity_audit_events = Number(audits.rows?.[0]?.n ?? 0);
     }
 
+    const org = orgId ? await getOrganization({ id: orgId }).catch(() => null) : null;
     return NextResponse.json({
       ok: true,
       dbHost: dbEnv.host || null,
       dbNow: String(nowRes.rows?.[0]?.now || ""),
-      orgId: orgId || null,
+      org_public_id: org?.public_id || null,
       functions: functionChecks.rows?.[0] || null,
       counts: orgId ? counts : null,
       ms: Date.now() - t0,
@@ -79,7 +87,7 @@ export async function GET(req: Request) {
       {
         ok: false,
         error: String(e?.message || e),
-        orgId: orgId || null,
+        org_public_id: null,
         dbHost: dbEnv.host || null,
       },
       { status: 500 }

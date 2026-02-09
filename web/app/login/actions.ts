@@ -45,11 +45,17 @@ export async function loginAction(formData: FormData) {
 
     // Master admin override (outside orgs/users table)
     if (isMasterAdminEmail(email)) {
+      const masterPlain = String(process.env.MASTER_ADMIN_PASSWORD || "").trim();
       const masterHash = String(process.env.MASTER_ADMIN_PASSWORD_HASH || "").trim();
-      if (!masterHash) redirectError("master_misconfigured");
-      if (!looksLikeBcryptHash(masterHash)) redirectError("master_bad_hash");
 
-      const ok = await verifyPassword(password, masterHash);
+      let ok = false;
+      if (masterPlain) {
+        ok = password === masterPlain;
+      } else {
+        if (!masterHash) redirectError("master_misconfigured");
+        if (!looksLikeBcryptHash(masterHash)) redirectError("master_bad_hash");
+        ok = await verifyPassword(password, masterHash);
+      }
       if (!ok) redirectError("invalid_password");
 
       // Prefer master session (clear user session if present)

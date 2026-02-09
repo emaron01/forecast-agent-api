@@ -7,15 +7,16 @@ import { requireAuth } from "../../../lib/auth";
 import { randomToken, sha256Hex } from "../../../lib/auth";
 import { hashPassword } from "../../../lib/password";
 import { createOrganization, createOrganizationWithFirstAdmin, deleteOrganization, updateOrganization } from "../../../lib/db";
+import { resolvePublicId } from "../../../lib/publicId";
 
 const UpsertSchema = z.object({
-  id: z.coerce.number().int().positive().optional(),
+  public_id: z.string().uuid().optional(),
   name: z.string().min(1),
   active: z
     .enum(["true", "false"])
     .optional()
     .transform((v) => (v === "false" ? false : true)),
-  parent_org_id: z.coerce.number().int().positive().optional(),
+  parent_org_public_id: z.string().uuid().optional(),
   billing_plan: z.string().optional(),
   hq_address_line1: z.string().optional(),
   hq_address_line2: z.string().optional(),
@@ -34,10 +35,10 @@ export async function createOrganizationAction(formData: FormData) {
   const ctx = await requireAuth();
   if (ctx.kind !== "master") redirect("/admin");
 
-  const parsed = UpsertSchema.omit({ id: true }).parse({
+  const parsed = UpsertSchema.omit({ public_id: true }).parse({
     name: formData.get("name"),
     active: formData.get("active") || undefined,
-    parent_org_id: formData.get("parent_org_id") || undefined,
+    parent_org_public_id: formData.get("parent_org_public_id") || undefined,
     billing_plan: formData.get("billing_plan") || undefined,
     hq_address_line1: formData.get("hq_address_line1") || undefined,
     hq_address_line2: formData.get("hq_address_line2") || undefined,
@@ -47,10 +48,11 @@ export async function createOrganizationAction(formData: FormData) {
     hq_country: formData.get("hq_country") || undefined,
   });
 
+  const parent_org_id = parsed.parent_org_public_id ? await resolvePublicId("organizations", parsed.parent_org_public_id) : null;
   await createOrganization({
     name: parsed.name,
     active: parsed.active ?? true,
-    parent_org_id: parsed.parent_org_id ?? null,
+    parent_org_id,
     billing_plan: norm(parsed.billing_plan),
     hq_address_line1: norm(parsed.hq_address_line1),
     hq_address_line2: norm(parsed.hq_address_line2),
@@ -63,7 +65,7 @@ export async function createOrganizationAction(formData: FormData) {
   redirect("/admin/organizations");
 }
 
-const CreateWithAdminSchema = UpsertSchema.omit({ id: true }).extend({
+const CreateWithAdminSchema = UpsertSchema.omit({ public_id: true }).extend({
   admin_email: z.string().min(1),
   admin_password: z.string().optional(),
   admin_first_name: z.string().min(1),
@@ -86,7 +88,7 @@ export async function createOrganizationWithFirstAdminAction(formData: FormData)
   const parsed = CreateWithAdminSchema.parse({
     name: formData.get("name"),
     active: formData.get("active") || undefined,
-    parent_org_id: formData.get("parent_org_id") || undefined,
+    parent_org_public_id: formData.get("parent_org_public_id") || undefined,
     billing_plan: formData.get("billing_plan") || undefined,
     hq_address_line1: formData.get("hq_address_line1") || undefined,
     hq_address_line2: formData.get("hq_address_line2") || undefined,
@@ -117,11 +119,12 @@ export async function createOrganizationWithFirstAdminAction(formData: FormData)
       ? { token: randomToken(), expires_at: new Date(Date.now() + 60 * 60 * 1000) } // 1 hour
       : null;
 
+  const parent_org_id = parsed.parent_org_public_id ? await resolvePublicId("organizations", parsed.parent_org_public_id) : null;
   const created = await createOrganizationWithFirstAdmin({
     organization: {
       name: parsed.name,
       active: parsed.active ?? true,
-      parent_org_id: parsed.parent_org_id ?? null,
+      parent_org_id,
       billing_plan: norm(parsed.billing_plan),
       hq_address_line1: norm(parsed.hq_address_line1),
       hq_address_line2: norm(parsed.hq_address_line2),
@@ -146,7 +149,7 @@ export async function createOrganizationWithFirstAdminAction(formData: FormData)
   revalidatePath("/admin/organizations");
 
   const params = new URLSearchParams();
-  params.set("createdOrgId", String(created.org.id));
+  params.set("createdOrgPublicId", String(created.org.public_id));
   params.set("createdAdminEmail", created.user.email);
   if (inviteReset) {
     if (process.env.NODE_ENV !== "production") {
@@ -163,11 +166,11 @@ export async function updateOrganizationAction(formData: FormData) {
   const ctx = await requireAuth();
   if (ctx.kind !== "master") redirect("/admin");
 
-  const parsed = UpsertSchema.extend({ id: z.coerce.number().int().positive() }).parse({
-    id: formData.get("id"),
+  const parsed = UpsertSchema.extend({ public_id: z.string().uuid() }).parse({
+    public_id: formData.get("public_id"),
     name: formData.get("name"),
     active: formData.get("active") || undefined,
-    parent_org_id: formData.get("parent_org_id") || undefined,
+    parent_org_public_id: formData.get("parent_org_public_id") || undefined,
     billing_plan: formData.get("billing_plan") || undefined,
     hq_address_line1: formData.get("hq_address_line1") || undefined,
     hq_address_line2: formData.get("hq_address_line2") || undefined,
@@ -177,11 +180,13 @@ export async function updateOrganizationAction(formData: FormData) {
     hq_country: formData.get("hq_country") || undefined,
   });
 
+  const id = await resolvePublicId("organizations", parsed.public_id);
+  const parent_org_id = parsed.parent_org_public_id ? await resolvePublicId("organizations", parsed.parent_org_public_id) : null;
   await updateOrganization({
-    id: parsed.id,
+    id,
     name: parsed.name,
     active: parsed.active ?? true,
-    parent_org_id: parsed.parent_org_id ?? null,
+    parent_org_id,
     billing_plan: norm(parsed.billing_plan),
     hq_address_line1: norm(parsed.hq_address_line1),
     hq_address_line2: norm(parsed.hq_address_line2),
@@ -198,11 +203,10 @@ export async function deleteOrganizationAction(formData: FormData) {
   const ctx = await requireAuth();
   if (ctx.kind !== "master") redirect("/admin");
 
-  const parsed = z
-    .object({ id: z.coerce.number().int().positive() })
-    .parse({ id: formData.get("id") });
+  const parsed = z.object({ public_id: z.string().uuid() }).parse({ public_id: formData.get("public_id") });
 
-  await deleteOrganization({ id: parsed.id });
+  const id = await resolvePublicId("organizations", parsed.public_id);
+  await deleteOrganization({ id });
   revalidatePath("/admin/organizations");
   redirect("/admin/organizations");
 }

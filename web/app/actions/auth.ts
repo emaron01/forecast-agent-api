@@ -10,6 +10,7 @@ import {
   sha256Hex,
 } from "../../lib/auth";
 import { revokeSessionByTokenHash } from "../../lib/db";
+import { resolvePublicId } from "../../lib/publicId";
 
 export async function logoutAction() {
   const ctx = await getAuth();
@@ -26,7 +27,7 @@ export async function logoutAction() {
 }
 
 const MasterOrgSchema = z.object({
-  orgId: z.coerce.number().int().positive().nullable(),
+  org_public_id: z.string().uuid().nullable(),
   returnTo: z.string().min(1),
 });
 
@@ -34,14 +35,15 @@ export async function setMasterOrgAction(formData: FormData) {
   const ctx = await getAuth();
   if (!ctx || ctx.kind !== "master") redirect("/login");
 
-  const rawOrg = formData.get("orgId");
-  const orgId = rawOrg == null || String(rawOrg) === "" ? null : Number(rawOrg);
+  const raw = String(formData.get("org_public_id") || "").trim();
+  const org_public_id = raw ? raw : null;
   const parsed = MasterOrgSchema.parse({
-    orgId: orgId && Number.isFinite(orgId) && orgId > 0 ? orgId : null,
+    org_public_id,
     returnTo: formData.get("returnTo"),
   });
 
-  setMasterOrgCookie(parsed.orgId);
+  const orgId = parsed.org_public_id ? await resolvePublicId("organizations", parsed.org_public_id) : null;
+  setMasterOrgCookie(orgId);
   redirect(parsed.returnTo);
 }
 

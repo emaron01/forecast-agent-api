@@ -2,10 +2,23 @@ import { z } from "zod";
 import { pool } from "./pool";
 import type { PoolClient } from "pg";
 
+/**
+ * DB contract + helpers (INTERNAL).
+ *
+ * This module is allowed to use internal DB keys (`id`, `org_id`, `user_id`, etc.) because it speaks directly to Postgres.
+ *
+ * IMPORTANT:
+ * - External surfaces (API routes, server actions, UI routing) must use UUID `public_id` only.
+ * - Resolve public UUIDs at the boundary using `resolvePublicId()` / `resolvePublicTextId()`, then call these helpers with internal ids.
+ *
+ * See `docs/ID_POLICY.md`.
+ */
+
 // -----------------------------
 // Zod helpers (inputs)
 // -----------------------------
 
+// Internal DB key validators (do NOT use these for API input validation).
 export const zOrganizationId = z.coerce.number().int().positive();
 export const zOpportunityId = z.coerce.number().int().positive();
 // mapping_set_id is BIGINT; we accept number-like strings to avoid JS bigint pitfalls.
@@ -19,12 +32,15 @@ export const zJsonObject = z.record(z.string(), z.unknown());
 
 export type RepRow = {
   id: number;
+  public_id: string;
   rep_name: string;
   display_name: string | null;
   crm_owner_id: string | null;
   crm_owner_name: string | null;
   user_id: number | null;
+  user_public_id?: string | null;
   manager_rep_id: number | null;
+  manager_rep_public_id?: string | null;
   role: string | null;
   active: boolean | null;
   organization_id: number;
@@ -32,6 +48,7 @@ export type RepRow = {
 
 export type OpportunityRow = {
   id: number;
+  public_id: string;
   org_id: number;
   rep_id: number | null;
   rep_name: string | null;
@@ -45,6 +62,7 @@ export type OpportunityRow = {
 
 export type OpportunityAuditEventRow = {
   id: number;
+  public_id: string;
   org_id: number;
   opportunity_id: number;
   actor_rep_id: number | null;
@@ -60,6 +78,7 @@ export type OpportunityAuditEventRow = {
 
 export type FieldMappingSetRow = {
   id: string; // BIGINT as text
+  public_id: string;
   organization_id: number;
   name: string;
   source_system: string | null;
@@ -67,6 +86,7 @@ export type FieldMappingSetRow = {
 
 export type FieldMappingRow = {
   id: string; // BIGINT as text
+  public_id: string;
   mapping_set_id: string; // BIGINT as text
   source_field: string;
   target_field: string;
@@ -74,6 +94,7 @@ export type FieldMappingRow = {
 
 export type IngestionStagingRow = {
   id: string; // BIGINT as text (safe)
+  public_id: string;
   organization_id: number;
   mapping_set_id: string; // BIGINT as text
   raw_row: unknown;
@@ -84,12 +105,12 @@ export type IngestionStagingRow = {
 
 export type IngestionBatchSummaryRow = {
   organization_id: number;
-  mapping_set_id: string;
+  mapping_set_public_id: string;
   total: number;
   pending: number;
   processed: number;
   error: number;
-  last_id: string | null;
+  last_public_id: string | null;
 };
 
 // -----------------------------
@@ -116,20 +137,25 @@ export async function listReps(args: { organizationId: number; activeOnly?: bool
   const { rows } = await pool.query(
     `
     SELECT
-      id,
-      rep_name,
-      display_name,
-      crm_owner_id,
-      crm_owner_name,
-      user_id,
-      manager_rep_id,
-      role,
-      active,
-      organization_id
-    FROM reps
-    WHERE organization_id = $1
-      AND ($2::bool IS FALSE OR active IS TRUE)
-    ORDER BY rep_name ASC, id ASC
+      r.id,
+      r.public_id::text AS public_id,
+      r.rep_name,
+      r.display_name,
+      r.crm_owner_id,
+      r.crm_owner_name,
+      r.user_id,
+      u.public_id::text AS user_public_id,
+      r.manager_rep_id,
+      mgr.public_id::text AS manager_rep_public_id,
+      r.role,
+      r.active,
+      r.organization_id
+    FROM reps r
+    LEFT JOIN users u ON u.id = r.user_id
+    LEFT JOIN reps mgr ON mgr.id = r.manager_rep_id
+    WHERE r.organization_id = $1
+      AND ($2::bool IS FALSE OR r.active IS TRUE)
+    ORDER BY r.rep_name ASC, r.id ASC
     `,
     [organizationId, activeOnly]
   );
@@ -143,19 +169,24 @@ export async function getRep(args: { organizationId: number; repId: number }) {
   const { rows } = await pool.query(
     `
     SELECT
-      id,
-      rep_name,
-      display_name,
-      crm_owner_id,
-      crm_owner_name,
-      user_id,
-      manager_rep_id,
-      role,
-      active,
-      organization_id
-    FROM reps
-    WHERE organization_id = $1
-      AND id = $2
+      r.id,
+      r.public_id::text AS public_id,
+      r.rep_name,
+      r.display_name,
+      r.crm_owner_id,
+      r.crm_owner_name,
+      r.user_id,
+      u.public_id::text AS user_public_id,
+      r.manager_rep_id,
+      mgr.public_id::text AS manager_rep_public_id,
+      r.role,
+      r.active,
+      r.organization_id
+    FROM reps r
+    LEFT JOIN users u ON u.id = r.user_id
+    LEFT JOIN reps mgr ON mgr.id = r.manager_rep_id
+    WHERE r.organization_id = $1
+      AND r.id = $2
     LIMIT 1
     `,
     [organizationId, repId]
@@ -198,6 +229,7 @@ export async function searchOpportunities(args: {
     `
     SELECT
       id,
+      public_id::text AS public_id,
       org_id,
       rep_id,
       rep_name,
@@ -226,6 +258,7 @@ export async function getOpportunity(args: { orgId: number; opportunityId: numbe
     `
     SELECT
       id,
+      public_id::text AS public_id,
       org_id,
       rep_id,
       rep_name,
@@ -254,6 +287,7 @@ export async function listOpportunityAuditEvents(args: { orgId: number; opportun
     `
     SELECT
       id,
+      public_id::text AS public_id,
       org_id,
       opportunity_id,
       actor_rep_id,
@@ -282,6 +316,7 @@ export async function listFieldMappingSets(args: { organizationId: number }) {
     `
     SELECT
       id::text AS id,
+      public_id::text AS public_id,
       organization_id,
       name,
       source_system
@@ -301,6 +336,7 @@ export async function getFieldMappingSet(args: { organizationId: number; mapping
     `
     SELECT
       id::text AS id,
+      public_id::text AS public_id,
       organization_id,
       name,
       source_system
@@ -320,6 +356,7 @@ export async function listFieldMappings(args: { mappingSetId: string }) {
     `
     SELECT
       id::text AS id,
+      public_id::text AS public_id,
       mapping_set_id::text AS mapping_set_id,
       source_field,
       target_field
@@ -387,6 +424,7 @@ export async function listIngestionStaging(args: {
       `
       SELECT
         id::text AS id,
+        public_id::text AS public_id,
         organization_id,
         mapping_set_id::text AS mapping_set_id,
         raw_row,
@@ -408,6 +446,7 @@ export async function listIngestionStaging(args: {
     `
     SELECT
       id::text AS id,
+      public_id::text AS public_id,
       organization_id,
       mapping_set_id::text AS mapping_set_id,
       raw_row,
@@ -449,6 +488,7 @@ export async function listIngestionStagingByFilter(args: {
     `
     SELECT
       id::text AS id,
+      public_id::text AS public_id,
       organization_id,
       mapping_set_id::text AS mapping_set_id,
       raw_row,
@@ -469,18 +509,31 @@ export async function listIngestionBatchSummaries(args: { organizationId: number
   const organizationId = zOrganizationId.parse(args.organizationId);
   const { rows } = await pool.query(
     `
+    WITH agg AS (
+      SELECT
+        organization_id,
+        mapping_set_id,
+        COUNT(*)::int AS total,
+        SUM(CASE WHEN normalized_row IS NULL AND error_message IS NULL THEN 1 ELSE 0 END)::int AS pending,
+        SUM(CASE WHEN normalized_row IS NOT NULL AND error_message IS NULL THEN 1 ELSE 0 END)::int AS processed,
+        SUM(CASE WHEN error_message IS NOT NULL THEN 1 ELSE 0 END)::int AS error,
+        MAX(id) AS last_id
+      FROM ingestion_staging
+      WHERE organization_id = $1
+      GROUP BY organization_id, mapping_set_id
+    )
     SELECT
-      organization_id,
-      mapping_set_id::text AS mapping_set_id,
-      COUNT(*)::int AS total,
-      SUM(CASE WHEN normalized_row IS NULL AND error_message IS NULL THEN 1 ELSE 0 END)::int AS pending,
-      SUM(CASE WHEN normalized_row IS NOT NULL AND error_message IS NULL THEN 1 ELSE 0 END)::int AS processed,
-      SUM(CASE WHEN error_message IS NOT NULL THEN 1 ELSE 0 END)::int AS error,
-      MAX(id)::text AS last_id
-    FROM ingestion_staging
-    WHERE organization_id = $1
-    GROUP BY organization_id, mapping_set_id
-    ORDER BY MAX(id) DESC
+      a.organization_id,
+      fms.public_id::text AS mapping_set_public_id,
+      a.total,
+      a.pending,
+      a.processed,
+      a.error,
+      last_row.public_id::text AS last_public_id
+    FROM agg a
+    JOIN field_mapping_sets fms ON fms.id = a.mapping_set_id
+    LEFT JOIN ingestion_staging last_row ON last_row.id = a.last_id
+    ORDER BY a.last_id DESC NULLS LAST
     `,
     [organizationId]
   );
@@ -514,6 +567,7 @@ export async function createRep(args: {
       ($1,$2,$3,$4,$5,$6,$7,$8,$9)
     RETURNING
       id,
+      public_id::text AS public_id,
       rep_name,
       display_name,
       crm_owner_id,
@@ -571,6 +625,7 @@ export async function updateRep(args: {
        AND id = $2
     RETURNING
       id,
+      public_id::text AS public_id,
       rep_name,
       display_name,
       crm_owner_id,
@@ -616,7 +671,7 @@ export async function createFieldMappingSet(args: {
     `
     INSERT INTO field_mapping_sets (organization_id, name, source_system)
     VALUES ($1, $2, $3)
-    RETURNING id::text AS id, organization_id, name, source_system
+    RETURNING id::text AS id, public_id::text AS public_id, organization_id, name, source_system
     `,
     [organizationId, name, args.source_system ?? null]
   );
@@ -641,7 +696,7 @@ export async function updateFieldMappingSet(args: {
            source_system = $4
      WHERE organization_id = $1
        AND id = $2::bigint
-    RETURNING id::text AS id, organization_id, name, source_system
+    RETURNING id::text AS id, public_id::text AS public_id, organization_id, name, source_system
     `,
     [organizationId, mappingSetId, name, args.source_system ?? null]
   );
@@ -669,7 +724,7 @@ export async function createFieldMapping(args: { mappingSetId: string; source_fi
     `
     INSERT INTO field_mappings (mapping_set_id, source_field, target_field)
     VALUES ($1::bigint, $2, $3)
-    RETURNING id::text AS id, mapping_set_id::text AS mapping_set_id, source_field, target_field
+    RETURNING id::text AS id, public_id::text AS public_id, mapping_set_id::text AS mapping_set_id, source_field, target_field
     `,
     [mappingSetId, source_field, target_field]
   );
@@ -696,7 +751,7 @@ export async function updateFieldMapping(args: {
            target_field = $4
      WHERE id = $1::bigint
        AND mapping_set_id = $2::bigint
-    RETURNING id::text AS id, mapping_set_id::text AS mapping_set_id, source_field, target_field
+    RETURNING id::text AS id, public_id::text AS public_id, mapping_set_id::text AS mapping_set_id, source_field, target_field
     `,
     [mappingId, mappingSetId, source_field, target_field]
   );
@@ -809,10 +864,11 @@ export async function retryFailedStagingRows(args: {
 // -----------------------------
 
 export const zUserId = z.coerce.number().int().positive();
-export const zUserRole = z.enum(["ADMIN", "MANAGER", "REP"]);
+export const zUserRole = z.enum(["ADMIN", "EXEC_MANAGER", "MANAGER", "REP"]);
 
 export type OrganizationRow = {
   id: number;
+  public_id: string;
   name: string;
   active: boolean;
   parent_org_id: number | null;
@@ -829,17 +885,19 @@ export type OrganizationRow = {
 
 export type UserRow = {
   id: number;
+  public_id: string;
   org_id: number;
   email: string;
   password_hash: string;
-  role: "ADMIN" | "MANAGER" | "REP";
+  role: "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP";
   hierarchy_level: number;
   first_name: string | null;
   last_name: string | null;
   display_name: string;
-  account_owner_name: string;
+  account_owner_name: string | null;
   manager_user_id: number | null;
   admin_has_full_analytics_access: boolean;
+  see_all_visibility: boolean;
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -876,6 +934,7 @@ export type EmailTemplateRow = {
 };
 
 export type UserWithOrgRow = UserPublicRow & {
+  org_public_id: string;
   org_name: string;
   org_active: boolean;
 };
@@ -886,6 +945,7 @@ export async function listOrganizations(args?: { activeOnly?: boolean }) {
     `
     SELECT
       id,
+      public_id::text AS public_id,
       name,
       active,
       parent_org_id,
@@ -914,6 +974,7 @@ export async function listAllUsersAcrossOrgs(args?: { includeInactive?: boolean;
     `
     SELECT
       u.id,
+      u.public_id::text AS public_id,
       u.org_id,
       u.email,
       u.role,
@@ -924,9 +985,11 @@ export async function listAllUsersAcrossOrgs(args?: { includeInactive?: boolean;
       u.account_owner_name,
       u.manager_user_id,
       u.admin_has_full_analytics_access,
+      u.see_all_visibility,
       u.active,
       u.created_at,
       u.updated_at,
+      o.public_id::text AS org_public_id,
       o.name AS org_name,
       o.active AS org_active
     FROM users u
@@ -946,6 +1009,7 @@ export async function getOrganization(args: { id: number }) {
     `
     SELECT
       id,
+      public_id::text AS public_id,
       name,
       active,
       parent_org_id,
@@ -1001,6 +1065,7 @@ export async function createOrganization(args: {
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
     RETURNING
       id,
+      public_id::text AS public_id,
       name,
       active,
       parent_org_id,
@@ -1098,6 +1163,7 @@ export async function createOrganizationWithFirstAdmin(args: {
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
         RETURNING
           id,
+          public_id::text AS public_id,
           name,
           active,
           parent_org_id,
@@ -1149,6 +1215,7 @@ export async function createOrganizationWithFirstAdmin(args: {
           ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
         RETURNING
           id,
+          public_id::text AS public_id,
           org_id,
           email,
           password_hash,
@@ -1160,6 +1227,7 @@ export async function createOrganizationWithFirstAdmin(args: {
           account_owner_name,
           manager_user_id,
           admin_has_full_analytics_access,
+          see_all_visibility,
           active,
           created_at,
           updated_at
@@ -1236,6 +1304,7 @@ export async function updateOrganization(args: {
      WHERE id = $1
     RETURNING
       id,
+      public_id::text AS public_id,
       name,
       active,
       parent_org_id,
@@ -1279,6 +1348,7 @@ export async function listUsers(args: { orgId: number; includeInactive?: boolean
     `
     SELECT
       id,
+      public_id::text AS public_id,
       org_id,
       email,
       role,
@@ -1289,6 +1359,7 @@ export async function listUsers(args: { orgId: number; includeInactive?: boolean
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
+      see_all_visibility,
       active,
       created_at,
       updated_at
@@ -1325,13 +1396,15 @@ export async function listOrganizationDescendantIds(args: { orgId: number }) {
 export async function getVisibleUsers(args: {
   currentUserId: number;
   orgId: number;
-  role: "ADMIN" | "MANAGER" | "REP";
-  admin_has_full_analytics_access?: boolean;
+  role: "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP";
+  hierarchy_level?: number;
+  see_all_visibility?: boolean;
 }) {
   const currentUserId = zUserId.parse(args.currentUserId);
   const orgId = zOrganizationId.parse(args.orgId);
   const role = zUserRole.parse(args.role);
-  const adminHasAll = role === "ADMIN" && !!args.admin_has_full_analytics_access;
+  const hierarchy_level = Number.isFinite(Number(args.hierarchy_level)) ? Number(args.hierarchy_level) : null;
+  const seeAll = !!args.see_all_visibility;
 
   // REP: only themselves.
   if (role === "REP") {
@@ -1339,13 +1412,13 @@ export async function getVisibleUsers(args: {
     return u ? ([u] as UserPublicRow[]) : ([] as UserPublicRow[]);
   }
 
-  // ADMIN with full access: all users in org + child orgs.
-  if (adminHasAll) {
-    const orgIds = await listOrganizationDescendantIds({ orgId });
+  // ADMIN: always sees all (in-org).
+  if (role === "ADMIN") {
     const { rows } = await pool.query(
       `
       SELECT
         id,
+        public_id::text AS public_id,
         org_id,
         email,
         role,
@@ -1356,37 +1429,69 @@ export async function getVisibleUsers(args: {
         account_owner_name,
         manager_user_id,
         admin_has_full_analytics_access,
+        see_all_visibility,
         active,
         created_at,
         updated_at
       FROM users
-      WHERE org_id = ANY($1::int[])
+      WHERE org_id = $1
         AND active IS TRUE
-      ORDER BY org_id ASC, role ASC, hierarchy_level DESC, display_name ASC, id ASC
+      ORDER BY hierarchy_level ASC, role ASC, display_name ASC, id ASC
       `,
-      [orgIds.length ? orgIds : [orgId]]
+      [orgId]
     );
     return rows as UserPublicRow[];
   }
 
-  // MANAGER (and ADMIN without full): everyone below them in the manager chain (same org), plus themselves.
+  // EXEC_MANAGER / MANAGER:
+  // - If see_all_visibility=true, see all users at same or lower hierarchy (downward visibility).
+  // - Else, use explicit edges in manager_visibility (recursive).
+  if (seeAll && hierarchy_level != null) {
+    const { rows } = await pool.query(
+      `
+      SELECT
+        id,
+        public_id::text AS public_id,
+        org_id,
+        email,
+        role,
+        hierarchy_level,
+        first_name,
+        last_name,
+        display_name,
+        account_owner_name,
+        manager_user_id,
+        admin_has_full_analytics_access,
+        see_all_visibility,
+        active,
+        created_at,
+        updated_at
+      FROM users
+      WHERE org_id = $1
+        AND active IS TRUE
+        AND hierarchy_level >= $2
+      ORDER BY hierarchy_level ASC, role ASC, display_name ASC, id ASC
+      `,
+      [orgId, hierarchy_level]
+    );
+    return rows as UserPublicRow[];
+  }
+
   const { rows } = await pool.query(
     `
-    WITH RECURSIVE user_tree AS (
-      SELECT id
-        FROM users
-       WHERE org_id = $1
-         AND id = $2
-         AND active IS TRUE
-      UNION ALL
-      SELECT u.id
-        FROM users u
-        JOIN user_tree t ON u.manager_user_id = t.id
+    WITH RECURSIVE vis AS (
+      SELECT $2::int AS id
+      UNION
+      SELECT mv.visible_user_id AS id
+        FROM manager_visibility mv
+        JOIN vis v ON v.id = mv.manager_user_id
+        JOIN users u ON u.id = mv.visible_user_id
        WHERE u.org_id = $1
          AND u.active IS TRUE
     )
     SELECT
       u.id,
+      u.public_id::text AS public_id,
       u.org_id,
       u.email,
       u.role,
@@ -1397,12 +1502,15 @@ export async function getVisibleUsers(args: {
       u.account_owner_name,
       u.manager_user_id,
       u.admin_has_full_analytics_access,
+      u.see_all_visibility,
       u.active,
       u.created_at,
       u.updated_at
     FROM users u
-    JOIN user_tree t ON t.id = u.id
-    ORDER BY u.hierarchy_level DESC, u.role ASC, u.display_name ASC, u.id ASC
+    JOIN vis v ON v.id = u.id
+    WHERE u.org_id = $1
+      AND u.active IS TRUE
+    ORDER BY u.hierarchy_level ASC, u.role ASC, u.display_name ASC, u.id ASC
     `,
     [orgId, currentUserId]
   );
@@ -1416,6 +1524,7 @@ export async function getUserById(args: { orgId: number; userId: number }) {
     `
     SELECT
       id,
+      public_id::text AS public_id,
       org_id,
       email,
       password_hash,
@@ -1427,6 +1536,7 @@ export async function getUserById(args: { orgId: number; userId: number }) {
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
+      see_all_visibility,
       active,
       created_at,
       updated_at
@@ -1447,6 +1557,7 @@ export async function getUserByOrgEmail(args: { orgId: number; email: string }) 
     `
     SELECT
       id,
+      public_id::text AS public_id,
       org_id,
       email,
       password_hash,
@@ -1458,6 +1569,7 @@ export async function getUserByOrgEmail(args: { orgId: number; email: string }) 
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
+      see_all_visibility,
       active,
       created_at,
       updated_at
@@ -1480,14 +1592,15 @@ export async function createUser(args: {
   org_id: number;
   email: string;
   password_hash: string;
-  role: "ADMIN" | "MANAGER" | "REP";
+  role: "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP";
   hierarchy_level?: number;
   first_name?: string | null;
   last_name?: string | null;
   display_name: string;
-  account_owner_name: string;
+  account_owner_name?: string | null;
   manager_user_id?: number | null;
   admin_has_full_analytics_access?: boolean;
+  see_all_visibility?: boolean;
   active?: boolean;
 }) {
   const org_id = zOrganizationId.parse(args.org_id);
@@ -1496,14 +1609,14 @@ export async function createUser(args: {
   const role = zUserRole.parse(args.role);
   const hierarchy_level = Number.isFinite(Number(args.hierarchy_level)) ? Number(args.hierarchy_level) : 0;
   const display_name = String(args.display_name || "").trim();
-  const account_owner_name = String(args.account_owner_name || "").trim();
+  const account_owner_name = String(args.account_owner_name || "").trim() || null;
   if (!display_name) throw new Error("display_name is required");
-  if (!account_owner_name) throw new Error("account_owner_name is required");
   const password_hash = String(args.password_hash || "").trim();
   if (!password_hash) throw new Error("password_hash is required");
   const manager_user_id =
     args.manager_user_id == null || args.manager_user_id === ("" as any) ? null : zUserId.parse(args.manager_user_id);
   const admin_has_full_analytics_access = !!args.admin_has_full_analytics_access;
+  const see_all_visibility = !!args.see_all_visibility;
 
   const { rows } = await pool.query(
     `
@@ -1520,14 +1633,16 @@ export async function createUser(args: {
         account_owner_name,
         manager_user_id,
         admin_has_full_analytics_access,
+        see_all_visibility,
         active,
         created_at,
         updated_at
       )
     VALUES
-      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
+      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
     RETURNING
       id,
+      public_id::text AS public_id,
       org_id,
       email,
       password_hash,
@@ -1539,6 +1654,7 @@ export async function createUser(args: {
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
+      see_all_visibility,
       active,
       created_at,
       updated_at
@@ -1555,6 +1671,7 @@ export async function createUser(args: {
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
+      see_all_visibility,
       args.active ?? true,
     ]
   );
@@ -1565,14 +1682,15 @@ export async function updateUser(args: {
   org_id: number;
   id: number;
   email: string;
-  role: "ADMIN" | "MANAGER" | "REP";
+  role: "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP";
   hierarchy_level?: number;
   first_name?: string | null;
   last_name?: string | null;
   display_name: string;
-  account_owner_name: string;
+  account_owner_name?: string | null;
   manager_user_id?: number | null;
   admin_has_full_analytics_access?: boolean;
+  see_all_visibility?: boolean;
   active: boolean;
 }) {
   const org_id = zOrganizationId.parse(args.org_id);
@@ -1582,12 +1700,12 @@ export async function updateUser(args: {
   const role = zUserRole.parse(args.role);
   const hierarchy_level = Number.isFinite(Number(args.hierarchy_level)) ? Number(args.hierarchy_level) : 0;
   const display_name = String(args.display_name || "").trim();
-  const account_owner_name = String(args.account_owner_name || "").trim();
+  const account_owner_name = String(args.account_owner_name || "").trim() || null;
   if (!display_name) throw new Error("display_name is required");
-  if (!account_owner_name) throw new Error("account_owner_name is required");
   const manager_user_id =
     args.manager_user_id == null || args.manager_user_id === ("" as any) ? null : zUserId.parse(args.manager_user_id);
   const admin_has_full_analytics_access = !!args.admin_has_full_analytics_access;
+  const see_all_visibility = !!args.see_all_visibility;
 
   const { rows } = await pool.query(
     `
@@ -1601,12 +1719,14 @@ export async function updateUser(args: {
            account_owner_name = $9,
            manager_user_id = $10,
            admin_has_full_analytics_access = $11,
-           active = $12,
+           see_all_visibility = $12,
+           active = $13,
            updated_at = NOW()
      WHERE org_id = $1
        AND id = $2
     RETURNING
       id,
+      public_id::text AS public_id,
       org_id,
       email,
       password_hash,
@@ -1618,6 +1738,7 @@ export async function updateUser(args: {
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
+      see_all_visibility,
       active,
       created_at,
       updated_at
@@ -1634,6 +1755,7 @@ export async function updateUser(args: {
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
+      see_all_visibility,
       !!args.active,
     ]
   );
@@ -1786,6 +1908,7 @@ export async function getUserByIdAny(args: { userId: number }) {
     `
     SELECT
       id,
+      public_id::text AS public_id,
       org_id,
       email,
       password_hash,
@@ -1797,6 +1920,7 @@ export async function getUserByIdAny(args: { userId: number }) {
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
+      see_all_visibility,
       active,
       created_at,
       updated_at
@@ -1834,6 +1958,7 @@ export async function listRecentOpportunitiesForAccountOwner(args: {
     `
     SELECT
       id,
+      public_id::text AS public_id,
       org_id,
       rep_id,
       rep_name,
@@ -1863,6 +1988,7 @@ export async function listRepUsersForManager(args: { orgId: number; managerUserI
     `
     SELECT
       id,
+      public_id::text AS public_id,
       org_id,
       email,
       role,
@@ -1871,6 +1997,7 @@ export async function listRepUsersForManager(args: { orgId: number; managerUserI
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
+      see_all_visibility,
       active,
       created_at,
       updated_at
@@ -1903,6 +2030,7 @@ export async function setUserManagerUserId(args: { orgId: number; userId: number
        AND id = $2
     RETURNING
       id,
+      public_id::text AS public_id,
       org_id,
       email,
       role,
@@ -1911,6 +2039,7 @@ export async function setUserManagerUserId(args: { orgId: number; userId: number
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
+      see_all_visibility,
       active,
       created_at,
       updated_at
@@ -1919,5 +2048,124 @@ export async function setUserManagerUserId(args: { orgId: number; userId: number
   );
 
   return (rows?.[0] as UserPublicRow | undefined) || null;
+}
+
+export async function listManagerVisibility(args: { orgId: number; managerUserId: number }) {
+  const orgId = zOrganizationId.parse(args.orgId);
+  const managerUserId = zUserId.parse(args.managerUserId);
+  const { rows } = await pool.query(
+    `
+    SELECT mv.visible_user_id
+      FROM manager_visibility mv
+      JOIN users mgr ON mgr.id = mv.manager_user_id
+      JOIN users vis ON vis.id = mv.visible_user_id
+     WHERE mv.manager_user_id = $1
+       AND mgr.org_id = $2
+       AND vis.org_id = $2
+     ORDER BY mv.visible_user_id ASC
+    `,
+    [managerUserId, orgId]
+  );
+  return (rows || [])
+    .map((r: any) => Number(r.visible_user_id))
+    .filter((n) => Number.isFinite(n) && n > 0);
+}
+
+export async function replaceManagerVisibility(args: {
+  orgId: number;
+  managerUserId: number;
+  visibleUserIds: number[];
+  see_all_visibility: boolean;
+}) {
+  const orgId = zOrganizationId.parse(args.orgId);
+  const managerUserId = zUserId.parse(args.managerUserId);
+  const see_all_visibility = !!args.see_all_visibility;
+  const visibleUserIds = Array.isArray(args.visibleUserIds)
+    ? args.visibleUserIds.map((n) => zUserId.parse(n)).filter((n) => n !== managerUserId)
+    : [];
+
+  return await withClient(async (c) => {
+    await c.query("BEGIN");
+    try {
+      // Ensure manager exists in org.
+      const mgrRes = await c.query(`SELECT id, role, hierarchy_level FROM users WHERE id = $1 AND org_id = $2 LIMIT 1`, [managerUserId, orgId]);
+      const mgr = mgrRes.rows?.[0] as any;
+      if (!mgr) throw new Error("manager_user_id not found in org");
+      const mgrLevel = Number(mgr.hierarchy_level);
+      const isConfigurable = mgrLevel === 1 || mgrLevel === 2;
+      if (!isConfigurable && (see_all_visibility || visibleUserIds.length)) {
+        throw new Error("visibility is only configurable for EXEC_MANAGER (level 1) and MANAGER (level 2)");
+      }
+
+      // Update manager see-all flag.
+      await c.query(`UPDATE users SET see_all_visibility = $3, updated_at = NOW() WHERE id = $1 AND org_id = $2`, [
+        managerUserId,
+        orgId,
+        see_all_visibility,
+      ]);
+
+      // Clear existing edges.
+      await c.query(`DELETE FROM manager_visibility WHERE manager_user_id = $1`, [managerUserId]);
+
+      if (!see_all_visibility && visibleUserIds.length) {
+        // Insert only users in this org that are valid visibility targets.
+        // Exec managers and managers can see only level 2 (managers) and level 3 (reps); never admins.
+        const targetsRes = await c.query(
+          `
+          SELECT id, role, hierarchy_level
+            FROM users
+           WHERE org_id = $1
+             AND id = ANY($2::int[])
+          `,
+          [orgId, visibleUserIds]
+        );
+        const allowedIds = (targetsRes.rows || [])
+          .filter((r: any) => r && r.role !== "ADMIN" && Number(r.hierarchy_level) >= 2)
+          .map((r: any) => Number(r.id))
+          .filter((n) => Number.isFinite(n) && n > 0);
+
+        const uniq = Array.from(new Set(allowedIds)).filter((n) => n !== managerUserId);
+        if (uniq.length) {
+          // Cycle prevention: adding edge manager -> X must not create a loop where X can already reach manager.
+          const cycleRes = await c.query(
+            `
+            WITH RECURSIVE walk(start_id, id) AS (
+              SELECT x AS start_id, x AS id
+                FROM unnest($1::int[]) AS x
+              UNION ALL
+              SELECT w.start_id, mv.visible_user_id
+                FROM walk w
+                JOIN manager_visibility mv ON mv.manager_user_id = w.id
+            )
+            SELECT DISTINCT start_id
+              FROM walk
+             WHERE id = $2
+             LIMIT 1
+            `,
+            [uniq, managerUserId]
+          );
+          if (cycleRes.rows?.length) {
+            throw new Error("invalid visibility: would create a circular visibility assignment");
+          }
+
+          const values: any[] = [];
+          const rowsSql: string[] = [];
+          let p = 0;
+          for (const id of uniq) {
+            values.push(managerUserId, id);
+            rowsSql.push(`($${p + 1}, $${p + 2})`);
+            p += 2;
+          }
+          await c.query(`INSERT INTO manager_visibility (manager_user_id, visible_user_id) VALUES ${rowsSql.join(", ")}`, values);
+        }
+      }
+
+      await c.query("COMMIT");
+      return { ok: true, count: see_all_visibility ? 0 : visibleUserIds.length };
+    } catch (e) {
+      await c.query("ROLLBACK");
+      throw e;
+    }
+  });
 }
 

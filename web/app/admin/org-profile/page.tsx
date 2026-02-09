@@ -30,7 +30,7 @@ export default async function OrgProfilePage({
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-slate-900">Organization profile</h1>
           <p className="mt-1 text-sm text-slate-600">
-            {org.name} (id {org.id}) · active {org.active ? "true" : "false"}
+            {org.name} · <span className="font-mono text-xs">{org.public_id}</span> · active {org.active ? "true" : "false"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -64,13 +64,17 @@ export default async function OrgProfilePage({
           {ctx.kind === "master" ? (
             <div className="grid gap-1">
               <label className="text-sm font-medium text-slate-700">parent_org_id (master only)</label>
-              <select name="parent_org_id" defaultValue={org.parent_org_id == null ? "" : String(org.parent_org_id)} className="rounded-md border border-slate-300 px-3 py-2 text-sm">
+              <select
+                name="parent_org_public_id"
+                defaultValue={org.parent_org_id == null ? "" : String(allOrgs.find((o) => o.id === org.parent_org_id)?.public_id || "")}
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+              >
                 <option value="">(none)</option>
                 {allOrgs
                   .filter((o) => o.id !== org.id)
                   .map((o) => (
-                    <option key={o.id} value={String(o.id)}>
-                      {o.name} (id {o.id})
+                    <option key={o.public_id} value={String(o.public_id)}>
+                      {o.name}
                     </option>
                   ))}
               </select>

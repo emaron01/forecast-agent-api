@@ -7,16 +7,18 @@ import * as XLSX from "xlsx";
 import { requireOrgContext } from "../../../lib/auth";
 import {
   createFieldMappingSet,
+  getFieldMappingSet,
   listFieldMappings,
   processIngestionBatch,
   replaceFieldMappings,
   stageIngestionRows,
 } from "../../../lib/db";
+import { resolvePublicTextId } from "../../../lib/publicId";
 
 const TargetField = z.enum(["account_name", "opportunity_name", "amount", "rep_name", "stage", "forecast_stage", "crm_opp_id"]);
 
 const Schema = z.object({
-  mappingSetId: z.string().optional(),
+  mapping_set_public_id: z.string().uuid().optional(),
   mappingSetName: z.string().optional(),
   mappingJson: z.string().optional(),
   processNow: z.enum(["true", "false"]).optional(),
@@ -45,7 +47,7 @@ export async function uploadExcelOpportunitiesAction(formData: FormData) {
   if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
 
   const parsed = Schema.parse({
-    mappingSetId: formData.get("mappingSetId") || undefined,
+    mapping_set_public_id: formData.get("mapping_set_public_id") || undefined,
     mappingSetName: formData.get("mappingSetName") || undefined,
     mappingJson: formData.get("mappingJson") || undefined,
     processNow: formData.get("processNow") || undefined,
@@ -54,12 +56,18 @@ export async function uploadExcelOpportunitiesAction(formData: FormData) {
   const file = formData.get("file");
   if (!(file instanceof File)) throw new Error("Missing file");
 
-  let mappingSetId = String(parsed.mappingSetId || "").trim();
+  let mappingSetId = "";
+  let mappingSetPublicId = String(parsed.mapping_set_public_id || "").trim();
   const mappingSetName = String(parsed.mappingSetName || "").trim();
-  if (!mappingSetId) {
+  if (mappingSetPublicId) {
+    mappingSetId = await resolvePublicTextId("field_mapping_sets", mappingSetPublicId);
+    const set = await getFieldMappingSet({ organizationId: orgId, mappingSetId }).catch(() => null);
+    if (!set) throw new Error("Selected mapping set not found in this org");
+  } else {
     if (!mappingSetName) throw new Error("Select a saved format or enter a new format name");
     const created = await createFieldMappingSet({ organizationId: orgId, name: mappingSetName, source_system: "excel-opportunities" });
     mappingSetId = created.id;
+    mappingSetPublicId = created.public_id;
   }
 
   // Determine mappings.
@@ -109,6 +117,8 @@ export async function uploadExcelOpportunitiesAction(formData: FormData) {
 
   revalidatePath("/admin/ingestion");
   revalidatePath("/admin/mapping-sets");
-  redirect(`/admin/ingestion/${encodeURIComponent(mappingSetId)}?filter=all&staged=${encodeURIComponent(String(staged.inserted))}`);
+  redirect(
+    `/admin/ingestion/${encodeURIComponent(mappingSetPublicId)}?filter=all&staged=${encodeURIComponent(String(staged.inserted))}`
+  );
 }
 

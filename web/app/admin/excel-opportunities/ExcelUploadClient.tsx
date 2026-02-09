@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 
-type MappingSet = { id: string; name: string; source_system: string | null };
+type MappingSet = { public_id: string; name: string; source_system: string | null };
 type FieldMapping = { source_field: string; target_field: string };
 
 const TARGETS: Array<{ key: TargetField; label: string; required?: boolean }> = [
@@ -39,12 +39,12 @@ function guessMapping(headers: string[]) {
 
 export function ExcelUploadClient(props: {
   mappingSets: MappingSet[];
-  prefillSetId: string;
+  prefillSetPublicId: string;
   prefillMappings: FieldMapping[];
   action: (formData: FormData) => void;
 }) {
-  const [mode, setMode] = useState<"existing" | "new">(props.prefillSetId ? "existing" : "existing");
-  const [mappingSetId, setMappingSetId] = useState(props.prefillSetId || "");
+  const [mode, setMode] = useState<"existing" | "new">(props.prefillSetPublicId ? "existing" : "existing");
+  const [mappingSetPublicId, setMappingSetPublicId] = useState(props.prefillSetPublicId || "");
   const [mappingSetName, setMappingSetName] = useState("");
 
   const prefillByTarget = useMemo(() => {
@@ -125,16 +125,16 @@ export function ExcelUploadClient(props: {
               <div className="grid gap-1">
                 <label className="text-sm font-medium text-slate-700">Saved format</label>
                 <select
-                  name="mappingSetId"
-                  value={mappingSetId}
-                  onChange={(e) => setMappingSetId(e.target.value)}
+                  name="mapping_set_public_id"
+                  value={mappingSetPublicId}
+                  onChange={(e) => setMappingSetPublicId(e.target.value)}
                   className="rounded-md border border-slate-300 px-3 py-2 text-sm"
                   required
                 >
                   <option value="">Select…</option>
                   {props.mappingSets.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} (id {s.id})
+                    <option key={s.public_id} value={s.public_id}>
+                      {s.name}
                     </option>
                   ))}
                 </select>

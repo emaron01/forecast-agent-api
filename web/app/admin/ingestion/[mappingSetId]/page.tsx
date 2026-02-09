@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { listIngestionStagingByFilter } from "../../../../lib/db";
 import { retryFailedAction, triggerProcessAction } from "../../actions/ingestion";
 import { requireOrgContext } from "../../../../lib/auth";
+import { resolvePublicTextId } from "../../../../lib/publicId";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -25,11 +26,14 @@ export default async function IngestionRowsPage({
 }) {
   const { ctx, orgId } = await requireOrgContext();
   if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
-  const mappingSetId = params.mappingSetId;
+  const mappingSetPublicId = params.mappingSetId;
+  const mappingSetId = await resolvePublicTextId("field_mapping_sets", mappingSetPublicId).catch(() => "");
   const filter = (sp(searchParams.filter) || "all") as "all" | "pending" | "processed" | "error";
-  const returnTo = `/admin/ingestion/${encodeURIComponent(mappingSetId)}?filter=${encodeURIComponent(filter)}`;
+  const returnTo = `/admin/ingestion/${encodeURIComponent(mappingSetPublicId)}?filter=${encodeURIComponent(filter)}`;
 
-  const rows = await listIngestionStagingByFilter({ organizationId: orgId, mappingSetId, filter, limit: 200 }).catch(() => []);
+  const rows = mappingSetId
+    ? await listIngestionStagingByFilter({ organizationId: orgId, mappingSetId, filter, limit: 200 }).catch(() => [])
+    : [];
 
   return (
     <main>
@@ -39,7 +43,7 @@ export default async function IngestionRowsPage({
             <Link href={`/admin/ingestion`} className="hover:underline">
               Ingestion
             </Link>{" "}
-            / <span className="font-mono">{mappingSetId}</span>
+            / <span className="font-mono">{mappingSetPublicId}</span>
           </div>
           <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-900">Staging rows</h1>
           <p className="mt-1 text-sm text-slate-600">
@@ -52,7 +56,7 @@ export default async function IngestionRowsPage({
             {(["all", "pending", "processed", "error"] as const).map((f) => (
               <Link
                 key={f}
-                href={`/admin/ingestion/${encodeURIComponent(mappingSetId)}?filter=${encodeURIComponent(f)}`}
+                href={`/admin/ingestion/${encodeURIComponent(mappingSetPublicId)}?filter=${encodeURIComponent(f)}`}
                 className={`px-3 py-2 text-xs ${
                   f === filter ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-50"
                 }`}
@@ -63,13 +67,13 @@ export default async function IngestionRowsPage({
           </div>
 
           <form action={triggerProcessAction}>
-            <input type="hidden" name="mappingSetId" value={String(mappingSetId)} />
+            <input type="hidden" name="mapping_set_public_id" value={String(mappingSetPublicId)} />
             <input type="hidden" name="returnTo" value={returnTo} />
             <button className="rounded-md bg-emerald-600 px-3 py-2 text-xs font-medium text-white">Process</button>
           </form>
 
           <form action={retryFailedAction}>
-            <input type="hidden" name="mappingSetId" value={String(mappingSetId)} />
+            <input type="hidden" name="mapping_set_public_id" value={String(mappingSetPublicId)} />
             <input type="hidden" name="returnTo" value={returnTo} />
             <button className="rounded-md bg-amber-600 px-3 py-2 text-xs font-medium text-white">Retry failed</button>
           </form>
@@ -80,7 +84,7 @@ export default async function IngestionRowsPage({
         <table className="w-full text-left text-xs">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
-              <th className="px-4 py-3">id</th>
+              <th className="px-4 py-3">public_id</th>
               <th className="px-4 py-3">status</th>
               <th className="px-4 py-3">error_message</th>
               <th className="px-4 py-3">raw_row</th>
@@ -90,8 +94,8 @@ export default async function IngestionRowsPage({
           <tbody>
             {rows.length ? (
               rows.map((r) => (
-                <tr key={r.id} className="border-t border-slate-100 align-top">
-                  <td className="px-4 py-3 font-mono">{r.id}</td>
+                <tr key={r.public_id} className="border-t border-slate-100 align-top">
+                  <td className="px-4 py-3 font-mono">{r.public_id}</td>
                   <td className="px-4 py-3">{r.status || ""}</td>
                   <td className="px-4 py-3 text-rose-700">{r.error_message || ""}</td>
                   <td className="px-4 py-3">

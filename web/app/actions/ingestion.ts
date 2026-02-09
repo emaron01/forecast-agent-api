@@ -3,17 +3,18 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { processIngestionBatch, stageIngestionRows } from "../../lib/db";
+import { resolvePublicId, resolvePublicTextId } from "../../lib/publicId";
 
 const StageSchema = z.object({
-  organizationId: z.coerce.number().int().positive(),
-  mappingSetId: z.union([z.coerce.number().int().positive(), z.string().regex(/^\d+$/)]).transform(String),
+  org_public_id: z.string().uuid(),
+  mapping_set_public_id: z.string().uuid(),
   rawJson: z.string().min(1),
 });
 
 export async function stageRowsAction(formData: FormData) {
   const parsed = StageSchema.safeParse({
-    organizationId: formData.get("organizationId"),
-    mappingSetId: formData.get("mappingSetId"),
+    org_public_id: formData.get("org_public_id"),
+    mapping_set_public_id: formData.get("mapping_set_public_id"),
     rawJson: formData.get("rawJson"),
   });
   if (!parsed.success) {
@@ -31,8 +32,8 @@ export async function stageRowsAction(formData: FormData) {
   }
 
   const r = await stageIngestionRows({
-    organizationId: parsed.data.organizationId,
-    mappingSetId: String(parsed.data.mappingSetId),
+    organizationId: await resolvePublicId("organizations", parsed.data.org_public_id),
+    mappingSetId: await resolvePublicTextId("field_mapping_sets", parsed.data.mapping_set_public_id),
     rawRows: raw,
   });
 
@@ -41,22 +42,22 @@ export async function stageRowsAction(formData: FormData) {
 }
 
 const ProcessSchema = z.object({
-  organizationId: z.coerce.number().int().positive(),
-  mappingSetId: z.union([z.coerce.number().int().positive(), z.string().regex(/^\d+$/)]).transform(String),
+  org_public_id: z.string().uuid(),
+  mapping_set_public_id: z.string().uuid(),
 });
 
 export async function processBatchAction(formData: FormData) {
   const parsed = ProcessSchema.safeParse({
-    organizationId: formData.get("organizationId"),
-    mappingSetId: formData.get("mappingSetId"),
+    org_public_id: formData.get("org_public_id"),
+    mapping_set_public_id: formData.get("mapping_set_public_id"),
   });
   if (!parsed.success) {
     throw new Error(parsed.error.message);
   }
 
   await processIngestionBatch({
-    organizationId: parsed.data.organizationId,
-    mappingSetId: String(parsed.data.mappingSetId),
+    organizationId: await resolvePublicId("organizations", parsed.data.org_public_id),
+    mappingSetId: await resolvePublicTextId("field_mapping_sets", parsed.data.mapping_set_public_id),
   });
   revalidatePath("/");
 }

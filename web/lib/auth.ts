@@ -16,14 +16,16 @@ const MASTER_SESSION_TTL_DAYS = 14;
 
 export type AuthUser = {
   id: number;
+  public_id: string;
   org_id: number;
   email: string;
-  role: "ADMIN" | "MANAGER" | "REP";
+  role: "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP";
   hierarchy_level: number;
   display_name: string;
-  account_owner_name: string;
+  account_owner_name: string | null;
   manager_user_id: number | null;
   admin_has_full_analytics_access: boolean;
+  see_all_visibility: boolean;
   active: boolean;
 };
 
@@ -175,6 +177,7 @@ export async function getAuth(): Promise<AuthContext | null> {
     `
     SELECT
       u.id,
+      u.public_id::text AS public_id,
       u.org_id,
       u.email,
       u.role,
@@ -183,6 +186,7 @@ export async function getAuth(): Promise<AuthContext | null> {
       u.account_owner_name,
       u.manager_user_id,
       u.admin_has_full_analytics_access,
+      u.see_all_visibility,
       u.active AS user_active,
       o.active AS org_active,
       s.expires_at,
@@ -204,14 +208,16 @@ export async function getAuth(): Promise<AuthContext | null> {
 
   const user: AuthUser = {
     id: Number(r.id),
+    public_id: String(r.public_id || ""),
     org_id: Number(r.org_id),
     email: String(r.email || ""),
     role: r.role as AuthUser["role"],
     hierarchy_level: Number(r.hierarchy_level ?? 0) || 0,
     display_name: String(r.display_name || ""),
-    account_owner_name: String(r.account_owner_name || ""),
+    account_owner_name: r.account_owner_name == null ? null : String(r.account_owner_name || ""),
     manager_user_id: r.manager_user_id == null ? null : Number(r.manager_user_id),
     admin_has_full_analytics_access: !!r.admin_has_full_analytics_access,
+    see_all_visibility: !!r.see_all_visibility,
     active: !!r.user_active,
   };
 
@@ -234,7 +240,7 @@ export async function requireAdminOrMaster() {
 export async function requireManagerAdminOrMaster() {
   const ctx = await requireAuth();
   if (ctx.kind === "master") return ctx;
-  if (ctx.user.role !== "ADMIN" && ctx.user.role !== "MANAGER") redirect("/dashboard");
+  if (ctx.user.role !== "ADMIN" && ctx.user.role !== "EXEC_MANAGER" && ctx.user.role !== "MANAGER") redirect("/dashboard");
   return ctx;
 }
 

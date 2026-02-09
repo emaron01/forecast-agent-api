@@ -4,6 +4,7 @@ import { Modal } from "../_components/Modal";
 import { setMasterOrgAction } from "../../actions/auth";
 import { requireAuth } from "../../../lib/auth";
 import { getOrganization, listOrganizations } from "../../../lib/db";
+import { resolvePublicId } from "../../../lib/publicId";
 import { createOrganizationWithFirstAdminAction, deleteOrganizationAction, updateOrganizationAction } from "../actions/organizations";
 
 export const runtime = "nodejs";
@@ -21,13 +22,16 @@ export default async function OrganizationsPage({
   if (ctx.kind !== "master") redirect("/admin");
 
   const modal = sp(searchParams.modal) || "";
-  const orgId = Number(sp(searchParams.id) || "0") || 0;
-  const createdOrgId = Number(sp(searchParams.createdOrgId) || "0") || 0;
+  const orgPublicId = sp(searchParams.id) || "";
+  const createdOrgPublicId = sp(searchParams.createdOrgPublicId) || "";
   const createdAdminEmail = sp(searchParams.createdAdminEmail) || "";
   const reset = sp(searchParams.reset) || "";
 
   const orgs = await listOrganizations({ activeOnly: false }).catch(() => []);
+  const orgId = orgPublicId ? await resolvePublicId("organizations", orgPublicId).catch(() => 0) : 0;
   const org = (modal === "edit" || modal === "delete") && orgId ? await getOrganization({ id: orgId }).catch(() => null) : null;
+
+  const activeOrgPublicId = ctx.orgId ? orgs.find((o) => o.id === ctx.orgId)?.public_id || "" : "";
 
   return (
     <main>
@@ -42,16 +46,16 @@ export default async function OrganizationsPage({
             <div>
               <label className="text-xs font-medium text-slate-600">Active org</label>
               <select
-                name="orgId"
-                defaultValue={ctx.orgId == null ? "" : String(ctx.orgId)}
+                name="org_public_id"
+                defaultValue={activeOrgPublicId || ""}
                 className="mt-1 w-56 rounded-md border border-slate-300 px-3 py-2 text-sm"
               >
                 <option value="">(none)</option>
                 {orgs
                   .filter((o) => o.active)
                   .map((o) => (
-                    <option key={o.id} value={String(o.id)}>
-                      {o.name} (id {o.id})
+                    <option key={o.public_id} value={String(o.public_id)}>
+                      {o.name}
                     </option>
                   ))}
               </select>
@@ -64,10 +68,10 @@ export default async function OrganizationsPage({
         </div>
       </div>
 
-      {createdOrgId ? (
+      {createdOrgPublicId ? (
         <div className="mt-4 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800">
           <div>
-            Created organization <span className="font-mono text-xs">#{createdOrgId}</span>
+            Created organization <span className="font-mono text-xs">{createdOrgPublicId}</span>
             {createdAdminEmail ? (
               <>
                 {" "}
@@ -98,7 +102,7 @@ export default async function OrganizationsPage({
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
-              <th className="px-4 py-3">id</th>
+              <th className="px-4 py-3">public_id</th>
               <th className="px-4 py-3">name</th>
               <th className="px-4 py-3">active</th>
               <th className="px-4 py-3 text-right">actions</th>
@@ -107,20 +111,25 @@ export default async function OrganizationsPage({
           <tbody>
             {orgs.length ? (
               orgs.map((o) => (
-                <tr key={o.id} className="border-t border-slate-100">
-                  <td className="px-4 py-3 font-mono text-xs">{o.id}</td>
+                <tr key={o.public_id} className="border-t border-slate-100">
+                  <td className="px-4 py-3 font-mono text-xs">{o.public_id}</td>
                   <td className="px-4 py-3">{o.name}</td>
                   <td className="px-4 py-3">{o.active ? "true" : "false"}</td>
                   <td className="px-4 py-3 text-right">
                     <div className="inline-flex items-center gap-2">
+                      <form action={setMasterOrgAction}>
+                        <input type="hidden" name="org_public_id" value={String(o.public_id)} />
+                        <input type="hidden" name="returnTo" value="/admin/users?modal=new" />
+                        <button className="rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50">Users</button>
+                      </form>
                       <Link
-                        href={`/admin/organizations?modal=edit&id=${encodeURIComponent(String(o.id))}`}
+                        href={`/admin/organizations?modal=edit&id=${encodeURIComponent(String(o.public_id))}`}
                         className="rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50"
                       >
                         Edit
                       </Link>
                       <Link
-                        href={`/admin/organizations?modal=delete&id=${encodeURIComponent(String(o.id))}`}
+                        href={`/admin/organizations?modal=delete&id=${encodeURIComponent(String(o.public_id))}`}
                         className="rounded-md border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50"
                       >
                         Delete
@@ -156,11 +165,11 @@ export default async function OrganizationsPage({
             </div>
             <div className="grid gap-1">
               <label className="text-sm font-medium text-slate-700">parent_org_id (optional)</label>
-              <select name="parent_org_id" defaultValue="" className="rounded-md border border-slate-300 px-3 py-2 text-sm">
+              <select name="parent_org_public_id" defaultValue="" className="rounded-md border border-slate-300 px-3 py-2 text-sm">
                 <option value="">(none)</option>
                 {orgs.map((o) => (
-                  <option key={o.id} value={String(o.id)}>
-                    {o.name} (id {o.id})
+                  <option key={o.public_id} value={String(o.public_id)}>
+                    {o.name}
                   </option>
                 ))}
               </select>
@@ -237,13 +246,16 @@ export default async function OrganizationsPage({
                 </div>
 
                 <div className="grid gap-1">
-                  <label className="text-sm font-medium text-slate-700">admin_account_owner_name</label>
+                  <label className="text-sm font-medium text-slate-700">CRM Account Owner Name</label>
                   <input
                     name="admin_account_owner_name"
                     className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                    placeholder="Usually the main account / company name"
                     required
                   />
+                  <p className="text-xs font-medium text-red-700">
+                    This name is used to exactly match the Account Owner for each Opportunity in CRM used for Forecast Reviews. Please COPY
+                    and PASTE the name as it appears in CRM.
+                  </p>
                 </div>
 
                 <div className="grid gap-1">
@@ -267,9 +279,9 @@ export default async function OrganizationsPage({
       ) : null}
 
       {modal === "edit" && org ? (
-        <Modal title={`Edit organization #${org.id}`} closeHref="/admin/organizations">
+        <Modal title={`Edit organization`} closeHref="/admin/organizations">
           <form action={updateOrganizationAction} className="grid gap-3">
-            <input type="hidden" name="id" value={String(org.id)} />
+            <input type="hidden" name="public_id" value={String(org.public_id)} />
             <div className="grid gap-1">
               <label className="text-sm font-medium text-slate-700">name</label>
               <input name="name" defaultValue={org.name} className="rounded-md border border-slate-300 px-3 py-2 text-sm" required />
@@ -288,16 +300,16 @@ export default async function OrganizationsPage({
             <div className="grid gap-1">
               <label className="text-sm font-medium text-slate-700">parent_org_id (optional)</label>
               <select
-                name="parent_org_id"
-                defaultValue={org.parent_org_id == null ? "" : String(org.parent_org_id)}
+                name="parent_org_public_id"
+                defaultValue={org.parent_org_id == null ? "" : String(orgs.find((o) => o.id === org.parent_org_id)?.public_id || "")}
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
               >
                 <option value="">(none)</option>
                 {orgs
                   .filter((o) => o.id !== org.id)
                   .map((o) => (
-                    <option key={o.id} value={String(o.id)}>
-                      {o.name} (id {o.id})
+                    <option key={o.public_id} value={String(o.public_id)}>
+                      {o.name}
                     </option>
                   ))}
               </select>
@@ -350,9 +362,9 @@ export default async function OrganizationsPage({
       ) : null}
 
       {modal === "delete" && org ? (
-        <Modal title={`Delete organization #${org.id}`} closeHref="/admin/organizations">
+        <Modal title={`Delete organization`} closeHref="/admin/organizations">
           <form action={deleteOrganizationAction} className="grid gap-4">
-            <input type="hidden" name="id" value={String(org.id)} />
+            <input type="hidden" name="public_id" value={String(org.public_id)} />
             <p className="text-sm text-slate-700">
               This will permanently delete <span className="font-semibold">{org.name}</span> (and all users in the org). This cannot be undone.
             </p>

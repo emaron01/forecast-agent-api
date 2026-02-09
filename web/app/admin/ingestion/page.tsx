@@ -20,7 +20,7 @@ export default async function IngestionAdminPage({
     (): IngestionBatchSummaryRow[] => []
   );
   const bySet = new Map<string, IngestionBatchSummaryRow>(
-    summaries.map((s): [string, IngestionBatchSummaryRow] => [s.mapping_set_id, s])
+    summaries.map((s): [string, IngestionBatchSummaryRow] => [s.mapping_set_public_id, s])
   );
   const returnTo = `/admin/ingestion`;
 
@@ -43,25 +43,25 @@ export default async function IngestionAdminPage({
           <div className="mt-4 grid gap-3">
             {sets.length ? (
               sets.map((s) => (
-                <div key={s.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 p-3">
+                <div key={s.public_id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 p-3">
                   <div>
                     <div className="text-sm font-medium text-slate-900">{s.name}</div>
-                    <div className="text-xs text-slate-600">id {s.id}</div>
+                    <div className="text-xs font-mono text-slate-600">{s.public_id}</div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Link
-                      href={`/admin/ingestion/${encodeURIComponent(s.id)}?filter=pending`}
+                      href={`/admin/ingestion/${encodeURIComponent(s.public_id)}?filter=pending`}
                       className="rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50"
                     >
                       View rows
                     </Link>
                     <form action={triggerProcessAction}>
-                      <input type="hidden" name="mappingSetId" value={String(s.id)} />
+                      <input type="hidden" name="mapping_set_public_id" value={String(s.public_id)} />
                       <input type="hidden" name="returnTo" value={returnTo} />
                       <button className="rounded-md bg-emerald-600 px-3 py-2 text-xs font-medium text-white">Process</button>
                     </form>
                     <form action={retryFailedAction}>
-                      <input type="hidden" name="mappingSetId" value={String(s.id)} />
+                      <input type="hidden" name="mapping_set_public_id" value={String(s.public_id)} />
                       <input type="hidden" name="returnTo" value={returnTo} />
                       <button className="rounded-md bg-amber-600 px-3 py-2 text-xs font-medium text-white">Retry failed</button>
                     </form>
@@ -83,12 +83,12 @@ export default async function IngestionAdminPage({
           <form action={stageJsonRowsAction} className="mt-4 grid gap-3">
             <input type="hidden" name="returnTo" value={returnTo} />
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">mappingSetId</label>
-              <select name="mappingSetId" className="rounded-md border border-slate-300 px-3 py-2 text-sm" required>
+              <label className="text-sm font-medium text-slate-700">mapping_set_public_id</label>
+              <select name="mapping_set_public_id" className="rounded-md border border-slate-300 px-3 py-2 text-sm" required>
                 <option value="">Select…</option>
                 {sets.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} (id {s.id})
+                  <option key={s.public_id} value={s.public_id}>
+                    {s.name}
                   </option>
                 ))}
               </select>
@@ -116,30 +116,30 @@ export default async function IngestionAdminPage({
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
-              <th className="px-4 py-3">mapping_set_id</th>
+              <th className="px-4 py-3">mapping_set_public_id</th>
               <th className="px-4 py-3">total</th>
               <th className="px-4 py-3">pending</th>
               <th className="px-4 py-3">processed</th>
               <th className="px-4 py-3">error</th>
-              <th className="px-4 py-3">last_id</th>
+              <th className="px-4 py-3">last_public_id</th>
               <th className="px-4 py-3 text-right">view</th>
             </tr>
           </thead>
           <tbody>
             {sets.length ? (
               sets.map((s) => {
-                const sum = bySet.get(s.id);
+                const sum = bySet.get(s.public_id);
                 return (
-                  <tr key={s.id} className="border-t border-slate-100">
-                    <td className="px-4 py-3 font-mono text-xs">{s.id}</td>
+                  <tr key={s.public_id} className="border-t border-slate-100">
+                    <td className="px-4 py-3 font-mono text-xs">{s.public_id}</td>
                     <td className="px-4 py-3">{sum?.total ?? 0}</td>
                     <td className="px-4 py-3">{sum?.pending ?? 0}</td>
                     <td className="px-4 py-3">{sum?.processed ?? 0}</td>
                     <td className="px-4 py-3">{sum?.error ?? 0}</td>
-                    <td className="px-4 py-3 font-mono text-xs">{sum?.last_id ?? ""}</td>
+                    <td className="px-4 py-3 font-mono text-xs">{sum?.last_public_id ?? ""}</td>
                     <td className="px-4 py-3 text-right">
                       <Link
-                        href={`/admin/ingestion/${encodeURIComponent(s.id)}?filter=all`}
+                        href={`/admin/ingestion/${encodeURIComponent(s.public_id)}?filter=all`}
                         className="rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50"
                       >
                         Rows

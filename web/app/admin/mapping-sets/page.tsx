@@ -4,6 +4,7 @@ import { Modal } from "../_components/Modal";
 import { createMappingSetAction, deleteMappingSetAction, updateMappingSetAction } from "../actions/mappingSets";
 import { getFieldMappingSet, listFieldMappingSets } from "../../../lib/db";
 import { requireOrgContext } from "../../../lib/auth";
+import { resolvePublicTextId } from "../../../lib/publicId";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -21,9 +22,10 @@ export default async function MappingSetsPage({
   const { ctx, orgId } = await requireOrgContext();
   if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
   const modal = sp(searchParams.modal) || "";
-  const mappingSetId = sp(searchParams.mappingSetId) || "";
+  const mappingSetPublicId = sp(searchParams.mappingSetPublicId) || "";
 
   const sets = await listFieldMappingSets({ organizationId: orgId });
+  const mappingSetId = mappingSetPublicId ? await resolvePublicTextId("field_mapping_sets", mappingSetPublicId).catch(() => "") : "";
   const set =
     mappingSetId && (modal === "edit" || modal === "delete")
       ? await getFieldMappingSet({ organizationId: orgId, mappingSetId })
@@ -50,7 +52,7 @@ export default async function MappingSetsPage({
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
-              <th className="px-4 py-3">id</th>
+              <th className="px-4 py-3">public_id</th>
               <th className="px-4 py-3">name</th>
               <th className="px-4 py-3">source_system</th>
               <th className="px-4 py-3 text-right">actions</th>
@@ -59,26 +61,26 @@ export default async function MappingSetsPage({
           <tbody>
             {sets.length ? (
               sets.map((s) => (
-                <tr key={s.id} className="border-t border-slate-100">
-                  <td className="px-4 py-3 font-mono text-xs">{s.id}</td>
+                <tr key={s.public_id} className="border-t border-slate-100">
+                  <td className="px-4 py-3 font-mono text-xs">{s.public_id}</td>
                   <td className="px-4 py-3">{s.name}</td>
                   <td className="px-4 py-3">{s.source_system || ""}</td>
                   <td className="px-4 py-3 text-right">
                     <div className="inline-flex items-center gap-2">
                       <Link
-                        href={`/admin/mapping-sets/${encodeURIComponent(s.id)}/mappings`}
+                        href={`/admin/mapping-sets/${encodeURIComponent(s.public_id)}/mappings`}
                         className="rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50"
                       >
                         Mappings
                       </Link>
                       <Link
-                        href={`/admin/mapping-sets?modal=edit&mappingSetId=${encodeURIComponent(s.id)}`}
+                        href={`/admin/mapping-sets?modal=edit&mappingSetPublicId=${encodeURIComponent(s.public_id)}`}
                         className="rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50"
                       >
                         Edit
                       </Link>
                       <Link
-                        href={`/admin/mapping-sets?modal=delete&mappingSetId=${encodeURIComponent(s.id)}`}
+                        href={`/admin/mapping-sets?modal=delete&mappingSetPublicId=${encodeURIComponent(s.public_id)}`}
                         className="rounded-md border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50"
                       >
                         Delete
@@ -120,9 +122,9 @@ export default async function MappingSetsPage({
       ) : null}
 
       {modal === "edit" && set ? (
-        <Modal title={`Edit mapping set #${set.id}`} closeHref={closeHref()}>
+        <Modal title={`Edit mapping set`} closeHref={closeHref()}>
           <form action={updateMappingSetAction} className="grid gap-3">
-            <input type="hidden" name="mappingSetId" value={String(set.id)} />
+            <input type="hidden" name="public_id" value={String(set.public_id)} />
             <div className="grid gap-1">
               <label className="text-sm font-medium text-slate-700">name</label>
               <input
@@ -151,9 +153,9 @@ export default async function MappingSetsPage({
       ) : null}
 
       {modal === "delete" && set ? (
-        <Modal title={`Delete mapping set #${set.id}`} closeHref={closeHref()}>
+        <Modal title={`Delete mapping set`} closeHref={closeHref()}>
           <form action={deleteMappingSetAction} className="grid gap-4">
-            <input type="hidden" name="mappingSetId" value={String(set.id)} />
+            <input type="hidden" name="public_id" value={String(set.public_id)} />
             <p className="text-sm text-slate-700">
               This will permanently delete <span className="font-semibold">{set.name}</span>.
             </p>

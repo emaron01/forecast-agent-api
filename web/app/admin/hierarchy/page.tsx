@@ -14,11 +14,14 @@ type Node = {
 function buildTree(users: Awaited<ReturnType<typeof listUsers>>) {
   const byId = new Map<number, Node>();
   const roots: Node[] = [];
+  const publicIdById = new Map<number, string>(users.map((u) => [u.id, u.public_id]));
 
   for (const u of users) {
     byId.set(u.id, {
       id: u.id,
-      label: `${u.display_name} · ${u.role} · L${u.hierarchy_level} · id ${u.id}${u.manager_user_id ? ` (mgr ${u.manager_user_id})` : ""}`,
+      label: `${u.display_name} · ${u.role} · L${u.hierarchy_level} · ${u.public_id}${
+        u.manager_user_id ? ` (mgr ${publicIdById.get(u.manager_user_id) || ""})` : ""
+      }`,
       children: [],
     });
   }
@@ -66,7 +69,7 @@ export default async function HierarchyPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-slate-900">Hierarchy tree</h1>
-          <p className="mt-1 text-sm text-slate-600">Visibility flows down the manager chain (manager_user_id).</p>
+          <p className="mt-1 text-sm text-slate-600">Visibility flows down the manager chain.</p>
         </div>
         <div className="flex items-center gap-2">
           <Link href="/admin/users" className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
