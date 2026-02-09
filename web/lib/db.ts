@@ -1030,6 +1030,178 @@ export async function createOrganization(args: {
   return rows[0] as OrganizationRow;
 }
 
+export async function createOrganizationWithFirstAdmin(args: {
+  organization: {
+    name: string;
+    active?: boolean;
+    parent_org_id?: number | null;
+    billing_plan?: string | null;
+    hq_address_line1?: string | null;
+    hq_address_line2?: string | null;
+    hq_city?: string | null;
+    hq_state?: string | null;
+    hq_postal_code?: string | null;
+    hq_country?: string | null;
+  };
+  admin: {
+    email: string;
+    password_hash: string;
+    first_name?: string | null;
+    last_name?: string | null;
+    display_name: string;
+    account_owner_name: string;
+    admin_has_full_analytics_access?: boolean;
+    active?: boolean;
+  };
+  inviteReset?: { token_hash: string; expires_at: Date } | null;
+}) {
+  const orgName = String(args.organization?.name || "").trim();
+  if (!orgName) throw new Error("organization.name is required");
+
+  const email = String(args.admin?.email || "")
+    .trim()
+    .toLowerCase();
+  if (!email) throw new Error("admin.email is required");
+
+  const password_hash = String(args.admin?.password_hash || "").trim();
+  if (!password_hash) throw new Error("admin.password_hash is required");
+
+  const display_name = String(args.admin?.display_name || "").trim();
+  const account_owner_name = String(args.admin?.account_owner_name || "").trim();
+  if (!display_name) throw new Error("admin.display_name is required");
+  if (!account_owner_name) throw new Error("admin.account_owner_name is required");
+
+  const parent_org_id =
+    args.organization?.parent_org_id == null || args.organization.parent_org_id === ("" as any)
+      ? null
+      : zOrganizationId.parse(args.organization.parent_org_id);
+
+  return await withClient(async (c) => {
+    await c.query("BEGIN");
+    try {
+      const orgRes = await c.query(
+        `
+        INSERT INTO organizations (
+          name,
+          active,
+          parent_org_id,
+          billing_plan,
+          hq_address_line1,
+          hq_address_line2,
+          hq_city,
+          hq_state,
+          hq_postal_code,
+          hq_country,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+        RETURNING
+          id,
+          name,
+          active,
+          parent_org_id,
+          billing_plan,
+          hq_address_line1,
+          hq_address_line2,
+          hq_city,
+          hq_state,
+          hq_postal_code,
+          hq_country,
+          created_at,
+          updated_at
+        `,
+        [
+          orgName,
+          args.organization?.active ?? true,
+          parent_org_id,
+          args.organization?.billing_plan ?? null,
+          args.organization?.hq_address_line1 ?? null,
+          args.organization?.hq_address_line2 ?? null,
+          args.organization?.hq_city ?? null,
+          args.organization?.hq_state ?? null,
+          args.organization?.hq_postal_code ?? null,
+          args.organization?.hq_country ?? null,
+        ]
+      );
+      const org = orgRes.rows[0] as OrganizationRow;
+
+      const userRes = await c.query(
+        `
+        INSERT INTO users
+          (
+            org_id,
+            email,
+            password_hash,
+            role,
+            hierarchy_level,
+            first_name,
+            last_name,
+            display_name,
+            account_owner_name,
+            manager_user_id,
+            admin_has_full_analytics_access,
+            active,
+            created_at,
+            updated_at
+          )
+        VALUES
+          ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
+        RETURNING
+          id,
+          org_id,
+          email,
+          password_hash,
+          role,
+          hierarchy_level,
+          first_name,
+          last_name,
+          display_name,
+          account_owner_name,
+          manager_user_id,
+          admin_has_full_analytics_access,
+          active,
+          created_at,
+          updated_at
+        `,
+        [
+          org.id,
+          email,
+          password_hash,
+          "ADMIN",
+          0,
+          args.admin?.first_name ?? null,
+          args.admin?.last_name ?? null,
+          display_name,
+          account_owner_name,
+          null,
+          !!args.admin?.admin_has_full_analytics_access,
+          args.admin?.active ?? true,
+        ]
+      );
+      const user = userRes.rows[0] as UserRow;
+
+      if (args.inviteReset?.token_hash) {
+        const token_hash = String(args.inviteReset.token_hash || "").trim();
+        if (!token_hash) throw new Error("inviteReset.token_hash is required");
+        await c.query(
+          `
+          INSERT INTO password_reset_tokens (user_id, token_hash, created_at, expires_at, used_at)
+          VALUES ($1, $2, NOW(), $3, NULL)
+          `,
+          [user.id, token_hash, args.inviteReset.expires_at.toISOString()]
+        );
+      }
+
+      await c.query("COMMIT");
+      return { org, user };
+    } catch (e) {
+      await c.query("ROLLBACK");
+      throw e;
+    }
+  });
+}
+
 export async function updateOrganization(args: {
   id: number;
   name: string;

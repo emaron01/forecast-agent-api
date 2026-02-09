@@ -4,7 +4,7 @@ import { Modal } from "../_components/Modal";
 import { setMasterOrgAction } from "../../actions/auth";
 import { requireAuth } from "../../../lib/auth";
 import { getOrganization, listOrganizations } from "../../../lib/db";
-import { createOrganizationAction, deleteOrganizationAction, updateOrganizationAction } from "../actions/organizations";
+import { createOrganizationWithFirstAdminAction, deleteOrganizationAction, updateOrganizationAction } from "../actions/organizations";
 
 export const runtime = "nodejs";
 
@@ -22,6 +22,9 @@ export default async function OrganizationsPage({
 
   const modal = sp(searchParams.modal) || "";
   const orgId = Number(sp(searchParams.id) || "0") || 0;
+  const createdOrgId = Number(sp(searchParams.createdOrgId) || "0") || 0;
+  const createdAdminEmail = sp(searchParams.createdAdminEmail) || "";
+  const reset = sp(searchParams.reset) || "";
 
   const orgs = await listOrganizations({ activeOnly: false }).catch(() => []);
   const org = (modal === "edit" || modal === "delete") && orgId ? await getOrganization({ id: orgId }).catch(() => null) : null;
@@ -60,6 +63,36 @@ export default async function OrganizationsPage({
           </Link>
         </div>
       </div>
+
+      {createdOrgId ? (
+        <div className="mt-4 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800">
+          <div>
+            Created organization <span className="font-mono text-xs">#{createdOrgId}</span>
+            {createdAdminEmail ? (
+              <>
+                {" "}
+                with first admin <span className="font-mono text-xs">{createdAdminEmail}</span>.
+              </>
+            ) : (
+              "."
+            )}
+          </div>
+          {reset ? (
+            <div className="mt-1 text-slate-700">
+              {reset === "sent" ? (
+                <>Invite link generated.</>
+              ) : (
+                <>
+                  Invite link (dev):{" "}
+                  <Link className="text-indigo-700 hover:underline" href={reset}>
+                    {reset}
+                  </Link>
+                </>
+              )}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mt-5 overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
         <table className="w-full text-left text-sm">
@@ -109,7 +142,7 @@ export default async function OrganizationsPage({
 
       {modal === "new" ? (
         <Modal title="New organization" closeHref="/admin/organizations">
-          <form action={createOrganizationAction} className="grid gap-3">
+          <form action={createOrganizationWithFirstAdminAction} className="grid gap-3">
             <div className="grid gap-1">
               <label className="text-sm font-medium text-slate-700">name</label>
               <input name="name" className="rounded-md border border-slate-300 px-3 py-2 text-sm" required />
@@ -164,6 +197,65 @@ export default async function OrganizationsPage({
               <label className="text-sm font-medium text-slate-700">hq_country</label>
               <input name="hq_country" className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
             </div>
+
+            <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="text-sm font-semibold text-slate-900">First admin (Organization Admin)</div>
+              <div className="mt-1 text-xs text-slate-600">This user will be created in the new organization with role ADMIN.</div>
+
+              <div className="mt-3 grid gap-3">
+                <div className="grid gap-1">
+                  <label className="text-sm font-medium text-slate-700">admin_email</label>
+                  <input
+                    name="admin_email"
+                    type="email"
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    placeholder="admin@company.com"
+                    required
+                  />
+                </div>
+
+                <div className="grid gap-1">
+                  <label className="text-sm font-medium text-slate-700">admin_password</label>
+                  <input
+                    name="admin_password"
+                    type="password"
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    placeholder="Leave blank to invite"
+                  />
+                  <p className="text-xs text-slate-500">If blank, we’ll generate a password-set link (shown in dev; “sent” in prod).</p>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="grid gap-1">
+                    <label className="text-sm font-medium text-slate-700">admin_first_name</label>
+                    <input name="admin_first_name" className="rounded-md border border-slate-300 px-3 py-2 text-sm" required />
+                  </div>
+                  <div className="grid gap-1">
+                    <label className="text-sm font-medium text-slate-700">admin_last_name</label>
+                    <input name="admin_last_name" className="rounded-md border border-slate-300 px-3 py-2 text-sm" required />
+                  </div>
+                </div>
+
+                <div className="grid gap-1">
+                  <label className="text-sm font-medium text-slate-700">admin_account_owner_name</label>
+                  <input
+                    name="admin_account_owner_name"
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    placeholder="Usually the main account / company name"
+                    required
+                  />
+                </div>
+
+                <div className="grid gap-1">
+                  <label className="text-sm font-medium text-slate-700">admin_has_full_analytics_access</label>
+                  <select name="admin_has_full_analytics_access" defaultValue="false" className="rounded-md border border-slate-300 px-3 py-2 text-sm">
+                    <option value="false">false</option>
+                    <option value="true">true</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
             <div className="mt-2 flex items-center justify-end gap-2">
               <Link href="/admin/organizations" className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
                 Cancel
