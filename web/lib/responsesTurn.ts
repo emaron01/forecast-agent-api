@@ -1,8 +1,9 @@
 import type { Pool } from "pg";
-import { buildNoDealsPrompt, buildPrompt } from "./prompt";
+import { buildNoDealsPrompt, buildPrompt, computeFirstGap } from "./prompt";
 import { loadMasterDcoPrompt } from "./masterDcoPrompt";
 import { buildTools } from "./tools";
 import { handleFunctionCall } from "../../muscle.js";
+import { getQuestionPack } from "../../db.js";
 
 export type ForecastSession = {
   orgId: number;
@@ -29,6 +30,9 @@ function normalizeCategoryKeyFromLabel(label: string) {
   if (s.startsWith("pain")) return "pain";
   if (s.startsWith("metrics")) return "metrics";
   if (s.startsWith("champion")) return "champion";
+  if (s.startsWith("internal sponsor")) return "champion";
+  if (s.startsWith("internal coach")) return "champion";
+  if (s.startsWith("sponsor")) return "champion";
   if (s.startsWith("criteria")) return "criteria";
   if (s.startsWith("competition")) return "competition";
   if (s.startsWith("timing")) return "timing";
@@ -115,6 +119,31 @@ function extractAssistantText(output: any[]) {
   return chunks.join("\n").trim();
 }
 
+function lastNonEmptyLine(text: string) {
+  const lines = String(text || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  return lines.at(-1) || "";
+}
+
+function assistantHandsTurnToRep(assistantText: string) {
+  const last = lastNonEmptyLine(assistantText);
+  if (!last) return false;
+  // Direct question.
+  if (last.length <= 650 && /\?\s*$/.test(last)) return true;
+  // Imperative prompt that expects an answer even without '?'.
+  if (
+    last.length <= 650 &&
+    /^(what|who|when|where|why|how|walk me through|talk me through|tell me|describe|share|list|confirm|give me)\b/i.test(last)
+  )
+    return true;
+  // Question very near the end.
+  const tail = String(assistantText || "").slice(-800);
+  if (tail.includes("?")) return true;
+  return false;
+}
+
 async function fetchHealthScore(pool: Pool, orgId: number, opportunityId: number) {
   try {
     const { rows } = await pool.query(
@@ -141,6 +170,8 @@ export async function runResponsesTurn(args: {
   session: ForecastSession;
   text: string;
   maxToolLoops?: number;
+  toolChoice?: "auto" | "none";
+  repTurn?: boolean;
 }): Promise<{ assistantText: string; done: boolean }> {
   const { pool, session } = args;
   const baseUrl = resolveBaseUrl();
@@ -154,7 +185,9 @@ export async function runResponsesTurn(args: {
   const text = String(args.text || "").trim();
   if (!text) throw new Error("Missing text");
 
-  const tools = buildTools();
+  const toolChoice = args.toolChoice || "auto";
+  const toolsEnabled = toolChoice !== "none";
+  const tools = toolsEnabled ? buildTools() : undefined;
 
   // IMPORTANT:
   // We intentionally do NOT send a "running history" to the Responses API.
@@ -170,10 +203,14 @@ export async function runResponsesTurn(args: {
   let nextInput: any[] = [];
   let previousResponseId: string | null = null;
   const assistantTexts: string[] = [];
+  const repTurn = args.repTurn ?? true;
+  let forcedSaveNudge = false;
+  const repText = repTurn ? text : "";
+  const repSaidNoChange = repTurn ? isNoChangeReply(repText) : false;
 
   // If the previous assistant turn was a locked "check pattern" and the rep says "no change",
   // we must move on without overwriting summaries/tips (per master prompt contract).
-  if (session.lastCategoryKey && session.lastCheckType && isNoChangeReply(text)) {
+  if (repTurn && session.lastCategoryKey && session.lastCheckType && isNoChangeReply(text)) {
     session.reviewed.add(session.lastCategoryKey);
     session.skipSaveCategoryKey = session.lastCategoryKey;
   } else {
@@ -195,10 +232,52 @@ export async function runResponsesTurn(args: {
   let loop = 0;
   let lastResponse: any = null;
 
+  // Logging guards: keep noise down (once per invocation).
+  let loggedQuestionDbError = false;
+  const warnedNoBase = new Set<string>(); // key: `${orgId}:${category}`
+
   while (loop < maxLoops) {
     loop += 1;
 
     const deal = session.deals[session.index];
+    let questionPack: { base?: string[]; primary?: string; clarifiers?: string[] } | undefined = undefined;
+
+    if (deal) {
+      try {
+        const stage = String(deal?.forecast_stage || "Pipeline");
+        const gap = computeFirstGap(deal, stage, session.reviewed);
+        const scoreVal = Number(deal?.[gap.key] ?? 0);
+        questionPack = await getQuestionPack(pool, {
+          orgId: session.orgId,
+          category: gap.touchedKey,
+          criteriaId: Number.isFinite(scoreVal) ? scoreVal : null,
+        });
+
+        // If we're about to ask a direct "score=0" question but DB has no active base question,
+        // warn once so it's detectable but doesn't spam logs.
+        if (Number(scoreVal) === 0 && !String(questionPack?.primary || "").trim()) {
+          const key = `${session.orgId}:${gap.touchedKey}`;
+          if (!warnedNoBase.has(key)) {
+            warnedNoBase.add(key);
+            console.warn("[question_definitions] no active base question; falling back to hardcoded copy", {
+              orgId: session.orgId,
+              category: gap.touchedKey,
+            });
+          }
+        }
+      } catch (e) {
+        // If DB is unavailable or question rows are missing, fall back to built-in question copy.
+        questionPack = undefined;
+        if (!loggedQuestionDbError) {
+          loggedQuestionDbError = true;
+          console.error("[question_definitions] failed to load questions; falling back to hardcoded copy", {
+            orgId: session.orgId,
+            error: (e as any)?.message || String(e),
+          });
+        }
+      }
+    }
+
     const contextBlock = deal
       ? buildPrompt(
           deal,
@@ -206,7 +285,8 @@ export async function runResponsesTurn(args: {
           session.deals.length,
           session.index === 0,
           session.reviewed,
-          session.scoreDefs
+          session.scoreDefs,
+          questionPack
         )
       : buildNoDealsPrompt(firstName(session.repName), "No deals available in the system for this rep.");
     const instructions = `${session.masterPromptText}\n\n${contextBlock}`;
@@ -220,8 +300,8 @@ export async function runResponsesTurn(args: {
       body: JSON.stringify({
         model,
         instructions,
-        tools,
-        tool_choice: "auto",
+        ...(tools ? { tools } : {}),
+        tool_choice: toolChoice,
         ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
         input: nextInput,
       }),
@@ -242,11 +322,34 @@ export async function runResponsesTurn(args: {
     if (chunkText) assistantTexts.push(chunkText);
 
     const toolCalls = output.filter((it: any) => it?.type === "function_call");
-    if (!toolCalls.length) break;
+    if (!toolCalls.length) {
+      // If tools are disabled (e.g. kickoff), do not run save-enforcement guardrails.
+      if (!toolsEnabled) break;
+
+      // Guardrail: if the rep answered with new info but the model failed to save,
+      // we can get stuck repeating the same check question forever.
+      // Do ONE corrective retry instructing a save + next question.
+      if (repTurn && !forcedSaveNudge && repText && !repSaidNoChange && !session.skipSaveCategoryKey) {
+        forcedSaveNudge = true;
+        nextInput = [
+          userMsg(
+            "The rep just answered with new information. You MUST now:\n" +
+              "1) Say only: \"Got it.\"\n" +
+              "2) Call save_deal_data with the score, summary, and tip for the category you just asked.\n" +
+              "3) Then ask the next required category question (ONE direct question).\n" +
+              "Do not repeat the prior question."
+          ),
+        ];
+        continue;
+      }
+      break;
+    }
 
     const toolOutputs: any[] = [];
     const extraInputs: any[] = [];
     let advancedThisBatch = false;
+    let sawSaveTool = false;
+    let sawAdvanceTool = false;
 
     for (const call of toolCalls) {
       const name = String(call?.name || "");
@@ -259,6 +362,7 @@ export async function runResponsesTurn(args: {
       }
 
       if (name === "save_deal_data") {
+        sawSaveTool = true;
         // Normalize camelCase variants
         if (toolArgs.risk_summary == null && toolArgs.riskSummary != null) toolArgs.risk_summary = toolArgs.riskSummary;
         if (toolArgs.next_steps == null && toolArgs.nextSteps != null) toolArgs.next_steps = toolArgs.nextSteps;
@@ -360,6 +464,7 @@ export async function runResponsesTurn(args: {
       }
 
       if (name === "advance_deal") {
+        sawAdvanceTool = true;
         // Block advance until wrap save has been recorded for this review.
         if (!session.wrapSaved) {
           const activeDeal = session.deals[session.index];
@@ -410,6 +515,15 @@ export async function runResponsesTurn(args: {
         userMsg("New deal context starts now. Ignore any prior deal; follow the current deal instructions and ask the next required question.")
       );
     }
+
+    // Latency optimization:
+    // If the assistant already handed the turn back to the rep with the next question in THIS response,
+    // and we didn't enqueue any corrective nudges, we can stop here without a follow-up model call.
+    // (We have already executed the save tool server-side.)
+    if (!extraInputs.length && sawSaveTool && !sawAdvanceTool && assistantHandsTurnToRep(chunkText)) {
+      break;
+    }
+
     nextInput = [...toolOutputs, ...extraInputs];
   }
 

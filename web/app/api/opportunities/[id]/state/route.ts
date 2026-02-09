@@ -1,125 +1,56 @@
 import { NextResponse } from "next/server";
-import { Pool } from "pg";
+import { z } from "zod";
+import { getOpportunity, listOpportunityAuditEvents } from "../../../../../lib/db";
+import { getAuth } from "../../../../../lib/auth";
+import { pool } from "../../../../../lib/pool";
 
 export const runtime = "nodejs";
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
-
-const ALL_CATEGORIES = [
-  "metrics",
-  "economic_buyer",
-  "criteria",
-  "process",
-  "paper",
-  "pain",
-  "champion",
-  "competition",
-  "timing",
-  "budget",
-] as const;
-
-function roundInt(n: number) {
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.min(100, Math.round(n)));
-}
-
-function computeHealthPercentFromOpportunity(healthScore: any) {
-  const hs = Number(healthScore);
-  if (!Number.isFinite(hs)) return null;
-  // Internal score is 0-30; UI speaks percent.
-  return roundInt((hs / 30) * 100);
-}
-
-function splitLabelEvidence(summary: any) {
-  const s = String(summary ?? "").trim();
-  if (!s) return { label: "", evidence: "" };
-  const idx = s.indexOf(":");
-  if (idx > 0) {
-    const label = s.slice(0, idx).trim();
-    const evidence = s.slice(idx + 1).trim();
-    return { label, evidence };
-  }
-  return { label: "", evidence: s };
-}
-
-export async function GET(
-  req: Request,
-  { params }: { params: { id: string } | Promise<{ id: string }> }
-) {
+export async function GET(req: Request, ctx: { params: { id: string } }) {
   try {
+    const auth = await getAuth();
+    if (!auth) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+
     const url = new URL(req.url);
-    const orgId = Number(url.searchParams.get("orgId") || "0");
-    if (!orgId) return NextResponse.json({ ok: false, error: "Missing orgId" }, { status: 400 });
-    const resolvedParams = await Promise.resolve(params as any);
-    const idStr = resolvedParams?.id ?? "";
-    const opportunityId = Number.parseInt(idStr, 10);
-    if (!Number.isFinite(opportunityId) || opportunityId <= 0) {
-      return NextResponse.json({ ok: false, error: "Invalid opportunity id" }, { status: 400 });
+    const orgId = auth.kind === "user" ? auth.user.org_id : auth.orgId || 0;
+    if (!orgId) return NextResponse.json({ ok: false, error: "Missing org context" }, { status: 400 });
+    const opportunityId = z.coerce.number().int().positive().parse(ctx.params.id);
+    const limit = z.coerce.number().int().min(1).max(200).catch(50).parse(url.searchParams.get("limit"));
+
+    const opportunity = await getOpportunity({ orgId, opportunityId });
+    if (!opportunity) {
+      return NextResponse.json({ ok: false, error: "Opportunity not found" }, { status: 404 });
     }
 
-    const oppRes = await pool.query(
-      `
-      SELECT *
-        FROM opportunities
-       WHERE org_id = $1 AND id = $2
-       LIMIT 1
-      `,
-      [orgId, opportunityId]
-    );
-    const opportunity = oppRes.rows?.[0] || null;
-    if (!opportunity) return NextResponse.json({ ok: false, error: "Opportunity not found" }, { status: 404 });
+    // Role scoping
+    if (auth.kind === "user") {
+      if (auth.user.role === "REP") {
+        if (!opportunity.rep_name || opportunity.rep_name !== auth.user.account_owner_name) {
+          return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+        }
+      } else if (auth.user.role === "MANAGER") {
+        if (!opportunity.rep_name) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+        const { rows } = await pool.query(
+          `
+          SELECT 1
+            FROM users
+           WHERE org_id = $1
+             AND role = 'REP'
+             AND active IS TRUE
+             AND manager_user_id = $2
+             AND account_owner_name = $3
+           LIMIT 1
+          `,
+          [orgId, auth.user.id, opportunity.rep_name]
+        );
+        if (!rows?.length) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+      }
+    }
 
-    const categories = ALL_CATEGORIES.map((c) => {
-      const opp: any = opportunity || {};
-      const map: Record<string, { score: string; summary: string; tip: string }> = {
-        metrics: { score: "metrics_score", summary: "metrics_summary", tip: "metrics_tip" },
-        economic_buyer: { score: "eb_score", summary: "eb_summary", tip: "eb_tip" },
-        criteria: { score: "criteria_score", summary: "criteria_summary", tip: "criteria_tip" },
-        process: { score: "process_score", summary: "process_summary", tip: "process_tip" },
-        paper: { score: "paper_score", summary: "paper_summary", tip: "paper_tip" },
-        pain: { score: "pain_score", summary: "pain_summary", tip: "pain_tip" },
-        champion: { score: "champion_score", summary: "champion_summary", tip: "champion_tip" },
-        competition: { score: "competition_score", summary: "competition_summary", tip: "competition_tip" },
-        timing: { score: "timing_score", summary: "timing_summary", tip: "timing_tip" },
-        budget: { score: "budget_score", summary: "budget_summary", tip: "budget_tip" },
-      };
-      const fallback = map[c];
-      const fallbackScore = fallback ? Number(opp?.[fallback.score] ?? 0) : 0;
-      const fallbackTip = fallback ? String(opp?.[fallback.tip] ?? "") : "";
-      const summary = fallback ? opp?.[fallback.summary] : "";
-      const split = splitLabelEvidence(summary);
-      return {
-        category: c,
-        score: Number(fallbackScore ?? 0),
-        label: String(split.label ?? ""),
-        tip: String(fallbackTip ?? ""),
-        evidence: String(split.evidence ?? ""),
-        updated_at: opportunity?.updated_at ?? null,
-      };
-    });
-
-    const healthPercent = computeHealthPercentFromOpportunity((opportunity as any)?.health_score);
-
-    const rollup = {
-      // We don't maintain a separate rollup table; this is the canonical stored wrap on opportunities.
-      summary: "",
-      next_steps: String((opportunity as any)?.next_steps || "").trim(),
-      risks: String((opportunity as any)?.risk_summary || "").trim(),
-      updated_at: (opportunity as any)?.updated_at ?? null,
-    };
-
-    return NextResponse.json({
-      ok: true,
-      opportunity,
-      rollup,
-      healthPercent,
-      categories,
-    });
+    const auditEvents = await listOpportunityAuditEvents({ orgId, opportunityId, limit });
+    return NextResponse.json({ ok: true, opportunity, auditEvents });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 400 });
   }
 }
 

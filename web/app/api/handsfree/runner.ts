@@ -97,6 +97,10 @@ export async function runUntilPauseOrEnd(args: {
           pool: args.pool,
           session,
           text: nextText,
+          // IMPORTANT: During kickoff/intro, do not allow tool calls.
+          // This prevents the model from fabricating evidence and saving before the rep speaks.
+          toolChoice: args.kickoff ? "none" : "auto",
+          repTurn: !args.kickoff,
         });
         const assistantText = r.assistantText || "";
         const done = !!r.done;
@@ -113,6 +117,7 @@ export async function runUntilPauseOrEnd(args: {
         // If the assistant's last line looks like a direct prompt (question or imperative), pause immediately.
         if (shouldPauseForUser(assistantText)) {
           run.status = "WAITING_FOR_USER";
+          run.waitingSeq = (Number(run.waitingSeq || 0) || 0) + 1;
           run.waitingPrompt = assistantText;
           run.updatedAt = Date.now();
           return run;
@@ -126,6 +131,7 @@ export async function runUntilPauseOrEnd(args: {
 
       // If we hit our guard without reaching a pause/end, fail safe by pausing.
       run.status = "WAITING_FOR_USER";
+      run.waitingSeq = (Number(run.waitingSeq || 0) || 0) + 1;
       run.waitingPrompt = run.messages.filter((m) => m.role === "assistant").at(-1)?.text || "Please reply to continue.";
       run.updatedAt = Date.now();
       return run;

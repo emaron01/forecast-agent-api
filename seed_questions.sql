@@ -1,0 +1,136 @@
+DELETE FROM question_definitions WHERE org_id = 1;
+
+INSERT INTO question_definitions
+  (org_id, category, question_type, question_text, min_criteria_id, max_criteria_id, priority, active, notes)
+VALUES
+  -- PAIN
+  (1, 'pain', 'base',
+   'What specific business problem is the customer trying to solve, and what happens if they do nothing?',
+   NULL, NULL, 10, TRUE, 'Primary pain question'),
+  (1, 'pain', 'clarifier',
+   'If they do nothing, what is the measurable consequence (dollars, time, churn, risk, missed target)?',
+   2, 3, 20, TRUE, 'Clear vs Quantified'),
+  (1, 'pain', 'clarifier',
+   'Is this a must-fix issue or more of a "nice to have"? What makes it urgent?',
+   1, 2, 30, TRUE, 'Vague vs Clear'),
+
+  -- METRICS
+  (1, 'metrics', 'base',
+   'What measurable outcome is the customer trying to improve?',
+   NULL, NULL, 10, TRUE, NULL),
+  (1, 'metrics', 'base',
+   'How are they measuring success today (baseline and target if known)?',
+   NULL, NULL, 20, TRUE, NULL),
+  (1, 'metrics', 'clarifier',
+   'Have they validated the ROI/economic impact themselves, or is this still our estimate?',
+   2, 3, 30, TRUE, 'Rep-defined vs validated'),
+  (1, 'metrics', 'clarifier',
+   'Are the KPIs confirmed by the customer, or are they still defined primarily by us?',
+   1, 2, 40, TRUE, 'Soft benefits vs rep-defined'),
+
+  -- CHAMPION
+  (1, 'champion', 'base',
+   'Who is actively pushing this forward internally?',
+   NULL, NULL, 10, TRUE, 'Avoid using the word champion'),
+  (1, 'champion', 'base',
+   'What have they done so far to move the deal forward (meetings, alignment, internal selling)?',
+   NULL, NULL, 20, TRUE, NULL),
+  (1, 'champion', 'clarifier',
+   'Can they get you access to decision-makers and drive internal consensus?',
+   1, 2, 30, TRUE, 'Coach vs mobilizer'),
+  (1, 'champion', 'clarifier',
+   'Do they have real influence and a personal win if this succeeds?',
+   2, 3, 40, TRUE, 'Mobilizer vs true champion'),
+
+  -- ECONOMIC BUYER
+  (1, 'economic_buyer', 'base',
+   'Who has final approval to spend the money for this initiative?',
+   NULL, NULL, 10, TRUE, NULL),
+  (1, 'economic_buyer', 'base',
+   'Have we spoken with them directly yet?',
+   NULL, NULL, 20, TRUE, NULL),
+  (1, 'economic_buyer', 'clarifier',
+   'Are we communicating through an internal advocate, or do we have a direct line?',
+   1, 3, 30, TRUE, 'Identified vs indirect vs direct'),
+
+  -- DECISION CRITERIA
+  (1, 'criteria', 'base',
+   'What criteria will they use to choose a solution?',
+   NULL, NULL, 10, TRUE, NULL),
+  (1, 'criteria', 'base',
+   'Which criteria matter most, and how are they weighted?',
+   NULL, NULL, 20, TRUE, NULL),
+  (1, 'criteria', 'clarifier',
+   'Are the criteria documented and agreed by the buying team, or still general requirements?',
+   1, 2, 30, TRUE, 'Vague vs defined'),
+  (1, 'criteria', 'clarifier',
+   'Do we know the criteria are weighted in our favor (clear "why us" alignment)?',
+   2, 3, 40, TRUE, 'Defined vs locked'),
+
+  -- DECISION PROCESS
+  (1, 'process', 'base',
+   'What steps must happen before they can make a decision?',
+   NULL, NULL, 10, TRUE, NULL),
+  (1, 'process', 'base',
+   'Who is involved at each step, and who owns the final internal approval?',
+   NULL, NULL, 20, TRUE, NULL),
+  (1, 'process', 'clarifier',
+   'Is this process confirmed for this specific deal, or are we assuming based on past deals?',
+   0, 2, 30, TRUE, 'Unknown/assumed/understood'),
+  (1, 'process', 'clarifier',
+   'Has the process been documented and confirmed by the economic buyer?',
+   2, 3, 40, TRUE, 'Understood vs verified'),
+
+  -- COMPETITION
+  (1, 'competition', 'base',
+   'Who are we being compared against, including the status quo?',
+   NULL, NULL, 10, TRUE, NULL),
+  (1, 'competition', 'base',
+   'What does the customer like or dislike about those alternatives?',
+   NULL, NULL, 20, TRUE, NULL),
+  (1, 'competition', 'clarifier',
+   'Do we have a clear "why us" against the specific alternatives they are considering?',
+   2, 3, 30, TRUE, 'Identified vs positioned'),
+  (1, 'competition', 'clarifier',
+   'Is competition confirmed by the customer, or still our assumption?',
+   0, 2, 40, TRUE, 'Unknown/assumed vs identified'),
+
+  -- PAPER PROCESS
+  (1, 'paper', 'base',
+   'Where is the contract/procurement process right now?',
+   NULL, NULL, 10, TRUE, NULL),
+  (1, 'paper', 'base',
+   'What is the next step and target date for signature?',
+   NULL, NULL, 20, TRUE, NULL),
+  (1, 'paper', 'clarifier',
+   'Are redlines being exchanged, or is it awaiting final sign-off?',
+   1, 3, 30, TRUE, 'In review vs negotiating vs sign-off'),
+
+  -- TIMING
+  (1, 'timing', 'base',
+   'What is the target decision/close date?',
+   NULL, NULL, 10, TRUE, NULL),
+  (1, 'timing', 'base',
+   'What is driving that timing (event, deadline, dependency)?',
+   NULL, NULL, 20, TRUE, NULL),
+  (1, 'timing', 'clarifier',
+   'What happens if that date slips - are there real consequences?',
+   2, 3, 30, TRUE, 'Flexible vs compelling event'),
+  (1, 'timing', 'clarifier',
+   'Is the date confirmed by the customer, or mainly the rep''s assumption?',
+   0, 2, 40, TRUE, 'Unknown/assumed vs flexible'),
+
+  -- BUDGET (0-4)
+  (1, 'budget', 'base',
+   'Is budget allocated for this initiative?',
+   NULL, NULL, 10, TRUE, NULL),
+  (1, 'budget', 'base',
+   'What range or ceiling are they expecting, and has pricing been shared yet?',
+   NULL, NULL, 20, TRUE, NULL),
+  (1, 'budget', 'clarifier',
+   'Who owns the budget and what is the approval path to get it formally committed?',
+   1, 4, 30, TRUE, 'Find money vs allocated vs approved'),
+  (1, 'budget', 'clarifier',
+   'Has a financial decision maker accepted pricing within an approved spend?',
+   3, 4, 40, TRUE, 'Discussed vs fully confirmed')
+;

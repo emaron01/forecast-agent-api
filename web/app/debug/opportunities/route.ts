@@ -1,12 +1,7 @@
 import { NextResponse } from "next/server";
-import { Pool } from "pg";
+import { pool } from "../../../lib/pool";
 
 export const runtime = "nodejs";
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
 
 function withCors(req: Request, res: NextResponse) {
   const origin = req.headers.get("origin") || "";
@@ -30,7 +25,17 @@ export async function GET(req: Request) {
     const repName = url.searchParams.get("rep_name");
 
     let query = `
-      SELECT *
+      SELECT
+        id,
+        org_id,
+        rep_id,
+        rep_name,
+        account_name,
+        opportunity_name,
+        crm_opp_id,
+        amount,
+        close_date,
+        updated_at
       FROM opportunities
       WHERE org_id = $1
     `;

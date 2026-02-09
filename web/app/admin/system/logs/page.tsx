@@ -1,0 +1,28 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { requireAuth } from "../../../../lib/auth";
+
+export const runtime = "nodejs";
+
+export default async function SystemLogsPage() {
+  const ctx = await requireAuth();
+  if (ctx.kind !== "master") redirect("/admin");
+
+  return (
+    <main className="grid gap-4">
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-900">System logs</h1>
+        <p className="mt-1 text-sm text-slate-600">Placeholder (master only).</p>
+      </div>
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p className="text-sm text-slate-700">No log viewer implemented yet.</p>
+      </div>
+      <div>
+        <Link className="text-sm text-indigo-700 hover:underline" href="/admin/control-center">
+          Back to Owner Control Center
+        </Link>
+      </div>
+    </main>
+  );
+}
+

@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+/* App defaults */
+html,
+body {
+  height: 100%;
+}
+
+/* Fallback if Tailwind is unavailable */
+body {
+  margin: 0;
+}
+

@@ -10,6 +10,9 @@ export type HandsFreeRun = {
   runId: string;
   sessionId: string;
   status: HandsFreeStatus;
+  // Increments every time the server enters WAITING_FOR_USER.
+  // Used to deterministically drop stale/late transcripts.
+  waitingSeq?: number;
   waitingPrompt?: string;
   error?: string;
   // Prompt versioning (recorded at start; prompt content is cached on session).

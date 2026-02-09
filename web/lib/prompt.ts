@@ -1,6 +1,8 @@
 type Deal = Record<string, any>;
 type ScoreDef = { category: string; score: number; label?: string; criteria?: string };
 
+export type GapSpec = { name: string; key: string; val: any; touchedKey: string };
+
 function formatScoreDefinitions(defs: ScoreDef[]) {
   if (!Array.isArray(defs) || defs.length === 0) return "No criteria available.";
   const byCat = new Map<string, ScoreDef[]>();
@@ -31,19 +33,19 @@ function buildLabelMap(defs: ScoreDef[]) {
   return map;
 }
 
-function computeFirstGap(deal: Deal, stage: string, touchedSet?: Set<string>) {
+export function computeFirstGap(deal: Deal, stage: string, touchedSet?: Set<string>): GapSpec {
   const stageStr = String(stage || deal?.forecast_stage || "Pipeline");
   const pipelineOrder = [
     { name: "Pain", key: "pain_score", val: deal.pain_score, touchedKey: "pain" },
     { name: "Metrics", key: "metrics_score", val: deal.metrics_score, touchedKey: "metrics" },
-    { name: "Champion", key: "champion_score", val: deal.champion_score, touchedKey: "champion" },
+    { name: "Internal Sponsor", key: "champion_score", val: deal.champion_score, touchedKey: "champion" },
     { name: "Competition", key: "competition_score", val: deal.competition_score, touchedKey: "competition" },
     { name: "Budget", key: "budget_score", val: deal.budget_score, touchedKey: "budget" },
   ];
   const bestCaseCommitOrder = [
     { name: "Pain", key: "pain_score", val: deal.pain_score, touchedKey: "pain" },
     { name: "Metrics", key: "metrics_score", val: deal.metrics_score, touchedKey: "metrics" },
-    { name: "Champion", key: "champion_score", val: deal.champion_score, touchedKey: "champion" },
+    { name: "Internal Sponsor", key: "champion_score", val: deal.champion_score, touchedKey: "champion" },
     { name: "Criteria", key: "criteria_score", val: deal.criteria_score, touchedKey: "criteria" },
     { name: "Competition", key: "competition_score", val: deal.competition_score, touchedKey: "competition" },
     { name: "Timing", key: "timing_score", val: deal.timing_score, touchedKey: "timing" },
@@ -63,7 +65,15 @@ function computeFirstGap(deal: Deal, stage: string, touchedSet?: Set<string>) {
   return order[0];
 }
 
-export function buildPrompt(deal: Deal, repName: string, totalCount: number, isFirstDeal: boolean, touchedSet: Set<string>, scoreDefs: ScoreDef[]) {
+export function buildPrompt(
+  deal: Deal,
+  repName: string,
+  totalCount: number,
+  isFirstDeal: boolean,
+  touchedSet: Set<string>,
+  scoreDefs: ScoreDef[],
+  questionPack?: { primary?: string; clarifiers?: string[] }
+) {
   const stage = deal.forecast_stage || "Pipeline";
   const amountStr = new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -106,22 +116,32 @@ export function buildPrompt(deal: Deal, repName: string, totalCount: number, isF
   const labelCategory = labelKeyMap[firstGap.key] || "";
   const label = (labelCategory && labelMap[labelCategory]?.[scoreVal]) || "Unknown";
 
+  const primaryFromDb = String(questionPack?.primary || "").trim();
+  const clarifiersFromDb = (questionPack?.clarifiers || []).map((s) => String(s || "").trim()).filter(Boolean);
+
   const gapQuestion = (() => {
     if (scoreVal >= 3) {
       return `Last review ${firstGap.name} was strong.\nHas anything changed that could introduce new risk?`;
     }
     if (scoreVal === 0) {
-      if (String(stage).includes("Pipeline")) {
-        if (firstGap.name === "Pain")
-          return "What specific business problem is the customer trying to solve, and what happens if they do nothing?";
-        if (firstGap.name === "Metrics")
-          return "What measurable outcome has the customer agreed matters, and who validated it?";
-        if (firstGap.name === "Champion")
-          return "Who is driving this internally, what is their role, and how have they shown advocacy?";
-        if (firstGap.name === "Budget")
-          return "Has budget been discussed or confirmed, and at what level?";
-        return `What changed since last time on ${firstGap.name}?`;
-      }
+      if (primaryFromDb) return primaryFromDb;
+      // Fallbacks if DB is missing/unavailable.
+      if (firstGap.touchedKey === "pain")
+        return "What specific business problem is the customer trying to solve, and what happens if they do nothing?";
+      if (firstGap.touchedKey === "metrics")
+        return "What measurable outcome has the customer agreed matters, and who validated it?";
+      if (firstGap.touchedKey === "champion")
+        return "Who is your internal sponsor/coach, what influence do they have, and what concrete action have they taken in this cycle?";
+      if (firstGap.touchedKey === "budget") return "Has budget been discussed or confirmed, and at what level?";
+      if (firstGap.touchedKey === "criteria") return "What are the top decision criteria, in the buyer’s words, and how is each weighted?";
+      if (firstGap.touchedKey === "competition") return "What is the competitive alternative, and what’s the buyer-verified reason you win?";
+      if (firstGap.touchedKey === "timing")
+        return "What buyer-owned event drives timing, and what are the critical path milestones between now and close?";
+      if (firstGap.touchedKey === "process")
+        return "Walk me through the decision process step-by-step (stages, owners, dates) and what could block progress.";
+      if (firstGap.touchedKey === "paper")
+        return "What is the paper process (legal/procurement/security), who owns each step, and what are the target dates to signature?";
+      if (firstGap.touchedKey === "eb") return "Who is the economic buyer, what do they personally care about, and do you have direct access (or a committed intro)?";
       return `What is the latest on ${firstGap.name}?`;
     }
     return `Last review ${firstGap.name} was ${label}.\nHave we made progress since the last review?`;
@@ -147,6 +167,13 @@ export function buildPrompt(deal: Deal, repName: string, totalCount: number, isF
     "",
     "NEXT QUESTION (ask now):",
     gapQuestion,
+    ...(clarifiersFromDb.length
+      ? [
+          "",
+          "CLARIFIER QUESTIONS (ask at most ONE if needed):",
+          ...clarifiersFromDb.map((q) => `- ${q}`),
+        ]
+      : []),
     "",
     "SCORING CRITERIA (AUTHORITATIVE)",
     criteriaBlock,
