@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireAuth } from "../../../lib/auth";
+import { getOrganization } from "../../../lib/db";
 
 export const runtime = "nodejs";
 
@@ -26,6 +27,8 @@ export default async function OwnerControlCenterPage() {
   const ctx = await requireAuth();
   if (ctx.kind !== "master") redirect("/admin");
 
+  const activeOrg = ctx.orgId ? await getOrganization({ id: ctx.orgId }).catch(() => null) : null;
+
   return (
     <main className="grid gap-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -43,40 +46,63 @@ export default async function OwnerControlCenterPage() {
         </div>
       </header>
 
+      {!activeOrg ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+          <div className="font-semibold">No active organization selected</div>
+          <div className="mt-1 text-amber-800">
+            Org-scoped pages (Users/Reps/Ingestion/Mapping Sets/Org Profile) require an active org. Set it on{" "}
+            <Link href="/admin/organizations" className="font-medium underline">
+              Organizations
+            </Link>
+            .
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-800">
+          <div className="font-semibold">Active organization</div>
+          <div className="mt-1">
+            <span className="font-medium">{activeOrg.name}</span>{" "}
+            <span className="font-mono text-xs text-slate-500">{activeOrg.public_id}</span>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2">
-        <Section title="1. Organization Management">
-          <Item href="/admin/organizations?modal=new" title="Create Organization" desc="Create a new customer organization." />
-          <Item href="/admin/organizations" title="List Organizations" desc="View all orgs and set active org context." />
-          <Item href="/admin/organizations" title="Edit Organization" desc="Edit org name/status (and profile fields once added)." />
-          <Item href="/admin/organizations" title="Suspend / Reactivate Organization" desc="Toggle organization active flag." />
+        <Section title="1. SaaS Owner (master) tasks">
+          <Item href="/admin/organizations?modal=new" title="Create organization" desc="Create a new customer organization." />
+          <Item href="/admin/organizations" title="Organizations" desc="List orgs + set active org context." />
+          <Item href="/admin/all-users" title="All users (cross-org)" desc="Support/QA view across all orgs." />
+          <Item href="/admin/email-templates" title="Email templates" desc="Manage welcome/invite/reset templates." />
+          <Item href="/api/db-check" title="DB check" desc="Health/status endpoint (admin/master only)." />
         </Section>
 
-        <Section title="2. User Management">
-          <Item href="/admin/all-users" title="List All Users (across all orgs)" desc="Cross-org view for support and QA." />
-          <Item href="/admin/users" title="User Management (org admin view)" desc="Create/edit users within the active org." />
-          <Item href="/admin/users?modal=new" title="Create First Admin for Org" desc="Set active org, then create ADMIN user." />
-          <Item href="/admin/users" title="Suspend / Reactivate User" desc="Toggle user active flag within org." />
+        <Section title="2. Active org (org-scoped) tasks">
+          <Item href="/admin/users" title="Users" desc="Create/edit users, roles, reporting lines (active org)." />
+          <Item href="/admin/reps" title="Reps" desc="Manage reps + reporting relationships (active org)." />
+          <Item href="/admin/org-profile" title="Org profile" desc="Org profile editor (active org)." />
+          <Item href="/admin/hierarchy" title="Hierarchy tree" desc="View org hierarchy + manager chain (active org)." />
         </Section>
 
-        <Section title="3. Email Templates">
-          <Item href="/admin/email-templates" title="Welcome Email Template" desc="Edit the welcome email stub." />
-          <Item href="/admin/email-templates" title="Invite Email Template" desc="Edit invite email stub." />
-          <Item href="/admin/email-templates" title="Password Reset Template" desc="Edit reset email stub." />
+        <Section title="3. Ingestion + mappings (active org)">
+          <Item href="/admin/mapping-sets" title="Mapping sets" desc="Create mapping sets + field mappings." />
+          <Item href="/admin/ingestion" title="Ingestion" desc="View staging rows, retry failures, trigger processing." />
+          <Item href="/admin/excel-opportunities" title="Excel opportunities upload" desc="Upload Excel, map fields, ingest opportunities." />
         </Section>
 
-        <Section title="4. System Utilities">
+        <Section title="4. System utilities (placeholders)">
           <Item href="/admin/system/logs" title="View System Logs (placeholder)" desc="Placeholder page for future log viewing." />
           <Item href="/admin/system/ingestion-status" title="View Ingestion Status (placeholder)" desc="Placeholder page for ingestion monitoring." />
           <Item href="/admin/system/test-emails" title="Trigger Test Emails (stub)" desc="Stub to exercise email templating." />
           <Item href="/admin/system/test-notifications" title="Trigger Test Notifications (stub)" desc="Stub page for future notifications." />
         </Section>
 
-        <Section title="5. Application Pages (for testing)">
+        <Section title="5. App pages (for testing)">
           <Item href="/dashboard" title="Dashboard" desc="Role-based dashboard routing." />
-          <Item href="/admin/users" title="User Management" desc="Users + reporting lines UI." />
-          <Item href="/admin/excel-opportunities" title="Excel Opportunities Upload" desc="Upload Excel, map fields, and ingest opportunities." />
-          <Item href="/admin/org-profile" title="Org Profile Page" desc="Org profile editor (to be implemented)." />
-          <Item href="/admin/hierarchy" title="Hierarchy Tree" desc="Org hierarchy view (to be implemented)." />
+          <Item href="/admin" title="Admin home" desc="Admin landing page cards." />
+          <Item href="/admin/users" title="Users" desc="Users + reporting lines UI." />
+          <Item href="/admin/reps" title="Reps" desc="Rep management UI." />
+          <Item href="/admin/mapping-sets" title="Mapping sets" desc="Mapping sets + field mappings UI." />
+          <Item href="/admin/ingestion" title="Ingestion" desc="Staging rows UI." />
           <Item href="/login" title="Login Page" desc="Login flow." />
           <Item href="/forgot-password" title="Forgot Password Page" desc="Password reset request flow." />
           <Item href="/reset-password" title="Reset Password Page" desc="Password reset set-new-password flow." />

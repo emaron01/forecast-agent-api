@@ -11,7 +11,7 @@ const UserInputSchema = z.object({
   role: z.enum(["ADMIN", "MANAGER", "REP"]),
   first_name: z.string().min(1),
   last_name: z.string().min(1),
-  account_owner_name: z.string().min(1),
+  account_owner_name: z.string().optional(),
   manager_email: z.string().optional(),
 });
 
@@ -122,15 +122,18 @@ export async function signupAction(formData: FormData) {
         const password_hash = passwordHashes[i];
         const display_name = `${String(u.first_name || "").trim()} ${String(u.last_name || "").trim()}`.trim();
         if (!display_name) redirectError("invalid_request");
+        const hierarchy_level = u.role === "ADMIN" ? 0 : u.role === "MANAGER" ? 2 : 3;
+        const account_owner_name = String(u.account_owner_name || "").trim() || null;
+        if (hierarchy_level === 3 && !account_owner_name) throw new Error("REP account_owner_name is required");
         const res = await c.query(
           `
           INSERT INTO users
-            (org_id, email, password_hash, role, first_name, last_name, display_name, account_owner_name, manager_user_id, active, created_at, updated_at)
+            (org_id, email, password_hash, role, hierarchy_level, first_name, last_name, display_name, account_owner_name, manager_user_id, active, created_at, updated_at)
           VALUES
-            ($1,$2,$3,$4,$5,$6,$7,$8,NULL,TRUE,NOW(),NOW())
+            ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULL,TRUE,NOW(),NOW())
           RETURNING id, email, role
           `,
-          [orgId, u.email, password_hash, u.role, u.first_name, u.last_name, display_name, u.account_owner_name]
+          [orgId, u.email, password_hash, u.role, hierarchy_level, u.first_name, u.last_name, display_name, account_owner_name]
         );
         inserted.push({
           id: Number(res.rows?.[0]?.id || 0),

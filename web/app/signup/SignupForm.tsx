@@ -6,6 +6,7 @@ type Role = "ADMIN" | "MANAGER" | "REP";
 
 type UserDraft = {
   role: Role;
+  hierarchy_level: 0 | 2 | 3;
   email: string;
   password: string;
   first_name: string;
@@ -15,8 +16,10 @@ type UserDraft = {
 };
 
 function emptyUser(role: Role): UserDraft {
+  const hierarchy_level = role === "ADMIN" ? 0 : role === "MANAGER" ? 2 : 3;
   return {
     role,
+    hierarchy_level,
     email: "",
     password: "",
     first_name: "",
@@ -161,12 +164,33 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
                     <label className="text-sm font-medium text-slate-700">Role</label>
                     <select
                       value={u.role}
-                      onChange={(e) => setUser(i, { role: e.target.value as Role, manager_email: "" })}
+                      onChange={(e) => {
+                        const role = e.target.value as Role;
+                        const hierarchy_level = role === "ADMIN" ? 0 : role === "MANAGER" ? 2 : 3;
+                        setUser(i, { role, hierarchy_level, manager_email: "" });
+                      }}
                       className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
                     >
                       <option value="ADMIN">ADMIN</option>
                       <option value="MANAGER">MANAGER</option>
                       <option value="REP">REP</option>
+                    </select>
+                  </div>
+
+                  <div className="grid gap-1.5">
+                    <label className="text-sm font-medium text-slate-700">Hierarchy level</label>
+                    <select
+                      value={String(u.hierarchy_level)}
+                      onChange={(e) => {
+                        const lvl = Number(e.target.value) as 0 | 2 | 3;
+                        const role: Role = lvl === 0 ? "ADMIN" : lvl === 2 ? "MANAGER" : "REP";
+                        setUser(i, { hierarchy_level: lvl, role, manager_email: "" });
+                      }}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                    >
+                      <option value="0">0 (Admin)</option>
+                      <option value="2">2 (Manager)</option>
+                      <option value="3">3 (Rep)</option>
                     </select>
                   </div>
 
@@ -204,14 +228,15 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
                   </div>
 
                   <div className="grid gap-1.5">
-                    <label className="text-sm font-medium text-slate-700">Account owner name</label>
+                    <label className="text-sm font-medium text-slate-700">Name As It Appears In CRM</label>
                     <input
                       value={u.account_owner_name}
                       onChange={(e) => setUser(i, { account_owner_name: e.target.value })}
                       className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
                       placeholder="Jane Doe"
-                      required
+                      required={u.hierarchy_level === 3}
                     />
+                    <p className="text-xs font-medium text-slate-600">Required for Reps only.</p>
                   </div>
 
                   <div className="grid gap-1.5 md:col-span-2">

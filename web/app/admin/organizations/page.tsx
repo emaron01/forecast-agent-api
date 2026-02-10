@@ -213,6 +213,23 @@ export default async function OrganizationsPage({
 
               <div className="mt-3 grid gap-3">
                 <div className="grid gap-1">
+                  <label className="text-sm font-medium text-slate-700">Hierarchy level</label>
+                  {/* First admin is always role ADMIN (hierarchy level 0). */}
+                  <select
+                    defaultValue="0"
+                    disabled
+                    className="rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-700"
+                    aria-label="Hierarchy level (Admin)"
+                  >
+                    <option value="0">0 (Admin)</option>
+                    <option value="1">1 (Executive Manager)</option>
+                    <option value="2">2 (Manager)</option>
+                    <option value="3">3 (Rep)</option>
+                  </select>
+                  <input type="hidden" name="admin_hierarchy_level" value="0" />
+                </div>
+
+                <div className="grid gap-1">
                   <label className="text-sm font-medium text-slate-700">admin_email</label>
                   <input
                     name="admin_email"
@@ -246,15 +263,14 @@ export default async function OrganizationsPage({
                 </div>
 
                 <div className="grid gap-1">
-                  <label className="text-sm font-medium text-slate-700">CRM Account Owner Name</label>
+                  <label className="text-sm font-medium text-slate-700">Name As It Appears In CRM</label>
                   <input
                     name="admin_account_owner_name"
                     className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                    required
                   />
                   <p className="text-xs font-medium text-red-700">
                     This name is used to exactly match the Account Owner for each Opportunity in CRM used for Forecast Reviews. Please COPY
-                    and PASTE the name as it appears in CRM.
+                    and PASTE the name as it appears in CRM. (Required for Reps only)
                   </p>
                 </div>
 

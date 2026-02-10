@@ -286,7 +286,7 @@ export default async function UsersPage({
             </div>
 
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">CRM Account Owner Name</label>
+              <label className="text-sm font-medium text-slate-700">Name As It Appears In CRM</label>
               <input name="account_owner_name" className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
               <p className="text-xs font-medium text-red-700">
                 This name is used to exactly match the Account Owner for each Opportunity in CRM used for Forecast Reviews. Please COPY and
@@ -421,7 +421,7 @@ export default async function UsersPage({
             </div>
 
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">CRM Account Owner Name</label>
+              <label className="text-sm font-medium text-slate-700">Name As It Appears In CRM</label>
               <input
                 name="account_owner_name"
                 defaultValue={user.account_owner_name || ""}

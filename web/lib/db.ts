@@ -1114,7 +1114,7 @@ export async function createOrganizationWithFirstAdmin(args: {
     first_name?: string | null;
     last_name?: string | null;
     display_name: string;
-    account_owner_name: string;
+    account_owner_name?: string | null;
     admin_has_full_analytics_access?: boolean;
     active?: boolean;
   };
@@ -1132,9 +1132,8 @@ export async function createOrganizationWithFirstAdmin(args: {
   if (!password_hash) throw new Error("admin.password_hash is required");
 
   const display_name = String(args.admin?.display_name || "").trim();
-  const account_owner_name = String(args.admin?.account_owner_name || "").trim();
+  const account_owner_name = String(args.admin?.account_owner_name || "").trim() || null;
   if (!display_name) throw new Error("admin.display_name is required");
-  if (!account_owner_name) throw new Error("admin.account_owner_name is required");
 
   const parent_org_id =
     args.organization?.parent_org_id == null || args.organization.parent_org_id === ("" as any)

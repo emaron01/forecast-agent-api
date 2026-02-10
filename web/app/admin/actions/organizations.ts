@@ -70,7 +70,8 @@ const CreateWithAdminSchema = UpsertSchema.omit({ public_id: true }).extend({
   admin_password: z.string().optional(),
   admin_first_name: z.string().min(1),
   admin_last_name: z.string().min(1),
-  admin_account_owner_name: z.string().min(1),
+  admin_hierarchy_level: z.coerce.number().int().min(0).max(3).default(0),
+  admin_account_owner_name: z.string().optional(),
   admin_has_full_analytics_access: z
     .enum(["true", "false"])
     .optional()
@@ -101,7 +102,8 @@ export async function createOrganizationWithFirstAdminAction(formData: FormData)
     admin_password: formData.get("admin_password") || undefined,
     admin_first_name: formData.get("admin_first_name"),
     admin_last_name: formData.get("admin_last_name"),
-    admin_account_owner_name: formData.get("admin_account_owner_name"),
+    admin_hierarchy_level: formData.get("admin_hierarchy_level") || undefined,
+    admin_account_owner_name: formData.get("admin_account_owner_name") || undefined,
     admin_has_full_analytics_access: formData.get("admin_has_full_analytics_access") || undefined,
   });
 
@@ -109,6 +111,11 @@ export async function createOrganizationWithFirstAdminAction(formData: FormData)
     .trim()
     .toLowerCase();
   if (!email) throw new Error("admin_email is required");
+
+  // First admin is always role ADMIN (hierarchy level 0).
+  if (parsed.admin_hierarchy_level !== 0) {
+    throw new Error("admin_hierarchy_level must be 0 for the first admin");
+  }
 
   const pw = String(parsed.admin_password || "");
   if (pw && pw.length < 8) throw new Error("admin_password must be at least 8 characters (or leave blank to invite)");
@@ -139,7 +146,7 @@ export async function createOrganizationWithFirstAdminAction(formData: FormData)
       first_name: parsed.admin_first_name,
       last_name: parsed.admin_last_name,
       display_name: buildDisplayName(parsed.admin_first_name, parsed.admin_last_name),
-      account_owner_name: parsed.admin_account_owner_name,
+      account_owner_name: norm(parsed.admin_account_owner_name),
       admin_has_full_analytics_access: parsed.admin_has_full_analytics_access ?? false,
       active: true,
     },
