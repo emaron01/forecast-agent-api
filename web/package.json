@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/dev.mjs",
     "build": "next build",
-    "start": "node scripts/start.mjs"
+    "start": "node scripts/start.mjs",
+    "migrate": "node scripts/migrate.mjs"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.1.18",
