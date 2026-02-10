@@ -52,12 +52,12 @@ export default async function OrgProfilePage({
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <form action={updateOrgProfileAction} className="grid gap-4">
           <div className="grid gap-1">
-            <label className="text-sm font-medium text-slate-700">billing_plan</label>
+            <label className="text-sm font-medium text-slate-700">Billing Plan</label>
             <input
               name="billing_plan"
               defaultValue={org.billing_plan || ""}
               className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              placeholder="pro / enterprise / etc"
+              placeholder="Free / Pro / Enterprise"
             />
           </div>
 
@@ -84,32 +84,32 @@ export default async function OrgProfilePage({
 
           <div className="grid gap-3 md:grid-cols-2">
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">hq_address_line1</label>
+              <label className="text-sm font-medium text-slate-700">Address 1</label>
               <input name="hq_address_line1" defaultValue={org.hq_address_line1 || ""} className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
             </div>
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">hq_address_line2</label>
+              <label className="text-sm font-medium text-slate-700">Address 2</label>
               <input name="hq_address_line2" defaultValue={org.hq_address_line2 || ""} className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
             </div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">hq_city</label>
+              <label className="text-sm font-medium text-slate-700">City</label>
               <input name="hq_city" defaultValue={org.hq_city || ""} className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
             </div>
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">hq_state</label>
+              <label className="text-sm font-medium text-slate-700">State</label>
               <input name="hq_state" defaultValue={org.hq_state || ""} className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
             </div>
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">hq_postal_code</label>
+              <label className="text-sm font-medium text-slate-700">Zip Code</label>
               <input name="hq_postal_code" defaultValue={org.hq_postal_code || ""} className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
             </div>
           </div>
 
           <div className="grid gap-1">
-            <label className="text-sm font-medium text-slate-700">hq_country</label>
+            <label className="text-sm font-medium text-slate-700">Country</label>
             <input name="hq_country" defaultValue={org.hq_country || ""} className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
           </div>
 

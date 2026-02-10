@@ -153,18 +153,18 @@ export default async function OrganizationsPage({
         <Modal title="New organization" closeHref="/admin/organizations">
           <form action={createOrganizationWithFirstAdminAction} className="grid gap-3">
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">name</label>
+              <label className="text-sm font-medium text-slate-700">Organization Name</label>
               <input name="name" className="rounded-md border border-slate-300 px-3 py-2 text-sm" required />
             </div>
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">active</label>
+              <label className="text-sm font-medium text-slate-700">Active</label>
               <select name="active" defaultValue="true" className="rounded-md border border-slate-300 px-3 py-2 text-sm">
                 <option value="true">true</option>
                 <option value="false">false</option>
               </select>
             </div>
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">parent_org_id (optional)</label>
+              <label className="text-sm font-medium text-slate-700">Parent Organization (optional)</label>
               <select name="parent_org_public_id" defaultValue="" className="rounded-md border border-slate-300 px-3 py-2 text-sm">
                 <option value="">(none)</option>
                 {orgs.map((o) => (
@@ -175,41 +175,43 @@ export default async function OrganizationsPage({
               </select>
             </div>
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">billing_plan</label>
-              <input name="billing_plan" className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="free / pro / enterprise" />
+              <label className="text-sm font-medium text-slate-700">Billing Plan</label>
+              <input name="billing_plan" className="rounded-md border border-slate-300 px-3 py-2 text-sm" placeholder="Free / Pro / Enterprise" />
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">hq_address_line1</label>
+                <label className="text-sm font-medium text-slate-700">Address 1</label>
                 <input name="hq_address_line1" className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
               </div>
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">hq_address_line2</label>
+                <label className="text-sm font-medium text-slate-700">Address 2</label>
                 <input name="hq_address_line2" className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
               </div>
             </div>
             <div className="grid gap-3 md:grid-cols-3">
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">hq_city</label>
+                <label className="text-sm font-medium text-slate-700">City</label>
                 <input name="hq_city" className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
               </div>
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">hq_state</label>
+                <label className="text-sm font-medium text-slate-700">State</label>
                 <input name="hq_state" className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
               </div>
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">hq_postal_code</label>
+                <label className="text-sm font-medium text-slate-700">Zip Code</label>
                 <input name="hq_postal_code" className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
               </div>
             </div>
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">hq_country</label>
+              <label className="text-sm font-medium text-slate-700">Country</label>
               <input name="hq_country" className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
             </div>
 
             <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div className="text-sm font-semibold text-slate-900">First admin (Organization Admin)</div>
-              <div className="mt-1 text-xs text-slate-600">This user will be created in the new organization with role ADMIN.</div>
+              <div className="text-sm font-semibold text-slate-900">Organization Administrator Set-Up</div>
+              <div className="mt-1 text-xs text-slate-600">
+                This user will be created in the new organization with the Administrator role.
+              </div>
 
               <div className="mt-3 grid gap-3">
                 <div className="grid gap-1">
@@ -230,7 +232,7 @@ export default async function OrganizationsPage({
                 </div>
 
                 <div className="grid gap-1">
-                  <label className="text-sm font-medium text-slate-700">admin_email</label>
+                  <label className="text-sm font-medium text-slate-700">Email</label>
                   <input
                     name="admin_email"
                     type="email"
@@ -241,7 +243,7 @@ export default async function OrganizationsPage({
                 </div>
 
                 <div className="grid gap-1">
-                  <label className="text-sm font-medium text-slate-700">admin_password</label>
+                  <label className="text-sm font-medium text-slate-700">Password</label>
                   <input
                     name="admin_password"
                     type="password"
@@ -253,11 +255,11 @@ export default async function OrganizationsPage({
 
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="grid gap-1">
-                    <label className="text-sm font-medium text-slate-700">admin_first_name</label>
+                    <label className="text-sm font-medium text-slate-700">First Name</label>
                     <input name="admin_first_name" className="rounded-md border border-slate-300 px-3 py-2 text-sm" required />
                   </div>
                   <div className="grid gap-1">
-                    <label className="text-sm font-medium text-slate-700">admin_last_name</label>
+                    <label className="text-sm font-medium text-slate-700">Last Name</label>
                     <input name="admin_last_name" className="rounded-md border border-slate-300 px-3 py-2 text-sm" required />
                   </div>
                 </div>
@@ -275,7 +277,7 @@ export default async function OrganizationsPage({
                 </div>
 
                 <div className="grid gap-1">
-                  <label className="text-sm font-medium text-slate-700">admin_has_full_analytics_access</label>
+                  <label className="text-sm font-medium text-slate-700">Analytics Access</label>
                   <select name="admin_has_full_analytics_access" defaultValue="false" className="rounded-md border border-slate-300 px-3 py-2 text-sm">
                     <option value="false">false</option>
                     <option value="true">true</option>
