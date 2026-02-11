@@ -53,7 +53,7 @@ export const CreateUserSchema = z
     org_public_id: z.string().uuid().optional(),
     email: z.string().min(1),
     role: z.enum(["ADMIN", "EXEC_MANAGER", "MANAGER", "REP"]),
-    hierarchy_level: z.number().int().min(0).max(3),
+    hierarchy_level: z.number().int().min(0).max(3).optional(),
     account_owner_name: z.string().optional(),
     first_name: z.string().min(1),
     last_name: z.string().min(1),
@@ -71,16 +71,21 @@ export const CreateUserSchema = z
     }
 
     const expectedLevel = v.role === "ADMIN" ? 0 : v.role === "EXEC_MANAGER" ? 1 : v.role === "MANAGER" ? 2 : 3;
-    if (v.hierarchy_level !== expectedLevel) {
-      ctx.addIssue({ code: "custom", path: ["hierarchy_level"], message: `hierarchy_level must be ${expectedLevel} for role ${v.role}` });
+    const effectiveLevel = v.hierarchy_level == null ? expectedLevel : v.hierarchy_level;
+    if (v.hierarchy_level != null && v.hierarchy_level !== expectedLevel) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["hierarchy_level"],
+        message: `hierarchy_level must be ${expectedLevel} for role ${v.role}`,
+      });
     }
 
     const crm = String(v.account_owner_name || "").trim();
-    if (v.hierarchy_level === 3 && !crm) {
+    if (effectiveLevel === 3 && !crm) {
       ctx.addIssue({ code: "custom", path: ["account_owner_name"], message: "account_owner_name is required for REPs" });
     }
 
-    if (v.hierarchy_level === 2 && !v.see_all_visibility && v.visible_user_public_ids.length === 0) {
+    if (effectiveLevel === 2 && !v.see_all_visibility && v.visible_user_public_ids.length === 0) {
       ctx.addIssue({
         code: "custom",
         path: ["visible_user_public_ids"],
@@ -98,7 +103,7 @@ export const UpdateUserSchema = z
     public_id: z.string().uuid(),
     email: z.string().min(1).optional(),
     role: z.enum(["ADMIN", "EXEC_MANAGER", "MANAGER", "REP"]),
-    hierarchy_level: z.number().int().min(0).max(3),
+    hierarchy_level: z.number().int().min(0).max(3).optional(),
     account_owner_name: z.string().optional(),
     first_name: z.string().min(1),
     last_name: z.string().min(1),
@@ -110,16 +115,21 @@ export const UpdateUserSchema = z
   })
   .superRefine((v, ctx) => {
     const expectedLevel = v.role === "ADMIN" ? 0 : v.role === "EXEC_MANAGER" ? 1 : v.role === "MANAGER" ? 2 : 3;
-    if (v.hierarchy_level !== expectedLevel) {
-      ctx.addIssue({ code: "custom", path: ["hierarchy_level"], message: `hierarchy_level must be ${expectedLevel} for role ${v.role}` });
+    const effectiveLevel = v.hierarchy_level == null ? expectedLevel : v.hierarchy_level;
+    if (v.hierarchy_level != null && v.hierarchy_level !== expectedLevel) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["hierarchy_level"],
+        message: `hierarchy_level must be ${expectedLevel} for role ${v.role}`,
+      });
     }
 
     const crm = String(v.account_owner_name || "").trim();
-    if (v.hierarchy_level === 3 && !crm) {
+    if (effectiveLevel === 3 && !crm) {
       ctx.addIssue({ code: "custom", path: ["account_owner_name"], message: "account_owner_name is required for REPs" });
     }
 
-    if (v.hierarchy_level === 2 && !v.see_all_visibility && v.visible_user_public_ids.length === 0) {
+    if (effectiveLevel === 2 && !v.see_all_visibility && v.visible_user_public_ids.length === 0) {
       ctx.addIssue({
         code: "custom",
         path: ["visible_user_public_ids"],

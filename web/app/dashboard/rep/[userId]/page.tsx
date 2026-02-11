@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { logoutAction } from "../../../actions/auth";
 import { requireAuth } from "../../../../lib/auth";
-import { getUserById, getVisibleUsers, listRecentOpportunitiesForAccountOwner } from "../../../../lib/db";
+import { getOrganization, getUserById, getVisibleUsers, listRecentOpportunitiesForAccountOwner } from "../../../../lib/db";
 import { resolvePublicId } from "../../../../lib/publicId";
+import { UserTopNav } from "../../../_components/UserTopNav";
 
 export const runtime = "nodejs";
 
@@ -36,63 +36,64 @@ export default async function RepDashboardPage({ params }: { params: { userId: s
     limit: 50,
   }).catch(() => []);
 
-  return (
-    <main className="mx-auto max-w-6xl p-6">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">{repUser.display_name}</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            {repUser.email} · account_owner_name: {repUser.account_owner_name}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Link href="/dashboard" className="text-sm text-indigo-700 hover:underline">
-            Back
-          </Link>
-          <form action={logoutAction}>
-            <button className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50">Sign out</button>
-          </form>
-        </div>
-      </header>
+  const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
+  const orgName = org?.name || "Organization";
 
-      <section className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-base font-semibold text-slate-900">Recent opportunities</h2>
-        <div className="mt-3 overflow-auto rounded-md border border-slate-200">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-slate-600">
-              <tr>
-                <th className="px-4 py-3">public_id</th>
-                <th className="px-4 py-3">account</th>
-                <th className="px-4 py-3">opportunity</th>
-                <th className="px-4 py-3">amount</th>
-                <th className="px-4 py-3">close</th>
-                <th className="px-4 py-3">updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {opportunities.length ? (
-                opportunities.map((o) => (
-                  <tr key={o.public_id} className="border-t border-slate-100">
-                    <td className="px-4 py-3 font-mono text-xs">{o.public_id}</td>
-                    <td className="px-4 py-3">{o.account_name || ""}</td>
-                    <td className="px-4 py-3">{o.opportunity_name || ""}</td>
-                    <td className="px-4 py-3">{o.amount ?? ""}</td>
-                    <td className="px-4 py-3">{o.close_date ?? ""}</td>
-                    <td className="px-4 py-3 font-mono text-xs">{o.updated_at ?? ""}</td>
-                  </tr>
-                ))
-              ) : (
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <UserTopNav orgName={orgName} user={ctx.user} />
+      <main className="mx-auto max-w-6xl p-6">
+        <header className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900">{repUser.display_name}</h1>
+            <p className="mt-1 text-sm text-slate-600">
+              {repUser.email} · account_owner_name: {repUser.account_owner_name}
+            </p>
+          </div>
+          <Link href="/dashboard" className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+            Back to dashboard
+          </Link>
+        </header>
+
+        <section className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-base font-semibold text-slate-900">Recent opportunities</h2>
+          <div className="mt-3 overflow-auto rounded-md border border-slate-200">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-600">
                 <tr>
-                  <td className="px-4 py-6 text-center text-slate-500" colSpan={6}>
-                    No opportunities found for "{repUser.account_owner_name}".
-                  </td>
+                  <th className="px-4 py-3">public_id</th>
+                  <th className="px-4 py-3">account</th>
+                  <th className="px-4 py-3">opportunity</th>
+                  <th className="px-4 py-3">amount</th>
+                  <th className="px-4 py-3">close</th>
+                  <th className="px-4 py-3">updated</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </main>
+              </thead>
+              <tbody>
+                {opportunities.length ? (
+                  opportunities.map((o) => (
+                    <tr key={o.public_id} className="border-t border-slate-100">
+                      <td className="px-4 py-3 font-mono text-xs">{o.public_id}</td>
+                      <td className="px-4 py-3">{o.account_name || ""}</td>
+                      <td className="px-4 py-3">{o.opportunity_name || ""}</td>
+                      <td className="px-4 py-3">{o.amount ?? ""}</td>
+                      <td className="px-4 py-3">{o.close_date ?? ""}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{o.updated_at ?? ""}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td className="px-4 py-6 text-center text-slate-500" colSpan={6}>
+                      No opportunities found for "{repUser.account_owner_name}".
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
   );
 }
 

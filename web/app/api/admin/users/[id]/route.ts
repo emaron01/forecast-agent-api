@@ -53,12 +53,16 @@ export async function PATCH(req: Request) {
       if (!mgr) return NextResponse.json({ ok: false, error: "invalid_manager_user" }, { status: 400 });
     }
 
+    const expectedLevel =
+      parsed.data.role === "ADMIN" ? 0 : parsed.data.role === "EXEC_MANAGER" ? 1 : parsed.data.role === "MANAGER" ? 2 : 3;
+    const hierarchy_level = parsed.data.hierarchy_level ?? expectedLevel;
+
     const updated = await updateUser({
       org_id: orgId,
       id: userId,
       email: parsed.data.email ?? existing.email,
       role: parsed.data.role,
-      hierarchy_level: parsed.data.hierarchy_level,
+      hierarchy_level,
       first_name: parsed.data.first_name,
       last_name: parsed.data.last_name,
       display_name: buildDisplayName(parsed.data.first_name, parsed.data.last_name),
@@ -70,7 +74,7 @@ export async function PATCH(req: Request) {
     });
     if (!updated) return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
 
-    if (updated.hierarchy_level === 1 || updated.hierarchy_level === 2) {
+    if (hierarchy_level === 1 || hierarchy_level === 2) {
       const visibleIds: number[] = [];
       for (const pid of parsed.data.visible_user_public_ids || []) {
         visibleIds.push(await resolvePublicId("users", pid));

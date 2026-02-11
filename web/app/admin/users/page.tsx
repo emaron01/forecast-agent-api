@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Modal } from "../_components/Modal";
 import { requireOrgContext } from "../../../lib/auth";
-import { getUserById, listManagerVisibility, listRepUsersForManager, listUsers } from "../../../lib/db";
+import { getUserById, listHierarchyLevels, listManagerVisibility, listRepUsersForManager, listUsers } from "../../../lib/db";
 import { resolvePublicId } from "../../../lib/publicId";
 import {
   assignRepToMeAction,
@@ -28,10 +28,26 @@ export default async function UsersPage({
   const userPublicId = sp(searchParams.id) || "";
   const reset = sp(searchParams.reset) || "";
   const roleFilter = sp(searchParams.role) || "";
-  const levelFilter = sp(searchParams.level) || "";
+  const error = sp(searchParams.error) || "";
+  const prefillEmail = sp(searchParams.email) || "";
+  const prefillFirstName = sp(searchParams.first_name) || "";
+  const prefillLastName = sp(searchParams.last_name) || "";
+  const prefillRole = sp(searchParams.role) || "";
+  const prefillAccountOwnerName = sp(searchParams.account_owner_name) || "";
+  const prefillManagerUserPublicId = sp(searchParams.manager_user_public_id) || "";
+  const prefillSeeAll = sp(searchParams.see_all_visibility) || "";
+  const prefillAnalytics = sp(searchParams.admin_has_full_analytics_access) || "";
+  const prefillActive = sp(searchParams.active) || "";
 
   const isManager = ctx.kind === "user" && ctx.user.role === "MANAGER";
   const isAdmin = ctx.kind === "master" || (ctx.kind === "user" && ctx.user.role === "ADMIN");
+
+  const hierarchyLevels = await listHierarchyLevels().catch(() => []);
+  const hierarchyLabelByLevel = new Map<number, string>(
+    hierarchyLevels.map((h): [number, string] => [Number(h.level), String(h.label || "").trim()])
+  );
+  const labelForLevel = (level: number, fallback: string) => hierarchyLabelByLevel.get(level) || fallback;
+  const roleToLevel = (role: string) => (role === "ADMIN" ? 0 : role === "EXEC_MANAGER" ? 1 : role === "MANAGER" ? 2 : 3);
 
   const usersRaw = isManager
     ? await listRepUsersForManager({ orgId, managerUserId: ctx.kind === "user" ? ctx.user.id : 0, includeUnassigned: true }).catch(
@@ -40,14 +56,14 @@ export default async function UsersPage({
     : await listUsers({ orgId, includeInactive: true }).catch(() => []);
 
   const users =
-    roleFilter || levelFilter
+    roleFilter
       ? usersRaw.filter((u) => {
           if (roleFilter && u.role !== roleFilter) return false;
-          if (levelFilter && String(u.hierarchy_level) !== String(levelFilter)) return false;
           return true;
         })
       : usersRaw;
 
+  const execManagers = isAdmin ? usersRaw.filter((u) => u.role === "EXEC_MANAGER" && u.active) : [];
   const managers = isAdmin ? usersRaw.filter((u) => u.role === "MANAGER" && u.active) : [];
   const userById = new Map<number, (typeof usersRaw)[number]>(usersRaw.map((u) => [u.id, u]));
 
@@ -100,20 +116,10 @@ export default async function UsersPage({
           <label className="text-xs font-medium text-slate-600">Role</label>
           <select name="role" defaultValue={roleFilter} className="mt-1 w-48 rounded-md border border-slate-300 px-3 py-2 text-sm">
             <option value="">(all)</option>
-            <option value="ADMIN">ADMIN</option>
-            <option value="EXEC_MANAGER">EXEC_MANAGER</option>
-            <option value="MANAGER">MANAGER</option>
-            <option value="REP">REP</option>
-          </select>
-        </div>
-        <div>
-          <label className="text-xs font-medium text-slate-600">Hierarchy level</label>
-          <select name="level" defaultValue={levelFilter} className="mt-1 w-48 rounded-md border border-slate-300 px-3 py-2 text-sm">
-            <option value="">(all)</option>
-            <option value="0">0 (Admin)</option>
-            <option value="1">1 (Exec Manager)</option>
-            <option value="2">2 (Manager)</option>
-            <option value="3">3 (Rep)</option>
+            <option value="ADMIN">{labelForLevel(0, "Admin")}</option>
+            <option value="EXEC_MANAGER">{labelForLevel(1, "Executive Manager")}</option>
+            <option value="MANAGER">{labelForLevel(2, "Manager")}</option>
+            <option value="REP">{labelForLevel(3, "Rep")}</option>
           </select>
         </div>
         <button className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white">Filter</button>
@@ -144,7 +150,7 @@ export default async function UsersPage({
               users.map((u) => (
                 <tr key={u.public_id} className="border-t border-slate-100">
                   <td className="px-4 py-3 font-mono text-xs">{u.public_id}</td>
-                  <td className="px-4 py-3">{u.role}</td>
+                  <td className="px-4 py-3">{labelForLevel(roleToLevel(u.role), u.role)}</td>
                   <td className="px-4 py-3">{u.hierarchy_level}</td>
                   <td className="px-4 py-3">{u.display_name}</td>
                   <td className="px-4 py-3">{u.email}</td>
@@ -211,83 +217,57 @@ export default async function UsersPage({
 
       {modal === "new" ? (
         <Modal title="New user" closeHref={closeHref()}>
-          <form action={createUserAction} className="grid gap-3">
-            <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">email</label>
-              <input name="email" type="email" className="rounded-md border border-slate-300 px-3 py-2 text-sm" required />
-            </div>
-
-            <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">password</label>
-              <input
-                name="password"
-                type="password"
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                placeholder="Minimum 8 characters"
-                required
-              />
-            </div>
-
-            <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">confirm_password</label>
-              <input
-                name="confirm_password"
-                type="password"
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                placeholder="Re-enter password"
-                required
-              />
-            </div>
-
+          <form action={createUserAction} className="grid gap-3" data-user-form="1">
+            {error ? (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                {error === "passwords_do_not_match"
+                  ? "Passwords don't match. Please re-enter them."
+                  : "Please check your inputs and try again."}
+              </div>
+            ) : null}
             {isManager ? <input type="hidden" name="role" value="REP" /> : null}
-
-            {!isManager ? (
-              <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">role</label>
-                <select name="role" defaultValue="REP" className="rounded-md border border-slate-300 px-3 py-2 text-sm">
-                  <option value="ADMIN">ADMIN</option>
-                  <option value="EXEC_MANAGER">EXEC_MANAGER</option>
-                  <option value="MANAGER">MANAGER</option>
-                  <option value="REP">REP</option>
-                </select>
-              </div>
-            ) : null}
-
-            <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">hierarchy_level</label>
-              <select name="hierarchy_level" defaultValue={isManager ? "3" : "3"} className="rounded-md border border-slate-300 px-3 py-2 text-sm">
-                <option value="0">0 (Admin)</option>
-                <option value="1">1 (Executive Manager)</option>
-                <option value="2">2 (Manager)</option>
-                <option value="3">3 (Rep)</option>
-              </select>
-              <p className="text-xs text-slate-500">Must match the selected role (Admin=0, Exec Manager=1, Manager=2, Rep=3).</p>
-            </div>
-
-            {!isManager ? (
-              <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">see_all_visibility (EXEC_MANAGER/MANAGER only)</label>
-                <select name="see_all_visibility" defaultValue="false" className="rounded-md border border-slate-300 px-3 py-2 text-sm">
-                  <option value="false">false</option>
-                  <option value="true">true</option>
-                </select>
-              </div>
-            ) : null}
 
             <div className="grid gap-3 md:grid-cols-2">
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">first_name</label>
-                <input name="first_name" className="rounded-md border border-slate-300 px-3 py-2 text-sm" required />
+                <label className="text-sm font-medium text-slate-700">First Name</label>
+                  <input name="first_name" defaultValue={prefillFirstName} className="rounded-md border border-slate-300 px-3 py-2 text-sm" required />
               </div>
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">last_name</label>
-                <input name="last_name" className="rounded-md border border-slate-300 px-3 py-2 text-sm" required />
+                <label className="text-sm font-medium text-slate-700">Last Name</label>
+                  <input name="last_name" defaultValue={prefillLastName} className="rounded-md border border-slate-300 px-3 py-2 text-sm" required />
               </div>
             </div>
 
+            {!isManager ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="grid gap-1">
+                  <label className="text-sm font-medium text-slate-700">Role</label>
+                  <select name="role" defaultValue={prefillRole || "REP"} className="rounded-md border border-slate-300 px-3 py-2 text-sm">
+                    <option value="ADMIN">{labelForLevel(0, "Admin")}</option>
+                    <option value="EXEC_MANAGER">{labelForLevel(1, "Executive Manager")}</option>
+                    <option value="MANAGER">{labelForLevel(2, "Manager")}</option>
+                    <option value="REP">{labelForLevel(3, "Rep")}</option>
+                  </select>
+                </div>
+
+                <div
+                  className="grid gap-1 rounded-md border border-slate-200 bg-slate-50 p-3"
+                  data-show-roles="EXEC_MANAGER,MANAGER"
+                  hidden
+                >
+                  <label className="text-sm font-semibold text-slate-900">Can View All User Data</label>
+                  <label className="flex items-center gap-2 text-sm text-slate-800">
+                    <input name="see_all_visibility" type="checkbox" className="h-5 w-5" defaultChecked={prefillSeeAll === "true"} />
+                    <span className="font-medium">Yes</span>
+                  </label>
+                  <p className="text-xs text-slate-600">If unchecked, visibility is limited to assigned users.</p>
+                </div>
+              </div>
+            ) : null}
+
             <div className="grid gap-1">
               <label className="text-sm font-medium text-slate-700">Name As It Appears In CRM</label>
-              <input name="account_owner_name" className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
+              <input name="account_owner_name" defaultValue={prefillAccountOwnerName} className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
               <p className="text-xs font-medium text-red-700">
                 This name is used to exactly match the Account Owner for each Opportunity in CRM used for Forecast Reviews. Please COPY and
                 PASTE the name as it appears in CRM. (Required for Reps)
@@ -295,10 +275,11 @@ export default async function UsersPage({
             </div>
 
             {isAdmin ? (
-              <div className="rounded-md border border-slate-200 bg-white p-3">
+              <div className="rounded-md border border-slate-200 bg-white p-3" data-show-roles="EXEC_MANAGER,MANAGER" hidden>
                 <div className="text-sm font-semibold text-slate-900">Manager visibility assignments</div>
                 <p className="mt-1 text-xs text-slate-600">
-                  If creating a MANAGER and <span className="font-mono">see_all_visibility=false</span>, you must assign at least one visible user.
+                  If creating an EXEC_MANAGER/MANAGER and <span className="font-mono">Can View All User Data</span> is unchecked, you must assign at least
+                  one visible user.
                 </p>
                 <div className="mt-2 grid gap-2">
                   {users
@@ -317,36 +298,91 @@ export default async function UsersPage({
             ) : null}
 
             {isAdmin ? (
-              <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">manager_user (optional)</label>
-                <select name="manager_user_public_id" defaultValue="" className="rounded-md border border-slate-300 px-3 py-2 text-sm">
-                  <option value="">(none)</option>
-                  {managers.map((m) => (
-                    <option key={m.public_id} value={String(m.public_id)}>
-                      {m.display_name}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-slate-500">Used for the manager chain (applies to REP and MANAGER users).</p>
+              <div className="grid gap-2">
+                <div className="grid gap-1" data-show-roles="REP" hidden>
+                  <label className="text-sm font-medium text-slate-700">Who is Their Manager (optional)</label>
+                  <select
+                    name="manager_user_public_id"
+                    defaultValue={prefillManagerUserPublicId || ""}
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    <option value="">(none)</option>
+                    {managers.map((m) => (
+                      <option key={m.public_id} value={String(m.public_id)}>
+                        {m.display_name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-slate-500">For reps, this must be a Manager.</p>
+                </div>
+
+                <div className="grid gap-1" data-show-roles="MANAGER" hidden>
+                  <label className="text-sm font-medium text-slate-700">Who is Their Manager (optional)</label>
+                  <select
+                    name="manager_user_public_id"
+                    defaultValue={prefillManagerUserPublicId || ""}
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    <option value="">(none)</option>
+                    {execManagers.map((m) => (
+                      <option key={m.public_id} value={String(m.public_id)}>
+                        {m.display_name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-slate-500">For managers, this must be an Executive Manager.</p>
+                </div>
               </div>
             ) : null}
 
-            {isAdmin ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              {isAdmin ? (
+                <div className="grid gap-1" data-show-roles="ADMIN" hidden>
+                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                    <input
+                      name="admin_has_full_analytics_access"
+                      type="checkbox"
+                      className="h-5 w-5"
+                      defaultChecked={prefillAnalytics === "true"}
+                    />
+                    <span>Full Analytics (Admin Only)</span>
+                  </label>
+                </div>
+              ) : null}
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">admin_has_full_analytics_access (ADMIN only)</label>
-                <select name="admin_has_full_analytics_access" defaultValue="false" className="rounded-md border border-slate-300 px-3 py-2 text-sm">
-                  <option value="false">false</option>
-                  <option value="true">true</option>
-                </select>
+                <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                  <input name="active" type="checkbox" className="h-5 w-5" defaultChecked={prefillActive ? prefillActive === "true" : true} />
+                  <span>User is Active</span>
+                </label>
               </div>
-            ) : null}
+            </div>
 
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">active</label>
-              <select name="active" defaultValue="true" className="rounded-md border border-slate-300 px-3 py-2 text-sm">
-                <option value="true">true</option>
-                <option value="false">false</option>
-              </select>
+              <label className="text-sm font-medium text-slate-700">Email</label>
+              <input name="email" type="email" defaultValue={prefillEmail} className="rounded-md border border-slate-300 px-3 py-2 text-sm" required />
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-1">
+                <label className="text-sm font-medium text-slate-700">Password</label>
+                <input
+                  name="password"
+                  type="password"
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  placeholder="Minimum 8 characters"
+                  required
+                />
+              </div>
+              <div className="grid gap-1">
+                <label className="text-sm font-medium text-slate-700">Confirm Password</label>
+                <input
+                  name="confirm_password"
+                  type="password"
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  placeholder="Re-enter password"
+                  required
+                />
+              </div>
             </div>
 
             <div className="mt-2 flex items-center justify-end gap-2">
@@ -355,53 +391,53 @@ export default async function UsersPage({
               </Link>
               <button className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white">Create</button>
             </div>
+
+            {/* Progressive enhancement: show/hide role-dependent fields */}
+            <script
+              dangerouslySetInnerHTML={{
+                __html: `
+(function () {
+  function sync(form) {
+    var roleEl = form.querySelector('select[name="role"]');
+    var role = roleEl ? String(roleEl.value || "") : "REP";
+    var dep = form.querySelectorAll('[data-show-roles]');
+    for (var i = 0; i < dep.length; i++) {
+      var el = dep[i];
+      var rolesAttr = el.getAttribute('data-show-roles') || "";
+      var roles = rolesAttr.split(',').map(function (s) { return String(s || "").trim(); }).filter(Boolean);
+      var shouldShow = roles.indexOf(role) !== -1;
+      el.hidden = !shouldShow;
+      var fields = el.querySelectorAll('input, select, textarea, button');
+      for (var k = 0; k < fields.length; k++) fields[k].disabled = !shouldShow;
+    }
+  }
+  var forms = document.querySelectorAll('form[data-user-form="1"]');
+  for (var j = 0; j < forms.length; j++) {
+    (function (form) {
+      sync(form);
+      form.addEventListener('change', function (e) {
+        var t = e && e.target;
+        if (t && t.name === 'role') sync(form);
+      });
+    })(forms[j]);
+  }
+})();`,
+              }}
+            />
           </form>
         </Modal>
       ) : null}
 
       {modal === "edit" && user ? (
         <Modal title={`Edit user`} closeHref={closeHref()}>
-          <form action={updateUserAction} className="grid gap-3">
+          <form action={updateUserAction} className="grid gap-3" data-user-form="1">
             <input type="hidden" name="public_id" value={String(user.public_id)} />
 
-            <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">email</label>
-              <input
-                name="email"
-                type="email"
-                defaultValue={user.email}
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                required
-              />
-            </div>
-
             {isManager ? <input type="hidden" name="role" value="REP" /> : null}
-            {!isManager ? (
-              <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">role</label>
-                <select name="role" defaultValue={user.role} className="rounded-md border border-slate-300 px-3 py-2 text-sm">
-                  <option value="ADMIN">ADMIN</option>
-                  <option value="EXEC_MANAGER">EXEC_MANAGER</option>
-                  <option value="MANAGER">MANAGER</option>
-                  <option value="REP">REP</option>
-                </select>
-              </div>
-            ) : null}
-
-            <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">hierarchy_level</label>
-              <select name="hierarchy_level" defaultValue={String(user.hierarchy_level)} className="rounded-md border border-slate-300 px-3 py-2 text-sm">
-                <option value="0">0 (Admin)</option>
-                <option value="1">1 (Executive Manager)</option>
-                <option value="2">2 (Manager)</option>
-                <option value="3">3 (Rep)</option>
-              </select>
-              <p className="text-xs text-slate-500">Must match the selected role (Admin=0, Exec Manager=1, Manager=2, Rep=3).</p>
-            </div>
 
             <div className="grid gap-3 md:grid-cols-2">
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">first_name</label>
+                <label className="text-sm font-medium text-slate-700">First Name</label>
                 <input
                   name="first_name"
                   defaultValue={user.first_name || ""}
@@ -410,7 +446,7 @@ export default async function UsersPage({
                 />
               </div>
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">last_name</label>
+                <label className="text-sm font-medium text-slate-700">Last Name</label>
                 <input
                   name="last_name"
                   defaultValue={user.last_name || ""}
@@ -419,6 +455,38 @@ export default async function UsersPage({
                 />
               </div>
             </div>
+
+            {!isManager ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="grid gap-1">
+                  <label className="text-sm font-medium text-slate-700">Role</label>
+                  <select name="role" defaultValue={user.role} className="rounded-md border border-slate-300 px-3 py-2 text-sm">
+                    <option value="ADMIN">{labelForLevel(0, "Admin")}</option>
+                    <option value="EXEC_MANAGER">{labelForLevel(1, "Executive Manager")}</option>
+                    <option value="MANAGER">{labelForLevel(2, "Manager")}</option>
+                    <option value="REP">{labelForLevel(3, "Rep")}</option>
+                  </select>
+                </div>
+
+                <div
+                  className="grid gap-1 rounded-md border border-slate-200 bg-slate-50 p-3"
+                  data-show-roles="EXEC_MANAGER,MANAGER"
+                  hidden={!(user.role === "EXEC_MANAGER" || user.role === "MANAGER")}
+                >
+                  <label className="text-sm font-semibold text-slate-900">Can View All User Data</label>
+                  <label className="flex items-center gap-2 text-sm text-slate-800">
+                    <input
+                      name="see_all_visibility"
+                      type="checkbox"
+                      className="h-5 w-5"
+                      defaultChecked={!!user.see_all_visibility}
+                    />
+                    <span className="font-medium">Yes</span>
+                  </label>
+                  <p className="text-xs text-slate-600">If unchecked, visibility is limited to assigned users.</p>
+                </div>
+              </div>
+            ) : null}
 
             <div className="grid gap-1">
               <label className="text-sm font-medium text-slate-700">Name As It Appears In CRM</label>
@@ -434,24 +502,15 @@ export default async function UsersPage({
             </div>
 
             {isAdmin ? (
-              <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">see_all_visibility (EXEC_MANAGER/MANAGER only)</label>
-                <select
-                  name="see_all_visibility"
-                  defaultValue={user.see_all_visibility ? "true" : "false"}
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                >
-                  <option value="false">false</option>
-                  <option value="true">true</option>
-                </select>
-              </div>
-            ) : null}
-
-            {isAdmin ? (
-              <div className="rounded-md border border-slate-200 bg-white p-3">
+              <div
+                className="rounded-md border border-slate-200 bg-white p-3"
+                data-show-roles="EXEC_MANAGER,MANAGER"
+                hidden={!(user.role === "EXEC_MANAGER" || user.role === "MANAGER")}
+              >
                 <div className="text-sm font-semibold text-slate-900">Manager visibility assignments</div>
                 <p className="mt-1 text-xs text-slate-600">
-                  If editing an EXEC_MANAGER/MANAGER and <span className="font-mono">see_all_visibility=false</span>, select which users they can see.
+                  If editing an EXEC_MANAGER/MANAGER and <span className="font-mono">Can View All User Data</span> is unchecked, select which users
+                  they can see.
                 </p>
                 <div className="mt-2 grid gap-2">
                   {users
@@ -477,49 +536,86 @@ export default async function UsersPage({
             ) : null}
 
             {isAdmin ? (
-              <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">manager_user</label>
-                <select
-                  name="manager_user_public_id"
-                  defaultValue={user.manager_user_id == null ? "" : String(managers.find((m) => m.id === user.manager_user_id)?.public_id || "")}
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                >
-                  <option value="">(none)</option>
-                  {managers
-                    .filter((m) => m.id !== user.id)
-                    .map((m) => (
-                      <option key={m.public_id} value={String(m.public_id)}>
-                        {m.display_name}
-                      </option>
-                    ))}
-                </select>
+              <div className="grid gap-2">
+                <div className="grid gap-1" data-show-roles="REP" hidden>
+                  <label className="text-sm font-medium text-slate-700">Who is Their Manager (optional)</label>
+                  <select
+                    name="manager_user_public_id"
+                    defaultValue={
+                      user.manager_user_id == null
+                        ? ""
+                        : String(managers.find((m) => m.id === user.manager_user_id)?.public_id || "")
+                    }
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    <option value="">(none)</option>
+                    {managers
+                      .filter((m) => m.id !== user.id)
+                      .map((m) => (
+                        <option key={m.public_id} value={String(m.public_id)}>
+                          {m.display_name}
+                        </option>
+                      ))}
+                  </select>
+                  <p className="text-xs text-slate-500">For reps, this must be a Manager.</p>
+                </div>
+
+                <div className="grid gap-1" data-show-roles="MANAGER" hidden>
+                  <label className="text-sm font-medium text-slate-700">Who is Their Manager (optional)</label>
+                  <select
+                    name="manager_user_public_id"
+                    defaultValue={
+                      user.manager_user_id == null
+                        ? ""
+                        : String(execManagers.find((m) => m.id === user.manager_user_id)?.public_id || "")
+                    }
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  >
+                    <option value="">(none)</option>
+                    {execManagers
+                      .filter((m) => m.id !== user.id)
+                      .map((m) => (
+                        <option key={m.public_id} value={String(m.public_id)}>
+                          {m.display_name}
+                        </option>
+                      ))}
+                  </select>
+                  <p className="text-xs text-slate-500">For managers, this must be an Executive Manager.</p>
+                </div>
               </div>
             ) : null}
 
-            {isAdmin ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              {isAdmin ? (
+                <div className="grid gap-1" data-show-roles="ADMIN" hidden={user.role !== "ADMIN"}>
+                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                    <input
+                      name="admin_has_full_analytics_access"
+                      type="checkbox"
+                      className="h-5 w-5"
+                      defaultChecked={!!user.admin_has_full_analytics_access}
+                    />
+                    <span>Full Analytics (Admin Only)</span>
+                  </label>
+                </div>
+              ) : null}
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">admin_has_full_analytics_access (ADMIN only)</label>
-                <select
-                  name="admin_has_full_analytics_access"
-                  defaultValue={user.admin_has_full_analytics_access ? "true" : "false"}
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-                >
-                  <option value="false">false</option>
-                  <option value="true">true</option>
-                </select>
+                <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                  <input name="active" type="checkbox" className="h-5 w-5" defaultChecked={!!user.active} />
+                  <span>User is Active</span>
+                </label>
               </div>
-            ) : null}
+            </div>
 
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">active</label>
-              <select
-                name="active"
-                defaultValue={user.active ? "true" : "false"}
+              <label className="text-sm font-medium text-slate-700">Email</label>
+              <input
+                name="email"
+                type="email"
+                defaultValue={user.email}
                 className="rounded-md border border-slate-300 px-3 py-2 text-sm"
-              >
-                <option value="true">true</option>
-                <option value="false">false</option>
-              </select>
+                required
+              />
             </div>
 
             <div className="mt-2 flex items-center justify-end gap-2">
@@ -528,6 +624,39 @@ export default async function UsersPage({
               </Link>
               <button className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white">Save</button>
             </div>
+
+            {/* Progressive enhancement: show/hide role-dependent fields */}
+            <script
+              dangerouslySetInnerHTML={{
+                __html: `
+(function () {
+  function sync(form) {
+    var roleEl = form.querySelector('select[name="role"]');
+    var role = roleEl ? String(roleEl.value || "") : "REP";
+    var dep = form.querySelectorAll('[data-show-roles]');
+    for (var i = 0; i < dep.length; i++) {
+      var el = dep[i];
+      var rolesAttr = el.getAttribute('data-show-roles') || "";
+      var roles = rolesAttr.split(',').map(function (s) { return String(s || "").trim(); }).filter(Boolean);
+      var shouldShow = roles.indexOf(role) !== -1;
+      el.hidden = !shouldShow;
+      var fields = el.querySelectorAll('input, select, textarea, button');
+      for (var k = 0; k < fields.length; k++) fields[k].disabled = !shouldShow;
+    }
+  }
+  var forms = document.querySelectorAll('form[data-user-form="1"]');
+  for (var j = 0; j < forms.length; j++) {
+    (function (form) {
+      sync(form);
+      form.addEventListener('change', function (e) {
+        var t = e && e.target;
+        if (t && t.name === 'role') sync(form);
+      });
+    })(forms[j]);
+  }
+})();`,
+              }}
+            />
           </form>
         </Modal>
       ) : null}

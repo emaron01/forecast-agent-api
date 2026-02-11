@@ -18,7 +18,7 @@ export default async function ExcelOpportunitiesPage({
   searchParams: Record<string, string | string[] | undefined>;
 }) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  // Excel upload is allowed for all org users (permissions enforced on other admin pages).
 
   const mappingSetPublicId = sp(searchParams.mappingSetPublicId) || "";
   const mappingSetId = mappingSetPublicId ? await resolvePublicTextId("field_mapping_sets", mappingSetPublicId).catch(() => "") : "";

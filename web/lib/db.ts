@@ -55,7 +55,10 @@ export type OpportunityRow = {
   account_name: string | null;
   opportunity_name: string | null;
   crm_opp_id: string | null;
+  product: string | null;
   amount: number | null;
+  create_date_raw: string | null;
+  create_date: string | null;
   close_date: string | null;
   updated_at: string | null;
 };
@@ -236,7 +239,10 @@ export async function searchOpportunities(args: {
       account_name,
       opportunity_name,
       crm_opp_id,
+      product,
       amount,
+      create_date_raw,
+      create_date,
       close_date,
       updated_at
     FROM opportunities
@@ -265,7 +271,10 @@ export async function getOpportunity(args: { orgId: number; opportunityId: numbe
       account_name,
       opportunity_name,
       crm_opp_id,
+      product,
       amount,
+      create_date_raw,
+      create_date,
       close_date,
       updated_at
     FROM opportunities
@@ -379,9 +388,11 @@ export async function replaceFieldMappings(args: {
   // Normalize and de-dupe by target_field (last one wins).
   const byTarget = new Map<string, { source_field: string; target_field: string }>();
   for (const m of mappings) {
-    const source_field = String(m?.source_field || "").trim();
+    // IMPORTANT: keep source_field EXACT (Excel headers may include whitespace).
+    const rawSource = String(m?.source_field ?? "");
+    const source_field = rawSource;
     const target_field = String(m?.target_field || "").trim();
-    if (!source_field || !target_field) continue;
+    if (!rawSource.trim() || !target_field) continue;
     byTarget.set(target_field, { source_field, target_field });
   }
   const uniq = Array.from(byTarget.values());
@@ -715,9 +726,10 @@ export async function deleteFieldMappingSet(args: { organizationId: number; mapp
 
 export async function createFieldMapping(args: { mappingSetId: string; source_field: string; target_field: string }) {
   const mappingSetId = zMappingSetId.parse(args.mappingSetId);
-  const source_field = String(args.source_field || "").trim();
+  // IMPORTANT: keep source_field EXACT (Excel headers may include whitespace).
+  const source_field = String(args.source_field ?? "");
   const target_field = String(args.target_field || "").trim();
-  if (!source_field) throw new Error("source_field is required");
+  if (!source_field.trim()) throw new Error("source_field is required");
   if (!target_field) throw new Error("target_field is required");
 
   const { rows } = await pool.query(
@@ -739,9 +751,10 @@ export async function updateFieldMapping(args: {
 }) {
   const mappingId = zMappingSetId.parse(args.mappingId);
   const mappingSetId = zMappingSetId.parse(args.mappingSetId);
-  const source_field = String(args.source_field || "").trim();
+  // IMPORTANT: keep source_field EXACT (Excel headers may include whitespace).
+  const source_field = String(args.source_field ?? "");
   const target_field = String(args.target_field || "").trim();
-  if (!source_field) throw new Error("source_field is required");
+  if (!source_field.trim()) throw new Error("source_field is required");
   if (!target_field) throw new Error("target_field is required");
 
   const { rows } = await pool.query(
@@ -812,7 +825,9 @@ export async function stageIngestionRows(args: { organizationId: number; mapping
 export async function processIngestionBatch(args: { organizationId: number; mappingSetId: string }) {
   const organizationId = zOrganizationId.parse(args.organizationId);
   const mappingSetId = zMappingSetId.parse(args.mappingSetId);
-  await pool.query(`SELECT process_ingestion_batch($1::int, $2::bigint)`, [organizationId, mappingSetId]);
+  // Always call the public schema function to avoid accidentally hitting a legacy overload
+  // in a different schema on the DB search_path.
+  await pool.query(`SELECT public.process_ingestion_batch($1::int, $2::bigint)`, [organizationId, mappingSetId]);
   return { ok: true };
 }
 
@@ -933,11 +948,28 @@ export type EmailTemplateRow = {
   updated_at: string;
 };
 
+export type HierarchyLevelRow = {
+  level: number;
+  label: string;
+  description: string;
+};
+
 export type UserWithOrgRow = UserPublicRow & {
   org_public_id: string;
   org_name: string;
   org_active: boolean;
 };
+
+export async function listHierarchyLevels() {
+  const { rows } = await pool.query(
+    `
+    SELECT level, label, description
+      FROM hierarchy_levels
+     ORDER BY level ASC
+    `
+  );
+  return rows as HierarchyLevelRow[];
+}
 
 export async function listOrganizations(args?: { activeOnly?: boolean }) {
   const activeOnly = args?.activeOnly ?? false;
@@ -1964,7 +1996,10 @@ export async function listRecentOpportunitiesForAccountOwner(args: {
       account_name,
       opportunity_name,
       crm_opp_id,
+      product,
       amount,
+      create_date_raw,
+      create_date,
       close_date,
       updated_at
     FROM opportunities

@@ -53,10 +53,10 @@ export async function GET(req: Request) {
     const functionChecks = await pool.query(
       `
       SELECT
-        to_regprocedure('normalize_row(jsonb,bigint)') IS NOT NULL AS has_normalize_row,
-        to_regprocedure('validate_row(jsonb,integer)') IS NOT NULL AS has_validate_row,
-        to_regprocedure('upsert_opportunity(jsonb,integer)') IS NOT NULL AS has_upsert_opportunity,
-        to_regprocedure('process_ingestion_batch(integer,bigint)') IS NOT NULL AS has_process_ingestion_batch
+        to_regprocedure('public.normalize_row(jsonb,bigint)') IS NOT NULL AS has_normalize_row,
+        to_regprocedure('public.validate_row(jsonb,integer)') IS NOT NULL AS has_validate_row,
+        to_regprocedure('public.upsert_opportunity(jsonb,integer)') IS NOT NULL AS has_upsert_opportunity,
+        to_regprocedure('public.process_ingestion_batch(integer,bigint)') IS NOT NULL AS has_process_ingestion_batch
       `
     );
 

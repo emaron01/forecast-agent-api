@@ -1,13 +1,19 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireAuth } from "../../../lib/auth";
-import { listAllUsersAcrossOrgs } from "../../../lib/db";
+import { listAllUsersAcrossOrgs, listHierarchyLevels } from "../../../lib/db";
 
 export const runtime = "nodejs";
 
 export default async function AllUsersPage() {
   const ctx = await requireAuth();
   if (ctx.kind !== "master") redirect("/admin");
+
+  const hierarchyLevels = await listHierarchyLevels().catch(() => []);
+  const hierarchyLabelByLevel = new Map<number, string>(
+    hierarchyLevels.map((h): [number, string] => [Number(h.level), String(h.label || "").trim()])
+  );
+  const labelForLevel = (level: number, fallback: string) => hierarchyLabelByLevel.get(level) || fallback;
 
   const users = await listAllUsersAcrossOrgs({ includeInactive: true, includeSuspendedOrgs: true }).catch(
     (): Awaited<ReturnType<typeof listAllUsersAcrossOrgs>> => []
@@ -56,7 +62,7 @@ export default async function AllUsersPage() {
                   </td>
                   <td className="px-4 py-3">{u.display_name}</td>
                   <td className="px-4 py-3">{u.email}</td>
-                  <td className="px-4 py-3">{u.role}</td>
+                  <td className="px-4 py-3">{labelForLevel(Number(u.hierarchy_level), u.role)}</td>
                   <td className="px-4 py-3">{u.hierarchy_level}</td>
                   <td className="px-4 py-3 font-mono text-xs">
                     {u.manager_user_id != null ? userById.get(u.manager_user_id)?.public_id || "" : ""}

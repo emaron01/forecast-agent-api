@@ -47,7 +47,10 @@ export async function GET(req: Request) {
         account_name,
         opportunity_name,
         crm_opp_id,
+        product,
         amount,
+        create_date_raw,
+        create_date,
         close_date,
         updated_at
       FROM opportunities

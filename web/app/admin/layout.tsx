@@ -1,7 +1,8 @@
 import Link from "next/link";
 import "../globals.css";
-import { logoutAction } from "../actions/auth";
 import { requireManagerAdminOrMaster } from "../../lib/auth";
+import { getOrganization } from "../../lib/db";
+import { UserProfileBadge } from "../_components/UserProfileBadge";
 
 function NavLink({ href, label }: { href: string; label: string }) {
   return (
@@ -16,6 +17,12 @@ function NavLink({ href, label }: { href: string; label: string }) {
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const ctx = await requireManagerAdminOrMaster();
+
+  const orgId = ctx.kind === "user" ? ctx.user.org_id : ctx.orgId || 0;
+  const org = orgId ? await getOrganization({ id: orgId }).catch(() => null) : null;
+  const orgName = org?.name || (ctx.kind === "master" ? "SaaS Owner" : "Organization");
+  const displayName = ctx.kind === "user" ? ctx.user.display_name : ctx.email;
+  const email = ctx.kind === "user" ? ctx.user.email : ctx.email;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -35,11 +42,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                 </>
               ) : null}
               <NavLink href="/admin/users" label="Users" />
+              <NavLink href="/admin/excel-opportunities" label="Excel Upload" />
               {ctx.kind === "user" && ctx.user.role === "MANAGER" ? null : (
                 <>
-                  <NavLink href="/admin/excel-opportunities" label="Excel Upload" />
                   <NavLink href="/admin/org-profile" label="Org Profile" />
-                  <NavLink href="/admin/hierarchy" label="Hierarchy" />
+                  <NavLink href="/admin/hierarchy" label="Sales Org Chart" />
                   <NavLink href="/admin/reps" label="Reps" />
                   <NavLink href="/admin/mapping-sets" label="Mapping Sets" />
                   <NavLink href="/admin/ingestion" label="Ingestion" />
@@ -51,12 +58,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <Link href="/dashboard" className="text-sm text-slate-600 hover:text-slate-900">
               Dashboard
             </Link>
-            <Link href="/account" className="text-sm text-slate-600 hover:text-slate-900">
-              Account
-            </Link>
-            <form action={logoutAction}>
-              <button className="text-sm text-slate-600 hover:text-slate-900">Sign out</button>
-            </form>
+            <UserProfileBadge orgName={orgName} displayName={displayName} email={email} showAccountLink={ctx.kind === "user"} />
           </div>
         </div>
       </header>
