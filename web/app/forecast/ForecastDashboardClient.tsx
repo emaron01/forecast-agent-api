@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Deal = Record<string, any> & {
@@ -240,6 +241,13 @@ export function ForecastDashboardClient(props: {
             <p className="mt-1 text-sm text-slate-600">Live deal coaching dashboard (polls server for updates).</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/forecast/simple"
+              className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50"
+              title="Simplified table view with queue review controls."
+            >
+              Simple dashboard
+            </Link>
             <button
               type="button"
               onClick={() => void refresh()}
@@ -354,6 +362,7 @@ export function ForecastDashboardClient(props: {
           const pct = healthPct(d);
           const total = Number(d.health_score ?? scoreTotal(d)) || 0;
           const justSaved = saveBlinksRef.current.has(String(d.id || ""));
+          const dealId = String(d.id || "");
 
           return (
             <article
@@ -394,6 +403,15 @@ export function ForecastDashboardClient(props: {
                       <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-900">
                         Updated this poll
                       </span>
+                    ) : null}
+                    {dealId ? (
+                      <Link
+                        href={`/opportunities/${encodeURIComponent(dealId)}/deal-review`}
+                        className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-indigo-900 hover:bg-indigo-100"
+                        title="Open single-deal review (mic tuning + full review + category updates)."
+                      >
+                        Review
+                      </Link>
                     ) : null}
                   </div>
                   <div className="mt-2 text-xs text-slate-500">
