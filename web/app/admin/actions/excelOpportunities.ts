@@ -117,7 +117,19 @@ function normalizeRevenueCell(v: unknown): { cleanValue: string; value: number |
 }
 
 type ExcelUploadState =
-  | { ok: true; kind: "success"; message: string; mappingSetPublicId?: string; mappingSetName?: string; inserted?: number; intent: string; ts: number }
+  | {
+      ok: true;
+      kind: "success";
+      message: string;
+      mappingSetPublicId?: string;
+      mappingSetName?: string;
+      inserted?: number; // rows staged
+      changed?: number; // opportunities changed (processed)
+      processed?: number;
+      error?: number;
+      intent: string;
+      ts: number;
+    }
   | { ok: false; kind: "error"; message: string; issues: string[]; intent: string; ts: number };
 
 function err(intent: string, message: string, issues?: string[]) {
@@ -363,14 +375,10 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
 
     const staged = await stageIngestionRows({ organizationId: orgId, mappingSetId, rawRows });
     const processNow = parsed.processNow !== "false";
-    if (processNow) {
-      await processIngestionBatch({ organizationId: orgId, mappingSetId }).catch((e: any) => {
-        // Don't crash the UI; surface a helpful message.
-        throw new Error(`Ingestion processing failed: ${e?.message || String(e)}`);
-      });
-    }
-
-    // If processing ran, surface staging errors instead of claiming success.
+    const summary = processNow ? await processIngestionBatch({ organizationId: orgId, mappingSetId }).catch((e: any) => {
+      // Don't crash the UI; surface a helpful message.
+      throw new Error(`Ingestion processing failed: ${e?.message || String(e)}`);
+    }) : null;
     if (processNow) {
       const errorRows = await listIngestionStagingByFilter({
         organizationId: orgId,
@@ -387,10 +395,14 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
     revalidatePath("/admin/mapping-sets");
     revalidatePath("/dashboard");
 
-    return ok(intent, `Upload succeeded. Staged ${staged.inserted} row(s).`, {
+    const changed = summary?.changed ?? summary?.processed ?? 0;
+    return ok(intent, processNow ? `Upload complete. ${changed} record(s) changed.` : `Upload succeeded. Staged ${staged.inserted} row(s).`, {
       mappingSetPublicId,
       mappingSetName: mappingSetNameInput || undefined,
       inserted: staged.inserted,
+      changed,
+      processed: summary?.processed ?? undefined,
+      error: summary?.error ?? undefined,
     });
   } catch (e: any) {
     return err(intent, "Fix this: upload failed.", [String(e?.message || e)]);

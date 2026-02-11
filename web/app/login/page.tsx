@@ -30,6 +30,8 @@ export default async function LoginPage({
               ? "Master login is not configured on this environment."
               : error === "master_bad_hash"
                 ? "Master login is misconfigured (password hash format is invalid)."
+              : error === "server_error"
+                ? "Sign-in succeeded, but the server couldn't load your session (database down or misconfigured). Contact support/admin."
               : error === "invalid_request"
                 ? "Invalid login request. Please try again."
                 : error

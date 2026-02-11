@@ -164,41 +164,55 @@ export function getMasterOrgIdFromCookies() {
 
 export async function getAuth(): Promise<AuthContext | null> {
   const masterCookie = cookies().get(MASTER_SESSION_COOKIE)?.value;
-  const master = verifyMaster(masterCookie);
-  if (master) {
-    return { kind: "master", email: master.email, orgId: getMasterOrgIdFromCookies() };
+  try {
+    const master = verifyMaster(masterCookie);
+    if (master) {
+      return { kind: "master", email: master.email, orgId: getMasterOrgIdFromCookies() };
+    }
+  } catch (e) {
+    // Never crash the app due to master-cookie verification errors (e.g. missing SESSION_SECRET).
+    console.error("getAuth: master cookie verification failed", e);
   }
 
   const sessionToken = cookies().get(USER_SESSION_COOKIE)?.value || "";
   if (!sessionToken) return null;
   const tokenHash = sha256Hex(sessionToken);
 
-  const { rows } = await pool.query(
-    `
-    SELECT
-      u.id,
-      u.public_id::text AS public_id,
-      u.org_id,
-      u.email,
-      u.role,
-      u.hierarchy_level,
-      u.display_name,
-      u.account_owner_name,
-      u.manager_user_id,
-      u.admin_has_full_analytics_access,
-      u.see_all_visibility,
-      u.active AS user_active,
-      o.active AS org_active,
-      s.expires_at,
-      s.revoked_at
-    FROM user_sessions s
-    JOIN users u ON u.id = s.user_id
-    JOIN organizations o ON o.id = u.org_id
-    WHERE s.session_token_hash = $1
-    LIMIT 1
-    `,
-    [tokenHash]
-  );
+  let rows: any[] = [];
+  try {
+    const r = await pool.query(
+      `
+      SELECT
+        u.id,
+        u.public_id::text AS public_id,
+        u.org_id,
+        u.email,
+        u.role,
+        u.hierarchy_level,
+        u.display_name,
+        u.account_owner_name,
+        u.manager_user_id,
+        u.admin_has_full_analytics_access,
+        u.see_all_visibility,
+        u.active AS user_active,
+        o.active AS org_active,
+        s.expires_at,
+        s.revoked_at
+      FROM user_sessions s
+      JOIN users u ON u.id = s.user_id
+      JOIN organizations o ON o.id = u.org_id
+      WHERE s.session_token_hash = $1
+      LIMIT 1
+      `,
+      [tokenHash]
+    );
+    rows = r.rows as any[];
+  } catch (e) {
+    // If the DB is down / migrations are missing, do not throw a generic client-side exception.
+    // Treat as "not authenticated" so pages redirect to /login.
+    console.error("getAuth: session lookup failed", e);
+    return null;
+  }
 
   const r = rows?.[0] as any;
   if (!r) return null;
@@ -225,8 +239,12 @@ export async function getAuth(): Promise<AuthContext | null> {
 }
 
 export async function requireAuth() {
-  const ctx = await getAuth();
-  if (!ctx) redirect("/login");
+  const hasAnyAuthCookie = !!(cookies().get(MASTER_SESSION_COOKIE)?.value || cookies().get(USER_SESSION_COOKIE)?.value);
+  const ctx = await getAuth().catch((e) => {
+    console.error("requireAuth: getAuth threw", e);
+    return null;
+  });
+  if (!ctx) redirect(hasAnyAuthCookie ? "/login?error=server_error" : "/login");
   return ctx;
 }
 

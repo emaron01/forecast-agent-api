@@ -827,8 +827,33 @@ export async function processIngestionBatch(args: { organizationId: number; mapp
   const mappingSetId = zMappingSetId.parse(args.mappingSetId);
   // Always call the public schema function to avoid accidentally hitting a legacy overload
   // in a different schema on the DB search_path.
-  await pool.query(`SELECT public.process_ingestion_batch($1::int, $2::bigint)`, [organizationId, mappingSetId]);
-  return { ok: true };
+  const { rows } = await pool.query<{ result: any }>(`SELECT public.process_ingestion_batch($1::int, $2::bigint) AS result`, [
+    organizationId,
+    mappingSetId,
+  ]);
+
+  const raw = rows?.[0]?.result;
+  const parsed =
+    typeof raw === "string"
+      ? (() => {
+          try {
+            return JSON.parse(raw);
+          } catch {
+            return null;
+          }
+        })()
+      : raw;
+
+  const SummarySchema = z.object({
+    ok: z.boolean(),
+    processed: z.coerce.number().int().nonnegative().default(0),
+    error: z.coerce.number().int().nonnegative().default(0),
+  });
+
+  const s = SummarySchema.safeParse(parsed);
+  if (!s.success) return { ok: true, processed: 0, error: 0, changed: 0 };
+
+  return { ok: s.data.ok, processed: s.data.processed, error: s.data.error, changed: s.data.processed };
 }
 
 export async function retryFailedStagingRows(args: {

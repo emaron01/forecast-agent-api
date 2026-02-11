@@ -8,7 +8,19 @@ type MappingSet = { public_id: string; name: string; source_system: string | nul
 type FieldMapping = { source_field: string; target_field: string };
 
 type ActionState =
-  | { ok: true; kind: "success"; message: string; mappingSetPublicId?: string; mappingSetName?: string; inserted?: number; intent: string; ts: number }
+  | {
+      ok: true;
+      kind: "success";
+      message: string;
+      mappingSetPublicId?: string;
+      mappingSetName?: string;
+      inserted?: number; // rows staged
+      changed?: number; // opportunities changed (processed)
+      processed?: number;
+      error?: number;
+      intent: string;
+      ts: number;
+    }
   | { ok: false; kind: "error"; message: string; issues: string[]; intent: string; ts: number }
   | undefined;
 
@@ -276,6 +288,7 @@ export function ExcelUploadClient(props: {
                       </span>
                     ) : null}
                     {typeof state.inserted === "number" ? <span className="ml-2">Rows staged: {state.inserted}</span> : null}
+                    {typeof state.changed === "number" ? <span className="ml-2">Records changed: {state.changed}</span> : null}
                   </div>
                 ) : null}
               </div>
