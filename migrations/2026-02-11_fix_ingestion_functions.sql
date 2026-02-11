@@ -284,7 +284,6 @@ BEGIN
            close_date = COALESCE(v_close_date, o.close_date),
            create_date_raw = COALESCE(v_create_date_raw, o.create_date_raw),
            crm_opp_id = COALESCE(v_crm_opp_id, o.crm_opp_id),
-           crm_opp_id_norm = v_crm_norm,
            updated_at = NOW()
      WHERE o.id = v_existing_id
        AND o.org_id = v_org_id;
@@ -298,7 +297,6 @@ BEGIN
     opportunity_name,
     rep_name,
     crm_opp_id,
-    crm_opp_id_norm,
     amount,
     close_date,
     create_date_raw,
@@ -313,7 +311,6 @@ BEGIN
     COALESCE(v_opportunity_name, ''),
     v_rep_name,
     v_crm_opp_id,
-    v_crm_norm,
     v_amount,
     v_close_date,
     v_create_date_raw,
