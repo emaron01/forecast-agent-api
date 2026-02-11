@@ -242,9 +242,9 @@ export async function searchOpportunities(args: {
       product,
       amount,
       create_date_raw,
-      create_date,
-      close_date,
-      updated_at
+      create_date::text AS create_date,
+      close_date::text AS close_date,
+      updated_at::text AS updated_at
     FROM opportunities
     WHERE ${where.join(" AND ")}
     ORDER BY updated_at DESC NULLS LAST, id DESC
@@ -274,9 +274,9 @@ export async function getOpportunity(args: { orgId: number; opportunityId: numbe
       product,
       amount,
       create_date_raw,
-      create_date,
-      close_date,
-      updated_at
+      create_date::text AS create_date,
+      close_date::text AS close_date,
+      updated_at::text AS updated_at
     FROM opportunities
     WHERE org_id = $1
       AND id = $2
@@ -307,7 +307,7 @@ export async function listOpportunityAuditEvents(args: { orgId: number; opportun
       delta,
       definitions,
       meta,
-      ts
+      ts::text AS ts
     FROM opportunity_audit_events
     WHERE org_id = $1
       AND opportunity_id = $2
@@ -2024,9 +2024,9 @@ export async function listRecentOpportunitiesForAccountOwner(args: {
       product,
       amount,
       create_date_raw,
-      create_date,
-      close_date,
-      updated_at
+      create_date::text AS create_date,
+      close_date::text AS close_date,
+      updated_at::text AS updated_at
     FROM opportunities
     WHERE org_id = $1
       AND rep_name = $2
