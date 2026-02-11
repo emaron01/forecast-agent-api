@@ -72,7 +72,7 @@ BEGIN
   LOOP
     BEGIN
       norm := public.normalize_row(s.raw_row, p_mapping_set_id);
-      msg := public.validate_row(norm, p_org_id::bigint);
+      msg := public.validate_row(norm, p_org_id);
 
       IF msg IS NOT NULL THEN
         UPDATE public.ingestion_staging st
@@ -82,7 +82,7 @@ BEGIN
          WHERE st.id = s.id;
         errored := errored + 1;
       ELSE
-        PERFORM public.upsert_opportunity(norm, p_org_id::bigint);
+        PERFORM public.upsert_opportunity(norm, p_org_id);
         UPDATE public.ingestion_staging st
            SET normalized_row = norm,
                status = 'processed'

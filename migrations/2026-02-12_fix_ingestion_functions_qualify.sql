@@ -66,7 +66,7 @@ BEGIN
   LOOP
     BEGIN
       norm := public.normalize_row(s.raw_row, p_mapping_set_id);
-      msg := public.validate_row(norm, p_org_id::bigint);
+      msg := public.validate_row(norm, p_org_id);
       IF msg IS NOT NULL THEN
         UPDATE public.ingestion_staging st
            SET normalized_row = norm,
@@ -75,7 +75,7 @@ BEGIN
          WHERE st.id = s.id;
         errored := errored + 1;
       ELSE
-        PERFORM public.upsert_opportunity(norm, p_org_id::bigint);
+        PERFORM public.upsert_opportunity(norm, p_org_id);
         UPDATE public.ingestion_staging st
            SET normalized_row = norm,
                status = 'processed'
@@ -105,11 +105,11 @@ AS $$
   SELECT public.validate_row($1, $2::bigint);
 $$;
 
-CREATE OR REPLACE FUNCTION public.upsert_opportunity(p_row jsonb, p_org_id integer)
-RETURNS integer
-LANGUAGE sql
-VOLATILE
-AS $$
-  SELECT public.upsert_opportunity($1, $2::bigint);
-$$;
+-- Canonical wrapper (the only upsert_opportunity definition this repo should carry).
+SET search_path = public;
+CREATE OR REPLACE FUNCTION upsert_opportunity(p_row jsonb, p_org_id integer)
+RETURNS integer AS $$
+  SELECT upsert_opportunity($1, $2::bigint);
+$$ LANGUAGE sql;
+RESET search_path;
 
