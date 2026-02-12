@@ -121,6 +121,7 @@ type ExcelUploadState =
       ok: true;
       kind: "success";
       message: string;
+      fileName?: string;
       mappingSetPublicId?: string;
       mappingSetName?: string;
       inserted?: number; // rows staged
@@ -179,6 +180,31 @@ function parseMappingPairs(rawMappingJson: string) {
 
 const REQUIRED_TARGETS = ["account_name", "opportunity_name", "amount", "rep_name", "crm_opp_id", "create_date_raw", "close_date"] as const;
 
+function friendlyTargetName(t: string) {
+  switch (t) {
+    case "account_name":
+      return "Account Name";
+    case "opportunity_name":
+      return "Opportunity Name";
+    case "amount":
+      return "Amount";
+    case "rep_name":
+      return "Rep Name";
+    case "crm_opp_id":
+      return "CRM Opportunity ID";
+    case "create_date_raw":
+      return "Create Date";
+    case "close_date":
+      return "Close Date";
+    case "sales_stage":
+      return "Sales Stage";
+    case "forecast_stage":
+      return "Forecast Stage";
+    default:
+      return t;
+  }
+}
+
 export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadState | undefined, formData: FormData): Promise<ExcelUploadState> {
   const intentRaw = String(formData.get("intent") || "").trim();
   const intent = intentRaw === "save_format" || intentRaw === "upload_ingest" || intentRaw === "delete_format" ? intentRaw : "upload_ingest";
@@ -201,15 +227,18 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
 
     const mappingPairsFromJson = parseMappingPairs(rawMappingJson);
     if (mappingPairsFromJson == null) {
-      return err(intent, "Fix this: invalid field mapping JSON.", ["Field mapping is invalid. Re-upload the file or reselect mappings and try again."]);
+      return err(intent, "We couldn’t read your field mapping.", [
+        "Please reselect the column mappings and try again.",
+        "If this keeps happening, refresh the page and re-upload the file.",
+      ]);
     }
 
     // Delete format (mapping set)
     if (intent === "delete_format") {
-      if (!mappingSetPublicIdInput) return err(intent, "Fix this: select a saved format to delete.", ["Choose a saved format first."]);
+      if (!mappingSetPublicIdInput) return err(intent, "Please select a saved format to delete.", ["Choose a saved format first."]);
       const mappingSetId = await resolvePublicTextId("field_mapping_sets", mappingSetPublicIdInput);
       const set = await getFieldMappingSet({ organizationId: orgId, mappingSetId }).catch(() => null);
-      if (!set) return err(intent, "Fix this: selected format was not found.", ["Selected mapping set not found in this org."]);
+      if (!set) return err(intent, "That saved format no longer exists.", ["Selected mapping set not found in this org."]);
       await deleteFieldMappingSet({ organizationId: orgId, mappingSetId });
 
       revalidatePath("/admin/excel-opportunities");
@@ -221,18 +250,22 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
 
     // For saving a format, we require a name + mapping JSON with required targets.
     if (intent === "save_format") {
-      if (!mappingPairsFromJson.length) return err(intent, "Fix this: map at least one field.", ['Choose columns for the field mapping first.']);
+      if (!mappingPairsFromJson.length) return err(intent, "Please map at least one field.", ["Choose columns for the field mapping first."]);
 
       const missingTargets = REQUIRED_TARGETS.filter((t) => !mappingPairsFromJson.some((m) => m.target_field === t));
       if (missingTargets.length) {
-        return err(intent, "Fix this: required fields are not mapped.", missingTargets.map((t) => `Missing mapping for required field: ${t}`));
+        return err(
+          intent,
+          "Your format is missing required mappings.",
+          missingTargets.map((t) => `Missing required field mapping: ${friendlyTargetName(t)}`)
+        );
       }
 
       // If a mapping set is selected, overwrite it.
       if (mappingSetPublicIdInput) {
         const mappingSetId = await resolvePublicTextId("field_mapping_sets", mappingSetPublicIdInput);
         const existing = await getFieldMappingSet({ organizationId: orgId, mappingSetId }).catch(() => null);
-        if (!existing) return err(intent, "Fix this: selected format was not found.", ["Selected mapping set not found in this org."]);
+        if (!existing) return err(intent, "That saved format no longer exists.", ["Selected mapping set not found in this org."]);
         const nextName = mappingSetNameInput || existing.name;
         await updateFieldMappingSet({ organizationId: orgId, mappingSetId, name: nextName, source_system: "excel-opportunities" });
         await replaceFieldMappings({ mappingSetId, mappings: mappingPairsFromJson });
@@ -245,12 +278,12 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
       }
 
       // Otherwise, save a new mapping set. Prevent accidental duplicates by name.
-      if (!mappingSetNameInput) return err(intent, "Fix this: enter a format name.", ["New format name is required."]);
+      if (!mappingSetNameInput) return err(intent, "Please enter a format name.", ["New format name is required."]);
       const existingByName = (await listFieldMappingSets({ organizationId: orgId }).catch(() => []))
         .filter((s) => String(s.source_system || "").toLowerCase().includes("excel"))
         .filter((s) => String(s.name || "").trim().toLowerCase() === mappingSetNameInput.trim().toLowerCase());
       if (existingByName.length) {
-        return err(intent, "Fix this: a format with this name already exists.", [
+        return err(intent, "A saved format with this name already exists.", [
           `A saved format named "${mappingSetNameInput}" already exists.`,
           `Select it from "Use saved" and click "Update format" to overwrite, or choose a new name.`,
         ]);
@@ -268,7 +301,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
 
     // Upload + ingest
     const file = formData.get("file");
-    if (!(file instanceof File)) return err(intent, "Fix this: select an Excel file to upload.", ['Choose an Excel file (.xlsx) first.']);
+    if (!(file instanceof File)) return err(intent, "Please choose an Excel file to upload.", ["Choose an Excel file (.xlsx) first."]);
 
     // Determine mapping set to use (existing or create-new).
     let mappingSetId = "";
@@ -276,9 +309,12 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
     if (mappingSetPublicId) {
       mappingSetId = await resolvePublicTextId("field_mapping_sets", mappingSetPublicId);
       const set = await getFieldMappingSet({ organizationId: orgId, mappingSetId }).catch(() => null);
-      if (!set) return err(intent, "Fix this: selected format was not found.", ["Selected mapping set not found in this org."]);
+      if (!set) return err(intent, "That saved format no longer exists.", ["Selected mapping set not found in this org."]);
     } else {
-      if (!mappingSetNameInput) return err(intent, "Fix this: select a saved format or enter a new format name.", ["Select a saved format or enter a new format name."]);
+      if (!mappingSetNameInput)
+        return err(intent, "Please select a saved format or enter a new format name.", [
+          "Select a saved format or enter a new format name.",
+        ]);
       const created = await createFieldMappingSet({ organizationId: orgId, name: mappingSetNameInput, source_system: "excel-opportunities" });
       mappingSetId = created.id;
       mappingSetPublicId = created.public_id;
@@ -298,7 +334,11 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
 
     const missingTargets = REQUIRED_TARGETS.filter((t) => !mappingPairs.some((m) => m.target_field === t));
     if (missingTargets.length) {
-      return err(intent, "Fix this: required fields are not mapped.", missingTargets.map((t) => `Missing mapping for required field: ${t}`));
+      return err(
+        intent,
+        "Your upload is missing required column mappings.",
+        missingTargets.map((t) => `Missing required field mapping: ${friendlyTargetName(t)}`)
+      );
     }
 
     await replaceFieldMappings({ mappingSetId, mappings: mappingPairs });
@@ -308,7 +348,10 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
     try {
       rawRows = parseExcelToRawRows(buf, 5000);
     } catch (e: any) {
-      return err(intent, "Fix this: could not read your Excel file.", [String(e?.message || e)]);
+      return err(intent, "We couldn’t read that Excel file.", [
+        "Please confirm it’s a valid .xlsx file with a header row and at least one data row.",
+        String(e?.message || e),
+      ]);
     }
 
     // Pre-validate required fields and normalize close_date values into YYYY-MM-DD strings.
@@ -323,7 +366,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
       for (const req of requiredSources) {
         const v = row?.[req.source];
         if (isBlankCell(v)) {
-          issues.push(`Row ${rowNum}: missing required value for ${req.target} (column "${req.source}")`);
+          issues.push(`Row ${rowNum}: missing ${friendlyTargetName(req.target)} (column "${req.source}")`);
           if (issues.length >= 25) break;
         }
       }
@@ -334,7 +377,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
         const src = byTarget.get("create_date_raw") || "";
         const v = row?.[src];
         if (!isBlankCell(v) && !tryParseAnyDate(v)) {
-          issues.push(`Row ${rowNum}: create_date_raw is not a recognized date (column "${src}")`);
+          issues.push(`Row ${rowNum}: Create Date is not a valid date (column "${src}")`);
         }
       }
 
@@ -345,7 +388,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
         if (!isBlankCell(v)) {
           const normalized = normalizeRevenueCell(v);
           if (normalized.value == null) {
-            issues.push(`Row ${rowNum}: Revenue must be a number.`);
+            issues.push(`Row ${rowNum}: Amount must be a number.`);
           } else {
             row[src] = normalized.value;
           }
@@ -359,7 +402,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
         if (!isBlankCell(v)) {
           const d = tryParseAnyDate(v);
           if (!d) {
-            issues.push(`Row ${rowNum}: close_date is not a recognized date (column "${src}")`);
+            issues.push(`Row ${rowNum}: Close Date is not a valid date (column "${src}")`);
           } else {
             row[src] = isoDateOnly(d);
           }
@@ -370,7 +413,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
     }
 
     if (issues.length) {
-      return err(intent, "Fix this: your file has missing/invalid values.", issues);
+      return err(intent, "We couldn’t upload your file because some rows are missing or invalid.", issues);
     }
 
     const staged = await stageIngestionRows({ organizationId: orgId, mappingSetId, rawRows });
@@ -387,7 +430,11 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
         limit: 25,
       }).catch(() => []);
       if (errorRows?.length) {
-        return err(intent, "Fix this: ingestion failed for some rows.", errorRows.map((r: any) => String(r.error_message || "Unknown error")).filter(Boolean));
+        return err(
+          intent,
+          "Your file uploaded, but we couldn’t ingest some rows.",
+          errorRows.map((r: any) => String(r.error_message || "Unknown error")).filter(Boolean)
+        );
       }
     }
 
@@ -396,7 +443,14 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
     revalidatePath("/dashboard");
 
     const changed = summary?.changed ?? summary?.processed ?? 0;
-    return ok(intent, processNow ? `Upload complete. ${changed} record(s) changed.` : `Upload succeeded. Staged ${staged.inserted} row(s).`, {
+    const successMessage = processNow
+      ? changed > 0
+        ? `Upload succeeded. ${changed} record(s) were updated.`
+        : `Upload succeeded. No records needed updating.`
+      : `Upload succeeded. Staged ${staged.inserted} row(s).`;
+
+    return ok(intent, successMessage, {
+      fileName: file.name,
       mappingSetPublicId,
       mappingSetName: mappingSetNameInput || undefined,
       inserted: staged.inserted,
@@ -405,7 +459,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
       error: summary?.error ?? undefined,
     });
   } catch (e: any) {
-    return err(intent, "Fix this: upload failed.", [String(e?.message || e)]);
+    return err(intent, "We couldn’t upload your file.", [String(e?.message || e)]);
   }
 }
 

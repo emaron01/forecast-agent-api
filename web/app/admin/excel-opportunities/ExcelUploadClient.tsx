@@ -12,6 +12,7 @@ type ActionState =
       ok: true;
       kind: "success";
       message: string;
+      fileName?: string;
       mappingSetPublicId?: string;
       mappingSetName?: string;
       inserted?: number; // rows staged
@@ -275,28 +276,37 @@ export function ExcelUploadClient(props: {
             className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
               state?.kind === "success"
                 ? "border-[#2ECC71] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
-                : "border-[#F1C40F] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
+                : "border-[#E74C3C] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
             }`}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="font-semibold">{state?.kind === "success" ? state.message : state?.message || "Fix this:"}</div>
                 {state && state.kind === "error" && state.issues?.length ? (
-                  <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
-                    {state.issues.slice(0, 25).map((x, idx) => (
-                      <li key={idx}>{x}</li>
-                    ))}
-                  </ul>
+                  <>
+                    <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">What to fix in your spreadsheet:</div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+                      {state.issues.slice(0, 25).map((x, idx) => (
+                        <li key={idx}>{x}</li>
+                      ))}
+                    </ul>
+                  </>
                 ) : null}
                 {state && state.kind === "success" && state.intent === "upload_ingest" ? (
                   <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
-                    {state.mappingSetPublicId ? (
+                    {state.fileName ? (
                       <span>
-                        Format: <span className="font-mono">{state.mappingSetPublicId}</span>
+                        File: <span className="font-mono">{state.fileName}</span>
                       </span>
                     ) : null}
-                    {typeof state.inserted === "number" ? <span className="ml-2">Rows staged: {state.inserted}</span> : null}
-                    {typeof state.changed === "number" ? <span className="ml-2">Records changed: {state.changed}</span> : null}
+                    {state.mappingSetPublicId ? (
+                      <span>
+                        {state.fileName ? <span className="ml-2">·</span> : null} Format:{" "}
+                        <span className="font-mono">{state.mappingSetPublicId}</span>
+                      </span>
+                    ) : null}
+                    {typeof state.inserted === "number" ? <span className="ml-2">· Rows staged: {state.inserted}</span> : null}
+                    {typeof state.changed === "number" ? <span className="ml-2">· Records updated: {state.changed}</span> : null}
                   </div>
                 ) : null}
               </div>
