@@ -32,16 +32,22 @@ export default async function ExcelOpportunitiesPage({
     <main className="grid gap-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">Excel opportunities upload</h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Excel opportunities upload</h1>
+          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
             Upload an Excel file, map columns, save the format, and ingest opportunities.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/admin/mapping-sets" className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+          <Link
+            href="/admin/mapping-sets"
+            className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+          >
             Mapping sets
           </Link>
-          <Link href="/admin/ingestion" className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+          <Link
+            href="/admin/ingestion"
+            className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+          >
             Ingestion
           </Link>
         </div>

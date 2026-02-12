@@ -6,10 +6,10 @@ function Card({ href, title, desc }: { href: string; title: string; desc: string
   return (
     <Link
       href={href}
-      className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm hover:border-slate-300"
+      className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm hover:border-[color:var(--sf-accent-secondary)]"
     >
-      <div className="text-base font-semibold text-slate-900">{title}</div>
-      <div className="mt-1 text-sm text-slate-600">{desc}</div>
+      <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">{title}</div>
+      <div className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">{desc}</div>
     </Link>
   );
 }

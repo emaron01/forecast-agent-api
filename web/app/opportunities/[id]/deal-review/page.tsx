@@ -17,7 +17,7 @@ export default async function DealReviewPage(ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={auth.user} />
       <DealReviewClient opportunityId={String(id || "").trim()} />
     </div>

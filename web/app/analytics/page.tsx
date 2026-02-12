@@ -14,11 +14,11 @@ export default async function AnalyticsPage() {
   const orgName = org?.name || "Organization";
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
       <main className="mx-auto max-w-4xl p-6">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900">Analytics</h1>
-        <p className="mt-2 text-sm text-slate-600">Stub (coming soon).</p>
+        <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Analytics</h1>
+        <p className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">Stub (coming soon).</p>
       </main>
     </div>
   );

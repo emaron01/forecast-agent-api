@@ -29,19 +29,22 @@ export default async function EmailTemplatesPage({
     <main>
       <div className="flex items-end justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">Email templates</h1>
-          <p className="mt-1 text-sm text-slate-600">Global templates managed by the SaaS owner.</p>
+          <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Email templates</h1>
+          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Global templates managed by the SaaS owner.</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/admin/control-center" className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+          <Link
+            href="/admin/control-center"
+            className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+          >
             Owner control center
           </Link>
         </div>
       </div>
 
-      <div className="mt-5 overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="mt-5 overflow-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm">
         <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-slate-600">
+          <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
             <tr>
               <th className="px-4 py-3">key</th>
               <th className="px-4 py-3">subject</th>
@@ -52,14 +55,14 @@ export default async function EmailTemplatesPage({
           <tbody>
             {templates.length ? (
               templates.map((t) => (
-                <tr key={t.template_key} className="border-t border-slate-100">
+                <tr key={t.template_key} className="border-t border-[color:var(--sf-border)]">
                   <td className="px-4 py-3 font-mono text-xs">{t.template_key}</td>
                   <td className="px-4 py-3">{t.subject}</td>
                   <td className="px-4 py-3">{t.active ? "true" : "false"}</td>
                   <td className="px-4 py-3 text-right">
                     <Link
                       href={`/admin/email-templates?modal=edit&key=${encodeURIComponent(t.template_key)}`}
-                      className="rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50"
+                      className="rounded-md border border-[color:var(--sf-border)] px-2 py-1 text-xs hover:bg-[color:var(--sf-surface-alt)]"
                     >
                       Edit
                     </Link>
@@ -68,7 +71,7 @@ export default async function EmailTemplatesPage({
               ))
             ) : (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-slate-500">
+                <td colSpan={4} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
                   No templates found.
                 </td>
               </tr>
@@ -82,32 +85,48 @@ export default async function EmailTemplatesPage({
           <form action={upsertEmailTemplateAction} className="grid gap-3">
             <input type="hidden" name="template_key" value={tpl.template_key} />
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">subject</label>
-              <input name="subject" defaultValue={tpl.subject} className="rounded-md border border-slate-300 px-3 py-2 text-sm" required />
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">subject</label>
+              <input
+                name="subject"
+                defaultValue={tpl.subject}
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                required
+              />
             </div>
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">body</label>
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">body</label>
               <textarea
                 name="body"
                 defaultValue={tpl.body}
                 rows={10}
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
                 required
               />
-              <p className="text-xs text-slate-500">Use placeholders like {"{{org_name}}"}, {"{{display_name}}"}, {"{{invite_link}}"}, {"{{reset_link}}"}.</p>
+              <p className="text-xs text-[color:var(--sf-text-disabled)]">
+                Use placeholders like {"{{org_name}}"}, {"{{display_name}}"}, {"{{invite_link}}"}, {"{{reset_link}}"}.
+              </p>
             </div>
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">active</label>
-              <select name="active" defaultValue={tpl.active ? "true" : "false"} className="rounded-md border border-slate-300 px-3 py-2 text-sm">
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">active</label>
+              <select
+                name="active"
+                defaultValue={tpl.active ? "true" : "false"}
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+              >
                 <option value="true">true</option>
                 <option value="false">false</option>
               </select>
             </div>
             <div className="mt-2 flex items-center justify-end gap-2">
-              <Link href="/admin/email-templates" className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+              <Link
+                href="/admin/email-templates"
+                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+              >
                 Cancel
               </Link>
-              <button className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white">Save</button>
+              <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
+                Save
+              </button>
             </div>
           </form>
         </Modal>

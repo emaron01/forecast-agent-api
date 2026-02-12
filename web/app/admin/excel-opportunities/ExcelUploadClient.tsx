@@ -102,10 +102,16 @@ function SubmitButton(props: {
   const base = "rounded-md px-4 py-2 text-sm font-medium disabled:opacity-60 transition";
   const cls =
     variant === "primary"
-      ? `${base} bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800 ${props.active && pending ? "bg-indigo-800" : ""}`
+      ? `${base} bg-[color:var(--sf-button-primary-bg)] text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)] ${
+          props.active && pending ? "bg-[color:var(--sf-button-primary-hover)]" : ""
+        }`
       : variant === "danger"
-        ? `${base} border border-rose-200 bg-rose-50 text-rose-900 hover:bg-rose-100 active:bg-rose-200 ${props.active && pending ? "bg-rose-200" : ""}`
-        : `${base} border border-slate-200 bg-white hover:bg-slate-50 active:bg-slate-100 ${props.active && pending ? "bg-slate-100" : ""}`;
+        ? `${base} border border-[#E74C3C] bg-[color:var(--sf-surface-alt)] text-[#E74C3C] hover:bg-[color:var(--sf-surface)] ${
+            props.active && pending ? "bg-[color:var(--sf-surface)]" : ""
+          }`
+        : `${base} border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)] ${
+            props.active && pending ? "bg-[color:var(--sf-surface)]" : ""
+          }`;
   return (
     <button
       type="submit"
@@ -258,16 +264,18 @@ export function ExcelUploadClient(props: {
 
   return (
     <div className="grid gap-6">
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-base font-semibold text-slate-900">Upload + map Excel</h2>
-        <p className="mt-1 text-sm text-slate-600">
+      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+        <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Upload + map Excel</h2>
+        <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
           Upload an Excel file (.xlsx) of opportunities, map columns to Forecast Agent fields, and save the format for future uploads.
         </p>
 
         {showBanner ? (
           <div
             className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
-              state?.kind === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"
+              state?.kind === "success"
+                ? "border-[#2ECC71] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
+                : "border-[#F1C40F] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
             }`}
           >
             <div className="flex items-start justify-between gap-3">
@@ -281,7 +289,7 @@ export function ExcelUploadClient(props: {
                   </ul>
                 ) : null}
                 {state && state.kind === "success" && state.intent === "upload_ingest" ? (
-                  <div className="mt-2 text-xs text-emerald-800">
+                  <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
                     {state.mappingSetPublicId ? (
                       <span>
                         Format: <span className="font-mono">{state.mappingSetPublicId}</span>
@@ -306,19 +314,27 @@ export function ExcelUploadClient(props: {
         <form action={formAction} className="mt-4 grid gap-4">
           <div className="grid gap-2 md:grid-cols-2">
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">Format</label>
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Format</label>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setMode("existing")}
-                  className={`rounded-md border px-3 py-2 text-sm ${mode === "existing" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white"}`}
+                  className={`rounded-md border px-3 py-2 text-sm ${
+                    mode === "existing"
+                      ? "border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] text-[color:var(--sf-button-primary-text)]"
+                      : "border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
+                  }`}
                 >
                   Use saved
                 </button>
                 <button
                   type="button"
                   onClick={() => setMode("new")}
-                  className={`rounded-md border px-3 py-2 text-sm ${mode === "new" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white"}`}
+                  className={`rounded-md border px-3 py-2 text-sm ${
+                    mode === "new"
+                      ? "border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] text-[color:var(--sf-button-primary-text)]"
+                      : "border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
+                  }`}
                 >
                   Create new
                 </button>
@@ -327,12 +343,12 @@ export function ExcelUploadClient(props: {
 
             {mode === "existing" ? (
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">Saved format</label>
+                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Saved format</label>
                 <select
                   name="mapping_set_public_id"
                   value={mappingSetPublicId}
                   onChange={(e) => setMappingSetPublicId(e.target.value)}
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                 >
                   <option value="">Select…</option>
                   {effectiveSets.map((s) => (
@@ -341,16 +357,16 @@ export function ExcelUploadClient(props: {
                     </option>
                   ))}
                 </select>
-                {formatLoading ? <div className="text-xs text-slate-500">Loading format…</div> : null}
+                {formatLoading ? <div className="text-xs text-[color:var(--sf-text-disabled)]">Loading format…</div> : null}
               </div>
             ) : (
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">New format name</label>
+                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">New format name</label>
                 <input
                   name="mappingSetName"
                   value={mappingSetName}
                   onChange={(e) => setMappingSetName(e.target.value)}
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   placeholder="Acme - Opportunities Excel"
                 />
               </div>
@@ -358,35 +374,35 @@ export function ExcelUploadClient(props: {
           </div>
 
           <div className="grid gap-1">
-            <label className="text-sm font-medium text-slate-700">Excel file (.xlsx)</label>
+            <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Excel file (.xlsx)</label>
             <input
               key={fileInputKey}
               name="file"
               type="file"
               accept=".xlsx,.xls"
-              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
               onChange={(e) => onFile(e.target.files?.[0] || null)}
             />
-            {fileName ? <p className="text-xs text-slate-500">Selected: {fileName}</p> : null}
+            {fileName ? <p className="text-xs text-[color:var(--sf-text-disabled)]">Selected: {fileName}</p> : null}
           </div>
 
           <input type="hidden" name="mappingJson" value={mappingJson} />
           <input type="hidden" name="processNow" value="true" />
 
-          <div className="rounded-lg border border-slate-200 p-4">
-            <div className="text-sm font-medium text-slate-900">Field mapping</div>
-            <p className="mt-1 text-xs text-slate-600">Choose which Excel column maps to each target field.</p>
+          <div className="rounded-lg border border-[color:var(--sf-border)] p-4">
+            <div className="text-sm font-medium text-[color:var(--sf-text-primary)]">Field mapping</div>
+            <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Choose which Excel column maps to each target field.</p>
 
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               {TARGETS.map((t) => (
                 <div key={t.key} className="grid gap-1">
-                  <label className="text-sm font-medium text-slate-700">
-                    {t.label} {t.required ? <span className="text-rose-600">*</span> : null}
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">
+                    {t.label} {t.required ? <span className="text-[#E74C3C]">*</span> : null}
                   </label>
                   <select
                     value={(mapping as any)[t.key] || ""}
                     onChange={(e) => setMapping((prev) => ({ ...prev, [t.key]: e.target.value || "" }))}
-                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                     disabled={!headers.length}
                   >
                     <option value="">{headers.length ? "(none)" : "Upload a file first…"}</option>
@@ -405,7 +421,7 @@ export function ExcelUploadClient(props: {
             <button
               type="button"
               onClick={reset}
-              className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm hover:bg-slate-50"
+              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-2 text-sm hover:bg-[color:var(--sf-surface)]"
             >
               Reset
             </button>
@@ -462,14 +478,14 @@ export function ExcelUploadClient(props: {
         </form>
       </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-base font-semibold text-slate-900">Preview</h2>
-        <p className="mt-1 text-sm text-slate-600">First 5 rows from the first sheet.</p>
+      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+        <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Preview</h2>
+        <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">First 5 rows from the first sheet.</p>
 
         {preview.length ? (
-          <div className="mt-4 overflow-auto rounded-lg border border-slate-200">
+          <div className="mt-4 overflow-auto rounded-lg border border-[color:var(--sf-border)]">
             <table className="min-w-full text-left text-xs">
-              <thead className="bg-slate-50 text-slate-600">
+              <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
                 <tr>
                   {headers.map((h) => (
                     <th key={h} className="px-3 py-2">
@@ -480,7 +496,7 @@ export function ExcelUploadClient(props: {
               </thead>
               <tbody>
                 {preview.map((r, idx) => (
-                  <tr key={idx} className="border-t border-slate-100">
+                  <tr key={idx} className="border-t border-[color:var(--sf-border)]">
                     {headers.map((h) => (
                       <td key={h} className="px-3 py-2 whitespace-nowrap">
                         {r?.[h] == null ? "" : String(r[h])}
@@ -492,7 +508,7 @@ export function ExcelUploadClient(props: {
             </table>
           </div>
         ) : (
-          <div className="mt-4 text-sm text-slate-600">Upload an Excel file to see a preview.</div>
+          <div className="mt-4 text-sm text-[color:var(--sf-text-secondary)]">Upload an Excel file to see a preview.</div>
         )}
       </section>
     </div>

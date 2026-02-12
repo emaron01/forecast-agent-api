@@ -18,7 +18,7 @@ export default async function SimpleForecastPage() {
   const defaultRepName = repFilterLocked ? String(ctx.user.account_owner_name || "") : "";
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
       <main className="mx-auto max-w-6xl p-6">
         <SimpleForecastDashboardClient defaultRepName={defaultRepName} repFilterLocked={repFilterLocked} />

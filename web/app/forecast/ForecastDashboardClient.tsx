@@ -71,23 +71,24 @@ function evidenceFromSummary(summary: any) {
 
 function scoreColor(s: any) {
   const n = Number(s || 0) || 0;
-  return n >= 3 ? "text-emerald-700" : n >= 2 ? "text-indigo-700" : "text-rose-700";
+  // Semantic scoring colors — MUST remain hard-coded
+  return n >= 3 ? "text-[#2ECC71]" : n >= 2 ? "text-[#F1C40F]" : "text-[#E74C3C]";
 }
 
 function ScoreCard(props: { name: string; score: any; tip: any; summary: any }) {
   const score = Number(props.score || 0) || 0;
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+    <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
       <div className="flex items-start justify-between gap-3">
-        <div className="text-sm font-semibold text-slate-900">{props.name}</div>
+        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{props.name}</div>
         <div className={`text-sm font-bold ${scoreColor(score)}`}>{score}/3</div>
       </div>
-      <div className="mt-2 text-xs font-semibold text-indigo-700">{labelFromSummary(props.summary, score)}</div>
-      <div className="mt-2 text-xs text-slate-700">
+      <div className="mt-2 text-xs font-semibold text-[color:var(--sf-accent-primary)]">{labelFromSummary(props.summary, score)}</div>
+      <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
         <span className="font-semibold">Action:</span> {String(props.tip || "—")}
       </div>
-      <div className="mt-1 text-xs text-slate-500">
-        <span className="font-semibold text-slate-600">Evidence:</span> {evidenceFromSummary(props.summary)}
+      <div className="mt-1 text-xs text-[color:var(--sf-text-disabled)]">
+        <span className="font-semibold text-[color:var(--sf-text-secondary)]">Evidence:</span> {evidenceFromSummary(props.summary)}
       </div>
     </div>
   );
@@ -227,23 +228,23 @@ export function ForecastDashboardClient(props: {
 
   const pillClass =
     statusKind === "ok"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+      ? "border-[#2ECC71] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
       : statusKind === "err"
-        ? "border-rose-200 bg-rose-50 text-rose-900"
-        : "border-amber-200 bg-amber-50 text-amber-900";
+        ? "border-[#E74C3C] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
+        : "border-[#F1C40F] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]";
 
   return (
     <div className="grid gap-4">
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900">Sales Forecaster</h1>
-            <p className="mt-1 text-sm text-slate-600">Live deal coaching dashboard (polls server for updates).</p>
+            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Sales Forecaster</h1>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Live deal coaching dashboard (polls server for updates).</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link
               href="/forecast/simple"
-              className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50"
+              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
               title="Simplified table view with queue review controls."
             >
               Simple dashboard
@@ -251,14 +252,14 @@ export function ForecastDashboardClient(props: {
             <button
               type="button"
               onClick={() => void refresh()}
-              className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50"
+              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
             >
               Refresh
             </button>
             <button
               type="button"
               onClick={() => setShowRaw((v) => !v)}
-              className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50"
+              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
             >
               {showRaw ? "Hide RAW" : "Show RAW"}
             </button>
@@ -273,38 +274,43 @@ export function ForecastDashboardClient(props: {
           }}
         >
           <div className="md:col-span-4">
-            <label className="text-xs font-medium text-slate-600">Search</label>
+            <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Search</label>
             <div className="mt-1 flex items-center gap-2">
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search account, rep, stage, AI verdict…"
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200"
+                className="w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
               />
-              <button type="submit" className="shrink-0 rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
+              <button
+                type="submit"
+                className="shrink-0 rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
+              >
                 Search
               </button>
             </div>
-            <div className="mt-1 text-xs text-slate-500">Filters the current list as you type. Press Enter / Search to refresh.</div>
+            <div className="mt-1 text-xs text-[color:var(--sf-text-disabled)]">
+              Filters the current list as you type. Press Enter / Search to refresh.
+            </div>
           </div>
 
           <div className="md:col-span-3">
-            <label className="text-xs font-medium text-slate-600">Rep (optional)</label>
+            <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Rep (optional)</label>
             <input
               value={repFilter}
               onChange={(e) => setRepFilter(e.target.value)}
               placeholder={props.repFilterLocked ? "Locked" : "Erik M"}
               disabled={!!props.repFilterLocked}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200 disabled:bg-slate-50"
+              className="mt-1 w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)] disabled:opacity-60"
             />
           </div>
 
           <div className="md:col-span-3">
-            <label className="text-xs font-medium text-slate-600">Sort</label>
+            <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Sort</label>
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value as any)}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200"
+              className="mt-1 w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
             >
               <option value="updated_desc">Updated (newest)</option>
               <option value="updated_asc">Updated (oldest)</option>
@@ -316,11 +322,11 @@ export function ForecastDashboardClient(props: {
           </div>
 
           <div className="md:col-span-2">
-            <label className="text-xs font-medium text-slate-600">Poll</label>
+            <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Poll</label>
             <select
               value={pollMs}
               onChange={(e) => setPollMs(Number(e.target.value))}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200"
+              className="mt-1 w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
             >
               <option value={5000}>5s</option>
               <option value={10000}>10s</option>
@@ -349,9 +355,9 @@ export function ForecastDashboardClient(props: {
       </section>
 
       {showRaw ? (
-        <details className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm" open>
-          <summary className="cursor-pointer text-sm font-medium text-slate-900">RAW JSON</summary>
-          <pre className="mt-3 max-h-[420px] overflow-auto rounded-lg border border-slate-200 bg-slate-950 p-3 text-xs text-emerald-200">
+        <details className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm" open>
+          <summary className="cursor-pointer text-sm font-medium text-[color:var(--sf-text-primary)]">RAW JSON</summary>
+          <pre className="mt-3 max-h-[420px] overflow-auto rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 text-xs text-[color:var(--sf-text-secondary)]">
             {JSON.stringify(allDeals, null, 2)}
           </pre>
         </details>
@@ -367,72 +373,72 @@ export function ForecastDashboardClient(props: {
           return (
             <article
               key={d.id}
-              className={`rounded-xl border bg-white p-5 shadow-sm ${
-                justSaved ? "border-emerald-300 ring-1 ring-emerald-200" : "border-slate-200"
+              className={`rounded-xl border bg-[color:var(--sf-surface)] p-5 shadow-sm ${
+                justSaved ? "border-[#2ECC71] ring-1 ring-[#2ECC71]" : "border-[color:var(--sf-border)]"
               }`}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="text-lg font-semibold tracking-tight text-slate-900">
+                  <div className="text-lg font-semibold tracking-tight text-[color:var(--sf-text-primary)]">
                     {d.account_name || "Unnamed account"}
                     {d.opportunity_name ? (
-                      <span className="text-slate-500"> · {d.opportunity_name}</span>
+                      <span className="text-[color:var(--sf-text-secondary)]"> · {d.opportunity_name}</span>
                     ) : null}
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-700">
+                    <span className="rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-[color:var(--sf-text-secondary)]">
                       Rep: {d.rep_name || "—"}
                     </span>
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-700">
+                    <span className="rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-[color:var(--sf-text-secondary)]">
                       Stage: {d.stage || "—"}
                     </span>
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-700">
+                    <span className="rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-[color:var(--sf-text-secondary)]">
                       Forecast: {d.forecast_stage || "—"}
                     </span>
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-700">
+                    <span className="rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-[color:var(--sf-text-secondary)]">
                       AI: {d.ai_verdict || d.ai_forecast || "—"}
                     </span>
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-700">
+                    <span className="rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-[color:var(--sf-text-secondary)]">
                       Health:{" "}
-                      <span className={pct >= 80 ? "text-emerald-700" : pct >= 50 ? "text-indigo-700" : "text-rose-700"}>
+                      <span className={pct >= 80 ? "text-[#2ECC71]" : pct >= 50 ? "text-[#F1C40F]" : "text-[#E74C3C]"}>
                         {pct}%
                       </span>{" "}
                       ({total}/30)
                     </span>
                     {justSaved ? (
-                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-900">
+                      <span className="rounded-full border border-[#2ECC71] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-[color:var(--sf-text-primary)]">
                         Updated this poll
                       </span>
                     ) : null}
                     {dealId ? (
                       <Link
                         href={`/opportunities/${encodeURIComponent(dealId)}/deal-review`}
-                        className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-indigo-900 hover:bg-indigo-100"
+                        className="rounded-full border border-[color:var(--sf-accent-secondary)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-[color:var(--sf-accent-secondary)] hover:bg-[color:var(--sf-surface)]"
                         title="Open single-deal review (mic tuning + full review + category updates)."
                       >
                         Review
                       </Link>
                     ) : null}
                   </div>
-                  <div className="mt-2 text-xs text-slate-500">
-                    Amount: <span className="font-medium text-slate-700">{fmtMoney(d.amount)}</span> · Close:{" "}
-                    <span className="font-medium text-slate-700">{d.close_date || "—"}</span> · Updated:{" "}
-                    <span className="font-medium text-slate-700">{safeDate(d.updated_at)}</span>
+                  <div className="mt-2 text-xs text-[color:var(--sf-text-disabled)]">
+                    Amount: <span className="font-medium text-[color:var(--sf-text-primary)]">{fmtMoney(d.amount)}</span> · Close:{" "}
+                    <span className="font-medium text-[color:var(--sf-text-primary)]">{d.close_date || "—"}</span> · Updated:{" "}
+                    <span className="font-medium text-[color:var(--sf-text-primary)]">{safeDate(d.updated_at)}</span>
                   </div>
                 </div>
               </div>
 
               <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">Risk summary</div>
-                  <div className="mt-2 text-sm text-slate-800">{String(d.risk_summary || "—")}</div>
+                <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Risk summary</div>
+                  <div className="mt-2 text-sm text-[color:var(--sf-text-primary)]">{String(d.risk_summary || "—")}</div>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">Next steps / coaching</div>
-                  <div className="mt-2 text-sm text-slate-800">
+                <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Next steps / coaching</div>
+                  <div className="mt-2 text-sm text-[color:var(--sf-text-primary)]">
                     <span className="font-semibold">Next steps:</span> {String(d.next_steps || "—")}
                   </div>
-                  <div className="mt-2 text-sm text-slate-800">
+                  <div className="mt-2 text-sm text-[color:var(--sf-text-primary)]">
                     <span className="font-semibold">Rep comments:</span> {String(d.rep_comments || "—")}
                   </div>
                 </div>
@@ -452,8 +458,8 @@ export function ForecastDashboardClient(props: {
               </div>
 
               <details className="mt-4">
-                <summary className="cursor-pointer text-xs font-medium text-slate-600">Raw deal object</summary>
-                <pre className="mt-2 max-h-[360px] overflow-auto rounded-lg border border-slate-200 bg-slate-950 p-3 text-xs text-emerald-200">
+                <summary className="cursor-pointer text-xs font-medium text-[color:var(--sf-text-secondary)]">Raw deal object</summary>
+                <pre className="mt-2 max-h-[360px] overflow-auto rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 text-xs text-[color:var(--sf-text-secondary)]">
                   {JSON.stringify(d, null, 2)}
                 </pre>
               </details>
@@ -463,7 +469,7 @@ export function ForecastDashboardClient(props: {
       </div>
 
       {!filtered.length ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
+        <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-6 text-sm text-[color:var(--sf-text-secondary)] shadow-sm">
           No deals found (or you don’t have visibility to the rep filter).
         </div>
       ) : null}

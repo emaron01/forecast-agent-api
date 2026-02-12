@@ -11,14 +11,14 @@ export default async function SystemLogsPage() {
   return (
     <main className="grid gap-4">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900">System logs</h1>
-        <p className="mt-1 text-sm text-slate-600">Placeholder (master only).</p>
+        <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">System logs</h1>
+        <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Placeholder (master only).</p>
       </div>
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-sm text-slate-700">No log viewer implemented yet.</p>
+      <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+        <p className="text-sm text-[color:var(--sf-text-secondary)]">No log viewer implemented yet.</p>
       </div>
       <div>
-        <Link className="text-sm text-indigo-700 hover:underline" href="/admin/control-center">
+        <Link className="text-sm text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline" href="/admin/control-center">
           Back to Owner Control Center
         </Link>
       </div>

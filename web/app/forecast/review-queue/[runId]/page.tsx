@@ -17,7 +17,7 @@ export default async function ReviewQueuePage(ctx: { params: Promise<{ runId: st
   const { runId } = await ctx.params;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={auth.user} />
       <main className="mx-auto max-w-6xl p-6">
         <ReviewQueueClient runId={String(runId || "").trim()} />

@@ -7,8 +7,8 @@ export const runtime = "nodejs";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-base font-semibold text-slate-900">{title}</h2>
+    <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+      <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">{title}</h2>
       <div className="mt-3 grid gap-2">{children}</div>
     </section>
   );
@@ -16,9 +16,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Item({ href, title, desc }: { href: string; title: string; desc: string }) {
   return (
-    <Link href={href} className="rounded-lg border border-slate-200 p-4 hover:border-slate-300">
-      <div className="font-medium text-slate-900">{title}</div>
-      <div className="mt-1 text-sm text-slate-600">{desc}</div>
+    <Link href={href} className="rounded-lg border border-[color:var(--sf-border)] p-4 hover:border-[color:var(--sf-accent-secondary)]">
+      <div className="font-medium text-[color:var(--sf-text-primary)]">{title}</div>
+      <div className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">{desc}</div>
     </Link>
   );
 }
@@ -33,23 +33,26 @@ export default async function OwnerControlCenterPage() {
     <main className="grid gap-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">SaaS Owner Control Center</h1>
-          <p className="mt-1 text-sm text-slate-600">Site map + QA panel (master only).</p>
+          <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">SaaS Owner Control Center</h1>
+          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Site map + QA panel (master only).</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/admin/organizations" className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+          <Link
+            href="/admin/organizations"
+            className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+          >
             Organizations
           </Link>
-          <Link href="/admin" className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+          <Link href="/admin" className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]">
             Admin home
           </Link>
         </div>
       </header>
 
       {!activeOrg ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+        <div className="rounded-xl border border-[#F1C40F] bg-[color:var(--sf-surface-alt)] px-5 py-4 text-sm text-[color:var(--sf-text-primary)]">
           <div className="font-semibold">No active organization selected</div>
-          <div className="mt-1 text-amber-800">
+          <div className="mt-1 text-[color:var(--sf-text-secondary)]">
             Org-scoped pages (Users/Reps/Ingestion/Mapping Sets/Org Profile) require an active org. Set it on{" "}
             <Link href="/admin/organizations" className="font-medium underline">
               Organizations
@@ -58,11 +61,11 @@ export default async function OwnerControlCenterPage() {
           </div>
         </div>
       ) : (
-        <div className="rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-800">
+        <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-5 py-4 text-sm text-[color:var(--sf-text-primary)]">
           <div className="font-semibold">Active organization</div>
           <div className="mt-1">
             <span className="font-medium">{activeOrg.name}</span>{" "}
-            <span className="font-mono text-xs text-slate-500">{activeOrg.public_id}</span>
+            <span className="font-mono text-xs text-[color:var(--sf-text-disabled)]">{activeOrg.public_id}</span>
           </div>
         </div>
       )}

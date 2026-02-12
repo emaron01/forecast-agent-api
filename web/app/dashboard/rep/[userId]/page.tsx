@@ -40,26 +40,29 @@ export default async function RepDashboardPage({ params }: { params: { userId: s
   const orgName = org?.name || "Organization";
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
       <main className="mx-auto max-w-6xl p-6">
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900">{repUser.display_name}</h1>
-            <p className="mt-1 text-sm text-slate-600">
+            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">{repUser.display_name}</h1>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
               {repUser.email} · account_owner_name: {repUser.account_owner_name}
             </p>
           </div>
-          <Link href="/dashboard" className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+          <Link
+            href="/dashboard"
+            className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+          >
             Back to dashboard
           </Link>
         </header>
 
-        <section className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-slate-900">Recent opportunities</h2>
-          <div className="mt-3 overflow-auto rounded-md border border-slate-200">
+        <section className="mt-6 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+          <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Recent opportunities</h2>
+          <div className="mt-3 overflow-auto rounded-md border border-[color:var(--sf-border)]">
             <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-600">
+              <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
                 <tr>
                   <th className="px-4 py-3">public_id</th>
                   <th className="px-4 py-3">account</th>
@@ -72,7 +75,7 @@ export default async function RepDashboardPage({ params }: { params: { userId: s
               <tbody>
                 {opportunities.length ? (
                   opportunities.map((o) => (
-                    <tr key={o.public_id} className="border-t border-slate-100">
+                    <tr key={o.public_id} className="border-t border-[color:var(--sf-border)]">
                       <td className="px-4 py-3 font-mono text-xs">{o.public_id}</td>
                       <td className="px-4 py-3">{o.account_name || ""}</td>
                       <td className="px-4 py-3">{o.opportunity_name || ""}</td>
@@ -83,7 +86,7 @@ export default async function RepDashboardPage({ params }: { params: { userId: s
                   ))
                 ) : (
                   <tr>
-                    <td className="px-4 py-6 text-center text-slate-500" colSpan={6}>
+                    <td className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]" colSpan={6}>
                       No opportunities found for "{repUser.account_owner_name}".
                     </td>
                   </tr>

@@ -60,7 +60,7 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
   return (
     <form action={action} className="mt-6 grid gap-6">
       {error ? (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+        <div className="rounded-lg border border-[#E74C3C] bg-[color:var(--sf-surface-alt)] px-4 py-3 text-sm text-[color:var(--sf-text-primary)]">
           {error === "email_taken"
             ? "That email is already in use. Please use a different email address."
             : error === "org_taken"
@@ -73,13 +73,13 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
         </div>
       ) : null}
 
-      <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-sm backdrop-blur">
+      <div className="rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="text-base font-semibold tracking-tight text-slate-900">Company</div>
-            <p className="mt-1 text-sm text-slate-600">Create your organization and initial users.</p>
+            <div className="text-base font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Company</div>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Create your organization and initial users.</p>
           </div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-800">
+          <div className="inline-flex items-center gap-2 rounded-full border border-[#2ECC71] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-sm font-medium text-[#2ECC71]">
             <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
               <path
                 fill="currentColor"
@@ -91,23 +91,23 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
         </div>
 
         <div className="mt-4 grid gap-2">
-          <label className="text-sm font-medium text-slate-700">Organization name</label>
+          <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Organization name</label>
           <input
             name="org_name"
             value={orgName}
             onChange={(e) => setOrgName(e.target.value)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+            className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none transition placeholder:text-[color:var(--sf-text-disabled)] focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
             placeholder="Acme Inc."
             required
           />
         </div>
       </div>
 
-      <div className="rounded-2xl border border-white/10 bg-white/95 p-6 shadow-sm backdrop-blur">
+      <div className="rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-6 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <div className="text-base font-semibold tracking-tight text-slate-900">Users</div>
-            <p className="mt-1 text-sm text-slate-600">
+            <div className="text-base font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Users</div>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
               Add ADMIN, MANAGER, and REP users. At least one <span className="font-medium">ADMIN</span> is required.
             </p>
           </div>
@@ -115,21 +115,21 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
             <button
               type="button"
               onClick={() => addUser("ADMIN")}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+              className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface)]"
             >
               Add ADMIN
             </button>
             <button
               type="button"
               onClick={() => addUser("MANAGER")}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+              className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface)]"
             >
               Add MANAGER
             </button>
             <button
               type="button"
               onClick={() => addUser("REP")}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+              className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface)]"
             >
               Add REP
             </button>
@@ -140,17 +140,23 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
           {users.map((u, i) => {
             const isFirst = i === 0;
             return (
-              <div key={i} id={`signup-user-${i}`} className="scroll-mt-6 rounded-xl border border-slate-200 bg-white p-4">
+              <div
+                key={i}
+                id={`signup-user-${i}`}
+                className="scroll-mt-6 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="inline-flex items-center gap-2">
-                    <span className="rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-white">{u.role}</span>
-                    <span className="text-sm font-medium text-slate-900">User #{i + 1}</span>
+                    <span className="rounded-md bg-[color:var(--sf-accent-primary)] px-2 py-1 text-xs font-medium text-[color:var(--sf-button-primary-text)]">
+                      {u.role}
+                    </span>
+                    <span className="text-sm font-medium text-[color:var(--sf-text-primary)]">User #{i + 1}</span>
                   </div>
                   <button
                     type="button"
                     disabled={isFirst && users.length === 1}
                     onClick={() => removeUser(i)}
-                    className="rounded-md border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50 disabled:opacity-40"
+                    className="rounded-md border border-[#E74C3C] px-2 py-1 text-xs text-[#E74C3C] hover:bg-[color:var(--sf-surface)] disabled:opacity-40"
                   >
                     Remove
                   </button>
@@ -158,14 +164,14 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
 
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
                   <div className="grid gap-1.5">
-                    <label className="text-sm font-medium text-slate-700">Role</label>
+                    <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Role</label>
                     <select
                       value={u.role}
                       onChange={(e) => {
                         const role = e.target.value as Role;
                         setUser(i, { role, manager_email: "" });
                       }}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                      className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none transition focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
                     >
                       <option value="ADMIN">ADMIN</option>
                       <option value="MANAGER">MANAGER</option>
@@ -174,69 +180,69 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
                   </div>
 
                   <div className="grid gap-1.5">
-                    <label className="text-sm font-medium text-slate-700">Email</label>
+                    <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Email</label>
                     <input
                       value={u.email}
                       onChange={(e) => setUser(i, { email: e.target.value })}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                      className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none transition placeholder:text-[color:var(--sf-text-disabled)] focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
                       placeholder="user@company.com"
                       required
                     />
                   </div>
 
                   <div className="grid gap-1.5">
-                    <label className="text-sm font-medium text-slate-700">First name</label>
+                    <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">First name</label>
                     <input
                       value={u.first_name}
                       onChange={(e) => setUser(i, { first_name: e.target.value })}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                      className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none transition placeholder:text-[color:var(--sf-text-disabled)] focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
                       placeholder="Jane"
                       required
                     />
                   </div>
 
                   <div className="grid gap-1.5">
-                    <label className="text-sm font-medium text-slate-700">Last name</label>
+                    <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Last name</label>
                     <input
                       value={u.last_name}
                       onChange={(e) => setUser(i, { last_name: e.target.value })}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                      className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none transition placeholder:text-[color:var(--sf-text-disabled)] focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
                       placeholder="Doe"
                       required
                     />
                   </div>
 
                   <div className="grid gap-1.5">
-                    <label className="text-sm font-medium text-slate-700">Name As It Appears In CRM</label>
+                    <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Name As It Appears In CRM</label>
                     <input
                       value={u.account_owner_name}
                       onChange={(e) => setUser(i, { account_owner_name: e.target.value })}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                      className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none transition placeholder:text-[color:var(--sf-text-disabled)] focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
                       placeholder="Jane Doe"
                       required={u.role === "REP"}
                     />
-                    <p className="text-xs font-medium text-slate-600">Required for Reps only.</p>
+                    <p className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Required for Reps only.</p>
                   </div>
 
                   <div className="grid gap-1.5 md:col-span-2">
-                    <label className="text-sm font-medium text-slate-700">Password (min 8 chars)</label>
+                    <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Password (min 8 chars)</label>
                     <input
                       value={u.password}
                       onChange={(e) => setUser(i, { password: e.target.value })}
                       type="password"
                       minLength={8}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                      className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none transition focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
                       required
                     />
                   </div>
 
                   {u.role === "REP" ? (
                     <div className="grid gap-1.5 md:col-span-2">
-                      <label className="text-sm font-medium text-slate-700">Manager (optional)</label>
+                      <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Manager (optional)</label>
                       <select
                         value={(u.manager_email || "").trim().toLowerCase()}
                         onChange={(e) => setUser(i, { manager_email: e.target.value })}
-                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-200"
+                        className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none transition focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
                       >
                         <option value="">(none)</option>
                         {managerEmails.map((em) => (
@@ -245,7 +251,7 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
                           </option>
                         ))}
                       </select>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-[color:var(--sf-text-disabled)]">
                         To assign a manager, add a MANAGER user above and set their email.
                       </p>
                     </div>
@@ -256,14 +262,14 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
           })}
         </div>
 
-        <details className="mt-4 rounded-xl border border-slate-200 bg-white">
-          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-slate-900">
+        <details className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-[color:var(--sf-text-primary)]">
             Users added ({users.length})
           </summary>
-          <div className="border-t border-slate-200">
+          <div className="border-t border-[color:var(--sf-border)]">
             <div className="overflow-auto">
               <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-600">
+                <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
                   <tr>
                     <th className="px-4 py-3">role</th>
                     <th className="px-4 py-3">name</th>
@@ -275,9 +281,11 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
                 </thead>
                 <tbody>
                   {users.map((u, i) => (
-                    <tr key={i} className="border-t border-slate-100">
+                    <tr key={i} className="border-t border-[color:var(--sf-border)]">
                       <td className="px-4 py-3">
-                        <span className="rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-white">{u.role}</span>
+                        <span className="rounded-md bg-[color:var(--sf-accent-primary)] px-2 py-1 text-xs font-medium text-[color:var(--sf-button-primary-text)]">
+                          {u.role}
+                        </span>
                       </td>
                       <td className="px-4 py-3">
                         {u.first_name} {u.last_name}
@@ -287,14 +295,14 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
                       <td className="px-4 py-3">{u.role === "REP" ? (u.manager_email || "") : ""}</td>
                       <td className="px-4 py-3 text-right">
                         <div className="inline-flex items-center gap-2">
-                          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-800">
-                            <span className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-600" aria-hidden="true" />
+                          <span className="inline-flex items-center rounded-full border border-[#2ECC71] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-[11px] font-medium text-[#2ECC71]">
+                            <span className="mr-1 inline-block h-2 w-2 rounded-full bg-[#2ECC71]" aria-hidden="true" />
                             Active
                           </span>
                           <button
                             type="button"
                             onClick={() => scrollToUser(i)}
-                            className="rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50"
+                            className="rounded-md border border-[color:var(--sf-border)] px-2 py-1 text-xs hover:bg-[color:var(--sf-surface-alt)]"
                             aria-label={`Edit user ${i + 1}`}
                             title="Edit"
                           >
@@ -310,7 +318,7 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
                             type="button"
                             disabled={i === 0 && users.length === 1}
                             onClick={() => removeUser(i)}
-                            className="rounded-md border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50 disabled:opacity-40"
+                            className="rounded-md border border-[#E74C3C] px-2 py-1 text-xs text-[#E74C3C] hover:bg-[color:var(--sf-surface-alt)] disabled:opacity-40"
                             aria-label={`Delete user ${i + 1}`}
                             title="Delete"
                           >
@@ -334,13 +342,13 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
 
         <input type="hidden" name="usersJson" value={JSON.stringify(users)} />
 
-        <button className="mt-6 inline-flex w-full items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2">
+        <button className="mt-6 inline-flex w-full items-center justify-center rounded-lg bg-[color:var(--sf-button-primary-bg)] px-4 py-2.5 text-sm font-medium text-[color:var(--sf-button-primary-text)] shadow-sm transition hover:bg-[color:var(--sf-button-primary-hover)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-secondary)] focus:ring-offset-2 focus:ring-offset-[color:var(--sf-background)]">
           Create organization
         </button>
 
-        <div className="mt-3 text-center text-sm text-slate-600">
+        <div className="mt-3 text-center text-sm text-[color:var(--sf-text-secondary)]">
           Already have an account?{" "}
-          <a href="/login" className="font-medium text-blue-700 hover:underline">
+          <a href="/login" className="font-medium text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline">
             Sign in
           </a>
         </div>

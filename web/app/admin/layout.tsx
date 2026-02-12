@@ -8,7 +8,7 @@ function NavLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="rounded-md px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+      className="rounded-md px-3 py-2 text-sm font-medium text-[color:var(--sf-nav-text)] hover:bg-[color:var(--sf-surface-alt)] hover:text-[color:var(--sf-nav-hover)]"
     >
       {label}
     </Link>
@@ -25,11 +25,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const email = ctx.kind === "user" ? ctx.user.email : ctx.email;
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
+    <div className="min-h-screen bg-[color:var(--sf-background)]">
+      <header className="border-b border-[color:var(--sf-nav-border)] bg-[color:var(--sf-nav-background)]">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-4">
-            <Link href="/admin" className="text-base font-semibold tracking-tight text-slate-900">
+            <Link href="/admin" className="text-base font-semibold tracking-tight text-[color:var(--sf-text-primary)]">
               Admin Dashboard
             </Link>
             <nav className="hidden items-center gap-1 md:flex">
@@ -50,12 +50,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                   <NavLink href="/admin/reps" label="Reps" />
                   <NavLink href="/admin/mapping-sets" label="Mapping Sets" />
                   <NavLink href="/admin/ingestion" label="Ingestion" />
+                  <NavLink href="/admin/analytics" label="Analytics" />
                 </>
               )}
             </nav>
           </div>
           <div className="flex items-center gap-3">
-            <Link href="/dashboard" className="text-sm text-slate-600 hover:text-slate-900">
+            <Link href="/dashboard" className="text-sm text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)]">
               Dashboard
             </Link>
             <UserProfileBadge orgName={orgName} displayName={displayName} email={email} showAccountLink={ctx.kind === "user"} />

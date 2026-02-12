@@ -39,26 +39,28 @@ export default async function IngestionRowsPage({
     <main>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="text-xs text-slate-600">
+          <div className="text-xs text-[color:var(--sf-text-secondary)]">
             <Link href={`/admin/ingestion`} className="hover:underline">
               Ingestion
             </Link>{" "}
             / <span className="font-mono">{mappingSetPublicId}</span>
           </div>
-          <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-900">Staging rows</h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <h1 className="mt-1 text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Staging rows</h1>
+          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
             Filter is inferred from `normalized_row` and `error_message` (no status assumptions).
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex overflow-hidden rounded-md border border-slate-200 bg-white text-sm">
+          <div className="inline-flex overflow-hidden rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] text-sm">
             {(["all", "pending", "processed", "error"] as const).map((f) => (
               <Link
                 key={f}
                 href={`/admin/ingestion/${encodeURIComponent(mappingSetPublicId)}?filter=${encodeURIComponent(f)}`}
                 className={`px-3 py-2 text-xs ${
-                  f === filter ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-50"
+                  f === filter
+                    ? "bg-[color:var(--sf-accent-primary)] text-[color:var(--sf-button-primary-text)]"
+                    : "text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface-alt)]"
                 }`}
               >
                 {f}
@@ -69,20 +71,24 @@ export default async function IngestionRowsPage({
           <form action={triggerProcessAction}>
             <input type="hidden" name="mapping_set_public_id" value={String(mappingSetPublicId)} />
             <input type="hidden" name="returnTo" value={returnTo} />
-            <button className="rounded-md bg-emerald-600 px-3 py-2 text-xs font-medium text-white">Process</button>
+            <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-xs font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
+              Process
+            </button>
           </form>
 
           <form action={retryFailedAction}>
             <input type="hidden" name="mapping_set_public_id" value={String(mappingSetPublicId)} />
             <input type="hidden" name="returnTo" value={returnTo} />
-            <button className="rounded-md bg-amber-600 px-3 py-2 text-xs font-medium text-white">Retry failed</button>
+            <button className="rounded-md bg-[#F1C40F] px-3 py-2 text-xs font-medium text-[color:var(--sf-background)]">
+              Retry failed
+            </button>
           </form>
         </div>
       </div>
 
-      <div className="mt-5 overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="mt-5 overflow-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm">
         <table className="w-full text-left text-xs">
-          <thead className="bg-slate-50 text-slate-600">
+          <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
             <tr>
               <th className="px-4 py-3">public_id</th>
               <th className="px-4 py-3">status</th>
@@ -94,22 +100,22 @@ export default async function IngestionRowsPage({
           <tbody>
             {rows.length ? (
               rows.map((r) => (
-                <tr key={r.public_id} className="border-t border-slate-100 align-top">
+                <tr key={r.public_id} className="border-t border-[color:var(--sf-border)] align-top">
                   <td className="px-4 py-3 font-mono">{r.public_id}</td>
                   <td className="px-4 py-3">{r.status || ""}</td>
-                  <td className="px-4 py-3 text-rose-700">{r.error_message || ""}</td>
+                  <td className="px-4 py-3 text-[#E74C3C]">{r.error_message || ""}</td>
                   <td className="px-4 py-3">
                     <details>
-                      <summary className="cursor-pointer text-indigo-700">view</summary>
-                      <pre className="mt-2 max-h-64 overflow-auto rounded-md bg-slate-50 p-2 text-[11px] text-slate-800">
+                      <summary className="cursor-pointer text-[color:var(--sf-accent-primary)]">view</summary>
+                      <pre className="mt-2 max-h-64 overflow-auto rounded-md bg-[color:var(--sf-surface-alt)] p-2 text-[11px] text-[color:var(--sf-text-primary)]">
                         {jsonPreview(r.raw_row)}
                       </pre>
                     </details>
                   </td>
                   <td className="px-4 py-3">
                     <details>
-                      <summary className="cursor-pointer text-indigo-700">view</summary>
-                      <pre className="mt-2 max-h-64 overflow-auto rounded-md bg-slate-50 p-2 text-[11px] text-slate-800">
+                      <summary className="cursor-pointer text-[color:var(--sf-accent-primary)]">view</summary>
+                      <pre className="mt-2 max-h-64 overflow-auto rounded-md bg-[color:var(--sf-surface-alt)] p-2 text-[11px] text-[color:var(--sf-text-primary)]">
                         {jsonPreview(r.normalized_row)}
                       </pre>
                     </details>
@@ -118,7 +124,7 @@ export default async function IngestionRowsPage({
               ))
             ) : (
               <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
+                <td colSpan={5} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
                   No rows.
                 </td>
               </tr>

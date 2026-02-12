@@ -646,28 +646,28 @@ export function ReviewQueueClient(props: { runId: string }) {
   const header = useMemo(() => {
     if (!deal) return null;
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-lg font-semibold tracking-tight text-slate-900">
+            <div className="text-lg font-semibold tracking-tight text-[color:var(--sf-text-primary)]">
               {deal.account_name || "Account"}{" "}
-              <span className="text-slate-500">
+              <span className="text-[color:var(--sf-text-secondary)]">
                 · {deal.opportunity_name || "—"} · {deal.forecast_stage || "—"}
               </span>
             </div>
-            <div className="mt-2 text-xs text-slate-500">
-              Rep: <span className="font-medium text-slate-700">{deal.rep_name || "—"}</span> · Close:{" "}
-              <span className="font-medium text-slate-700">{deal.close_date || "—"}</span> · Updated:{" "}
-              <span className="font-medium text-slate-700">{safeDate(deal.updated_at)}</span>
+            <div className="mt-2 text-xs text-[color:var(--sf-text-disabled)]">
+              Rep: <span className="font-medium text-[color:var(--sf-text-primary)]">{deal.rep_name || "—"}</span> · Close:{" "}
+              <span className="font-medium text-[color:var(--sf-text-primary)]">{deal.close_date || "—"}</span> · Updated:{" "}
+              <span className="font-medium text-[color:var(--sf-text-primary)]">{safeDate(deal.updated_at)}</span>
             </div>
           </div>
           <div className="flex items-center gap-2 text-xs">
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-slate-700">
+            <span className="rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-[color:var(--sf-text-secondary)]">
               Deal {Math.min(total, index + 1)}/{total || "—"}
             </span>
             {deal.public_id ? (
               <Link
-                className="rounded-md border border-slate-200 px-3 py-2 text-xs hover:bg-slate-50"
+                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs hover:bg-[color:var(--sf-surface-alt)]"
                 href={`/opportunities/${encodeURIComponent(deal.public_id)}/deal-review`}
               >
                 Open single deal view
@@ -681,32 +681,35 @@ export function ReviewQueueClient(props: { runId: string }) {
 
   return (
     <div className="grid gap-4">
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900">Review Queue</h1>
-            <p className="mt-1 text-sm text-slate-600">
+            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Review Queue</h1>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
               Group review: one deal at a time, then the agent advances automatically. Return to{" "}
-              <Link className="text-indigo-700 hover:underline" href="/forecast/simple">
+              <Link className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline" href="/forecast/simple">
                 simple dashboard
               </Link>
               .
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-[color:var(--sf-text-secondary)]">
               <input type="checkbox" checked={speak} onChange={(e) => setSpeak(e.target.checked)} disabled={busy} /> Speak
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-[color:var(--sf-text-secondary)]">
               <input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} disabled={busy} /> Voice
             </label>
-            <label className="text-xs text-slate-600" title="Stability mode keeps the mic open during the session. Turn off for strict privacy.">
+            <label
+              className="text-xs text-[color:var(--sf-text-secondary)]"
+              title="Stability mode keeps the mic open during the session. Turn off for strict privacy."
+            >
               <input type="checkbox" checked={keepMicOpen} onChange={(e) => setKeepMicOpen(e.target.checked)} disabled={busy || !voice} /> Keep mic open
             </label>
             <button
               type="button"
               onClick={() => void refresh()}
-              className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
+              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)] disabled:opacity-60"
               disabled={busy}
             >
               Refresh
@@ -714,7 +717,7 @@ export function ReviewQueueClient(props: { runId: string }) {
             <button
               type="button"
               onClick={() => void stopNow()}
-              className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
+              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)] disabled:opacity-60"
               disabled={busy}
             >
               Stop
@@ -722,35 +725,39 @@ export function ReviewQueueClient(props: { runId: string }) {
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 text-sm text-[color:var(--sf-text-secondary)]">
           <div>
             Status:{" "}
             <span className="font-semibold">
               {status === "RUNNING" ? "RUNNING" : status === "WAITING_FOR_USER" ? "WAITING_FOR_USER" : status}
             </span>
-            {run?.error ? <span className="ml-2 text-rose-700">· {run.error}</span> : null}
+            {run?.error ? <span className="ml-2 text-[#E74C3C]">· {run.error}</span> : null}
           </div>
-          <div className="text-xs text-slate-600">
+          <div className="text-xs text-[color:var(--sf-text-secondary)]">
             Listening: <span className="font-semibold">{listening ? "ON" : "OFF"}</span> · Mic:{" "}
             <span className="font-semibold">{micOpen ? "ON" : "OFF"}</span>
           </div>
         </div>
 
-        {error ? <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">{error}</div> : null}
-        {micError ? <div className="mt-3 text-xs text-rose-700">Mic: {micError}</div> : null}
-        {sttError ? <div className="mt-2 text-xs text-rose-700">STT: {sttError}</div> : null}
-        {ttsError ? <div className="mt-2 text-xs text-rose-700">TTS: {ttsError}</div> : null}
+        {error ? (
+          <div className="mt-3 rounded-md border border-[#E74C3C] bg-[color:var(--sf-surface-alt)] p-3 text-sm text-[color:var(--sf-text-primary)]">
+            {error}
+          </div>
+        ) : null}
+        {micError ? <div className="mt-3 text-xs text-[#E74C3C]">Mic: {micError}</div> : null}
+        {sttError ? <div className="mt-2 text-xs text-[#E74C3C]">STT: {sttError}</div> : null}
+        {ttsError ? <div className="mt-2 text-xs text-[#E74C3C]">TTS: {ttsError}</div> : null}
       </section>
 
       {header}
 
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <details open>
-          <summary className="cursor-pointer text-sm font-medium text-slate-900">Mic tuning</summary>
+          <summary className="cursor-pointer text-sm font-medium text-[color:var(--sf-text-primary)]">Mic tuning</summary>
           <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
-            <label className="text-xs text-slate-600">Device</label>
+            <label className="text-xs text-[color:var(--sf-text-secondary)]">Device</label>
             <select
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
               value={selectedMicDeviceId}
               onChange={(e) => setSelectedMicDeviceId(e.target.value)}
               disabled={busy}
@@ -762,28 +769,28 @@ export function ReviewQueueClient(props: { runId: string }) {
                 </option>
               ))}
             </select>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-[color:var(--sf-text-secondary)]">
               <input type="checkbox" checked={micRawMode} onChange={(e) => setMicRawMode(e.target.checked)} disabled={busy} /> Raw
             </label>
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-[color:var(--sf-text-secondary)]">
               <input type="checkbox" checked={autoMicNormalize} onChange={(e) => setAutoMicNormalize(e.target.checked)} disabled={busy} /> Auto
             </label>
-            <label className="text-xs text-slate-600">Gain</label>
+            <label className="text-xs text-[color:var(--sf-text-secondary)]">Gain</label>
             <input
-              className="w-[90px] rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="w-[90px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
               value={String(micGain)}
               onChange={(e) => setMicGain(Number(e.target.value || "2.5") || 2.5)}
               disabled={busy}
             />
-            <span className="text-xs text-slate-600">
+            <span className="text-xs text-[color:var(--sf-text-secondary)]">
               level <span className="font-semibold">{micLevel.toFixed(3)}</span> · peak{" "}
               <span className="font-semibold">{micPeak}</span>
-              {micTrackLabel ? <span className="ml-1 text-slate-500">· {micTrackLabel}</span> : null}
+              {micTrackLabel ? <span className="ml-1 text-[color:var(--sf-text-disabled)]">· {micTrackLabel}</span> : null}
             </span>
             <button
               type="button"
               onClick={() => void refreshMicDevices()}
-              className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50"
+              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
               disabled={busy}
             >
               Refresh devices
@@ -791,7 +798,7 @@ export function ReviewQueueClient(props: { runId: string }) {
             <button
               type="button"
               onClick={() => void primeMicPermissionFromGesture("manual_prime")}
-              className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50"
+              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
               disabled={busy || !voice}
             >
               Prime mic
@@ -799,7 +806,7 @@ export function ReviewQueueClient(props: { runId: string }) {
             <button
               type="button"
               onClick={() => void runMicTune("manual")}
-              className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50"
+              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
               disabled={busy || !voice}
             >
               Mic Tune
@@ -807,70 +814,70 @@ export function ReviewQueueClient(props: { runId: string }) {
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
-            <label className="text-xs text-slate-600">Silence</label>
+            <label className="text-xs text-[color:var(--sf-text-secondary)]">Silence</label>
             <input
-              className="w-[110px] rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="w-[110px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
               value={String(micVadSilenceMs)}
               onChange={(e) => setMicVadSilenceMs(Number(e.target.value || "650") || 650)}
               disabled={busy}
             />
-            <label className="text-xs text-slate-600">Min speech</label>
+            <label className="text-xs text-[color:var(--sf-text-secondary)]">Min speech</label>
             <input
-              className="w-[110px] rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="w-[110px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
               value={String(micMinSpeechMs)}
               onChange={(e) => setMicMinSpeechMs(Number(e.target.value || "350") || 350)}
               disabled={busy}
             />
-            <label className="text-xs text-slate-600">No-speech</label>
+            <label className="text-xs text-[color:var(--sf-text-secondary)]">No-speech</label>
             <input
-              className="w-[130px] rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="w-[130px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
               value={String(micNoSpeechRestartMs)}
               onChange={(e) => setMicNoSpeechRestartMs(Number(e.target.value || "6000") || 6000)}
               disabled={busy}
             />
-            <label className="text-xs text-slate-600">Max</label>
+            <label className="text-xs text-[color:var(--sf-text-secondary)]">Max</label>
             <input
-              className="w-[110px] rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="w-[110px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
               value={String(micMaxSegmentMs)}
               onChange={(e) => setMicMaxSegmentMs(Number(e.target.value || "70000") || 70000)}
               disabled={busy}
             />
           </div>
 
-          {micTuneStatus ? <div className="mt-2 text-xs text-slate-600">{micTuneStatus}</div> : null}
+          {micTuneStatus ? <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">{micTuneStatus}</div> : null}
           {lastTranscript ? (
-            <div className="mt-2 text-xs text-slate-600">
+            <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
               <span className="font-semibold">Last transcript:</span> {lastTranscript}
             </div>
           ) : null}
         </details>
       </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="grid gap-3 md:grid-cols-2">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">Conversation</div>
-            <div className="mt-3 max-h-[360px] overflow-auto rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-800">
+          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Conversation</div>
+            <div className="mt-3 max-h-[360px] overflow-auto rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-xs text-[color:var(--sf-text-primary)]">
               {(run?.messages || []).length ? (
                 (run!.messages || []).map((m, i) => (
                   <div key={`${m.at}-${i}`} className="mb-3">
-                    <div className="text-[11px] text-slate-500">
+                    <div className="text-[11px] text-[color:var(--sf-text-disabled)]">
                       <span className="font-semibold">{m.role.toUpperCase()}</span> · {new Date(m.at).toLocaleTimeString()}
                     </div>
                     <div className="whitespace-pre-wrap">{m.text}</div>
                   </div>
                 ))
               ) : (
-                <div className="text-slate-500">Waiting…</div>
+                <div className="text-[color:var(--sf-text-disabled)]">Waiting…</div>
               )}
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">Answer</div>
+          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Answer</div>
             <div className="mt-3 flex items-center gap-2">
               <input
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                 value={answer}
                 onChange={(e) => setAnswer(e.target.value)}
                 placeholder={isWaiting ? "Type your answer…" : "Waiting for next question…"}
@@ -882,7 +889,7 @@ export function ReviewQueueClient(props: { runId: string }) {
               <button
                 type="button"
                 onClick={() => void sendAnswer()}
-                className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+                className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)] disabled:opacity-60"
                 disabled={busy || !isWaiting || !answer.trim()}
               >
                 Send
@@ -890,11 +897,13 @@ export function ReviewQueueClient(props: { runId: string }) {
             </div>
 
             <div className="mt-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">Audio</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Audio</div>
               <div className="mt-2">
                 <audio ref={audioRef} controls style={{ width: "100%" }} />
               </div>
-              <div className="mt-2 text-xs text-slate-500">Voice mode uses mic+STT; the agent will pause when input is needed.</div>
+              <div className="mt-2 text-xs text-[color:var(--sf-text-disabled)]">
+                Voice mode uses mic+STT; the agent will pause when input is needed.
+              </div>
             </div>
           </div>
         </div>

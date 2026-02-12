@@ -118,13 +118,13 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
 
   return (
     <div className="grid gap-4">
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900">Sales Forecaster (Simple)</h1>
-            <p className="mt-1 text-sm text-slate-600">
+            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Sales Forecaster (Simple)</h1>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
               Simplified view for deal selection + single/queue review. Uses the same data as{" "}
-              <Link className="text-indigo-700 hover:underline" href="/forecast">
+              <Link className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline" href="/forecast">
                 /forecast
               </Link>
               .
@@ -134,7 +134,7 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
             <button
               type="button"
               onClick={() => void refresh()}
-              className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
+              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)] disabled:opacity-60"
               disabled={busy}
             >
               Refresh
@@ -142,7 +142,7 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
             <button
               type="button"
               onClick={() => void startQueueReview()}
-              className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
+              className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)] disabled:opacity-60"
               disabled={busy || !selectedIds.length}
               title="Run the agent through selected deals, one-by-one."
             >
@@ -153,30 +153,30 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
 
         <div className="mt-4 grid gap-3 md:grid-cols-12">
           <div className="md:col-span-5">
-            <label className="text-xs font-medium text-slate-600">Deal search</label>
+            <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Deal search</label>
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search account, opp, stages…"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200"
+              className="mt-1 w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
             />
           </div>
 
           <div className="md:col-span-4">
-            <label className="text-xs font-medium text-slate-600">Rep (optional)</label>
+            <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Rep (optional)</label>
             <input
               value={repFilter}
               onChange={(e) => setRepFilter(e.target.value)}
               placeholder={props.repFilterLocked ? "Locked" : "Erik M"}
               disabled={!!props.repFilterLocked || busy}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200 disabled:bg-slate-50"
+              className="mt-1 w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)] disabled:opacity-60"
             />
           </div>
 
           <div className="md:col-span-3 flex items-end justify-end gap-2">
             <button
               type="button"
-              className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-60"
+              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)] disabled:opacity-60"
               disabled={busy || !filtered.length}
               onClick={() => {
                 setSelected((prev) => {
@@ -197,13 +197,15 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
         </div>
 
         {error ? (
-          <div className="mt-4 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">{error}</div>
+          <div className="mt-4 rounded-md border border-[#E74C3C] bg-[color:var(--sf-surface-alt)] p-3 text-sm text-[color:var(--sf-text-primary)]">
+            {error}
+          </div>
         ) : null}
       </section>
 
-      <section className="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+      <section className="overflow-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm">
         <table className="w-full min-w-[980px] text-left text-sm">
-          <thead className="bg-slate-50 text-slate-600">
+          <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
             <tr>
               <th className="px-4 py-3 w-[56px]">Queue</th>
               <th className="px-4 py-3">Account Name</th>
@@ -221,7 +223,7 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
               const id = String(d.id || "");
               const checked = !!selected[id];
               return (
-                <tr key={id} className="border-t border-slate-100">
+                <tr key={id} className="border-t border-[color:var(--sf-border)]">
                   <td className="px-4 py-3">
                     <input
                       type="checkbox"
@@ -239,7 +241,7 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
                   <td className="px-4 py-3">{healthPct(d)}</td>
                   <td className="px-4 py-3 text-right">
                     <Link
-                      className="rounded-md bg-indigo-700 px-3 py-2 text-xs font-medium text-white hover:bg-indigo-600"
+                      className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-xs font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
                       href={`/opportunities/${encodeURIComponent(id)}/deal-review`}
                     >
                       Review
@@ -250,7 +252,7 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
             })}
             {!filtered.length ? (
               <tr>
-                <td className="px-4 py-8 text-center text-slate-500" colSpan={9}>
+                <td className="px-4 py-8 text-center text-[color:var(--sf-text-disabled)]" colSpan={9}>
                   No deals found.
                 </td>
               </tr>

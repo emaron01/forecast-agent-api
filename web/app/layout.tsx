@@ -12,7 +12,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="bg-slate-50 text-slate-900">{children}</body>
+      <body className="bg-[color:var(--sf-background)] text-[color:var(--sf-text-primary)]">{children}</body>
     </html>
   );
 }

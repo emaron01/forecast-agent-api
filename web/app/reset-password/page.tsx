@@ -17,12 +17,12 @@ export default async function ResetPasswordPage({
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center p-6">
-      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900">Reset password</h1>
-        <p className="mt-1 text-sm text-slate-600">Choose a new password (min 8 characters).</p>
+      <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-6 shadow-sm">
+        <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Reset password</h1>
+        <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Choose a new password (min 8 characters).</p>
 
         {error ? (
-          <div className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+          <div className="mt-4 rounded-md border border-[#E74C3C] bg-[color:var(--sf-surface-alt)] px-4 py-3 text-sm text-[color:var(--sf-text-primary)]">
             This reset link is invalid or expired.
           </div>
         ) : null}
@@ -31,24 +31,26 @@ export default async function ResetPasswordPage({
           <input type="hidden" name="token" value={token} />
 
           <div className="grid gap-1">
-            <label className="text-sm font-medium text-slate-700">New password</label>
+            <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">New password</label>
             <input
               name="password"
               type="password"
               autoComplete="new-password"
-              className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
               required
               minLength={8}
             />
           </div>
 
-          <button className="mt-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white">Reset password</button>
+          <button className="mt-2 rounded-md bg-[color:var(--sf-button-primary-bg)] px-4 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
+            Reset password
+          </button>
 
           <div className="mt-2 flex items-center justify-between text-sm">
-            <Link href="/login" className="text-indigo-700 hover:underline">
+            <Link href="/login" className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline">
               Back to login
             </Link>
-            <Link href="/" className="text-slate-600 hover:underline">
+            <Link href="/" className="text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)] hover:underline">
               Home
             </Link>
           </div>

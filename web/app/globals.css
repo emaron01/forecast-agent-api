@@ -11,3 +11,44 @@ body {
   margin: 0;
 }
 
+/* SalesForecast.io palette (dark mode defaults) */
+:root {
+  /* Core surfaces */
+  --sf-background: #0d1b2a;
+  --sf-surface: #1b263b;
+  --sf-surface-alt: #243447;
+  --sf-border: #415a77;
+
+  /* Text */
+  --sf-text-primary: #f5f7fa;
+  --sf-text-secondary: #c7d1da;
+  --sf-text-disabled: #7a8696;
+
+  /* Accents */
+  --sf-accent-primary: #00c2d1;
+  --sf-accent-primary-hover: #00aab8;
+  --sf-accent-secondary: #4dd7e5;
+  --sf-accent-tertiary: #5dade2;
+
+  /* Nav */
+  --sf-nav-background: #1b263b;
+  --sf-nav-text: #f5f7fa;
+  --sf-nav-hover: #00c2d1;
+  --sf-nav-active: #4dd7e5;
+  --sf-nav-border: #415a77;
+
+  /* Buttons */
+  --sf-button-primary-bg: #00c2d1;
+  --sf-button-primary-text: #0d1b2a;
+  --sf-button-primary-hover: #00aab8;
+  --sf-button-secondary-bg: #1b263b;
+  --sf-button-secondary-text: #f5f7fa;
+  --sf-button-secondary-hover: #243447;
+
+  /* Derived (no new hex values) */
+  --sf-overlay: color-mix(in srgb, var(--sf-background) 60%, transparent);
+
+  /* Compatibility aliases (older token names used in some components) */
+  --sf-accent: var(--sf-accent-primary);
+  --sf-accent-hover: var(--sf-accent-primary-hover);
+}

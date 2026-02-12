@@ -84,26 +84,29 @@ export default async function UsersPage({
     <main>
       <div className="flex items-end justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">Users</h1>
-          <p className="mt-1 text-sm text-slate-600">
+          <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Users</h1>
+          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
             {isManager ? "Manage REP users and assignments." : "Manage users, roles, and reporting lines."}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/admin/users?modal=new" className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white">
+          <Link
+            href="/admin/users?modal=new"
+            className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
+          >
             New user
           </Link>
         </div>
       </div>
 
       {reset ? (
-        <div className="mt-4 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800">
+        <div className="mt-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 text-sm text-[color:var(--sf-text-primary)]">
           {reset === "sent" ? (
             <>Reset link generated.</>
           ) : (
             <>
               Reset link (dev):{" "}
-              <Link className="text-indigo-700 hover:underline" href={reset}>
+              <Link className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline" href={reset}>
                 {reset}
               </Link>
             </>
@@ -113,8 +116,12 @@ export default async function UsersPage({
 
       <form method="get" className="mt-4 flex flex-wrap items-end gap-2">
         <div>
-          <label className="text-xs font-medium text-slate-600">Role</label>
-          <select name="role" defaultValue={roleFilter} className="mt-1 w-48 rounded-md border border-slate-300 px-3 py-2 text-sm">
+          <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Role</label>
+          <select
+            name="role"
+            defaultValue={roleFilter}
+            className="mt-1 w-48 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+          >
             <option value="">(all)</option>
             <option value="ADMIN">{labelForLevel(0, "Admin")}</option>
             <option value="EXEC_MANAGER">{labelForLevel(1, "Executive Manager")}</option>
@@ -122,15 +129,20 @@ export default async function UsersPage({
             <option value="REP">{labelForLevel(3, "Rep")}</option>
           </select>
         </div>
-        <button className="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white">Filter</button>
-        <Link href="/admin/users" className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+        <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
+          Filter
+        </button>
+        <Link
+          href="/admin/users"
+          className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+        >
           Clear
         </Link>
       </form>
 
-      <div className="mt-5 overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="mt-5 overflow-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm">
         <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-slate-600">
+          <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
             <tr>
               <th className="px-4 py-3">public_id</th>
               <th className="px-4 py-3">role</th>
@@ -148,7 +160,7 @@ export default async function UsersPage({
           <tbody>
             {users.length ? (
               users.map((u) => (
-                <tr key={u.public_id} className="border-t border-slate-100">
+                <tr key={u.public_id} className="border-t border-[color:var(--sf-border)]">
                   <td className="px-4 py-3 font-mono text-xs">{u.public_id}</td>
                   <td className="px-4 py-3">{labelForLevel(roleToLevel(u.role), u.role)}</td>
                   <td className="px-4 py-3">{u.hierarchy_level}</td>
@@ -157,9 +169,9 @@ export default async function UsersPage({
                   <td className="px-4 py-3">{u.account_owner_name}</td>
                   <td className="px-4 py-3">
                     {u.manager_user_id != null ? (
-                      <span className="text-slate-800">
+                      <span className="text-[color:var(--sf-text-primary)]">
                         {userById.get(u.manager_user_id)?.display_name || ""}{" "}
-                        <span className="font-mono text-xs text-slate-500">
+                        <span className="font-mono text-xs text-[color:var(--sf-text-disabled)]">
                           {userById.get(u.manager_user_id)?.public_id || ""}
                         </span>
                       </span>
@@ -175,28 +187,28 @@ export default async function UsersPage({
                       {isManager && u.manager_user_id == null ? (
                         <form action={assignRepToMeAction}>
                           <input type="hidden" name="public_id" value={String(u.public_id)} />
-                          <button className="rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50">
+                          <button className="rounded-md border border-[color:var(--sf-border)] px-2 py-1 text-xs hover:bg-[color:var(--sf-surface-alt)]">
                             Assign to me
                           </button>
                         </form>
                       ) : null}
                       <Link
                         href={`/admin/users?modal=edit&id=${encodeURIComponent(String(u.public_id))}`}
-                        className="rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50"
+                        className="rounded-md border border-[color:var(--sf-border)] px-2 py-1 text-xs hover:bg-[color:var(--sf-surface-alt)]"
                       >
                         Edit
                       </Link>
                       {isAdmin ? (
                         <form action={generateResetLinkAction}>
                           <input type="hidden" name="public_id" value={String(u.public_id)} />
-                          <button className="rounded-md border border-slate-200 px-2 py-1 text-xs hover:bg-slate-50">
+                          <button className="rounded-md border border-[color:var(--sf-border)] px-2 py-1 text-xs hover:bg-[color:var(--sf-surface-alt)]">
                             Reset password
                           </button>
                         </form>
                       ) : null}
                       <Link
                         href={`/admin/users?modal=delete&id=${encodeURIComponent(String(u.public_id))}`}
-                        className="rounded-md border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50"
+                        className="rounded-md border border-[#E74C3C] px-2 py-1 text-xs text-[#E74C3C] hover:bg-[color:var(--sf-surface-alt)]"
                       >
                         Delete
                       </Link>
@@ -206,7 +218,7 @@ export default async function UsersPage({
               ))
             ) : (
               <tr>
-                <td colSpan={11} className="px-4 py-6 text-center text-slate-500">
+                <td colSpan={11} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
                   No users found.
                 </td>
               </tr>
@@ -219,7 +231,7 @@ export default async function UsersPage({
         <Modal title="New user" closeHref={closeHref()}>
           <form action={createUserAction} className="grid gap-3" data-user-form="1">
             {error ? (
-              <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+              <div className="rounded-lg border border-[#E74C3C] bg-[color:var(--sf-surface-alt)] px-4 py-3 text-sm text-[color:var(--sf-text-primary)]">
                 {error === "passwords_do_not_match"
                   ? "Passwords don't match. Please re-enter them."
                   : "Please check your inputs and try again."}
@@ -229,20 +241,34 @@ export default async function UsersPage({
 
             <div className="grid gap-3 md:grid-cols-2">
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">First Name</label>
-                  <input name="first_name" defaultValue={prefillFirstName} className="rounded-md border border-slate-300 px-3 py-2 text-sm" required />
+                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">First Name</label>
+                <input
+                  name="first_name"
+                  defaultValue={prefillFirstName}
+                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                  required
+                />
               </div>
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">Last Name</label>
-                  <input name="last_name" defaultValue={prefillLastName} className="rounded-md border border-slate-300 px-3 py-2 text-sm" required />
+                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Last Name</label>
+                <input
+                  name="last_name"
+                  defaultValue={prefillLastName}
+                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                  required
+                />
               </div>
             </div>
 
             {!isManager ? (
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="grid gap-1">
-                  <label className="text-sm font-medium text-slate-700">Role</label>
-                  <select name="role" defaultValue={prefillRole || "REP"} className="rounded-md border border-slate-300 px-3 py-2 text-sm">
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Role</label>
+                  <select
+                    name="role"
+                    defaultValue={prefillRole || "REP"}
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                  >
                     <option value="ADMIN">{labelForLevel(0, "Admin")}</option>
                     <option value="EXEC_MANAGER">{labelForLevel(1, "Executive Manager")}</option>
                     <option value="MANAGER">{labelForLevel(2, "Manager")}</option>
@@ -251,33 +277,37 @@ export default async function UsersPage({
                 </div>
 
                 <div
-                  className="grid gap-1 rounded-md border border-slate-200 bg-slate-50 p-3"
+                  className="grid gap-1 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3"
                   data-show-roles="EXEC_MANAGER,MANAGER"
                   hidden
                 >
-                  <label className="text-sm font-semibold text-slate-900">Can View All User Data</label>
-                  <label className="flex items-center gap-2 text-sm text-slate-800">
+                  <label className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Can View All User Data</label>
+                  <label className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
                     <input name="see_all_visibility" type="checkbox" className="h-5 w-5" defaultChecked={prefillSeeAll === "true"} />
                     <span className="font-medium">Yes</span>
                   </label>
-                  <p className="text-xs text-slate-600">If unchecked, visibility is limited to assigned users.</p>
+                  <p className="text-xs text-[color:var(--sf-text-secondary)]">If unchecked, visibility is limited to assigned users.</p>
                 </div>
               </div>
             ) : null}
 
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">Name As It Appears In CRM</label>
-              <input name="account_owner_name" defaultValue={prefillAccountOwnerName} className="rounded-md border border-slate-300 px-3 py-2 text-sm" />
-              <p className="text-xs font-medium text-red-700">
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Name As It Appears In CRM</label>
+              <input
+                name="account_owner_name"
+                defaultValue={prefillAccountOwnerName}
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+              />
+              <p className="text-xs font-medium text-[#E74C3C]">
                 This name is used to exactly match the Account Owner for each Opportunity in CRM used for Forecast Reviews. Please COPY and
                 PASTE the name as it appears in CRM. (Required for Reps)
               </p>
             </div>
 
             {isAdmin ? (
-              <div className="rounded-md border border-slate-200 bg-white p-3" data-show-roles="EXEC_MANAGER,MANAGER" hidden>
-                <div className="text-sm font-semibold text-slate-900">Manager visibility assignments</div>
-                <p className="mt-1 text-xs text-slate-600">
+              <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3" data-show-roles="EXEC_MANAGER,MANAGER" hidden>
+                <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Manager visibility assignments</div>
+                <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
                   If creating an EXEC_MANAGER/MANAGER and <span className="font-mono">Can View All User Data</span> is unchecked, you must assign at least
                   one visible user.
                 </p>
@@ -286,10 +316,13 @@ export default async function UsersPage({
                     .filter((u) => u.active)
                     .filter((u) => u.role !== "ADMIN")
                     .map((u) => (
-                      <label key={u.public_id} className="flex items-center gap-2 text-sm text-slate-800">
+                      <label key={u.public_id} className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
                         <input type="checkbox" name="visible_user_public_id" value={String(u.public_id)} className="h-4 w-4" />
                         <span>
-                          {u.display_name} <span className="text-xs text-slate-500">({u.role}, level {u.hierarchy_level})</span>
+                          {u.display_name}{" "}
+                          <span className="text-xs text-[color:var(--sf-text-disabled)]">
+                            ({u.role}, level {u.hierarchy_level})
+                          </span>
                         </span>
                       </label>
                     ))}
@@ -300,11 +333,11 @@ export default async function UsersPage({
             {isAdmin ? (
               <div className="grid gap-2">
                 <div className="grid gap-1" data-show-roles="REP" hidden>
-                  <label className="text-sm font-medium text-slate-700">Who is Their Manager (optional)</label>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
                   <select
                     name="manager_user_public_id"
                     defaultValue={prefillManagerUserPublicId || ""}
-                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
                     <option value="">(none)</option>
                     {managers.map((m) => (
@@ -313,15 +346,15 @@ export default async function UsersPage({
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-slate-500">For reps, this must be a Manager.</p>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">For reps, this must be a Manager.</p>
                 </div>
 
                 <div className="grid gap-1" data-show-roles="MANAGER" hidden>
-                  <label className="text-sm font-medium text-slate-700">Who is Their Manager (optional)</label>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
                   <select
                     name="manager_user_public_id"
                     defaultValue={prefillManagerUserPublicId || ""}
-                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
                     <option value="">(none)</option>
                     {execManagers.map((m) => (
@@ -330,7 +363,7 @@ export default async function UsersPage({
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-slate-500">For managers, this must be an Executive Manager.</p>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">For managers, this must be an Executive Manager.</p>
                 </div>
               </div>
             ) : null}
@@ -338,7 +371,7 @@ export default async function UsersPage({
             <div className="grid gap-3 md:grid-cols-2">
               {isAdmin ? (
                 <div className="grid gap-1" data-show-roles="ADMIN" hidden>
-                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">
                     <input
                       name="admin_has_full_analytics_access"
                       type="checkbox"
@@ -350,7 +383,7 @@ export default async function UsersPage({
                 </div>
               ) : null}
               <div className="grid gap-1">
-                <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <label className="flex items-center gap-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">
                   <input name="active" type="checkbox" className="h-5 w-5" defaultChecked={prefillActive ? prefillActive === "true" : true} />
                   <span>User is Active</span>
                 </label>
@@ -358,27 +391,33 @@ export default async function UsersPage({
             </div>
 
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">Email</label>
-              <input name="email" type="email" defaultValue={prefillEmail} className="rounded-md border border-slate-300 px-3 py-2 text-sm" required />
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Email</label>
+              <input
+                name="email"
+                type="email"
+                defaultValue={prefillEmail}
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                required
+              />
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">Password</label>
+                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Password</label>
                 <input
                   name="password"
                   type="password"
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   placeholder="Minimum 8 characters"
                   required
                 />
               </div>
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">Confirm Password</label>
+                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Confirm Password</label>
                 <input
                   name="confirm_password"
                   type="password"
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   placeholder="Re-enter password"
                   required
                 />
@@ -386,10 +425,15 @@ export default async function UsersPage({
             </div>
 
             <div className="mt-2 flex items-center justify-end gap-2">
-              <Link href={closeHref()} className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+              <Link
+                href={closeHref()}
+                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+              >
                 Cancel
               </Link>
-              <button className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white">Create</button>
+              <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
+                Create
+              </button>
             </div>
 
             {/* Progressive enhancement: show/hide role-dependent fields */}
@@ -437,20 +481,20 @@ export default async function UsersPage({
 
             <div className="grid gap-3 md:grid-cols-2">
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">First Name</label>
+                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">First Name</label>
                 <input
                   name="first_name"
                   defaultValue={user.first_name || ""}
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   required
                 />
               </div>
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-slate-700">Last Name</label>
+                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Last Name</label>
                 <input
                   name="last_name"
                   defaultValue={user.last_name || ""}
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   required
                 />
               </div>
@@ -459,8 +503,12 @@ export default async function UsersPage({
             {!isManager ? (
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="grid gap-1">
-                  <label className="text-sm font-medium text-slate-700">Role</label>
-                  <select name="role" defaultValue={user.role} className="rounded-md border border-slate-300 px-3 py-2 text-sm">
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Role</label>
+                  <select
+                    name="role"
+                    defaultValue={user.role}
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                  >
                     <option value="ADMIN">{labelForLevel(0, "Admin")}</option>
                     <option value="EXEC_MANAGER">{labelForLevel(1, "Executive Manager")}</option>
                     <option value="MANAGER">{labelForLevel(2, "Manager")}</option>
@@ -469,12 +517,12 @@ export default async function UsersPage({
                 </div>
 
                 <div
-                  className="grid gap-1 rounded-md border border-slate-200 bg-slate-50 p-3"
+                  className="grid gap-1 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3"
                   data-show-roles="EXEC_MANAGER,MANAGER"
                   hidden={!(user.role === "EXEC_MANAGER" || user.role === "MANAGER")}
                 >
-                  <label className="text-sm font-semibold text-slate-900">Can View All User Data</label>
-                  <label className="flex items-center gap-2 text-sm text-slate-800">
+                  <label className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Can View All User Data</label>
+                  <label className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
                     <input
                       name="see_all_visibility"
                       type="checkbox"
@@ -483,19 +531,19 @@ export default async function UsersPage({
                     />
                     <span className="font-medium">Yes</span>
                   </label>
-                  <p className="text-xs text-slate-600">If unchecked, visibility is limited to assigned users.</p>
+                  <p className="text-xs text-[color:var(--sf-text-secondary)]">If unchecked, visibility is limited to assigned users.</p>
                 </div>
               </div>
             ) : null}
 
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">Name As It Appears In CRM</label>
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Name As It Appears In CRM</label>
               <input
                 name="account_owner_name"
                 defaultValue={user.account_owner_name || ""}
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
               />
-              <p className="text-xs font-medium text-red-700">
+              <p className="text-xs font-medium text-[#E74C3C]">
                 This name is used to exactly match the Account Owner for each Opportunity in CRM used for Forecast Reviews. Please COPY and
                 PASTE the name as it appears in CRM. (Required for Reps)
               </p>
@@ -503,12 +551,12 @@ export default async function UsersPage({
 
             {isAdmin ? (
               <div
-                className="rounded-md border border-slate-200 bg-white p-3"
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3"
                 data-show-roles="EXEC_MANAGER,MANAGER"
                 hidden={!(user.role === "EXEC_MANAGER" || user.role === "MANAGER")}
               >
-                <div className="text-sm font-semibold text-slate-900">Manager visibility assignments</div>
-                <p className="mt-1 text-xs text-slate-600">
+                <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Manager visibility assignments</div>
+                <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
                   If editing an EXEC_MANAGER/MANAGER and <span className="font-mono">Can View All User Data</span> is unchecked, select which users
                   they can see.
                 </p>
@@ -518,7 +566,7 @@ export default async function UsersPage({
                     .filter((u) => u.id !== user.id)
                     .filter((u) => u.role !== "ADMIN")
                     .map((u) => (
-                      <label key={u.public_id} className="flex items-center gap-2 text-sm text-slate-800">
+                      <label key={u.public_id} className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
                         <input
                           type="checkbox"
                           name="visible_user_public_id"
@@ -527,7 +575,10 @@ export default async function UsersPage({
                           className="h-4 w-4"
                         />
                         <span>
-                          {u.display_name} <span className="text-xs text-slate-500">({u.role}, level {u.hierarchy_level})</span>
+                          {u.display_name}{" "}
+                          <span className="text-xs text-[color:var(--sf-text-disabled)]">
+                            ({u.role}, level {u.hierarchy_level})
+                          </span>
                         </span>
                       </label>
                     ))}
@@ -538,7 +589,7 @@ export default async function UsersPage({
             {isAdmin ? (
               <div className="grid gap-2">
                 <div className="grid gap-1" data-show-roles="REP" hidden>
-                  <label className="text-sm font-medium text-slate-700">Who is Their Manager (optional)</label>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
                   <select
                     name="manager_user_public_id"
                     defaultValue={
@@ -546,7 +597,7 @@ export default async function UsersPage({
                         ? ""
                         : String(managers.find((m) => m.id === user.manager_user_id)?.public_id || "")
                     }
-                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
                     <option value="">(none)</option>
                     {managers
@@ -557,11 +608,11 @@ export default async function UsersPage({
                         </option>
                       ))}
                   </select>
-                  <p className="text-xs text-slate-500">For reps, this must be a Manager.</p>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">For reps, this must be a Manager.</p>
                 </div>
 
                 <div className="grid gap-1" data-show-roles="MANAGER" hidden>
-                  <label className="text-sm font-medium text-slate-700">Who is Their Manager (optional)</label>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
                   <select
                     name="manager_user_public_id"
                     defaultValue={
@@ -569,7 +620,7 @@ export default async function UsersPage({
                         ? ""
                         : String(execManagers.find((m) => m.id === user.manager_user_id)?.public_id || "")
                     }
-                    className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
                     <option value="">(none)</option>
                     {execManagers
@@ -580,7 +631,7 @@ export default async function UsersPage({
                         </option>
                       ))}
                   </select>
-                  <p className="text-xs text-slate-500">For managers, this must be an Executive Manager.</p>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">For managers, this must be an Executive Manager.</p>
                 </div>
               </div>
             ) : null}
@@ -588,7 +639,7 @@ export default async function UsersPage({
             <div className="grid gap-3 md:grid-cols-2">
               {isAdmin ? (
                 <div className="grid gap-1" data-show-roles="ADMIN" hidden={user.role !== "ADMIN"}>
-                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">
                     <input
                       name="admin_has_full_analytics_access"
                       type="checkbox"
@@ -600,7 +651,7 @@ export default async function UsersPage({
                 </div>
               ) : null}
               <div className="grid gap-1">
-                <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <label className="flex items-center gap-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">
                   <input name="active" type="checkbox" className="h-5 w-5" defaultChecked={!!user.active} />
                   <span>User is Active</span>
                 </label>
@@ -608,21 +659,26 @@ export default async function UsersPage({
             </div>
 
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-slate-700">Email</label>
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Email</label>
               <input
                 name="email"
                 type="email"
                 defaultValue={user.email}
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                 required
               />
             </div>
 
             <div className="mt-2 flex items-center justify-end gap-2">
-              <Link href={closeHref()} className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+              <Link
+                href={closeHref()}
+                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+              >
                 Cancel
               </Link>
-              <button className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white">Save</button>
+              <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
+                Save
+              </button>
             </div>
 
             {/* Progressive enhancement: show/hide role-dependent fields */}
@@ -665,15 +721,18 @@ export default async function UsersPage({
         <Modal title={`Delete user`} closeHref={closeHref()}>
           <form action={deleteUserAction} className="grid gap-4">
             <input type="hidden" name="public_id" value={String(user.public_id)} />
-            <p className="text-sm text-slate-700">
+            <p className="text-sm text-[color:var(--sf-text-secondary)]">
               This will permanently delete <span className="font-semibold">{user.display_name}</span> ({user.email}). This cannot
               be undone.
             </p>
             <div className="flex items-center justify-end gap-2">
-              <Link href={closeHref()} className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+              <Link
+                href={closeHref()}
+                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+              >
                 Cancel
               </Link>
-              <button className="rounded-md bg-rose-600 px-3 py-2 text-sm font-medium text-white">Delete</button>
+              <button className="rounded-md bg-[#E74C3C] px-3 py-2 text-sm font-medium text-[color:var(--sf-text-primary)]">Delete</button>
             </div>
           </form>
         </Modal>

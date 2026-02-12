@@ -1288,16 +1288,19 @@ export function DealReviewClient(props: { opportunityId: string }) {
 
       <style jsx global>{`
         :root {
-          --bg: #0b1220;
-          --panel: #121b2e;
-          --panel2: #0f172a;
-          --border: #24324d;
-          --text: #e6edf7;
-          --muted: #9fb0c8;
-          --accent: #60a5fa;
-          --good: #22c55e;
-          --warn: #f59e0b;
-          --bad: #ef4444;
+          /* Align deal review shell to global palette tokens */
+          --bg: var(--sf-background);
+          --panel: var(--sf-surface);
+          --panel2: var(--sf-surface-alt);
+          --border: var(--sf-border);
+          --text: var(--sf-text-primary);
+          --muted: var(--sf-text-secondary);
+          --accent: var(--sf-accent-primary);
+
+          /* Semantic scoring colors — MUST remain hard-coded */
+          --good: #2ecc71;
+          --warn: #f1c40f;
+          --bad: #e74c3c;
         }
         body {
           margin: 0;
@@ -1359,7 +1362,7 @@ export function DealReviewClient(props: { opportunityId: string }) {
         input:focus,
         select:focus {
           border-color: var(--accent);
-          box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.18);
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
         }
         button {
           cursor: pointer;
@@ -1376,8 +1379,12 @@ export function DealReviewClient(props: { opportunityId: string }) {
           padding: 14px 14px;
           font-weight: 800;
           border-radius: 12px;
-          border-color: rgba(96, 165, 250, 0.45);
-          background: linear-gradient(180deg, rgba(96, 165, 250, 0.18), rgba(96, 165, 250, 0.06));
+          border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+          background: linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--accent) 18%, transparent),
+            color-mix(in srgb, var(--accent) 6%, transparent)
+          );
         }
         .status {
           width: 100%;
@@ -1400,19 +1407,19 @@ export function DealReviewClient(props: { opportunityId: string }) {
         }
         .pill.ok {
           color: var(--good);
-          border-color: rgba(34, 197, 94, 0.35);
+          border-color: color-mix(in srgb, var(--good) 35%, transparent);
         }
         .pill.err {
           color: var(--bad);
-          border-color: rgba(239, 68, 68, 0.35);
+          border-color: color-mix(in srgb, var(--bad) 35%, transparent);
         }
         .pill.warn {
           color: var(--warn);
-          border-color: rgba(245, 158, 11, 0.35);
+          border-color: color-mix(in srgb, var(--warn) 35%, transparent);
         }
         .pill.blue {
           color: var(--accent);
-          border-color: rgba(96, 165, 250, 0.35);
+          border-color: color-mix(in srgb, var(--accent) 35%, transparent);
         }
         .small {
           font-size: 11px;
@@ -1486,13 +1493,13 @@ export function DealReviewClient(props: { opportunityId: string }) {
           gap: 10px;
         }
         .cat {
-          background: #0f172a;
+          background: var(--panel2);
           border: 1px solid var(--border);
           border-radius: 12px;
           padding: 10px;
         }
         .cat.active {
-          outline: 2px solid rgba(96, 165, 250, 0.22);
+          outline: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
         }
         .cat .ch {
           display: flex;
@@ -1507,7 +1514,7 @@ export function DealReviewClient(props: { opportunityId: string }) {
           font-weight: 900;
         }
         .tip {
-          color: #fbbf24;
+          color: var(--warn);
           font-size: 12px;
           margin-top: 6px;
         }
@@ -1528,8 +1535,8 @@ export function DealReviewClient(props: { opportunityId: string }) {
           margin-top: 10px;
           max-height: 320px;
           overflow: auto;
-          background: #0b1020;
-          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: var(--panel2);
+          border: 1px solid var(--border);
           border-radius: 12px;
           padding: 10px;
         }

@@ -11,7 +11,14 @@ export default function GlobalError(props: {
 
   return (
     <html lang="en">
-      <body style={{ fontFamily: "ui-sans-serif, system-ui", padding: 24 }}>
+      <body
+        style={{
+          fontFamily: "ui-sans-serif, system-ui",
+          padding: 24,
+          background: "var(--sf-background)",
+          color: "var(--sf-text-primary)",
+        }}
+      >
         <h1 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Application error</h1>
         <p style={{ marginBottom: 12 }}>
           Something went wrong while rendering this page. If this keeps happening, copy the details below and send them to support.
@@ -19,11 +26,11 @@ export default function GlobalError(props: {
         <pre
           style={{
             whiteSpace: "pre-wrap",
-            background: "#0b1020",
-            color: "#c7d2fe",
+            background: "var(--sf-surface-alt)",
+            color: "var(--sf-text-secondary)",
             padding: 12,
             borderRadius: 8,
-            border: "1px solid rgba(100,116,139,.35)",
+            border: "1px solid var(--sf-border)",
             maxWidth: 900,
             overflow: "auto",
           }}
@@ -39,8 +46,9 @@ export default function GlobalError(props: {
             style={{
               padding: "8px 12px",
               borderRadius: 8,
-              border: "1px solid rgba(100,116,139,.35)",
-              background: "white",
+              border: "1px solid var(--sf-border)",
+              background: "var(--sf-button-secondary-bg)",
+              color: "var(--sf-button-secondary-text)",
               cursor: "pointer",
             }}
           >

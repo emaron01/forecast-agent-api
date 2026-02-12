@@ -23,10 +23,10 @@ export default async function DashboardExcelUploadPage({
     // Master users should use admin tools.
     return (
       <main className="mx-auto max-w-4xl p-6">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-900">Excel Upload</h1>
-        <p className="mt-2 text-sm text-slate-700">Switch to an organization to upload opportunities.</p>
+        <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Excel Upload</h1>
+        <p className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">Switch to an organization to upload opportunities.</p>
         <div className="mt-4">
-          <Link href="/admin/organizations" className="text-indigo-700 hover:underline">
+          <Link href="/admin/organizations" className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline">
             Go to organizations
           </Link>
         </div>
@@ -50,23 +50,26 @@ export default async function DashboardExcelUploadPage({
   const prefillMappings = mappingSetId ? await listFieldMappings({ mappingSetId }).catch(() => []) : [];
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
       <main className="mx-auto max-w-5xl p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900">Excel opportunities upload</h1>
-            <p className="mt-1 text-sm text-slate-600">Upload an Excel file, map columns, and ingest opportunities.</p>
+            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Excel opportunities upload</h1>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Upload an Excel file, map columns, and ingest opportunities.</p>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/dashboard" className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+            <Link
+              href="/dashboard"
+              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+            >
               Back to dashboard
             </Link>
           </div>
         </div>
 
       {staged ? (
-        <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+        <div className="mt-4 rounded-md border border-[#2ECC71] bg-[color:var(--sf-surface-alt)] px-4 py-3 text-sm text-[color:var(--sf-text-primary)]">
           Uploaded and staged {staged} rows.
         </div>
       ) : null}

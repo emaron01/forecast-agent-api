@@ -24,22 +24,28 @@ export default async function AllUsersPage() {
     <main>
       <div className="flex items-end justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">All users</h1>
-          <p className="mt-1 text-sm text-slate-600">Cross-org user list (SaaS owner only).</p>
+          <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">All users</h1>
+          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Cross-org user list (SaaS owner only).</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/admin/organizations" className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+          <Link
+            href="/admin/organizations"
+            className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+          >
             Organizations
           </Link>
-          <Link href="/admin/control-center" className="rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+          <Link
+            href="/admin/control-center"
+            className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+          >
             Owner control center
           </Link>
         </div>
       </div>
 
-      <div className="mt-5 overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="mt-5 overflow-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm">
         <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-slate-600">
+          <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
             <tr>
               <th className="px-4 py-3">org</th>
               <th className="px-4 py-3">user</th>
@@ -55,10 +61,10 @@ export default async function AllUsersPage() {
           <tbody>
             {users.length ? (
               users.map((u) => (
-                <tr key={u.public_id} className="border-t border-slate-100">
+                <tr key={u.public_id} className="border-t border-[color:var(--sf-border)]">
                   <td className="px-4 py-3">
-                    <div className="text-slate-900">{u.org_name}</div>
-                    <div className="font-mono text-xs text-slate-500">{u.org_public_id}</div>
+                    <div className="text-[color:var(--sf-text-primary)]">{u.org_name}</div>
+                    <div className="font-mono text-xs text-[color:var(--sf-text-disabled)]">{u.org_public_id}</div>
                   </td>
                   <td className="px-4 py-3">{u.display_name}</td>
                   <td className="px-4 py-3">{u.email}</td>
@@ -74,7 +80,7 @@ export default async function AllUsersPage() {
               ))
             ) : (
               <tr>
-                <td colSpan={9} className="px-4 py-6 text-center text-slate-500">
+                <td colSpan={9} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
                   No users found.
                 </td>
               </tr>
