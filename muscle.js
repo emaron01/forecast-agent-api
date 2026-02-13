@@ -56,20 +56,74 @@ function computeAiVerdictFromHealthScore(healthScore) {
   return "Pipeline";
 }
 
+function computeAiForecastFromHealthScore(healthScore) {
+  // AI Forecast uses the same Health Score → Forecast Stage mapping already in the codebase.
+  return computeAiVerdictFromHealthScore(healthScore);
+}
+
 async function getScoreLabel(pool, orgId, category, score) {
   if (!category || score == null) return null;
-  const { rows } = await pool.query(
-    `
-    SELECT label
-      FROM score_definitions
-     WHERE org_id = $1
-       AND category = $2
-       AND score = $3
-     LIMIT 1
-    `,
-    [orgId, category, score]
-  );
-  return rows[0]?.label ?? null;
+  const cat = String(category || "").trim();
+  const sc = Number(score);
+  if (!cat || !Number.isFinite(sc)) return null;
+
+  // Some environments treat score_definitions as global (no org_id column).
+  const hasOrgId = await hasScoreDefinitionsOrgIdColumn(pool);
+  const tryCats = cat === "eb" ? ["eb", "economic_buyer"] : [cat];
+
+  for (const c of tryCats) {
+    const sql = hasOrgId
+      ? `
+        SELECT label
+          FROM score_definitions
+         WHERE org_id = $1
+           AND category = $2
+           AND score = $3
+         LIMIT 1
+        `
+      : `
+        SELECT label
+          FROM score_definitions
+         WHERE category = $1
+           AND score = $2
+         LIMIT 1
+        `;
+    const params = hasOrgId ? [orgId, c, sc] : [c, sc];
+    try {
+      const { rows } = await pool.query(sql, params);
+      const label = rows?.[0]?.label ?? null;
+      if (label) return label;
+    } catch (e) {
+      // If the table doesn't exist or schema differs, treat labels as optional.
+      const code = String(e?.code || "");
+      if (code === "42703" || code === "42P01") return null;
+      throw e;
+    }
+  }
+  return null;
+}
+
+let __scoreDefinitionsHasOrgIdColumn = null;
+async function hasScoreDefinitionsOrgIdColumn(pool) {
+  if (__scoreDefinitionsHasOrgIdColumn !== null) return __scoreDefinitionsHasOrgIdColumn;
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT 1
+        FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'score_definitions'
+         AND column_name = 'org_id'
+       LIMIT 1
+      `,
+      []
+    );
+    __scoreDefinitionsHasOrgIdColumn = !!rows?.length;
+    return __scoreDefinitionsHasOrgIdColumn;
+  } catch {
+    __scoreDefinitionsHasOrgIdColumn = false;
+    return __scoreDefinitionsHasOrgIdColumn;
+  }
 }
 
 /**
@@ -150,17 +204,33 @@ async function insertAuditEvent(pool, {
   promptVersion = "v1",
   logicVersion = "v1",
 }) {
-  const q = `
-    INSERT INTO opportunity_audit_events
-      (org_id, opportunity_id, actor_type, event_type, schema_version, prompt_version, logic_version,
-       forecast_stage, ai_forecast, total_score, max_score, risk_summary, risk_flags, delta, definitions, meta, run_id, call_id)
-    VALUES
-      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16::jsonb,$17,$18)
-    RETURNING id
-  `;
+  // Legacy DBs may use `organization_id` instead of `org_id` in audit tables.
+  // Deal Review MUST NOT fail if audit schema varies; audit is best-effort.
+  const orgCol = await detectOpportunityAuditEventsOrgColumn(pool);
+  const cols = [
+    orgCol ? orgCol : null,
+    "opportunity_id",
+    "actor_type",
+    "event_type",
+    "schema_version",
+    "prompt_version",
+    "logic_version",
+    "forecast_stage",
+    "ai_forecast",
+    "total_score",
+    "max_score",
+    "risk_summary",
+    "risk_flags",
+    "delta",
+    "definitions",
+    "meta",
+    "run_id",
+    "call_id",
+  ].filter(Boolean);
 
-  const { rows } = await pool.query(q, [
-    orgId,
+  // Build positional parameters dynamically based on which org column exists.
+  const values = [
+    ...(orgCol ? [orgId] : []),
     opportunityId,
     actorType,
     eventType,
@@ -178,9 +248,65 @@ async function insertAuditEvent(pool, {
     JSON.stringify(meta || {}),
     runId,
     callId,
-  ]);
+  ];
 
-  return rows[0]?.id ?? null;
+  const placeholders = values.map((_, i) => `$${i + 1}`);
+  const casted = cols.map((c, idx) => {
+    const name = String(c);
+    // Cast JSON columns for safety (works whether they're json/jsonb).
+    if (name === "delta" || name === "definitions" || name === "meta") return `${name} = ${placeholders[idx]}::jsonb`;
+    return null;
+  });
+
+  // Prefer explicit column list + VALUES; keep JSON casts in VALUES position.
+  const valuesSql = cols.map((c, idx) => {
+    const name = String(c);
+    if (name === "delta" || name === "definitions" || name === "meta") return `${placeholders[idx]}::jsonb`;
+    return placeholders[idx];
+  });
+
+  const q = `
+    INSERT INTO opportunity_audit_events
+      (${cols.join(", ")})
+    VALUES
+      (${valuesSql.join(", ")})
+    RETURNING id
+  `;
+
+  try {
+    const { rows } = await pool.query(q, values);
+    return rows[0]?.id ?? null;
+  } catch (e) {
+    // If the table exists but schema differs, do not block deal review saves.
+    // Postgres undefined_column is 42703.
+    const code = String(e?.code || "");
+    if (code === "42703") return null; // undefined_column
+    if (code === "42P01") return null; // undefined_table
+    throw e;
+  }
+}
+
+let __opportunityAuditEventsOrgColumn = null;
+async function detectOpportunityAuditEventsOrgColumn(pool) {
+  if (__opportunityAuditEventsOrgColumn !== null) return __opportunityAuditEventsOrgColumn;
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT column_name
+        FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'opportunity_audit_events'
+         AND column_name IN ('org_id', 'organization_id')
+      `,
+      []
+    );
+    const names = new Set((rows || []).map((r) => String(r.column_name || "").trim()).filter(Boolean));
+    __opportunityAuditEventsOrgColumn = names.has("org_id") ? "org_id" : names.has("organization_id") ? "organization_id" : "";
+    return __opportunityAuditEventsOrgColumn;
+  } catch {
+    __opportunityAuditEventsOrgColumn = "";
+    return __opportunityAuditEventsOrgColumn;
+  }
 }
 
 /**
@@ -207,6 +333,21 @@ export async function handleFunctionCall({ toolName, args, pool }) {
   }
   if (args && args.next_steps == null && args.nextSteps != null) {
     args.next_steps = args.nextSteps;
+  }
+
+  // Normalize Economic Buyer key prefix: models sometimes emit `economic_buyer_*`,
+  // but the DB schema uses `eb_*`.
+  if (args) {
+    for (const suffix of ["score", "summary", "tip"]) {
+      const fromKey = `economic_buyer_${suffix}`;
+      const toKey = `eb_${suffix}`;
+      if (args[fromKey] !== undefined) {
+        if (args[toKey] === undefined) args[toKey] = args[fromKey];
+        try {
+          delete args[fromKey];
+        } catch {}
+      }
+    }
   }
 
   const category = detectCategoryFromArgs(args);
@@ -327,33 +468,50 @@ export async function handleFunctionCall({ toolName, args, pool }) {
 
     // Persist computed health_score so the agent always has a real number to speak (never invent).
     if (recomputed.total_score != null && Number.isFinite(recomputed.total_score)) {
-      const aiVerdict = computeAiVerdictFromHealthScore(recomputed.total_score);
+      const aiForecast = computeAiForecastFromHealthScore(recomputed.total_score);
       try {
         await client.query(
           `UPDATE opportunities
               SET health_score = $3,
                   ai_verdict = $4,
+                  ai_forecast = $4,
                   baseline_health_score = COALESCE(baseline_health_score, $3),
                   baseline_health_score_ts = COALESCE(baseline_health_score_ts, NOW()),
                   updated_at = NOW()
             WHERE org_id = $1 AND id = $2`,
-          [orgId, opportunityId, recomputed.total_score, aiVerdict]
+          [orgId, opportunityId, recomputed.total_score, aiForecast]
         );
       } catch (e) {
-        // If ai_verdict column doesn't exist yet, still persist health_score.
-        // Postgres undefined_column error code is 42703.
-        if (String(e?.code || "") === "42703") {
+      // If ai_verdict column doesn't exist yet, try ai_forecast. Otherwise, still persist health_score.
+      // Postgres undefined_column error code is 42703.
+      if (String(e?.code || "") === "42703") {
+        try {
           await client.query(
-            `UPDATE opportunities SET health_score = $3, updated_at = NOW() WHERE org_id = $1 AND id = $2`,
-            [orgId, opportunityId, recomputed.total_score]
+            `UPDATE opportunities
+                SET health_score = $3,
+                    ai_forecast = $4,
+                    updated_at = NOW()
+              WHERE org_id = $1 AND id = $2`,
+            [orgId, opportunityId, recomputed.total_score, aiForecast]
           );
-        } else {
-          throw e;
+        } catch (e2) {
+          if (String(e2?.code || "") === "42703") {
+            await client.query(
+              `UPDATE opportunities SET health_score = $3, updated_at = NOW() WHERE org_id = $1 AND id = $2`,
+              [orgId, opportunityId, recomputed.total_score]
+            );
+          } else {
+            throw e2;
+          }
         }
+      } else {
+        throw e;
+      }
       }
 
       // Keep in-memory opp consistent for audit event fields below.
       opp.health_score = recomputed.total_score;
+      opp.ai_forecast = aiForecast;
     }
 
     // Create audit event (compact delta)

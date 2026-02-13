@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { Modal } from "../../_components/Modal";
 import { createQuotaPeriod, listQuotaPeriods, updateQuotaPeriod } from "../../actions/quotas";
 import { requireOrgContext } from "../../../../lib/auth";
+import { dateOnly } from "../../../../lib/dateOnly";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -83,8 +84,8 @@ export default async function QuotaPeriodsPage({
                 <tr key={p.id} className="border-t border-[color:var(--sf-border)]">
                   <td className="px-4 py-3 font-mono text-xs">{p.id}</td>
                   <td className="px-4 py-3">{p.period_name}</td>
-                  <td className="px-4 py-3 font-mono text-xs">{p.period_start}</td>
-                  <td className="px-4 py-3 font-mono text-xs">{p.period_end}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{dateOnly(p.period_start)}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{dateOnly(p.period_end)}</td>
                   <td className="px-4 py-3">{p.fiscal_year}</td>
                   <td className="px-4 py-3">{p.fiscal_quarter}</td>
                   <td className="px-4 py-3 text-right">

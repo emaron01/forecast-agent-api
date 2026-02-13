@@ -21,7 +21,6 @@ function Card({ href, title, desc }: { href: string; title: string; desc: string
 export default async function AnalyticsPage() {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role === "ADMIN") redirect("/admin/analytics");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
@@ -38,6 +37,15 @@ export default async function AnalyticsPage() {
         <section className="mt-6 grid gap-4 md:grid-cols-2">
           <Card href="/analytics/attainment" title="Attainment dashboards" desc="Rep → Manager → VP → CRO roll-ups for a quota period." />
           <Card href="/analytics/comparisons" title="Comparisons" desc="CRM Forecast Stage vs AI Forecast Stage + quota attainment." />
+          {ctx.user.role === "ADMIN" ? (
+            <Card href="/analytics/quotas/admin" title="Quotas (Admin)" desc="Admin quota management." />
+          ) : null}
+          {ctx.user.role === "MANAGER" ? (
+            <Card href="/analytics/quotas/manager" title="Team Quotas" desc="Assign quotas to direct reports + team rollups." />
+          ) : null}
+          {ctx.user.role === "EXEC_MANAGER" ? (
+            <Card href="/analytics/quotas/executive" title="Company Quotas" desc="Company-wide quota rollup + pacing." />
+          ) : null}
         </section>
       </main>
     </div>

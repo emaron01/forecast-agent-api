@@ -31,6 +31,9 @@ export default async function AdminAnalyticsHome() {
         <Card href="/admin/analytics/quota-rollups" title="Quota roll-ups" desc="View quota roll-ups by level." />
         <Card href="/admin/analytics/attainment" title="Attainment dashboards" desc="View attainment dashboards." />
         <Card href="/admin/analytics/comparisons" title="Comparisons" desc="Compare CRM vs AI stages and quota attainment." />
+        <Card href="/analytics/quotas/admin" title="/analytics/quotas/admin" desc="Org-user admin quotas page (ADMIN only)." />
+        <Card href="/analytics/quotas/manager" title="/analytics/quotas/manager" desc="Org-user manager quotas page (MANAGER only)." />
+        <Card href="/analytics/quotas/executive" title="/analytics/quotas/executive" desc="Org-user executive quotas page (EXEC_MANAGER only)." />
       </section>
 
       <section className="mt-6 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">

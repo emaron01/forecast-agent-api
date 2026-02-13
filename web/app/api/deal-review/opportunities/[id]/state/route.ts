@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { pool } from "../../../../../../lib/pool";
 import { getAuth } from "../../../../../../lib/auth";
 import { resolvePublicId } from "../../../../../../lib/publicId";
+import { closedOutcomeFromOpportunityRow } from "../../../../../../lib/opportunityOutcome";
 
 export const runtime = "nodejs";
 
@@ -96,6 +97,11 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
     );
     const opportunity = oppRes.rows?.[0] || null;
     if (!opportunity) return NextResponse.json({ ok: false, error: "Opportunity not found" }, { status: 404 });
+
+    const closed = closedOutcomeFromOpportunityRow({ ...opportunity, stage: (opportunity as any)?.sales_stage });
+    if (closed) {
+      return NextResponse.json({ ok: false, error: `Closed opportunity (${closed}). Deal Review is disabled.` }, { status: 409 });
+    }
 
     const repName = (opportunity as any)?.rep_name ?? null;
     const vis = ensureOpportunityVisible({ auth, orgId, opportunityRepName: repName });

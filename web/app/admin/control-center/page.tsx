@@ -106,6 +106,15 @@ export default async function OwnerControlCenterPage() {
           <Item href="/admin/reps" title="Reps" desc="Rep management UI." />
           <Item href="/admin/mapping-sets" title="Mapping sets" desc="Mapping sets + field mappings UI." />
           <Item href="/admin/ingestion" title="Ingestion" desc="Staging rows UI." />
+          <Item href="/admin/analytics" title="Admin Analytics" desc="Admin analytics landing page." />
+          <Item href="/admin/analytics/quota-periods" title="Admin quota periods" desc="Manage quota_periods." />
+          <Item href="/admin/analytics/quotas" title="Admin quotas" desc="Manage quotas." />
+          <Item href="/admin/analytics/quota-rollups" title="Admin quota rollups" desc="Quota rollups by level." />
+          <Item href="/admin/analytics/attainment" title="Admin attainment" desc="Attainment dashboards." />
+          <Item href="/admin/analytics/comparisons" title="Admin comparisons" desc="Stage comparisons + attainment." />
+          <Item href="/analytics/quotas/admin" title="/analytics/quotas/admin" desc="Admin-only quota management (org user)." />
+          <Item href="/analytics/quotas/manager" title="/analytics/quotas/manager" desc="Manager-only team quotas (org user)." />
+          <Item href="/analytics/quotas/executive" title="/analytics/quotas/executive" desc="Executive-only company quotas (org user)." />
           <Item href="/login" title="Login Page" desc="Login flow." />
           <Item href="/forgot-password" title="Forgot Password Page" desc="Password reset request flow." />
           <Item href="/reset-password" title="Reset Password Page" desc="Password reset set-new-password flow." />

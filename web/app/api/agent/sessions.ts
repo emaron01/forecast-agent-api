@@ -26,6 +26,9 @@ declare global {
       items: any[];
       // End-of-deal wrap must be saved for current deal before advancing.
       wrapSaved: boolean;
+      // Strict Master Prompt enforcement: health score phrase must be spoken exactly before advance.
+      wrapExpectedHealthPercent?: number;
+      wrapHealthPhraseOk?: boolean;
     }
   > | undefined;
 }
@@ -52,6 +55,8 @@ const sessions =
       touched: Set<string>;
       items: any[];
       wrapSaved: boolean;
+      wrapExpectedHealthPercent?: number;
+      wrapHealthPhraseOk?: boolean;
     }
   >());
 

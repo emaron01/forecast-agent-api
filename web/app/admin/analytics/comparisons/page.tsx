@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { requireOrgContext } from "../../../../lib/auth";
 import { listQuotaPeriods } from "../../actions/quotas";
 import { getCompanyAttainmentForPeriod, listRepAttainmentForPeriod, listStageComparisonsForPeriod } from "../../../../lib/quotaComparisons";
+import { dateOnly } from "../../../../lib/dateOnly";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -57,7 +58,7 @@ export default async function AnalyticsComparisonsPage({
               <option value="">(select)</option>
               {periods.map((p) => (
                 <option key={p.id} value={String(p.id)}>
-                  {p.period_name} ({p.fiscal_year} {p.fiscal_quarter}) ({p.period_start} → {p.period_end}) [id {p.id}]
+                  {p.period_name} ({p.fiscal_year} {p.fiscal_quarter}) ({dateOnly(p.period_start)} → {dateOnly(p.period_end)}) [id {p.id}]
                 </option>
               ))}
             </select>
@@ -97,7 +98,8 @@ export default async function AnalyticsComparisonsPage({
         <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
           <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Quota attainment (company)</h2>
           <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-            Period: <span className="font-mono text-xs">{company.period_start}</span> → <span className="font-mono text-xs">{company.period_end}</span>{" "}
+            Period: <span className="font-mono text-xs">{dateOnly(company.period_start)}</span> →{" "}
+            <span className="font-mono text-xs">{dateOnly(company.period_end)}</span>{" "}
             | Fiscal year: <span className="font-mono text-xs">{company.fiscal_year}</span>
           </p>
 
@@ -192,6 +194,8 @@ export default async function AnalyticsComparisonsPage({
                 <th className="px-4 py-3">rep_name</th>
                 <th className="px-4 py-3">account_name</th>
                 <th className="px-4 py-3">opportunity_name</th>
+                <th className="px-4 py-3">partner_name</th>
+                <th className="px-4 py-3">deal_registration</th>
                 <th className="px-4 py-3">close_date</th>
                 <th className="px-4 py-3 text-right">amount</th>
                 <th className="px-4 py-3">crm_forecast_stage</th>
@@ -207,7 +211,9 @@ export default async function AnalyticsComparisonsPage({
                     <td className="px-4 py-3">{d.rep_name || ""}</td>
                     <td className="px-4 py-3">{d.account_name || ""}</td>
                     <td className="px-4 py-3">{d.opportunity_name || ""}</td>
-                    <td className="px-4 py-3 font-mono text-xs">{d.close_date || ""}</td>
+                    <td className="px-4 py-3">{d.partner_name || ""}</td>
+                    <td className="px-4 py-3 font-mono text-xs">{d.deal_registration ? "true" : "false"}</td>
+                    <td className="px-4 py-3 font-mono text-xs">{dateOnly(d.close_date) || ""}</td>
                     <td className="px-4 py-3 text-right">{d.amount ?? ""}</td>
                     <td className="px-4 py-3">{d.crm_forecast_stage || ""}</td>
                     <td className="px-4 py-3">{d.ai_forecast_stage || ""}</td>
@@ -216,7 +222,7 @@ export default async function AnalyticsComparisonsPage({
                 ))
               ) : (
                 <tr>
-                  <td colSpan={9} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                  <td colSpan={11} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
                     No deals found for this period.
                   </td>
                 </tr>

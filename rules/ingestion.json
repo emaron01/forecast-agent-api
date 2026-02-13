@@ -1,0 +1,17 @@
+{
+  "name": "ingestion-functions-rule",
+  "description": "Prevents Cursor from splitting ingestion functions across files.",
+  "patterns": ["**/migrations/*.sql", "**/db/migrations/*.sql"],
+  "rules": [
+    {
+      "match": ".*upsert_.*",
+      "action": "block",
+      "message": "Ingestion functions must be defined ONLY in canonical ingestion_functions.sql. Do not create or modify ingestion functions in migration files."
+    },
+    {
+      "match": ".*CREATE FUNCTION.*",
+      "action": "warn",
+      "message": "Function definitions must be consolidated into canonical ingestion_functions.sql unless explicitly approved."
+    }
+  ]
+}

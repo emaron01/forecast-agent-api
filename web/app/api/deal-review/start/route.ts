@@ -7,6 +7,7 @@ import { loadMasterDcoPrompt } from "../../../../lib/masterDcoPrompt";
 import { getAuth } from "../../../../lib/auth";
 import { pool } from "../../../../lib/pool";
 import { resolvePublicId } from "../../../../lib/publicId";
+import { closedOutcomeFromOpportunityRow } from "../../../../lib/opportunityOutcome";
 
 export const runtime = "nodejs";
 
@@ -77,6 +78,10 @@ export async function POST(req: Request) {
     ]);
     const deal = rows?.[0] || null;
     if (!deal) return NextResponse.json({ ok: false, error: "Opportunity not found" }, { status: 404 });
+    const closed = closedOutcomeFromOpportunityRow({ ...deal, stage: (deal as any)?.sales_stage });
+    if (closed) {
+      return NextResponse.json({ ok: false, error: `Deal Review is disabled for closed opportunities (${closed}).` }, { status: 409 });
+    }
 
     const vis = await assertOpportunityVisible({
       auth,
@@ -96,7 +101,22 @@ export async function POST(req: Request) {
         `,
         [orgId]
       )
-      .catch(() => ({ rows: [] as any[] }));
+      .catch(async (e: any) => {
+        // score_definitions may be global (no org_id column) in some DBs.
+        if (String(e?.code || "") === "42703") {
+          const r = await pool
+            .query(
+              `
+              SELECT category, score, label, criteria
+                FROM score_definitions
+               ORDER BY category ASC, score ASC
+              `
+            )
+            .catch(() => ({ rows: [] as any[] }));
+          return r as any;
+        }
+        return { rows: [] as any[] };
+      });
     const scoreDefs = defsRes.rows || [];
 
     const mp = await loadMasterDcoPrompt();

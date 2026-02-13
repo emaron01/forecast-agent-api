@@ -60,6 +60,8 @@ export type OpportunityRow = {
   create_date_raw: string | null;
   create_date: string | null;
   close_date: string | null;
+  partner_name: string | null;
+  deal_registration: boolean | null;
   updated_at: string | null;
 };
 
@@ -244,6 +246,8 @@ export async function searchOpportunities(args: {
       create_date_raw,
       create_date::text AS create_date,
       close_date::text AS close_date,
+      partner_name,
+      deal_registration,
       updated_at::text AS updated_at
     FROM opportunities
     WHERE ${where.join(" AND ")}

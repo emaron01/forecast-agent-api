@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSpeechRecognition } from "../../../../lib/useSpeechRecognition";
+import { MEDDPICC_CANONICAL } from "../../../../lib/meddpiccCanonical";
+import { dateOnly } from "../../../../lib/dateOnly";
 
 type HandsFreeStatus = "RUNNING" | "WAITING_FOR_USER" | "DONE" | "ERROR";
 type HandsFreeMessage = { role: "assistant" | "user" | "system"; text: string; at: number };
@@ -29,6 +31,8 @@ type CategoryKey =
   | "timing"
   | "budget";
 
+type CategoryInputMode = "TEXT" | "VOICE";
+
 type OppState = {
   opportunity: any;
   rollup: { summary?: string; next_steps?: string; risks?: string; updated_at?: any } | null;
@@ -44,9 +48,8 @@ function b64ToBlob(b64: string, mime: string) {
 }
 
 function safeDate(d: any) {
-  if (!d) return "—";
-  const dt = new Date(d);
-  return Number.isFinite(dt.getTime()) ? dt.toLocaleString() : "—";
+  const s = dateOnly(d);
+  return s || "—";
 }
 
 function scoreColor(score: number) {
@@ -60,6 +63,37 @@ function healthPillClass(p: number | null | undefined) {
   if (n >= 80) return "ok";
   if (n >= 60) return "warn";
   return "err";
+}
+
+function inferCategoryFromPromptText(text: string): CategoryKey | "" {
+  const t = String(text || "").toLowerCase();
+  if (!t.trim()) return "";
+  if (/\bpain\b|\bproblem\b|\bdo nothing\b/.test(t)) return "pain";
+  if (/\bmetrics?\b|\bbaseline\b|\btarget\b|\bmeasurable\b/.test(t)) return "metrics";
+  if (/\binternal sponsor\b|\bsponsor\/coach\b|\bcoach\b|\binfluence\b/.test(t)) return "champion";
+  if (/\beconomic buyer\b|\beb\b|\bapprover\b|\bdirect access\b/.test(t)) return "economic_buyer";
+  if (/\bdecision criteria\b|\bcriteria\b|\bweighted\b/.test(t)) return "criteria";
+  if (/\bdecision process\b|\bprocess step\b|\bowners\b|\bblock progress\b/.test(t)) return "process";
+  if (/\bpaper process\b|\blegal\b|\bprocurement\b|\bsecurity\b|\bsignature\b/.test(t)) return "paper";
+  if (/\bcompetition\b|\bcompetitive\b|\balternative\b|\bwhy you win\b/.test(t)) return "competition";
+  if (/\btiming\b|\bmilestones\b|\bcritical path\b|\bclose\b/.test(t)) return "timing";
+  if (/\bbudget\b|\bfunding\b|\bapproval\b|\bamount\b/.test(t)) return "budget";
+  return "";
+}
+
+function stripPercentCalloutsForTypedUpdate(text: string) {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+  const lines = raw.split("\n");
+  const kept = lines.filter((l) => {
+    const s = String(l || "").trim();
+    if (!s) return true;
+    if (/^overall\s*:\s*\d+\s*%/i.test(s)) return false;
+    if (/%\s*$/.test(s) && /^overall/i.test(s)) return false;
+    if (/overall score reflects/i.test(s)) return false;
+    return true;
+  });
+  return kept.join("\n").trim();
 }
 
 function pickRecorderMime() {
@@ -85,6 +119,9 @@ export function DealReviewClient(props: { opportunityId: string }) {
   const [mode, setMode] = useState<"FULL_REVIEW" | "CATEGORY_UPDATE">("FULL_REVIEW");
   const [selectedCategory, setSelectedCategory] = useState<CategoryKey | "">("");
   const [answer, setAnswer] = useState("");
+  const [categoryInputMode, setCategoryInputMode] = useState<CategoryInputMode>("VOICE");
+  const [qaPaneOpen, setQaPaneOpen] = useState(false);
+  const [fullReviewHighlightCategory, setFullReviewHighlightCategory] = useState<CategoryKey | "">("");
 
   const [oppState, setOppState] = useState<OppState | null>(null);
   const [run, setRun] = useState<HandsFreeRun | null>(null);
@@ -173,16 +210,17 @@ export function DealReviewClient(props: { opportunityId: string }) {
 
   const categories = useMemo(
     () => [
-      { key: "pain" as const, label: "Pain" },
-      { key: "metrics" as const, label: "Metrics" },
-      { key: "champion" as const, label: "Internal Sponsor" },
-      { key: "competition" as const, label: "Competition" },
-      { key: "budget" as const, label: "Budget" },
-      { key: "economic_buyer" as const, label: "Economic Buyer" },
-      { key: "criteria" as const, label: "Decision Criteria" },
-      { key: "process" as const, label: "Decision Process" },
-      { key: "paper" as const, label: "Paper Process" },
-      { key: "timing" as const, label: "Timing" },
+      // STRICT Master Prompt order (Best Case / Commit)
+      { key: "pain" as const },
+      { key: "metrics" as const },
+      { key: "champion" as const },
+      { key: "criteria" as const },
+      { key: "competition" as const },
+      { key: "timing" as const },
+      { key: "budget" as const },
+      { key: "economic_buyer" as const },
+      { key: "process" as const },
+      { key: "paper" as const },
     ],
     []
   );
@@ -192,9 +230,11 @@ export function DealReviewClient(props: { opportunityId: string }) {
     for (const row of oppState?.categories || []) byCat.set(String(row.category), row);
     return categories.map((c) => {
       const r = byCat.get(c.key) || {};
+      const canonical = (MEDDPICC_CANONICAL as any)[c.key] || { titleLine: c.key, meaningLine: "" };
       return {
         key: c.key,
-        catLabel: c.label,
+        catLabel: String(canonical.titleLine || c.key),
+        catMeaning: String(canonical.meaningLine || ""),
         score: Number(r.score || 0) || 0,
         scoreLabel: String(r.label || ""),
         tip: String(r.tip || ""),
@@ -222,6 +262,27 @@ export function DealReviewClient(props: { opportunityId: string }) {
   useEffect(() => {
     void loadOpportunityState();
   }, [loadOpportunityState]);
+
+  // Full Review: refresh tiles after the agent pauses/completes so saves are visible.
+  const lastOppRefreshRunUpdatedAtRef = useRef<number>(0);
+  useEffect(() => {
+    if (mode !== "FULL_REVIEW") return;
+    if (!run?.updatedAt) return;
+    if (run.status !== "WAITING_FOR_USER" && run.status !== "DONE") return;
+    const u = Number(run.updatedAt) || 0;
+    if (u <= (lastOppRefreshRunUpdatedAtRef.current || 0)) return;
+    lastOppRefreshRunUpdatedAtRef.current = u;
+    void loadOpportunityState();
+  }, [loadOpportunityState, mode, run?.status, run?.updatedAt]);
+
+  // Full Review: highlight the inferred active category from the latest waiting prompt.
+  useEffect(() => {
+    if (mode !== "FULL_REVIEW") return;
+    if (!isWaiting) return;
+    const prompt = String(run?.waitingPrompt || "").trim();
+    const inferred = inferCategoryFromPromptText(prompt) || "";
+    if (inferred) setFullReviewHighlightCategory(inferred);
+  }, [isWaiting, mode, run?.waitingPrompt]);
 
   const refreshMicDevices = useCallback(async () => {
     try {
@@ -565,6 +626,17 @@ export function DealReviewClient(props: { opportunityId: string }) {
       lastVoiceAtRef.current = 0;
       firstVoiceAtRef.current = 0;
 
+      const failCapture = (e: any) => {
+        try {
+          setSttError(String(e?.message || e).slice(0, 300));
+        } catch {
+          setSttError("STT failed");
+        }
+        voiceActiveRef.current = false;
+        setListening(false);
+        maybeCloseMicForPrivacy();
+      };
+
       // VAD loop drives recording start/stop.
       const started = Date.now();
       let recording = false;
@@ -657,7 +729,11 @@ export function DealReviewClient(props: { opportunityId: string }) {
           setListening(false);
           if (!rec) return;
           const transcript = await sendToStt(rec.blob);
-          if (!transcript) throw new Error("Empty transcript (check mic/tune and try again)");
+          if (!transcript) {
+            setSttError("Empty transcript (check mic/tune and try again)");
+            maybeCloseMicForPrivacy();
+            return;
+          }
           await routeTranscript(transcript);
           maybeCloseMicForPrivacy();
           return;
@@ -680,13 +756,20 @@ export function DealReviewClient(props: { opportunityId: string }) {
           setListening(false);
           if (!rec) return;
           const transcript = await sendToStt(rec.blob);
-          if (!transcript) throw new Error("Empty transcript (max segment reached)");
+          if (!transcript) {
+            setSttError("Empty transcript (max segment reached)");
+            maybeCloseMicForPrivacy();
+            return;
+          }
           await routeTranscript(transcript);
           maybeCloseMicForPrivacy();
           return;
         }
 
-        meterRafRef.current = requestAnimationFrame(() => void loop());
+        // IMPORTANT: loop runs off RAF; catch to avoid unhandled promise rejections.
+        meterRafRef.current = requestAnimationFrame(() => {
+          void loop().catch(failCapture);
+        });
       };
 
       if (segmentTimeoutRef.current) window.clearTimeout(segmentTimeoutRef.current);
@@ -699,9 +782,10 @@ export function DealReviewClient(props: { opportunityId: string }) {
         });
       }, Math.max(2000, Number(micMaxSegmentMs) || 12000));
 
-      await loop();
+      await loop().catch(failCapture);
     } catch (e: any) {
-      setSttError(String(e?.message || e).slice(0, 300));
+      const msg = String(e?.message || e).slice(0, 300);
+      setSttError(msg);
       voiceActiveRef.current = false;
       setListening(false);
       maybeCloseMicForPrivacy();
@@ -780,10 +864,11 @@ export function DealReviewClient(props: { opportunityId: string }) {
   }, [catMessages, mode, selectedCategory]);
 
   useEffect(() => {
-    if (categoryWaitingForUser && voice && !speakingRef.current) {
+    // IMPORTANT: Text Update must never auto-open the mic.
+    if (categoryWaitingForUser && voice && categoryInputMode === "VOICE" && !speakingRef.current) {
       void captureOneUtteranceAndRoute();
     }
-  }, [captureOneUtteranceAndRoute, categoryWaitingForUser, voice]);
+  }, [captureOneUtteranceAndRoute, categoryInputMode, categoryWaitingForUser, voice]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -799,6 +884,8 @@ export function DealReviewClient(props: { opportunityId: string }) {
     setCatMessages([]);
     setCatSessionId("");
     setSelectedCategory("");
+    setQaPaneOpen(false);
+    setCategoryInputMode("VOICE");
     setSttError("");
     setTtsError("");
     try {
@@ -831,6 +918,9 @@ export function DealReviewClient(props: { opportunityId: string }) {
       setSelectedCategory("");
       setCatSessionId("");
       setCatMessages([]);
+      setQaPaneOpen(false);
+      setCategoryInputMode("VOICE");
+      setFullReviewHighlightCategory("");
       setBusy(false);
       closeMicStreamOnly();
     }
@@ -847,10 +937,29 @@ export function DealReviewClient(props: { opportunityId: string }) {
       setRun(null);
       setSttError("");
       setTtsError("");
+      setQaPaneOpen(true);
+      setCategoryInputMode(wantVoice ? "VOICE" : "TEXT");
 
+      // In Text mode, do not prime/hold the mic open.
+      if (!wantVoice) {
+        voiceActiveRef.current = false;
+        setListening(false);
+        closeMicStreamOnly();
+        // Typed updates are silent: stop any in-flight audio.
+        try {
+          const el = audioRef.current;
+          if (el) {
+            el.pause();
+            el.currentTime = 0;
+          }
+        } catch {}
+        speakingRef.current = false;
+      }
       if (wantVoice) setVoice(true);
       try {
-        await primeMicPermissionFromGesture(`category_${categoryKey}`);
+        if (wantVoice) {
+          await primeMicPermissionFromGesture(`category_${categoryKey}`);
+        }
         const res = await fetch(`/api/deal-review/opportunities/${encodeURIComponent(opportunityId)}/update-category`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -859,10 +968,11 @@ export function DealReviewClient(props: { opportunityId: string }) {
         const json = await res.json().catch(() => ({}));
         if (!res.ok || !json?.ok) throw new Error(json?.error || "Update start failed");
         if (json?.sessionId) setCatSessionId(String(json.sessionId));
-        const assistantText = String(json?.assistantText || "").trim();
+        const rawAssistantText = String(json?.assistantText || "").trim();
+        const assistantText = wantVoice ? rawAssistantText : stripPercentCalloutsForTypedUpdate(rawAssistantText);
         if (assistantText) {
           setCatMessages([{ role: "assistant", text: assistantText, at: Date.now() }]);
-          void playTts(assistantText);
+          if (wantVoice) void playTts(assistantText);
         }
       } catch (e: any) {
         setCatMessages([{ role: "system", text: String(e?.message || e), at: Date.now() }]);
@@ -870,7 +980,7 @@ export function DealReviewClient(props: { opportunityId: string }) {
         setBusy(false);
       }
     },
-    [opportunityId, playTts, primeMicPermissionFromGesture]
+    [closeMicStreamOnly, opportunityId, playTts, primeMicPermissionFromGesture]
   );
 
   const sendAnswer = useCallback(async () => {
@@ -905,16 +1015,26 @@ export function DealReviewClient(props: { opportunityId: string }) {
         if (!res.ok || !json?.ok) throw new Error(json?.error || "Update failed");
         if (json?.sessionId) setCatSessionId(String(json.sessionId));
         setCatMessages((prev) => [...prev, { role: "user", text, at: Date.now() }]);
-        const assistantText = String(json?.assistantText || "").trim();
+        const rawAssistantText = String(json?.assistantText || "").trim();
+        const assistantText =
+          categoryInputMode === "TEXT" ? stripPercentCalloutsForTypedUpdate(rawAssistantText) : rawAssistantText;
         if (assistantText) {
           setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
-          void playTts(assistantText);
+          // Typed updates are silent (no TTS).
+          if (categoryInputMode === "VOICE") void playTts(assistantText);
         }
         void loadOpportunityState();
         return;
       }
     } catch (e: any) {
-      setCatMessages((prev) => [...prev, { role: "system", text: String(e?.message || e), at: Date.now() }]);
+      const msg = String(e?.message || e);
+      if (mode === "FULL_REVIEW") {
+        setRun((prev) =>
+          prev ? { ...prev, messages: [...(prev.messages || []), { role: "system", text: msg, at: Date.now() }] } : prev
+        );
+      } else {
+        setCatMessages((prev) => [...prev, { role: "system", text: msg, at: Date.now() }]);
+      }
     } finally {
       setBusy(false);
     }
@@ -927,6 +1047,9 @@ export function DealReviewClient(props: { opportunityId: string }) {
     setCatSessionId("");
     setCatMessages([]);
     setAnswer("");
+    setQaPaneOpen(false);
+    setCategoryInputMode("VOICE");
+    setFullReviewHighlightCategory("");
     setSttError("");
     setTtsError("");
     setMicTuneStatus("");
@@ -940,120 +1063,107 @@ export function DealReviewClient(props: { opportunityId: string }) {
 
   const accountName = String(opportunity?.account_name || opportunity?.accountName || "");
   const oppName = String(opportunity?.opportunity_name || opportunity?.opportunityName || "");
-  const closeDateStr = String(opportunity?.close_date || opportunity?.closeDate || "");
+  const closeDateStr = dateOnly(opportunity?.close_date || opportunity?.closeDate);
   const forecastStage = String(opportunity?.forecast_stage || opportunity?.forecastStage || "");
   const repName = String(opportunity?.rep_name || opportunity?.repName || "");
   const championName = String(opportunity?.champion_name || "");
   const championTitle = String(opportunity?.champion_title || "");
   const ebName = String(opportunity?.eb_name || "");
   const ebTitle = String(opportunity?.eb_title || "");
+  const partnerName = String(opportunity?.partner_name || (opportunity as any)?.partnerName || "");
+  const dealRegistrationRaw = (opportunity as any)?.deal_registration ?? (opportunity as any)?.dealRegistration;
+  const dealRegistration = dealRegistrationRaw === true || dealRegistrationRaw === false ? dealRegistrationRaw : null;
   const aiForecast = String(opportunity?.ai_verdict || opportunity?.ai_forecast || "");
 
   const activeMessages = mode === "FULL_REVIEW" ? run?.messages || [] : catMessages;
+  const highlightCategoryKey = (mode === "CATEGORY_UPDATE" ? selectedCategory : fullReviewHighlightCategory) as CategoryKey | "";
+  const qaDrawerOpen = mode === "CATEGORY_UPDATE" && qaPaneOpen;
+  const qaCanonical = selectedCategory ? (MEDDPICC_CANONICAL as any)[selectedCategory] : null;
 
   return (
     <main className="wrap">
-      <div className="top">
-        <div>
-          <h1>Deal Review</h1>
-          <div className="sub">
-            Single-deal review view (Full Review + per-category Text/Voice updates). Opportunity: <code>{opportunityId || "—"}</code>
+      {/* Slide-out drawer for Text/Voice category updates */}
+      {qaDrawerOpen ? (
+        <div
+          className={`qaOverlay ${qaDrawerOpen ? "open" : ""}`}
+          onClick={() => {
+            // Click outside closes the drawer (keeps the deal review page).
+            setQaPaneOpen(false);
+          }}
+        />
+      ) : null}
+      <aside className={`qaDrawer ${qaDrawerOpen ? "open" : ""}`} aria-hidden={!qaDrawerOpen}>
+        <div className="qaHdr">
+          <div className="qaTitleBlock">
+            <div className="qaTitleLine">{String(qaCanonical?.titleLine || "").trim() || "Category Update"}</div>
+            <div className="qaMeaningLine">{String(qaCanonical?.meaningLine || "").trim() || ""}</div>
+          </div>
+          <div className="qaMeta">
+            <span className="pill">{categoryInputMode === "TEXT" ? "TEXT (silent)" : "VOICE"}</span>
+            <button
+              onClick={() => {
+                setQaPaneOpen(false);
+                setAnswer("");
+                setCatMessages([]);
+                setCatSessionId("");
+                setSelectedCategory("");
+                setMode("FULL_REVIEW");
+              }}
+              disabled={busy}
+            >
+              Close
+            </button>
           </div>
         </div>
 
-        <details className="micTuneTop" open>
-          <summary className="small">Mic tuning</summary>
-          <div className="row" style={{ marginTop: 10 }}>
-            <label className="small">Mic device</label>
-            <select
-              value={selectedMicDeviceId}
-              onChange={(e) => setSelectedMicDeviceId(e.target.value)}
-              disabled={busy}
-              style={{ minWidth: 260 }}
-            >
-              <option value="">(system default)</option>
-              {micDevices.map((d) => (
-                <option key={d.deviceId} value={d.deviceId}>
-                  {d.label}
-                </option>
-              ))}
-            </select>
-            <label className="small">
-              <input type="checkbox" checked={micRawMode} onChange={(e) => setMicRawMode(e.target.checked)} disabled={busy} /> Raw
-            </label>
-            <label className="small">
-              <input
-                type="checkbox"
-                checked={autoMicNormalize}
-                onChange={(e) => setAutoMicNormalize(e.target.checked)}
-                disabled={busy}
-              />{" "}
-              Auto
-            </label>
-            <label className="small">Gain</label>
-            <input
-              value={String(micGain)}
-              onChange={(e) => setMicGain(Number(e.target.value || "2.5") || 2.5)}
-              style={{ width: 90 }}
-              disabled={busy}
-              inputMode="decimal"
-            />
-            <span className="small">
-              <b style={{ color: micLevel > 0.02 ? "var(--good)" : micLevel > 0.01 ? "var(--warn)" : "var(--muted)" }}>
-                {micLevel.toFixed(3)}
-              </b>
-              <span style={{ color: "var(--muted)" }}>{` · peak ${micPeak}`}</span>
-            </span>
-            <button onClick={() => void refreshMicDevices()} disabled={busy}>
-              Refresh
-            </button>
-            <button onClick={() => void primeMicPermissionFromGesture("manual_prime")} disabled={busy || !voice}>
-              Prime
-            </button>
-            <button onClick={() => void runMicTune("manual")} disabled={busy || !voice}>
-              Tune
-            </button>
+        <div className="qaBody">
+          <div className="chat" style={{ marginTop: 0, maxHeight: "none" }}>
+            {activeMessages?.length ? (
+              activeMessages.map((m, i) => (
+                <div key={`${m.at}-${i}`} className="msg">
+                  <div className="msgMeta">
+                    <strong className={`role ${m.role}`}>{m.role.toUpperCase()}</strong> · {new Date(m.at).toLocaleTimeString()}
+                  </div>
+                  <div className="msgBody">{m.text}</div>
+                </div>
+              ))
+            ) : (
+              <div className="small">Waiting for the agent prompt…</div>
+            )}
           </div>
-          <div className="row" style={{ marginTop: 10 }}>
-            <label className="small">Silence</label>
-            <input
-              value={String(micVadSilenceMs)}
-              onChange={(e) => setMicVadSilenceMs(Number(e.target.value || "650") || 650)}
-              style={{ width: 110 }}
-              disabled={busy}
-              inputMode="numeric"
-            />
-            <label className="small">Min speech</label>
-            <input
-              value={String(micMinSpeechMs)}
-              onChange={(e) => setMicMinSpeechMs(Number(e.target.value || "350") || 350)}
-              style={{ width: 110 }}
-              disabled={busy}
-              inputMode="numeric"
-            />
-            <label className="small">No-speech</label>
-            <input
-              value={String(micNoSpeechRestartMs)}
-              onChange={(e) => setMicNoSpeechRestartMs(Number(e.target.value || "6000") || 6000)}
-              style={{ width: 130 }}
-              disabled={busy}
-              inputMode="numeric"
-            />
-            <label className="small">Max</label>
-            <input
-              value={String(micMaxSegmentMs)}
-              onChange={(e) => setMicMaxSegmentMs(Number(e.target.value || "70000") || 70000)}
-              style={{ width: 110 }}
-              disabled={busy}
-              inputMode="numeric"
-            />
-          </div>
-          {micTuneStatus ? (
-            <div className="small" style={{ marginTop: 8 }}>
-              {micTuneStatus}
+
+          <div className="inputCard" style={{ marginTop: 12 }}>
+            <div className="row" style={{ justifyContent: "space-between", width: "100%" }}>
+              <div className="small">
+                {categoryWaitingForUser ? "Paused — answer to continue." : "Active — waiting for next question."}
+              </div>
+              <span className="small">{categoryInputMode === "TEXT" ? "Typing is silent." : "Voice uses mic+STT."}</span>
             </div>
-          ) : null}
-        </details>
+
+            <div className="row" style={{ marginTop: 10, width: "100%" }}>
+              <input
+                value={answer}
+                onChange={(e) => setAnswer(e.target.value)}
+                placeholder="Type your answer…"
+                style={{ flex: 1, minWidth: 220 }}
+                disabled={busy || !selectedCategory}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void sendAnswer();
+                }}
+              />
+              <button onClick={() => void sendAnswer()} disabled={busy || !answer.trim()}>
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <div className="top">
+        <div>
+          <h1>Deal Review</h1>
+          <div className="sub" />
+        </div>
 
         <div className="row">
           <label className="small">
@@ -1071,6 +1181,149 @@ export function DealReviewClient(props: { opportunityId: string }) {
           <button onClick={stopNow} disabled={busy && !runId}>
             End Review
           </button>
+          <details className="micSettings">
+            <summary className="micSettingsBtn">Mic Settings</summary>
+            <div className="micSettingsPanel">
+              <div className="small" style={{ marginBottom: 8 }}>
+                If voice capture feels off (too quiet/loud or cutting off), adjust these.
+              </div>
+
+              <div className="row">
+                <label className="small">Microphone</label>
+                <select
+                  value={selectedMicDeviceId}
+                  onChange={(e) => setSelectedMicDeviceId(e.target.value)}
+                  disabled={busy}
+                  style={{ minWidth: 260 }}
+                >
+                  <option value="">(system default)</option>
+                  {micDevices.map((d) => (
+                    <option key={d.deviceId} value={d.deviceId}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+                <button onClick={() => void refreshMicDevices()} disabled={busy}>
+                  Refresh devices
+                </button>
+              </div>
+
+              <div className="row" style={{ marginTop: 10 }}>
+                <label className="small" title="How loud your microphone input is.">
+                  Mic loudness: <b>{(Number(micGain) || 2.5).toFixed(1)}×</b>
+                </label>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={8}
+                  step={0.1}
+                  value={Number(micGain) || 2.5}
+                  onChange={(e) => setMicGain(Number(e.target.value || "2.5") || 2.5)}
+                  disabled={busy}
+                  style={{ width: 260 }}
+                />
+                <span className="small">
+                  Level:{" "}
+                  <b style={{ color: micLevel > 0.02 ? "var(--good)" : micLevel > 0.01 ? "var(--warn)" : "var(--muted)" }}>
+                    {micLevel.toFixed(3)}
+                  </b>
+                  <span style={{ color: "var(--muted)" }}>{` · peak ${micPeak}`}</span>
+                </span>
+              </div>
+
+              <div className="row" style={{ marginTop: 10 }}>
+                <label className="small" title="How long we wait after you stop speaking before sending for transcription.">
+                  Pause after you stop talking: <b>{Math.round((Number(micVadSilenceMs) || 1500) / 100) / 10}s</b>
+                </label>
+                <input
+                  type="range"
+                  min={300}
+                  max={3000}
+                  step={100}
+                  value={Number(micVadSilenceMs) || 1500}
+                  onChange={(e) => setMicVadSilenceMs(Number(e.target.value || "1500") || 1500)}
+                  disabled={busy}
+                  style={{ width: 260 }}
+                />
+              </div>
+
+              <div className="row" style={{ marginTop: 10 }}>
+                <label className="small" title="Ignore very short noises so keyboard clicks don't trigger voice capture.">
+                  Ignore very short noises: <b>{Math.round(Number(micMinSpeechMs) || 350)}ms</b>
+                </label>
+                <input
+                  type="range"
+                  min={200}
+                  max={1200}
+                  step={50}
+                  value={Number(micMinSpeechMs) || 350}
+                  onChange={(e) => setMicMinSpeechMs(Number(e.target.value || "350") || 350)}
+                  disabled={busy}
+                  style={{ width: 260 }}
+                />
+              </div>
+
+              <div className="row" style={{ marginTop: 10 }}>
+                <label className="small" title="If we don't detect speech at all, we stop listening and show a message.">
+                  Stop listening if you stay silent: <b>{Math.round((Number(micNoSpeechRestartMs) || 6000) / 1000)}s</b>
+                </label>
+                <input
+                  type="range"
+                  min={2000}
+                  max={15000}
+                  step={500}
+                  value={Number(micNoSpeechRestartMs) || 6000}
+                  onChange={(e) => setMicNoSpeechRestartMs(Number(e.target.value || "6000") || 6000)}
+                  disabled={busy}
+                  style={{ width: 260 }}
+                />
+              </div>
+
+              <div className="row" style={{ marginTop: 10 }}>
+                <label className="small" title="Hard limit for one answer segment.">
+                  Max answer length: <b>{Math.round((Number(micMaxSegmentMs) || 70000) / 1000)}s</b>
+                </label>
+                <input
+                  type="range"
+                  min={5000}
+                  max={120000}
+                  step={1000}
+                  value={Number(micMaxSegmentMs) || 70000}
+                  onChange={(e) => setMicMaxSegmentMs(Number(e.target.value || "70000") || 70000)}
+                  disabled={busy}
+                  style={{ width: 260 }}
+                />
+              </div>
+
+              <div className="row" style={{ marginTop: 10 }}>
+                <label className="small" title="Turn off if you want browser noise/echo processing.">
+                  <input type="checkbox" checked={micRawMode} onChange={(e) => setMicRawMode(e.target.checked)} disabled={busy} />{" "}
+                  Studio audio (less processing)
+                </label>
+                <label className="small" title="Auto tune listens briefly and adjusts mic loudness.">
+                  <input
+                    type="checkbox"
+                    checked={autoMicNormalize}
+                    onChange={(e) => setAutoMicNormalize(e.target.checked)}
+                    disabled={busy}
+                  />{" "}
+                  Auto adjust
+                </label>
+                <button onClick={() => void primeMicPermissionFromGesture("manual_prime")} disabled={busy || !voice}>
+                  Prime mic
+                </button>
+                <button onClick={() => void runMicTune("manual")} disabled={busy || !voice}>
+                  Auto tune now
+                </button>
+              </div>
+
+              {micTuneStatus ? (
+                <div className="small" style={{ marginTop: 8 }}>
+                  {micTuneStatus}
+                </div>
+              ) : null}
+            </div>
+          </details>
         </div>
       </div>
 
@@ -1114,7 +1367,9 @@ export function DealReviewClient(props: { opportunityId: string }) {
               </div>
               <div className="kv">
                 <b>Rep:</b> {repName || "—"} · <b>Forecast:</b> {forecastStage || "—"} · <b>Close:</b>{" "}
-                {closeDateStr || "—"} · <b>Updated:</b> {safeDate(opportunity?.updated_at)}
+                {closeDateStr || "—"} · <b>Updated:</b> {safeDate(opportunity?.updated_at)} · <b>Partner:</b>{" "}
+                {partnerName || "—"} · <b>Deal Reg:</b>{" "}
+                <span className="font-mono text-xs">{dealRegistration === true ? "true" : dealRegistration === false ? "false" : "—"}</span>
               </div>
               <div className="kv" style={{ marginTop: 8 }}>
                 <b>Internal Sponsor:</b>{" "}
@@ -1167,11 +1422,18 @@ export function DealReviewClient(props: { opportunityId: string }) {
             {tileRows.map((c) => (
               <div
                 key={c.key}
-                className={`cat ${selectedCategory === c.key ? "active" : ""}`}
+                className={`cat ${highlightCategoryKey === c.key ? "active" : ""}`}
                 style={{ borderTop: `3px solid ${scoreColor(c.score)}` }}
               >
                 <div className="ch">
-                  <b>{c.catLabel}</b>
+                  <div>
+                    <b>{c.catLabel}</b>
+                    {c.catMeaning ? (
+                      <div className="small" style={{ marginTop: 2 }}>
+                        {c.catMeaning}
+                      </div>
+                    ) : null}
+                  </div>
                   <span className="score" style={{ color: scoreColor(c.score) }}>
                     {Number(c.score || 0)}/3
                   </span>
@@ -1197,79 +1459,83 @@ export function DealReviewClient(props: { opportunityId: string }) {
             ))}
           </div>
 
-          <details style={{ marginTop: 12 }}>
-            <summary className="small">Conversation</summary>
-            <div className="chat">
-              {activeMessages?.length ? (
-                activeMessages.map((m, i) => (
-                  <div key={`${m.at}-${i}`} className="msg">
-                    <div className="msgMeta">
-                      <strong className={`role ${m.role}`}>{m.role.toUpperCase()}</strong> · {new Date(m.at).toLocaleTimeString()}
-                    </div>
-                    <div className="msgBody">{m.text}</div>
+          {mode !== "CATEGORY_UPDATE" || !qaPaneOpen ? (
+            <>
+              <details style={{ marginTop: 12 }}>
+                <summary className="small">Conversation</summary>
+                <div className="chat">
+                  {activeMessages?.length ? (
+                    activeMessages.map((m, i) => (
+                      <div key={`${m.at}-${i}`} className="msg">
+                        <div className="msgMeta">
+                          <strong className={`role ${m.role}`}>{m.role.toUpperCase()}</strong> · {new Date(m.at).toLocaleTimeString()}
+                        </div>
+                        <div className="msgBody">{m.text}</div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="small">Run Full Deal Review or click a category update button.</div>
+                  )}
+                </div>
+              </details>
+
+              <div className="inputCard">
+                <div className="row" style={{ justifyContent: "space-between", width: "100%" }}>
+                  <div className="small">
+                    {mode === "FULL_REVIEW"
+                      ? isWaiting
+                        ? "Full review paused — answer to continue."
+                        : "Full review will pause when input is needed."
+                      : categoryWaitingForUser
+                        ? "Category update paused — answer to continue."
+                        : "Category update active."}
                   </div>
-                ))
-              ) : (
-                <div className="small">Run Full Deal Review or click a category update button.</div>
-              )}
-            </div>
-          </details>
+                  <span className="small">Voice uses mic+STT (tune below if needed).</span>
+                </div>
 
-          <div className="inputCard">
-            <div className="row" style={{ justifyContent: "space-between", width: "100%" }}>
-              <div className="small">
-                {mode === "FULL_REVIEW"
-                  ? isWaiting
-                    ? "Full review paused — answer to continue."
-                    : "Full review will pause when input is needed."
-                  : categoryWaitingForUser
-                    ? "Category update paused — answer to continue."
-                    : "Category update active."}
-              </div>
-              <span className="small">Voice uses mic+STT (tune below if needed).</span>
-            </div>
+                {micError ? (
+                  <div className="small" style={{ marginTop: 8, color: "var(--bad)" }}>
+                    Mic: {micError}
+                  </div>
+                ) : null}
+                {sttError ? (
+                  <div className="small" style={{ marginTop: 8, color: "var(--bad)" }}>
+                    STT: {sttError}
+                  </div>
+                ) : null}
+                {ttsError ? (
+                  <div className="small" style={{ marginTop: 8, color: "var(--bad)" }}>
+                    TTS: {ttsError}
+                  </div>
+                ) : null}
 
-            {micError ? (
-              <div className="small" style={{ marginTop: 8, color: "var(--bad)" }}>
-                Mic: {micError}
-              </div>
-            ) : null}
-            {sttError ? (
-              <div className="small" style={{ marginTop: 8, color: "var(--bad)" }}>
-                STT: {sttError}
-              </div>
-            ) : null}
-            {ttsError ? (
-              <div className="small" style={{ marginTop: 8, color: "var(--bad)" }}>
-                TTS: {ttsError}
-              </div>
-            ) : null}
+                <div className="row" style={{ marginTop: 10, width: "100%" }}>
+                  <input
+                    value={answer}
+                    onChange={(e) => setAnswer(e.target.value)}
+                    placeholder="Type your answer…"
+                    style={{ flex: 1, minWidth: 260 }}
+                    disabled={
+                      busy ||
+                      (mode === "FULL_REVIEW" ? !runId : mode === "CATEGORY_UPDATE" ? !selectedCategory : true)
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void sendAnswer();
+                    }}
+                  />
+                  <button onClick={() => void sendAnswer()} disabled={busy || !answer.trim()}>
+                    Send
+                  </button>
+                </div>
 
-            <div className="row" style={{ marginTop: 10, width: "100%" }}>
-              <input
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
-                placeholder="Type your answer…"
-                style={{ flex: 1, minWidth: 260 }}
-                disabled={
-                  busy ||
-                  (mode === "FULL_REVIEW" ? !runId : mode === "CATEGORY_UPDATE" ? !selectedCategory : true)
-                }
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void sendAnswer();
-                }}
-              />
-              <button onClick={() => void sendAnswer()} disabled={busy || !answer.trim()}>
-                Send
-              </button>
-            </div>
-
-            {lastTranscript ? (
-              <div className="small" style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>
-                <b>Last transcript:</b> {lastTranscript}
+                {lastTranscript ? (
+                  <div className="small" style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>
+                    <b>Last transcript:</b> {lastTranscript}
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
+            </>
+          ) : null}
         </div>
 
         <div className="card">
@@ -1316,15 +1582,45 @@ export function DealReviewClient(props: { opportunityId: string }) {
           margin: 0 auto;
           padding: 18px;
         }
-        .micTuneTop {
+        .micSettings {
+          position: relative;
+        }
+        .micSettings summary {
+          list-style: none;
+        }
+        .micSettings summary::-webkit-details-marker {
+          display: none;
+        }
+        .micSettingsBtn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          user-select: none;
+        }
+        details.micSettings > .micSettingsBtn {
+          background: var(--panel);
+          color: var(--text);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 10px 12px;
+          font-size: 13px;
+        }
+        details.micSettings[open] > .micSettingsBtn {
+          border-color: var(--accent);
+          box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+        }
+        .micSettingsPanel {
+          position: absolute;
+          right: 0;
+          top: calc(100% + 8px);
+          width: min(760px, calc(100vw - 24px));
           background: var(--panel);
           border: 1px solid var(--border);
           border-radius: 14px;
-          padding: 10px 12px;
-          max-width: 740px;
-        }
-        .micTuneTop summary {
-          cursor: pointer;
+          padding: 12px;
+          z-index: 70;
+          box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
         }
         .top {
           display: flex;
@@ -1436,6 +1732,72 @@ export function DealReviewClient(props: { opportunityId: string }) {
           border-radius: 14px;
           padding: 14px;
         }
+        .qaOverlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.35);
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 160ms ease;
+          z-index: 50;
+        }
+        .qaOverlay.open {
+          opacity: 1;
+          pointer-events: auto;
+        }
+        .qaDrawer {
+          position: fixed;
+          top: 0;
+          left: 0;
+          height: 100vh;
+          width: min(520px, 92vw);
+          background: var(--panel);
+          border-right: 1px solid var(--border);
+          transform: translateX(-102%);
+          transition: transform 220ms ease;
+          z-index: 60;
+          display: flex;
+          flex-direction: column;
+          padding: 14px;
+        }
+        .qaDrawer.open {
+          transform: translateX(0);
+        }
+        .qaHdr {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: flex-start;
+          padding-bottom: 12px;
+          border-bottom: 1px solid var(--border);
+        }
+        .qaTitleBlock {
+          min-width: 0;
+        }
+        .qaTitleLine {
+          font-size: 18px;
+          font-weight: 900;
+          color: var(--text);
+          letter-spacing: 0.2px;
+        }
+        .qaMeaningLine {
+          margin-top: 6px;
+          font-size: 13px;
+          color: var(--text);
+          opacity: 0.9;
+        }
+        .qaMeta {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+        .qaBody {
+          margin-top: 12px;
+          overflow: auto;
+          padding-right: 2px;
+        }
         .hdr {
           display: flex;
           justify-content: space-between;
@@ -1519,7 +1881,7 @@ export function DealReviewClient(props: { opportunityId: string }) {
           margin-top: 6px;
         }
         .evi {
-          color: var(--muted);
+          color: var(--text);
           font-size: 11px;
           margin-top: 6px;
         }

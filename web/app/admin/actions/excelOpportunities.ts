@@ -31,6 +31,8 @@ const TargetField = z.enum([
   "crm_opp_id",
   "create_date_raw",
   "close_date",
+  "partner_name",
+  "deal_registration",
 ]);
 
 const Schema = z.object({
@@ -114,6 +116,20 @@ function normalizeRevenueCell(v: unknown): { cleanValue: string; value: number |
   if (!/^[+-]?\d+(\.\d+)?$/.test(cleanValue)) return { cleanValue, value: null };
   const n = parseFloat(cleanValue);
   return { cleanValue, value: Number.isFinite(n) ? n : null };
+}
+
+function normalizeBooleanCell(v: unknown): boolean | null {
+  if (v == null) return null;
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") {
+    if (v === 1) return true;
+    if (v === 0) return false;
+  }
+  const s = String(v).trim().toLowerCase();
+  if (!s) return null;
+  if (s === "true" || s === "t" || s === "yes" || s === "y" || s === "1") return true;
+  if (s === "false" || s === "f" || s === "no" || s === "n" || s === "0") return false;
+  return null;
 }
 
 type ExcelUploadState =
@@ -200,6 +216,10 @@ function friendlyTargetName(t: string) {
       return "Sales Stage";
     case "forecast_stage":
       return "Forecast Stage";
+    case "partner_name":
+      return "Partner Name";
+    case "deal_registration":
+      return "Deal Registration";
     default:
       return t;
   }
@@ -405,6 +425,22 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
             issues.push(`Row ${rowNum}: Close Date is not a valid date (column "${src}")`);
           } else {
             row[src] = isoDateOnly(d);
+          }
+        }
+      }
+
+      // Deal Registration: optional boolean.
+      {
+        const src = byTarget.get("deal_registration") || "";
+        if (src) {
+          const v = row?.[src];
+          if (!isBlankCell(v)) {
+            const b = normalizeBooleanCell(v);
+            if (b == null) {
+              issues.push(`Row ${rowNum}: Deal Registration must be true/false (column "${src}")`);
+            } else {
+              row[src] = b;
+            }
           }
         }
       }

@@ -35,6 +35,7 @@ export default async function AdminHome() {
       <Card href="/admin/hierarchy" title="Hierarchy Tree" desc="View the org hierarchy tree." />
       <Card href="/admin/mapping-sets" title="Mapping Sets" desc="Manage mapping sets and their field mappings." />
       <Card href="/admin/ingestion" title="Ingestion" desc="Monitor pending/processed/error rows, retry failures, and trigger processing." />
+      <Card href="/admin/analytics" title="Analytics" desc="Quota calendar, assignments, roll-ups, and dashboards." />
     </main>
   );
 }

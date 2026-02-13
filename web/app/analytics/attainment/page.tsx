@@ -5,6 +5,7 @@ import { requireAuth } from "../../../lib/auth";
 import { getOrganization } from "../../../lib/db";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { listCroAttainment, listManagerAttainment, listRepAttainment, listVpAttainment } from "../../../lib/quotaRollups";
+import { dateOnly } from "../../../lib/dateOnly";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -94,7 +95,7 @@ export default async function AnalyticsAttainmentPage({
                 <option value="">(select)</option>
                 {periods.map((p) => (
                   <option key={p.id} value={String(p.id)}>
-                    {p.period_name} ({p.fiscal_year} {p.fiscal_quarter}) ({p.period_start} → {p.period_end}) [id {p.id}]
+                    {p.period_name} ({p.fiscal_year} {p.fiscal_quarter}) ({dateOnly(p.period_start)} → {dateOnly(p.period_end)}) [id {p.id}]
                   </option>
                 ))}
               </select>

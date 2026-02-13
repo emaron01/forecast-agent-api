@@ -7,6 +7,7 @@ import { loadMasterDcoPrompt } from "../../../../../lib/masterDcoPrompt";
 import { getAuth } from "../../../../../lib/auth";
 import { pool } from "../../../../../lib/pool";
 import { resolvePublicId } from "../../../../../lib/publicId";
+import { closedOutcomeFromOpportunityRow } from "../../../../../lib/opportunityOutcome";
 
 export const runtime = "nodejs";
 
@@ -85,6 +86,21 @@ export async function POST(req: Request) {
     const deals = internalIds.map((id) => byId.get(id)).filter(Boolean);
     if (!deals.length) return NextResponse.json({ ok: false, error: "No opportunities found" }, { status: 404 });
 
+    // Disallow closed deals in review queue.
+    const closedOnes = deals
+      .map((d) => ({ pid: String((d as any)?.public_id || ""), outcome: closedOutcomeFromOpportunityRow({ ...d, stage: (d as any)?.sales_stage }) }))
+      .filter((x) => !!x.outcome);
+    if (closedOnes.length) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Deal Review is disabled for closed opportunities (Won/Lost). Remove closed deals and try again.`,
+          closed: closedOnes,
+        },
+        { status: 409 }
+      );
+    }
+
     // Enforce visibility per deal.
     for (const d of deals) {
       const vis = await assertOpportunityVisible({
@@ -119,7 +135,21 @@ export async function POST(req: Request) {
         `,
         [orgId]
       )
-      .catch(() => ({ rows: [] as any[] }));
+      .catch(async (e: any) => {
+        if (String(e?.code || "") === "42703") {
+          const r = await pool
+            .query(
+              `
+              SELECT category, score, label, criteria
+                FROM score_definitions
+               ORDER BY category ASC, score ASC
+              `
+            )
+            .catch(() => ({ rows: [] as any[] }));
+          return r as any;
+        }
+        return { rows: [] as any[] };
+      });
     const scoreDefs = defsRes.rows || [];
 
     const mp = await loadMasterDcoPrompt();

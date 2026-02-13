@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { closedOutcomeFromStage } from "../../../lib/opportunityOutcome";
+import { dateOnly } from "../../../lib/dateOnly";
 
 type Deal = Record<string, any> & {
   id: string; // public_id
@@ -222,6 +224,7 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
             {filtered.map((d) => {
               const id = String(d.id || "");
               const checked = !!selected[id];
+              const closed = closedOutcomeFromStage(d.forecast_stage) || closedOutcomeFromStage((d as any).stage);
               return (
                 <tr key={id} className="border-t border-[color:var(--sf-border)]">
                   <td className="px-4 py-3">
@@ -235,17 +238,23 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
                   <td className="px-4 py-3">{d.account_name || "—"}</td>
                   <td className="px-4 py-3">{d.opportunity_name || "—"}</td>
                   <td className="px-4 py-3">{fmtMoney(d.amount)}</td>
-                  <td className="px-4 py-3">{d.close_date || "—"}</td>
+                  <td className="px-4 py-3">{dateOnly(d.close_date) || "—"}</td>
                   <td className="px-4 py-3">{d.forecast_stage || "—"}</td>
                   <td className="px-4 py-3">{d.ai_verdict || d.ai_forecast || "—"}</td>
                   <td className="px-4 py-3">{healthPct(d)}</td>
                   <td className="px-4 py-3 text-right">
-                    <Link
-                      className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-xs font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
-                      href={`/opportunities/${encodeURIComponent(id)}/deal-review`}
-                    >
-                      Review
-                    </Link>
+                    {closed ? (
+                      <span className="text-xs text-[color:var(--sf-text-disabled)]" title="Closed deals (Won/Lost) cannot be reviewed.">
+                        Closed ({closed})
+                      </span>
+                    ) : (
+                      <Link
+                        className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-xs font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
+                        href={`/opportunities/${encodeURIComponent(id)}/deal-review`}
+                      >
+                        Review
+                      </Link>
+                    )}
                   </td>
                 </tr>
               );

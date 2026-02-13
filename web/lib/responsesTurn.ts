@@ -22,6 +22,9 @@ export type ForecastSession = {
   touched: Set<string>;
   items: any[];
   wrapSaved: boolean;
+  // Strict wrap enforcement: exact health-score phrase must be spoken before advancing.
+  wrapExpectedHealthPercent?: number;
+  wrapHealthPhraseOk?: boolean;
 };
 
 function normalizeCategoryKeyFromLabel(label: string) {
@@ -41,6 +44,54 @@ function normalizeCategoryKeyFromLabel(label: string) {
   if (s.startsWith("decision process")) return "process";
   if (s.startsWith("paper process")) return "paper";
   return "";
+}
+
+function touchedKeyFromSaveToolField(field: string) {
+  // tool args use prefixes that mostly match touchedKey (except EB).
+  const k = String(field || "").trim();
+  const m = k.match(/^([a-z_]+)_(score|summary|tip)$/i);
+  if (!m) return "";
+  const prefix = String(m[1] || "").toLowerCase();
+  if (!prefix) return "";
+  if (prefix === "economic_buyer") return "eb";
+  return prefix; // e.g. pain, metrics, champion, eb, criteria, process, paper, timing, budget, competition
+}
+
+function extractTouchedKeysFromSaveToolArgs(toolArgs: any) {
+  const out = new Set<string>();
+  for (const key of Object.keys(toolArgs || {})) {
+    const tk = touchedKeyFromSaveToolField(key);
+    if (tk) out.add(tk);
+  }
+  return out;
+}
+
+function displayTouchedKey(touchedKey: string) {
+  const k = String(touchedKey || "").trim().toLowerCase();
+  switch (k) {
+    case "pain":
+      return "Pain";
+    case "metrics":
+      return "Metrics";
+    case "champion":
+      return "Internal Sponsor";
+    case "criteria":
+      return "Criteria";
+    case "competition":
+      return "Competition";
+    case "timing":
+      return "Timing";
+    case "budget":
+      return "Budget";
+    case "eb":
+      return "Economic Buyer";
+    case "process":
+      return "Decision Process";
+    case "paper":
+      return "Paper Process";
+    default:
+      return k || "Category";
+  }
 }
 
 function parseLastCheckFromAssistant(text: string): { categoryKey?: string; checkType?: "strong" | "progress" } {
@@ -165,6 +216,21 @@ function healthPercentFromScore(healthScore: number) {
   return Math.max(0, Math.min(100, pct));
 }
 
+function expectedHealthPhrase(hp: number) {
+  const n = Number(hp);
+  const safe = Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0;
+  return `Your Deal Health Score is at ${safe} percent.`;
+}
+
+function extractHealthPercentFromAssistant(text: string) {
+  const t = String(text || "");
+  const m = t.match(/Your Deal Health Score is at\s+(\d{1,3})\s+percent\.?/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
 export async function runResponsesTurn(args: {
   pool: Pool;
   session: ForecastSession;
@@ -207,6 +273,22 @@ export async function runResponsesTurn(args: {
   let forcedSaveNudge = false;
   const repText = repTurn ? text : "";
   const repSaidNoChange = repTurn ? isNoChangeReply(repText) : false;
+
+  // Enforce strict category order + "never combine categories" on SAVE.
+  // We derive the expected category from the current deal + reviewed set *before* this rep answer is saved.
+  const dealIndexAtStart = session.index;
+  const reviewedBeforeTurn = new Set<string>(session.reviewed || []);
+  const expectedGapAtStart = (() => {
+    const deal = session.deals?.[dealIndexAtStart];
+    if (!deal) return null;
+    const stage = String(deal?.forecast_stage || "Pipeline");
+    try {
+      return computeFirstGap(deal, stage, reviewedBeforeTurn);
+    } catch {
+      return null;
+    }
+  })();
+  const expectedTouchedKeyAtStart = expectedGapAtStart?.touchedKey ? String(expectedGapAtStart.touchedKey) : "";
 
   // If the previous assistant turn was a locked "check pattern" and the rep says "no change",
   // we must move on without overwriting summaries/tips (per master prompt contract).
@@ -321,6 +403,20 @@ export async function runResponsesTurn(args: {
     const chunkText = extractAssistantText(output);
     if (chunkText) assistantTexts.push(chunkText);
 
+    // Strict wrap enforcement: detect exact health-score phrase when expected.
+    if (chunkText && session.wrapExpectedHealthPercent != null) {
+      const expected = Math.max(0, Math.min(100, Math.round(Number(session.wrapExpectedHealthPercent) || 0)));
+      const spoken = extractHealthPercentFromAssistant(chunkText);
+      if (spoken != null) {
+        session.wrapHealthPhraseOk = spoken === expected;
+      }
+      // If the assistant said the exact required phrase, mark ok even if regex missed punctuation nuances.
+      const phrase = expectedHealthPhrase(expected);
+      if (chunkText.includes(phrase) || chunkText.includes(phrase.replace(/\.$/, ""))) {
+        session.wrapHealthPhraseOk = true;
+      }
+    }
+
     const toolCalls = output.filter((it: any) => it?.type === "function_call");
     if (!toolCalls.length) {
       // If tools are disabled (e.g. kickoff), do not run save-enforcement guardrails.
@@ -331,11 +427,12 @@ export async function runResponsesTurn(args: {
       // Do ONE corrective retry instructing a save + next question.
       if (repTurn && !forcedSaveNudge && repText && !repSaidNoChange && !session.skipSaveCategoryKey) {
         forcedSaveNudge = true;
+        const expectedLabel = expectedTouchedKeyAtStart ? displayTouchedKey(expectedTouchedKeyAtStart) : "the current category";
         nextInput = [
           userMsg(
             "The rep just answered with new information. You MUST now:\n" +
               "1) Say only: \"Got it.\"\n" +
-              "2) Call save_deal_data with the score, summary, and tip for the category you just asked.\n" +
+              `2) Call save_deal_data with the score, summary, and tip for ${expectedLabel} ONLY (do not save any other category).\n` +
               "3) Then ask the next required category question (ONE direct question).\n" +
               "Do not repeat the prior question."
           ),
@@ -363,6 +460,41 @@ export async function runResponsesTurn(args: {
 
       if (name === "save_deal_data") {
         sawSaveTool = true;
+        const activeDealIndex = session.index;
+        const enforcingThisTurn =
+          repTurn && activeDealIndex === dealIndexAtStart && !!expectedTouchedKeyAtStart && !session.skipSaveCategoryKey;
+        const savedTouchedKeys = extractTouchedKeysFromSaveToolArgs(toolArgs);
+
+        // HARD ENFORCEMENT:
+        // - If the model tries to save multiple categories for a single rep answer, reject it.
+        // - If the model tries to save a different category than the strict order expects, reject it.
+        // (Wrap-only saves with risk_summary/next_steps are allowed and do not count as a category save.)
+        if (enforcingThisTurn && savedTouchedKeys.size > 0) {
+          const keys = Array.from(savedTouchedKeys);
+          const expected = expectedTouchedKeyAtStart;
+          const okSingle = savedTouchedKeys.size === 1 && savedTouchedKeys.has(expected);
+          if (!okSingle) {
+            toolOutputs.push(
+              toolOutput(callId, {
+                status: "error",
+                error: "invalid_category_save",
+                expected_category: expected,
+                got_categories: keys,
+              })
+            );
+            extraInputs.push(
+              userMsg(
+                "STOP. You must follow STRICT category order and NEVER combine categories.\n" +
+                  `For this rep answer, you MUST save ONLY ${displayTouchedKey(expected)}.\n` +
+                  `Do NOT save: ${keys.map(displayTouchedKey).join(", ") || "(none)"}.\n` +
+                  "Call save_deal_data again with ONLY the correct <category>_score, <category>_summary (evidence only), and <category>_tip.\n" +
+                  "Then ask the NEXT required category question."
+              )
+            );
+            continue;
+          }
+        }
+
         // Normalize camelCase variants
         if (toolArgs.risk_summary == null && toolArgs.riskSummary != null) toolArgs.risk_summary = toolArgs.riskSummary;
         if (toolArgs.next_steps == null && toolArgs.nextSteps != null) toolArgs.next_steps = toolArgs.nextSteps;
@@ -372,10 +504,10 @@ export async function runResponsesTurn(args: {
 
         // Track touched + reviewed categories
         for (const key of Object.keys(toolArgs || {})) {
-          if (key.endsWith("_score") || key.endsWith("_summary") || key.endsWith("_tip")) {
-            const category = key.replace(/_score$/, "").replace(/_summary$/, "").replace(/_tip$/, "");
-            session.touched.add(category);
-            session.reviewed.add(category);
+          const tk = touchedKeyFromSaveToolField(key);
+          if (tk) {
+            session.touched.add(tk);
+            session.reviewed.add(tk);
           }
         }
 
@@ -420,11 +552,18 @@ export async function runResponsesTurn(args: {
         // Record wrap saved for THIS review only when BOTH fields are non-empty.
         if (wrapComplete) {
           session.wrapSaved = true;
+          // Once wrap is saved, we expect the exact health-score phrase too.
+          const hs = await fetchHealthScore(pool, session.orgId, activeDeal.id);
+          const hp = healthPercentFromScore(hs);
+          session.wrapExpectedHealthPercent = hp;
+          session.wrapHealthPhraseOk = session.wrapHealthPhraseOk === true; // don't auto-pass; must be spoken.
         } else if (wrapRisk || wrapNext) {
           // If the model tried to save wrap fields but missed one, force correction.
           session.wrapSaved = false;
           const hs = await fetchHealthScore(pool, session.orgId, activeDeal.id);
           const hp = healthPercentFromScore(hs);
+          session.wrapExpectedHealthPercent = hp;
+          session.wrapHealthPhraseOk = false;
           extraInputs.push(
             userMsg(
               "End-of-deal wrap save is incomplete. You MUST save BOTH fields:\n" +
@@ -448,6 +587,8 @@ export async function runResponsesTurn(args: {
         if (allReviewed && !session.wrapSaved) {
           const hs = await fetchHealthScore(pool, session.orgId, activeDeal.id);
           const hp = healthPercentFromScore(hs);
+          session.wrapExpectedHealthPercent = hp;
+          session.wrapHealthPhraseOk = false;
           extraInputs.push(
             userMsg(
               "All required categories reviewed. You MUST complete the end-of-deal wrap now:\n" +
@@ -466,10 +607,13 @@ export async function runResponsesTurn(args: {
       if (name === "advance_deal") {
         sawAdvanceTool = true;
         // Block advance until wrap save has been recorded for this review.
+        const activeDeal = session.deals[session.index];
+        const hs = activeDeal ? await fetchHealthScore(pool, session.orgId, activeDeal.id) : 0;
+        const hp = healthPercentFromScore(hs);
+        session.wrapExpectedHealthPercent = hp;
+
         if (!session.wrapSaved) {
           const activeDeal = session.deals[session.index];
-          const hs = activeDeal ? await fetchHealthScore(pool, session.orgId, activeDeal.id) : 0;
-          const hp = healthPercentFromScore(hs);
           toolOutputs.push(toolOutput(callId, { status: "error", error: "end_wrap_not_saved" }));
           extraInputs.push(
             userMsg(
@@ -485,6 +629,20 @@ export async function runResponsesTurn(args: {
           continue;
         }
 
+        // Block advance until the exact health-score phrase is spoken with the computed percent.
+        if (!session.wrapHealthPhraseOk) {
+          toolOutputs.push(toolOutput(callId, { status: "error", error: "health_phrase_missing_or_wrong", expected: hp }));
+          extraInputs.push(
+            userMsg(
+              "STOP. Your end-of-deal wrap MUST follow the Master Prompt exactly.\n" +
+                `You MUST say EXACTLY: \"Your Deal Health Score is at ${hp} percent.\" (do not change this number)\n` +
+                "Then call advance_deal.\n" +
+                "Do NOT ask questions."
+            )
+          );
+          continue;
+        }
+
         // Advance deal in session
         session.index += 1;
         session.touched = new Set<string>();
@@ -493,6 +651,8 @@ export async function runResponsesTurn(args: {
         session.lastCheckType = undefined;
         session.skipSaveCategoryKey = undefined;
         session.wrapSaved = false;
+        session.wrapExpectedHealthPercent = undefined;
+        session.wrapHealthPhraseOk = undefined;
         advancedThisBatch = true;
 
         if (session.index >= session.deals.length) {

@@ -11,6 +11,8 @@ export type StageComparisonRow = {
   account_name: string | null;
   opportunity_name: string | null;
   close_date: string | null;
+  partner_name: string | null;
+  deal_registration: boolean | null;
   amount: number | null;
   crm_forecast_stage: string | null;
   ai_forecast_stage: string | null;
@@ -66,6 +68,8 @@ export async function listStageComparisonsForPeriod(args: {
         o.account_name,
         o.opportunity_name,
         o.close_date::text AS close_date,
+        o.partner_name,
+        o.deal_registration,
         o.amount,
         o.forecast_stage AS crm_forecast_stage,
         COALESCE(o.ai_verdict, o.ai_forecast) AS ai_forecast_stage,
@@ -84,6 +88,8 @@ export async function listStageComparisonsForPeriod(args: {
       account_name,
       opportunity_name,
       close_date,
+      partner_name,
+      deal_registration,
       amount,
       crm_forecast_stage,
       ai_forecast_stage,

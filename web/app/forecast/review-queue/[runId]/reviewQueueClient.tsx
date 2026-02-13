@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { dateOnly } from "../../../../lib/dateOnly";
 
 type HandsFreeStatus = "RUNNING" | "WAITING_FOR_USER" | "DONE" | "ERROR";
 type HandsFreeMessage = { role: "assistant" | "user" | "system"; text: string; at: number };
@@ -29,9 +30,8 @@ type DealHeader = {
 };
 
 function safeDate(d: any) {
-  if (!d) return "—";
-  const dt = new Date(d);
-  return Number.isFinite(dt.getTime()) ? dt.toLocaleString() : "—";
+  const s = dateOnly(d);
+  return s || "—";
 }
 
 function pickRecorderMime() {
@@ -657,7 +657,7 @@ export function ReviewQueueClient(props: { runId: string }) {
             </div>
             <div className="mt-2 text-xs text-[color:var(--sf-text-disabled)]">
               Rep: <span className="font-medium text-[color:var(--sf-text-primary)]">{deal.rep_name || "—"}</span> · Close:{" "}
-              <span className="font-medium text-[color:var(--sf-text-primary)]">{deal.close_date || "—"}</span> · Updated:{" "}
+              <span className="font-medium text-[color:var(--sf-text-primary)]">{dateOnly(deal.close_date) || "—"}</span> · Updated:{" "}
               <span className="font-medium text-[color:var(--sf-text-primary)]">{safeDate(deal.updated_at)}</span>
             </div>
           </div>

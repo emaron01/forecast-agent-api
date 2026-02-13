@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { MEDDPICC_CANONICAL } from "../../lib/meddpiccCanonical";
+import { closedOutcomeFromStage } from "../../lib/opportunityOutcome";
+import { dateOnly } from "../../lib/dateOnly";
 
 type Deal = Record<string, any> & {
   id: string;
@@ -22,9 +25,8 @@ type Deal = Record<string, any> & {
 };
 
 function safeDate(d: any) {
-  if (!d) return "—";
-  const dt = new Date(d);
-  return Number.isFinite(dt.getTime()) ? dt.toLocaleString() : "—";
+  const s = dateOnly(d);
+  return s || "—";
 }
 
 function fmtMoney(n: any) {
@@ -75,19 +77,22 @@ function scoreColor(s: any) {
   return n >= 3 ? "text-[#2ECC71]" : n >= 2 ? "text-[#F1C40F]" : "text-[#E74C3C]";
 }
 
-function ScoreCard(props: { name: string; score: any; tip: any; summary: any }) {
+function ScoreCard(props: { titleLine: string; meaningLine: string; score: any; tip: any; summary: any }) {
   const score = Number(props.score || 0) || 0;
   return (
     <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
       <div className="flex items-start justify-between gap-3">
-        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{props.name}</div>
+        <div>
+          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{props.titleLine}</div>
+          <div className="mt-0.5 text-[11px] text-[color:var(--sf-text-disabled)]">{props.meaningLine}</div>
+        </div>
         <div className={`text-sm font-bold ${scoreColor(score)}`}>{score}/3</div>
       </div>
       <div className="mt-2 text-xs font-semibold text-[color:var(--sf-accent-primary)]">{labelFromSummary(props.summary, score)}</div>
-      <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
-        <span className="font-semibold">Action:</span> {String(props.tip || "—")}
+      <div className="mt-2 text-xs text-[#F1C40F]">
+        <span className="font-semibold">Tip:</span> {String(props.tip || "—")}
       </div>
-      <div className="mt-1 text-xs text-[color:var(--sf-text-disabled)]">
+      <div className="mt-1 text-xs text-[color:var(--sf-text-primary)]">
         <span className="font-semibold text-[color:var(--sf-text-secondary)]">Evidence:</span> {evidenceFromSummary(props.summary)}
       </div>
     </div>
@@ -137,7 +142,7 @@ export function ForecastDashboardClient(props: {
 
       const deals = Array.isArray(data.deals) ? (data.deals as Deal[]) : [];
       setAllDeals(deals);
-      setLastRefresh(new Date().toLocaleString());
+      setLastRefresh(dateOnly(new Date()) || "—");
 
       let saves = 0;
       for (const d of deals) {
@@ -369,6 +374,7 @@ export function ForecastDashboardClient(props: {
           const total = Number(d.health_score ?? scoreTotal(d)) || 0;
           const justSaved = saveBlinksRef.current.has(String(d.id || ""));
           const dealId = String(d.id || "");
+          const closed = closedOutcomeFromStage(d.stage) || closedOutcomeFromStage(d.forecast_stage);
 
           return (
             <article
@@ -411,18 +417,27 @@ export function ForecastDashboardClient(props: {
                       </span>
                     ) : null}
                     {dealId ? (
-                      <Link
-                        href={`/opportunities/${encodeURIComponent(dealId)}/deal-review`}
-                        className="rounded-full border border-[color:var(--sf-accent-secondary)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-[color:var(--sf-accent-secondary)] hover:bg-[color:var(--sf-surface)]"
-                        title="Open single-deal review (mic tuning + full review + category updates)."
-                      >
-                        Review
-                      </Link>
+                      closed ? (
+                        <span
+                          className="rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-[color:var(--sf-text-disabled)]"
+                          title="Closed deals (Won/Lost) cannot be reviewed."
+                        >
+                          Closed ({closed})
+                        </span>
+                      ) : (
+                        <Link
+                          href={`/opportunities/${encodeURIComponent(dealId)}/deal-review`}
+                          className="rounded-full border border-[color:var(--sf-accent-secondary)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-[color:var(--sf-accent-secondary)] hover:bg-[color:var(--sf-surface)]"
+                          title="Open single-deal review (mic tuning + full review + category updates)."
+                        >
+                          Review
+                        </Link>
+                      )
                     ) : null}
                   </div>
                   <div className="mt-2 text-xs text-[color:var(--sf-text-disabled)]">
                     Amount: <span className="font-medium text-[color:var(--sf-text-primary)]">{fmtMoney(d.amount)}</span> · Close:{" "}
-                    <span className="font-medium text-[color:var(--sf-text-primary)]">{d.close_date || "—"}</span> · Updated:{" "}
+                    <span className="font-medium text-[color:var(--sf-text-primary)]">{dateOnly(d.close_date) || "—"}</span> · Updated:{" "}
                     <span className="font-medium text-[color:var(--sf-text-primary)]">{safeDate(d.updated_at)}</span>
                   </div>
                 </div>
@@ -445,16 +460,76 @@ export function ForecastDashboardClient(props: {
               </div>
 
               <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                <ScoreCard name="Pain" score={d.pain_score} tip={d.pain_tip} summary={d.pain_summary} />
-                <ScoreCard name="Metrics" score={d.metrics_score} tip={d.metrics_tip} summary={d.metrics_summary} />
-                <ScoreCard name="Champion" score={d.champion_score} tip={d.champion_tip} summary={d.champion_summary} />
-                <ScoreCard name="Economic Buyer" score={d.eb_score} tip={d.eb_tip} summary={d.eb_summary} />
-                <ScoreCard name="Criteria" score={d.criteria_score} tip={d.criteria_tip} summary={d.criteria_summary} />
-                <ScoreCard name="Process" score={d.process_score} tip={d.process_tip} summary={d.process_summary} />
-                <ScoreCard name="Competition" score={d.competition_score} tip={d.competition_tip} summary={d.competition_summary} />
-                <ScoreCard name="Paper Process" score={d.paper_score} tip={d.paper_tip} summary={d.paper_summary} />
-                <ScoreCard name="Timing" score={d.timing_score} tip={d.timing_tip} summary={d.timing_summary} />
-                <ScoreCard name="Budget" score={d.budget_score} tip={d.budget_tip} summary={d.budget_summary} />
+                <ScoreCard
+                  titleLine={MEDDPICC_CANONICAL.pain.titleLine}
+                  meaningLine={MEDDPICC_CANONICAL.pain.meaningLine}
+                  score={d.pain_score}
+                  tip={d.pain_tip}
+                  summary={d.pain_summary}
+                />
+                <ScoreCard
+                  titleLine={MEDDPICC_CANONICAL.metrics.titleLine}
+                  meaningLine={MEDDPICC_CANONICAL.metrics.meaningLine}
+                  score={d.metrics_score}
+                  tip={d.metrics_tip}
+                  summary={d.metrics_summary}
+                />
+                <ScoreCard
+                  titleLine={MEDDPICC_CANONICAL.champion.titleLine}
+                  meaningLine={MEDDPICC_CANONICAL.champion.meaningLine}
+                  score={d.champion_score}
+                  tip={d.champion_tip}
+                  summary={d.champion_summary}
+                />
+                <ScoreCard
+                  titleLine={MEDDPICC_CANONICAL.criteria.titleLine}
+                  meaningLine={MEDDPICC_CANONICAL.criteria.meaningLine}
+                  score={d.criteria_score}
+                  tip={d.criteria_tip}
+                  summary={d.criteria_summary}
+                />
+                <ScoreCard
+                  titleLine={MEDDPICC_CANONICAL.competition.titleLine}
+                  meaningLine={MEDDPICC_CANONICAL.competition.meaningLine}
+                  score={d.competition_score}
+                  tip={d.competition_tip}
+                  summary={d.competition_summary}
+                />
+                <ScoreCard
+                  titleLine={MEDDPICC_CANONICAL.timing.titleLine}
+                  meaningLine={MEDDPICC_CANONICAL.timing.meaningLine}
+                  score={d.timing_score}
+                  tip={d.timing_tip}
+                  summary={d.timing_summary}
+                />
+                <ScoreCard
+                  titleLine={MEDDPICC_CANONICAL.budget.titleLine}
+                  meaningLine={MEDDPICC_CANONICAL.budget.meaningLine}
+                  score={d.budget_score}
+                  tip={d.budget_tip}
+                  summary={d.budget_summary}
+                />
+                <ScoreCard
+                  titleLine={MEDDPICC_CANONICAL.economic_buyer.titleLine}
+                  meaningLine={MEDDPICC_CANONICAL.economic_buyer.meaningLine}
+                  score={d.eb_score}
+                  tip={d.eb_tip}
+                  summary={d.eb_summary}
+                />
+                <ScoreCard
+                  titleLine={MEDDPICC_CANONICAL.process.titleLine}
+                  meaningLine={MEDDPICC_CANONICAL.process.meaningLine}
+                  score={d.process_score}
+                  tip={d.process_tip}
+                  summary={d.process_summary}
+                />
+                <ScoreCard
+                  titleLine={MEDDPICC_CANONICAL.paper.titleLine}
+                  meaningLine={MEDDPICC_CANONICAL.paper.meaningLine}
+                  score={d.paper_score}
+                  tip={d.paper_tip}
+                  summary={d.paper_summary}
+                />
               </div>
 
               <details className="mt-4">

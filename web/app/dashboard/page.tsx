@@ -3,6 +3,7 @@ import { requireAuth } from "../../lib/auth";
 import { getOrganization, getVisibleUsers, listRecentOpportunitiesForAccountOwner } from "../../lib/db";
 import { redirect } from "next/navigation";
 import { UserTopNav } from "../_components/UserTopNav";
+import { dateOnly } from "../../lib/dateOnly";
 
 export const runtime = "nodejs";
 
@@ -50,6 +51,7 @@ export default async function DashboardPage() {
 
           <section className="mt-6 grid gap-4 md:grid-cols-3">
             <ActionCard href="/analytics" title="Analytics" desc="Attainment dashboards + comparisons." />
+            <ActionCard href="/analytics/quotas/manager" title="Team Quotas" desc="Assign quotas to direct reports + team rollups." />
             <ActionCard href="/forecast" title="Sales Forecaster" desc="Open Matthew’s Forecast Agent dashboard." />
             <ActionCard href="/dashboard/excel-upload" title="Upload Opportunities" desc="Upload an Excel file of opportunities." />
           </section>
@@ -104,6 +106,28 @@ export default async function DashboardPage() {
     );
   }
 
+  if (ctx.user.role === "EXEC_MANAGER") {
+    return (
+      <div className="min-h-screen bg-[color:var(--sf-background)]">
+        <UserTopNav orgName={orgName} user={ctx.user} />
+        <main className="mx-auto max-w-6xl p-6">
+          <header>
+            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Dashboard</h1>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+              Signed in as {ctx.user.display_name} ({ctx.user.email})
+            </p>
+          </header>
+
+          <section className="mt-6 grid gap-4 md:grid-cols-3">
+            <ActionCard href="/analytics" title="Analytics" desc="Attainment dashboards + comparisons." />
+            <ActionCard href="/analytics/quotas/executive" title="Company Quotas" desc="Company-wide quota rollup + pacing." />
+            <ActionCard href="/forecast" title="Sales Forecaster" desc="Open Matthew’s Forecast Agent dashboard." />
+          </section>
+        </main>
+      </div>
+    );
+  }
+
   // REP
   const opportunities = await listRecentOpportunitiesForAccountOwner({
     orgId: ctx.user.org_id,
@@ -150,8 +174,8 @@ export default async function DashboardPage() {
                       <td className="px-4 py-3">{o.account_name || ""}</td>
                       <td className="px-4 py-3">{o.opportunity_name || ""}</td>
                       <td className="px-4 py-3">{o.amount ?? ""}</td>
-                      <td className="px-4 py-3">{o.close_date ?? ""}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{o.updated_at ?? ""}</td>
+                      <td className="px-4 py-3">{dateOnly(o.close_date) || ""}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{dateOnly(o.updated_at) || ""}</td>
                     </tr>
                   ))
                 ) : (

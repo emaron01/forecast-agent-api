@@ -6,6 +6,7 @@ import { getQuestionPack } from "../../../../../../../db.js";
 import { pool } from "../../../../../../lib/pool";
 import { getAuth } from "../../../../../../lib/auth";
 import { resolvePublicId } from "../../../../../../lib/publicId";
+import { closedOutcomeFromOpportunityRow } from "../../../../../../lib/opportunityOutcome";
 
 export const runtime = "nodejs";
 
@@ -141,17 +142,48 @@ function rubricText(defs: ScoreDefRow[]) {
 }
 
 async function fetchRubric(orgId: number, category: CategoryKey) {
-  const { rows } = await pool.query(
-    `
-    SELECT score, label, criteria
-      FROM score_definitions
-     WHERE org_id = $1
-       AND category = $2
-     ORDER BY score ASC
-    `,
-    [orgId, category]
-  );
+  // Some environments treat score_definitions as global (no org_id column).
+  // Support both org-scoped (org_id) and global schemas.
+  const hasOrgId = await scoreDefinitionsHasOrgIdColumn();
+  const sql = hasOrgId
+    ? `
+      SELECT score, label, criteria
+        FROM score_definitions
+       WHERE org_id = $1
+         AND category = $2
+       ORDER BY score ASC
+      `
+    : `
+      SELECT score, label, criteria
+        FROM score_definitions
+       WHERE category = $1
+       ORDER BY score ASC
+      `;
+  const params = hasOrgId ? [orgId, category] : [category];
+  const { rows } = await pool.query(sql, params as any[]);
   return (rows || []) as ScoreDefRow[];
+}
+
+let __scoreDefinitionsHasOrgId: boolean | null = null;
+async function scoreDefinitionsHasOrgIdColumn() {
+  if (__scoreDefinitionsHasOrgId != null) return __scoreDefinitionsHasOrgId;
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT 1
+        FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name = 'score_definitions'
+         AND column_name = 'org_id'
+       LIMIT 1
+      `
+    );
+    __scoreDefinitionsHasOrgId = !!rows?.length;
+    return __scoreDefinitionsHasOrgId;
+  } catch {
+    __scoreDefinitionsHasOrgId = false;
+    return __scoreDefinitionsHasOrgId;
+  }
 }
 
 async function fetchOpportunity(orgId: number, opportunityId: number) {
@@ -342,6 +374,11 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
 
     const opp = await fetchOpportunity(orgId, opportunityId);
     if (!opp) return NextResponse.json({ ok: false, error: "Opportunity not found" }, { status: 404 });
+
+    const closed = closedOutcomeFromOpportunityRow({ ...opp, stage: (opp as any)?.sales_stage });
+    if (closed) {
+      return NextResponse.json({ ok: false, error: `Closed opportunity (${closed}). Deal Review is disabled.` }, { status: 409 });
+    }
 
     const vis = await assertOpportunityVisible({
       auth,

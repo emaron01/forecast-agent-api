@@ -4,6 +4,7 @@ import { requireAuth } from "../../../../lib/auth";
 import { getOrganization, getUserById, getVisibleUsers, listRecentOpportunitiesForAccountOwner } from "../../../../lib/db";
 import { resolvePublicId } from "../../../../lib/publicId";
 import { UserTopNav } from "../../../_components/UserTopNav";
+import { dateOnly } from "../../../../lib/dateOnly";
 
 export const runtime = "nodejs";
 
@@ -80,8 +81,8 @@ export default async function RepDashboardPage({ params }: { params: { userId: s
                       <td className="px-4 py-3">{o.account_name || ""}</td>
                       <td className="px-4 py-3">{o.opportunity_name || ""}</td>
                       <td className="px-4 py-3">{o.amount ?? ""}</td>
-                      <td className="px-4 py-3">{o.close_date ?? ""}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{o.updated_at ?? ""}</td>
+                      <td className="px-4 py-3">{dateOnly(o.close_date) || ""}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{dateOnly(o.updated_at) || ""}</td>
                     </tr>
                   ))
                 ) : (

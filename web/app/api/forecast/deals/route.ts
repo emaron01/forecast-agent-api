@@ -3,11 +3,32 @@ import { z } from "zod";
 import { getAuth } from "../../../../lib/auth";
 import { pool } from "../../../../lib/pool";
 import { getVisibleUsers } from "../../../../lib/db";
+import { closedOutcomeFromOpportunityRow } from "../../../../lib/opportunityOutcome";
 
 export const runtime = "nodejs";
 
 function jsonError(status: number, error: string) {
   return NextResponse.json({ ok: false, error }, { status });
+}
+
+function computeAiFromHealthScore(healthScore: any) {
+  const n = Number(healthScore);
+  if (!Number.isFinite(n)) return null;
+  if (n >= 24) return "Commit";
+  if (n >= 18) return "Best Case";
+  return "Pipeline";
+}
+
+function normalizeAiVerdictRow(row: any) {
+  const closed = closedOutcomeFromOpportunityRow(row);
+  if (closed) {
+    return { ...row, ai_verdict: closed };
+  }
+  const ai = computeAiFromHealthScore(row?.health_score);
+  if (!ai) return row;
+  // Force AI display to align with computed health score (non-negotiable).
+  // Keep the raw DB fields too, but always provide a correct `ai_verdict`.
+  return { ...row, ai_verdict: ai };
 }
 
 export async function GET(req: Request) {
@@ -47,6 +68,8 @@ export async function GET(req: Request) {
           forecast_stage,
           ai_verdict,
           ai_forecast,
+          partner_name,
+          deal_registration,
           health_score,
           risk_summary,
           next_steps,
@@ -71,7 +94,8 @@ export async function GET(req: Request) {
         [auth.user.org_id, my, limit]
       );
 
-      return NextResponse.json({ ok: true, deals: rows || [] });
+      const deals = (rows || []).map(normalizeAiVerdictRow);
+      return NextResponse.json({ ok: true, deals });
     }
 
     // Managers/execs: attempt to scope to visible REP user accounts.
@@ -117,6 +141,8 @@ export async function GET(req: Request) {
         forecast_stage,
         ai_verdict,
         ai_forecast,
+        partner_name,
+        deal_registration,
         health_score,
         risk_summary,
         next_steps,
@@ -165,12 +191,12 @@ export async function GET(req: Request) {
       );
       return NextResponse.json({
         ok: true,
-        deals: allRows || [],
+        deals: (allRows || []).map(normalizeAiVerdictRow),
         warning: "No deals matched scoped reps; showing all org deals. Check REP users' account_owner_name vs opportunities.rep_name.",
       });
     }
 
-    return NextResponse.json({ ok: true, deals: rows || [] });
+    return NextResponse.json({ ok: true, deals: (rows || []).map(normalizeAiVerdictRow) });
   } catch (e: any) {
     return jsonError(500, e?.message || String(e));
   }
