@@ -106,10 +106,25 @@ AS $$
 $$;
 
 -- Canonical wrapper (the only upsert_opportunity definition this repo should carry).
-SET search_path = public;
-CREATE OR REPLACE FUNCTION upsert_opportunity(p_row jsonb, p_org_id integer)
-RETURNS integer AS $$
-  SELECT upsert_opportunity($1, $2::bigint);
-$$ LANGUAGE sql;
-RESET search_path;
+-- NOTE: This wrapper must be creatable even if upsert_opportunity(jsonb, bigint) is not installed yet.
+-- It will raise a clear runtime error until the bigint implementation exists.
+CREATE OR REPLACE FUNCTION public.upsert_opportunity(p_row jsonb, p_org_id integer)
+RETURNS integer
+LANGUAGE plpgsql
+VOLATILE
+AS $$
+DECLARE
+  res integer;
+BEGIN
+  IF to_regprocedure('public.upsert_opportunity(jsonb,bigint)') IS NULL THEN
+    RAISE EXCEPTION 'function public.upsert_opportunity(jsonb,bigint) does not exist';
+  END IF;
+
+  EXECUTE 'SELECT public.upsert_opportunity($1, $2::bigint)::int'
+    INTO res
+    USING p_row, p_org_id;
+
+  RETURN res;
+END;
+$$;
 
