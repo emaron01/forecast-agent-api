@@ -174,7 +174,8 @@ export async function QuarterSalesForecastSummary(props: {
                 -- ISO date or timestamp starting with YYYY-MM-DD
                 WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
                 -- US-style M/D/YYYY (common in Excel uploads)
-                WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN to_date(o.close_date::text, 'MM/DD/YYYY')
+                WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                  to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
                 ELSE NULL
               END AS close_d
             FROM opportunities o
