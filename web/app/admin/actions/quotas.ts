@@ -7,6 +7,7 @@ import { requireOrgContext } from "../../../lib/auth";
 import type { QuotaPeriodRow, QuotaRow } from "../../../lib/quotaModels";
 
 const zBigintText = z.string().regex(/^\d+$/);
+const zUuidText = z.string().uuid();
 
 function orgIdBigintParam(orgId: unknown): number {
   const s = String(orgId ?? "").trim();
@@ -140,7 +141,7 @@ export async function listQuotaPeriods(): Promise<QuotaPeriodRow[]> {
       period_start::text AS period_start,
       period_end::text AS period_end,
       fiscal_year,
-      fiscal_quarter,
+      fiscal_quarter::text AS fiscal_quarter,
       created_at::text AS created_at,
       updated_at::text AS updated_at
       FROM quota_periods
@@ -148,10 +149,10 @@ export async function listQuotaPeriods(): Promise<QuotaPeriodRow[]> {
      ORDER BY
        fiscal_year DESC,
        CASE
-         WHEN lower(btrim(COALESCE(fiscal_quarter, ''))) IN ('1', 'q1') THEN 1
-         WHEN lower(btrim(COALESCE(fiscal_quarter, ''))) IN ('2', 'q2') THEN 2
-         WHEN lower(btrim(COALESCE(fiscal_quarter, ''))) IN ('3', 'q3') THEN 3
-         WHEN lower(btrim(COALESCE(fiscal_quarter, ''))) IN ('4', 'q4') THEN 4
+         WHEN fiscal_quarter = 1 THEN 1
+         WHEN fiscal_quarter = 2 THEN 2
+         WHEN fiscal_quarter = 3 THEN 3
+         WHEN fiscal_quarter = 4 THEN 4
          ELSE 99
        END ASC,
        period_start ASC,
@@ -195,7 +196,7 @@ const CreateQuotaSchema = z.object({
 });
 
 const UpdateQuotaSchema = CreateQuotaSchema.extend({
-  id: zBigintText,
+  id: zUuidText,
 });
 
 const UpsertRepQuotaSetSchema = z.object({
@@ -351,7 +352,7 @@ export async function updateQuota(formData: FormData): Promise<QuotaRow> {
            adjusted_quarterly_quota = $10::numeric,
            updated_at = NOW()
      WHERE org_id = $1::bigint
-       AND id = $2::bigint
+       AND id = $2::uuid
     RETURNING
       id::text AS id,
       org_id::text AS org_id,

@@ -259,7 +259,7 @@ export async function assignQuotaToUser(input: z.input<typeof AssignQuotaToUserS
              adjusted_quarterly_quota = $9::numeric,
              updated_at = NOW()
        WHERE org_id = $1::bigint
-         AND id = $2::bigint
+         AND id = $2::uuid
       RETURNING
         id::text AS id,
         org_id::text AS org_id,
@@ -362,7 +362,7 @@ export async function updateQuota(input: z.input<typeof UpdateQuotaSchema>): Pro
     const directRepIds = await directRepIdsForManagerRep({ orgId: a.orgId, managerRepId: mgrRepId });
 
     const { rows: qrows } = await pool.query<{ rep_id: string | null; role_level: number }>(
-      `SELECT rep_id::text AS rep_id, role_level FROM quotas WHERE org_id = $1::bigint AND id = $2::bigint LIMIT 1`,
+      `SELECT rep_id::text AS rep_id, role_level FROM quotas WHERE org_id = $1::bigint AND id = $2::uuid LIMIT 1`,
       [a.orgId, parsed.id]
     );
     const q = qrows?.[0];
@@ -387,7 +387,7 @@ export async function updateQuota(input: z.input<typeof UpdateQuotaSchema>): Pro
            adjusted_quarterly_quota = $10::numeric,
            updated_at = NOW()
      WHERE org_id = $1::bigint
-       AND id = $2::bigint
+       AND id = $2::uuid
     RETURNING
       id::text AS id,
       org_id::text AS org_id,

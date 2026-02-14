@@ -33,6 +33,7 @@ export const zJsonObject = z.record(z.string(), z.unknown());
 export type RepRow = {
   id: number;
   public_id: string;
+  quota_id?: string | null; // UUID as text (nullable)
   rep_name: string;
   display_name: string | null;
   crm_owner_id: string | null;
@@ -144,6 +145,7 @@ export async function listReps(args: { organizationId: number; activeOnly?: bool
     SELECT
       r.id,
       r.public_id::text AS public_id,
+      r.quota_id::text AS quota_id,
       r.rep_name,
       r.display_name,
       r.crm_owner_id,

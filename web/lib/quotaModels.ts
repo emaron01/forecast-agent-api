@@ -17,7 +17,7 @@ export type QuotaPeriodRow = {
 };
 
 export type QuotaRow = {
-  id: string; // BIGSERIAL (bigint as text)
+  id: string; // UUID
   org_id: string; // BIGINT (bigint as text)
 
   rep_id: string | null; // BIGINT (bigint as text)

@@ -5,7 +5,7 @@ const zOrganizationId = z.coerce.number().int().positive();
 const zQuotaPeriodId = z.string().regex(/^\d+$/);
 
 export type RepAttainmentRow = {
-  quota_id: string; // bigint as text
+  quota_id: string; // uuid as text
   rep_id: string; // bigint as text
   rep_name: string | null;
   quota_amount: number;
@@ -16,7 +16,7 @@ export type RepAttainmentRow = {
 };
 
 export type ManagerAttainmentRow = {
-  quota_id: string; // bigint as text
+  quota_id: string; // uuid as text
   manager_id: string; // bigint as text
   manager_name: string | null;
   quota_amount: number;
@@ -27,7 +27,7 @@ export type ManagerAttainmentRow = {
 };
 
 export type VpAttainmentRow = {
-  quota_id: string; // bigint as text
+  quota_id: string; // uuid as text
   vp_id: string; // bigint as text
   vp_name: string | null;
   quota_amount: number;
@@ -38,7 +38,7 @@ export type VpAttainmentRow = {
 };
 
 export type CroAttainmentRow = {
-  quota_id: string; // bigint as text
+  quota_id: string; // uuid as text
   quota_amount: number;
   carry_forward: number;
   adjusted_quota_amount: number;

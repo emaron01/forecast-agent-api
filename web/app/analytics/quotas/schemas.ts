@@ -5,6 +5,7 @@ export type ActionErr = { ok: false; error: string };
 export type ActionResult<T> = ActionOk<T> | ActionErr;
 
 const zBigintText = z.string().regex(/^\d+$/);
+const zUuidText = z.string().uuid();
 const zFiscalYear = z.string().min(1);
 const zFiscalQuarter = z.string().min(1);
 const zDateText = z.string().min(1);
@@ -33,7 +34,7 @@ export const AssignQuotaToUserSchema = z.object({
 });
 
 export const UpdateQuotaSchema = AssignQuotaToUserSchema.extend({
-  id: zBigintText,
+  id: zUuidText,
 });
 
 export const GetQuotaByUserSchema = z.object({
