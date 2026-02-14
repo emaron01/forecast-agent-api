@@ -106,14 +106,14 @@ export async function QuarterSalesForecastSummary(props: {
     periodsForYear[0] ||
     null;
 
-  const repName = String(props.user.account_owner_name || "").trim();
+  const userRepName = String(props.user.account_owner_name || "").trim();
 
   const qpId = selected ? String(selected.id) : "";
 
-  const repId = await pool
-    .query<{ id: number }>(
+  const repMatch = await pool
+    .query<{ id: number; crm_owner_name: string | null; rep_name: string | null; display_name: string | null }>(
       `
-      SELECT r.id
+      SELECT r.id, r.crm_owner_name, r.rep_name, r.display_name
         FROM reps r
        WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1
          AND (
@@ -138,10 +138,17 @@ export async function QuarterSalesForecastSummary(props: {
          r.id ASC
        LIMIT 1
       `,
-      [props.orgId, props.user.id, repName]
+      [props.orgId, props.user.id, userRepName]
     )
-    .then((r) => (Number.isFinite(r.rows?.[0]?.id) ? Number(r.rows[0].id) : null))
+    .then((r) => (r.rows?.[0] ? (r.rows[0] as any) : null))
     .catch(() => null);
+
+  const repId = repMatch && Number.isFinite((repMatch as any).id) ? Number((repMatch as any).id) : null;
+  const repName =
+    String(repMatch?.crm_owner_name || "").trim() ||
+    String(repMatch?.rep_name || "").trim() ||
+    String(repMatch?.display_name || "").trim() ||
+    userRepName;
 
   const canCompute = !!qpId && (repId != null || !!repName);
 
