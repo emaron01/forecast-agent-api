@@ -39,6 +39,12 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const requestedRepName = String(url.searchParams.get("rep_name") || "").trim();
+    const quotaPeriodId = z
+      .string()
+      .regex(/^\d+$/)
+      .optional()
+      .catch(undefined)
+      .parse(String(url.searchParams.get("quota_period_id") || "").trim() || undefined);
     const limit = z.coerce.number().int().min(1).max(500).catch(200).parse(url.searchParams.get("limit"));
 
     const role = auth.user.role;
@@ -51,8 +57,32 @@ export async function GET(req: Request) {
       const my = normalize(auth.user.account_owner_name || "");
       if (!my) return NextResponse.json({ ok: true, deals: [] });
 
+      const qpCte = quotaPeriodId
+        ? `
+        , qp AS (
+          SELECT period_start, period_end
+            FROM quota_periods
+           WHERE org_id = $1::bigint
+             AND id = $4::bigint
+           LIMIT 1
+        )
+      `
+        : "";
+
+      const qpJoin = quotaPeriodId ? "JOIN qp ON TRUE" : "";
+      const qpWhere = quotaPeriodId
+        ? `
+          AND close_date IS NOT NULL
+          AND close_date >= qp.period_start
+          AND close_date <= qp.period_end
+        `
+        : "";
+
+      const params = quotaPeriodId ? [auth.user.org_id, my, limit, quotaPeriodId] : [auth.user.org_id, my, limit];
+
       const { rows } = await pool.query(
         `
+        WITH base AS (SELECT 1) ${qpCte}
         SELECT
           public_id::text AS id,
           rep_name,
@@ -86,12 +116,14 @@ export async function GET(req: Request) {
           budget_score, budget_summary, budget_tip,
           updated_at
         FROM opportunities
+        ${qpJoin}
         WHERE org_id = $1
           AND btrim(COALESCE(rep_name, '')) = btrim($2)
+          ${qpWhere}
         ORDER BY updated_at DESC NULLS LAST, id DESC
         LIMIT $3
         `,
-        [auth.user.org_id, my, limit]
+        params
       );
 
       const deals = (rows || []).map(normalizeAiVerdictRow);
@@ -162,20 +194,55 @@ export async function GET(req: Request) {
       WHERE org_id = $1
     `;
 
+    const qpCte = quotaPeriodId
+      ? `
+      , qp AS (
+        SELECT period_start, period_end
+          FROM quota_periods
+         WHERE org_id = $1::bigint
+           AND id = $${repNamesToUse.length ? 4 : 3}::bigint
+         LIMIT 1
+      )
+    `
+      : "";
+
+    const qpJoin = quotaPeriodId ? "JOIN qp ON TRUE" : "";
+    const qpWhere = quotaPeriodId
+      ? `
+        AND close_date IS NOT NULL
+        AND close_date >= qp.period_start
+        AND close_date <= qp.period_end
+      `
+      : "";
+
+    const baseSelectWithJoin = qpJoin ? baseSelect.replace("FROM opportunities", `FROM opportunities\n      ${qpJoin}`) : baseSelect;
+
+    const whereRep =
+      repNamesToUse.length
+        ? "AND btrim(COALESCE(rep_name, '')) = ANY($2::text[])"
+        : isManagerish
+          ? "" // fallback: if no REP user accounts are present, still show org deals
+          : "AND 1=0";
+
+    const limitParam = repNamesToUse.length ? 3 : 2;
+    const allParams = repNamesToUse.length
+      ? quotaPeriodId
+        ? [auth.user.org_id, repNamesToUse, limit, quotaPeriodId]
+        : [auth.user.org_id, repNamesToUse, limit]
+      : quotaPeriodId
+        ? [auth.user.org_id, limit, quotaPeriodId]
+        : [auth.user.org_id, limit];
+
     const { rows } = await pool.query(
       `
-      ${baseSelect}
-        ${
-          repNamesToUse.length
-            ? "AND btrim(COALESCE(rep_name, '')) = ANY($2::text[])"
-            : isManagerish
-              ? "" // fallback: if no REP user accounts are present, still show org deals
-              : "AND 1=0"
-        }
+      WITH base AS (SELECT 1) ${qpCte}
+      ${baseSelectWithJoin}
+        ${whereRep}
+      ${qpWhere}
       ORDER BY updated_at DESC NULLS LAST, id DESC
-      LIMIT $${repNamesToUse.length ? 3 : 2}
+      LIMIT $${limitParam}
       `,
-      repNamesToUse.length ? [auth.user.org_id, repNamesToUse, limit] : [auth.user.org_id, limit]
+      allParams
     );
 
     // If manager scoping yields nothing (often due to rep_name mismatch with user account_owner_name),

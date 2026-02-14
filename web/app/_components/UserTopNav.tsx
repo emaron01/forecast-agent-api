@@ -31,7 +31,7 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
           </Link>
           <nav className="flex flex-wrap items-center gap-1">
             <NavLink href="/dashboard" label="Dashboard" />
-            <NavLink href="/forecast" label="Sales Forecaster" />
+            <NavLink href="/forecast" label="Sales Opportunities" />
             <NavLink href="/analytics" label="Analytics" />
           </nav>
         </div>

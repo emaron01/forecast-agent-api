@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { closedOutcomeFromStage } from "../../../lib/opportunityOutcome";
 import { dateOnly } from "../../../lib/dateOnly";
@@ -31,10 +32,33 @@ function healthPct(deal: Deal) {
   return `${Math.max(0, Math.min(100, pct))}%`;
 }
 
-export function SimpleForecastDashboardClient(props: { defaultRepName?: string; repFilterLocked?: boolean }) {
+function normalizeForecastBucket(stageLike: any): "Commit" | "Best Case" | "Pipeline" {
+  const s = String(stageLike || "").trim().toLowerCase();
+  if (s.includes("commit")) return "Commit";
+  if (s.includes("best")) return "Best Case";
+  return "Pipeline";
+}
+
+function isClosedDeal(d: Deal) {
+  return closedOutcomeFromStage((d as any)?.forecast_stage) || closedOutcomeFromStage((d as any)?.stage) || null;
+}
+
+export function SimpleForecastDashboardClient(props: {
+  defaultRepName?: string;
+  repFilterLocked?: boolean;
+  quotaPeriods?: Array<{ id: string; label: string }>;
+  defaultQuotaPeriodId?: string;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const [deals, setDeals] = useState<Deal[]>([]);
   const [search, setSearch] = useState("");
   const [repFilter, setRepFilter] = useState(props.defaultRepName || "");
+  const [quotaPeriodId, setQuotaPeriodId] = useState<string>(
+    String(searchParams.get("quota_period_id") || props.defaultQuotaPeriodId || "").trim()
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -43,9 +67,10 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return deals;
-    return deals.filter((d) => {
-      const hay = [d.account_name, d.opportunity_name, d.forecast_stage, d.ai_verdict, d.ai_forecast]
+    const openOnly = deals.filter((d) => !isClosedDeal(d));
+    if (!q) return openOnly;
+    return openOnly.filter((d) => {
+      const hay = [d.account_name, d.opportunity_name, normalizeForecastBucket(d.forecast_stage), d.ai_verdict, d.ai_forecast]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -58,7 +83,8 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
     setError("");
     try {
       const params = new URLSearchParams();
-      if (repFilter.trim()) params.set("rep_name", repFilter.trim());
+      if (!props.repFilterLocked && repFilter.trim()) params.set("rep_name", repFilter.trim());
+      if (quotaPeriodId) params.set("quota_period_id", quotaPeriodId);
       params.set("limit", "500");
       const res = await fetch(`/api/forecast/deals?${params.toString()}`, { cache: "no-store" });
       const json = await res.json().catch(() => ({}));
@@ -71,6 +97,7 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
         for (const d of list) {
           const id = String(d.id || "");
           if (!id) continue;
+          if (isClosedDeal(d)) continue;
           if (prev[id]) next[id] = true;
         }
         return next;
@@ -90,9 +117,14 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
 
   useEffect(() => {
     // Rep filter triggers refresh (mirrors main dashboard behavior).
-    void refresh();
+    if (!props.repFilterLocked) void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repFilter]);
+
+  useEffect(() => {
+    if (quotaPeriodId) void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quotaPeriodId]);
 
   async function startQueueReview() {
     if (!selectedIds.length) return;
@@ -123,16 +155,15 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Sales Forecaster (Simple)</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Sales Opportunities</h1>
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-              Simplified view for deal selection + single/queue review. Uses the same data as{" "}
+              Select one or multiple opportunities for your SalesForecaster.IO Review.{" "}
               <Link
                 className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline"
                 href="/forecast/opportunity-score-cards"
               >
-                Opportunity Score Cards View
+                Click here for Opportunity Score Cards View.
               </Link>
-              .
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -158,25 +189,50 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
 
         <div className="mt-4 grid gap-3 md:grid-cols-12">
           <div className="md:col-span-5">
-            <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Deal search</label>
+            <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Search Opportunities For Review</label>
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search account, opp, stages…"
+              placeholder="Search account, opportunity, stages…"
               className="mt-1 w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
             />
           </div>
 
-          <div className="md:col-span-4">
-            <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Rep (optional)</label>
-            <input
-              value={repFilter}
-              onChange={(e) => setRepFilter(e.target.value)}
-              placeholder={props.repFilterLocked ? "Locked" : "Erik M"}
-              disabled={!!props.repFilterLocked || busy}
-              className="mt-1 w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)] disabled:opacity-60"
-            />
-          </div>
+          {!props.repFilterLocked ? (
+            <div className="md:col-span-4">
+              <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Rep (optional)</label>
+              <input
+                value={repFilter}
+                onChange={(e) => setRepFilter(e.target.value)}
+                placeholder="Erik M"
+                disabled={busy}
+                className="mt-1 w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)] disabled:opacity-60"
+              />
+            </div>
+          ) : (
+            <div className="md:col-span-4">
+              <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Close Date Selector</label>
+              <select
+                value={quotaPeriodId}
+                onChange={(e) => {
+                  const next = String(e.target.value || "");
+                  setQuotaPeriodId(next);
+                  const nextParams = new URLSearchParams(searchParams.toString());
+                  if (next) nextParams.set("quota_period_id", next);
+                  else nextParams.delete("quota_period_id");
+                  router.push(`${pathname}?${nextParams.toString()}`);
+                }}
+                disabled={busy}
+                className="mt-1 w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)] disabled:opacity-60"
+              >
+                {(props.quotaPeriods || []).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="md:col-span-3 flex items-end justify-end gap-2">
             <button
@@ -196,7 +252,7 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
               }}
               title="Select/deselect all visible deals (after search filter)."
             >
-              {allVisibleSelected ? "Clear visible" : "Select visible"}
+              {allVisibleSelected ? "Clear All For Review" : "Select All For Review"}
             </button>
           </div>
         </div>
@@ -227,7 +283,7 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
             {filtered.map((d) => {
               const id = String(d.id || "");
               const checked = !!selected[id];
-              const closed = closedOutcomeFromStage(d.forecast_stage) || closedOutcomeFromStage((d as any).stage);
+              const bucket = normalizeForecastBucket(d.forecast_stage);
               return (
                 <tr key={id} className="border-t border-[color:var(--sf-border)]">
                   <td className="px-4 py-3">
@@ -242,22 +298,16 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
                   <td className="px-4 py-3">{d.opportunity_name || "—"}</td>
                   <td className="px-4 py-3">{fmtMoney(d.amount)}</td>
                   <td className="px-4 py-3">{dateOnly(d.close_date) || "—"}</td>
-                  <td className="px-4 py-3">{d.forecast_stage || "—"}</td>
+                  <td className="px-4 py-3">{bucket}</td>
                   <td className="px-4 py-3">{d.ai_verdict || d.ai_forecast || "—"}</td>
                   <td className="px-4 py-3">{healthPct(d)}</td>
                   <td className="px-4 py-3 text-right">
-                    {closed ? (
-                      <span className="text-xs text-[color:var(--sf-text-disabled)]" title="Closed deals (Won/Lost) cannot be reviewed.">
-                        Closed ({closed})
-                      </span>
-                    ) : (
-                      <Link
-                        className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-xs font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
-                        href={`/opportunities/${encodeURIComponent(id)}/deal-review`}
-                      >
-                        Review
-                      </Link>
-                    )}
+                    <Link
+                      className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-xs font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
+                      href={`/opportunities/${encodeURIComponent(id)}/deal-review`}
+                    >
+                      Review
+                    </Link>
                   </td>
                 </tr>
               );

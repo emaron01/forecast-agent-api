@@ -4,6 +4,7 @@ import { getOrganization, getVisibleUsers, listRecentOpportunitiesForAccountOwne
 import { redirect } from "next/navigation";
 import { UserTopNav } from "../_components/UserTopNav";
 import { dateOnly } from "../../lib/dateOnly";
+import { QuarterSalesForecastSummary } from "../forecast/_components/QuarterSalesForecastSummary";
 
 export const runtime = "nodejs";
 
@@ -19,7 +20,11 @@ function ActionCard({ href, title, desc }: { href: string; title: string; desc: 
   );
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
   if (ctx.user.role === "ADMIN") redirect("/admin");
@@ -49,10 +54,19 @@ export default async function DashboardPage() {
             </p>
           </header>
 
+          <div className="mt-6">
+            <QuarterSalesForecastSummary
+              orgId={ctx.user.org_id}
+              user={ctx.user}
+              currentPath="/dashboard"
+              searchParams={searchParams}
+            />
+          </div>
+
           <section className="mt-6 grid gap-4 md:grid-cols-3">
             <ActionCard href="/analytics" title="Analytics" desc="Attainment dashboards + comparisons." />
             <ActionCard href="/analytics/quotas/manager" title="Team Quotas" desc="Assign quotas to direct reports + team rollups." />
-            <ActionCard href="/forecast" title="Sales Forecaster (Simple)" desc="Primary rep forecast dashboard." />
+            <ActionCard href="/forecast" title="Sales Opportunities" desc="Primary rep opportunities dashboard." />
             <ActionCard href="/dashboard/excel-upload" title="Upload Opportunities" desc="Upload an Excel file of opportunities." />
           </section>
 
@@ -118,10 +132,19 @@ export default async function DashboardPage() {
             </p>
           </header>
 
+          <div className="mt-6">
+            <QuarterSalesForecastSummary
+              orgId={ctx.user.org_id}
+              user={ctx.user}
+              currentPath="/dashboard"
+              searchParams={searchParams}
+            />
+          </div>
+
           <section className="mt-6 grid gap-4 md:grid-cols-3">
             <ActionCard href="/analytics" title="Analytics" desc="Attainment dashboards + comparisons." />
             <ActionCard href="/analytics/quotas/executive" title="Company Quotas" desc="Company-wide quota rollup + pacing." />
-            <ActionCard href="/forecast" title="Sales Forecaster (Simple)" desc="Primary rep forecast dashboard." />
+            <ActionCard href="/forecast" title="Sales Opportunities" desc="Primary rep opportunities dashboard." />
           </section>
         </main>
       </div>
@@ -146,9 +169,18 @@ export default async function DashboardPage() {
           </p>
         </header>
 
+        <div className="mt-6">
+          <QuarterSalesForecastSummary
+            orgId={ctx.user.org_id}
+            user={ctx.user}
+            currentPath="/dashboard"
+            searchParams={searchParams}
+          />
+        </div>
+
         <section className="mt-6 grid gap-4 md:grid-cols-3">
           <ActionCard href="/analytics" title="Analytics" desc="Attainment dashboards + comparisons." />
-          <ActionCard href="/forecast" title="Sales Forecaster (Simple)" desc="Primary rep forecast dashboard." />
+          <ActionCard href="/forecast" title="Sales Opportunities" desc="Primary rep opportunities dashboard." />
           <ActionCard href="/dashboard/excel-upload" title="Upload Opportunities" desc="Upload an Excel file of opportunities." />
         </section>
 

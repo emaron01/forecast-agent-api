@@ -245,7 +245,7 @@ export function ForecastDashboardClient(props: {
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Opportunity Score Cards View</h1>
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-              Legacy card view (polls server for updates). Primary rep view is Sales Forecaster (Simple).
+              Legacy card view (polls server for updates). Primary rep view is Sales Opportunities.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -254,7 +254,7 @@ export function ForecastDashboardClient(props: {
               className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
               title="Primary rep dashboard."
             >
-              Sales Forecaster (Simple)
+              Sales Opportunities
             </Link>
             <button
               type="button"

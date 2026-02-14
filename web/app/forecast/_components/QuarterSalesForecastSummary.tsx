@@ -129,8 +129,9 @@ export async function QuarterSalesForecastSummary(props: {
               WHEN (lower(COALESCE(o.sales_stage, o.forecast_stage, '')) ~ '\\\\bwon\\\\b')
                 OR (lower(COALESCE(o.sales_stage, o.forecast_stage, '')) ~ '\\\\blost\\\\b')
               THEN 0
-              WHEN lower(COALESCE(o.forecast_stage, '')) LIKE '%pipeline%' OR COALESCE(o.forecast_stage, '') = '' THEN COALESCE(o.amount, 0)
-              ELSE 0
+              WHEN lower(COALESCE(o.forecast_stage, '')) LIKE '%commit%' THEN 0
+              WHEN lower(COALESCE(o.forecast_stage, '')) LIKE '%best%' THEN 0
+              ELSE COALESCE(o.amount, 0)
             END), 0)::float8 AS pipeline_amount,
             COALESCE(SUM(CASE
               WHEN lower(COALESCE(o.sales_stage, o.forecast_stage, '')) ~ '\\\\bwon\\\\b' THEN COALESCE(o.amount, 0)
@@ -190,13 +191,14 @@ export async function QuarterSalesForecastSummary(props: {
 
   const pctToGoal = quotaAmt > 0 ? wonAmt / quotaAmt : null;
   const pctToGoalClass = pctToGoal != null && pctToGoal >= 0 ? "text-[#16A34A]" : "text-black";
-  const boxClass = "shrink-0 w-[150px] rounded-lg border border-[#93C5FD] bg-[#DBEAFE] px-3 py-2 text-black";
+  const boxClass = "rounded-lg border border-[#93C5FD] bg-[#DBEAFE] px-3 py-2 text-black";
+  const headline = repName ? `${repName}'s Quarterly Sales Forecast` : "Quarterly Sales Forecast";
 
   return (
     <section className="mb-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-[260px]">
-          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Sales Forecast</div>
+          <div className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">{headline}</div>
           <form method="GET" action={props.currentPath} className="mt-2 flex items-center gap-2">
             <select
               name="quota_period_id"
@@ -229,7 +231,7 @@ export async function QuarterSalesForecastSummary(props: {
           ) : null}
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 text-sm">
+        <div className="grid w-full gap-3 text-sm sm:grid-cols-2 md:w-auto md:grid-cols-4 lg:grid-cols-7">
           <div className={boxClass}>
             <div className="text-[11px] text-black/70">Commit</div>
             <div className="font-mono text-xs font-semibold">{fmtMoney(commitAmt)}</div>
