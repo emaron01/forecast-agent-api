@@ -273,7 +273,7 @@ export async function QuarterSalesForecastSummary(props: {
             >
               {periodsForYear.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {String(p.period_name || "").trim() || periodLabel(p)} ({p.period_start} → {p.period_end})
+                  {String(p.period_name || "").trim() || periodLabel(p)}
                 </option>
               ))}
             </select>
