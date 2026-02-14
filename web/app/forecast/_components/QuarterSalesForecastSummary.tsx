@@ -216,62 +216,62 @@ export async function QuarterSalesForecastSummary(props: {
           )
           SELECT
             COALESCE(SUM(CASE
-              WHEN (d.fs ~ '\\\\bwon\\\\b')
-                OR (d.fs ~ '\\\\blost\\\\b')
-                OR (d.fs ~ '\\\\bclosed\\\\b')
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
+                OR ((' ' || d.fs || ' ') LIKE '% lost %')
+                OR ((' ' || d.fs || ' ') LIKE '% closed %')
               THEN 0
               WHEN d.fs LIKE '%commit%' THEN d.amount
               ELSE 0
             END), 0)::float8 AS commit_amount,
             COALESCE(SUM(CASE
-              WHEN (d.fs ~ '\\\\bwon\\\\b')
-                OR (d.fs ~ '\\\\blost\\\\b')
-                OR (d.fs ~ '\\\\bclosed\\\\b')
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
+                OR ((' ' || d.fs || ' ') LIKE '% lost %')
+                OR ((' ' || d.fs || ' ') LIKE '% closed %')
               THEN 0
               WHEN d.fs LIKE '%commit%' THEN 1
               ELSE 0
             END), 0)::int AS commit_count,
             COALESCE(SUM(CASE
-              WHEN (d.fs ~ '\\\\bwon\\\\b')
-                OR (d.fs ~ '\\\\blost\\\\b')
-                OR (d.fs ~ '\\\\bclosed\\\\b')
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
+                OR ((' ' || d.fs || ' ') LIKE '% lost %')
+                OR ((' ' || d.fs || ' ') LIKE '% closed %')
               THEN 0
               WHEN d.fs LIKE '%best%' THEN d.amount
               ELSE 0
             END), 0)::float8 AS best_case_amount,
             COALESCE(SUM(CASE
-              WHEN (d.fs ~ '\\\\bwon\\\\b')
-                OR (d.fs ~ '\\\\blost\\\\b')
-                OR (d.fs ~ '\\\\bclosed\\\\b')
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
+                OR ((' ' || d.fs || ' ') LIKE '% lost %')
+                OR ((' ' || d.fs || ' ') LIKE '% closed %')
               THEN 0
               WHEN d.fs LIKE '%best%' THEN 1
               ELSE 0
             END), 0)::int AS best_case_count,
             COALESCE(SUM(CASE
-              WHEN (d.fs ~ '\\\\bwon\\\\b')
-                OR (d.fs ~ '\\\\blost\\\\b')
-                OR (d.fs ~ '\\\\bclosed\\\\b')
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
+                OR ((' ' || d.fs || ' ') LIKE '% lost %')
+                OR ((' ' || d.fs || ' ') LIKE '% closed %')
               THEN 0
               WHEN d.fs LIKE '%commit%' THEN 0
               WHEN d.fs LIKE '%best%' THEN 0
               ELSE d.amount
             END), 0)::float8 AS pipeline_amount,
             COALESCE(SUM(CASE
-              WHEN (d.fs ~ '\\\\bwon\\\\b')
-                OR (d.fs ~ '\\\\blost\\\\b')
-                OR (d.fs ~ '\\\\bclosed\\\\b')
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
+                OR ((' ' || d.fs || ' ') LIKE '% lost %')
+                OR ((' ' || d.fs || ' ') LIKE '% closed %')
               THEN 0
               WHEN d.fs LIKE '%commit%' THEN 0
               WHEN d.fs LIKE '%best%' THEN 0
               ELSE 1
             END), 0)::int AS pipeline_count,
             COALESCE(SUM(CASE
-              WHEN d.fs ~ '\\\\bwon\\\\b' THEN d.amount
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN d.amount
               ELSE 0
             END), 0)::float8 AS won_amount
             ,
             COALESCE(SUM(CASE
-              WHEN d.fs ~ '\\\\bwon\\\\b' THEN 1
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN 1
               ELSE 0
             END), 0)::int AS won_count
           FROM deals_in_qtr d
