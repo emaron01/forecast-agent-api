@@ -168,7 +168,15 @@ export async function QuarterSalesForecastSummary(props: {
           deals AS (
             SELECT
               COALESCE(o.amount, 0) AS amount,
-              lower(regexp_replace(COALESCE(o.forecast_stage, ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
+              -- Use forecast_stage when present; fall back to sales_stage (many CRMs mark Won/Lost there).
+              lower(
+                regexp_replace(
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+                  '[^a-zA-Z]+',
+                  ' ',
+                  'g'
+                )
+              ) AS fs,
               CASE
                 WHEN o.close_date IS NULL THEN NULL
                 -- ISO date or timestamp starting with YYYY-MM-DD
