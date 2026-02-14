@@ -68,6 +68,9 @@ export async function QuarterSalesForecastSummary(props: {
   const periods = (periodsRaw || []) as QuotaPeriodOption[];
   const fiscalYears = Array.from(new Set(periods.map((p) => String(p.fiscal_year || "").trim()).filter(Boolean)));
   const fiscalYearsSorted = fiscalYears.slice().sort((a, b) => b.localeCompare(a));
+  const selectedPeriodFromParam = selectedQuotaPeriodId
+    ? periods.find((p) => String(p.id) === selectedQuotaPeriodId) || null
+    : null;
 
   const currentId = await pool
     .query<{ id: string }>(
@@ -87,7 +90,14 @@ export async function QuarterSalesForecastSummary(props: {
 
   const current = (currentId && periods.find((p) => String(p.id) === currentId)) || periods[0] || null;
   const currentYear = current ? String(current.fiscal_year || "").trim() : "";
-  const yearToUse = selectedFiscalYear || currentYear || fiscalYearsSorted[0] || "";
+  // IMPORTANT: if quota_period_id is provided without fiscal_year (e.g. other page selector),
+  // infer fiscal year from the chosen period so the selection is honored deterministically.
+  const yearToUse =
+    selectedFiscalYear ||
+    (selectedPeriodFromParam ? String(selectedPeriodFromParam.fiscal_year || "").trim() : "") ||
+    currentYear ||
+    fiscalYearsSorted[0] ||
+    "";
   const periodsForYear = yearToUse ? periods.filter((p) => String(p.fiscal_year || "").trim() === yearToUse) : periods;
 
   const selected =
@@ -149,7 +159,7 @@ export async function QuarterSalesForecastSummary(props: {
         }>(
           `
           WITH qp AS (
-            SELECT period_start, period_end
+            SELECT period_start::date AS period_start, period_end::date AS period_end
               FROM quota_periods
              WHERE org_id = $1::bigint
                AND id = $2::bigint
@@ -161,8 +171,10 @@ export async function QuarterSalesForecastSummary(props: {
               lower(regexp_replace(COALESCE(o.forecast_stage, ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
               CASE
                 WHEN o.close_date IS NULL THEN NULL
-                WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}$') THEN (o.close_date::text)::date
-                WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}$') THEN to_date(o.close_date::text, 'MM/DD/YYYY')
+                -- ISO date or timestamp starting with YYYY-MM-DD
+                WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+                -- US-style M/D/YYYY (common in Excel uploads)
+                WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN to_date(o.close_date::text, 'MM/DD/YYYY')
                 ELSE NULL
               END AS close_d
             FROM opportunities o
@@ -174,7 +186,7 @@ export async function QuarterSalesForecastSummary(props: {
               )
           ),
           deals_in_qtr AS (
-            SELECT d.amount, d.fs
+            SELECT d.*
               FROM deals d
               JOIN qp ON TRUE
              WHERE d.close_d IS NOT NULL
