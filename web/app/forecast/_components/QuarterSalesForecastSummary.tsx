@@ -11,6 +11,21 @@ type QuotaPeriodOption = {
   fiscal_quarter: string; // text
 };
 
+function ordinalQuarterLabel(q: number) {
+  if (q === 1) return "1st Quarter";
+  if (q === 2) return "2nd Quarter";
+  if (q === 3) return "3rd Quarter";
+  if (q === 4) return "4th Quarter";
+  return `Q${q}`;
+}
+
+function periodLabel(p: QuotaPeriodOption) {
+  const q = Number.parseInt(String(p.fiscal_quarter || "").trim(), 10);
+  const y = String(p.fiscal_year || "").trim();
+  if (Number.isFinite(q) && q > 0 && y) return `${ordinalQuarterLabel(q)} ${y}`;
+  return String(p.period_name || "").trim() || `${p.period_start} → ${p.period_end}`;
+}
+
 function fmtMoney(n: any) {
   const v = Number(n || 0);
   if (!Number.isFinite(v)) return "—";
@@ -173,8 +188,9 @@ export async function QuarterSalesForecastSummary(props: {
           .catch(() => 0)
       : 0;
 
-  const diffToQuota = (Number(quotaAmt) || 0) - wonAmt;
   const pctToGoal = quotaAmt > 0 ? wonAmt / quotaAmt : null;
+  const pctToGoalClass = pctToGoal != null && pctToGoal >= 0 ? "text-[#16A34A]" : "text-black";
+  const boxClass = "shrink-0 w-[150px] rounded-lg border border-[#93C5FD] bg-[#DBEAFE] px-3 py-2 text-black";
 
   return (
     <section className="mb-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
@@ -189,7 +205,7 @@ export async function QuarterSalesForecastSummary(props: {
             >
               {periods.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.period_name} ({p.period_start} → {p.period_end})
+                  {periodLabel(p)}
                 </option>
               ))}
             </select>
@@ -214,33 +230,33 @@ export async function QuarterSalesForecastSummary(props: {
         </div>
 
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-            <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Commit</div>
-            <div className="font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(commitAmt)}</div>
+          <div className={boxClass}>
+            <div className="text-[11px] text-black/70">Commit</div>
+            <div className="font-mono text-xs font-semibold">{fmtMoney(commitAmt)}</div>
           </div>
-          <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-            <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Best Case</div>
-            <div className="font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(bestCaseAmt)}</div>
+          <div className={boxClass}>
+            <div className="text-[11px] text-black/70">Best Case</div>
+            <div className="font-mono text-xs font-semibold">{fmtMoney(bestCaseAmt)}</div>
           </div>
-          <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-            <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Pipeline</div>
-            <div className="font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(pipelineAmt)}</div>
+          <div className={boxClass}>
+            <div className="text-[11px] text-black/70">Pipeline</div>
+            <div className="font-mono text-xs font-semibold">{fmtMoney(pipelineAmt)}</div>
           </div>
-          <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-            <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Total</div>
-            <div className="font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(totalAmt)}</div>
+          <div className={boxClass}>
+            <div className="text-[11px] text-black/70">Total Pipeline</div>
+            <div className="font-mono text-xs font-semibold">{fmtMoney(totalAmt)}</div>
           </div>
-          <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-            <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Quarter Quota</div>
-            <div className="font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(quotaAmt)}</div>
+          <div className={boxClass}>
+            <div className="text-[11px] text-black/70">Quarterly Quota</div>
+            <div className="font-mono text-xs font-semibold">{fmtMoney(quotaAmt)}</div>
           </div>
-          <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-            <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Quota - Won</div>
-            <div className="font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(diffToQuota)}</div>
+          <div className={boxClass}>
+            <div className="text-[11px] text-black/70">Closed Won</div>
+            <div className="font-mono text-xs font-semibold">{fmtMoney(wonAmt)}</div>
           </div>
-          <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-            <div className="text-[11px] text-[color:var(--sf-text-secondary)]">% To Goal</div>
-            <div className="font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtPct(pctToGoal)}</div>
+          <div className={boxClass}>
+            <div className="text-[11px] text-black/70">% To Goal</div>
+            <div className={`font-mono text-xs font-semibold ${pctToGoalClass}`}>{fmtPct(pctToGoal)}</div>
           </div>
         </div>
       </div>
