@@ -26,30 +26,6 @@ async function loadSql(filePath) {
   return String(sql || "").trim();
 }
 
-async function hasPublicIdColumn(client) {
-  const res = await client.query(
-    `
-    SELECT
-      EXISTS (
-        SELECT 1
-          FROM information_schema.columns
-         WHERE table_schema = 'public'
-           AND table_name = 'organizations'
-           AND column_name = 'public_id'
-      ) AS org_has_public_id,
-      EXISTS (
-        SELECT 1
-          FROM information_schema.columns
-         WHERE table_schema = 'public'
-           AND table_name = 'users'
-           AND column_name = 'public_id'
-      ) AS users_has_public_id
-    `
-  );
-  const row = res.rows?.[0] || {};
-  return !!row.org_has_public_id && !!row.users_has_public_id;
-}
-
 function loadLocalEnvIfPresent() {
   // When running under Render, env vars come from platform.
   // For local runs, load `.env` / `.env.local` from `web/`.
@@ -81,29 +57,31 @@ export async function maybeRunMigrations() {
 
   await client.connect();
   try {
-    const okAlready = await hasPublicIdColumn(client).catch(() => false);
-    if (okAlready) return { ok: true, skipped: true, reason: "public_id columns already present" };
-
     const migrationsDir = getMigrationsDir();
     const files = await listSqlFiles(migrationsDir);
     if (!files.length) return { ok: false, skipped: true, reason: "no migrations found" };
 
+    let ran = 0;
     for (const f of files) {
       const fullPath = path.join(migrationsDir, f);
       const sql = await loadSql(fullPath);
       if (!sql) continue;
       // NOTE: most migration files are safe to run multiple times via IF NOT EXISTS / DO $$ guards.
       await client.query(sql);
+      ran += 1;
     }
 
-    return { ok: true, skipped: false, reason: "migrations applied" };
+    return { ok: true, skipped: false, reason: "migrations applied", ran };
   } finally {
     await client.end();
   }
 }
 
 // Allow running as a script: `node web/scripts/migrate.mjs`
-if (import.meta.url === `file://${process.argv[1]}`) {
+// NOTE: Windows `process.argv[1]` is a filesystem path, not a file:// URL.
+const thisFilePath = fileURLToPath(import.meta.url);
+const invokedPath = process.argv?.[1] ? path.resolve(process.argv[1]) : "";
+if (invokedPath && path.resolve(thisFilePath) === invokedPath) {
   maybeRunMigrations()
     .then((r) => {
       if (!r.ok) process.exitCode = 1;

@@ -15,7 +15,9 @@ async function main() {
   // Ensure DB migrations are applied (prevents missing-column crashes like `public_id`).
   // This is safe because migrations are written to be idempotent.
   try {
-    await maybeRunMigrations();
+    const r = await maybeRunMigrations();
+    // eslint-disable-next-line no-console
+    console.log(`[migrations] ${JSON.stringify(r)}`);
   } catch (e) {
     // If migrations fail, we should fail fast rather than booting a broken server.
     const msg =

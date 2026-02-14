@@ -13,7 +13,9 @@ if (fs.existsSync(envLocalPath)) dotenv.config({ path: envLocalPath });
 async function main() {
   // Auto-run migrations so local dev doesn't crash on missing columns.
   try {
-    await maybeRunMigrations();
+    const r = await maybeRunMigrations();
+    // eslint-disable-next-line no-console
+    console.log(`[migrations] ${JSON.stringify(r)}`);
   } catch (e) {
     const msg =
       e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
