@@ -62,6 +62,7 @@ export default async function QuotasPage({
   const modal = sp(searchParams.modal) || "";
   const rep_id = sp(searchParams.rep_id) || "";
   const fiscal_year = sp(searchParams.fiscal_year) || "";
+  const error = sp(searchParams.error) || "";
 
   await syncRepsFromUsers({ organizationId: orgId });
   const reps = await listReps({ organizationId: orgId, activeOnly: true }).catch(() => []);
@@ -130,6 +131,22 @@ export default async function QuotasPage({
           </Link>
         </div>
       </div>
+
+      {error ? (
+        <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+          <div className="text-sm font-medium text-[color:var(--sf-text-primary)]">Error</div>
+          <div className="mt-1 font-mono text-xs text-[color:var(--sf-text-secondary)]">{error}</div>
+          {error === "missing_quarter_periods" ? (
+            <div className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">
+              Missing Q1–Q4 quota periods for that fiscal year. Create them in{" "}
+              <Link className="text-[color:var(--sf-accent-primary)] hover:underline" href="/admin/analytics/quota-periods">
+                quota periods
+              </Link>
+              .
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Filters</h2>

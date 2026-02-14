@@ -400,7 +400,13 @@ export async function upsertRepQuotaSet(formData: FormData): Promise<{ ok: true 
   });
 
   const periods = await getQuarterPeriodIdsForYear({ orgId, fiscal_year: parsed.fiscal_year });
-  if (!periods.q1 || !periods.q2 || !periods.q3 || !periods.q4) throw new Error("missing_quarter_periods");
+  if (!periods.q1 || !periods.q2 || !periods.q3 || !periods.q4) {
+    redirect(
+      `/admin/analytics/quotas?rep_id=${encodeURIComponent(String(parsed.rep_id))}` +
+        `&fiscal_year=${encodeURIComponent(String(parsed.fiscal_year))}` +
+        `&error=${encodeURIComponent("missing_quarter_periods")}`
+    );
+  }
 
   const annual_target = parsed.q1_quota_amount + parsed.q2_quota_amount + parsed.q3_quota_amount + parsed.q4_quota_amount;
 
