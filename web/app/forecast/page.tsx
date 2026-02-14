@@ -44,6 +44,7 @@ export default async function ForecastPage({
               period_end::text AS period_end
             FROM quota_periods
             WHERE org_id = $1::bigint
+              AND period_end >= CURRENT_DATE
             ORDER BY period_start DESC, id DESC
             `,
             [ctx.user.org_id]

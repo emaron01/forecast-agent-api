@@ -169,11 +169,11 @@ export function SimpleForecastDashboardClient(props: {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => void refresh()}
-              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)] disabled:opacity-60"
-              disabled={busy}
+              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm text-[color:var(--sf-text-disabled)] disabled:opacity-60"
+              disabled
+              title="CRM sync is not configured yet (API integration coming soon)."
             >
-              Refresh
+              Sync CRM
             </button>
             <button
               type="button"

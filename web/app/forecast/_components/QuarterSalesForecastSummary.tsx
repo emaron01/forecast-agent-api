@@ -112,29 +112,32 @@ export async function QuarterSalesForecastSummary(props: {
           )
           SELECT
             COALESCE(SUM(CASE
-              WHEN (lower(COALESCE(o.sales_stage, o.forecast_stage, '')) ~ '\\\\bwon\\\\b')
-                OR (lower(COALESCE(o.sales_stage, o.forecast_stage, '')) ~ '\\\\blost\\\\b')
+              WHEN (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\bwon\\\\b')
+                OR (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\blost\\\\b')
+                OR (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\bclosed\\\\b')
               THEN 0
               WHEN lower(COALESCE(o.forecast_stage, '')) LIKE '%commit%' THEN COALESCE(o.amount, 0)
               ELSE 0
             END), 0)::float8 AS commit_amount,
             COALESCE(SUM(CASE
-              WHEN (lower(COALESCE(o.sales_stage, o.forecast_stage, '')) ~ '\\\\bwon\\\\b')
-                OR (lower(COALESCE(o.sales_stage, o.forecast_stage, '')) ~ '\\\\blost\\\\b')
+              WHEN (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\bwon\\\\b')
+                OR (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\blost\\\\b')
+                OR (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\bclosed\\\\b')
               THEN 0
               WHEN lower(COALESCE(o.forecast_stage, '')) LIKE '%best%' THEN COALESCE(o.amount, 0)
               ELSE 0
             END), 0)::float8 AS best_case_amount,
             COALESCE(SUM(CASE
-              WHEN (lower(COALESCE(o.sales_stage, o.forecast_stage, '')) ~ '\\\\bwon\\\\b')
-                OR (lower(COALESCE(o.sales_stage, o.forecast_stage, '')) ~ '\\\\blost\\\\b')
+              WHEN (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\bwon\\\\b')
+                OR (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\blost\\\\b')
+                OR (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\bclosed\\\\b')
               THEN 0
               WHEN lower(COALESCE(o.forecast_stage, '')) LIKE '%commit%' THEN 0
               WHEN lower(COALESCE(o.forecast_stage, '')) LIKE '%best%' THEN 0
               ELSE COALESCE(o.amount, 0)
             END), 0)::float8 AS pipeline_amount,
             COALESCE(SUM(CASE
-              WHEN lower(COALESCE(o.sales_stage, o.forecast_stage, '')) ~ '\\\\bwon\\\\b' THEN COALESCE(o.amount, 0)
+              WHEN lower(COALESCE(o.forecast_stage, '')) ~ '\\\\bwon\\\\b' THEN COALESCE(o.amount, 0)
               ELSE 0
             END), 0)::float8 AS won_amount
           FROM opportunities o
@@ -190,7 +193,7 @@ export async function QuarterSalesForecastSummary(props: {
       : 0;
 
   const pctToGoal = quotaAmt > 0 ? wonAmt / quotaAmt : null;
-  const pctToGoalClass = pctToGoal != null && pctToGoal >= 0 ? "text-[#16A34A]" : "text-black";
+  const pctToGoalClass = pctToGoal != null && pctToGoal >= 1 ? "text-[#16A34A]" : "text-black";
   const boxClass = "rounded-lg border border-[#93C5FD] bg-[#DBEAFE] px-3 py-2 text-black";
   const headline = repName ? `${repName}'s Quarterly Sales Forecast` : "Quarterly Sales Forecast";
 
