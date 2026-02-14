@@ -168,6 +168,115 @@ export async function listReps(args: { organizationId: number; activeOnly?: bool
   return rows as RepRow[];
 }
 
+/**
+ * Ensure `reps` rows exist for org users (REP/MANAGER/EXEC_MANAGER), and align
+ * `manager_rep_id` based on `users.manager_user_id`.
+ *
+ * This is intentionally idempotent and safe to run repeatedly.
+ */
+export async function syncRepsFromUsers(args: { organizationId: number }) {
+  const organizationId = zOrganizationId.parse(args.organizationId);
+
+  // 1) Ensure `reps` rows exist for org users in sales roles (by user_id).
+  // IMPORTANT:
+  // - Existence is tied to (org_id + user_id + role in sales roles), NOT to names being present.
+  // - `rep_name` is a display label and must always be non-empty; we fall back to email if needed.
+  // - `reps.active` mirrors `users.active` so UIs can filter to active reps reliably.
+
+  // 1a) Backfill/update existing rep rows tied to users.
+  // - We do NOT blindly overwrite rep_name (it may be curated), but we fill it if missing/blank.
+  // - Keep role/active in sync.
+  await pool.query(
+    `
+    UPDATE reps r
+       SET rep_name = CASE
+             WHEN NULLIF(btrim(r.rep_name), '') IS NULL THEN
+               COALESCE(
+                 NULLIF(btrim(u.display_name), ''),
+                 NULLIF(btrim(u.account_owner_name), ''),
+                 NULLIF(btrim(u.email), '')
+               )
+             ELSE r.rep_name
+           END,
+           display_name = NULLIF(btrim(u.display_name), ''),
+           crm_owner_name = NULLIF(btrim(u.account_owner_name), ''),
+           role = u.role,
+           active = u.active
+      FROM users u
+     WHERE r.organization_id = u.org_id
+       AND r.user_id = u.id
+       AND u.org_id = $1
+       AND u.role IN ('REP', 'MANAGER', 'EXEC_MANAGER')
+    `,
+    [organizationId]
+  );
+
+  // 1b) Insert missing rep rows for users (by user_id).
+  await pool.query(
+    `
+    INSERT INTO reps (
+      rep_name,
+      display_name,
+      crm_owner_id,
+      crm_owner_name,
+      user_id,
+      manager_rep_id,
+      role,
+      active,
+      organization_id
+    )
+    SELECT
+      COALESCE(
+        NULLIF(btrim(u.display_name), ''),
+        NULLIF(btrim(u.account_owner_name), ''),
+        NULLIF(btrim(u.email), '')
+      ) AS rep_name,
+      NULLIF(btrim(u.display_name), '') AS display_name,
+      NULL AS crm_owner_id,
+      NULLIF(btrim(u.account_owner_name), '') AS crm_owner_name,
+      u.id AS user_id,
+      NULL::int AS manager_rep_id,
+      u.role AS role,
+      u.active AS active,
+      u.org_id AS organization_id
+    FROM users u
+    WHERE u.org_id = $1
+      AND u.role IN ('REP', 'MANAGER', 'EXEC_MANAGER')
+      AND COALESCE(
+        NULLIF(btrim(u.display_name), ''),
+        NULLIF(btrim(u.account_owner_name), ''),
+        NULLIF(btrim(u.email), '')
+      ) IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+          FROM reps r
+         WHERE r.organization_id = u.org_id
+           AND r.user_id = u.id
+      )
+    `,
+    [organizationId]
+  );
+
+  // 2) Align manager_rep_id based on manager_user_id -> manager's rep row.
+  await pool.query(
+    `
+    UPDATE reps r
+       SET manager_rep_id = mgr.id
+      FROM users u
+      JOIN reps mgr ON mgr.organization_id = u.org_id AND mgr.user_id = u.manager_user_id
+     WHERE r.organization_id = u.org_id
+       AND r.user_id = u.id
+       AND u.org_id = $1
+       AND u.role IN ('REP', 'MANAGER')
+       AND u.manager_user_id IS NOT NULL
+       AND (r.manager_rep_id IS DISTINCT FROM mgr.id)
+    `,
+    [organizationId]
+  );
+
+  return { ok: true as const };
+}
+
 export async function getRep(args: { organizationId: number; repId: number }) {
   const organizationId = zOrganizationId.parse(args.organizationId);
   const repId = z.coerce.number().int().positive().parse(args.repId);
@@ -938,6 +1047,7 @@ export type UserRow = {
   first_name: string | null;
   last_name: string | null;
   display_name: string;
+  title: string | null;
   account_owner_name: string | null;
   manager_user_id: number | null;
   admin_has_full_analytics_access: boolean;
@@ -1043,6 +1153,7 @@ export async function listAllUsersAcrossOrgs(args?: { includeInactive?: boolean;
       u.first_name,
       u.last_name,
       u.display_name,
+      u.title,
       u.account_owner_name,
       u.manager_user_id,
       u.admin_has_full_analytics_access,
@@ -1264,6 +1375,7 @@ export async function createOrganizationWithFirstAdmin(args: {
             first_name,
             last_name,
             display_name,
+            title,
             account_owner_name,
             manager_user_id,
             admin_has_full_analytics_access,
@@ -1272,7 +1384,7 @@ export async function createOrganizationWithFirstAdmin(args: {
             updated_at
           )
         VALUES
-          ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW(),NOW())
+          ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
         RETURNING
           id,
           public_id::text AS public_id,
@@ -1284,6 +1396,7 @@ export async function createOrganizationWithFirstAdmin(args: {
           first_name,
           last_name,
           display_name,
+          title,
           account_owner_name,
           manager_user_id,
           admin_has_full_analytics_access,
@@ -1301,6 +1414,7 @@ export async function createOrganizationWithFirstAdmin(args: {
           args.admin?.first_name ?? null,
           args.admin?.last_name ?? null,
           display_name,
+          null,
           account_owner_name,
           null,
           !!args.admin?.admin_has_full_analytics_access,
@@ -1416,6 +1530,7 @@ export async function listUsers(args: { orgId: number; includeInactive?: boolean
       first_name,
       last_name,
       display_name,
+      title,
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
@@ -1486,6 +1601,7 @@ export async function getVisibleUsers(args: {
         first_name,
         last_name,
         display_name,
+        title,
         account_owner_name,
         manager_user_id,
         admin_has_full_analytics_access,
@@ -1519,6 +1635,7 @@ export async function getVisibleUsers(args: {
         first_name,
         last_name,
         display_name,
+        title,
         account_owner_name,
         manager_user_id,
         admin_has_full_analytics_access,
@@ -1559,6 +1676,7 @@ export async function getVisibleUsers(args: {
       u.first_name,
       u.last_name,
       u.display_name,
+      u.title,
       u.account_owner_name,
       u.manager_user_id,
       u.admin_has_full_analytics_access,
@@ -1593,6 +1711,7 @@ export async function getUserById(args: { orgId: number; userId: number }) {
       first_name,
       last_name,
       display_name,
+      title,
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
@@ -1626,6 +1745,7 @@ export async function getUserByOrgEmail(args: { orgId: number; email: string }) 
       first_name,
       last_name,
       display_name,
+      title,
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
@@ -1657,6 +1777,7 @@ export async function createUser(args: {
   first_name?: string | null;
   last_name?: string | null;
   display_name: string;
+  title?: string | null;
   account_owner_name?: string | null;
   manager_user_id?: number | null;
   admin_has_full_analytics_access?: boolean;
@@ -1669,6 +1790,7 @@ export async function createUser(args: {
   const role = zUserRole.parse(args.role);
   const hierarchy_level = Number.isFinite(Number(args.hierarchy_level)) ? Number(args.hierarchy_level) : 0;
   const display_name = String(args.display_name || "").trim();
+  const title = String(args.title || "").trim() || null;
   const account_owner_name = String(args.account_owner_name || "").trim() || null;
   if (!display_name) throw new Error("display_name is required");
   const password_hash = String(args.password_hash || "").trim();
@@ -1690,6 +1812,7 @@ export async function createUser(args: {
         first_name,
         last_name,
         display_name,
+        title,
         account_owner_name,
         manager_user_id,
         admin_has_full_analytics_access,
@@ -1699,7 +1822,7 @@ export async function createUser(args: {
         updated_at
       )
     VALUES
-      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
+      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())
     RETURNING
       id,
       public_id::text AS public_id,
@@ -1711,6 +1834,7 @@ export async function createUser(args: {
       first_name,
       last_name,
       display_name,
+      title,
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
@@ -1728,6 +1852,7 @@ export async function createUser(args: {
       args.first_name ?? null,
       args.last_name ?? null,
       display_name,
+      title,
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
@@ -1747,6 +1872,7 @@ export async function updateUser(args: {
   first_name?: string | null;
   last_name?: string | null;
   display_name: string;
+  title?: string | null;
   account_owner_name?: string | null;
   manager_user_id?: number | null;
   admin_has_full_analytics_access?: boolean;
@@ -1760,6 +1886,7 @@ export async function updateUser(args: {
   const role = zUserRole.parse(args.role);
   const hierarchy_level = Number.isFinite(Number(args.hierarchy_level)) ? Number(args.hierarchy_level) : 0;
   const display_name = String(args.display_name || "").trim();
+  const title = String(args.title || "").trim() || null;
   const account_owner_name = String(args.account_owner_name || "").trim() || null;
   if (!display_name) throw new Error("display_name is required");
   const manager_user_id =
@@ -1776,11 +1903,12 @@ export async function updateUser(args: {
            first_name = $6,
            last_name = $7,
            display_name = $8,
-           account_owner_name = $9,
-           manager_user_id = $10,
-           admin_has_full_analytics_access = $11,
-           see_all_visibility = $12,
-           active = $13,
+           title = $9,
+           account_owner_name = $10,
+           manager_user_id = $11,
+           admin_has_full_analytics_access = $12,
+           see_all_visibility = $13,
+           active = $14,
            updated_at = NOW()
      WHERE org_id = $1
        AND id = $2
@@ -1795,6 +1923,7 @@ export async function updateUser(args: {
       first_name,
       last_name,
       display_name,
+      title,
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
@@ -1812,6 +1941,7 @@ export async function updateUser(args: {
       args.first_name ?? null,
       args.last_name ?? null,
       display_name,
+      title,
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
@@ -1977,6 +2107,7 @@ export async function getUserByIdAny(args: { userId: number }) {
       first_name,
       last_name,
       display_name,
+      title,
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
@@ -2057,6 +2188,7 @@ export async function listRepUsersForManager(args: { orgId: number; managerUserI
       role,
       hierarchy_level,
       display_name,
+      title,
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,
@@ -2099,6 +2231,7 @@ export async function setUserManagerUserId(args: { orgId: number; userId: number
       role,
       hierarchy_level,
       display_name,
+      title,
       account_owner_name,
       manager_user_id,
       admin_has_full_analytics_access,

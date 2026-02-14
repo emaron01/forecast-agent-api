@@ -29,10 +29,9 @@ export default async function AdminHome() {
         </>
       ) : null}
       <Card href="/admin/users" title="Users" desc="Create, edit, deactivate, and manage roles and reporting lines." />
-      <Card href="/admin/reps" title="Reps" desc="Create, edit, deactivate, and manage reporting relationships." />
       <Card href="/admin/excel-opportunities" title="Excel Upload" desc="Upload an Excel of opportunities and map fields." />
       <Card href="/admin/org-profile" title="Org Profile" desc="Manage organization profile fields." />
-      <Card href="/admin/hierarchy" title="Hierarchy Tree" desc="View the org hierarchy tree." />
+      <Card href="/admin/hierarchy" title="Sales Organization" desc="set-up, edit and review Sales Org Assignmnets." />
       <Card href="/admin/mapping-sets" title="Mapping Sets" desc="Manage mapping sets and their field mappings." />
       <Card href="/admin/ingestion" title="Ingestion" desc="Monitor pending/processed/error rows, retry failures, and trigger processing." />
       <Card href="/admin/analytics" title="Analytics" desc="Quota calendar, assignments, roll-ups, and dashboards." />

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireAuth } from "../../../../lib/auth";
-import { getOrganization, listReps } from "../../../../lib/db";
+import { getOrganization, listReps, syncRepsFromUsers } from "../../../../lib/db";
 import { pool } from "../../../../lib/pool";
 import type { QuotaPeriodRow } from "../../../../lib/quotaModels";
 import { listCroAttainment, listManagerAttainment, listRepAttainment, listVpAttainment } from "../../../../lib/quotaRollups";
@@ -17,6 +17,28 @@ import {
   getQuotaPeriods,
   updateQuotaPeriod,
 } from "../actions";
+
+const QUARTERS: Array<{ label: string; n: "1" | "2" | "3" | "4" }> = [
+  { label: "1st Quarter", n: "1" },
+  { label: "2nd Quarter", n: "2" },
+  { label: "3rd Quarter", n: "3" },
+  { label: "4th Quarter", n: "4" },
+];
+
+function quarterNumberFromAny(v: unknown): "" | "1" | "2" | "3" | "4" {
+  const s = String(v ?? "").trim().toLowerCase();
+  if (!s) return "";
+  if (s === "1" || s === "q1" || s.includes("1st")) return "1";
+  if (s === "2" || s === "q2" || s.includes("2nd")) return "2";
+  if (s === "3" || s === "q3" || s.includes("3rd")) return "3";
+  if (s === "4" || s === "q4" || s.includes("4th")) return "4";
+  return "";
+}
+
+function quarterLabelFromAny(args: { period_name?: unknown; fiscal_quarter?: unknown }): string {
+  const n = quarterNumberFromAny(args.period_name) || quarterNumberFromAny(args.fiscal_quarter);
+  return QUARTERS.find((q) => q.n === n)?.label || "";
+}
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -48,13 +70,17 @@ async function resolveRepIdByPublicId(args: { orgId: number; repPublicId: string
 
 async function updateQuotaPeriodAction(formData: FormData) {
   "use server";
+  const period_name_raw = String(formData.get("period_name") || "").trim();
+  const quarter_n = quarterNumberFromAny(period_name_raw);
+  const period_name = quarter_n ? QUARTERS.find((q) => q.n === quarter_n)?.label || period_name_raw : period_name_raw;
+  const fiscal_quarter = quarter_n ? String(quarter_n) : String(formData.get("fiscal_quarter") || "").trim();
   const r = await updateQuotaPeriod({
     id: String(formData.get("id") || "").trim(),
-    period_name: String(formData.get("period_name") || "").trim(),
+    period_name,
     period_start: String(formData.get("period_start") || "").trim(),
     period_end: String(formData.get("period_end") || "").trim(),
     fiscal_year: String(formData.get("fiscal_year") || "").trim(),
-    fiscal_quarter: String(formData.get("fiscal_quarter") || "").trim(),
+    fiscal_quarter,
   });
   if ("error" in r) redirect(`/analytics/quotas/admin?error=${encodeURIComponent(r.error)}`);
 
@@ -105,10 +131,10 @@ async function saveRepQuotaSetupAction(formData: FormData) {
     period_end: string;
     quota_amount: number;
   }> = [
-    { fiscal_quarter: "Q1", period_name: "Q1", period_start: q1_start, period_end: q1_end, quota_amount: q1_quota },
-    { fiscal_quarter: "Q2", period_name: "Q2", period_start: q2_start, period_end: q2_end, quota_amount: q2_quota },
-    { fiscal_quarter: "Q3", period_name: "Q3", period_start: q3_start, period_end: q3_end, quota_amount: q3_quota },
-    { fiscal_quarter: "Q4", period_name: "Q4", period_start: q4_start, period_end: q4_end, quota_amount: q4_quota },
+    { fiscal_quarter: "1", period_name: "1st Quarter", period_start: q1_start, period_end: q1_end, quota_amount: q1_quota },
+    { fiscal_quarter: "2", period_name: "2nd Quarter", period_start: q2_start, period_end: q2_end, quota_amount: q2_quota },
+    { fiscal_quarter: "3", period_name: "3rd Quarter", period_start: q3_start, period_end: q3_end, quota_amount: q3_quota },
+    { fiscal_quarter: "4", period_name: "4th Quarter", period_start: q4_start, period_end: q4_end, quota_amount: q4_quota },
   ];
 
   // Upsert quota periods (by fiscal_year + fiscal_quarter)
@@ -117,7 +143,7 @@ async function saveRepQuotaSetupAction(formData: FormData) {
   const existingByQuarter = new Map<string, QuotaPeriodRow>();
   for (const p of allPeriods) {
     if (String(p.fiscal_year) !== fiscal_year) continue;
-    const fq = String(p.fiscal_quarter || "").trim();
+    const fq = quarterNumberFromAny(p.fiscal_quarter);
     if (fq) existingByQuarter.set(fq, p);
   }
 
@@ -223,6 +249,7 @@ export default async function AnalyticsQuotasAdminPage({
 
   const currentPeriod = period_id ? periods.find((p) => String(p.id) === String(period_id)) || null : null;
 
+  await syncRepsFromUsers({ organizationId: ctx.user.org_id }).catch(() => null);
   const repsAll = await listReps({ organizationId: ctx.user.org_id, activeOnly: true }).catch(() => []);
   const repsLite: RepLite[] = (repsAll || []).map((r) => ({
     id: Number(r.id),
@@ -252,13 +279,13 @@ export default async function AnalyticsQuotasAdminPage({
   const yearPeriods = fiscal_year ? periods : [];
   const quarterByKey = new Map<string, QuotaPeriodRow>();
   for (const p of yearPeriods) {
-    const fq = String(p.fiscal_quarter || "").trim();
+    const fq = quarterNumberFromAny(p.fiscal_quarter);
     if (fq) quarterByKey.set(fq, p);
   }
-  const q1p = quarterByKey.get("Q1") || null;
-  const q2p = quarterByKey.get("Q2") || null;
-  const q3p = quarterByKey.get("Q3") || null;
-  const q4p = quarterByKey.get("Q4") || null;
+  const q1p = quarterByKey.get("1") || null;
+  const q2p = quarterByKey.get("2") || null;
+  const q3p = quarterByKey.get("3") || null;
+  const q4p = quarterByKey.get("4") || null;
   const quarterPeriodIds = [q1p?.id, q2p?.id, q3p?.id, q4p?.id].filter(Boolean).map(String);
 
   const selectedRepId = selectedRep?.id && Number.isFinite(Number(selectedRep.id)) ? Number(selectedRep.id) : null;
@@ -337,7 +364,7 @@ export default async function AnalyticsQuotasAdminPage({
           </div>
           <form method="GET" action="/analytics/quotas/admin" className="mt-4 grid gap-3 md:grid-cols-3">
             <div className="md:col-span-2">
-              <FiscalYearSelector name="fiscal_year" fiscalYears={fiscalYears} defaultValue={fiscal_year} required={false} label="fiscal_year" />
+              <FiscalYearSelector name="fiscal_year" fiscalYears={fiscalYears} defaultValue={fiscal_year} required={false} label="Fiscal Year" />
             </div>
             <div className="flex items-end justify-end gap-2">
               <Link
@@ -465,10 +492,10 @@ export default async function AnalyticsQuotasAdminPage({
 
               <div className="grid gap-4 md:grid-cols-2">
                 {[
-                  { key: "q1", label: "1st Quarter", fq: "Q1", p: q1p },
-                  { key: "q2", label: "2nd Quarter", fq: "Q2", p: q2p },
-                  { key: "q3", label: "3rd Quarter", fq: "Q3", p: q3p },
-                  { key: "q4", label: "4th Quarter", fq: "Q4", p: q4p },
+                  { key: "q1", label: "1st Quarter", fq: "1", p: q1p },
+                  { key: "q2", label: "2nd Quarter", fq: "2", p: q2p },
+                  { key: "q3", label: "3rd Quarter", fq: "3", p: q3p },
+                  { key: "q4", label: "4th Quarter", fq: "4", p: q4p },
                 ].map((q) => {
                   const pid = q.p ? String(q.p.id) : "";
                   const existing = pid ? quotaByPeriodId.get(pid) || null : null;
@@ -594,28 +621,36 @@ export default async function AnalyticsQuotasAdminPage({
             <form action={updateQuotaPeriodAction} className="mt-3 grid gap-3">
               <input type="hidden" name="id" value={String(currentPeriod.id)} />
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">period_name</label>
-                <input
+                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Period Name</label>
+                <select
                   name="period_name"
-                  defaultValue={currentPeriod.period_name}
+                  defaultValue={quarterLabelFromAny({ period_name: currentPeriod.period_name, fiscal_quarter: currentPeriod.fiscal_quarter }) || currentPeriod.period_name}
                   className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   required
-                />
+                >
+                  {QUARTERS.map((q) => (
+                    <option key={q.n} value={q.label}>
+                      {q.label}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="grid gap-1">
-                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">period_start</label>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Start Date</label>
                   <input
                     name="period_start"
+                    type="date"
                     defaultValue={currentPeriod.period_start}
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
                     required
                   />
                 </div>
                 <div className="grid gap-1">
-                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">period_end</label>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">End Date</label>
                   <input
                     name="period_end"
+                    type="date"
                     defaultValue={currentPeriod.period_end}
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
                     required
@@ -624,7 +659,7 @@ export default async function AnalyticsQuotasAdminPage({
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="grid gap-1">
-                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">fiscal_year</label>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Fiscal Year</label>
                   <input
                     name="fiscal_year"
                     defaultValue={currentPeriod.fiscal_year}
@@ -632,15 +667,7 @@ export default async function AnalyticsQuotasAdminPage({
                     required
                   />
                 </div>
-                <div className="grid gap-1">
-                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">fiscal_quarter</label>
-                  <input
-                    name="fiscal_quarter"
-                    defaultValue={currentPeriod.fiscal_quarter}
-                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                    required
-                  />
-                </div>
+                <input type="hidden" name="fiscal_quarter" value={quarterNumberFromAny(currentPeriod.fiscal_quarter) || String(currentPeriod.fiscal_quarter || "").trim()} />
               </div>
               <div className="mt-2 flex items-center justify-end gap-2">
                 <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
@@ -655,7 +682,7 @@ export default async function AnalyticsQuotasAdminPage({
           <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Quota rollups</h2>
           <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Select a `quota_period_id` to view rollups by org hierarchy.</p>
           <form method="GET" action="/analytics/quotas/admin" className="mt-3 grid gap-3 md:grid-cols-3">
-            <QuotaPeriodSelector name="quota_period_id" periods={periods} defaultValue={quota_period_id} label="quota_period_id" required />
+            <QuotaPeriodSelector name="quota_period_id" periods={periods} defaultValue={quota_period_id} label="Quota Period" required />
             <div className="md:col-span-2 flex items-end justify-end gap-2">
               <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
                 Load rollups

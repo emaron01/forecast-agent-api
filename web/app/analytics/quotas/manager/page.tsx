@@ -16,6 +16,16 @@ function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
 }
 
+function quarterNumberFromAny(v: unknown): "" | "1" | "2" | "3" | "4" {
+  const s = String(v ?? "").trim().toLowerCase();
+  if (!s) return "";
+  if (s === "1" || s === "q1" || s.includes("1st")) return "1";
+  if (s === "2" || s === "q2" || s.includes("2nd")) return "2";
+  if (s === "3" || s === "q3" || s.includes("3rd")) return "3";
+  if (s === "4" || s === "q4" || s.includes("4th")) return "4";
+  return "";
+}
+
 async function managerRepIdForUser(args: { orgId: number; userId: number }) {
   const { rows } = await pool.query<{ id: number }>(
     `
@@ -122,13 +132,13 @@ async function saveRepQuotasForYearAction(formData: FormData) {
   const yearPeriods = allPeriods.filter((p) => String(p.fiscal_year) === fiscal_year);
   const byQuarter = new Map<string, QuotaPeriodRow>();
   for (const p of yearPeriods) {
-    const fq = String(p.fiscal_quarter || "").trim();
+    const fq = quarterNumberFromAny(p.fiscal_quarter);
     if (fq) byQuarter.set(fq, p);
   }
-  const q1p = byQuarter.get("Q1") || null;
-  const q2p = byQuarter.get("Q2") || null;
-  const q3p = byQuarter.get("Q3") || null;
-  const q4p = byQuarter.get("Q4") || null;
+  const q1p = byQuarter.get("1") || null;
+  const q2p = byQuarter.get("2") || null;
+  const q3p = byQuarter.get("3") || null;
+  const q4p = byQuarter.get("4") || null;
   if (!q1p || !q2p || !q3p || !q4p) {
     redirect(
       `/analytics/quotas/manager?fiscal_year=${encodeURIComponent(fiscal_year)}&rep_public_id=${encodeURIComponent(rep_public_id)}&error=${encodeURIComponent(
@@ -281,7 +291,7 @@ export default async function AnalyticsQuotasManagerPage({
           <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Filters</h2>
           <form method="GET" action="/analytics/quotas/manager" className="mt-3 grid gap-3 md:grid-cols-3">
             <input type="hidden" name="rollup_quarter" value={rollup_quarter} />
-            <FiscalYearSelector name="fiscal_year" fiscalYears={fiscalYears} defaultValue={fiscal_year} required={false} label="fiscal_year" />
+            <FiscalYearSelector name="fiscal_year" fiscalYears={fiscalYears} defaultValue={fiscal_year} required={false} label="Fiscal Year" />
             <div className="grid gap-1">
               <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Sales Rep</label>
               <select

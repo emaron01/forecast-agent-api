@@ -264,9 +264,13 @@ export async function requireManagerAdminOrMaster() {
 
 export async function requireOrgContext() {
   const ctx = await requireAuth();
-  if (ctx.kind === "user") return { ctx, orgId: ctx.user.org_id };
+  if (ctx.kind === "user") {
+    const orgId = Number(ctx.user.org_id);
+    if (!Number.isFinite(orgId) || orgId <= 0) redirect("/admin/organizations");
+    return { ctx, orgId: Math.trunc(orgId) };
+  }
   const orgId = ctx.orgId;
-  if (!orgId) redirect("/admin/organizations");
-  return { ctx, orgId };
+  if (!Number.isFinite(Number(orgId)) || !orgId || orgId <= 0) redirect("/admin/organizations");
+  return { ctx, orgId: Math.trunc(orgId) };
 }
 

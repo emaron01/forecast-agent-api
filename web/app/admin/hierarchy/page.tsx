@@ -53,9 +53,9 @@ export default async function HierarchyPage({
     <main className="grid gap-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Sales Org Chart</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Sales Organization</h1>
           <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-            Assign managers for Executive Managers, Managers, and Reps. This drives who can view whose data.
+            set-up, edit and review Sales Org Assignmnets.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -110,7 +110,10 @@ export default async function HierarchyPage({
                         <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">
                           {labelForLevel(1, "Executive Manager")}: {exec.display_name}
                         </div>
-                        <div className="text-xs text-[color:var(--sf-text-disabled)]">{exec.email}</div>
+                        <div className="text-xs text-[color:var(--sf-text-disabled)]">
+                          {exec.title ? `${exec.title} · ` : ""}
+                          {exec.email}
+                        </div>
                       </div>
                       <div className="text-xs text-[color:var(--sf-text-disabled)]">{exec.public_id}</div>
                     </div>
@@ -142,7 +145,10 @@ export default async function HierarchyPage({
                                 </div>
                               </div>
 
-                              <div className="mt-2 text-xs text-[color:var(--sf-text-disabled)]">{m.email}</div>
+                              <div className="mt-2 text-xs text-[color:var(--sf-text-disabled)]">
+                                {m.title ? `${m.title} · ` : ""}
+                                {m.email}
+                              </div>
 
                               <div className="mt-3">
                                 <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Reps</div>
@@ -155,7 +161,10 @@ export default async function HierarchyPage({
                                       >
                                         <div>
                                           <div className="text-sm text-[color:var(--sf-text-primary)]">{r.display_name}</div>
-                                          <div className="text-xs text-[color:var(--sf-text-disabled)]">{r.email}</div>
+                                          <div className="text-xs text-[color:var(--sf-text-disabled)]">
+                                            {r.title ? `${r.title} · ` : ""}
+                                            {r.email}
+                                          </div>
                                         </div>
                                         <div className="flex items-center gap-2">
                                           <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Managed by</label>
@@ -214,7 +223,10 @@ export default async function HierarchyPage({
                       >
                         <div>
                           <div className="text-sm text-[color:var(--sf-text-primary)]">{m.display_name}</div>
-                          <div className="text-xs text-[color:var(--sf-text-disabled)]">{m.email}</div>
+                          <div className="text-xs text-[color:var(--sf-text-disabled)]">
+                            {m.title ? `${m.title} · ` : ""}
+                            {m.email}
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
                           <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Managed by</label>
@@ -248,7 +260,10 @@ export default async function HierarchyPage({
                       >
                         <div>
                           <div className="text-sm text-[color:var(--sf-text-primary)]">{r.display_name}</div>
-                          <div className="text-xs text-[color:var(--sf-text-disabled)]">{r.email}</div>
+                          <div className="text-xs text-[color:var(--sf-text-disabled)]">
+                            {r.title ? `${r.title} · ` : ""}
+                            {r.email}
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
                           <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Managed by</label>

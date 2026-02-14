@@ -2,9 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { Modal } from "../../_components/Modal";
-import { createQuota, listQuotaPeriods, listQuotasByCRO, listQuotasByManager, listQuotasByRep, listQuotasByVP, updateQuota } from "../../actions/quotas";
+import { deleteRepQuotaSet, listQuotaPeriods, listQuotasByRep, upsertRepQuotaSet } from "../../actions/quotas";
 import { requireOrgContext } from "../../../../lib/auth";
-import { listReps } from "../../../../lib/db";
+import { listReps, syncRepsFromUsers } from "../../../../lib/db";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -17,20 +17,36 @@ function closeHref(baseParams?: Record<string, string>) {
   return qs ? `${base}?${qs}` : base;
 }
 
-type Mode = "rep" | "manager" | "vp" | "cro";
+function quarterNumberFromAny(v: unknown): "" | "1" | "2" | "3" | "4" {
+  const s = String(v ?? "").trim().toLowerCase();
+  if (!s) return "";
+  if (s === "1" || s === "q1" || s.includes("1st")) return "1";
+  if (s === "2" || s === "q2" || s.includes("2nd")) return "2";
+  if (s === "3" || s === "q3" || s.includes("3rd")) return "3";
+  if (s === "4" || s === "q4" || s.includes("4th")) return "4";
+  return "";
+}
 
-async function createQuotaAction(formData: FormData) {
+async function upsertRepQuotaSetAction(formData: FormData) {
   "use server";
-  const returnTo = String(formData.get("returnTo") || "/admin/analytics/quotas").trim() || "/admin/analytics/quotas";
-  await createQuota(formData);
+  const rep_id = String(formData.get("rep_id") || "").trim();
+  const fiscal_year = String(formData.get("fiscal_year") || "").trim();
+  const returnTo =
+    rep_id && fiscal_year ? `/admin/analytics/quotas?rep_id=${encodeURIComponent(rep_id)}&fiscal_year=${encodeURIComponent(fiscal_year)}` : "/admin/analytics/quotas";
+
+  await upsertRepQuotaSet(formData);
   revalidatePath("/admin/analytics/quotas");
   redirect(returnTo);
 }
 
-async function updateQuotaAction(formData: FormData) {
+async function deleteRepQuotaSetAction(formData: FormData) {
   "use server";
-  const returnTo = String(formData.get("returnTo") || "/admin/analytics/quotas").trim() || "/admin/analytics/quotas";
-  await updateQuota(formData);
+  const rep_id = String(formData.get("rep_id") || "").trim();
+  const fiscal_year = String(formData.get("fiscal_year") || "").trim();
+  const returnTo =
+    rep_id && fiscal_year ? `/admin/analytics/quotas?rep_id=${encodeURIComponent(rep_id)}&fiscal_year=${encodeURIComponent(fiscal_year)}` : "/admin/analytics/quotas";
+
+  await deleteRepQuotaSet(formData);
   revalidatePath("/admin/analytics/quotas");
   redirect(returnTo);
 }
@@ -44,40 +60,60 @@ export default async function QuotasPage({
   if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
 
   const modal = sp(searchParams.modal) || "";
-  const quotaId = sp(searchParams.id) || "";
-
-  const modeRaw = (sp(searchParams.mode) || "rep") as Mode;
-  const mode: Mode = modeRaw === "manager" || modeRaw === "vp" || modeRaw === "cro" ? modeRaw : "rep";
-
   const rep_id = sp(searchParams.rep_id) || "";
-  const manager_id = sp(searchParams.manager_id) || "";
+  const fiscal_year = sp(searchParams.fiscal_year) || "";
 
-  const reps = await listReps({ organizationId: orgId, activeOnly: false }).catch(() => []);
+  await syncRepsFromUsers({ organizationId: orgId }).catch(() => null);
+  const reps = await listReps({ organizationId: orgId, activeOnly: true }).catch(() => []);
   const periods = await listQuotaPeriods().catch(() => []);
 
-  const baseParams: Record<string, string> = { mode };
-  if (mode === "rep" && rep_id) baseParams.rep_id = rep_id;
-  if (mode === "manager" && manager_id) baseParams.manager_id = manager_id;
+  const fiscalYears = Array.from(
+    new Set((periods || []).map((p) => String((p as any).fiscal_year || "").trim()).filter(Boolean))
+  ).sort((a, b) => (a === b ? 0 : a < b ? 1 : -1));
 
-  const quotas =
-    mode === "vp"
-      ? await listQuotasByVP().catch(() => [])
-      : mode === "cro"
-        ? await listQuotasByCRO().catch(() => [])
-        : mode === "manager" && manager_id
-          ? await listQuotasByManager({ manager_id }).catch(() => [])
-          : mode === "rep" && rep_id
-            ? await listQuotasByRep({ rep_id }).catch(() => [])
-            : ([] as Awaited<ReturnType<typeof listQuotasByRep>>);
+  const quotas = rep_id ? await listQuotasByRep({ rep_id }).catch(() => []) : [];
 
-  const current = quotaId && modal === "edit" ? quotas.find((q) => String(q.id) === String(quotaId)) || null : null;
+  const yearPeriods = fiscal_year ? (periods || []).filter((p) => String((p as any).fiscal_year) === String(fiscal_year)) : [];
+  const periodIdByQuarter = new Map<"1" | "2" | "3" | "4", string>();
+  for (const p of yearPeriods as any[]) {
+    const qn = (quarterNumberFromAny(p.fiscal_quarter) || quarterNumberFromAny(p.period_name)) as any;
+    if (qn === "1" || qn === "2" || qn === "3" || qn === "4") {
+      if (!periodIdByQuarter.has(qn)) periodIdByQuarter.set(qn, String(p.id));
+    }
+  }
+
+  const q1PeriodId = periodIdByQuarter.get("1") || "";
+  const q2PeriodId = periodIdByQuarter.get("2") || "";
+  const q3PeriodId = periodIdByQuarter.get("3") || "";
+  const q4PeriodId = periodIdByQuarter.get("4") || "";
+
+  const quotaByPeriodId = new Map<string, any>();
+  for (const q of quotas as any[]) {
+    if (String(q.role_level) !== "3") continue;
+    const pid = String(q.quota_period_id || "");
+    if (!pid) continue;
+    if (!quotaByPeriodId.has(pid)) quotaByPeriodId.set(pid, q);
+  }
+
+  const q1 = q1PeriodId ? quotaByPeriodId.get(q1PeriodId) : null;
+  const q2 = q2PeriodId ? quotaByPeriodId.get(q2PeriodId) : null;
+  const q3 = q3PeriodId ? quotaByPeriodId.get(q3PeriodId) : null;
+  const q4 = q4PeriodId ? quotaByPeriodId.get(q4PeriodId) : null;
+
+  const q1Amt = q1 ? Number(q1.quota_amount) || 0 : 0;
+  const q2Amt = q2 ? Number(q2.quota_amount) || 0 : 0;
+  const q3Amt = q3 ? Number(q3.quota_amount) || 0 : 0;
+  const q4Amt = q4 ? Number(q4.quota_amount) || 0 : 0;
+  const annualAmt = q1Amt + q2Amt + q3Amt + q4Amt;
+
+  const selectedRepName = rep_id ? reps.find((r) => String(r.id) === String(rep_id))?.rep_name || "" : "";
 
   return (
     <main>
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Quota assignments</h1>
-          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Assign quotas (`quotas`).</p>
+          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Assign rep quotas by quarter (`quotas`).</p>
         </div>
         <div className="flex items-center gap-2">
           <Link
@@ -87,7 +123,7 @@ export default async function QuotasPage({
             Analytics home
           </Link>
           <Link
-            href={`${closeHref(baseParams)}${Object.keys(baseParams).length ? "&" : "?"}modal=new`}
+            href={`${closeHref({ rep_id, fiscal_year })}${rep_id || fiscal_year ? "&" : "?"}modal=new`}
             className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
           >
             New quota
@@ -99,25 +135,12 @@ export default async function QuotasPage({
         <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Filters</h2>
         <form method="GET" action="/admin/analytics/quotas" className="mt-3 grid gap-3 md:grid-cols-3">
           <div className="grid gap-1">
-            <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">mode</label>
-            <select
-              name="mode"
-              defaultValue={mode}
-              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-            >
-              <option value="rep">rep</option>
-              <option value="manager">manager</option>
-              <option value="vp">vp</option>
-              <option value="cro">cro</option>
-            </select>
-          </div>
-          <div className="grid gap-1">
-            <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">rep_id</label>
+            <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Rep</label>
             <select
               name="rep_id"
               defaultValue={rep_id}
               className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-              disabled={mode !== "rep"}
+              required
             >
               <option value="">(select)</option>
               {reps.map((r) => (
@@ -128,20 +151,24 @@ export default async function QuotasPage({
             </select>
           </div>
           <div className="grid gap-1">
-            <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">manager_id</label>
+            <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Fiscal Year</label>
             <select
-              name="manager_id"
-              defaultValue={manager_id}
+              name="fiscal_year"
+              defaultValue={fiscal_year}
               className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-              disabled={mode !== "manager"}
+              required
             >
               <option value="">(select)</option>
-              {reps.map((r) => (
-                <option key={r.id} value={String(r.id)}>
-                  {r.rep_name} ({r.id})
+              {fiscalYears.map((y) => (
+                <option key={y} value={y}>
+                  {y}
                 </option>
               ))}
             </select>
+          </div>
+          <div className="grid gap-1">
+            <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]"> </label>
+            <div className="text-sm text-[color:var(--sf-text-secondary)]">{""}</div>
           </div>
           <div className="md:col-span-3 flex items-center justify-end gap-2">
             <Link
@@ -157,272 +184,190 @@ export default async function QuotasPage({
         </form>
       </section>
 
-      <div className="mt-5 overflow-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
-            <tr>
-              <th className="px-4 py-3">id</th>
-              <th className="px-4 py-3">quota_period_id</th>
-              <th className="px-4 py-3">role_level</th>
-              <th className="px-4 py-3">rep_id</th>
-              <th className="px-4 py-3">manager_id</th>
-              <th className="px-4 py-3 text-right">quota_amount</th>
-              <th className="px-4 py-3 text-right">annual_target</th>
-              <th className="px-4 py-3 text-right">carry_forward</th>
-              <th className="px-4 py-3 text-right">adjusted_quarterly_quota</th>
-              <th className="px-4 py-3 text-right">actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {quotas.length ? (
-              quotas.map((q) => (
-                <tr key={q.id} className="border-t border-[color:var(--sf-border)]">
-                  <td className="px-4 py-3 font-mono text-xs">{q.id}</td>
-                  <td className="px-4 py-3 font-mono text-xs">{q.quota_period_id}</td>
-                  <td className="px-4 py-3">{q.role_level}</td>
-                  <td className="px-4 py-3 font-mono text-xs">{q.rep_id || ""}</td>
-                  <td className="px-4 py-3 font-mono text-xs">{q.manager_id || ""}</td>
-                  <td className="px-4 py-3 text-right">{q.quota_amount}</td>
-                  <td className="px-4 py-3 text-right">{q.annual_target ?? ""}</td>
-                  <td className="px-4 py-3 text-right">{q.carry_forward ?? ""}</td>
-                  <td className="px-4 py-3 text-right">{q.adjusted_quarterly_quota ?? ""}</td>
-                  <td className="px-4 py-3 text-right">
-                    <Link
-                      href={`${closeHref(baseParams)}&modal=edit&id=${encodeURIComponent(String(q.id))}`}
-                      className="rounded-md border border-[color:var(--sf-border)] px-2 py-1 text-xs hover:bg-[color:var(--sf-surface-alt)]"
-                    >
-                      Edit
-                    </Link>
-                  </td>
+      {!rep_id || !fiscal_year ? (
+        <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+          <p className="text-sm text-[color:var(--sf-text-secondary)]">Select a Rep and Fiscal Year to view and edit the 4-quarter quota set.</p>
+        </section>
+      ) : (
+        <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Quota Set</h2>
+              <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+                Rep: <span className="font-medium">{selectedRepName || rep_id}</span> · Fiscal Year:{" "}
+                <span className="font-mono text-xs">{fiscal_year}</span>
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link
+                href={`${closeHref({ rep_id, fiscal_year })}&modal=edit`}
+                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+              >
+                Edit
+              </Link>
+              <Link
+                href={`${closeHref({ rep_id, fiscal_year })}&modal=delete`}
+                className="rounded-md border border-[#E74C3C] px-3 py-2 text-sm text-[#E74C3C] hover:bg-[color:var(--sf-surface-alt)]"
+              >
+                Delete
+              </Link>
+            </div>
+          </div>
+
+          <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
+                <tr>
+                  <th className="px-4 py-3">Q1</th>
+                  <th className="px-4 py-3">Q2</th>
+                  <th className="px-4 py-3">Q3</th>
+                  <th className="px-4 py-3">Q4</th>
+                  <th className="px-4 py-3 text-right">Annual Quota (Auto)</th>
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={10} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
-                  No quotas found for this filter.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+              </thead>
+              <tbody>
+                <tr className="border-t border-[color:var(--sf-border)]">
+                  <td className="px-4 py-3 font-mono text-xs">{q1 ? q1Amt : ""}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{q2 ? q2Amt : ""}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{q3 ? q3Amt : ""}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{q4 ? q4Amt : ""}</td>
+                  <td className="px-4 py-3 text-right font-mono text-xs">{annualAmt || ""}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {modal === "new" ? (
-        <Modal title="New quota" closeHref={closeHref(baseParams)}>
-          <form action={createQuotaAction} className="grid gap-3">
-            <input type="hidden" name="returnTo" value={closeHref(baseParams)} />
+        <Modal title="New Quota Set" closeHref={closeHref({ rep_id, fiscal_year })}>
+          <form action={upsertRepQuotaSetAction} className="grid gap-3">
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">quota_period_id</label>
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Rep</label>
               <select
-                name="quota_period_id"
+                name="rep_id"
+                defaultValue={rep_id}
                 className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                 required
               >
                 <option value="">(select)</option>
-                {periods.map((p) => (
-                  <option key={p.id} value={String(p.id)}>
-                    {p.period_name} ({p.id})
+                {reps.map((r) => (
+                  <option key={r.id} value={String(r.id)}>
+                    {r.rep_name} ({r.id})
                   </option>
                 ))}
               </select>
             </div>
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-1">
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Fiscal Year</label>
+              <select
+                name="fiscal_year"
+                defaultValue={fiscal_year}
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                required
+              >
+                <option value="">(select)</option>
+                {fiscalYears.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">role_level</label>
-                <input
-                  name="role_level"
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
-                  required
-                />
+                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Q1 Quota Amount</label>
+                <input name="q1_quota_amount" defaultValue={String(q1Amt || "")} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]" required />
               </div>
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">rep_id</label>
-                <select
-                  name="rep_id"
-                  defaultValue=""
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                >
-                  <option value="">(none)</option>
-                  {reps.map((r) => (
-                    <option key={r.id} value={String(r.id)}>
-                      {r.rep_name} ({r.id})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid gap-1">
-                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">manager_id</label>
-                <select
-                  name="manager_id"
-                  defaultValue=""
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                >
-                  <option value="">(none)</option>
-                  {reps.map((r) => (
-                    <option key={r.id} value={String(r.id)}>
-                      {r.rep_name} ({r.id})
-                    </option>
-                  ))}
-                </select>
+                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Q2 Quota Amount</label>
+                <input name="q2_quota_amount" defaultValue={String(q2Amt || "")} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]" required />
               </div>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">quota_amount</label>
-                <input
-                  name="quota_amount"
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
-                  required
-                />
+                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Q3 Quota Amount</label>
+                <input name="q3_quota_amount" defaultValue={String(q3Amt || "")} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]" required />
               </div>
               <div className="grid gap-1">
-                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">annual_target</label>
-                <input
-                  name="annual_target"
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
-                />
+                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Q4 Quota Amount</label>
+                <input name="q4_quota_amount" defaultValue={String(q4Amt || "")} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]" required />
               </div>
             </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="grid gap-1">
-                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">carry_forward</label>
-                <input
-                  name="carry_forward"
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
-                />
-              </div>
-              <div className="grid gap-1">
-                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">adjusted_quarterly_quota</label>
-                <input
-                  name="adjusted_quarterly_quota"
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
-                />
-              </div>
+            <div className="grid gap-1">
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Annual Quota (Auto)</label>
+              <input value={String(annualAmt || "")} readOnly className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)] opacity-70" />
             </div>
             <div className="mt-2 flex items-center justify-end gap-2">
-              <Link
-                href={closeHref(baseParams)}
-                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
-              >
+              <Link href={closeHref({ rep_id, fiscal_year })} className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]">
                 Cancel
               </Link>
               <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
-                Create
+                Save
               </button>
             </div>
           </form>
         </Modal>
       ) : null}
 
-      {modal === "edit" && current ? (
-        <Modal title="Edit quota" closeHref={closeHref(baseParams)}>
-          <form action={updateQuotaAction} className="grid gap-3">
-            <input type="hidden" name="returnTo" value={closeHref(baseParams)} />
-            <input type="hidden" name="id" value={String(current.id)} />
+      {modal === "edit" ? (
+        <Modal title="Edit Quota Set" closeHref={closeHref({ rep_id, fiscal_year })}>
+          <form action={upsertRepQuotaSetAction} className="grid gap-3">
+            <input type="hidden" name="rep_id" value={rep_id} />
+            <input type="hidden" name="fiscal_year" value={fiscal_year} />
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-1">
+                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Q1 Quota Amount</label>
+                <input name="q1_quota_amount" defaultValue={String(q1Amt || "")} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]" required />
+              </div>
+              <div className="grid gap-1">
+                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Q2 Quota Amount</label>
+                <input name="q2_quota_amount" defaultValue={String(q2Amt || "")} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]" required />
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-1">
+                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Q3 Quota Amount</label>
+                <input name="q3_quota_amount" defaultValue={String(q3Amt || "")} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]" required />
+              </div>
+              <div className="grid gap-1">
+                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Q4 Quota Amount</label>
+                <input name="q4_quota_amount" defaultValue={String(q4Amt || "")} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]" required />
+              </div>
+            </div>
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">quota_period_id</label>
-              <select
-                name="quota_period_id"
-                defaultValue={String(current.quota_period_id)}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                required
-              >
-                <option value="">(select)</option>
-                {periods.map((p) => (
-                  <option key={p.id} value={String(p.id)}>
-                    {p.period_name} ({p.id})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="grid gap-1">
-                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">role_level</label>
-                <input
-                  name="role_level"
-                  defaultValue={String(current.role_level)}
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
-                  required
-                />
-              </div>
-              <div className="grid gap-1">
-                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">rep_id</label>
-                <select
-                  name="rep_id"
-                  defaultValue={current.rep_id || ""}
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                >
-                  <option value="">(none)</option>
-                  {reps.map((r) => (
-                    <option key={r.id} value={String(r.id)}>
-                      {r.rep_name} ({r.id})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid gap-1">
-                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">manager_id</label>
-                <select
-                  name="manager_id"
-                  defaultValue={current.manager_id || ""}
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                >
-                  <option value="">(none)</option>
-                  {reps.map((r) => (
-                    <option key={r.id} value={String(r.id)}>
-                      {r.rep_name} ({r.id})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="grid gap-1">
-                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">quota_amount</label>
-                <input
-                  name="quota_amount"
-                  defaultValue={String(current.quota_amount)}
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
-                  required
-                />
-              </div>
-              <div className="grid gap-1">
-                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">annual_target</label>
-                <input
-                  name="annual_target"
-                  defaultValue={current.annual_target == null ? "" : String(current.annual_target)}
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
-                />
-              </div>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="grid gap-1">
-                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">carry_forward</label>
-                <input
-                  name="carry_forward"
-                  defaultValue={current.carry_forward == null ? "" : String(current.carry_forward)}
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
-                />
-              </div>
-              <div className="grid gap-1">
-                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">adjusted_quarterly_quota</label>
-                <input
-                  name="adjusted_quarterly_quota"
-                  defaultValue={current.adjusted_quarterly_quota == null ? "" : String(current.adjusted_quarterly_quota)}
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
-                />
-              </div>
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Annual Quota (Auto)</label>
+              <input value={String(annualAmt || "")} readOnly className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)] opacity-70" />
             </div>
             <div className="mt-2 flex items-center justify-end gap-2">
-              <Link
-                href={closeHref(baseParams)}
-                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
-              >
+              <Link href={closeHref({ rep_id, fiscal_year })} className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]">
                 Cancel
               </Link>
               <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
                 Save
               </button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {modal === "delete" ? (
+        <Modal title="Delete Quota Set" closeHref={closeHref({ rep_id, fiscal_year })}>
+          <form action={deleteRepQuotaSetAction} className="grid gap-3">
+            <input type="hidden" name="rep_id" value={rep_id} />
+            <input type="hidden" name="fiscal_year" value={fiscal_year} />
+            <div className="rounded-md border border-[#E74C3C] bg-[color:var(--sf-surface-alt)] px-4 py-3 text-sm text-[color:var(--sf-text-primary)]">
+              <div className="font-semibold text-[#E74C3C]">This action cannot be undone.</div>
+              <div className="mt-1 text-[color:var(--sf-text-secondary)]">
+                Delete quota set for Rep <span className="font-medium">{selectedRepName || rep_id}</span> in Fiscal Year{" "}
+                <span className="font-mono text-xs">{fiscal_year}</span>.
+              </div>
+            </div>
+            <div className="mt-2 flex items-center justify-end gap-2">
+              <Link href={closeHref({ rep_id, fiscal_year })} className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]">
+                Cancel
+              </Link>
+              <button className="rounded-md bg-[#E74C3C] px-3 py-2 text-sm font-medium text-white hover:opacity-90">Delete</button>
             </div>
           </form>
         </Modal>

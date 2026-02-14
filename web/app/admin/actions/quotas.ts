@@ -8,6 +8,15 @@ import type { QuotaPeriodRow, QuotaRow } from "../../../lib/quotaModels";
 
 const zBigintText = z.string().regex(/^\d+$/);
 
+function orgIdBigintParam(orgId: unknown): number {
+  const s = String(orgId ?? "").trim();
+  // Never allow empty-string params to reach Postgres.
+  if (!s || !/^\d+$/.test(s)) redirect("/admin/organizations");
+  const n = Number(s);
+  if (!Number.isFinite(n) || n <= 0) redirect("/admin/organizations");
+  return Math.trunc(n);
+}
+
 const CreateQuotaPeriodSchema = z.object({
   period_name: z.string().min(1),
   period_start: z.string().min(1),
@@ -20,9 +29,14 @@ const UpdateQuotaPeriodSchema = CreateQuotaPeriodSchema.extend({
   id: zBigintText,
 });
 
+const DeleteQuotaPeriodSchema = z.object({
+  id: zBigintText,
+});
+
 export async function createQuotaPeriod(formData: FormData): Promise<QuotaPeriodRow> {
   const { ctx, orgId } = await requireOrgContext();
   if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  const orgIdParam = orgIdBigintParam(orgId);
 
   const parsed = CreateQuotaPeriodSchema.parse({
     period_name: formData.get("period_name"),
@@ -60,7 +74,7 @@ export async function createQuotaPeriod(formData: FormData): Promise<QuotaPeriod
       created_at::text AS created_at,
       updated_at::text AS updated_at
     `,
-    [orgId, parsed.period_name, parsed.period_start, parsed.period_end, parsed.fiscal_year, parsed.fiscal_quarter]
+    [orgIdParam, parsed.period_name, parsed.period_start, parsed.period_end, parsed.fiscal_year, parsed.fiscal_quarter]
   );
 
   const row = rows?.[0];
@@ -71,6 +85,7 @@ export async function createQuotaPeriod(formData: FormData): Promise<QuotaPeriod
 export async function updateQuotaPeriod(formData: FormData): Promise<QuotaPeriodRow> {
   const { ctx, orgId } = await requireOrgContext();
   if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  const orgIdParam = orgIdBigintParam(orgId);
 
   const parsed = UpdateQuotaPeriodSchema.parse({
     id: formData.get("id"),
@@ -103,7 +118,7 @@ export async function updateQuotaPeriod(formData: FormData): Promise<QuotaPeriod
       created_at::text AS created_at,
       updated_at::text AS updated_at
     `,
-    [orgId, parsed.id, parsed.period_name, parsed.period_start, parsed.period_end, parsed.fiscal_year, parsed.fiscal_quarter]
+    [orgIdParam, parsed.id, parsed.period_name, parsed.period_start, parsed.period_end, parsed.fiscal_year, parsed.fiscal_quarter]
   );
 
   const row = rows?.[0];
@@ -114,6 +129,7 @@ export async function updateQuotaPeriod(formData: FormData): Promise<QuotaPeriod
 export async function listQuotaPeriods(): Promise<QuotaPeriodRow[]> {
   const { ctx, orgId } = await requireOrgContext();
   if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  const orgIdParam = orgIdBigintParam(orgId);
 
   const { rows } = await pool.query<QuotaPeriodRow>(
     `
@@ -128,11 +144,43 @@ export async function listQuotaPeriods(): Promise<QuotaPeriodRow[]> {
       created_at::text AS created_at,
       updated_at::text AS updated_at
       FROM quota_periods
-     WHERE org_id = $1::bigint
+     WHERE org_id = NULLIF($1::text, '')::bigint
+     ORDER BY
+       fiscal_year DESC,
+       CASE
+         WHEN lower(btrim(COALESCE(fiscal_quarter, ''))) IN ('1', 'q1') THEN 1
+         WHEN lower(btrim(COALESCE(fiscal_quarter, ''))) IN ('2', 'q2') THEN 2
+         WHEN lower(btrim(COALESCE(fiscal_quarter, ''))) IN ('3', 'q3') THEN 3
+         WHEN lower(btrim(COALESCE(fiscal_quarter, ''))) IN ('4', 'q4') THEN 4
+         ELSE 99
+       END ASC,
+       period_start ASC,
+       id ASC
     `,
-    [orgId]
+    [orgIdParam]
   );
   return rows as QuotaPeriodRow[];
+}
+
+export async function deleteQuotaPeriod(formData: FormData): Promise<{ ok: true }> {
+  const { ctx, orgId } = await requireOrgContext();
+  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  const orgIdParam = orgIdBigintParam(orgId);
+
+  const parsed = DeleteQuotaPeriodSchema.parse({
+    id: formData.get("id"),
+  });
+
+  await pool.query(
+    `
+    DELETE FROM quota_periods
+     WHERE org_id = $1::bigint
+       AND id = $2::bigint
+    `,
+    [orgIdParam, parsed.id]
+  );
+
+  return { ok: true };
 }
 
 const CreateQuotaSchema = z.object({
@@ -149,6 +197,60 @@ const CreateQuotaSchema = z.object({
 const UpdateQuotaSchema = CreateQuotaSchema.extend({
   id: zBigintText,
 });
+
+const UpsertRepQuotaSetSchema = z.object({
+  rep_id: zBigintText,
+  fiscal_year: z.string().min(1),
+  q1_quota_amount: z.coerce.number(),
+  q2_quota_amount: z.coerce.number(),
+  q3_quota_amount: z.coerce.number(),
+  q4_quota_amount: z.coerce.number(),
+});
+
+const DeleteRepQuotaSetSchema = z.object({
+  rep_id: zBigintText,
+  fiscal_year: z.string().min(1),
+});
+
+function quarterNumberFromAny(v: unknown): "" | "1" | "2" | "3" | "4" {
+  const s = String(v ?? "").trim().toLowerCase();
+  if (!s) return "";
+  if (s === "1" || s === "q1" || s.includes("1st")) return "1";
+  if (s === "2" || s === "q2" || s.includes("2nd")) return "2";
+  if (s === "3" || s === "q3" || s.includes("3rd")) return "3";
+  if (s === "4" || s === "q4" || s.includes("4th")) return "4";
+  return "";
+}
+
+async function getQuarterPeriodIdsForYear(args: { orgId: number; fiscal_year: string }) {
+  const { rows } = await pool.query<{ id: string; fiscal_quarter: string; period_name: string }>(
+    `
+    SELECT
+      id::text AS id,
+      fiscal_quarter,
+      period_name
+    FROM quota_periods
+    WHERE org_id = $1::bigint
+      AND fiscal_year = $2
+    `,
+    [orgIdBigintParam(args.orgId), args.fiscal_year]
+  );
+
+  const byQ = new Map<"1" | "2" | "3" | "4", string>();
+  for (const r of rows || []) {
+    const q = (quarterNumberFromAny(r.fiscal_quarter) || quarterNumberFromAny(r.period_name)) as any;
+    if (q === "1" || q === "2" || q === "3" || q === "4") {
+      if (!byQ.has(q)) byQ.set(q, String(r.id));
+    }
+  }
+
+  return {
+    q1: byQ.get("1") || "",
+    q2: byQ.get("2") || "",
+    q3: byQ.get("3") || "",
+    q4: byQ.get("4") || "",
+  };
+}
 
 export async function createQuota(formData: FormData): Promise<QuotaRow> {
   const { ctx, orgId } = await requireOrgContext();
@@ -281,6 +383,120 @@ export async function updateQuota(formData: FormData): Promise<QuotaRow> {
   const row = rows?.[0];
   if (!row) throw new Error("not_found");
   return row;
+}
+
+export async function upsertRepQuotaSet(formData: FormData): Promise<{ ok: true }> {
+  const { ctx, orgId } = await requireOrgContext();
+  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+
+  const parsed = UpsertRepQuotaSetSchema.parse({
+    rep_id: formData.get("rep_id"),
+    fiscal_year: formData.get("fiscal_year"),
+    q1_quota_amount: formData.get("q1_quota_amount"),
+    q2_quota_amount: formData.get("q2_quota_amount"),
+    q3_quota_amount: formData.get("q3_quota_amount"),
+    q4_quota_amount: formData.get("q4_quota_amount"),
+  });
+
+  const periods = await getQuarterPeriodIdsForYear({ orgId, fiscal_year: parsed.fiscal_year });
+  if (!periods.q1 || !periods.q2 || !periods.q3 || !periods.q4) throw new Error("missing_quarter_periods");
+
+  const annual_target = parsed.q1_quota_amount + parsed.q2_quota_amount + parsed.q3_quota_amount + parsed.q4_quota_amount;
+
+  const rep = await pool.query<{ manager_rep_id: number | null }>(
+    `
+    SELECT manager_rep_id
+      FROM reps
+     WHERE organization_id = $1
+       AND id = $2::bigint
+     LIMIT 1
+    `,
+    [orgId, parsed.rep_id]
+  );
+  const manager_id = rep.rows?.[0]?.manager_rep_id == null ? null : String(rep.rows[0].manager_rep_id);
+
+  const quarterRows: Array<{ quota_period_id: string; quota_amount: number }> = [
+    { quota_period_id: periods.q1, quota_amount: parsed.q1_quota_amount },
+    { quota_period_id: periods.q2, quota_amount: parsed.q2_quota_amount },
+    { quota_period_id: periods.q3, quota_amount: parsed.q3_quota_amount },
+    { quota_period_id: periods.q4, quota_amount: parsed.q4_quota_amount },
+  ];
+
+  for (const q of quarterRows) {
+    const updated = await pool.query<{ id: string }>(
+      `
+      UPDATE quotas
+         SET quota_amount = $4::numeric,
+             annual_target = $5::numeric,
+             manager_id = $6::bigint,
+             updated_at = NOW()
+       WHERE org_id = $1::bigint
+         AND rep_id = $2::bigint
+         AND role_level = 3
+         AND quota_period_id = $3::bigint
+      RETURNING id::text AS id
+      `,
+      [orgId, parsed.rep_id, q.quota_period_id, q.quota_amount, annual_target, manager_id]
+    );
+
+    if (updated.rows?.[0]?.id) continue;
+
+    await pool.query(
+      `
+      INSERT INTO quotas (
+        org_id,
+        rep_id,
+        manager_id,
+        role_level,
+        quota_period_id,
+        quota_amount,
+        annual_target,
+        carry_forward,
+        adjusted_quarterly_quota
+      ) VALUES (
+        $1::bigint,
+        $2::bigint,
+        $3::bigint,
+        3,
+        $4::bigint,
+        $5::numeric,
+        $6::numeric,
+        0,
+        NULL
+      )
+      `,
+      [orgId, parsed.rep_id, manager_id, q.quota_period_id, q.quota_amount, annual_target]
+    );
+  }
+
+  return { ok: true };
+}
+
+export async function deleteRepQuotaSet(formData: FormData): Promise<{ ok: true }> {
+  const { ctx, orgId } = await requireOrgContext();
+  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+
+  const parsed = DeleteRepQuotaSetSchema.parse({
+    rep_id: formData.get("rep_id"),
+    fiscal_year: formData.get("fiscal_year"),
+  });
+
+  const periods = await getQuarterPeriodIdsForYear({ orgId, fiscal_year: parsed.fiscal_year });
+  const ids = [periods.q1, periods.q2, periods.q3, periods.q4].filter(Boolean);
+  if (!ids.length) return { ok: true };
+
+  await pool.query(
+    `
+    DELETE FROM quotas
+     WHERE org_id = $1::bigint
+       AND rep_id = $2::bigint
+       AND role_level = 3
+       AND quota_period_id = ANY($3::bigint[])
+    `,
+    [orgId, parsed.rep_id, ids]
+  );
+
+  return { ok: true };
 }
 
 export async function listQuotasByRep(args: { rep_id: string }): Promise<QuotaRow[]> {

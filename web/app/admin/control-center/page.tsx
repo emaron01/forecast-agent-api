@@ -81,9 +81,8 @@ export default async function OwnerControlCenterPage() {
 
         <Section title="2. Active org (org-scoped) tasks">
           <Item href="/admin/users" title="Users" desc="Create/edit users, roles, reporting lines (active org)." />
-          <Item href="/admin/reps" title="Reps" desc="Manage reps + reporting relationships (active org)." />
           <Item href="/admin/org-profile" title="Org profile" desc="Org profile editor (active org)." />
-          <Item href="/admin/hierarchy" title="Hierarchy tree" desc="View org hierarchy + manager chain (active org)." />
+          <Item href="/admin/hierarchy" title="Sales Organization" desc="set-up, edit and review Sales Org Assignmnets." />
         </Section>
 
         <Section title="3. Ingestion + mappings (active org)">
@@ -103,7 +102,6 @@ export default async function OwnerControlCenterPage() {
           <Item href="/dashboard" title="Dashboard" desc="Role-based dashboard routing." />
           <Item href="/admin" title="Admin home" desc="Admin landing page cards." />
           <Item href="/admin/users" title="Users" desc="Users + reporting lines UI." />
-          <Item href="/admin/reps" title="Reps" desc="Rep management UI." />
           <Item href="/admin/mapping-sets" title="Mapping sets" desc="Mapping sets + field mappings UI." />
           <Item href="/admin/ingestion" title="Ingestion" desc="Staging rows UI." />
           <Item href="/admin/analytics" title="Admin Analytics" desc="Admin analytics landing page." />

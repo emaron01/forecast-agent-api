@@ -46,8 +46,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               {ctx.kind === "user" && ctx.user.role === "MANAGER" ? null : (
                 <>
                   <NavLink href="/admin/org-profile" label="Org Profile" />
-                  <NavLink href="/admin/hierarchy" label="Sales Org Chart" />
-                  <NavLink href="/admin/reps" label="Reps" />
+                  <NavLink href="/admin/hierarchy" label="Sales Organization" />
                   <NavLink href="/admin/mapping-sets" label="Mapping Sets" />
                   <NavLink href="/admin/ingestion" label="Ingestion" />
                   <NavLink href="/admin/analytics" label="Analytics" />

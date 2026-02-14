@@ -49,6 +49,7 @@ export default async function AllUsersPage() {
             <tr>
               <th className="px-4 py-3">org</th>
               <th className="px-4 py-3">user</th>
+              <th className="px-4 py-3">title</th>
               <th className="px-4 py-3">email</th>
               <th className="px-4 py-3">role</th>
               <th className="px-4 py-3">hierarchy</th>
@@ -67,6 +68,7 @@ export default async function AllUsersPage() {
                     <div className="font-mono text-xs text-[color:var(--sf-text-disabled)]">{u.org_public_id}</div>
                   </td>
                   <td className="px-4 py-3">{u.display_name}</td>
+                  <td className="px-4 py-3">{u.title || ""}</td>
                   <td className="px-4 py-3">{u.email}</td>
                   <td className="px-4 py-3">{labelForLevel(Number(u.hierarchy_level), u.role)}</td>
                   <td className="px-4 py-3">{u.hierarchy_level}</td>
@@ -80,7 +82,7 @@ export default async function AllUsersPage() {
               ))
             ) : (
               <tr>
-                <td colSpan={9} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                <td colSpan={10} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
                   No users found.
                 </td>
               </tr>

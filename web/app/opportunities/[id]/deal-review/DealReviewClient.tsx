@@ -937,7 +937,8 @@ export function DealReviewClient(props: { opportunityId: string }) {
       setRun(null);
       setSttError("");
       setTtsError("");
-      setQaPaneOpen(true);
+      // Text update uses the slide-out Q&A drawer. Voice update stays voice-only (no text panel).
+      setQaPaneOpen(!wantVoice);
       setCategoryInputMode(wantVoice ? "VOICE" : "TEXT");
 
       // In Text mode, do not prime/hold the mic open.
@@ -1132,30 +1133,32 @@ export function DealReviewClient(props: { opportunityId: string }) {
             )}
           </div>
 
-          <div className="inputCard" style={{ marginTop: 12 }}>
-            <div className="row" style={{ justifyContent: "space-between", width: "100%" }}>
-              <div className="small">
-                {categoryWaitingForUser ? "Paused — answer to continue." : "Active — waiting for next question."}
+          {categoryInputMode === "TEXT" ? (
+            <div className="inputCard" style={{ marginTop: 12 }}>
+              <div className="row" style={{ justifyContent: "space-between", width: "100%" }}>
+                <div className="small">
+                  {categoryWaitingForUser ? "Paused — answer to continue." : "Active — waiting for next question."}
+                </div>
+                <span className="small">Typing is silent.</span>
               </div>
-              <span className="small">{categoryInputMode === "TEXT" ? "Typing is silent." : "Voice uses mic+STT."}</span>
-            </div>
 
-            <div className="row" style={{ marginTop: 10, width: "100%" }}>
-              <input
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
-                placeholder="Type your answer…"
-                style={{ flex: 1, minWidth: 220 }}
-                disabled={busy || !selectedCategory}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void sendAnswer();
-                }}
-              />
-              <button onClick={() => void sendAnswer()} disabled={busy || !answer.trim()}>
-                Send
-              </button>
+              <div className="row" style={{ marginTop: 10, width: "100%" }}>
+                <input
+                  value={answer}
+                  onChange={(e) => setAnswer(e.target.value)}
+                  placeholder="Type your answer…"
+                  style={{ flex: 1, minWidth: 220 }}
+                  disabled={busy || !selectedCategory}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void sendAnswer();
+                  }}
+                />
+                <button type="button" onClick={() => void sendAnswer()} disabled={busy || !answer.trim()}>
+                  Send
+                </button>
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
       </aside>
 
@@ -1448,10 +1451,10 @@ export function DealReviewClient(props: { opportunityId: string }) {
                   <b>Evidence:</b> {c.evidence || "—"}
                 </div>
                 <div className="catBtnRow">
-                  <button onClick={() => void startCategoryUpdate(c.key, false)} disabled={busy || !opportunityId}>
+                  <button type="button" onClick={() => void startCategoryUpdate(c.key, false)} disabled={busy || !opportunityId}>
                     Text Update
                   </button>
-                  <button onClick={() => void startCategoryUpdate(c.key, true)} disabled={busy || !opportunityId}>
+                  <button type="button" onClick={() => void startCategoryUpdate(c.key, true)} disabled={busy || !opportunityId}>
                     Voice Update
                   </button>
                 </div>
@@ -1459,7 +1462,7 @@ export function DealReviewClient(props: { opportunityId: string }) {
             ))}
           </div>
 
-          {mode !== "CATEGORY_UPDATE" || !qaPaneOpen ? (
+          {mode === "FULL_REVIEW" || (mode === "CATEGORY_UPDATE" && categoryInputMode === "TEXT" && !qaPaneOpen) ? (
             <>
               <details style={{ marginTop: 12 }}>
                 <summary className="small">Conversation</summary>
@@ -1523,7 +1526,7 @@ export function DealReviewClient(props: { opportunityId: string }) {
                       if (e.key === "Enter") void sendAnswer();
                     }}
                   />
-                  <button onClick={() => void sendAnswer()} disabled={busy || !answer.trim()}>
+                  <button type="button" onClick={() => void sendAnswer()} disabled={busy || !answer.trim()}>
                     Send
                   </button>
                 </div>

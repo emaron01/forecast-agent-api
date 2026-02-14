@@ -32,6 +32,7 @@ export default async function UsersPage({
   const prefillEmail = sp(searchParams.email) || "";
   const prefillFirstName = sp(searchParams.first_name) || "";
   const prefillLastName = sp(searchParams.last_name) || "";
+  const prefillTitle = sp(searchParams.title) || "";
   const prefillRole = sp(searchParams.role) || "";
   const prefillAccountOwnerName = sp(searchParams.account_owner_name) || "";
   const prefillManagerUserPublicId = sp(searchParams.manager_user_public_id) || "";
@@ -148,6 +149,7 @@ export default async function UsersPage({
               <th className="px-4 py-3">role</th>
               <th className="px-4 py-3">hierarchy</th>
               <th className="px-4 py-3">display_name</th>
+              <th className="px-4 py-3">title</th>
               <th className="px-4 py-3">email</th>
               <th className="px-4 py-3">account_owner_name</th>
               <th className="px-4 py-3">manager_user</th>
@@ -165,6 +167,7 @@ export default async function UsersPage({
                   <td className="px-4 py-3">{labelForLevel(roleToLevel(u.role), u.role)}</td>
                   <td className="px-4 py-3">{u.hierarchy_level}</td>
                   <td className="px-4 py-3">{u.display_name}</td>
+                  <td className="px-4 py-3">{u.title || ""}</td>
                   <td className="px-4 py-3">{u.email}</td>
                   <td className="px-4 py-3">{u.account_owner_name}</td>
                   <td className="px-4 py-3">
@@ -218,7 +221,7 @@ export default async function UsersPage({
               ))
             ) : (
               <tr>
-                <td colSpan={11} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                <td colSpan={12} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
                   No users found.
                 </td>
               </tr>
@@ -258,6 +261,16 @@ export default async function UsersPage({
                   required
                 />
               </div>
+            </div>
+
+            <div className="grid gap-1">
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Title</label>
+              <input
+                name="title"
+                defaultValue={prefillTitle}
+                maxLength={100}
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+              />
             </div>
 
             {!isManager ? (
@@ -498,6 +511,16 @@ export default async function UsersPage({
                   required
                 />
               </div>
+            </div>
+
+            <div className="grid gap-1">
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Title</label>
+              <input
+                name="title"
+                defaultValue={user.title || ""}
+                maxLength={100}
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+              />
             </div>
 
             {!isManager ? (
