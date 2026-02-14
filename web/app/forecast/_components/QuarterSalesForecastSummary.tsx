@@ -121,18 +121,18 @@ export async function QuarterSalesForecastSummary(props: {
            OR (
              $3 <> ''
              AND (
-               lower(btrim(COALESCE(r.crm_owner_name, ''))) = lower(btrim($3))
-               OR lower(btrim(COALESCE(r.rep_name, ''))) = lower(btrim($3))
-               OR lower(btrim(COALESCE(r.display_name, ''))) = lower(btrim($3))
+               lower(regexp_replace(btrim(COALESCE(r.crm_owner_name, '')), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim($3), '\\s+', ' ', 'g'))
+               OR lower(regexp_replace(btrim(COALESCE(r.rep_name, '')), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim($3), '\\s+', ' ', 'g'))
+               OR lower(regexp_replace(btrim(COALESCE(r.display_name, '')), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim($3), '\\s+', ' ', 'g'))
              )
            )
          )
        ORDER BY
          CASE
            WHEN r.user_id = $2 THEN 0
-           WHEN lower(btrim(COALESCE(r.crm_owner_name, ''))) = lower(btrim($3)) THEN 1
-           WHEN lower(btrim(COALESCE(r.rep_name, ''))) = lower(btrim($3)) THEN 2
-           WHEN lower(btrim(COALESCE(r.display_name, ''))) = lower(btrim($3)) THEN 3
+           WHEN lower(regexp_replace(btrim(COALESCE(r.crm_owner_name, '')), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim($3), '\\s+', ' ', 'g')) THEN 1
+           WHEN lower(regexp_replace(btrim(COALESCE(r.rep_name, '')), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim($3), '\\s+', ' ', 'g')) THEN 2
+           WHEN lower(regexp_replace(btrim(COALESCE(r.display_name, '')), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim($3), '\\s+', ' ', 'g')) THEN 3
            ELSE 9
          END,
          r.id ASC
@@ -198,7 +198,11 @@ export async function QuarterSalesForecastSummary(props: {
             WHERE o.org_id = $1
               AND (
                 ($3::bigint IS NOT NULL AND o.rep_id = $3::bigint)
-                OR ($4 <> '' AND lower(btrim(COALESCE(o.rep_name, ''))) = lower(btrim($4)))
+                OR (
+                  $4 <> ''
+                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) =
+                    lower(regexp_replace(btrim($4), '\\s+', ' ', 'g'))
+                )
               )
           ),
           deals_in_qtr AS (
