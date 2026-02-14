@@ -52,7 +52,7 @@ export default async function DashboardPage() {
           <section className="mt-6 grid gap-4 md:grid-cols-3">
             <ActionCard href="/analytics" title="Analytics" desc="Attainment dashboards + comparisons." />
             <ActionCard href="/analytics/quotas/manager" title="Team Quotas" desc="Assign quotas to direct reports + team rollups." />
-            <ActionCard href="/forecast" title="Sales Forecaster" desc="Open Matthew’s Forecast Agent dashboard." />
+            <ActionCard href="/forecast" title="Sales Forecaster (Simple)" desc="Primary rep forecast dashboard." />
             <ActionCard href="/dashboard/excel-upload" title="Upload Opportunities" desc="Upload an Excel file of opportunities." />
           </section>
 
@@ -121,7 +121,7 @@ export default async function DashboardPage() {
           <section className="mt-6 grid gap-4 md:grid-cols-3">
             <ActionCard href="/analytics" title="Analytics" desc="Attainment dashboards + comparisons." />
             <ActionCard href="/analytics/quotas/executive" title="Company Quotas" desc="Company-wide quota rollup + pacing." />
-            <ActionCard href="/forecast" title="Sales Forecaster" desc="Open Matthew’s Forecast Agent dashboard." />
+            <ActionCard href="/forecast" title="Sales Forecaster (Simple)" desc="Primary rep forecast dashboard." />
           </section>
         </main>
       </div>
@@ -148,7 +148,7 @@ export default async function DashboardPage() {
 
         <section className="mt-6 grid gap-4 md:grid-cols-3">
           <ActionCard href="/analytics" title="Analytics" desc="Attainment dashboards + comparisons." />
-          <ActionCard href="/forecast" title="Sales Forecaster" desc="Open Matthew’s Forecast Agent dashboard." />
+          <ActionCard href="/forecast" title="Sales Forecaster (Simple)" desc="Primary rep forecast dashboard." />
           <ActionCard href="/dashboard/excel-upload" title="Upload Opportunities" desc="Upload an Excel file of opportunities." />
         </section>
 

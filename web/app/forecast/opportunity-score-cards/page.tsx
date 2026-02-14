@@ -1,13 +1,13 @@
 import { redirect } from "next/navigation";
-import { requireAuth } from "../../lib/auth";
-import { getOrganization } from "../../lib/db";
-import { UserTopNav } from "../_components/UserTopNav";
-import { SimpleForecastDashboardClient } from "./simple/simpleClient";
-import { QuarterSalesForecastSummary } from "./_components/QuarterSalesForecastSummary";
+import { requireAuth } from "../../../lib/auth";
+import { getOrganization } from "../../../lib/db";
+import { UserTopNav } from "../../_components/UserTopNav";
+import { ForecastDashboardClient } from "../ForecastDashboardClient";
+import { QuarterSalesForecastSummary } from "../_components/QuarterSalesForecastSummary";
 
 export const runtime = "nodejs";
 
-export default async function ForecastPage({
+export default async function OpportunityScoreCardsViewPage({
   searchParams,
 }: {
   searchParams?: Record<string, string | string[] | undefined>;
@@ -26,8 +26,8 @@ export default async function ForecastPage({
     <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
       <main className="mx-auto max-w-6xl p-6">
-        <QuarterSalesForecastSummary orgId={ctx.user.org_id} user={ctx.user} currentPath="/forecast" searchParams={searchParams} />
-        <SimpleForecastDashboardClient defaultRepName={defaultRepName} repFilterLocked={repFilterLocked} />
+        <QuarterSalesForecastSummary orgId={ctx.user.org_id} user={ctx.user} currentPath="/forecast/opportunity-score-cards" searchParams={searchParams} />
+        <ForecastDashboardClient defaultRepName={defaultRepName} repFilterLocked={repFilterLocked} />
       </main>
     </div>
   );

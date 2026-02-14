@@ -243,16 +243,18 @@ export function ForecastDashboardClient(props: {
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Sales Forecaster</h1>
-            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Live deal coaching dashboard (polls server for updates).</p>
+            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Opportunity Score Cards View</h1>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+              Legacy card view (polls server for updates). Primary rep view is Sales Forecaster (Simple).
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link
-              href="/forecast/simple"
+              href="/forecast"
               className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
-              title="Simplified table view with queue review controls."
+              title="Primary rep dashboard."
             >
-              Simple dashboard
+              Sales Forecaster (Simple)
             </Link>
             <button
               type="button"

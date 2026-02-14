@@ -126,8 +126,11 @@ export function SimpleForecastDashboardClient(props: { defaultRepName?: string; 
             <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Sales Forecaster (Simple)</h1>
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
               Simplified view for deal selection + single/queue review. Uses the same data as{" "}
-              <Link className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline" href="/forecast">
-                /forecast
+              <Link
+                className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline"
+                href="/forecast/opportunity-score-cards"
+              >
+                Opportunity Score Cards View
               </Link>
               .
             </p>
