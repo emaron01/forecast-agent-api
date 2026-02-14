@@ -160,7 +160,7 @@ export async function listReps(args: { organizationId: number; activeOnly?: bool
     FROM reps r
     LEFT JOIN users u ON u.id = r.user_id
     LEFT JOIN reps mgr ON mgr.id = r.manager_rep_id
-    WHERE r.organization_id = $1
+    WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1
       AND ($2::bool IS FALSE OR r.active IS TRUE)
     ORDER BY r.rep_name ASC, r.id ASC
     `,
@@ -203,9 +203,12 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
            display_name = NULLIF(btrim(u.display_name), ''),
            crm_owner_name = NULLIF(btrim(u.account_owner_name), ''),
            role = u.role,
-           active = u.active
+           active = u.active,
+           -- Align org columns across legacy/newer schemas.
+           org_id = u.org_id::int,
+           organization_id = u.org_id::bigint
       FROM users u
-     WHERE r.organization_id = u.org_id
+     WHERE COALESCE(r.organization_id, r.org_id::bigint) = u.org_id
        AND r.user_id = u.id
        AND u.org_id = $1
        AND u.role IN ('REP', 'MANAGER', 'EXEC_MANAGER')
@@ -217,6 +220,7 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
   await pool.query(
     `
     INSERT INTO reps (
+      org_id,
       rep_name,
       display_name,
       crm_owner_id,
@@ -228,6 +232,7 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
       organization_id
     )
     SELECT
+      u.org_id::int AS org_id,
       COALESCE(
         NULLIF(btrim(u.display_name), ''),
         NULLIF(btrim(u.account_owner_name), ''),
@@ -252,7 +257,7 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
       AND NOT EXISTS (
         SELECT 1
           FROM reps r
-         WHERE r.organization_id = u.org_id
+         WHERE COALESCE(r.organization_id, r.org_id::bigint) = u.org_id
            AND r.user_id = u.id
       )
     `,
@@ -265,8 +270,8 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
     UPDATE reps r
        SET manager_rep_id = mgr.id
       FROM users u
-      JOIN reps mgr ON mgr.organization_id = u.org_id AND mgr.user_id = u.manager_user_id
-     WHERE r.organization_id = u.org_id
+      JOIN reps mgr ON COALESCE(mgr.organization_id, mgr.org_id::bigint) = u.org_id AND mgr.user_id = u.manager_user_id
+     WHERE COALESCE(r.organization_id, r.org_id::bigint) = u.org_id
        AND r.user_id = u.id
        AND u.org_id = $1
        AND u.role IN ('REP', 'MANAGER')

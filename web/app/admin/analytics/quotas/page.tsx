@@ -63,7 +63,7 @@ export default async function QuotasPage({
   const rep_id = sp(searchParams.rep_id) || "";
   const fiscal_year = sp(searchParams.fiscal_year) || "";
 
-  await syncRepsFromUsers({ organizationId: orgId }).catch(() => null);
+  await syncRepsFromUsers({ organizationId: orgId });
   const reps = await listReps({ organizationId: orgId, activeOnly: true }).catch(() => []);
   const periods = await listQuotaPeriods().catch(() => []);
 

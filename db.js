@@ -28,16 +28,7 @@ export function normalizeQuestionCategoryKey(category) {
   return s;
 }
 
-export async function getRepByPhone(pool, phone) {
-  const { rows } = await pool.query(
-    `SELECT org_id, rep_name
-       FROM reps
-      WHERE phone = $1
-      LIMIT 1`,
-    [phone]
-  );
-  return rows[0] || null;
-}
+// NOTE: Twilio-based phone lookups are deprecated (no longer used).
 
 export async function getReviewNowDeals(pool, orgId, repName) {
   const { rows } = await pool.query(

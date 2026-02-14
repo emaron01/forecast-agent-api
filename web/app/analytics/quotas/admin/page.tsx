@@ -249,7 +249,7 @@ export default async function AnalyticsQuotasAdminPage({
 
   const currentPeriod = period_id ? periods.find((p) => String(p.id) === String(period_id)) || null : null;
 
-  await syncRepsFromUsers({ organizationId: ctx.user.org_id }).catch(() => null);
+  await syncRepsFromUsers({ organizationId: ctx.user.org_id });
   const repsAll = await listReps({ organizationId: ctx.user.org_id, activeOnly: true }).catch(() => []);
   const repsLite: RepLite[] = (repsAll || []).map((r) => ({
     id: Number(r.id),
