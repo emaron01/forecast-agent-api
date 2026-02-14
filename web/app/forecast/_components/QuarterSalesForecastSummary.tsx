@@ -172,6 +172,14 @@ export async function QuarterSalesForecastSummary(props: {
                 ($3::bigint IS NOT NULL AND o.rep_id = $3::bigint)
                 OR ($4 <> '' AND lower(btrim(COALESCE(o.rep_name, ''))) = lower(btrim($4)))
               )
+          ),
+          deals_in_qtr AS (
+            SELECT d.amount, d.fs
+              FROM deals d
+              JOIN qp ON TRUE
+             WHERE d.close_d IS NOT NULL
+               AND d.close_d >= qp.period_start
+               AND d.close_d <= qp.period_end
           )
           SELECT
             COALESCE(SUM(CASE
@@ -233,11 +241,7 @@ export async function QuarterSalesForecastSummary(props: {
               WHEN d.fs ~ '\\\\bwon\\\\b' THEN 1
               ELSE 0
             END), 0)::int AS won_count
-          FROM deals d
-          JOIN qp ON TRUE
-          WHERE d.close_d IS NOT NULL
-            AND d.close_d >= qp.period_start
-            AND d.close_d <= qp.period_end
+          FROM deals_in_qtr d
           `,
           [props.orgId, qpId, repId, repName]
         )
