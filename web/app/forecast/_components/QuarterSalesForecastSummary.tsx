@@ -99,7 +99,22 @@ export async function QuarterSalesForecastSummary(props: {
   const repName = String(props.user.account_owner_name || "").trim();
 
   const qpId = selected ? String(selected.id) : "";
-  const canCompute = !!qpId && !!repName;
+
+  const repId = await pool
+    .query<{ id: number }>(
+      `
+      SELECT r.id
+        FROM reps r
+       WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1
+         AND r.user_id = $2
+       LIMIT 1
+      `,
+      [props.orgId, props.user.id]
+    )
+    .then((r) => (Number.isFinite(r.rows?.[0]?.id) ? Number(r.rows[0].id) : null))
+    .catch(() => null);
+
+  const canCompute = !!qpId && repId != null;
 
   const sums = canCompute
     ? await pool
@@ -131,7 +146,7 @@ export async function QuarterSalesForecastSummary(props: {
               AND o.close_date IS NOT NULL
               AND o.close_date >= qp.period_start
               AND o.close_date <= qp.period_end
-              AND lower(btrim(COALESCE(o.rep_name, ''))) = lower(btrim($3))
+              AND o.rep_id = $3::bigint
           )
           SELECT
             COALESCE(SUM(CASE
@@ -195,7 +210,7 @@ export async function QuarterSalesForecastSummary(props: {
             END), 0)::int AS won_count
           FROM deals d
           `,
-          [props.orgId, qpId, repName]
+          [props.orgId, qpId, repId]
         )
         .then((r) => r.rows?.[0] || null)
         .catch(() => null)
@@ -211,20 +226,6 @@ export async function QuarterSalesForecastSummary(props: {
   const wonAmt = Number(sums?.won_amount || 0) || 0;
   const wonCount = Number(sums?.won_count || 0) || 0;
   const totalPipelineCount = commitCount + bestCaseCount + pipelineCount;
-
-  const repId = await pool
-    .query<{ id: number }>(
-      `
-      SELECT r.id
-        FROM reps r
-       WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1
-         AND r.user_id = $2
-       LIMIT 1
-      `,
-      [props.orgId, props.user.id]
-    )
-    .then((r) => (Number.isFinite(r.rows?.[0]?.id) ? Number(r.rows[0].id) : null))
-    .catch(() => null);
 
   const quotaAmt =
     repId && qpId
