@@ -105,9 +105,13 @@ export async function QuarterSalesForecastSummary(props: {
     ? await pool
         .query<{
           commit_amount: number;
+          commit_count: number;
           best_case_amount: number;
+          best_case_count: number;
           pipeline_amount: number;
+          pipeline_count: number;
           won_amount: number;
+          won_count: number;
         }>(
           `
           WITH qp AS (
@@ -143,9 +147,25 @@ export async function QuarterSalesForecastSummary(props: {
                 OR (d.fs ~ '\\\\blost\\\\b')
                 OR (d.fs ~ '\\\\bclosed\\\\b')
               THEN 0
+              WHEN d.fs LIKE '%commit%' THEN 1
+              ELSE 0
+            END), 0)::int AS commit_count,
+            COALESCE(SUM(CASE
+              WHEN (d.fs ~ '\\\\bwon\\\\b')
+                OR (d.fs ~ '\\\\blost\\\\b')
+                OR (d.fs ~ '\\\\bclosed\\\\b')
+              THEN 0
               WHEN d.fs LIKE '%best%' THEN d.amount
               ELSE 0
             END), 0)::float8 AS best_case_amount,
+            COALESCE(SUM(CASE
+              WHEN (d.fs ~ '\\\\bwon\\\\b')
+                OR (d.fs ~ '\\\\blost\\\\b')
+                OR (d.fs ~ '\\\\bclosed\\\\b')
+              THEN 0
+              WHEN d.fs LIKE '%best%' THEN 1
+              ELSE 0
+            END), 0)::int AS best_case_count,
             COALESCE(SUM(CASE
               WHEN (d.fs ~ '\\\\bwon\\\\b')
                 OR (d.fs ~ '\\\\blost\\\\b')
@@ -156,9 +176,23 @@ export async function QuarterSalesForecastSummary(props: {
               ELSE d.amount
             END), 0)::float8 AS pipeline_amount,
             COALESCE(SUM(CASE
+              WHEN (d.fs ~ '\\\\bwon\\\\b')
+                OR (d.fs ~ '\\\\blost\\\\b')
+                OR (d.fs ~ '\\\\bclosed\\\\b')
+              THEN 0
+              WHEN d.fs LIKE '%commit%' THEN 0
+              WHEN d.fs LIKE '%best%' THEN 0
+              ELSE 1
+            END), 0)::int AS pipeline_count,
+            COALESCE(SUM(CASE
               WHEN d.fs ~ '\\\\bwon\\\\b' THEN d.amount
               ELSE 0
             END), 0)::float8 AS won_amount
+            ,
+            COALESCE(SUM(CASE
+              WHEN d.fs ~ '\\\\bwon\\\\b' THEN 1
+              ELSE 0
+            END), 0)::int AS won_count
           FROM deals d
           `,
           [props.orgId, qpId, repName]
@@ -168,10 +202,15 @@ export async function QuarterSalesForecastSummary(props: {
     : null;
 
   const commitAmt = Number(sums?.commit_amount || 0) || 0;
+  const commitCount = Number(sums?.commit_count || 0) || 0;
   const bestCaseAmt = Number(sums?.best_case_amount || 0) || 0;
+  const bestCaseCount = Number(sums?.best_case_count || 0) || 0;
   const pipelineAmt = Number(sums?.pipeline_amount || 0) || 0;
+  const pipelineCount = Number(sums?.pipeline_count || 0) || 0;
   const totalAmt = commitAmt + bestCaseAmt + pipelineAmt;
   const wonAmt = Number(sums?.won_amount || 0) || 0;
+  const wonCount = Number(sums?.won_count || 0) || 0;
+  const totalPipelineCount = commitCount + bestCaseCount + pipelineCount;
 
   const repId = await pool
     .query<{ id: number }>(
@@ -262,18 +301,22 @@ export async function QuarterSalesForecastSummary(props: {
           <div className={boxClass}>
             <div className="text-[11px] text-black/70">Commit</div>
             <div className="font-mono text-xs font-semibold">{fmtMoney(commitAmt)}</div>
+            <div className="mt-1 text-[11px] text-black/70"># Opps: {commitCount}</div>
           </div>
           <div className={boxClass}>
             <div className="text-[11px] text-black/70">Best Case</div>
             <div className="font-mono text-xs font-semibold">{fmtMoney(bestCaseAmt)}</div>
+            <div className="mt-1 text-[11px] text-black/70"># Opps: {bestCaseCount}</div>
           </div>
           <div className={boxClass}>
             <div className="text-[11px] text-black/70">Pipeline</div>
             <div className="font-mono text-xs font-semibold">{fmtMoney(pipelineAmt)}</div>
+            <div className="mt-1 text-[11px] text-black/70"># Opps: {pipelineCount}</div>
           </div>
           <div className={boxClass}>
             <div className="text-[11px] text-black/70">Total Pipeline</div>
             <div className="font-mono text-xs font-semibold">{fmtMoney(totalAmt)}</div>
+            <div className="mt-1 text-[11px] text-black/70"># Opps: {totalPipelineCount}</div>
           </div>
           <div className={boxClass}>
             <div className="text-[11px] text-black/70">Quarterly Quota</div>
@@ -282,6 +325,7 @@ export async function QuarterSalesForecastSummary(props: {
           <div className={boxClass}>
             <div className="text-[11px] text-black/70">Closed Won</div>
             <div className="font-mono text-xs font-semibold">{fmtMoney(wonAmt)}</div>
+            <div className="mt-1 text-[11px] text-black/70"># Opps: {wonCount}</div>
           </div>
           <div className={boxClass}>
             <div className="text-[11px] text-black/70">% To Goal</div>
