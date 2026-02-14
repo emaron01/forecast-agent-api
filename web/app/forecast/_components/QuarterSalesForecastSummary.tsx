@@ -48,6 +48,7 @@ export async function QuarterSalesForecastSummary(props: {
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
   const selectedQuotaPeriodId = String(sp(props.searchParams?.quota_period_id) || "").trim();
+  const selectedFiscalYear = String(sp(props.searchParams?.fiscal_year) || "").trim();
 
   const { rows: periodsRaw } = await pool.query<QuotaPeriodOption>(
     `
@@ -65,6 +66,8 @@ export async function QuarterSalesForecastSummary(props: {
     [props.orgId]
   );
   const periods = (periodsRaw || []) as QuotaPeriodOption[];
+  const fiscalYears = Array.from(new Set(periods.map((p) => String(p.fiscal_year || "").trim()).filter(Boolean)));
+  const fiscalYearsSorted = fiscalYears.slice().sort((a, b) => b.localeCompare(a));
 
   const currentId = await pool
     .query<{ id: string }>(
@@ -83,10 +86,14 @@ export async function QuarterSalesForecastSummary(props: {
     .catch(() => "");
 
   const current = (currentId && periods.find((p) => String(p.id) === currentId)) || periods[0] || null;
+  const currentYear = current ? String(current.fiscal_year || "").trim() : "";
+  const yearToUse = selectedFiscalYear || currentYear || fiscalYearsSorted[0] || "";
+  const periodsForYear = yearToUse ? periods.filter((p) => String(p.fiscal_year || "").trim() === yearToUse) : periods;
 
   const selected =
-    (selectedQuotaPeriodId && periods.find((p) => String(p.id) === selectedQuotaPeriodId)) ||
-    current ||
+    (selectedQuotaPeriodId && periodsForYear.find((p) => String(p.id) === selectedQuotaPeriodId)) ||
+    (current && periodsForYear.find((p) => String(p.id) === String(current.id))) ||
+    periodsForYear[0] ||
     null;
 
   const repName = String(props.user.account_owner_name || "").trim();
@@ -109,44 +116,50 @@ export async function QuarterSalesForecastSummary(props: {
              WHERE org_id = $1::bigint
                AND id = $2::bigint
              LIMIT 1
+          ),
+          deals AS (
+            SELECT
+              COALESCE(o.amount, 0) AS amount,
+              lower(regexp_replace(COALESCE(o.forecast_stage, ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+            FROM opportunities o
+            JOIN qp ON TRUE
+            WHERE o.org_id = $1
+              AND o.close_date IS NOT NULL
+              AND o.close_date >= qp.period_start
+              AND o.close_date <= qp.period_end
+              AND lower(btrim(COALESCE(o.rep_name, ''))) = lower(btrim($3))
           )
           SELECT
             COALESCE(SUM(CASE
-              WHEN (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\bwon\\\\b')
-                OR (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\blost\\\\b')
-                OR (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\bclosed\\\\b')
+              WHEN (d.fs ~ '\\\\bwon\\\\b')
+                OR (d.fs ~ '\\\\blost\\\\b')
+                OR (d.fs ~ '\\\\bclosed\\\\b')
               THEN 0
-              WHEN lower(COALESCE(o.forecast_stage, '')) LIKE '%commit%' THEN COALESCE(o.amount, 0)
+              WHEN d.fs LIKE '%commit%' THEN d.amount
               ELSE 0
             END), 0)::float8 AS commit_amount,
             COALESCE(SUM(CASE
-              WHEN (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\bwon\\\\b')
-                OR (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\blost\\\\b')
-                OR (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\bclosed\\\\b')
+              WHEN (d.fs ~ '\\\\bwon\\\\b')
+                OR (d.fs ~ '\\\\blost\\\\b')
+                OR (d.fs ~ '\\\\bclosed\\\\b')
               THEN 0
-              WHEN lower(COALESCE(o.forecast_stage, '')) LIKE '%best%' THEN COALESCE(o.amount, 0)
+              WHEN d.fs LIKE '%best%' THEN d.amount
               ELSE 0
             END), 0)::float8 AS best_case_amount,
             COALESCE(SUM(CASE
-              WHEN (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\bwon\\\\b')
-                OR (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\blost\\\\b')
-                OR (lower(COALESCE(o.forecast_stage, '')) ~ '\\\\bclosed\\\\b')
+              WHEN (d.fs ~ '\\\\bwon\\\\b')
+                OR (d.fs ~ '\\\\blost\\\\b')
+                OR (d.fs ~ '\\\\bclosed\\\\b')
               THEN 0
-              WHEN lower(COALESCE(o.forecast_stage, '')) LIKE '%commit%' THEN 0
-              WHEN lower(COALESCE(o.forecast_stage, '')) LIKE '%best%' THEN 0
-              ELSE COALESCE(o.amount, 0)
+              WHEN d.fs LIKE '%commit%' THEN 0
+              WHEN d.fs LIKE '%best%' THEN 0
+              ELSE d.amount
             END), 0)::float8 AS pipeline_amount,
             COALESCE(SUM(CASE
-              WHEN lower(COALESCE(o.forecast_stage, '')) ~ '\\\\bwon\\\\b' THEN COALESCE(o.amount, 0)
+              WHEN d.fs ~ '\\\\bwon\\\\b' THEN d.amount
               ELSE 0
             END), 0)::float8 AS won_amount
-          FROM opportunities o
-          JOIN qp ON TRUE
-          WHERE o.org_id = $1
-            AND o.close_date IS NOT NULL
-            AND o.close_date >= qp.period_start
-            AND o.close_date <= qp.period_end
-            AND btrim(COALESCE(o.rep_name, '')) = btrim($3)
+          FROM deals d
           `,
           [props.orgId, qpId, repName]
         )
@@ -204,13 +217,24 @@ export async function QuarterSalesForecastSummary(props: {
           <div className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">{headline}</div>
           <form method="GET" action={props.currentPath} className="mt-2 flex items-center gap-2">
             <select
+              name="fiscal_year"
+              defaultValue={yearToUse}
+              className="w-[160px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+            >
+              {fiscalYearsSorted.map((fy) => (
+                <option key={fy} value={fy}>
+                  {fy}
+                </option>
+              ))}
+            </select>
+            <select
               name="quota_period_id"
               defaultValue={qpId}
               className="w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
             >
-              {periods.map((p) => (
+              {periodsForYear.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {periodLabel(p)}
+                  {String(p.period_name || "").trim() || periodLabel(p)} ({p.period_start} → {p.period_end})
                 </option>
               ))}
             </select>
