@@ -106,15 +106,34 @@ export async function QuarterSalesForecastSummary(props: {
       SELECT r.id
         FROM reps r
        WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1
-         AND r.user_id = $2
+         AND (
+           r.user_id = $2
+           OR (
+             $3 <> ''
+             AND (
+               lower(btrim(COALESCE(r.crm_owner_name, ''))) = lower(btrim($3))
+               OR lower(btrim(COALESCE(r.rep_name, ''))) = lower(btrim($3))
+               OR lower(btrim(COALESCE(r.display_name, ''))) = lower(btrim($3))
+             )
+           )
+         )
+       ORDER BY
+         CASE
+           WHEN r.user_id = $2 THEN 0
+           WHEN lower(btrim(COALESCE(r.crm_owner_name, ''))) = lower(btrim($3)) THEN 1
+           WHEN lower(btrim(COALESCE(r.rep_name, ''))) = lower(btrim($3)) THEN 2
+           WHEN lower(btrim(COALESCE(r.display_name, ''))) = lower(btrim($3)) THEN 3
+           ELSE 9
+         END,
+         r.id ASC
        LIMIT 1
       `,
-      [props.orgId, props.user.id]
+      [props.orgId, props.user.id, repName]
     )
     .then((r) => (Number.isFinite(r.rows?.[0]?.id) ? Number(r.rows[0].id) : null))
     .catch(() => null);
 
-  const canCompute = !!qpId && repId != null;
+  const canCompute = !!qpId && (repId != null || !!repName);
 
   const sums = canCompute
     ? await pool
@@ -139,14 +158,20 @@ export async function QuarterSalesForecastSummary(props: {
           deals AS (
             SELECT
               COALESCE(o.amount, 0) AS amount,
-              lower(regexp_replace(COALESCE(o.forecast_stage, ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+              lower(regexp_replace(COALESCE(o.forecast_stage, ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
+              CASE
+                WHEN o.close_date IS NULL THEN NULL
+                WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}$') THEN (o.close_date::text)::date
+                WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}$') THEN to_date(o.close_date::text, 'MM/DD/YYYY')
+                ELSE NULL
+              END AS close_d
             FROM opportunities o
             JOIN qp ON TRUE
             WHERE o.org_id = $1
-              AND o.close_date IS NOT NULL
-              AND o.close_date >= qp.period_start
-              AND o.close_date <= qp.period_end
-              AND o.rep_id = $3::bigint
+              AND (
+                ($3::bigint IS NOT NULL AND o.rep_id = $3::bigint)
+                OR ($4 <> '' AND lower(btrim(COALESCE(o.rep_name, ''))) = lower(btrim($4)))
+              )
           )
           SELECT
             COALESCE(SUM(CASE
@@ -209,8 +234,12 @@ export async function QuarterSalesForecastSummary(props: {
               ELSE 0
             END), 0)::int AS won_count
           FROM deals d
+          JOIN qp ON TRUE
+          WHERE d.close_d IS NOT NULL
+            AND d.close_d >= qp.period_start
+            AND d.close_d <= qp.period_end
           `,
-          [props.orgId, qpId, repId]
+          [props.orgId, qpId, repId, repName]
         )
         .then((r) => r.rows?.[0] || null)
         .catch(() => null)
