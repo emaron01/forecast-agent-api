@@ -49,6 +49,7 @@ export async function QuarterSalesForecastSummary(props: {
 }) {
   const selectedQuotaPeriodId = String(sp(props.searchParams?.quota_period_id) || "").trim();
   const selectedFiscalYear = String(sp(props.searchParams?.fiscal_year) || "").trim();
+  const debug = String(sp(props.searchParams?.debug) || "").trim() === "1";
 
   const { rows: periodsRaw } = await pool.query<QuotaPeriodOption>(
     `
@@ -292,6 +293,173 @@ export async function QuarterSalesForecastSummary(props: {
   const wonCount = Number(sums?.won_count || 0) || 0;
   const totalPipelineCount = commitCount + bestCaseCount + pipelineCount;
 
+  const debugInfo =
+    debug && canCompute
+      ? await pool
+          .query<{
+            qp_period_start: string;
+            qp_period_end: string;
+            match_kind: string;
+            deals_in_qtr: number;
+            min_close_d: string | null;
+            max_close_d: string | null;
+          }>(
+            `
+            WITH qp AS (
+              SELECT period_start::date AS period_start, period_end::date AS period_end
+                FROM quota_periods
+               WHERE org_id = $1::bigint
+                 AND id = $2::bigint
+               LIMIT 1
+            ),
+            deals AS (
+              SELECT
+                o.public_id::text AS public_id,
+                o.id AS id,
+                o.rep_id,
+                o.rep_name,
+                o.amount,
+                o.close_date::text AS close_date_raw,
+                o.forecast_stage,
+                o.sales_stage,
+                lower(
+                  regexp_replace(
+                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+                    '[^a-zA-Z]+',
+                    ' ',
+                    'g'
+                  )
+                ) AS fs,
+                CASE
+                  WHEN o.close_date IS NULL THEN NULL
+                  WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+                  WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                    to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+                  ELSE NULL
+                END AS close_d,
+                CASE
+                  WHEN ($3::bigint IS NOT NULL AND o.rep_id = $3::bigint) THEN 'rep_id'
+                  WHEN ($4 <> '' AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) =
+                                  lower(regexp_replace(btrim($4), '\\s+', ' ', 'g'))) THEN 'rep_name'
+                  ELSE 'none'
+                END AS match_kind
+              FROM opportunities o
+              WHERE o.org_id = $1
+                AND (
+                  ($3::bigint IS NOT NULL AND o.rep_id = $3::bigint)
+                  OR (
+                    $4 <> ''
+                    AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) =
+                      lower(regexp_replace(btrim($4), '\\s+', ' ', 'g'))
+                  )
+                )
+            ),
+            deals_in_qtr AS (
+              SELECT d.*
+                FROM deals d
+                JOIN qp ON TRUE
+               WHERE d.close_d IS NOT NULL
+                 AND d.close_d >= qp.period_start
+                 AND d.close_d <= qp.period_end
+            )
+            SELECT
+              (SELECT qp.period_start::text FROM qp) AS qp_period_start,
+              (SELECT qp.period_end::text FROM qp) AS qp_period_end,
+              diq.match_kind,
+              COUNT(*)::int AS deals_in_qtr,
+              MIN(diq.close_d)::text AS min_close_d,
+              MAX(diq.close_d)::text AS max_close_d
+            FROM deals_in_qtr diq
+            GROUP BY diq.match_kind
+            ORDER BY diq.match_kind ASC
+            `,
+            [props.orgId, qpId, repId, repName]
+          )
+          .then((r) => r.rows || [])
+          .catch(() => [])
+      : null;
+
+  const debugSampleRows =
+    debug && canCompute
+      ? await pool
+          .query<{
+            id: number;
+            public_id: string;
+            rep_id: number | null;
+            rep_name: string | null;
+            amount: number | null;
+            close_date_raw: string | null;
+            close_d: string | null;
+            forecast_stage: string | null;
+            sales_stage: string | null;
+            fs: string;
+            match_kind: string;
+          }>(
+            `
+            WITH qp AS (
+              SELECT period_start::date AS period_start, period_end::date AS period_end
+                FROM quota_periods
+               WHERE org_id = $1::bigint
+                 AND id = $2::bigint
+               LIMIT 1
+            ),
+            deals AS (
+              SELECT
+                o.id AS id,
+                o.public_id::text AS public_id,
+                o.rep_id,
+                o.rep_name,
+                o.amount,
+                o.close_date::text AS close_date_raw,
+                o.forecast_stage,
+                o.sales_stage,
+                lower(
+                  regexp_replace(
+                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+                    '[^a-zA-Z]+',
+                    ' ',
+                    'g'
+                  )
+                ) AS fs,
+                CASE
+                  WHEN o.close_date IS NULL THEN NULL
+                  WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+                  WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                    to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+                  ELSE NULL
+                END AS close_d,
+                CASE
+                  WHEN ($3::bigint IS NOT NULL AND o.rep_id = $3::bigint) THEN 'rep_id'
+                  WHEN ($4 <> '' AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) =
+                                  lower(regexp_replace(btrim($4), '\\s+', ' ', 'g'))) THEN 'rep_name'
+                  ELSE 'none'
+                END AS match_kind
+              FROM opportunities o
+              WHERE o.org_id = $1
+                AND (
+                  ($3::bigint IS NOT NULL AND o.rep_id = $3::bigint)
+                  OR (
+                    $4 <> ''
+                    AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) =
+                      lower(regexp_replace(btrim($4), '\\s+', ' ', 'g'))
+                  )
+                )
+            )
+            SELECT d.*
+              FROM deals d
+              JOIN qp ON TRUE
+             WHERE d.close_d IS NOT NULL
+               AND d.close_d >= qp.period_start
+               AND d.close_d <= qp.period_end
+             ORDER BY d.close_d ASC, d.amount DESC NULLS LAST, d.id ASC
+             LIMIT 25
+            `,
+            [props.orgId, qpId, repId, repName]
+          )
+          .then((r) => r.rows || [])
+          .catch(() => [])
+      : null;
+
   const quotaAmt =
     repId && qpId
       ? await pool
@@ -399,6 +567,61 @@ export async function QuarterSalesForecastSummary(props: {
           </div>
         </div>
       </div>
+
+      {debug ? (
+        <details className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+          <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">
+            Sales Forecast debug (determination)
+          </summary>
+          <div className="mt-3 grid gap-3 text-xs text-[color:var(--sf-text-secondary)]">
+            <div>
+              <div className="font-semibold text-[color:var(--sf-text-primary)]">Inputs</div>
+              <pre className="mt-1 overflow-auto rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                {JSON.stringify(
+                  {
+                    orgId: props.orgId,
+                    qpId,
+                    yearToUse,
+                    selectedFiscalYearParam: selectedFiscalYear || null,
+                    selectedQuotaPeriodIdParam: selectedQuotaPeriodId || null,
+                    repId,
+                    repName,
+                    userRepName,
+                    totals: {
+                      commitAmt,
+                      bestCaseAmt,
+                      pipelineAmt,
+                      totalPipelineAmt: totalAmt,
+                      wonAmt,
+                      commitCount,
+                      bestCaseCount,
+                      pipelineCount,
+                      totalPipelineCount,
+                      wonCount,
+                    },
+                  },
+                  null,
+                  2
+                )}
+              </pre>
+            </div>
+
+            <div>
+              <div className="font-semibold text-[color:var(--sf-text-primary)]">Match breakdown (rows in quarter)</div>
+              <pre className="mt-1 overflow-auto rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                {JSON.stringify(debugInfo || [], null, 2)}
+              </pre>
+            </div>
+
+            <div>
+              <div className="font-semibold text-[color:var(--sf-text-primary)]">Sample rows in quarter</div>
+              <pre className="mt-1 max-h-[360px] overflow-auto rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                {JSON.stringify(debugSampleRows || [], null, 2)}
+              </pre>
+            </div>
+          </div>
+        </details>
+      ) : null}
     </section>
   );
 }
