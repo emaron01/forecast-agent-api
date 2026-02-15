@@ -8,7 +8,7 @@ function NavLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="rounded-md px-3 py-2 text-sm font-medium text-[color:var(--sf-nav-text)] hover:bg-[color:var(--sf-surface-alt)] hover:text-[color:var(--sf-nav-hover)]"
+      className="rounded-md px-2 py-1.5 text-[13px] font-medium text-[color:var(--sf-nav-text)] hover:bg-[color:var(--sf-surface-alt)] hover:text-[color:var(--sf-nav-hover)]"
     >
       {label}
     </Link>
@@ -27,9 +27,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
       <header className="border-b border-[color:var(--sf-nav-border)] bg-[color:var(--sf-nav-background)]">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-2.5">
           <div className="flex items-center gap-4">
-            <Link href="/admin" className="text-base font-semibold tracking-tight text-[color:var(--sf-text-primary)]">
+            <Link href="/admin" className="text-sm font-semibold tracking-tight text-[color:var(--sf-text-primary)]">
               Admin Dashboard
             </Link>
             <nav className="hidden items-center gap-1 md:flex">
