@@ -36,6 +36,7 @@ export default async function AnalyticsPage() {
         </p>
 
         <section className="mt-6 grid gap-4 md:grid-cols-2">
+          <Card href="/analytics/kpis" title="KPIs by quarter" desc="Quarter-by-quarter KPI breakdown with manager + rep expand/collapse." />
           <Card href="/analytics/attainment" title="Attainment dashboards" desc="Rep → Manager → VP → CRO roll-ups for a quota period." />
           <Card href="/analytics/comparisons" title="Comparisons" desc="CRM Forecast Stage vs AI Forecast Stage + quota attainment." />
           {ctx.user.role === "ADMIN" ? (
