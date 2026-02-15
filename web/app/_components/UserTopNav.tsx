@@ -7,7 +7,7 @@ function NavLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="rounded-md px-2 py-1.5 text-[13px] font-medium text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface)] hover:text-[color:var(--sf-text-primary)]"
+      className="rounded-md px-2 py-1 text-[12px] font-medium text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface)] hover:text-[color:var(--sf-text-primary)]"
     >
       {label}
     </Link>
@@ -17,8 +17,8 @@ function NavLink({ href, label }: { href: string; label: string }) {
 export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser }) {
   return (
     <header className="border-b border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-      <div className="flex h-[72px] w-full items-center justify-between px-6">
-        <div className="flex items-center gap-4">
+      <div className="flex h-[44px] w-full items-center justify-between px-6">
+        <div className="flex items-center gap-3">
           <Link href="/dashboard" aria-label="SalesForecast home" className="shrink-0">
             <Image
               src="/brand/salesforecast-logo.png"
@@ -36,7 +36,7 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
           </nav>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <UserProfileBadge orgName={orgName} displayName={user.display_name} email={user.email} showAccountLink />
         </div>
       </div>
