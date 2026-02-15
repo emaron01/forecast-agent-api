@@ -1092,11 +1092,8 @@ export default async function QuarterlyKpisPage({
                     return (
                       <div className="mt-4 grid gap-3">
                         <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
-                          <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Core KPIs</div>
+                          <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Sales Forecast</div>
                           <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                            <Chip label="Win Loss" value={`${fmtNum(wonCountTotal)} / ${fmtNum(lostCountTotal)}`} sub="Won / Lost (count)" />
-                            <Chip label="Quota Attainment" value={fmtPct(quotaAttainment)} />
-                            <Chip label="Closed Won" value={fmtMoney(block.won_amount)} sub={`Deals: ${fmtNum(wonCountTotal)}`} />
                             <Chip label="Win Rate" value={fmtPct(winRate)} />
                             <Chip label="Pipeline Value" value={fmtMoney(block.pipeline_value)} />
                             <Chip label="Average Order Value" value={fmtMoney(block.aov)} />
@@ -1110,6 +1107,15 @@ export default async function QuarterlyKpisPage({
                             />
                             <Chip label="Opp→Win Conversion" value={fmtPct(oppToWin)} />
                             <Chip label="Aging (avg deal age)" value={agingAvgDays == null ? "—" : `${Math.round(agingAvgDays)}d`} />
+                          </div>
+                        </div>
+
+                        <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
+                          <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Core KPIs</div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                            <Chip label="Win Loss" value={`${fmtNum(wonCountTotal)} / ${fmtNum(lostCountTotal)}`} sub="Won / Lost (count)" />
+                            <Chip label="Quota Attainment" value={fmtPct(quotaAttainment)} />
+                            <Chip label="Closed Won" value={fmtMoney(block.won_amount)} sub={`Deals: ${fmtNum(wonCountTotal)}`} />
                             <Chip label="Direct Vs. Partner" value={`${fmtMoney(directClosedAmt)} / ${fmtMoney(partnerClosedAmtTotal)}`} sub="Direct / Partner (closed $)" />
                           </div>
                         </div>
