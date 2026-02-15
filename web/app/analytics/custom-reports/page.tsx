@@ -5,8 +5,7 @@ import { getOrganization } from "../../../lib/db";
 import { pool } from "../../../lib/pool";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { CustomReportDesignerClient } from "./CustomReportDesignerClient";
-import { getHealthAveragesByPeriods } from "../../../lib/analyticsHealth";
-import { AverageHealthScorePanel } from "../../_components/AverageHealthScorePanel";
+import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
 
 export const runtime = "nodejs";
 
@@ -239,6 +238,12 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
   const quotaByRep = new Map<string, number>();
   for (const q of quotaRows) quotaByRep.set(String(q.rep_id), Number(q.quota_amount || 0) || 0);
 
+  const repHealthRows = selectedPeriod
+    ? await getHealthAveragesByRepByPeriods({ orgId: ctx.user.org_id, periodIds: [String(selectedPeriod.id)], repIds: null }).catch(() => [])
+    : [];
+  const healthByRepId = new Map<string, any>();
+  for (const r of repHealthRows || []) healthByRepId.set(String((r as any).rep_id), r);
+
   const repRows = repKpisRows.map((c: any) => {
     const rep_id = String(c.rep_id);
     const quota = quotaByRep.get(rep_id) || 0;
@@ -260,6 +265,12 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
       rep_name: String(c.rep_name || "").trim() || `Rep ${rep_id}`,
       manager_id,
       manager_name,
+      avg_health_all: healthByRepId.get(rep_id)?.avg_health_all ?? null,
+      avg_health_commit: healthByRepId.get(rep_id)?.avg_health_commit ?? null,
+      avg_health_best: healthByRepId.get(rep_id)?.avg_health_best ?? null,
+      avg_health_pipeline: healthByRepId.get(rep_id)?.avg_health_pipeline ?? null,
+      avg_health_won: healthByRepId.get(rep_id)?.avg_health_won ?? null,
+      avg_health_closed: healthByRepId.get(rep_id)?.avg_health_closed ?? null,
       quota,
       total_count,
       won_amount,
@@ -288,11 +299,6 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
       mix_won: safeDiv(won_amount, mixDen),
     };
   });
-
-  const healthRows = selectedPeriod
-    ? await getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: [String(selectedPeriod.id)], repIds: null }).catch(() => [])
-    : [];
-  const health = (healthRows && healthRows[0]) ? (healthRows[0] as any) : null;
 
   // Saved reports for this user
   const { rows: saved } = await pool.query(
@@ -371,11 +377,10 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
           </form>
         </section>
 
-        {selectedPeriod ? <AverageHealthScorePanel row={health} /> : null}
-
         <CustomReportDesignerClient
           reportType="rep_comparison_custom_v1"
           repRows={repRows as any}
+          repDirectory={repOptions as any}
           savedReports={(saved || []) as any}
           periodLabel={
             selectedPeriod
