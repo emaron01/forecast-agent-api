@@ -871,10 +871,14 @@ export async function QuarterSalesForecastSummary(props: {
                 <tr className="text-left text-xs text-[color:var(--sf-text-secondary)]">
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Rep</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Commit</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Avg Health</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Best Case</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Avg Health</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Pipeline</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Avg Health</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Total Pipeline</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Closed Won</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Avg Health</th>
                 </tr>
               </thead>
               <tbody>
@@ -894,23 +898,23 @@ export async function QuarterSalesForecastSummary(props: {
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="font-mono text-sm font-semibold">{fmtMoney(cAmt)}</div>
                         <div className="text-sm text-[color:var(--sf-text-secondary)]"># {Number(r.commit_count || 0) || 0}</div>
-                        <div className="text-sm text-[color:var(--sf-text-secondary)]">
-                          Avg: <span className={healthColorClass(cHealthPct)}>{cHealthPct == null ? "—" : `${cHealthPct}%`}</span>
-                        </div>
+                      </td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                        <span className={healthColorClass(cHealthPct)}>{cHealthPct == null ? "—" : `${cHealthPct}%`}</span>
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="font-mono text-sm font-semibold">{fmtMoney(bcAmt)}</div>
                         <div className="text-sm text-[color:var(--sf-text-secondary)]"># {Number(r.best_case_count || 0) || 0}</div>
-                        <div className="text-sm text-[color:var(--sf-text-secondary)]">
-                          Avg: <span className={healthColorClass(bHealthPct)}>{bHealthPct == null ? "—" : `${bHealthPct}%`}</span>
-                        </div>
+                      </td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                        <span className={healthColorClass(bHealthPct)}>{bHealthPct == null ? "—" : `${bHealthPct}%`}</span>
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="font-mono text-sm font-semibold">{fmtMoney(pAmt)}</div>
                         <div className="text-sm text-[color:var(--sf-text-secondary)]"># {Number(r.pipeline_count || 0) || 0}</div>
-                        <div className="text-sm text-[color:var(--sf-text-secondary)]">
-                          Avg: <span className={healthColorClass(pHealthPct)}>{pHealthPct == null ? "—" : `${pHealthPct}%`}</span>
-                        </div>
+                      </td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                        <span className={healthColorClass(pHealthPct)}>{pHealthPct == null ? "—" : `${pHealthPct}%`}</span>
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="font-mono text-sm font-semibold">{fmtMoney(tAmt)}</div>
@@ -918,9 +922,9 @@ export async function QuarterSalesForecastSummary(props: {
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="font-mono text-sm font-semibold">{fmtMoney(Number(r.won_amount || 0) || 0)}</div>
                         <div className="text-sm text-[color:var(--sf-text-secondary)]"># {Number(r.won_count || 0) || 0}</div>
-                        <div className="text-sm text-[color:var(--sf-text-secondary)]">
-                          Avg: <span className={healthColorClass(wHealthPct)}>{wHealthPct == null ? "—" : `${wHealthPct}%`}</span>
-                        </div>
+                      </td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                        <span className={healthColorClass(wHealthPct)}>{wHealthPct == null ? "—" : `${wHealthPct}%`}</span>
                       </td>
                     </tr>
                   );
@@ -944,6 +948,7 @@ export async function QuarterSalesForecastSummary(props: {
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Closed Won</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right"># Orders</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Avg / Order</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Avg Health</th>
                 </tr>
               </thead>
               <tbody>
@@ -954,11 +959,11 @@ export async function QuarterSalesForecastSummary(props: {
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">{p.product}</td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-xs">{fmtMoney(p.won_amount)}</td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">{Number(p.won_count || 0) || 0}</td>
-                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
-                        <div className="font-mono text-xs font-semibold">{fmtMoney(p.avg_order_value)}</div>
-                        <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">
-                          Avg Health: <span className={healthColorClass(hp)}>{hp == null ? "—" : `${hp}%`}</span>
-                        </div>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-xs">
+                        {fmtMoney(p.avg_order_value)}
+                      </td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-xs">
+                        <span className={healthColorClass(hp)}>{hp == null ? "—" : `${hp}%`}</span>
                       </td>
                     </tr>
                   );

@@ -310,6 +310,7 @@ export async function QuarterRepAnalytics(props: {
                     <th className="px-4 py-3 text-right">closed won revenue</th>
                     <th className="px-4 py-3 text-right"># orders</th>
                     <th className="px-4 py-3 text-right">avg / order</th>
+                    <th className="px-4 py-3 text-right">avg health</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -321,18 +322,16 @@ export async function QuarterRepAnalytics(props: {
                           <td className="px-4 py-3">{p.product}</td>
                           <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(p.won_amount)}</td>
                           <td className="px-4 py-3 text-right">{p.won_count}</td>
-                          <td className="px-4 py-3 text-right">
-                            <div className="font-mono text-xs">{fmtMoney(p.avg_order_value)}</div>
-                            <div className="mt-0.5 text-[11px] text-[color:var(--sf-text-secondary)]">
-                              Avg Health: <span className={healthColorClass(hp)}>{hp == null ? "—" : `${hp}%`}</span>
-                            </div>
+                          <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(p.avg_order_value)}</td>
+                          <td className="px-4 py-3 text-right font-mono text-xs">
+                            <span className={healthColorClass(hp)}>{hp == null ? "—" : `${hp}%`}</span>
                           </td>
                         </tr>
                       );
                     })
                   ) : (
                     <tr>
-                      <td colSpan={4} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                      <td colSpan={5} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
                         No closed-won deals found for this quarter.
                       </td>
                     </tr>
