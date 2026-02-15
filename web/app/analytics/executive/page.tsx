@@ -513,8 +513,11 @@ export default async function ExecutiveAnalyticsKpisPage({
   const yearToUse = fiscal_year || fiscalYears[0] || "";
   const periodsForYear = yearToUse ? periods.filter((p) => String(p.fiscal_year) === yearToUse) : periods;
 
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const currentForYear = periodsForYear.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
+
   const selectedPeriod =
-    (quota_period_id && periodsForYear.find((p) => String(p.id) === quota_period_id)) || periodsForYear[0] || null;
+    (quota_period_id && periodsForYear.find((p) => String(p.id) === quota_period_id)) || currentForYear || periodsForYear[0] || null;
 
   const prevPeriod =
     selectedPeriod && periods.length
