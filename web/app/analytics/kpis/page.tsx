@@ -1502,23 +1502,25 @@ export default async function QuarterlyKpisPage({
                             const hl = healthPctFrom30(createdAgg.lost_health_score);
 
                             const Card = (props: { label: string; value: ReactNode; sub?: ReactNode }) => (
-                              <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                                <div className="text-xs text-[color:var(--sf-text-secondary)]">{props.label}</div>
-                                <div className="mt-1 font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{props.value}</div>
-                                {props.sub ? <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">{props.sub}</div> : null}
+                              <div className="min-w-0 overflow-hidden rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-2">
+                                <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">{props.label}</div>
+                                <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
+                                  {props.value}
+                                </div>
+                                {props.sub ? <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">{props.sub}</div> : null}
                               </div>
                             );
 
                             return (
-                              <div className="mt-2 grid gap-2">
-                                <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+                              <div className="mt-2 grid w-full max-w-full gap-2">
+                                <div className="grid w-full max-w-full gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
                                   <Card label="Commit" value={fmtMoney(cAmt)} sub={<span># Opps: {fmtNum(cCnt)}</span>} />
                                   <Card label="Best Case" value={fmtMoney(bAmt)} sub={<span># Opps: {fmtNum(bCnt)}</span>} />
                                   <Card label="Pipeline" value={fmtMoney(pAmt)} sub={<span># Opps: {fmtNum(pCnt)}</span>} />
                                   <Card label="Total Pipeline" value={fmtMoney(tAmt)} sub={<span># Opps: {fmtNum(tCnt)}</span>} />
                                 </div>
 
-                                <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+                                <div className="grid w-full max-w-full gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
                                   <Card
                                     label="Commit (health)"
                                     value={<span className={healthColorClass(hc)}>{hc == null ? "—" : `${hc}%`}</span>}
@@ -1546,7 +1548,7 @@ export default async function QuarterlyKpisPage({
                                   />
                                 </div>
 
-                                <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+                                <div className="grid w-full max-w-full gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
                                   <Card label="Forecast Mix: Commit" value={fmtPct(mixCommit)} sub="Commit / Best / Pipeline" />
                                   <Card label="Forecast Mix: Best" value={fmtPct(mixBest)} sub="Commit / Best / Pipeline" />
                                   <Card label="Forecast Mix: Pipeline" value={fmtPct(mixPipeline)} sub="Commit / Best / Pipeline" />
