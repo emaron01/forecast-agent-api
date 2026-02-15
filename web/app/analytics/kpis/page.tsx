@@ -1349,44 +1349,69 @@ export default async function QuarterlyKpisPage({
                             const totalPipelineAmt = commitTotal + bestTotal + pipelineTotal;
                             const pctToGoal = quotaTotal > 0 ? wonAmountTotal / quotaTotal : null;
 
-                            const boxClass = "rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2";
+                            const boxClass =
+                              "min-w-0 overflow-hidden rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-2";
 
                             return (
-                              <div className="mt-2 grid w-full gap-2 text-sm grid-cols-[repeat(auto-fit,minmax(160px,1fr))]">
+                              <div className="mt-2 grid w-full max-w-full gap-2 text-sm grid-cols-[repeat(auto-fit,minmax(140px,1fr))]">
                                 <div className={boxClass}>
-                                  <div className="text-xs text-[color:var(--sf-text-secondary)]">Commit</div>
-                                  <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(commitTotal)}</div>
-                                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]"># Opps: {fmtNum(commitCount)}</div>
+                                  <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Commit</div>
+                                  <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
+                                    {fmtMoney(commitTotal)}
+                                  </div>
+                                  <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
+                                    # Opps: {fmtNum(commitCount)}
+                                  </div>
                                 </div>
                                 <div className={boxClass}>
-                                  <div className="text-xs text-[color:var(--sf-text-secondary)]">Best Case</div>
-                                  <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(bestTotal)}</div>
-                                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]"># Opps: {fmtNum(bestCount)}</div>
+                                  <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Best Case</div>
+                                  <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
+                                    {fmtMoney(bestTotal)}
+                                  </div>
+                                  <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
+                                    # Opps: {fmtNum(bestCount)}
+                                  </div>
                                 </div>
                                 <div className={boxClass}>
-                                  <div className="text-xs text-[color:var(--sf-text-secondary)]">Pipeline</div>
-                                  <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(pipelineTotal)}</div>
-                                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]"># Opps: {fmtNum(pipelineCount)}</div>
+                                  <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Pipeline</div>
+                                  <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
+                                    {fmtMoney(pipelineTotal)}
+                                  </div>
+                                  <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
+                                    # Opps: {fmtNum(pipelineCount)}
+                                  </div>
                                 </div>
                                 <div className={boxClass}>
-                                  <div className="text-xs text-[color:var(--sf-text-secondary)]">Total Pipeline</div>
-                                  <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(totalPipelineAmt)}</div>
-                                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]"># Opps: {fmtNum(totalPipelineCount)}</div>
+                                  <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Total Pipeline</div>
+                                  <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
+                                    {fmtMoney(totalPipelineAmt)}
+                                  </div>
+                                  <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
+                                    # Opps: {fmtNum(totalPipelineCount)}
+                                  </div>
                                 </div>
                                 <div className={boxClass}>
-                                  <div className="text-xs text-[color:var(--sf-text-secondary)]">Closed Won</div>
-                                  <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(wonAmountTotal)}</div>
-                                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]"># Opps: {fmtNum(wonCountTotal)}</div>
+                                  <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Closed Won</div>
+                                  <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
+                                    {fmtMoney(wonAmountTotal)}
+                                  </div>
+                                  <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
+                                    # Opps: {fmtNum(wonCountTotal)}
+                                  </div>
                                 </div>
                                 <div className={boxClass}>
-                                  <div className="text-xs text-[color:var(--sf-text-secondary)]">Quarterly Quota</div>
-                                  <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(quotaTotal)}</div>
-                                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">&nbsp;</div>
+                                  <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Quarterly Quota</div>
+                                  <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
+                                    {fmtMoney(quotaTotal)}
+                                  </div>
+                                  <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">&nbsp;</div>
                                 </div>
                                 <div className={boxClass}>
-                                  <div className="text-xs text-[color:var(--sf-text-secondary)]">% To Goal</div>
-                                  <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(pctToGoal)}</div>
-                                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">&nbsp;</div>
+                                  <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">% To Goal</div>
+                                  <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
+                                    {fmtPct(pctToGoal)}
+                                  </div>
+                                  <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">&nbsp;</div>
                                 </div>
 
                                 <div className="col-span-full">
@@ -1466,7 +1491,9 @@ export default async function QuarterlyKpisPage({
                             const pCnt = Number(createdAgg.pipeline_count || 0) || 0;
                             const tCnt = cCnt + bCnt + pCnt;
 
-                            const mixStr = `${fmtPct(safeDiv(cAmt, tAmt))} / ${fmtPct(safeDiv(bAmt, tAmt))} / ${fmtPct(safeDiv(pAmt, tAmt))}`;
+                            const mixCommit = safeDiv(cAmt, tAmt);
+                            const mixBest = safeDiv(bAmt, tAmt);
+                            const mixPipeline = safeDiv(pAmt, tAmt);
 
                             const hc = healthPctFrom30(createdAgg.commit_health_score);
                             const hb = healthPctFrom30(createdAgg.best_health_score);
@@ -1474,56 +1501,55 @@ export default async function QuarterlyKpisPage({
                             const hw = healthPctFrom30(createdAgg.won_health_score);
                             const hl = healthPctFrom30(createdAgg.lost_health_score);
 
-                            const healthMix = `C ${hc == null ? "—" : `${hc}%`} · B ${hb == null ? "—" : `${hb}%`} · P ${hp == null ? "—" : `${hp}%`} · W ${hw == null ? "—" : `${hw}%`} · Cl ${hl == null ? "—" : `${hl}%`}`;
-
                             const Card = (props: { label: string; value: ReactNode; sub?: ReactNode }) => (
-                              <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-3">
+                              <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
                                 <div className="text-xs text-[color:var(--sf-text-secondary)]">{props.label}</div>
-                                <div className="mt-1 font-mono text-base font-semibold text-[color:var(--sf-text-primary)]">{props.value}</div>
+                                <div className="mt-1 font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{props.value}</div>
                                 {props.sub ? <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">{props.sub}</div> : null}
                               </div>
                             );
 
                             return (
                               <div className="mt-2 grid gap-2">
-                                <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
+                                <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
                                   <Card label="Commit" value={fmtMoney(cAmt)} sub={<span># Opps: {fmtNum(cCnt)}</span>} />
                                   <Card label="Best Case" value={fmtMoney(bAmt)} sub={<span># Opps: {fmtNum(bCnt)}</span>} />
                                   <Card label="Pipeline" value={fmtMoney(pAmt)} sub={<span># Opps: {fmtNum(pCnt)}</span>} />
                                   <Card label="Total Pipeline" value={fmtMoney(tAmt)} sub={<span># Opps: {fmtNum(tCnt)}</span>} />
                                 </div>
 
-                                <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-5">
+                                <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
                                   <Card
-                                    label="Commit Health"
+                                    label="Commit (health)"
                                     value={<span className={healthColorClass(hc)}>{hc == null ? "—" : `${hc}%`}</span>}
                                     sub={<span># Opps: {fmtNum(cCnt)}</span>}
                                   />
                                   <Card
-                                    label="Best Case Health"
+                                    label="Best Case (health)"
                                     value={<span className={healthColorClass(hb)}>{hb == null ? "—" : `${hb}%`}</span>}
                                     sub={<span># Opps: {fmtNum(bCnt)}</span>}
                                   />
                                   <Card
-                                    label="Pipeline Health"
+                                    label="Pipeline (health)"
                                     value={<span className={healthColorClass(hp)}>{hp == null ? "—" : `${hp}%`}</span>}
                                     sub={<span># Opps: {fmtNum(pCnt)}</span>}
                                   />
                                   <Card
-                                    label="Won Health"
+                                    label="Won (health)"
                                     value={<span className={healthColorClass(hw)}>{hw == null ? "—" : `${hw}%`}</span>}
                                     sub={<span># Deals: {fmtNum(Number(createdAgg.won_count || 0) || 0)}</span>}
                                   />
                                   <Card
-                                    label="Closed Loss Health"
+                                    label="Lost (health)"
                                     value={<span className={healthColorClass(hl)}>{hl == null ? "—" : `${hl}%`}</span>}
                                     sub={<span># Deals: {fmtNum(Number(createdAgg.lost_count || 0) || 0)}</span>}
                                   />
                                 </div>
 
-                                <div className="flex flex-wrap gap-2 text-xs">
-                                  <Chip label="Forecast Mix (C/B/P)" value={mixStr} sub="Commit / Best / Pipeline" />
-                                  <Chip label="Health Mix (C/B/P/W/Cl)" value={healthMix} />
+                                <div className="grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+                                  <Card label="Forecast Mix: Commit" value={fmtPct(mixCommit)} sub="Commit / Best / Pipeline" />
+                                  <Card label="Forecast Mix: Best" value={fmtPct(mixBest)} sub="Commit / Best / Pipeline" />
+                                  <Card label="Forecast Mix: Pipeline" value={fmtPct(mixPipeline)} sub="Commit / Best / Pipeline" />
                                 </div>
                               </div>
                             );
