@@ -58,15 +58,6 @@ export async function QuarterSalesForecastSummary(props: {
   user: AuthUser;
   currentPath: string;
   searchParams?: Record<string, string | string[] | undefined>;
-  // Optional: override visibility scoping and compute for a specific rep/team slice.
-  // Useful for manager viewing a specific REP dashboard.
-  scope?: {
-    repIds?: number[];
-    repNameKeys?: string[];
-    headlineName?: string;
-  };
-  // Optional: hide/show rep breakdown table (managers/admins).
-  showBreakdown?: boolean;
 }) {
   const selectedQuotaPeriodId = String(sp(props.searchParams?.quota_period_id) || "").trim();
   const selectedFiscalYear = String(sp(props.searchParams?.fiscal_year) || "").trim();
@@ -133,66 +124,51 @@ export async function QuarterSalesForecastSummary(props: {
   const qpId = selected ? String(selected.id) : "";
 
   const role = props.user.role;
-  const showBreakdown = props.showBreakdown ?? true;
+  const visibleUsers = await getVisibleUsers({
+    currentUserId: props.user.id,
+    orgId: props.orgId,
+    role,
+    hierarchy_level: props.user.hierarchy_level,
+    see_all_visibility: props.user.see_all_visibility,
+  }).catch(() => []);
 
-  const scopeRepIds =
-    props.scope?.repIds?.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0) || [];
-  const scopeRepNameKeys = Array.from(new Set((props.scope?.repNameKeys || []).map(normalizeNameKey).filter(Boolean)));
-
-  const visibleUsers = props.scope
-    ? []
-    : await getVisibleUsers({
-        currentUserId: props.user.id,
-        orgId: props.orgId,
-        role,
-        hierarchy_level: props.user.hierarchy_level,
-        see_all_visibility: props.user.see_all_visibility,
-      }).catch(() => []);
-
-  const visibleRepUsers = props.scope ? [] : (visibleUsers || []).filter((u) => u && u.role === "REP" && u.active);
-  const visibleRepUserIds = props.scope
-    ? []
-    : Array.from(new Set(visibleRepUsers.map((u) => Number(u.id)).filter((n) => Number.isFinite(n) && n > 0)));
-  const visibleRepNameKeys = props.scope
-    ? scopeRepNameKeys
-    : Array.from(new Set(visibleRepUsers.map((u) => normalizeNameKey(u.account_owner_name || "")).filter(Boolean)));
+  const visibleRepUsers = (visibleUsers || []).filter((u) => u && u.role === "REP" && u.active);
+  const visibleRepUserIds = Array.from(new Set(visibleRepUsers.map((u) => Number(u.id)).filter((n) => Number.isFinite(n) && n > 0)));
+  const visibleRepNameKeys = Array.from(
+    new Set(visibleRepUsers.map((u) => normalizeNameKey(u.account_owner_name || "")).filter(Boolean))
+  );
 
   // Map visible REP users -> rep ids when possible (opportunities.rep_id is reps.id).
-  const { rows: repRows } = props.scope
-    ? { rows: [] as any[] }
-    : visibleRepUserIds.length
-      ? await pool
-          .query<{ id: number; rep_name: string | null; crm_owner_name: string | null; display_name: string | null; user_id: number | null }>(
-            `
-            SELECT r.id, r.rep_name, r.crm_owner_name, r.display_name, r.user_id
-              FROM reps r
-             WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
-               AND (
-                 r.user_id = ANY($2::int[])
-                 OR (
-                   COALESCE(array_length($3::text[], 1), 0) > 0
-                   AND (
-                     lower(regexp_replace(btrim(COALESCE(r.crm_owner_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
-                     OR lower(regexp_replace(btrim(COALESCE(r.rep_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
-                     OR lower(regexp_replace(btrim(COALESCE(r.display_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
-                   )
+  const { rows: repRows } = visibleRepUserIds.length
+    ? await pool
+        .query<{ id: number; rep_name: string | null; crm_owner_name: string | null; display_name: string | null; user_id: number | null }>(
+          `
+          SELECT r.id, r.rep_name, r.crm_owner_name, r.display_name, r.user_id
+            FROM reps r
+           WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+             AND (
+               r.user_id = ANY($2::int[])
+               OR (
+                 COALESCE(array_length($3::text[], 1), 0) > 0
+                 AND (
+                   lower(regexp_replace(btrim(COALESCE(r.crm_owner_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
+                   OR lower(regexp_replace(btrim(COALESCE(r.rep_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
+                   OR lower(regexp_replace(btrim(COALESCE(r.display_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
                  )
                )
-            `,
-            [props.orgId, visibleRepUserIds, visibleRepNameKeys]
-          )
-          .then((r) => ({ rows: (r.rows || []) as any[] }))
-          .catch(() => ({ rows: [] as any[] }))
-      : { rows: [] as any[] };
+             )
+          `,
+          [props.orgId, visibleRepUserIds, visibleRepNameKeys]
+        )
+        .then((r) => ({ rows: (r.rows || []) as any[] }))
+        .catch(() => ({ rows: [] as any[] }))
+    : { rows: [] as any[] };
 
-  const repIdsToUse = props.scope
-    ? Array.from(new Set(scopeRepIds))
-    : Array.from(new Set((repRows || []).map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0)));
+  const repIdsToUse = Array.from(new Set((repRows || []).map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0)));
 
   // For REP users, keep a friendly headline; for managers/admins, show a team headline.
-  const repNameForHeadline = props.scope?.headlineName
-    ? String(props.scope.headlineName || "").trim()
-    : role === "REP"
+  const repNameForHeadline =
+    role === "REP"
       ? (userRepName || String(props.user.display_name || "").trim())
       : String(props.user.display_name || "").trim();
 
@@ -646,10 +622,10 @@ export async function QuarterSalesForecastSummary(props: {
         </div>
       </div>
 
-      {showBreakdown && role !== "REP" && repRollups.length ? (
+      {role !== "REP" && repRollups.length ? (
         <details className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
           <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">
-            Individual Rep Forcast ({repRollups.length})
+            Rep breakdown ({repRollups.length})
           </summary>
           <div className="mt-3 overflow-x-auto">
             <table className="min-w-[760px] table-auto border-collapse text-sm">

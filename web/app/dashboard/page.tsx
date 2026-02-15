@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { UserTopNav } from "../_components/UserTopNav";
 import { dateOnly } from "../../lib/dateOnly";
 import { QuarterSalesForecastSummary } from "../forecast/_components/QuarterSalesForecastSummary";
+import { QuarterRepAnalytics } from "./_components/QuarterRepAnalytics";
 
 export const runtime = "nodejs";
 
@@ -178,8 +179,9 @@ export default async function DashboardPage({
           />
         </div>
 
+        <QuarterRepAnalytics orgId={ctx.user.org_id} user={ctx.user} searchParams={searchParams} />
+
         <section className="mt-6 grid gap-4 md:grid-cols-3">
-          <ActionCard href="/analytics" title="Analytics" desc="Attainment dashboards + comparisons." />
           <ActionCard href="/forecast" title="Sales Opportunities" desc="Primary rep opportunities dashboard." />
           <ActionCard href="/dashboard/excel-upload" title="Upload Opportunities" desc="Upload an Excel file of opportunities." />
         </section>
