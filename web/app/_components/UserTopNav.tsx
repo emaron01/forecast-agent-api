@@ -26,7 +26,7 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
               width={520}
               height={120}
               priority={false}
-              className="h-full w-auto object-contain"
+              className="h-[22px] w-auto object-contain"
             />
           </Link>
           <nav className="flex flex-wrap items-center gap-1">
