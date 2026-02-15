@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { pool } from "../../../lib/pool";
 import type { AuthUser } from "../../../lib/auth";
+import { getVisibleUsers } from "../../../lib/db";
 
 type QuotaPeriodOption = {
   id: string; // bigint as text
@@ -39,6 +40,17 @@ function fmtPct(n: number | null) {
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
+}
+
+function normalizeNameKey(s: any) {
+  // Must match the Postgres normalization used in queries.
+  // - trim
+  // - collapse whitespace
+  // - lowercase
+  return String(s || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
 }
 
 export async function QuarterSalesForecastSummary(props: {
@@ -111,60 +123,73 @@ export async function QuarterSalesForecastSummary(props: {
 
   const qpId = selected ? String(selected.id) : "";
 
-  const repMatch = await pool
-    .query<{ id: number; crm_owner_name: string | null; rep_name: string | null; display_name: string | null }>(
-      `
-      SELECT r.id, r.crm_owner_name, r.rep_name, r.display_name
-        FROM reps r
-       WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1
-         AND (
-           r.user_id = $2
-           OR (
-             $3 <> ''
-             AND (
-               lower(regexp_replace(btrim(COALESCE(r.crm_owner_name, '')), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim($3), '\\s+', ' ', 'g'))
-               OR lower(regexp_replace(btrim(COALESCE(r.rep_name, '')), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim($3), '\\s+', ' ', 'g'))
-               OR lower(regexp_replace(btrim(COALESCE(r.display_name, '')), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim($3), '\\s+', ' ', 'g'))
-             )
-           )
-         )
-       ORDER BY
-         CASE
-           WHEN r.user_id = $2 THEN 0
-           WHEN lower(regexp_replace(btrim(COALESCE(r.crm_owner_name, '')), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim($3), '\\s+', ' ', 'g')) THEN 1
-           WHEN lower(regexp_replace(btrim(COALESCE(r.rep_name, '')), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim($3), '\\s+', ' ', 'g')) THEN 2
-           WHEN lower(regexp_replace(btrim(COALESCE(r.display_name, '')), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim($3), '\\s+', ' ', 'g')) THEN 3
-           ELSE 9
-         END,
-         r.id ASC
-       LIMIT 1
-      `,
-      [props.orgId, props.user.id, userRepName]
-    )
-    .then((r) => (r.rows?.[0] ? (r.rows[0] as any) : null))
-    .catch(() => null);
+  const role = props.user.role;
+  const visibleUsers = await getVisibleUsers({
+    currentUserId: props.user.id,
+    orgId: props.orgId,
+    role,
+    hierarchy_level: props.user.hierarchy_level,
+    see_all_visibility: props.user.see_all_visibility,
+  }).catch(() => []);
 
-  const repId = repMatch && Number.isFinite((repMatch as any).id) ? Number((repMatch as any).id) : null;
-  const repName =
-    String(repMatch?.crm_owner_name || "").trim() ||
-    String(repMatch?.rep_name || "").trim() ||
-    String(repMatch?.display_name || "").trim() ||
-    userRepName;
+  const visibleRepUsers = (visibleUsers || []).filter((u) => u && u.role === "REP" && u.active);
+  const visibleRepUserIds = Array.from(new Set(visibleRepUsers.map((u) => Number(u.id)).filter((n) => Number.isFinite(n) && n > 0)));
+  const visibleRepNameKeys = Array.from(
+    new Set(visibleRepUsers.map((u) => normalizeNameKey(u.account_owner_name || "")).filter(Boolean))
+  );
 
-  const canCompute = !!qpId && (repId != null || !!repName);
-
-  const sums = canCompute
+  // Map visible REP users -> rep ids when possible (opportunities.rep_id is reps.id).
+  const { rows: repRows } = visibleRepUserIds.length
     ? await pool
-        .query<{
-          commit_amount: number;
-          commit_count: number;
-          best_case_amount: number;
-          best_case_count: number;
-          pipeline_amount: number;
-          pipeline_count: number;
-          won_amount: number;
-          won_count: number;
-        }>(
+        .query<{ id: number; rep_name: string | null; crm_owner_name: string | null; display_name: string | null; user_id: number | null }>(
+          `
+          SELECT r.id, r.rep_name, r.crm_owner_name, r.display_name, r.user_id
+            FROM reps r
+           WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+             AND (
+               r.user_id = ANY($2::int[])
+               OR (
+                 COALESCE(array_length($3::text[], 1), 0) > 0
+                 AND (
+                   lower(regexp_replace(btrim(COALESCE(r.crm_owner_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
+                   OR lower(regexp_replace(btrim(COALESCE(r.rep_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
+                   OR lower(regexp_replace(btrim(COALESCE(r.display_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
+                 )
+               )
+             )
+          `,
+          [props.orgId, visibleRepUserIds, visibleRepNameKeys]
+        )
+        .then((r) => ({ rows: (r.rows || []) as any[] }))
+        .catch(() => ({ rows: [] as any[] }))
+    : { rows: [] as any[] };
+
+  const repIdsToUse = Array.from(new Set((repRows || []).map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0)));
+
+  // For REP users, keep a friendly headline; for managers/admins, show a team headline.
+  const repNameForHeadline =
+    role === "REP"
+      ? (userRepName || String(props.user.display_name || "").trim())
+      : String(props.user.display_name || "").trim();
+
+  const canCompute = !!qpId && (repIdsToUse.length > 0 || visibleRepNameKeys.length > 0);
+
+  type RepQuarterRollupRow = {
+    rep_id: string; // may be '' when unknown
+    rep_name: string;
+    commit_amount: number;
+    commit_count: number;
+    best_case_amount: number;
+    best_case_count: number;
+    pipeline_amount: number;
+    pipeline_count: number;
+    won_amount: number;
+    won_count: number;
+  };
+
+  const repRollups: RepQuarterRollupRow[] = canCompute
+    ? await pool
+        .query<RepQuarterRollupRow>(
           `
           WITH qp AS (
             SELECT period_start::date AS period_start, period_end::date AS period_end
@@ -176,6 +201,8 @@ export async function QuarterSalesForecastSummary(props: {
           deals AS (
             SELECT
               COALESCE(o.amount, 0) AS amount,
+              o.rep_id,
+              o.rep_name,
               -- Use forecast_stage when present; fall back to sales_stage (many CRMs mark Won/Lost there).
               lower(
                 regexp_replace(
@@ -195,14 +222,12 @@ export async function QuarterSalesForecastSummary(props: {
                 ELSE NULL
               END AS close_d
             FROM opportunities o
-            JOIN qp ON TRUE
             WHERE o.org_id = $1
               AND (
-                ($3::bigint IS NOT NULL AND o.rep_id = $3::bigint)
+                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
                 OR (
-                  $4 <> ''
-                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) =
-                    lower(regexp_replace(btrim($4), '\\s+', ' ', 'g'))
+                  COALESCE(array_length($4::text[], 1), 0) > 0
+                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
                 )
               )
           ),
@@ -215,6 +240,14 @@ export async function QuarterSalesForecastSummary(props: {
                AND d.close_d <= qp.period_end
           )
           SELECT
+            COALESCE(d.rep_id::text, '') AS rep_id,
+            COALESCE(
+              NULLIF(btrim(r.rep_name), ''),
+              NULLIF(btrim(r.crm_owner_name), ''),
+              NULLIF(btrim(r.display_name), ''),
+              NULLIF(btrim(d.rep_name), ''),
+              '(Unknown rep)'
+            ) AS rep_name,
             COALESCE(SUM(CASE
               WHEN ((' ' || d.fs || ' ') LIKE '% won %')
                 OR ((' ' || d.fs || ' ') LIKE '% lost %')
@@ -268,29 +301,41 @@ export async function QuarterSalesForecastSummary(props: {
             COALESCE(SUM(CASE
               WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN d.amount
               ELSE 0
-            END), 0)::float8 AS won_amount
-            ,
+            END), 0)::float8 AS won_amount,
             COALESCE(SUM(CASE
               WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN 1
               ELSE 0
             END), 0)::int AS won_count
           FROM deals_in_qtr d
+          LEFT JOIN reps r
+            ON r.id = d.rep_id
+           AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+          GROUP BY
+            COALESCE(d.rep_id::text, ''),
+            COALESCE(
+              NULLIF(btrim(r.rep_name), ''),
+              NULLIF(btrim(r.crm_owner_name), ''),
+              NULLIF(btrim(r.display_name), ''),
+              NULLIF(btrim(d.rep_name), ''),
+              '(Unknown rep)'
+            )
+          ORDER BY rep_name ASC, rep_id ASC
           `,
-          [props.orgId, qpId, repId, repName]
+          [props.orgId, qpId, repIdsToUse, visibleRepNameKeys]
         )
-        .then((r) => r.rows?.[0] || null)
-        .catch(() => null)
-    : null;
+        .then((r) => (r.rows || []) as any[])
+        .catch(() => [])
+    : [];
 
-  const commitAmt = Number(sums?.commit_amount || 0) || 0;
-  const commitCount = Number(sums?.commit_count || 0) || 0;
-  const bestCaseAmt = Number(sums?.best_case_amount || 0) || 0;
-  const bestCaseCount = Number(sums?.best_case_count || 0) || 0;
-  const pipelineAmt = Number(sums?.pipeline_amount || 0) || 0;
-  const pipelineCount = Number(sums?.pipeline_count || 0) || 0;
+  const commitAmt = repRollups.reduce((acc, r) => acc + (Number(r.commit_amount || 0) || 0), 0);
+  const commitCount = repRollups.reduce((acc, r) => acc + (Number(r.commit_count || 0) || 0), 0);
+  const bestCaseAmt = repRollups.reduce((acc, r) => acc + (Number(r.best_case_amount || 0) || 0), 0);
+  const bestCaseCount = repRollups.reduce((acc, r) => acc + (Number(r.best_case_count || 0) || 0), 0);
+  const pipelineAmt = repRollups.reduce((acc, r) => acc + (Number(r.pipeline_amount || 0) || 0), 0);
+  const pipelineCount = repRollups.reduce((acc, r) => acc + (Number(r.pipeline_count || 0) || 0), 0);
   const totalAmt = commitAmt + bestCaseAmt + pipelineAmt;
-  const wonAmt = Number(sums?.won_amount || 0) || 0;
-  const wonCount = Number(sums?.won_count || 0) || 0;
+  const wonAmt = repRollups.reduce((acc, r) => acc + (Number(r.won_amount || 0) || 0), 0);
+  const wonCount = repRollups.reduce((acc, r) => acc + (Number(r.won_count || 0) || 0), 0);
   const totalPipelineCount = commitCount + bestCaseCount + pipelineCount;
 
   const debugInfo =
@@ -338,19 +383,20 @@ export async function QuarterSalesForecastSummary(props: {
                   ELSE NULL
                 END AS close_d,
                 CASE
-                  WHEN ($3::bigint IS NOT NULL AND o.rep_id = $3::bigint) THEN 'rep_id'
-                  WHEN ($4 <> '' AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) =
-                                  lower(regexp_replace(btrim($4), '\\s+', ' ', 'g'))) THEN 'rep_name'
+                  WHEN (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[])) THEN 'rep_id'
+                  WHEN (
+                    COALESCE(array_length($4::text[], 1), 0) > 0
+                    AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+                  ) THEN 'rep_name'
                   ELSE 'none'
                 END AS match_kind
               FROM opportunities o
               WHERE o.org_id = $1
                 AND (
-                  ($3::bigint IS NOT NULL AND o.rep_id = $3::bigint)
+                  (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
                   OR (
-                    $4 <> ''
-                    AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) =
-                      lower(regexp_replace(btrim($4), '\\s+', ' ', 'g'))
+                    COALESCE(array_length($4::text[], 1), 0) > 0
+                    AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
                   )
                 )
             ),
@@ -373,7 +419,7 @@ export async function QuarterSalesForecastSummary(props: {
             GROUP BY diq.match_kind
             ORDER BY diq.match_kind ASC
             `,
-            [props.orgId, qpId, repId, repName]
+            [props.orgId, qpId, repIdsToUse, visibleRepNameKeys]
           )
           .then((r) => r.rows || [])
           .catch(() => [])
@@ -429,19 +475,20 @@ export async function QuarterSalesForecastSummary(props: {
                   ELSE NULL
                 END AS close_d,
                 CASE
-                  WHEN ($3::bigint IS NOT NULL AND o.rep_id = $3::bigint) THEN 'rep_id'
-                  WHEN ($4 <> '' AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) =
-                                  lower(regexp_replace(btrim($4), '\\s+', ' ', 'g'))) THEN 'rep_name'
+                  WHEN (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[])) THEN 'rep_id'
+                  WHEN (
+                    COALESCE(array_length($4::text[], 1), 0) > 0
+                    AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+                  ) THEN 'rep_name'
                   ELSE 'none'
                 END AS match_kind
               FROM opportunities o
               WHERE o.org_id = $1
                 AND (
-                  ($3::bigint IS NOT NULL AND o.rep_id = $3::bigint)
+                  (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
                   OR (
-                    $4 <> ''
-                    AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) =
-                      lower(regexp_replace(btrim($4), '\\s+', ' ', 'g'))
+                    COALESCE(array_length($4::text[], 1), 0) > 0
+                    AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
                   )
                 )
             )
@@ -454,14 +501,14 @@ export async function QuarterSalesForecastSummary(props: {
              ORDER BY d.close_d ASC, d.amount DESC NULLS LAST, d.id ASC
              LIMIT 25
             `,
-            [props.orgId, qpId, repId, repName]
+            [props.orgId, qpId, repIdsToUse, visibleRepNameKeys]
           )
           .then((r) => r.rows || [])
           .catch(() => [])
       : null;
 
   const quotaAmt =
-    repId && qpId
+    repIdsToUse.length && qpId
       ? await pool
           .query<{ quota_amount: number }>(
             `
@@ -469,10 +516,10 @@ export async function QuarterSalesForecastSummary(props: {
               FROM quotas
              WHERE org_id = $1::bigint
                AND role_level = 3
-               AND rep_id = $2::bigint
-               AND quota_period_id = $3::bigint
+               AND quota_period_id = $2::bigint
+               AND rep_id = ANY($3::bigint[])
             `,
-            [props.orgId, repId, qpId]
+            [props.orgId, qpId, repIdsToUse]
           )
           .then((r) => Number(r.rows?.[0]?.quota_amount || 0) || 0)
           .catch(() => 0)
@@ -481,7 +528,14 @@ export async function QuarterSalesForecastSummary(props: {
   const pctToGoal = quotaAmt > 0 ? wonAmt / quotaAmt : null;
   const pctToGoalClass = pctToGoal != null && pctToGoal >= 1 ? "text-[#16A34A]" : "text-black";
   const boxClass = "rounded-lg border border-[#93C5FD] bg-[#DBEAFE] px-3 py-2 text-black";
-  const headline = repName ? `${repName}'s Quarterly Sales Forecast` : "Quarterly Sales Forecast";
+  const headline =
+    role === "REP"
+      ? repNameForHeadline
+        ? `${repNameForHeadline}'s Quarterly Sales Forecast`
+        : "Quarterly Sales Forecast"
+      : repNameForHeadline
+        ? `${repNameForHeadline}'s Team Quarterly Sales Forecast`
+        : "Quarterly Sales Forecast";
 
   return (
     <section className="mb-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
@@ -515,7 +569,7 @@ export async function QuarterSalesForecastSummary(props: {
               Apply
             </button>
           </form>
-          {!repName ? (
+          {role === "REP" && !userRepName ? (
             <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
               Rep visibility is restricted to your own records, but your account is missing `account_owner_name`.
             </div>
@@ -568,6 +622,61 @@ export async function QuarterSalesForecastSummary(props: {
         </div>
       </div>
 
+      {role !== "REP" && repRollups.length ? (
+        <details className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+          <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">
+            Rep breakdown ({repRollups.length})
+          </summary>
+          <div className="mt-3 overflow-x-auto">
+            <table className="min-w-[760px] table-auto border-collapse text-sm">
+              <thead>
+                <tr className="text-left text-xs text-[color:var(--sf-text-secondary)]">
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Rep</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Commit</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Best Case</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Pipeline</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Total Pipeline</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Closed Won</th>
+                </tr>
+              </thead>
+              <tbody>
+                {repRollups.map((r) => {
+                  const cAmt = Number(r.commit_amount || 0) || 0;
+                  const bcAmt = Number(r.best_case_amount || 0) || 0;
+                  const pAmt = Number(r.pipeline_amount || 0) || 0;
+                  const tAmt = cAmt + bcAmt + pAmt;
+                  const key = `${r.rep_id || "name"}:${r.rep_name}`;
+                  return (
+                    <tr key={key} className="text-[color:var(--sf-text-primary)]">
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">{r.rep_name}</td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                        <div className="font-mono text-xs font-semibold">{fmtMoney(cAmt)}</div>
+                        <div className="text-[11px] text-[color:var(--sf-text-secondary)]"># {Number(r.commit_count || 0) || 0}</div>
+                      </td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                        <div className="font-mono text-xs font-semibold">{fmtMoney(bcAmt)}</div>
+                        <div className="text-[11px] text-[color:var(--sf-text-secondary)]"># {Number(r.best_case_count || 0) || 0}</div>
+                      </td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                        <div className="font-mono text-xs font-semibold">{fmtMoney(pAmt)}</div>
+                        <div className="text-[11px] text-[color:var(--sf-text-secondary)]"># {Number(r.pipeline_count || 0) || 0}</div>
+                      </td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                        <div className="font-mono text-xs font-semibold">{fmtMoney(tAmt)}</div>
+                      </td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                        <div className="font-mono text-xs font-semibold">{fmtMoney(Number(r.won_amount || 0) || 0)}</div>
+                        <div className="text-[11px] text-[color:var(--sf-text-secondary)]"># {Number(r.won_count || 0) || 0}</div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      ) : null}
+
       {debug ? (
         <details className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
           <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">
@@ -584,9 +693,14 @@ export async function QuarterSalesForecastSummary(props: {
                     yearToUse,
                     selectedFiscalYearParam: selectedFiscalYear || null,
                     selectedQuotaPeriodIdParam: selectedQuotaPeriodId || null,
-                    repId,
-                    repName,
+                    role,
+                    hierarchy_level: props.user.hierarchy_level,
+                    see_all_visibility: props.user.see_all_visibility,
                     userRepName,
+                    visibleRepUserIds,
+                    visibleRepNameKeys,
+                    repIdsToUse,
+                    repNameForHeadline,
                     totals: {
                       commitAmt,
                       bestCaseAmt,
