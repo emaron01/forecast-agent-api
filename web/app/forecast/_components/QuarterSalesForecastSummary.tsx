@@ -527,9 +527,7 @@ export async function QuarterSalesForecastSummary(props: {
 
   const pctToGoal = quotaAmt > 0 ? wonAmt / quotaAmt : null;
   const pctToGoalValueClass = pctToGoal != null && pctToGoal >= 1 ? "text-[#16A34A]" : "";
-  const boxClass = "rounded-lg border border-[#93C5FD] bg-[#DBEAFE] px-3 py-2 text-black text-center";
-  const buttonBoxClass =
-    "rounded-lg border border-[color:var(--sf-button-primary-bg)] bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-center text-[color:var(--sf-button-primary-text)]";
+  const boxClass = "rounded-lg border border-[#93C5FD] bg-[#DBEAFE] px-3 py-2 text-black";
   const headline =
     role === "REP"
       ? repNameForHeadline
@@ -540,9 +538,9 @@ export async function QuarterSalesForecastSummary(props: {
         : "Quarterly Sales Forecast";
 
   return (
-    <section className="mb-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-[260px]">
+    <section className="mx-auto mb-4 w-full max-w-5xl rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+      <div className="grid gap-4">
+        <div>
           <div className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">{headline}</div>
           <form method="GET" action={props.currentPath} className="mt-2 flex items-center gap-2">
             <select
@@ -587,39 +585,41 @@ export async function QuarterSalesForecastSummary(props: {
           ) : null}
         </div>
 
-        <div className="grid w-full justify-center justify-items-center gap-3 text-sm sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
-          <div className={boxClass}>
+        <div className="grid w-full justify-items-stretch gap-3 text-sm sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
+          <div className={`${boxClass} w-full`}>
             <div className="text-sm text-black/70">Commit</div>
             <div className="font-mono text-sm font-semibold">{fmtMoney(commitAmt)}</div>
             <div className="mt-1 text-sm text-black/70"># Opps: {commitCount}</div>
           </div>
-          <div className={boxClass}>
+          <div className={`${boxClass} w-full`}>
             <div className="text-sm text-black/70">Best Case</div>
             <div className="font-mono text-sm font-semibold">{fmtMoney(bestCaseAmt)}</div>
             <div className="mt-1 text-sm text-black/70"># Opps: {bestCaseCount}</div>
           </div>
-          <div className={boxClass}>
+          <div className={`${boxClass} w-full`}>
             <div className="text-sm text-black/70">Pipeline</div>
             <div className="font-mono text-sm font-semibold">{fmtMoney(pipelineAmt)}</div>
             <div className="mt-1 text-sm text-black/70"># Opps: {pipelineCount}</div>
           </div>
-          <div className={boxClass}>
+          <div className={`${boxClass} w-full`}>
             <div className="text-sm text-black/70">Total Pipeline</div>
             <div className="font-mono text-sm font-semibold">{fmtMoney(totalAmt)}</div>
             <div className="mt-1 text-sm text-black/70"># Opps: {totalPipelineCount}</div>
           </div>
-          <div className={buttonBoxClass}>
-            <div className="text-sm opacity-80">Closed Won</div>
+          <div className={`${boxClass} w-full`}>
+            <div className="text-sm text-black/70">Closed Won</div>
             <div className="font-mono text-sm font-semibold">{fmtMoney(wonAmt)}</div>
-            <div className="mt-1 text-sm opacity-80"># Opps: {wonCount}</div>
+            <div className="mt-1 text-sm text-black/70"># Opps: {wonCount}</div>
           </div>
-          <div className={buttonBoxClass}>
-            <div className="text-sm opacity-80">Quarterly Quota</div>
+          <div className={`${boxClass} w-full`}>
+            <div className="text-sm text-black/70">Quarterly Quota</div>
             <div className="font-mono text-sm font-semibold">{fmtMoney(quotaAmt)}</div>
+            <div className="mt-1 text-sm text-black/70">&nbsp;</div>
           </div>
-          <div className={buttonBoxClass}>
-            <div className="text-sm opacity-80">% To Goal</div>
+          <div className={`${boxClass} w-full`}>
+            <div className="text-sm text-black/70">% To Goal</div>
             <div className={`font-mono text-sm font-semibold ${pctToGoalValueClass}`}>{fmtPct(pctToGoal)}</div>
+            <div className="mt-1 text-sm text-black/70">&nbsp;</div>
           </div>
         </div>
       </div>
