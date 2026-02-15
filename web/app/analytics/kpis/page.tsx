@@ -103,6 +103,40 @@ type RepPeriodKpisRow = {
 
 type CreatedByRepRow = { quota_period_id: string; rep_id: string; created_amount: number; created_count: number };
 type QuotaByRepRow = { quota_period_id: string; rep_id: string; quota_amount: number };
+type CreatedPipelineAggRow = {
+  quota_period_id: string;
+  commit_amount: number;
+  commit_count: number;
+  commit_health_score: number | null;
+  best_amount: number;
+  best_count: number;
+  best_health_score: number | null;
+  pipeline_amount: number;
+  pipeline_count: number;
+  pipeline_health_score: number | null;
+  won_count: number;
+  won_health_score: number | null;
+  lost_count: number;
+  lost_health_score: number | null;
+};
+
+type CreatedPipelineByRepRow = {
+  quota_period_id: string;
+  rep_id: string;
+  rep_name: string;
+  manager_rep_id: string | null;
+  manager_name: string | null;
+  commit_amount: number;
+  commit_count: number;
+  best_amount: number;
+  best_count: number;
+  pipeline_amount: number;
+  pipeline_count: number;
+  won_amount: number;
+  won_count: number;
+  lost_amount: number;
+  lost_count: number;
+};
 
 async function listQuotaPeriodsForOrg(orgId: number): Promise<QuotaPeriodLite[]> {
   const { rows } = await pool.query<QuotaPeriodLite>(
@@ -362,6 +396,184 @@ async function getCreatedByRep(args: { orgId: number; periodIds: string[]; repId
   return (rows || []) as any[];
 }
 
+async function getCreatedPipelineAggByPeriods(args: { orgId: number; periodIds: string[]; repIds: number[] | null }) {
+  const useRepFilter = !!(args.repIds && args.repIds.length);
+  const { rows } = await pool.query<CreatedPipelineAggRow>(
+    `
+    WITH periods AS (
+      SELECT
+        id::bigint AS quota_period_id,
+        period_start::date AS period_start,
+        period_end::date AS period_end
+      FROM quota_periods
+      WHERE org_id = $1::bigint
+        AND id = ANY($2::bigint[])
+    ),
+    base AS (
+      SELECT
+        p.quota_period_id::text AS quota_period_id,
+        COALESCE(o.amount, 0)::float8 AS amount,
+        o.health_score,
+        CASE
+          WHEN o.close_date IS NULL THEN NULL
+          WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+          WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+            to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+          ELSE NULL
+        END AS close_d,
+        p.period_start,
+        p.period_end,
+        lower(
+          regexp_replace(
+            COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+            '[^a-zA-Z]+',
+            ' ',
+            'g'
+          )
+        ) AS fs
+      FROM periods p
+      JOIN opportunities o
+        ON o.org_id = $1
+       AND o.rep_id IS NOT NULL
+       AND o.create_date IS NOT NULL
+       AND o.create_date::date >= p.period_start
+       AND o.create_date::date <= p.period_end
+       AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+    ),
+    classified AS (
+      SELECT
+        *,
+        (close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end) AS closed_in_qtr,
+        ((' ' || fs || ' ') LIKE '% won %') AS is_won_word,
+        ((' ' || fs || ' ') LIKE '% lost %') AS is_lost_word,
+        CASE
+          WHEN (close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end) AND ((' ' || fs || ' ') LIKE '% won %') THEN 'won'
+          WHEN (close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end) AND ((' ' || fs || ' ') LIKE '% lost %') THEN 'lost'
+          WHEN NOT (close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end) AND fs LIKE '%commit%' THEN 'commit'
+          WHEN NOT (close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end) AND fs LIKE '%best%' THEN 'best'
+          WHEN NOT (close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end) THEN 'pipeline'
+          ELSE 'other'
+        END AS bucket,
+        (NOT ((close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end) AND ((' ' || fs || ' ') LIKE '% won %'))
+          AND NOT ((close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end) AND ((' ' || fs || ' ') LIKE '% lost %'))
+        ) AS is_active
+      FROM base
+    )
+    SELECT
+      quota_period_id,
+      COALESCE(SUM(CASE WHEN is_active AND bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
+      COALESCE(SUM(CASE WHEN is_active AND bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
+      AVG(CASE WHEN is_active AND bucket = 'commit' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS commit_health_score,
+      COALESCE(SUM(CASE WHEN is_active AND bucket = 'best' THEN amount ELSE 0 END), 0)::float8 AS best_amount,
+      COALESCE(SUM(CASE WHEN is_active AND bucket = 'best' THEN 1 ELSE 0 END), 0)::int AS best_count,
+      AVG(CASE WHEN is_active AND bucket = 'best' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS best_health_score,
+      COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+      COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
+      AVG(CASE WHEN is_active AND bucket = 'pipeline' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS pipeline_health_score,
+      COALESCE(SUM(CASE WHEN bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS won_count,
+      AVG(CASE WHEN bucket = 'won' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS won_health_score,
+      COALESCE(SUM(CASE WHEN bucket = 'lost' THEN 1 ELSE 0 END), 0)::int AS lost_count,
+      AVG(CASE WHEN bucket = 'lost' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS lost_health_score
+    FROM classified
+    GROUP BY quota_period_id
+    ORDER BY quota_period_id DESC
+    `,
+    [args.orgId, args.periodIds, args.repIds || [], useRepFilter]
+  );
+  return (rows || []) as any[];
+}
+
+async function getCreatedPipelineByRepByPeriods(args: { orgId: number; periodIds: string[]; repIds: number[] | null }) {
+  const useRepFilter = !!(args.repIds && args.repIds.length);
+  const { rows } = await pool.query<CreatedPipelineByRepRow>(
+    `
+    WITH periods AS (
+      SELECT
+        id::bigint AS quota_period_id,
+        period_start::date AS period_start,
+        period_end::date AS period_end
+      FROM quota_periods
+      WHERE org_id = $1::bigint
+        AND id = ANY($2::bigint[])
+    ),
+    base AS (
+      SELECT
+        p.quota_period_id::text AS quota_period_id,
+        o.rep_id::text AS rep_id,
+        COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), NULLIF(btrim(o.rep_name), ''), '(Unknown rep)') AS rep_name,
+        r.manager_rep_id::text AS manager_rep_id,
+        COALESCE(NULLIF(btrim(m.display_name), ''), NULLIF(btrim(m.rep_name), ''), NULL) AS manager_name,
+        COALESCE(o.amount, 0)::float8 AS amount,
+        lower(
+          regexp_replace(
+            COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+            '[^a-zA-Z]+',
+            ' ',
+            'g'
+          )
+        ) AS fs,
+        CASE
+          WHEN o.close_date IS NULL THEN NULL
+          WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+          WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+            to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+          ELSE NULL
+        END AS close_d,
+        p.period_start,
+        p.period_end
+      FROM periods p
+      JOIN opportunities o
+        ON o.org_id = $1
+       AND o.rep_id IS NOT NULL
+       AND o.create_date IS NOT NULL
+       AND o.create_date::date >= p.period_start
+       AND o.create_date::date <= p.period_end
+       AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+      LEFT JOIN reps r
+        ON r.organization_id = $1
+       AND r.id = o.rep_id
+      LEFT JOIN reps m
+        ON m.organization_id = $1
+       AND m.id = r.manager_rep_id
+    ),
+    classified AS (
+      SELECT
+        *,
+        (close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end) AS closed_in_qtr,
+        ((' ' || fs || ' ') LIKE '% won %') AS is_won_word,
+        ((' ' || fs || ' ') LIKE '% lost %') AS is_lost_word
+      FROM base
+    )
+    SELECT
+      quota_period_id,
+      rep_id,
+      rep_name,
+      manager_rep_id,
+      manager_name,
+      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND fs LIKE '%commit%' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
+      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND fs LIKE '%commit%' THEN 1 ELSE 0 END), 0)::int AS commit_count,
+      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND fs LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS best_amount,
+      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND fs LIKE '%best%' THEN 1 ELSE 0 END), 0)::int AS best_count,
+      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND NOT (fs LIKE '%commit%') AND NOT (fs LIKE '%best%') THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND NOT (fs LIKE '%commit%') AND NOT (fs LIKE '%best%') THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
+      COALESCE(SUM(CASE WHEN closed_in_qtr AND is_won_word THEN amount ELSE 0 END), 0)::float8 AS won_amount,
+      COALESCE(SUM(CASE WHEN closed_in_qtr AND is_won_word THEN 1 ELSE 0 END), 0)::int AS won_count,
+      COALESCE(SUM(CASE WHEN closed_in_qtr AND is_lost_word THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
+      COALESCE(SUM(CASE WHEN closed_in_qtr AND is_lost_word THEN 1 ELSE 0 END), 0)::int AS lost_count
+    FROM classified
+    GROUP BY
+      quota_period_id,
+      rep_id,
+      rep_name,
+      manager_rep_id,
+      manager_name
+    ORDER BY quota_period_id DESC, manager_name ASC, rep_name ASC
+    `,
+    [args.orgId, args.periodIds, args.repIds || [], useRepFilter]
+  );
+  return (rows || []) as any[];
+}
+
 async function getQuotaByRep(args: { orgId: number; periodIds: string[]; repIds: number[] | null }) {
   const useRepFilter = !!(args.repIds && args.repIds.length);
   const { rows } = await pool.query<QuotaByRepRow>(
@@ -439,15 +651,17 @@ export default async function QuarterlyKpisPage({
 
   const periodIds = visiblePeriods.map((p) => String(p.id)).filter(Boolean);
 
-  const [repKpisRows, createdRows, quotaRows, reps, healthAvgRows] = periodIds.length
+  const [repKpisRows, createdRows, createdPipelineAggRows, createdPipelineByRepRows, quotaRows, reps, healthAvgRows] = periodIds.length
     ? await Promise.all([
         getRepKpisByPeriods({ orgId: ctx.user.org_id, periodIds, repIds: scopeRepIds }),
         getCreatedByRep({ orgId: ctx.user.org_id, periodIds, repIds: scopeRepIds }),
+        getCreatedPipelineAggByPeriods({ orgId: ctx.user.org_id, periodIds, repIds: scopeRepIds }),
+        getCreatedPipelineByRepByPeriods({ orgId: ctx.user.org_id, periodIds, repIds: scopeRepIds }),
         getQuotaByRep({ orgId: ctx.user.org_id, periodIds, repIds: scopeRepIds }),
         listRepsForOrg(ctx.user.org_id).catch(() => []),
         getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds, repIds: scopeRepIds }).catch(() => []),
       ])
-    : [[], [], [], [], []];
+    : [[], [], [], [], [], [], []];
 
   const healthByPeriod = new Map<string, any>();
   for (const r of healthAvgRows || []) healthByPeriod.set(String((r as any).quota_period_id), r);
@@ -484,6 +698,22 @@ export default async function QuarterlyKpisPage({
   for (const r of createdRows) {
     const k = `${String(r.quota_period_id)}|${String(r.rep_id)}`;
     createdByKey.set(k, { amount: Number(r.created_amount || 0) || 0, count: Number(r.created_count || 0) || 0 });
+  }
+
+  const createdPipelineAggByPeriod = new Map<string, CreatedPipelineAggRow>();
+  for (const r of createdPipelineAggRows || []) {
+    const pid = String((r as any).quota_period_id || "");
+    if (!pid) continue;
+    createdPipelineAggByPeriod.set(pid, r as any);
+  }
+
+  const createdPipelineByRepByPeriod = new Map<string, CreatedPipelineByRepRow[]>();
+  for (const r of createdPipelineByRepRows || []) {
+    const pid = String((r as any).quota_period_id || "");
+    if (!pid) continue;
+    const list = createdPipelineByRepByPeriod.get(pid) || [];
+    list.push(r as any);
+    createdPipelineByRepByPeriod.set(pid, list);
   }
   const quotaByKey = new Map<string, number>();
   for (const r of quotaRows) {
@@ -1205,8 +1435,47 @@ export default async function QuarterlyKpisPage({
                         </div>
 
                         <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
-                          <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Pipeline</div>
+                          <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Pipeline created in quarter</div>
                           {(() => {
+                            const createdAgg =
+                              createdPipelineAggByPeriod.get(String(p.id)) ||
+                              ({
+                                quota_period_id: String(p.id),
+                                commit_amount: 0,
+                                commit_count: 0,
+                                commit_health_score: null,
+                                best_amount: 0,
+                                best_count: 0,
+                                best_health_score: null,
+                                pipeline_amount: 0,
+                                pipeline_count: 0,
+                                pipeline_health_score: null,
+                                won_count: 0,
+                                won_health_score: null,
+                                lost_count: 0,
+                                lost_health_score: null,
+                              } as CreatedPipelineAggRow);
+
+                            const cAmt = Number(createdAgg.commit_amount || 0) || 0;
+                            const bAmt = Number(createdAgg.best_amount || 0) || 0;
+                            const pAmt = Number(createdAgg.pipeline_amount || 0) || 0;
+                            const tAmt = cAmt + bAmt + pAmt;
+
+                            const cCnt = Number(createdAgg.commit_count || 0) || 0;
+                            const bCnt = Number(createdAgg.best_count || 0) || 0;
+                            const pCnt = Number(createdAgg.pipeline_count || 0) || 0;
+                            const tCnt = cCnt + bCnt + pCnt;
+
+                            const mixStr = `${fmtPct(safeDiv(cAmt, tAmt))} / ${fmtPct(safeDiv(bAmt, tAmt))} / ${fmtPct(safeDiv(pAmt, tAmt))}`;
+
+                            const hc = healthPctFrom30(createdAgg.commit_health_score);
+                            const hb = healthPctFrom30(createdAgg.best_health_score);
+                            const hp = healthPctFrom30(createdAgg.pipeline_health_score);
+                            const hw = healthPctFrom30(createdAgg.won_health_score);
+                            const hl = healthPctFrom30(createdAgg.lost_health_score);
+
+                            const healthMix = `C ${hc == null ? "—" : `${hc}%`} · B ${hb == null ? "—" : `${hb}%`} · P ${hp == null ? "—" : `${hp}%`} · W ${hw == null ? "—" : `${hw}%`} · Cl ${hl == null ? "—" : `${hl}%`}`;
+
                             const Card = (props: { label: string; value: ReactNode; sub?: ReactNode }) => (
                               <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-3">
                                 <div className="text-xs text-[color:var(--sf-text-secondary)]">{props.label}</div>
@@ -1216,20 +1485,45 @@ export default async function QuarterlyKpisPage({
                             );
 
                             return (
-                              <div className="mt-2 grid gap-2 lg:grid-cols-4">
-                                <div className="grid gap-2 sm:grid-cols-3 lg:col-span-3">
-                                  <Card label="Commit" value={fmtMoney(commitTotal)} sub={<span>Commit Coverage: {fmtPct(commitCov)}</span>} />
-                                  <Card label="Best Case" value={fmtMoney(bestTotal)} sub={<span>Best Case Coverage: {fmtPct(bestCov)}</span>} />
-                                  <Card label="Pipeline" value={fmtMoney(pipelineTotal)} />
+                              <div className="mt-2 grid gap-2">
+                                <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
+                                  <Card label="Commit" value={fmtMoney(cAmt)} sub={<span># Opps: {fmtNum(cCnt)}</span>} />
+                                  <Card label="Best Case" value={fmtMoney(bAmt)} sub={<span># Opps: {fmtNum(bCnt)}</span>} />
+                                  <Card label="Pipeline" value={fmtMoney(pAmt)} sub={<span># Opps: {fmtNum(pCnt)}</span>} />
+                                  <Card label="Total Pipeline" value={fmtMoney(tAmt)} sub={<span># Opps: {fmtNum(tCnt)}</span>} />
                                 </div>
-                                <div className="grid gap-2">
-                                  <Chip label="Forecast Mix (C/B/P)" value={mixCBP} sub="Commit / Best / Pipeline" />
-                                  <Chip
-                                    label="Health Mix (C/B/P/W/Cl)"
-                                    value={<span className={healthColorClass(hAll)}>{hAll == null ? "—" : `${hAll}%`}</span>}
-                                    sub={healthByBuckets}
+
+                                <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-5">
+                                  <Card
+                                    label="Commit Health"
+                                    value={<span className={healthColorClass(hc)}>{hc == null ? "—" : `${hc}%`}</span>}
+                                    sub={<span># Opps: {fmtNum(cCnt)}</span>}
                                   />
-                                  <Chip label="New Pipeline Created" value={fmtMoney(block.created_amount)} />
+                                  <Card
+                                    label="Best Case Health"
+                                    value={<span className={healthColorClass(hb)}>{hb == null ? "—" : `${hb}%`}</span>}
+                                    sub={<span># Opps: {fmtNum(bCnt)}</span>}
+                                  />
+                                  <Card
+                                    label="Pipeline Health"
+                                    value={<span className={healthColorClass(hp)}>{hp == null ? "—" : `${hp}%`}</span>}
+                                    sub={<span># Opps: {fmtNum(pCnt)}</span>}
+                                  />
+                                  <Card
+                                    label="Won Health"
+                                    value={<span className={healthColorClass(hw)}>{hw == null ? "—" : `${hw}%`}</span>}
+                                    sub={<span># Deals: {fmtNum(Number(createdAgg.won_count || 0) || 0)}</span>}
+                                  />
+                                  <Card
+                                    label="Closed Loss Health"
+                                    value={<span className={healthColorClass(hl)}>{hl == null ? "—" : `${hl}%`}</span>}
+                                    sub={<span># Deals: {fmtNum(Number(createdAgg.lost_count || 0) || 0)}</span>}
+                                  />
+                                </div>
+
+                                <div className="flex flex-wrap gap-2 text-xs">
+                                  <Chip label="Forecast Mix (C/B/P)" value={mixStr} sub="Commit / Best / Pipeline" />
+                                  <Chip label="Health Mix (C/B/P/W/Cl)" value={healthMix} />
                                 </div>
                               </div>
                             );
@@ -1241,139 +1535,165 @@ export default async function QuarterlyKpisPage({
 
                   <details open={block.is_current} className="mt-4 flex flex-col">
                     <summary className="order-2 mt-3 cursor-pointer rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-medium text-[color:var(--sf-text-primary)]">
-                      Show / hide manager + rep breakdown (collapse control at bottom)
+                      New Pipeline Created In Quarter (show / hide)
                     </summary>
-                    <div className="order-1 mt-3 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-                      <table className="w-full min-w-[1650px] text-left text-sm">
-                        <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
-                          <tr>
-                            <th className="px-4 py-3">manager</th>
-                            <th className="px-4 py-3 text-right">quota</th>
-                            <th className="px-4 py-3 text-right">won</th>
-                            <th className="px-4 py-3 text-right">attn</th>
-                            <th className="px-4 py-3 text-right">commit cov</th>
-                            <th className="px-4 py-3 text-right">best cov</th>
-                            <th className="px-4 py-3 text-right">pipeline</th>
-                            <th className="px-4 py-3 text-right">win rate</th>
-                            <th className="px-4 py-3 text-right">opp→win</th>
-                            <th className="px-4 py-3 text-right">AOV</th>
-                            <th className="px-4 py-3 text-right">partner %</th>
-                            <th className="px-4 py-3 text-right">partner win</th>
-                            <th className="px-4 py-3 text-right">new pipe</th>
-                            <th className="px-4 py-3 text-right">cycle(w)</th>
-                            <th className="px-4 py-3 text-right">cycle(l)</th>
-                            <th className="px-4 py-3 text-right">aging</th>
-                            <th className="px-4 py-3 text-right">mix (P/B/C/W)</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {block.managers.length ? (
-                            block.managers.map((m) => {
-                              const mixStr = `${fmtPct(m.mix_pipeline)} / ${fmtPct(m.mix_best)} / ${fmtPct(m.mix_commit)} / ${fmtPct(m.mix_won)}`;
-                              return (
-                                <Fragment key={`${p.id}:${m.manager_id || "unassigned"}`}>
-                                  <tr key={`${p.id}:${m.manager_id || "unassigned"}`} className="border-t border-[color:var(--sf-border)] align-top">
-                                    <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{m.manager_name}</td>
-                                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(m.quota)}</td>
-                                    <td className="px-4 py-3 text-right font-mono text-xs">
-                                      {fmtMoney(m.won_amount)} <span className="text-[color:var(--sf-text-secondary)]">({m.won_count})</span>
-                                    </td>
-                                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct(m.attainment)}</td>
-                                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct(m.commit_coverage)}</td>
-                                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct(m.best_coverage)}</td>
-                                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(m.active_amount)}</td>
-                                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct(m.win_rate)}</td>
-                                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct(m.opp_to_win)}</td>
-                                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(m.aov)}</td>
-                                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct(m.partner_contribution)}</td>
-                                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct(m.partner_win_rate)}</td>
-                                    <td className="px-4 py-3 text-right font-mono text-xs">
-                                      {fmtMoney(m.created_amount)} <span className="text-[color:var(--sf-text-secondary)]">({m.created_count})</span>
-                                    </td>
-                                    <td className="px-4 py-3 text-right font-mono text-xs">{m.avg_days_won == null ? "—" : `${Math.round(m.avg_days_won)}d`}</td>
-                                    <td className="px-4 py-3 text-right font-mono text-xs">{m.avg_days_lost == null ? "—" : `${Math.round(m.avg_days_lost)}d`}</td>
-                                    <td className="px-4 py-3 text-right font-mono text-xs">{m.avg_days_active == null ? "—" : `${Math.round(m.avg_days_active)}d`}</td>
-                                    <td className="px-4 py-3 text-right font-mono text-xs">{mixStr}</td>
-                                  </tr>
-                                  <tr key={`${p.id}:${m.manager_id || "unassigned"}:reps`} className="border-t border-[color:var(--sf-border)]">
-                                    <td colSpan={17} className="px-4 py-3">
-                                      <details className="flex flex-col">
-                                        <summary className="order-2 mt-3 cursor-pointer rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]">
-                                          Show / hide reps (collapse control at bottom; sorted by Closed Won)
-                                        </summary>
-                                        <div className="order-1 mt-3 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-                                          <table className="w-full min-w-[1800px] text-left text-sm">
-                                            <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
-                                              <tr>
-                                                <th className="px-3 py-2">rep</th>
-                                                <th className="px-3 py-2 text-right">quota</th>
-                                                <th className="px-3 py-2 text-right">won</th>
-                                                <th className="px-3 py-2 text-right">attn</th>
-                                                <th className="px-3 py-2 text-right">commit cov</th>
-                                                <th className="px-3 py-2 text-right">best cov</th>
-                                                <th className="px-3 py-2 text-right">pipeline</th>
-                                                <th className="px-3 py-2 text-right">win rate</th>
-                                                <th className="px-3 py-2 text-right">opp→win</th>
-                                                <th className="px-3 py-2 text-right">AOV</th>
-                                                <th className="px-3 py-2 text-right">partner %</th>
-                                                <th className="px-3 py-2 text-right">partner win</th>
-                                                <th className="px-3 py-2 text-right">new pipe</th>
-                                                <th className="px-3 py-2 text-right">cycle(w)</th>
-                                                <th className="px-3 py-2 text-right">cycle(l)</th>
-                                                <th className="px-3 py-2 text-right">aging</th>
-                                                <th className="px-3 py-2 text-right">mix (P/B/C/W)</th>
-                                              </tr>
-                                            </thead>
-                                            <tbody>
-                                              {m.reps.map((r) => {
-                                                const mix = `${fmtPct(r.mix_pipeline)} / ${fmtPct(r.mix_best)} / ${fmtPct(r.mix_commit)} / ${fmtPct(r.mix_won)}`;
-                                                return (
-                                                  <tr key={`${p.id}:${m.manager_id}:${r.rep_id}`} className="border-t border-[color:var(--sf-border)]">
-                                                    <td className="px-3 py-2 font-medium text-[color:var(--sf-text-primary)]">{r.rep_name}</td>
-                                                    <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(r.quota)}</td>
-                                                    <td className="px-3 py-2 text-right font-mono text-xs">
-                                                      {fmtMoney(r.won_amount)}{" "}
-                                                      <span className="text-[color:var(--sf-text-secondary)]">({r.won_count})</span>
-                                                    </td>
-                                                    <td className="px-3 py-2 text-right font-mono text-xs">{fmtPct(r.attainment)}</td>
-                                                    <td className="px-3 py-2 text-right font-mono text-xs">{fmtPct(r.commit_coverage)}</td>
-                                                    <td className="px-3 py-2 text-right font-mono text-xs">{fmtPct(r.best_coverage)}</td>
-                                                    <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(r.active_amount)}</td>
-                                                    <td className="px-3 py-2 text-right font-mono text-xs">{fmtPct(r.win_rate)}</td>
-                                                    <td className="px-3 py-2 text-right font-mono text-xs">{fmtPct(r.opp_to_win)}</td>
-                                                    <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(r.aov)}</td>
-                                                    <td className="px-3 py-2 text-right font-mono text-xs">{fmtPct(r.partner_contribution)}</td>
-                                                    <td className="px-3 py-2 text-right font-mono text-xs">{fmtPct(r.partner_win_rate)}</td>
-                                                    <td className="px-3 py-2 text-right font-mono text-xs">
-                                                      {fmtMoney(r.created_amount)}{" "}
-                                                      <span className="text-[color:var(--sf-text-secondary)]">({r.created_count})</span>
-                                                    </td>
-                                                    <td className="px-3 py-2 text-right font-mono text-xs">{r.avg_days_won == null ? "—" : `${Math.round(r.avg_days_won)}d`}</td>
-                                                    <td className="px-3 py-2 text-right font-mono text-xs">{r.avg_days_lost == null ? "—" : `${Math.round(r.avg_days_lost)}d`}</td>
-                                                    <td className="px-3 py-2 text-right font-mono text-xs">{r.avg_days_active == null ? "—" : `${Math.round(r.avg_days_active)}d`}</td>
-                                                    <td className="px-3 py-2 text-right font-mono text-xs">{mix}</td>
+                    {(() => {
+                      const rows = createdPipelineByRepByPeriod.get(String(p.id)) || [];
+                      const byManager = new Map<string, { managerName: string; reps: CreatedPipelineByRepRow[] }>();
+                      for (const r of rows) {
+                        const mid = String(r.manager_rep_id || "");
+                        const mname = String(r.manager_name || "").trim() || (mid ? `Manager ${mid}` : "(Unassigned)");
+                        const key = mid || "(unassigned)";
+                        const cur = byManager.get(key) || { managerName: mname, reps: [] };
+                        cur.managerName = mname;
+                        cur.reps.push(r);
+                        byManager.set(key, cur);
+                      }
+
+                      const managers = Array.from(byManager.entries())
+                        .map(([managerId, v]) => ({ managerId, managerName: v.managerName, reps: v.reps }))
+                        .sort((a, b) => a.managerName.localeCompare(b.managerName));
+
+                      const sumMoney = (list: CreatedPipelineByRepRow[], key: keyof CreatedPipelineByRepRow) =>
+                        list.reduce((acc, r) => acc + (Number((r as any)[key] || 0) || 0), 0);
+                      const sumCount = (list: CreatedPipelineByRepRow[], key: keyof CreatedPipelineByRepRow) =>
+                        list.reduce((acc, r) => acc + (Number((r as any)[key] || 0) || 0), 0);
+
+                      return (
+                        <div className="order-1 mt-3 overflow-auto rounded-md border border-[color:var(--sf-border)]">
+                          <table className="w-full min-w-[1400px] text-left text-sm">
+                            <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                              <tr>
+                                <th className="px-4 py-3">manager</th>
+                                <th className="px-4 py-3 text-right">commit</th>
+                                <th className="px-4 py-3 text-right">best</th>
+                                <th className="px-4 py-3 text-right">pipeline</th>
+                                <th className="px-4 py-3 text-right">total pipeline</th>
+                                <th className="px-4 py-3 text-right">won (in qtr)</th>
+                                <th className="px-4 py-3 text-right">lost (in qtr)</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {managers.length ? (
+                                managers.map((m) => {
+                                  const reps = m.reps.slice().sort((a, b) => a.rep_name.localeCompare(b.rep_name));
+                                  const cAmt = sumMoney(reps, "commit_amount");
+                                  const bAmt = sumMoney(reps, "best_amount");
+                                  const pAmt = sumMoney(reps, "pipeline_amount");
+                                  const tAmt = cAmt + bAmt + pAmt;
+                                  const cCnt = sumCount(reps, "commit_count");
+                                  const bCnt = sumCount(reps, "best_count");
+                                  const pCnt = sumCount(reps, "pipeline_count");
+                                  const tCnt = cCnt + bCnt + pCnt;
+                                  const wAmt = sumMoney(reps, "won_amount");
+                                  const wCnt = sumCount(reps, "won_count");
+                                  const lAmt = sumMoney(reps, "lost_amount");
+                                  const lCnt = sumCount(reps, "lost_count");
+
+                                  return (
+                                    <Fragment key={`${p.id}:${m.managerId}`}>
+                                      <tr className="border-t border-[color:var(--sf-border)] align-top">
+                                        <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{m.managerName}</td>
+                                        <td className="px-4 py-3 text-right font-mono text-xs">
+                                          {fmtMoney(cAmt)} <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(cCnt)})</span>
+                                        </td>
+                                        <td className="px-4 py-3 text-right font-mono text-xs">
+                                          {fmtMoney(bAmt)} <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(bCnt)})</span>
+                                        </td>
+                                        <td className="px-4 py-3 text-right font-mono text-xs">
+                                          {fmtMoney(pAmt)} <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(pCnt)})</span>
+                                        </td>
+                                        <td className="px-4 py-3 text-right font-mono text-xs">
+                                          {fmtMoney(tAmt)} <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(tCnt)})</span>
+                                        </td>
+                                        <td className="px-4 py-3 text-right font-mono text-xs">
+                                          {fmtMoney(wAmt)} <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(wCnt)})</span>
+                                        </td>
+                                        <td className="px-4 py-3 text-right font-mono text-xs">
+                                          {fmtMoney(lAmt)} <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(lCnt)})</span>
+                                        </td>
+                                      </tr>
+                                      <tr className="border-t border-[color:var(--sf-border)]">
+                                        <td colSpan={7} className="px-4 py-3">
+                                          <details className="flex flex-col">
+                                            <summary className="order-2 mt-3 cursor-pointer rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]">
+                                              Show / hide reps (created in quarter)
+                                            </summary>
+                                            <div className="order-1 mt-3 overflow-auto rounded-md border border-[color:var(--sf-border)]">
+                                              <table className="w-full min-w-[1400px] text-left text-sm">
+                                                <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                                                  <tr>
+                                                    <th className="px-3 py-2">rep</th>
+                                                    <th className="px-3 py-2 text-right">commit</th>
+                                                    <th className="px-3 py-2 text-right">best</th>
+                                                    <th className="px-3 py-2 text-right">pipeline</th>
+                                                    <th className="px-3 py-2 text-right">total pipeline</th>
+                                                    <th className="px-3 py-2 text-right">won (in qtr)</th>
+                                                    <th className="px-3 py-2 text-right">lost (in qtr)</th>
                                                   </tr>
-                                                );
-                                              })}
-                                            </tbody>
-                                          </table>
-                                        </div>
-                                      </details>
-                                    </td>
-                                  </tr>
-                                </Fragment>
-                              );
-                            })
-                          ) : (
-                            <tr>
-                              <td colSpan={17} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
-                                No KPI data found for this period.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
+                                                </thead>
+                                                <tbody>
+                                                  {reps.map((r) => {
+                                                    const rc = Number(r.commit_amount || 0) || 0;
+                                                    const rb = Number(r.best_amount || 0) || 0;
+                                                    const rp = Number(r.pipeline_amount || 0) || 0;
+                                                    const rt = rc + rb + rp;
+                                                    const rcc = Number(r.commit_count || 0) || 0;
+                                                    const rbc = Number(r.best_count || 0) || 0;
+                                                    const rpc = Number(r.pipeline_count || 0) || 0;
+                                                    const rtc = rcc + rbc + rpc;
+
+                                                    return (
+                                                      <tr key={`${p.id}:${m.managerId}:${r.rep_id}`} className="border-t border-[color:var(--sf-border)]">
+                                                        <td className="px-3 py-2 font-medium text-[color:var(--sf-text-primary)]">{r.rep_name}</td>
+                                                        <td className="px-3 py-2 text-right font-mono text-xs">
+                                                          {fmtMoney(rc)}{" "}
+                                                          <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(rcc)})</span>
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right font-mono text-xs">
+                                                          {fmtMoney(rb)}{" "}
+                                                          <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(rbc)})</span>
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right font-mono text-xs">
+                                                          {fmtMoney(rp)}{" "}
+                                                          <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(rpc)})</span>
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right font-mono text-xs">
+                                                          {fmtMoney(rt)}{" "}
+                                                          <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(rtc)})</span>
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right font-mono text-xs">
+                                                          {fmtMoney(r.won_amount)}{" "}
+                                                          <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(r.won_count)})</span>
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right font-mono text-xs">
+                                                          {fmtMoney(r.lost_amount)}{" "}
+                                                          <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(r.lost_count)})</span>
+                                                        </td>
+                                                      </tr>
+                                                    );
+                                                  })}
+                                                </tbody>
+                                              </table>
+                                            </div>
+                                          </details>
+                                        </td>
+                                      </tr>
+                                    </Fragment>
+                                  );
+                                })
+                              ) : (
+                                <tr>
+                                  <td colSpan={7} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                                    No created-in-quarter pipeline found for this period.
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })()}
                   </details>
 
                   <div className="mt-3 flex items-center justify-end">
