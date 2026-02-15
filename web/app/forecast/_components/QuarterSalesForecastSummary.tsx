@@ -587,37 +587,37 @@ export async function QuarterSalesForecastSummary(props: {
 
         <div className="grid w-full gap-3 text-sm sm:grid-cols-2 md:w-auto md:grid-cols-4 lg:grid-cols-7">
           <div className={boxClass}>
-            <div className="text-[11px] text-black/70">Commit</div>
-            <div className="font-mono text-xs font-semibold">{fmtMoney(commitAmt)}</div>
-            <div className="mt-1 text-[11px] text-black/70"># Opps: {commitCount}</div>
+            <div className="text-sm text-black/70">Commit</div>
+            <div className="font-mono text-sm font-semibold">{fmtMoney(commitAmt)}</div>
+            <div className="mt-1 text-sm text-black/70"># Opps: {commitCount}</div>
           </div>
           <div className={boxClass}>
-            <div className="text-[11px] text-black/70">Best Case</div>
-            <div className="font-mono text-xs font-semibold">{fmtMoney(bestCaseAmt)}</div>
-            <div className="mt-1 text-[11px] text-black/70"># Opps: {bestCaseCount}</div>
+            <div className="text-sm text-black/70">Best Case</div>
+            <div className="font-mono text-sm font-semibold">{fmtMoney(bestCaseAmt)}</div>
+            <div className="mt-1 text-sm text-black/70"># Opps: {bestCaseCount}</div>
           </div>
           <div className={boxClass}>
-            <div className="text-[11px] text-black/70">Pipeline</div>
-            <div className="font-mono text-xs font-semibold">{fmtMoney(pipelineAmt)}</div>
-            <div className="mt-1 text-[11px] text-black/70"># Opps: {pipelineCount}</div>
+            <div className="text-sm text-black/70">Pipeline</div>
+            <div className="font-mono text-sm font-semibold">{fmtMoney(pipelineAmt)}</div>
+            <div className="mt-1 text-sm text-black/70"># Opps: {pipelineCount}</div>
           </div>
           <div className={boxClass}>
-            <div className="text-[11px] text-black/70">Total Pipeline</div>
-            <div className="font-mono text-xs font-semibold">{fmtMoney(totalAmt)}</div>
-            <div className="mt-1 text-[11px] text-black/70"># Opps: {totalPipelineCount}</div>
+            <div className="text-sm text-black/70">Total Pipeline</div>
+            <div className="font-mono text-sm font-semibold">{fmtMoney(totalAmt)}</div>
+            <div className="mt-1 text-sm text-black/70"># Opps: {totalPipelineCount}</div>
           </div>
           <div className={boxClass}>
-            <div className="text-[11px] text-black/70">Quarterly Quota</div>
-            <div className="font-mono text-xs font-semibold">{fmtMoney(quotaAmt)}</div>
+            <div className="text-sm text-black/70">Quarterly Quota</div>
+            <div className="font-mono text-sm font-semibold">{fmtMoney(quotaAmt)}</div>
           </div>
           <div className={boxClass}>
-            <div className="text-[11px] text-black/70">Closed Won</div>
-            <div className="font-mono text-xs font-semibold">{fmtMoney(wonAmt)}</div>
-            <div className="mt-1 text-[11px] text-black/70"># Opps: {wonCount}</div>
+            <div className="text-sm text-black/70">Closed Won</div>
+            <div className="font-mono text-sm font-semibold">{fmtMoney(wonAmt)}</div>
+            <div className="mt-1 text-sm text-black/70"># Opps: {wonCount}</div>
           </div>
           <div className={boxClass}>
-            <div className="text-[11px] text-black/70">% To Goal</div>
-            <div className={`font-mono text-xs font-semibold ${pctToGoalClass}`}>{fmtPct(pctToGoal)}</div>
+            <div className="text-sm text-black/70">% To Goal</div>
+            <div className={`font-mono text-sm font-semibold ${pctToGoalClass}`}>{fmtPct(pctToGoal)}</div>
           </div>
         </div>
       </div>
@@ -650,23 +650,23 @@ export async function QuarterSalesForecastSummary(props: {
                     <tr key={key} className="text-[color:var(--sf-text-primary)]">
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">{r.rep_name}</td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
-                        <div className="font-mono text-xs font-semibold">{fmtMoney(cAmt)}</div>
-                        <div className="text-[11px] text-[color:var(--sf-text-secondary)]"># {Number(r.commit_count || 0) || 0}</div>
+                        <div className="font-mono text-sm font-semibold">{fmtMoney(cAmt)}</div>
+                        <div className="text-sm text-[color:var(--sf-text-secondary)]"># {Number(r.commit_count || 0) || 0}</div>
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
-                        <div className="font-mono text-xs font-semibold">{fmtMoney(bcAmt)}</div>
-                        <div className="text-[11px] text-[color:var(--sf-text-secondary)]"># {Number(r.best_case_count || 0) || 0}</div>
+                        <div className="font-mono text-sm font-semibold">{fmtMoney(bcAmt)}</div>
+                        <div className="text-sm text-[color:var(--sf-text-secondary)]"># {Number(r.best_case_count || 0) || 0}</div>
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
-                        <div className="font-mono text-xs font-semibold">{fmtMoney(pAmt)}</div>
-                        <div className="text-[11px] text-[color:var(--sf-text-secondary)]"># {Number(r.pipeline_count || 0) || 0}</div>
+                        <div className="font-mono text-sm font-semibold">{fmtMoney(pAmt)}</div>
+                        <div className="text-sm text-[color:var(--sf-text-secondary)]"># {Number(r.pipeline_count || 0) || 0}</div>
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
-                        <div className="font-mono text-xs font-semibold">{fmtMoney(tAmt)}</div>
+                        <div className="font-mono text-sm font-semibold">{fmtMoney(tAmt)}</div>
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
-                        <div className="font-mono text-xs font-semibold">{fmtMoney(Number(r.won_amount || 0) || 0)}</div>
-                        <div className="text-[11px] text-[color:var(--sf-text-secondary)]"># {Number(r.won_count || 0) || 0}</div>
+                        <div className="font-mono text-sm font-semibold">{fmtMoney(Number(r.won_amount || 0) || 0)}</div>
+                        <div className="text-sm text-[color:var(--sf-text-secondary)]"># {Number(r.won_count || 0) || 0}</div>
                       </td>
                     </tr>
                   );
