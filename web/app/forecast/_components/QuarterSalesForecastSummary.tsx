@@ -649,7 +649,7 @@ export async function QuarterSalesForecastSummary(props: {
       {showBreakdown && role !== "REP" && repRollups.length ? (
         <details className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
           <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">
-            Rep breakdown ({repRollups.length})
+            Individual Rep Forcast ({repRollups.length})
           </summary>
           <div className="mt-3 overflow-x-auto">
             <table className="min-w-[760px] table-auto border-collapse text-sm">
