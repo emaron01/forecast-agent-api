@@ -46,7 +46,7 @@ export default async function AnalyticsPage() {
             <Card href="/analytics/quotas/manager" title="Team Quotas" desc="Assign quotas to direct reports + team rollups." />
           ) : null}
           {ctx.user.role === "EXEC_MANAGER" ? (
-            <Card href="/analytics/quotas/executive" title="Company Quotas" desc="Company-wide quota rollup + pacing." />
+            <Card href="/analytics/quotas/executive" title="Top Deals" desc="Top Won + Closed Loss deals for the selected quarter (sortable)." />
           ) : null}
           {ctx.user.role === "EXEC_MANAGER" ? (
             <Card href="/analytics/executive" title="Executive KPIs" desc="Quarter KPI dashboard with QoQ deltas + team/rep comparisons." />

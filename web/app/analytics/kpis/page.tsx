@@ -898,6 +898,19 @@ export default async function QuarterlyKpisPage({
               const mixStr = `${fmtPct(safeDiv(pipelineTotal, mixDen))} / ${fmtPct(safeDiv(bestTotal, mixDen))} / ${fmtPct(
                 safeDiv(commitTotal, mixDen)
               )} / ${fmtPct(safeDiv(wonAmountTotal, mixDen))}`;
+
+              // Aging (avg deal age): weighted avg of rep active-age by active deal count.
+              let agingDaysSum = 0;
+              let agingCnt = 0;
+              for (const m of block.managers) {
+                for (const r of m.reps || []) {
+                  if (r.avg_days_active != null && r.active_count > 0) {
+                    agingDaysSum += r.avg_days_active * r.active_count;
+                    agingCnt += r.active_count;
+                  }
+                }
+              }
+              const agingAvgDays = agingCnt ? agingDaysSum / agingCnt : null;
               return (
                 <section key={p.id} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -922,6 +935,12 @@ export default async function QuarterlyKpisPage({
                       <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
                         <div className="text-[color:var(--sf-text-secondary)]">Pipeline Value</div>
                         <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(block.pipeline_value)}</div>
+                      </div>
+                      <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
+                        <div className="text-[color:var(--sf-text-secondary)]">Aging (avg deal age)</div>
+                        <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
+                          {agingAvgDays == null ? "—" : `${Math.round(agingAvgDays)}d`}
+                        </div>
                       </div>
                       <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
                         <div className="text-[color:var(--sf-text-secondary)]">Win Rate</div>
@@ -985,7 +1004,7 @@ export default async function QuarterlyKpisPage({
                             <th className="px-4 py-3 text-right">new pipe</th>
                             <th className="px-4 py-3 text-right">cycle(w)</th>
                             <th className="px-4 py-3 text-right">cycle(l)</th>
-                            <th className="px-4 py-3 text-right">age(a)</th>
+                            <th className="px-4 py-3 text-right">aging</th>
                             <th className="px-4 py-3 text-right">mix (P/B/C/W)</th>
                           </tr>
                         </thead>
@@ -1043,7 +1062,7 @@ export default async function QuarterlyKpisPage({
                                                 <th className="px-3 py-2 text-right">new pipe</th>
                                                 <th className="px-3 py-2 text-right">cycle(w)</th>
                                                 <th className="px-3 py-2 text-right">cycle(l)</th>
-                                                <th className="px-3 py-2 text-right">age(a)</th>
+                                                <th className="px-3 py-2 text-right">aging</th>
                                                 <th className="px-3 py-2 text-right">mix (P/B/C/W)</th>
                                               </tr>
                                             </thead>

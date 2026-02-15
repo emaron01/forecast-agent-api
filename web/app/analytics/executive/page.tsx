@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Fragment } from "react";
 import { requireAuth } from "../../../lib/auth";
 import { getOrganization } from "../../../lib/db";
 import { pool } from "../../../lib/pool";
 import { UserTopNav } from "../../_components/UserTopNav";
+import { CustomReportBuilder } from "./CustomReportBuilder";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -100,10 +102,14 @@ type RepPeriodKpisRow = {
   pipeline_amount: number;
   partner_closed_amount: number;
   closed_amount: number;
+  partner_won_count: number;
+  partner_closed_count: number;
   avg_days_won: number | null;
   avg_days_lost: number | null;
   avg_days_active: number | null;
 };
+
+type CreatedByRepRow = { quota_period_id: string; rep_id: string; created_amount: number; created_count: number };
 
 export const runtime = "nodejs";
 
@@ -456,6 +462,8 @@ async function getRepKpisByPeriod(args: { orgId: number; periodIds: string[]; re
       COALESCE(SUM(CASE WHEN bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
       COALESCE(SUM(CASE WHEN (is_won OR is_lost) AND partner_name IS NOT NULL AND btrim(partner_name) <> '' THEN amount ELSE 0 END), 0)::float8 AS partner_closed_amount,
       COALESCE(SUM(CASE WHEN (is_won OR is_lost) THEN amount ELSE 0 END), 0)::float8 AS closed_amount,
+      COALESCE(SUM(CASE WHEN is_won AND partner_name IS NOT NULL AND btrim(partner_name) <> '' THEN 1 ELSE 0 END), 0)::int AS partner_won_count,
+      COALESCE(SUM(CASE WHEN (is_won OR is_lost) AND partner_name IS NOT NULL AND btrim(partner_name) <> '' THEN 1 ELSE 0 END), 0)::int AS partner_closed_count,
       AVG(
         CASE
           WHEN is_won AND create_date IS NOT NULL AND close_date IS NOT NULL
@@ -480,6 +488,40 @@ async function getRepKpisByPeriod(args: { orgId: number; periodIds: string[]; re
     FROM classified
     GROUP BY quota_period_id, rep_id, rep_name
     ORDER BY rep_name ASC, rep_id ASC
+    `,
+    [args.orgId, args.periodIds, args.repIds || [], useRepFilter]
+  );
+  return (rows || []) as any[];
+}
+
+async function getCreatedByRep(args: { orgId: number; periodIds: string[]; repIds: number[] | null }) {
+  const useRepFilter = !!(args.repIds && args.repIds.length);
+  const { rows } = await pool.query<CreatedByRepRow>(
+    `
+    WITH periods AS (
+      SELECT
+        id::bigint AS quota_period_id,
+        period_start::date AS period_start,
+        period_end::date AS period_end
+      FROM quota_periods
+      WHERE org_id = $1::bigint
+        AND id = ANY($2::bigint[])
+    )
+    SELECT
+      p.quota_period_id::text AS quota_period_id,
+      o.rep_id::text AS rep_id,
+      COALESCE(SUM(COALESCE(o.amount, 0)), 0)::float8 AS created_amount,
+      COUNT(*)::int AS created_count
+    FROM periods p
+    JOIN opportunities o
+      ON o.org_id = $1
+     AND o.rep_id IS NOT NULL
+     AND o.create_date IS NOT NULL
+     AND o.create_date::date >= p.period_start
+     AND o.create_date::date <= p.period_end
+     AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+    GROUP BY p.quota_period_id, o.rep_id
+    ORDER BY p.quota_period_id DESC, created_amount DESC
     `,
     [args.orgId, args.periodIds, args.repIds || [], useRepFilter]
   );
@@ -537,6 +579,17 @@ export default async function ExecutiveAnalyticsKpisPage({
     }))
     .filter((r) => Number.isFinite(r.id) && r.id > 0);
 
+  const repIdToManagerId = new Map<string, string>();
+  for (const r of reps) {
+    const id = Number(r.id);
+    if (!Number.isFinite(id) || id <= 0) continue;
+    const mid = r.manager_rep_id == null ? "" : String(r.manager_rep_id);
+    repIdToManagerId.set(String(id), mid);
+  }
+
+  const managerNameById = new Map<string, string>();
+  for (const m of managers) managerNameById.set(String(m.id), String(m.name));
+
   const managerRepId = manager_rep_id_raw ? Number(manager_rep_id_raw) : null;
   const repId = rep_id_raw ? Number(rep_id_raw) : null;
 
@@ -553,15 +606,16 @@ export default async function ExecutiveAnalyticsKpisPage({
   const prevPeriodId = prevPeriod ? String(prevPeriod.id) : "";
   const comparePeriodIds = [selectedPeriodId, prevPeriodId].filter(Boolean);
 
-  const [kpiRows, quotaTotals, repKpisRows, quotaByRepPeriod, quotaBreakdown] = selectedPeriodId
+  const [kpiRows, quotaTotals, repKpisRows, createdByRepRows, quotaByRepPeriod, quotaBreakdown] = selectedPeriodId
     ? await Promise.all([
         getPeriodKpis({ orgId: ctx.user.org_id, periodIds: comparePeriodIds, repIds: scopeRepIds }),
         getQuotaTotals({ orgId: ctx.user.org_id, quotaPeriodIds: comparePeriodIds, repIds: scopeRepIds }),
         getRepKpisByPeriod({ orgId: ctx.user.org_id, periodIds: comparePeriodIds, repIds: scopeRepIds }),
+        getCreatedByRep({ orgId: ctx.user.org_id, periodIds: comparePeriodIds, repIds: scopeRepIds }),
         getQuotaByRepPeriod({ orgId: ctx.user.org_id, quotaPeriodIds: comparePeriodIds, repIds: scopeRepIds }),
         getQuotaBreakdownForPeriod({ orgId: ctx.user.org_id, quotaPeriodId: selectedPeriodId, repIds: scopeRepIds }),
       ])
-    : [[], [], [], [], { byManager: [], byRep: [] }];
+    : [[], [], [], [], [], { byManager: [], byRep: [] }];
 
   const kpiByPeriod = new Map<string, PeriodKpisRow>();
   for (const r of kpiRows) kpiByPeriod.set(String(r.quota_period_id), r);
@@ -621,20 +675,46 @@ export default async function ExecutiveAnalyticsKpisPage({
     repKpisByKey.set(`${String(r.quota_period_id)}|${String(r.rep_id)}`, r);
   }
 
+  const createdByKey = new Map<string, { created_amount: number; created_count: number }>();
+  for (const r of createdByRepRows) {
+    const k = `${String(r.quota_period_id)}|${String(r.rep_id)}`;
+    createdByKey.set(k, {
+      created_amount: Number((r as any).created_amount || 0) || 0,
+      created_count: Number((r as any).created_count || 0) || 0,
+    });
+  }
+
   type RepRow = {
     rep_id: string;
     rep_name: string;
+    manager_id: string;
+    manager_name: string;
     quota: number;
+    total_count: number;
     won_amount: number;
     won_count: number;
+    lost_count: number;
     active_amount: number;
+    commit_amount: number;
+    best_amount: number;
+    pipeline_amount: number;
+    created_amount: number;
+    created_count: number;
     win_rate: number | null;
+    opp_to_win: number | null;
     aov: number | null;
     attainment: number | null;
+    commit_coverage: number | null;
+    best_coverage: number | null;
     partner_contribution: number | null;
+    partner_win_rate: number | null;
     avg_days_won: number | null;
     avg_days_lost: number | null;
     avg_days_active: number | null;
+    mix_pipeline: number | null;
+    mix_best: number | null;
+    mix_commit: number | null;
+    mix_won: number | null;
     qoq_attainment_delta: number | null;
   };
 
@@ -651,14 +731,34 @@ export default async function ExecutiveAnalyticsKpisPage({
     const quota = quotaByRepPeriodMap.get(currK) || 0;
     const prevQuotaForRep = prevK ? quotaByRepPeriodMap.get(prevK) || 0 : 0;
 
+    const total_count = c ? Number((c as any).total_count || 0) || 0 : 0;
     const won_amount = c ? Number(c.won_amount || 0) || 0 : 0;
     const won_count = c ? Number(c.won_count || 0) || 0 : 0;
     const active_amount = c ? Number(c.active_amount || 0) || 0 : 0;
-    const win_rate = c ? safeDiv(Number(c.won_count || 0) || 0, (Number(c.won_count || 0) || 0) + (Number(c.lost_count || 0) || 0)) : null;
+    const lost_count = c ? Number((c as any).lost_count || 0) || 0 : 0;
+    const commit_amount = c ? Number((c as any).commit_amount || 0) || 0 : 0;
+    const best_amount = c ? Number((c as any).best_amount || 0) || 0 : 0;
+    const pipeline_amount = c ? Number((c as any).pipeline_amount || 0) || 0 : 0;
+    const win_rate = c ? safeDiv(won_count, won_count + lost_count) : null;
+    const opp_to_win = c ? safeDiv(won_count, total_count) : null;
     const aov = c ? safeDiv(won_amount, won_count) : null;
     const attainment = c ? safeDiv(won_amount, quota) : null;
     const partner_contribution = c ? safeDiv(Number(c.partner_closed_amount || 0) || 0, Number(c.closed_amount || 0) || 0) : null;
+    const partner_win_rate = c ? safeDiv(Number((c as any).partner_won_count || 0) || 0, Number((c as any).partner_closed_count || 0) || 0) : null;
+    const commit_coverage = c ? safeDiv(commit_amount, quota) : null;
+    const best_coverage = c ? safeDiv(best_amount, quota) : null;
     const prevAttainment = p ? safeDiv(Number(p.won_amount || 0) || 0, prevQuotaForRep) : null;
+
+    const created = createdByKey.get(currK) || { created_amount: 0, created_count: 0 };
+
+    const manager_id = repIdToManagerId.get(String(rep_id)) || "";
+    const manager_name = manager_id ? managerNameById.get(manager_id) || `Manager ${manager_id}` : "(Unassigned)";
+
+    const mixDen = pipeline_amount + best_amount + commit_amount + won_amount;
+    const mix_pipeline = safeDiv(pipeline_amount, mixDen);
+    const mix_best = safeDiv(best_amount, mixDen);
+    const mix_commit = safeDiv(commit_amount, mixDen);
+    const mix_won = safeDiv(won_amount, mixDen);
 
     const rep_name =
       (c && String(c.rep_name || "").trim()) ||
@@ -668,17 +768,34 @@ export default async function ExecutiveAnalyticsKpisPage({
     repRows.push({
       rep_id: String(rep_id),
       rep_name,
+      manager_id,
+      manager_name,
       quota,
+      total_count,
       won_amount,
       won_count,
+      lost_count,
       active_amount,
+      commit_amount,
+      best_amount,
+      pipeline_amount,
+      created_amount: created.created_amount,
+      created_count: created.created_count,
       win_rate,
+      opp_to_win,
       aov,
       attainment,
+      commit_coverage,
+      best_coverage,
       partner_contribution,
+      partner_win_rate,
       avg_days_won: c?.avg_days_won ?? null,
       avg_days_lost: c?.avg_days_lost ?? null,
       avg_days_active: c?.avg_days_active ?? null,
+      mix_pipeline,
+      mix_best,
+      mix_commit,
+      mix_won,
       qoq_attainment_delta: attainment != null && prevAttainment != null ? attainment - prevAttainment : null,
     });
   }
@@ -697,15 +814,6 @@ export default async function ExecutiveAnalyticsKpisPage({
     if (bv !== av) return (bv - av) * dirMult;
     return a.rep_name.localeCompare(b.rep_name);
   });
-
-  // Manager rollup derived from rep rows.
-  const repIdToManagerId = new Map<string, string>();
-  for (const r of reps) {
-    const id = Number(r.id);
-    if (!Number.isFinite(id) || id <= 0) continue;
-    const mid = r.manager_rep_id == null ? "" : String(r.manager_rep_id);
-    repIdToManagerId.set(String(id), mid);
-  }
 
   type ManagerRow = {
     manager_id: string;
@@ -734,9 +842,6 @@ export default async function ExecutiveAnalyticsKpisPage({
     managerAgg.set(mid, a);
   }
 
-  const managerNameById = new Map<string, string>();
-  for (const m of managers) managerNameById.set(String(m.id), String(m.name));
-
   const managerRows: ManagerRow[] = [];
   for (const [manager_id, a] of managerAgg.entries()) {
     const manager_name = manager_id ? managerNameById.get(manager_id) || `Manager ${manager_id}` : "(Unassigned)";
@@ -756,6 +861,24 @@ export default async function ExecutiveAnalyticsKpisPage({
   }
   managerRows.sort((a, b) => (Number(b.attainment ?? -1) - Number(a.attainment ?? -1)) || (b.won_amount - a.won_amount) || a.manager_name.localeCompare(b.manager_name));
 
+  const repsByManager = new Map<string, RepRow[]>();
+  for (const r of repRows) {
+    const k = r.manager_id || "";
+    const arr = repsByManager.get(k) || [];
+    arr.push(r);
+    repsByManager.set(k, arr);
+  }
+  const managerIdsInRepRows = Array.from(repsByManager.keys());
+  const orderedManagerIds = [
+    ...managerRows.map((m) => m.manager_id || ""),
+    ...managerIdsInRepRows.filter((id) => !managerRows.some((m) => String(m.manager_id || "") === String(id || ""))),
+  ];
+
+  const sortKey: "attainment" | "won" | "pipeline" | "win_rate" | "aov" =
+    rep_sort === "won" || rep_sort === "pipeline" || rep_sort === "win_rate" || rep_sort === "aov" ? (rep_sort as any) : "attainment";
+  const sortHighlight = (k: typeof sortKey) => (sortKey === k ? "text-yellow-700" : "");
+  const sortHighlightCell = (k: typeof sortKey) => (sortKey === k ? "bg-yellow-50 text-yellow-800" : "");
+
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
@@ -764,7 +887,8 @@ export default async function ExecutiveAnalyticsKpisPage({
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Executive KPIs</h1>
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-              Quarter KPIs driven by <span className="font-mono text-xs">forecast_stage</span> (scope: {scopeLabel}).
+              Quarter KPIs driven by <span className="font-mono text-xs">forecast_stage</span> and quarter scoping via{" "}
+              <span className="font-mono text-xs">close_date</span> (new-pipeline uses <span className="font-mono text-xs">create_date</span>) (scope: {scopeLabel}).
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -888,72 +1012,6 @@ export default async function ExecutiveAnalyticsKpisPage({
                   ) : null}
                 </p>
               </div>
-              <details className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3 text-sm">
-                <summary className="cursor-pointer font-semibold text-[color:var(--sf-text-primary)]">Quota breakdown</summary>
-                <div className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-secondary)]">
-                  <div>
-                    Total quota (rep quotas): <span className="font-mono text-xs">{fmtMoney(currQuota)}</span>
-                  </div>
-                  <div className="text-xs text-[color:var(--sf-text-disabled)]">
-                    This is the sum of all <span className="font-mono">quotas</span> rows with <span className="font-mono">role_level=3</span> in the selected quarter
-                    (filtered by scope when scope ≠ Company).
-                  </div>
-                  <div className="mt-2 grid gap-3 md:grid-cols-2">
-                    <div className="overflow-auto rounded-md border border-[color:var(--sf-border)]">
-                      <table className="w-full min-w-[380px] text-left text-sm">
-                        <thead className="bg-[color:var(--sf-surface)] text-xs text-[color:var(--sf-text-secondary)]">
-                          <tr>
-                            <th className="px-3 py-2">manager</th>
-                            <th className="px-3 py-2 text-right">quota</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {quotaBreakdown.byManager.length ? (
-                            quotaBreakdown.byManager.map((m) => (
-                              <tr key={m.manager_id} className="border-t border-[color:var(--sf-border)]">
-                                <td className="px-3 py-2">{m.manager_name}</td>
-                                <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(m.quota_amount)}</td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan={2} className="px-3 py-4 text-center text-[color:var(--sf-text-disabled)]">
-                                No manager quotas found.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                    <div className="overflow-auto rounded-md border border-[color:var(--sf-border)]">
-                      <table className="w-full min-w-[380px] text-left text-sm">
-                        <thead className="bg-[color:var(--sf-surface)] text-xs text-[color:var(--sf-text-secondary)]">
-                          <tr>
-                            <th className="px-3 py-2">rep</th>
-                            <th className="px-3 py-2 text-right">quota</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {quotaBreakdown.byRep.length ? (
-                            quotaBreakdown.byRep.slice(0, 50).map((r) => (
-                              <tr key={r.rep_id} className="border-t border-[color:var(--sf-border)]">
-                                <td className="px-3 py-2">{r.rep_name}</td>
-                                <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(r.quota_amount)}</td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan={2} className="px-3 py-4 text-center text-[color:var(--sf-text-disabled)]">
-                                No rep quotas found.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              </details>
             </div>
 
             <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
@@ -1125,12 +1183,12 @@ export default async function ExecutiveAnalyticsKpisPage({
                   <tr>
                     <th className="px-4 py-3">rep</th>
                     <th className="px-4 py-3 text-right">quota</th>
-                    <th className="px-4 py-3 text-right">won</th>
-                    <th className="px-4 py-3 text-right">attainment</th>
+                    <th className={`px-4 py-3 text-right ${sortHighlight("won")}`}>won</th>
+                    <th className={`px-4 py-3 text-right ${sortHighlight("attainment")}`}>attainment</th>
                     <th className="px-4 py-3 text-right">QoQ Δ attn</th>
-                    <th className="px-4 py-3 text-right">pipeline</th>
-                    <th className="px-4 py-3 text-right">win rate</th>
-                    <th className="px-4 py-3 text-right">AOV</th>
+                    <th className={`px-4 py-3 text-right ${sortHighlight("pipeline")}`}>pipeline</th>
+                    <th className={`px-4 py-3 text-right ${sortHighlight("win_rate")}`}>win rate</th>
+                    <th className={`px-4 py-3 text-right ${sortHighlight("aov")}`}>AOV</th>
                     <th className="px-4 py-3 text-right">partner %</th>
                     <th className="px-4 py-3 text-right">cycle (won)</th>
                     <th className="px-4 py-3 text-right">cycle (lost)</th>
@@ -1139,24 +1197,59 @@ export default async function ExecutiveAnalyticsKpisPage({
                 </thead>
                 <tbody>
                   {repRows.length ? (
-                    repRows.map((r) => (
-                      <tr key={r.rep_id} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
-                        <td className="px-4 py-3 font-medium">{r.rep_name}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(r.quota)}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">
-                          {fmtMoney(r.won_amount)} <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(r.won_count)})</span>
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct(r.attainment)}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{r.qoq_attainment_delta == null ? "—" : fmtPct(r.qoq_attainment_delta)}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(r.active_amount)}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct(r.win_rate)}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(r.aov)}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct(r.partner_contribution)}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{r.avg_days_won == null ? "—" : `${Math.round(r.avg_days_won)}d`}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{r.avg_days_lost == null ? "—" : `${Math.round(r.avg_days_lost)}d`}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{r.avg_days_active == null ? "—" : `${Math.round(r.avg_days_active)}d`}</td>
-                      </tr>
-                    ))
+                    orderedManagerIds
+                      .filter((mid) => (repsByManager.get(mid) || []).length)
+                      .map((mid) => {
+                        const repsForMgr = (repsByManager.get(mid) || []).slice();
+                        const mgr = managerRows.find((m) => String(m.manager_id || "") === String(mid || "")) || null;
+                        const managerLabel = mgr?.manager_name || (mid ? managerNameById.get(mid) || `Manager ${mid}` : "(Unassigned)");
+                        return (
+                          <Fragment key={`team:${mid || "unassigned"}`}>
+                            <tr
+                              key={`mgr:${mid || "unassigned"}`}
+                              className="border-t-2 border-yellow-300 bg-yellow-50 text-[color:var(--sf-text-primary)]"
+                            >
+                              <td className="px-4 py-3 font-semibold">
+                                {managerLabel} <span className="text-xs font-normal text-[color:var(--sf-text-secondary)]">(team)</span>
+                              </td>
+                              <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(mgr?.quota ?? 0)}</td>
+                              <td className={`px-4 py-3 text-right font-mono text-xs ${sortHighlightCell("won")}`}>{fmtMoney(mgr?.won_amount ?? 0)}</td>
+                              <td className={`px-4 py-3 text-right font-mono text-xs ${sortHighlightCell("attainment")}`}>{fmtPct(mgr?.attainment ?? null)}</td>
+                              <td className="px-4 py-3 text-right font-mono text-xs">—</td>
+                              <td className={`px-4 py-3 text-right font-mono text-xs ${sortHighlightCell("pipeline")}`}>{fmtMoney(mgr?.active_amount ?? 0)}</td>
+                              <td className={`px-4 py-3 text-right font-mono text-xs ${sortHighlightCell("win_rate")}`}>{fmtPct(mgr?.win_rate ?? null)}</td>
+                              <td className={`px-4 py-3 text-right font-mono text-xs ${sortHighlightCell("aov")}`}>—</td>
+                              <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct(mgr?.partner_contribution ?? null)}</td>
+                              <td className="px-4 py-3 text-right font-mono text-xs">—</td>
+                              <td className="px-4 py-3 text-right font-mono text-xs">—</td>
+                              <td className="px-4 py-3 text-right font-mono text-xs">—</td>
+                            </tr>
+                            {repsForMgr.map((r) => (
+                              <tr
+                                key={`rep:${mid || "unassigned"}:${r.rep_id}`}
+                                className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]"
+                              >
+                                <td className="px-4 py-3 font-medium border-l-4 border-yellow-200">{r.rep_name}</td>
+                                <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(r.quota)}</td>
+                                <td className={`px-4 py-3 text-right font-mono text-xs ${sortHighlightCell("won")}`}>
+                                  {fmtMoney(r.won_amount)} <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(r.won_count)})</span>
+                                </td>
+                                <td className={`px-4 py-3 text-right font-mono text-xs ${sortHighlightCell("attainment")}`}>{fmtPct(r.attainment)}</td>
+                                <td className="px-4 py-3 text-right font-mono text-xs">
+                                  {r.qoq_attainment_delta == null ? "—" : fmtPct(r.qoq_attainment_delta)}
+                                </td>
+                                <td className={`px-4 py-3 text-right font-mono text-xs ${sortHighlightCell("pipeline")}`}>{fmtMoney(r.active_amount)}</td>
+                                <td className={`px-4 py-3 text-right font-mono text-xs ${sortHighlightCell("win_rate")}`}>{fmtPct(r.win_rate)}</td>
+                                <td className={`px-4 py-3 text-right font-mono text-xs ${sortHighlightCell("aov")}`}>{fmtMoney(r.aov)}</td>
+                                <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct(r.partner_contribution)}</td>
+                                <td className="px-4 py-3 text-right font-mono text-xs">{r.avg_days_won == null ? "—" : `${Math.round(r.avg_days_won)}d`}</td>
+                                <td className="px-4 py-3 text-right font-mono text-xs">{r.avg_days_lost == null ? "—" : `${Math.round(r.avg_days_lost)}d`}</td>
+                                <td className="px-4 py-3 text-right font-mono text-xs">{r.avg_days_active == null ? "—" : `${Math.round(r.avg_days_active)}d`}</td>
+                              </tr>
+                            ))}
+                          </Fragment>
+                        );
+                      })
                   ) : (
                     <tr>
                       <td colSpan={12} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
@@ -1169,6 +1262,8 @@ export default async function ExecutiveAnalyticsKpisPage({
             </div>
           </section>
         ) : null}
+
+        {selectedPeriod && curr ? <CustomReportBuilder repRows={repRows} /> : null}
 
         {selectedPeriod && curr ? (
           <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
@@ -1213,6 +1308,77 @@ export default async function ExecutiveAnalyticsKpisPage({
                 </tbody>
               </table>
             </div>
+          </section>
+        ) : null}
+
+        {selectedPeriod && curr ? (
+          <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+            <details className="flex flex-col">
+              <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">Quota breakdown</summary>
+              <div className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-secondary)]">
+                <div>
+                  Total quota (rep quotas): <span className="font-mono text-xs">{fmtMoney(currQuota)}</span>
+                </div>
+                <div className="text-xs text-[color:var(--sf-text-disabled)]">
+                  This is the sum of all <span className="font-mono">quotas</span> rows with <span className="font-mono">role_level=3</span> in the selected quarter
+                  (filtered by scope when scope ≠ Company).
+                </div>
+                <div className="mt-2 grid gap-3 md:grid-cols-2">
+                  <div className="overflow-auto rounded-md border border-[color:var(--sf-border)]">
+                    <table className="w-full min-w-[380px] text-left text-sm">
+                      <thead className="bg-[color:var(--sf-surface)] text-xs text-[color:var(--sf-text-secondary)]">
+                        <tr>
+                          <th className="px-3 py-2">manager</th>
+                          <th className="px-3 py-2 text-right">quota</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {quotaBreakdown.byManager.length ? (
+                          quotaBreakdown.byManager.map((m) => (
+                            <tr key={m.manager_id} className="border-t border-[color:var(--sf-border)]">
+                              <td className="px-3 py-2">{m.manager_name}</td>
+                              <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(m.quota_amount)}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={2} className="px-3 py-4 text-center text-[color:var(--sf-text-disabled)]">
+                              No manager quotas found.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="overflow-auto rounded-md border border-[color:var(--sf-border)]">
+                    <table className="w-full min-w-[380px] text-left text-sm">
+                      <thead className="bg-[color:var(--sf-surface)] text-xs text-[color:var(--sf-text-secondary)]">
+                        <tr>
+                          <th className="px-3 py-2">rep</th>
+                          <th className="px-3 py-2 text-right">quota</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {quotaBreakdown.byRep.length ? (
+                          quotaBreakdown.byRep.slice(0, 50).map((r) => (
+                            <tr key={r.rep_id} className="border-t border-[color:var(--sf-border)]">
+                              <td className="px-3 py-2">{r.rep_name}</td>
+                              <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(r.quota_amount)}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={2} className="px-3 py-4 text-center text-[color:var(--sf-text-disabled)]">
+                              No rep quotas found.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </details>
           </section>
         ) : null}
 
