@@ -705,17 +705,6 @@ export default async function AnalyticsQuotasAdminPage({
 
           {rollupPeriodId ? (
             <div className="mt-5 grid gap-5">
-              <div className="flex items-center justify-end">
-                <ExportToExcelButton
-                  fileName={`Quotas (Admin) - Rollups - ${rollupPeriodId}`}
-                  sheets={[
-                    { name: "Rep attainment", rows: repAtt as any },
-                    { name: "Manager attainment", rows: mgrAtt as any },
-                    { name: "VP attainment", rows: vpAtt as any },
-                    { name: "CRO attainment", rows: croAtt as any },
-                  ]}
-                />
-              </div>
               <AverageHealthScorePanel row={health} />
               <div className="overflow-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm">
                 <div className="border-b border-[color:var(--sf-border)] px-4 py-3">
@@ -869,6 +858,18 @@ export default async function AnalyticsQuotasAdminPage({
                     )}
                   </tbody>
                 </table>
+              </div>
+
+              <div className="flex items-center justify-end">
+                <ExportToExcelButton
+                  fileName={`Quotas (Admin) - Rollups - ${rollupPeriodId}`}
+                  sheets={[
+                    { name: "Rep attainment", rows: repAtt as any },
+                    { name: "Manager attainment", rows: mgrAtt as any },
+                    { name: "VP attainment", rows: vpAtt as any },
+                    { name: "CRO attainment", rows: croAtt as any },
+                  ]}
+                />
               </div>
             </div>
           ) : (

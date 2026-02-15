@@ -154,7 +154,6 @@ export default async function AnalyticsComparisonsPage({
                   <span className="font-mono text-xs">{company.fiscal_year}</span>
                 </p>
               </div>
-              <ExportToExcelButton fileName={`Comparisons - Company - ${selected.period_name}`} sheets={[{ name: "Company", rows: [company as any] }]} />
             </div>
 
             <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
@@ -193,6 +192,10 @@ export default async function AnalyticsComparisonsPage({
                 </tbody>
               </table>
             </div>
+
+            <div className="mt-3 flex items-center justify-end">
+              <ExportToExcelButton fileName={`Comparisons - Company - ${selected.period_name}`} sheets={[{ name: "Company", rows: [company as any] }]} />
+            </div>
           </section>
         ) : null}
 
@@ -201,9 +204,6 @@ export default async function AnalyticsComparisonsPage({
             <div className="border-b border-[color:var(--sf-border)] px-4 py-3">
               <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Quota attainment (rep)</div>
               <div className="text-xs text-[color:var(--sf-text-secondary)]">Rep quotas are rows in `quotas` with `role_level = 3` and `rep_id` set.</div>
-            </div>
-            <div className="flex items-center justify-end gap-2 border-b border-[color:var(--sf-border)] px-4 py-3">
-              <ExportToExcelButton fileName={`Comparisons - Rep attainment - ${selected.period_name}`} sheets={[{ name: "Rep attainment", rows: reps as any }]} />
             </div>
             <table className="w-full text-left text-sm">
               <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
@@ -235,6 +235,10 @@ export default async function AnalyticsComparisonsPage({
                 )}
               </tbody>
             </table>
+
+            <div className="flex items-center justify-end gap-2 border-t border-[color:var(--sf-border)] px-4 py-3">
+              <ExportToExcelButton fileName={`Comparisons - Rep attainment - ${selected.period_name}`} sheets={[{ name: "Rep attainment", rows: reps as any }]} />
+            </div>
           </section>
         ) : null}
 
@@ -243,9 +247,6 @@ export default async function AnalyticsComparisonsPage({
             <div className="border-b border-[color:var(--sf-border)] px-4 py-3">
               <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Deal comparisons</div>
               <div className="text-xs text-[color:var(--sf-text-secondary)]">Rows are limited to 200 deals for this period.</div>
-            </div>
-            <div className="flex items-center justify-end gap-2 border-b border-[color:var(--sf-border)] px-4 py-3">
-              <ExportToExcelButton fileName={`Comparisons - Deals - ${selected.period_name}`} sheets={[{ name: "Deals", rows: deals as any }]} />
             </div>
             <table className="w-full text-left text-sm">
               <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
@@ -291,6 +292,10 @@ export default async function AnalyticsComparisonsPage({
                 )}
               </tbody>
             </table>
+
+            <div className="flex items-center justify-end gap-2 border-t border-[color:var(--sf-border)] px-4 py-3">
+              <ExportToExcelButton fileName={`Comparisons - Deals - ${selected.period_name}`} sheets={[{ name: "Deals", rows: deals as any }]} />
+            </div>
           </section>
         ) : null}
       </main>

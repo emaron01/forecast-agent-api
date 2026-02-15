@@ -1219,13 +1219,6 @@ export default async function ExecutiveAnalyticsKpisPage({
                   Apply sort
                 </button>
               </form>
-              <ExportToExcelButton
-                fileName={`Executive KPIs - Rep comparison - ${selectedPeriod?.period_name || ""}`}
-                sheets={[
-                  { name: "Reps", rows: repExportRows as any },
-                  { name: "Managers", rows: managerExportRows as any },
-                ]}
-              />
             </div>
 
             <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
@@ -1310,6 +1303,16 @@ export default async function ExecutiveAnalyticsKpisPage({
                   )}
                 </tbody>
               </table>
+            </div>
+
+            <div className="mt-3 flex items-center justify-end">
+              <ExportToExcelButton
+                fileName={`Executive KPIs - Rep comparison - ${selectedPeriod?.period_name || ""}`}
+                sheets={[
+                  { name: "Reps", rows: repExportRows as any },
+                  { name: "Managers", rows: managerExportRows as any },
+                ]}
+              />
             </div>
           </section>
         ) : null}

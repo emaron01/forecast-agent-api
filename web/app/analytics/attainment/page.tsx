@@ -135,9 +135,6 @@ export default async function AnalyticsAttainmentPage({
               <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Rep attainment</div>
               <div className="text-xs text-[color:var(--sf-text-secondary)]">Uses `public.rep_attainment(org_id, quota_period_id)`.</div>
             </div>
-            <div className="flex items-center justify-end gap-2 border-b border-[color:var(--sf-border)] px-4 py-3">
-              <ExportToExcelButton fileName={`Attainment - Reps - ${selected.period_name}`} sheets={[{ name: "Reps", rows: reps as any }]} />
-            </div>
             <table className="w-full text-left text-sm">
               <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
                 <tr>
@@ -172,6 +169,10 @@ export default async function AnalyticsAttainmentPage({
                 )}
               </tbody>
             </table>
+
+            <div className="flex items-center justify-end gap-2 border-t border-[color:var(--sf-border)] px-4 py-3">
+              <ExportToExcelButton fileName={`Attainment - Reps - ${selected.period_name}`} sheets={[{ name: "Reps", rows: reps as any }]} />
+            </div>
           </section>
         ) : null}
 
@@ -180,9 +181,6 @@ export default async function AnalyticsAttainmentPage({
             <div className="border-b border-[color:var(--sf-border)] px-4 py-3">
               <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Manager attainment</div>
               <div className="text-xs text-[color:var(--sf-text-secondary)]">Uses `public.manager_attainment(org_id, quota_period_id)`.</div>
-            </div>
-            <div className="flex items-center justify-end gap-2 border-b border-[color:var(--sf-border)] px-4 py-3">
-              <ExportToExcelButton fileName={`Attainment - Managers - ${selected.period_name}`} sheets={[{ name: "Managers", rows: managers as any }]} />
             </div>
             <table className="w-full text-left text-sm">
               <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
@@ -218,6 +216,10 @@ export default async function AnalyticsAttainmentPage({
                 )}
               </tbody>
             </table>
+
+            <div className="flex items-center justify-end gap-2 border-t border-[color:var(--sf-border)] px-4 py-3">
+              <ExportToExcelButton fileName={`Attainment - Managers - ${selected.period_name}`} sheets={[{ name: "Managers", rows: managers as any }]} />
+            </div>
           </section>
         ) : null}
 
@@ -226,9 +228,6 @@ export default async function AnalyticsAttainmentPage({
             <div className="border-b border-[color:var(--sf-border)] px-4 py-3">
               <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">VP attainment</div>
               <div className="text-xs text-[color:var(--sf-text-secondary)]">Uses `public.vp_attainment(org_id, quota_period_id)`.</div>
-            </div>
-            <div className="flex items-center justify-end gap-2 border-b border-[color:var(--sf-border)] px-4 py-3">
-              <ExportToExcelButton fileName={`Attainment - VPs - ${selected.period_name}`} sheets={[{ name: "VPs", rows: vps as any }]} />
             </div>
             <table className="w-full text-left text-sm">
               <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
@@ -264,6 +263,10 @@ export default async function AnalyticsAttainmentPage({
                 )}
               </tbody>
             </table>
+
+            <div className="flex items-center justify-end gap-2 border-t border-[color:var(--sf-border)] px-4 py-3">
+              <ExportToExcelButton fileName={`Attainment - VPs - ${selected.period_name}`} sheets={[{ name: "VPs", rows: vps as any }]} />
+            </div>
           </section>
         ) : null}
 
@@ -272,9 +275,6 @@ export default async function AnalyticsAttainmentPage({
             <div className="border-b border-[color:var(--sf-border)] px-4 py-3">
               <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">CRO/company attainment</div>
               <div className="text-xs text-[color:var(--sf-text-secondary)]">Uses `public.cro_attainment(org_id, quota_period_id)`.</div>
-            </div>
-            <div className="flex items-center justify-end gap-2 border-b border-[color:var(--sf-border)] px-4 py-3">
-              <ExportToExcelButton fileName={`Attainment - CRO - ${selected.period_name}`} sheets={[{ name: "CRO", rows: cros as any }]} />
             </div>
             <table className="w-full text-left text-sm">
               <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
@@ -306,6 +306,10 @@ export default async function AnalyticsAttainmentPage({
                 )}
               </tbody>
             </table>
+
+            <div className="flex items-center justify-end gap-2 border-t border-[color:var(--sf-border)] px-4 py-3">
+              <ExportToExcelButton fileName={`Attainment - CRO - ${selected.period_name}`} sheets={[{ name: "CRO", rows: cros as any }]} />
+            </div>
           </section>
         ) : null}
       </main>

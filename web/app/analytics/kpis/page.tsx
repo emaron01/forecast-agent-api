@@ -81,6 +81,9 @@ type RepPeriodKpisRow = {
   won_amount: number;
   lost_amount: number;
   active_amount: number;
+  commit_count: number;
+  best_count: number;
+  pipeline_count: number;
   commit_amount: number;
   best_amount: number;
   pipeline_amount: number;
@@ -249,6 +252,9 @@ async function getRepKpisByPeriods(args: { orgId: number; periodIds: string[]; r
       COALESCE(SUM(CASE WHEN is_won THEN amount ELSE 0 END), 0)::float8 AS won_amount,
       COALESCE(SUM(CASE WHEN is_lost THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
       COALESCE(SUM(CASE WHEN is_active THEN amount ELSE 0 END), 0)::float8 AS active_amount,
+      COALESCE(SUM(CASE WHEN bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
+      COALESCE(SUM(CASE WHEN bucket = 'best' THEN 1 ELSE 0 END), 0)::int AS best_count,
+      COALESCE(SUM(CASE WHEN bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
       COALESCE(SUM(CASE WHEN bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
       COALESCE(SUM(CASE WHEN bucket = 'best' THEN amount ELSE 0 END), 0)::float8 AS best_amount,
       COALESCE(SUM(CASE WHEN bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
@@ -495,6 +501,9 @@ export default async function QuarterlyKpisPage({
     won_count: number;
     lost_count: number;
     active_count: number;
+    commit_count: number;
+    best_count: number;
+    pipeline_count: number;
     commit_amount: number;
     best_amount: number;
     pipeline_amount: number;
@@ -610,6 +619,9 @@ export default async function QuarterlyKpisPage({
     const active_count = Number(rr.active_count || 0) || 0;
     const active_amount = Number(rr.active_amount || 0) || 0;
     const pipeline_amount = Number(rr.pipeline_amount || 0) || 0;
+    const commit_count = Number((rr as any).commit_count || 0) || 0;
+    const best_count = Number((rr as any).best_count || 0) || 0;
+    const pipeline_count = Number((rr as any).pipeline_count || 0) || 0;
     const commit_amount = Number(rr.commit_amount || 0) || 0;
     const best_amount = Number(rr.best_amount || 0) || 0;
     const partner_closed_amount = Number(rr.partner_closed_amount || 0) || 0;
@@ -641,6 +653,9 @@ export default async function QuarterlyKpisPage({
       won_count,
       lost_count,
       active_count,
+      commit_count,
+      best_count,
+      pipeline_count,
       commit_amount,
       best_amount,
       pipeline_amount,
@@ -757,6 +772,9 @@ export default async function QuarterlyKpisPage({
         won_count: 0,
         lost_count: 0,
         active_count: 0,
+        commit_count: 0,
+        best_count: 0,
+        pipeline_count: 0,
         commit_amount: 0,
         best_amount: 0,
         pipeline_amount: 0,
@@ -1052,13 +1070,6 @@ export default async function QuarterlyKpisPage({
                         {p.period_start} → {p.period_end}
                       </div>
                     </div>
-                    <ExportToExcelButton
-                      fileName={`KPIs by quarter - ${summaryLabel}`}
-                      sheets={[
-                        { name: "Managers", rows: managerExportRows as any },
-                        { name: "Reps", rows: repExportRows as any },
-                      ]}
-                    />
                   </div>
 
                   {(() => {
@@ -1093,21 +1104,80 @@ export default async function QuarterlyKpisPage({
                       <div className="mt-4 grid gap-3">
                         <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
                           <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Sales Forecast</div>
-                          <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                            <Chip label="Win Rate" value={fmtPct(winRate)} />
-                            <Chip label="Pipeline Value" value={fmtMoney(block.pipeline_value)} />
-                            <Chip label="Average Order Value" value={fmtMoney(block.aov)} />
-                            <Chip
-                              label="Avg Health Closed Won"
-                              value={<span className={healthColorClass(hWon)}>{hWon == null ? "—" : `${hWon}%`}</span>}
-                            />
-                            <Chip
-                              label="Avg Health Closed Loss"
-                              value={<span className={healthColorClass(hLost)}>{hLost == null ? "—" : `${hLost}%`}</span>}
-                            />
-                            <Chip label="Opp→Win Conversion" value={fmtPct(oppToWin)} />
-                            <Chip label="Aging (avg deal age)" value={agingAvgDays == null ? "—" : `${Math.round(agingAvgDays)}d`} />
-                          </div>
+                          {(() => {
+                            let commitCount = 0;
+                            let bestCount = 0;
+                            let pipelineCount = 0;
+                            for (const m of block.managers) {
+                              for (const r of m.reps || []) {
+                                commitCount += Number((r as any).commit_count || 0) || 0;
+                                bestCount += Number((r as any).best_count || 0) || 0;
+                                pipelineCount += Number((r as any).pipeline_count || 0) || 0;
+                              }
+                            }
+                            const totalPipelineCount = commitCount + bestCount + pipelineCount;
+                            const totalPipelineAmt = commitTotal + bestTotal + pipelineTotal;
+                            const pctToGoal = quotaTotal > 0 ? wonAmountTotal / quotaTotal : null;
+
+                            const boxClass = "rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2";
+
+                            return (
+                              <div className="mt-2 grid w-full gap-2 text-sm sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
+                                <div className={boxClass}>
+                                  <div className="text-xs text-[color:var(--sf-text-secondary)]">Commit</div>
+                                  <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(commitTotal)}</div>
+                                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]"># Opps: {fmtNum(commitCount)}</div>
+                                </div>
+                                <div className={boxClass}>
+                                  <div className="text-xs text-[color:var(--sf-text-secondary)]">Best Case</div>
+                                  <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(bestTotal)}</div>
+                                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]"># Opps: {fmtNum(bestCount)}</div>
+                                </div>
+                                <div className={boxClass}>
+                                  <div className="text-xs text-[color:var(--sf-text-secondary)]">Pipeline</div>
+                                  <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(pipelineTotal)}</div>
+                                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]"># Opps: {fmtNum(pipelineCount)}</div>
+                                </div>
+                                <div className={boxClass}>
+                                  <div className="text-xs text-[color:var(--sf-text-secondary)]">Total Pipeline</div>
+                                  <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(totalPipelineAmt)}</div>
+                                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]"># Opps: {fmtNum(totalPipelineCount)}</div>
+                                </div>
+                                <div className={boxClass}>
+                                  <div className="text-xs text-[color:var(--sf-text-secondary)]">Closed Won</div>
+                                  <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(wonAmountTotal)}</div>
+                                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]"># Opps: {fmtNum(wonCountTotal)}</div>
+                                </div>
+                                <div className={boxClass}>
+                                  <div className="text-xs text-[color:var(--sf-text-secondary)]">Quarterly Quota</div>
+                                  <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(quotaTotal)}</div>
+                                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">&nbsp;</div>
+                                </div>
+                                <div className={boxClass}>
+                                  <div className="text-xs text-[color:var(--sf-text-secondary)]">% To Goal</div>
+                                  <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(pctToGoal)}</div>
+                                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">&nbsp;</div>
+                                </div>
+
+                                <div className="lg:col-span-7">
+                                  <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                                    <Chip label="Win Rate" value={fmtPct(winRate)} />
+                                    <Chip label="Average Order Value" value={fmtMoney(block.aov)} />
+                                    <Chip
+                                      label="Avg Health Closed Won"
+                                      value={<span className={healthColorClass(hWon)}>{hWon == null ? "—" : `${hWon}%`}</span>}
+                                    />
+                                    <Chip
+                                      label="Avg Health Closed Loss"
+                                      value={<span className={healthColorClass(hLost)}>{hLost == null ? "—" : `${hLost}%`}</span>}
+                                    />
+                                    <Chip label="Opp→Win Conversion" value={fmtPct(oppToWin)} />
+                                    <Chip label="Aging (avg deal age)" value={agingAvgDays == null ? "—" : `${Math.round(agingAvgDays)}d`} />
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
 
                         <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
@@ -1136,13 +1206,34 @@ export default async function QuarterlyKpisPage({
 
                         <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
                           <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Pipeline</div>
-                          <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                            <Chip label="New Pipeline Created" value={fmtMoney(block.created_amount)} />
-                            <Chip label="Commit Coverage" value={fmtPct(commitCov)} />
-                            <Chip label="Best Case Coverage" value={fmtPct(bestCov)} />
-                            <Chip label="Forecast Mix (C/B/P)" value={mixCBP} sub="Commit / Best / Pipeline" />
-                            <Chip label="Average Health By C—B—P—W—Cl—" value={<span className={healthColorClass(hAll)}>{hAll == null ? "—" : `${hAll}%`}</span>} sub={healthByBuckets} />
-                          </div>
+                          {(() => {
+                            const Card = (props: { label: string; value: ReactNode; sub?: ReactNode }) => (
+                              <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-3">
+                                <div className="text-xs text-[color:var(--sf-text-secondary)]">{props.label}</div>
+                                <div className="mt-1 font-mono text-base font-semibold text-[color:var(--sf-text-primary)]">{props.value}</div>
+                                {props.sub ? <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">{props.sub}</div> : null}
+                              </div>
+                            );
+
+                            return (
+                              <div className="mt-2 grid gap-2 lg:grid-cols-4">
+                                <div className="grid gap-2 sm:grid-cols-3 lg:col-span-3">
+                                  <Card label="Commit" value={fmtMoney(commitTotal)} sub={<span>Commit Coverage: {fmtPct(commitCov)}</span>} />
+                                  <Card label="Best Case" value={fmtMoney(bestTotal)} sub={<span>Best Case Coverage: {fmtPct(bestCov)}</span>} />
+                                  <Card label="Pipeline" value={fmtMoney(pipelineTotal)} />
+                                </div>
+                                <div className="grid gap-2">
+                                  <Chip label="Forecast Mix (C/B/P)" value={mixCBP} sub="Commit / Best / Pipeline" />
+                                  <Chip
+                                    label="Health Mix (C/B/P/W/Cl)"
+                                    value={<span className={healthColorClass(hAll)}>{hAll == null ? "—" : `${hAll}%`}</span>}
+                                    sub={healthByBuckets}
+                                  />
+                                  <Chip label="New Pipeline Created" value={fmtMoney(block.created_amount)} />
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     );
@@ -1284,6 +1375,16 @@ export default async function QuarterlyKpisPage({
                       </table>
                     </div>
                   </details>
+
+                  <div className="mt-3 flex items-center justify-end">
+                    <ExportToExcelButton
+                      fileName={`KPIs by quarter - ${summaryLabel}`}
+                      sheets={[
+                        { name: "Managers", rows: managerExportRows as any },
+                        { name: "Reps", rows: repExportRows as any },
+                      ]}
+                    />
+                  </div>
                 </section>
               );
             })}

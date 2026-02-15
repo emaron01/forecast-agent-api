@@ -547,10 +547,13 @@ export default async function AnalyticsQuotasManagerPage({
           <section className="mt-5">
             <div className="flex items-end justify-between gap-3">
               <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Rep rollup</div>
-              <ExportToExcelButton fileName={`Team Quotas - Rep rollup - ${fiscal_year} ${rollup_quarter}`} sheets={[{ name: "Reps", rows: repRows as any }]} />
             </div>
             <div className="mt-3">
               <QuotaRollupTable title="Rep rollup" subtitle="Uses public.rep_attainment (direct reports only)" rows={repRows} />
+            </div>
+
+            <div className="mt-3 flex items-center justify-end">
+              <ExportToExcelButton fileName={`Team Quotas - Rep rollup - ${fiscal_year} ${rollup_quarter}`} sheets={[{ name: "Reps", rows: repRows as any }]} />
             </div>
           </section>
         ) : null}
@@ -564,26 +567,6 @@ export default async function AnalyticsQuotasManagerPage({
                   Direct reports · Fiscal year: <span className="font-mono text-xs">{fiscal_year}</span>
                 </p>
               </div>
-              <ExportToExcelButton
-                fileName={`Team Quotas - Quota vs Won - ${fiscal_year}`}
-                sheets={[
-                  {
-                    name: "Quota vs Won",
-                    rows: directReps.map((rep) => {
-                      const out: Record<string, any> = { rep: rep.rep_name || "—" };
-                      for (const q of quarters) {
-                        const pid = String(q.p.id);
-                        const repId = String(rep.id);
-                        const quota = quotaByRepPeriod.get(`${repId}|${pid}`) || 0;
-                        const won = wonByRepPeriod.get(`${repId}|${pid}`) || 0;
-                        out[`${q.key}_quota`] = quota;
-                        out[`${q.key}_won`] = won;
-                      }
-                      return out;
-                    }) as any,
-                  },
-                ]}
-              />
             </div>
 
             {!quarters.length ? (
@@ -634,8 +617,32 @@ export default async function AnalyticsQuotasManagerPage({
                 </table>
               </div>
             )}
+
+            <div className="mt-3 flex items-center justify-end">
+              <ExportToExcelButton
+                fileName={`Team Quotas - Quota vs Won - ${fiscal_year}`}
+                sheets={[
+                  {
+                    name: "Quota vs Won",
+                    rows: directReps.map((rep) => {
+                      const out: Record<string, any> = { rep: rep.rep_name || "—" };
+                      for (const q of quarters) {
+                        const pid = String(q.p.id);
+                        const repId = String(rep.id);
+                        const quota = quotaByRepPeriod.get(`${repId}|${pid}`) || 0;
+                        const won = wonByRepPeriod.get(`${repId}|${pid}`) || 0;
+                        out[`${q.key}_quota`] = quota;
+                        out[`${q.key}_won`] = won;
+                      }
+                      return out;
+                    }) as any,
+                  },
+                ]}
+              />
+            </div>
           </section>
         ) : null}
+
       </main>
     </div>
   );

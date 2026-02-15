@@ -348,7 +348,6 @@ export default async function AnalyticsQuotasExecutivePage({
                   Apply sort
                 </button>
               </form>
-              <ExportToExcelButton fileName={`Top Deals Won - ${selected.period_name}`} sheets={[{ name: "Top Won", rows: topWonExport }]} />
             </div>
 
             <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
@@ -396,6 +395,10 @@ export default async function AnalyticsQuotasExecutivePage({
                 </tbody>
               </table>
             </div>
+
+            <div className="mt-3 flex items-center justify-end">
+              <ExportToExcelButton fileName={`Top Deals Won - ${selected.period_name}`} sheets={[{ name: "Top Won", rows: topWonExport }]} />
+            </div>
           </section>
         ) : null}
 
@@ -438,7 +441,6 @@ export default async function AnalyticsQuotasExecutivePage({
                   Apply sort
                 </button>
               </form>
-              <ExportToExcelButton fileName={`Top Deals Closed Loss - ${selected.period_name}`} sheets={[{ name: "Top Closed Loss", rows: topLostExport }]} />
             </div>
 
             <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
@@ -485,6 +487,10 @@ export default async function AnalyticsQuotasExecutivePage({
                   )}
                 </tbody>
               </table>
+            </div>
+
+            <div className="mt-3 flex items-center justify-end">
+              <ExportToExcelButton fileName={`Top Deals Closed Loss - ${selected.period_name}`} sheets={[{ name: "Top Closed Loss", rows: topLostExport }]} />
             </div>
           </section>
         ) : null}
