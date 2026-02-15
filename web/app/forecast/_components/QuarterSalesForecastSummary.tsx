@@ -38,6 +38,20 @@ function fmtPct(n: number | null) {
   return `${Math.round(n * 100)}%`;
 }
 
+function healthPctFrom30(score: any) {
+  const n = Number(score);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const pct = Math.round((n / 30) * 100);
+  return Math.max(0, Math.min(100, pct));
+}
+
+function healthColorClass(pct: number | null) {
+  if (pct == null) return "text-[color:var(--sf-text-disabled)]";
+  if (pct >= 80) return "text-[#2ECC71]";
+  if (pct >= 50) return "text-[#F1C40F]";
+  return "text-[#E74C3C]";
+}
+
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
 }
@@ -179,10 +193,13 @@ export async function QuarterSalesForecastSummary(props: {
     rep_name: string;
     commit_amount: number;
     commit_count: number;
+    commit_health_score: number | null;
     best_case_amount: number;
     best_case_count: number;
+    best_case_health_score: number | null;
     pipeline_amount: number;
     pipeline_count: number;
+    pipeline_health_score: number | null;
     won_amount: number;
     won_count: number;
   };
@@ -203,6 +220,7 @@ export async function QuarterSalesForecastSummary(props: {
               COALESCE(o.amount, 0) AS amount,
               o.rep_id,
               o.rep_name,
+              o.health_score,
               -- Use forecast_stage when present; fall back to sales_stage (many CRMs mark Won/Lost there).
               lower(
                 regexp_replace(
@@ -264,6 +282,14 @@ export async function QuarterSalesForecastSummary(props: {
               WHEN d.fs LIKE '%commit%' THEN 1
               ELSE 0
             END), 0)::int AS commit_count,
+            AVG(CASE
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
+                OR ((' ' || d.fs || ' ') LIKE '% lost %')
+                OR ((' ' || d.fs || ' ') LIKE '% closed %')
+              THEN NULL
+              WHEN d.fs LIKE '%commit%' THEN NULLIF(d.health_score, 0)
+              ELSE NULL
+            END)::float8 AS commit_health_score,
             COALESCE(SUM(CASE
               WHEN ((' ' || d.fs || ' ') LIKE '% won %')
                 OR ((' ' || d.fs || ' ') LIKE '% lost %')
@@ -280,6 +306,14 @@ export async function QuarterSalesForecastSummary(props: {
               WHEN d.fs LIKE '%best%' THEN 1
               ELSE 0
             END), 0)::int AS best_case_count,
+            AVG(CASE
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
+                OR ((' ' || d.fs || ' ') LIKE '% lost %')
+                OR ((' ' || d.fs || ' ') LIKE '% closed %')
+              THEN NULL
+              WHEN d.fs LIKE '%best%' THEN NULLIF(d.health_score, 0)
+              ELSE NULL
+            END)::float8 AS best_case_health_score,
             COALESCE(SUM(CASE
               WHEN ((' ' || d.fs || ' ') LIKE '% won %')
                 OR ((' ' || d.fs || ' ') LIKE '% lost %')
@@ -298,6 +332,15 @@ export async function QuarterSalesForecastSummary(props: {
               WHEN d.fs LIKE '%best%' THEN 0
               ELSE 1
             END), 0)::int AS pipeline_count,
+            AVG(CASE
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
+                OR ((' ' || d.fs || ' ') LIKE '% lost %')
+                OR ((' ' || d.fs || ' ') LIKE '% closed %')
+              THEN NULL
+              WHEN d.fs LIKE '%commit%' THEN NULL
+              WHEN d.fs LIKE '%best%' THEN NULL
+              ELSE NULLIF(d.health_score, 0)
+            END)::float8 AS pipeline_health_score,
             COALESCE(SUM(CASE
               WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN d.amount
               ELSE 0
@@ -326,6 +369,91 @@ export async function QuarterSalesForecastSummary(props: {
         .then((r) => (r.rows || []) as any[])
         .catch(() => [])
     : [];
+
+  const bucketHealth = canCompute
+    ? await pool
+        .query<{ commit_health_score: number | null; best_case_health_score: number | null; pipeline_health_score: number | null }>(
+          `
+          WITH qp AS (
+            SELECT period_start::date AS period_start, period_end::date AS period_end
+              FROM quota_periods
+             WHERE org_id = $1::bigint
+               AND id = $2::bigint
+             LIMIT 1
+          ),
+          deals AS (
+            SELECT
+              o.health_score,
+              lower(
+                regexp_replace(
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+                  '[^a-zA-Z]+',
+                  ' ',
+                  'g'
+                )
+              ) AS fs,
+              CASE
+                WHEN o.close_date IS NULL THEN NULL
+                WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+                WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                  to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+                ELSE NULL
+              END AS close_d
+            FROM opportunities o
+            WHERE o.org_id = $1
+              AND (
+                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
+                OR (
+                  COALESCE(array_length($4::text[], 1), 0) > 0
+                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+                )
+              )
+          ),
+          deals_in_qtr AS (
+            SELECT d.*
+              FROM deals d
+              JOIN qp ON TRUE
+             WHERE d.close_d IS NOT NULL
+               AND d.close_d >= qp.period_start
+               AND d.close_d <= qp.period_end
+          )
+          SELECT
+            AVG(CASE
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
+                OR ((' ' || d.fs || ' ') LIKE '% lost %')
+                OR ((' ' || d.fs || ' ') LIKE '% closed %')
+              THEN NULL
+              WHEN d.fs LIKE '%commit%' THEN NULLIF(d.health_score, 0)
+              ELSE NULL
+            END)::float8 AS commit_health_score,
+            AVG(CASE
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
+                OR ((' ' || d.fs || ' ') LIKE '% lost %')
+                OR ((' ' || d.fs || ' ') LIKE '% closed %')
+              THEN NULL
+              WHEN d.fs LIKE '%best%' THEN NULLIF(d.health_score, 0)
+              ELSE NULL
+            END)::float8 AS best_case_health_score,
+            AVG(CASE
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
+                OR ((' ' || d.fs || ' ') LIKE '% lost %')
+                OR ((' ' || d.fs || ' ') LIKE '% closed %')
+              THEN NULL
+              WHEN d.fs LIKE '%commit%' THEN NULL
+              WHEN d.fs LIKE '%best%' THEN NULL
+              ELSE NULLIF(d.health_score, 0)
+            END)::float8 AS pipeline_health_score
+          FROM deals_in_qtr d
+          `,
+          [props.orgId, qpId, repIdsToUse, visibleRepNameKeys]
+        )
+        .then((r) => r.rows?.[0] || { commit_health_score: null, best_case_health_score: null, pipeline_health_score: null })
+        .catch(() => ({ commit_health_score: null, best_case_health_score: null, pipeline_health_score: null }))
+    : { commit_health_score: null, best_case_health_score: null, pipeline_health_score: null };
+
+  const commitHealthPct = healthPctFrom30(bucketHealth.commit_health_score);
+  const bestHealthPct = healthPctFrom30(bucketHealth.best_case_health_score);
+  const pipelineHealthPct = healthPctFrom30(bucketHealth.pipeline_health_score);
 
   const commitAmt = repRollups.reduce((acc, r) => acc + (Number(r.commit_amount || 0) || 0), 0);
   const commitCount = repRollups.reduce((acc, r) => acc + (Number(r.commit_count || 0) || 0), 0);
@@ -590,16 +718,25 @@ export async function QuarterSalesForecastSummary(props: {
             <div className="text-sm text-black/70">Commit</div>
             <div className="font-mono text-sm font-semibold">{fmtMoney(commitAmt)}</div>
             <div className="mt-1 text-sm text-black/70"># Opps: {commitCount}</div>
+            <div className="mt-1 text-sm text-black/70">
+              Avg Health: <span className={healthColorClass(commitHealthPct)}>{commitHealthPct == null ? "—" : `${commitHealthPct}%`}</span>
+            </div>
           </div>
           <div className={`${boxClass} w-full`}>
             <div className="text-sm text-black/70">Best Case</div>
             <div className="font-mono text-sm font-semibold">{fmtMoney(bestCaseAmt)}</div>
             <div className="mt-1 text-sm text-black/70"># Opps: {bestCaseCount}</div>
+            <div className="mt-1 text-sm text-black/70">
+              Avg Health: <span className={healthColorClass(bestHealthPct)}>{bestHealthPct == null ? "—" : `${bestHealthPct}%`}</span>
+            </div>
           </div>
           <div className={`${boxClass} w-full`}>
             <div className="text-sm text-black/70">Pipeline</div>
             <div className="font-mono text-sm font-semibold">{fmtMoney(pipelineAmt)}</div>
             <div className="mt-1 text-sm text-black/70"># Opps: {pipelineCount}</div>
+            <div className="mt-1 text-sm text-black/70">
+              Avg Health: <span className={healthColorClass(pipelineHealthPct)}>{pipelineHealthPct == null ? "—" : `${pipelineHealthPct}%`}</span>
+            </div>
           </div>
           <div className={`${boxClass} w-full`}>
             <div className="text-sm text-black/70">Total Pipeline</div>
@@ -647,6 +784,9 @@ export async function QuarterSalesForecastSummary(props: {
                   const bcAmt = Number(r.best_case_amount || 0) || 0;
                   const pAmt = Number(r.pipeline_amount || 0) || 0;
                   const tAmt = cAmt + bcAmt + pAmt;
+                  const cHealthPct = healthPctFrom30((r as any).commit_health_score);
+                  const bHealthPct = healthPctFrom30((r as any).best_case_health_score);
+                  const pHealthPct = healthPctFrom30((r as any).pipeline_health_score);
                   const key = `${r.rep_id || "name"}:${r.rep_name}`;
                   return (
                     <tr key={key} className="text-[color:var(--sf-text-primary)]">
@@ -654,14 +794,23 @@ export async function QuarterSalesForecastSummary(props: {
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="font-mono text-sm font-semibold">{fmtMoney(cAmt)}</div>
                         <div className="text-sm text-[color:var(--sf-text-secondary)]"># {Number(r.commit_count || 0) || 0}</div>
+                        <div className="text-sm text-[color:var(--sf-text-secondary)]">
+                          Avg: <span className={healthColorClass(cHealthPct)}>{cHealthPct == null ? "—" : `${cHealthPct}%`}</span>
+                        </div>
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="font-mono text-sm font-semibold">{fmtMoney(bcAmt)}</div>
                         <div className="text-sm text-[color:var(--sf-text-secondary)]"># {Number(r.best_case_count || 0) || 0}</div>
+                        <div className="text-sm text-[color:var(--sf-text-secondary)]">
+                          Avg: <span className={healthColorClass(bHealthPct)}>{bHealthPct == null ? "—" : `${bHealthPct}%`}</span>
+                        </div>
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="font-mono text-sm font-semibold">{fmtMoney(pAmt)}</div>
                         <div className="text-sm text-[color:var(--sf-text-secondary)]"># {Number(r.pipeline_count || 0) || 0}</div>
+                        <div className="text-sm text-[color:var(--sf-text-secondary)]">
+                          Avg: <span className={healthColorClass(pHealthPct)}>{pHealthPct == null ? "—" : `${pHealthPct}%`}</span>
+                        </div>
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="font-mono text-sm font-semibold">{fmtMoney(tAmt)}</div>
