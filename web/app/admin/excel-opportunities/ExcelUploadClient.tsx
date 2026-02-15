@@ -279,10 +279,36 @@ export function ExcelUploadClient(props: {
   return (
     <div className="grid gap-6">
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-        <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Upload + map Excel</h2>
+        <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Map + Upload</h2>
         <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
           Upload an Excel file (.xlsx) of opportunities, map columns to Forecast Agent fields, and save the format for future uploads.
         </p>
+        <div className="mt-3 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 text-sm text-[color:var(--sf-text-primary)]">
+          <div className="font-semibold">Minimum required fields (every row)</div>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-[color:var(--sf-text-secondary)]">
+            <li>Account</li>
+            <li>Opportunity Name</li>
+            <li>Revenue (Amount) (must be a number)</li>
+            <li>Account Owner</li>
+            <li>CRM Opportunity ID</li>
+            <li>Create Date (must be a valid date)</li>
+            <li>Close Date (must be a valid date)</li>
+          </ul>
+
+          <div className="mt-3 font-semibold">How to use this import</div>
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-[color:var(--sf-text-secondary)]">
+            <li>Choose a saved format (recommended) or create a new format name.</li>
+            <li>Upload your Excel file (.xlsx). We read the first sheet and use the first row as headers.</li>
+            <li>Map your Excel columns to the required fields above (required fields have a red *).</li>
+            <li>(Optional) Save/Update the format so the next upload auto-maps.</li>
+            <li>Click “Import Files” to stage and ingest rows.</li>
+          </ol>
+
+          <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">
+            Tip: Keep the CRM Opportunity ID stable/unique per opportunity so ingestion can match records reliably. Rows with missing required
+            fields or invalid dates/amounts will be rejected with a specific row-by-row fix list.
+          </div>
+        </div>
 
         {showBanner ? (
           <div
@@ -494,7 +520,7 @@ export function ExcelUploadClient(props: {
                 active={clickedIntent === "upload_ingest"}
                 onClick={() => setClickedIntent("upload_ingest")}
               >
-                Upload + ingest
+                Import Files
               </SubmitButton>
             </div>
           </div>
