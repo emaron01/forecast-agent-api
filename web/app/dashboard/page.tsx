@@ -141,9 +141,8 @@ export default async function DashboardPage({
             />
           </div>
 
-          <section className="mt-6 grid gap-4 md:grid-cols-3">
+          <section className="mt-6 grid gap-4 md:grid-cols-2">
             <ActionCard href="/analytics" title="Analytics" desc="Attainment dashboards + comparisons." />
-            <ActionCard href="/analytics/quotas/executive" title="Company Quotas" desc="Company-wide quota rollup + pacing." />
             <ActionCard href="/forecast" title="Sales Opportunities" desc="Primary rep opportunities dashboard." />
           </section>
         </main>

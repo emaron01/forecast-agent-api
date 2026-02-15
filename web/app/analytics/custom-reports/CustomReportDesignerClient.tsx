@@ -317,14 +317,6 @@ export function CustomReportDesignerClient(props: {
     });
   }
 
-  function selectTop10ByWon() {
-    const top = reps
-      .slice()
-      .sort((a, b) => (b.won_amount - a.won_amount) || a.rep_name.localeCompare(b.rep_name))
-      .slice(0, 10);
-    setSelectedRepIds(new Set(top.map((r) => String(r.rep_id))));
-  }
-
   function clearSelection() {
     setSelectedRepIds(new Set());
     setSelectedMetrics(new Set(["won_amount", "attainment", "active_amount", "avg_health_all", "win_rate", "avg_days_active"]));
@@ -517,6 +509,34 @@ export function CustomReportDesignerClient(props: {
           <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Period: {props.periodLabel}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={savedPickId}
+            onChange={(e) => {
+              const id = String(e.target.value || "");
+              setSavedPickId(id);
+              if (!id) {
+                startNewSavedReport();
+                return;
+              }
+              const r = saved.find((x) => String(x.id) === id) || null;
+              if (r) loadReport(r);
+            }}
+            className="h-[40px] min-w-[220px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+          >
+            <option value="">Select saved report…</option>
+            {saved.map((r) => (
+              <option key={r.id} value={String(r.id)}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setShowReportMeta((v) => !v)}
+            className="h-[40px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface)]"
+          >
+            Title/Description {showReportMeta ? "▲" : "▼"}
+          </button>
           <button
             type="button"
             disabled={busy}
@@ -524,13 +544,6 @@ export function CustomReportDesignerClient(props: {
             className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)] disabled:opacity-60"
           >
             {reportId ? "Save changes" : "Save report"}
-          </button>
-          <button
-            type="button"
-            onClick={selectTop10ByWon}
-            className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface)]"
-          >
-            Select top 10 (Won)
           </button>
           <button
             type="button"
@@ -542,193 +555,139 @@ export function CustomReportDesignerClient(props: {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-          <div className="flex flex-wrap items-end justify-between gap-2">
-            <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Saved reports</div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={startNewSavedReport}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1 text-xs hover:bg-[color:var(--sf-surface-alt)]"
-              >
-                New
-              </button>
-              <button
-                type="button"
-                disabled={!savedPickId}
-                onClick={() => deleteReport(String(savedPickId))}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1 text-xs text-red-700 hover:bg-[color:var(--sf-surface-alt)] disabled:opacity-50"
-              >
-                Delete
-              </button>
+      {showReportMeta ? (
+        <div className="mt-3 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+          <div className="grid gap-2 md:grid-cols-2">
+            <div className="grid gap-1">
+              <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Report title</label>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                placeholder="e.g. QBR rep comparison"
+              />
+            </div>
+            <div className="grid gap-1">
+              <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Description</label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="min-h-[42px] w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                placeholder="What is this report for?"
+              />
             </div>
           </div>
+          {status ? <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">{status}</div> : null}
+        </div>
+      ) : status ? (
+        <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">{status}</div>
+      ) : null}
 
-          <div className="mt-3 grid gap-2">
-            <div className="grid gap-1">
-              <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Select saved report</label>
-              <select
-                value={savedPickId}
-                onChange={(e) => {
-                  const id = String(e.target.value || "");
-                  setSavedPickId(id);
-                  if (!id) {
-                    startNewSavedReport();
-                    return;
-                  }
-                  const r = saved.find((x) => String(x.id) === id) || null;
-                  if (r) loadReport(r);
-                }}
-                className="w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-              >
-                <option value="">(new / none selected)</option>
-                {saved.map((r) => (
-                  <option key={r.id} value={String(r.id)}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-              {savedPickId ? (
-                <div className="text-xs text-[color:var(--sf-text-secondary)]">
-                  Editing: <span className="font-medium">{name || "—"}</span>
-                </div>
-              ) : (
-                <div className="text-xs text-[color:var(--sf-text-secondary)]">Create a new saved report (set title/description in the panel below).</div>
-              )}
-            </div>
-
-            <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-              <button
-                type="button"
-                onClick={() => setShowReportMeta((v) => !v)}
-                className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-medium text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
-              >
-                <span>Title & description</span>
-                <span className="text-xs text-[color:var(--sf-text-secondary)]">{showReportMeta ? "▲" : "▼"}</span>
-              </button>
-              <div className={`grid overflow-hidden px-3 pb-3 transition-all ${showReportMeta ? "max-h-[260px] opacity-100" : "max-h-0 opacity-0"}`}>
-                <div className="grid gap-2 pt-2">
-                  <div className="grid gap-1">
-                    <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Report title</label>
-                    <input
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                      placeholder="e.g. QBR rep comparison"
-                    />
-                  </div>
-                  <div className="grid gap-1">
-                    <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Description</label>
-                    <textarea
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      className="min-h-[72px] w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                      placeholder="What is this report for?"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {status ? <div className="text-xs text-[color:var(--sf-text-secondary)]">{status}</div> : null}
+      <div className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Reps</div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={startNewSavedReport}
+              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs hover:bg-[color:var(--sf-surface)]"
+            >
+              New saved
+            </button>
+            <button
+              type="button"
+              disabled={!savedPickId}
+              onClick={() => deleteReport(String(savedPickId))}
+              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)] disabled:opacity-50"
+            >
+              Delete saved
+            </button>
           </div>
         </div>
+        <div className="mt-2 max-h-[420px] overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+          <div className="grid grid-cols-1 gap-2 p-2 sm:grid-cols-2">
+            {repGroupsForPicker.map((eg) => {
+              const execOnlyIds = eg.execRow ? [String(eg.execRow.rep_id)] : [];
+              const execChecked = areAllRepIdsChecked(execOnlyIds);
 
-        <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Reps</div>
-          <div className="mt-2 max-h-[420px] overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-            <div className="grid gap-2 p-2">
-              {repGroupsForPicker.map((eg) => {
-                const execOnlyIds = eg.execRow ? [String(eg.execRow.rep_id)] : [];
-                const execChecked = areAllRepIdsChecked(execOnlyIds);
-
-                return (
-                  <div key={`exec:${eg.execId}`} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-                    <div className="flex items-center justify-between gap-3 border-b border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                      <label className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">
-                        <input
-                          type="checkbox"
-                          checked={execChecked}
-                          onChange={() => setRepIdsChecked(execOnlyIds, !execChecked)}
-                          disabled={!execOnlyIds.length}
-                        />
-                        <span className="truncate">Executive: {eg.execName}</span>
-                      </label>
-                      {eg.execRow ? (
-                        <span className="shrink-0 font-mono text-xs text-[color:var(--sf-text-secondary)]">{fmtMoney(eg.execRow.won_amount)}</span>
-                      ) : null}
-                    </div>
-
-                    <div className="grid gap-2 p-2">
-                      {eg.managers.map((mg) => {
-                        const managerOnlyIds = mg.managerRow ? [String(mg.managerRow.rep_id)] : [];
-                        const managerChecked = areAllRepIdsChecked(managerOnlyIds);
-
-                        const memberIds = mg.members.map((r) => String(r.rep_id));
-                        const membersChecked = areAllRepIdsChecked(memberIds);
-
-                        return (
-                          <div
-                            key={`mgr:${eg.execId}:${mg.managerId || "unassigned"}`}
-                            className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]"
-                          >
-                            <div className="flex items-center justify-between gap-3 border-b border-[color:var(--sf-border)] px-3 py-2">
-                              <label className="flex min-w-0 items-center gap-2 text-sm font-medium text-[color:var(--sf-text-primary)]">
-                                <input
-                                  type="checkbox"
-                                  checked={managerChecked}
-                                  onChange={() => setRepIdsChecked(managerOnlyIds, !managerChecked)}
-                                  disabled={!managerOnlyIds.length}
-                                />
-                                <span className="truncate">Manager: {mg.managerName}</span>
-                              </label>
-                              {mg.managerRow ? (
-                                <span className="shrink-0 font-mono text-xs text-[color:var(--sf-text-secondary)]">{fmtMoney(mg.managerRow.won_amount)}</span>
-                              ) : null}
-                            </div>
-
-                            <div className="flex items-center justify-between gap-3 border-b border-[color:var(--sf-border)] px-3 py-2">
-                              <label className="flex min-w-0 items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
-                                <input
-                                  type="checkbox"
-                                  checked={membersChecked}
-                                  onChange={() => setRepIdsChecked(memberIds, !membersChecked)}
-                                  disabled={!memberIds.length}
-                                />
-                                <span className="truncate">Rep Team members</span>
-                              </label>
-                            </div>
-
-                            <div className="divide-y divide-[color:var(--sf-border)]">
-                              {mg.members.map((r) => (
-                                <div key={`rep:${eg.execId}:${mg.managerId || "unassigned"}:${r.rep_id}`} className="flex items-center justify-between gap-3 px-3 py-2">
-                                  <label className="flex min-w-0 items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
-                                    <input type="checkbox" checked={selectedRepIds.has(String(r.rep_id))} onChange={() => toggleRep(String(r.rep_id))} />
-                                    <span className="truncate">{r.rep_name}</span>
-                                  </label>
-                                  <span className="shrink-0 font-mono text-xs text-[color:var(--sf-text-secondary)]">{fmtMoney(r.won_amount)}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+              return (
+                <div key={`exec:${eg.execId}`} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                  <div className="flex items-center gap-3 border-b border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
+                    <label className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">
+                      <input
+                        type="checkbox"
+                        checked={execChecked}
+                        onChange={() => setRepIdsChecked(execOnlyIds, !execChecked)}
+                        disabled={!execOnlyIds.length}
+                      />
+                      <span className="truncate">Executive: {eg.execName}</span>
+                    </label>
                   </div>
-                );
-              })}
 
-              {!repGroupsForPicker.length ? (
-                <div className="px-3 py-6 text-center text-sm text-[color:var(--sf-text-disabled)]">No reps found.</div>
-              ) : null}
-            </div>
+                  <div className="grid gap-2 p-2">
+                    {eg.managers.map((mg) => {
+                      const managerOnlyIds = mg.managerRow ? [String(mg.managerRow.rep_id)] : [];
+                      const managerChecked = areAllRepIdsChecked(managerOnlyIds);
+
+                      const memberIds = mg.members.map((r) => String(r.rep_id));
+                      const membersChecked = areAllRepIdsChecked(memberIds);
+
+                      return (
+                        <div
+                          key={`mgr:${eg.execId}:${mg.managerId || "unassigned"}`}
+                          className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]"
+                        >
+                          <div className="flex items-center gap-3 border-b border-[color:var(--sf-border)] px-3 py-2">
+                            <label className="flex min-w-0 items-center gap-2 text-sm font-medium text-[color:var(--sf-text-primary)]">
+                              <input
+                                type="checkbox"
+                                checked={managerChecked}
+                                onChange={() => setRepIdsChecked(managerOnlyIds, !managerChecked)}
+                                disabled={!managerOnlyIds.length}
+                              />
+                              <span className="truncate">Manager: {mg.managerName}</span>
+                            </label>
+                          </div>
+
+                          <div className="flex items-center gap-3 border-b border-[color:var(--sf-border)] px-3 py-2">
+                            <label className="flex min-w-0 items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                              <input
+                                type="checkbox"
+                                checked={membersChecked}
+                                onChange={() => setRepIdsChecked(memberIds, !membersChecked)}
+                                disabled={!memberIds.length}
+                              />
+                              <span className="truncate">Rep Team members</span>
+                            </label>
+                          </div>
+
+                          <div className="divide-y divide-[color:var(--sf-border)]">
+                            {mg.members.map((r) => (
+                              <div key={`rep:${eg.execId}:${mg.managerId || "unassigned"}:${r.rep_id}`} className="flex items-center gap-3 px-3 py-2">
+                                <label className="flex min-w-0 items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                                  <input type="checkbox" checked={selectedRepIds.has(String(r.rep_id))} onChange={() => toggleRep(String(r.rep_id))} />
+                                  <span className="truncate">{r.rep_name}</span>
+                                </label>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+
+            {!repGroupsForPicker.length ? (
+              <div className="px-3 py-6 text-center text-sm text-[color:var(--sf-text-disabled)]">No reps found.</div>
+            ) : null}
           </div>
+        </div>
           <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
             If you don’t select any reps, the preview defaults to the top 10 by Closed Won.
           </div>
         </div>
-      </div>
 
       <div className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
         <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Report fields</div>
