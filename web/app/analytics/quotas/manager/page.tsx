@@ -11,6 +11,9 @@ import { FiscalYearSelector } from "../../../../components/quotas/FiscalYearSele
 import { QuotaRollupChart } from "../../../../components/quotas/QuotaRollupChart";
 import { QuotaRollupTable, type QuotaRollupRow } from "../../../../components/quotas/QuotaRollupTable";
 import { assignQuotaToUser, getDistinctFiscalYears, getQuotaPeriods, getQuotaRollupByManager } from "../actions";
+import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
+import { getHealthAveragesByPeriods } from "../../../../lib/analyticsHealth";
+import { AverageHealthScorePanel } from "../../../_components/AverageHealthScorePanel";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -198,9 +201,9 @@ export default async function AnalyticsQuotasManagerPage({
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
 
-  const fiscal_year = String(sp(searchParams.fiscal_year) || "").trim();
+  const fiscal_year_raw = String(sp(searchParams.fiscal_year) || "").trim();
   const rep_public_id = String(sp(searchParams.rep_public_id) || "").trim();
-  const rollup_quarter = String(sp(searchParams.rollup_quarter) || "").trim() || "Q1";
+  const rollup_quarter_raw = String(sp(searchParams.rollup_quarter) || "").trim();
   const error = String(sp(searchParams.error) || "").trim();
 
   const fyRes = await getDistinctFiscalYears().catch(() => ({ ok: true as const, data: [] as Array<{ fiscal_year: string }> }));
@@ -208,12 +211,28 @@ export default async function AnalyticsQuotasManagerPage({
 
   const periodsRes = await getQuotaPeriods().catch(() => ({ ok: true as const, data: [] as QuotaPeriodRow[] }));
   const allPeriods = periodsRes.ok ? periodsRes.data : [];
+  const todayIso = dateOnly(new Date()) || new Date().toISOString().slice(0, 10);
+  const periodContainingToday =
+    allPeriods.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
+  const defaultYear = periodContainingToday ? String(periodContainingToday.fiscal_year) : String(fiscalYears[0]?.fiscal_year || "").trim();
+  const fiscal_year = fiscal_year_raw || defaultYear;
   const periods = fiscal_year ? allPeriods.filter((p) => String(p.fiscal_year) === fiscal_year) : allPeriods;
+
+  const defaultRollupQuarter = (() => {
+    if (!periodContainingToday) return "Q1";
+    if (String(periodContainingToday.fiscal_year) !== String(fiscal_year)) return "Q1";
+    const qn = quarterNumberFromAny(periodContainingToday.fiscal_quarter) || quarterNumberFromAny(periodContainingToday.period_name);
+    return qn ? `Q${qn}` : "Q1";
+  })();
+  const rollup_quarter = rollup_quarter_raw || defaultRollupQuarter;
 
   const mgrRepId = await managerRepIdForUser({ orgId: ctx.user.org_id, userId: ctx.user.id });
   if (!mgrRepId) redirect("/dashboard");
 
   const directReps = await listDirectReps({ orgId: ctx.user.org_id, managerRepId: mgrRepId }).catch(() => []);
+  const directRepIds = (directReps || [])
+    .map((r) => Number(r.id))
+    .filter((n) => Number.isFinite(n) && n > 0);
   const repOptions = (directReps || []).map((r) => ({ public_id: String(r.public_id || ""), rep_name: String(r.rep_name || "") })).filter((r) => !!r.public_id);
   const selectedRepPublicId = rep_public_id || repOptions[0]?.public_id || "";
   const selectedRepName = repOptions.find((r) => r.public_id === selectedRepPublicId)?.rep_name || "";
@@ -249,6 +268,10 @@ export default async function AnalyticsQuotasManagerPage({
     ? await getQuotaRollupByManager({ quota_period_id: rollupPeriodId }).catch(() => ({ ok: true as const, data: null as any }))
     : null;
   const rollup = rollupRes && rollupRes.ok ? rollupRes.data : null;
+  const healthRows = rollupPeriodId
+    ? await getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: [rollupPeriodId], repIds: directRepIds.length ? directRepIds : null }).catch(() => [])
+    : [];
+  const health = (healthRows && healthRows[0]) ? (healthRows[0] as any) : null;
 
   const repRows: QuotaRollupRow[] =
     rollup?.rep_attainment?.map((r: any) => ({
@@ -275,10 +298,6 @@ export default async function AnalyticsQuotasManagerPage({
   // --------------------------------------------
   // Rep list: quota by quarter + closed won by quarter
   // --------------------------------------------
-  const directRepIds = (directReps || [])
-    .map((r) => Number(r.id))
-    .filter((n) => Number.isFinite(n) && n > 0);
-
   const quarters = [
     { key: "Q1", p: q1p },
     { key: "Q2", p: q2p },
@@ -507,22 +526,65 @@ export default async function AnalyticsQuotasManagerPage({
         {rollupPeriodId ? (
           <section className="mt-5 grid gap-5 md:grid-cols-2">
             <QuotaRollupChart title="Quota vs attainment (direct reports)" rows={repRows} />
-            <QuotaRollupTable title="Manager rollup" subtitle="Uses public.manager_attainment" rows={mgrRow} />
+            <div className="grid gap-3">
+              <QuotaRollupTable title="Manager rollup" subtitle="Uses public.manager_attainment" rows={mgrRow} />
+              <div className="flex items-center justify-end">
+                <ExportToExcelButton
+                  fileName={`Team Quotas - Rollup - ${fiscal_year} ${rollup_quarter}`}
+                  sheets={[
+                    { name: "Direct reports", rows: repRows as any },
+                    { name: "Manager", rows: mgrRow as any },
+                  ]}
+                />
+              </div>
+            </div>
           </section>
         ) : null}
 
+        {rollupPeriodId ? <AverageHealthScorePanel title="Average Health Score (direct reports)" row={health} /> : null}
+
         {rollupPeriodId ? (
           <section className="mt-5">
-            <QuotaRollupTable title="Rep rollup" subtitle="Uses public.rep_attainment (direct reports only)" rows={repRows} />
+            <div className="flex items-end justify-between gap-3">
+              <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Rep rollup</div>
+              <ExportToExcelButton fileName={`Team Quotas - Rep rollup - ${fiscal_year} ${rollup_quarter}`} sheets={[{ name: "Reps", rows: repRows as any }]} />
+            </div>
+            <div className="mt-3">
+              <QuotaRollupTable title="Rep rollup" subtitle="Uses public.rep_attainment (direct reports only)" rows={repRows} />
+            </div>
           </section>
         ) : null}
 
         {fiscal_year ? (
           <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Rep quotas vs Closed Won (by quarter)</h2>
-            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-              Direct reports · Fiscal year: <span className="font-mono text-xs">{fiscal_year}</span>
-            </p>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Rep quotas vs Closed Won (by quarter)</h2>
+                <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+                  Direct reports · Fiscal year: <span className="font-mono text-xs">{fiscal_year}</span>
+                </p>
+              </div>
+              <ExportToExcelButton
+                fileName={`Team Quotas - Quota vs Won - ${fiscal_year}`}
+                sheets={[
+                  {
+                    name: "Quota vs Won",
+                    rows: directReps.map((rep) => {
+                      const out: Record<string, any> = { rep: rep.rep_name || "—" };
+                      for (const q of quarters) {
+                        const pid = String(q.p.id);
+                        const repId = String(rep.id);
+                        const quota = quotaByRepPeriod.get(`${repId}|${pid}`) || 0;
+                        const won = wonByRepPeriod.get(`${repId}|${pid}`) || 0;
+                        out[`${q.key}_quota`] = quota;
+                        out[`${q.key}_won`] = won;
+                      }
+                      return out;
+                    }) as any,
+                  },
+                ]}
+              />
+            </div>
 
             {!quarters.length ? (
               <div className="mt-4 text-sm text-[color:var(--sf-text-secondary)]">

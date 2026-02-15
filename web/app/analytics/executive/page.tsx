@@ -4,8 +4,9 @@ import { Fragment } from "react";
 import { requireAuth } from "../../../lib/auth";
 import { getOrganization } from "../../../lib/db";
 import { pool } from "../../../lib/pool";
+import { getHealthAveragesByPeriods } from "../../../lib/analyticsHealth";
 import { UserTopNav } from "../../_components/UserTopNav";
-import { CustomReportBuilder } from "./CustomReportBuilder";
+import { ExportToExcelButton } from "../../_components/ExportToExcelButton";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -26,6 +27,12 @@ function fmtNum(n: any) {
   const v = Number(n);
   if (!Number.isFinite(v)) return "—";
   return v.toLocaleString();
+}
+
+function healthFracFrom30(score: any) {
+  const n = Number(score);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.max(0, Math.min(1, n / 30));
 }
 
 function safeDiv(n: number, d: number) {
@@ -606,7 +613,7 @@ export default async function ExecutiveAnalyticsKpisPage({
   const prevPeriodId = prevPeriod ? String(prevPeriod.id) : "";
   const comparePeriodIds = [selectedPeriodId, prevPeriodId].filter(Boolean);
 
-  const [kpiRows, quotaTotals, repKpisRows, createdByRepRows, quotaByRepPeriod, quotaBreakdown] = selectedPeriodId
+  const [kpiRows, quotaTotals, repKpisRows, createdByRepRows, quotaByRepPeriod, quotaBreakdown, healthAvgRows] = selectedPeriodId
     ? await Promise.all([
         getPeriodKpis({ orgId: ctx.user.org_id, periodIds: comparePeriodIds, repIds: scopeRepIds }),
         getQuotaTotals({ orgId: ctx.user.org_id, quotaPeriodIds: comparePeriodIds, repIds: scopeRepIds }),
@@ -614,8 +621,9 @@ export default async function ExecutiveAnalyticsKpisPage({
         getCreatedByRep({ orgId: ctx.user.org_id, periodIds: comparePeriodIds, repIds: scopeRepIds }),
         getQuotaByRepPeriod({ orgId: ctx.user.org_id, quotaPeriodIds: comparePeriodIds, repIds: scopeRepIds }),
         getQuotaBreakdownForPeriod({ orgId: ctx.user.org_id, quotaPeriodId: selectedPeriodId, repIds: scopeRepIds }),
+        getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: comparePeriodIds, repIds: scopeRepIds }),
       ])
-    : [[], [], [], [], [], { byManager: [], byRep: [] }];
+    : [[], [], [], [], [], { byManager: [], byRep: [] }, []];
 
   const kpiByPeriod = new Map<string, PeriodKpisRow>();
   for (const r of kpiRows) kpiByPeriod.set(String(r.quota_period_id), r);
@@ -625,6 +633,10 @@ export default async function ExecutiveAnalyticsKpisPage({
 
   const curr = selectedPeriodId ? kpiByPeriod.get(selectedPeriodId) || null : null;
   const prev = prevPeriodId ? kpiByPeriod.get(prevPeriodId) || null : null;
+
+  const healthByPeriod = new Map<string, any>();
+  for (const r of healthAvgRows || []) healthByPeriod.set(String((r as any).quota_period_id), r);
+  const currHealth = selectedPeriodId ? healthByPeriod.get(selectedPeriodId) || null : null;
 
   const currQuota = selectedPeriodId ? quotaByPeriod.get(selectedPeriodId) || 0 : 0;
   const prevQuota = prevPeriodId ? quotaByPeriod.get(prevPeriodId) || 0 : 0;
@@ -861,6 +873,29 @@ export default async function ExecutiveAnalyticsKpisPage({
   }
   managerRows.sort((a, b) => (Number(b.attainment ?? -1) - Number(a.attainment ?? -1)) || (b.won_amount - a.won_amount) || a.manager_name.localeCompare(b.manager_name));
 
+  const repExportRows = repRows.map((r) => ({
+    rep: r.rep_name,
+    manager: r.manager_name,
+    quota: r.quota,
+    won_amount: r.won_amount,
+    won_count: r.won_count,
+    attainment_pct: r.attainment == null ? "" : Math.round(r.attainment * 100),
+    pipeline_amount: r.active_amount,
+    win_rate_pct: r.win_rate == null ? "" : Math.round(r.win_rate * 100),
+    aov: r.aov == null ? "" : r.aov,
+    partner_contribution_pct: r.partner_contribution == null ? "" : Math.round(r.partner_contribution * 100),
+    aging_days: r.avg_days_active == null ? "" : Math.round(r.avg_days_active),
+  }));
+  const managerExportRows = managerRows.map((m) => ({
+    manager: m.manager_name,
+    quota: m.quota,
+    won_amount: m.won_amount,
+    attainment_pct: m.attainment == null ? "" : Math.round(m.attainment * 100),
+    pipeline_amount: m.active_amount,
+    win_rate_pct: m.win_rate == null ? "" : Math.round(m.win_rate * 100),
+    partner_contribution_pct: m.partner_contribution == null ? "" : Math.round(m.partner_contribution * 100),
+  }));
+
   const repsByManager = new Map<string, RepRow[]>();
   for (const r of repRows) {
     const k = r.manager_id || "";
@@ -1021,6 +1056,15 @@ export default async function ExecutiveAnalyticsKpisPage({
                 <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {deltaLabel(currAttainment, prevAttainment, "pct")}</div>
               </div>
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3">
+                <div className="text-xs text-[color:var(--sf-text-secondary)]">Average Health Score</div>
+                <div className="mt-1 text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(healthFracFrom30(currHealth?.avg_health_all))}</div>
+                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                  Commit: {fmtPct(healthFracFrom30(currHealth?.avg_health_commit))} · Best: {fmtPct(healthFracFrom30(currHealth?.avg_health_best))} · Pipeline:{" "}
+                  {fmtPct(healthFracFrom30(currHealth?.avg_health_pipeline))} · Won: {fmtPct(healthFracFrom30(currHealth?.avg_health_won))} · Closed:{" "}
+                  {fmtPct(healthFracFrom30(currHealth?.avg_health_closed))}
+                </div>
+              </div>
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3">
                 <div className="text-xs text-[color:var(--sf-text-secondary)]">Win Rate (Won / (Won+Lost))</div>
                 <div className="mt-1 text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(currWinRate)}</div>
                 <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {deltaLabel(currWinRate, prevWinRate, "pct")}</div>
@@ -1175,6 +1219,13 @@ export default async function ExecutiveAnalyticsKpisPage({
                   Apply sort
                 </button>
               </form>
+              <ExportToExcelButton
+                fileName={`Executive KPIs - Rep comparison - ${selectedPeriod?.period_name || ""}`}
+                sheets={[
+                  { name: "Reps", rows: repExportRows as any },
+                  { name: "Managers", rows: managerExportRows as any },
+                ]}
+              />
             </div>
 
             <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
@@ -1263,7 +1314,24 @@ export default async function ExecutiveAnalyticsKpisPage({
           </section>
         ) : null}
 
-        {selectedPeriod && curr ? <CustomReportBuilder repRows={repRows} /> : null}
+        {selectedPeriod && curr ? (
+          <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Build Custom Reports</h2>
+                <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+                  Save/load custom rep comparison reports (pick reps + KPI fields).
+                </p>
+              </div>
+              <Link
+                href="/analytics/custom-reports"
+                className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
+              >
+                Open Custom Reports
+              </Link>
+            </div>
+          </section>
+        ) : null}
 
         {selectedPeriod && curr ? (
           <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">

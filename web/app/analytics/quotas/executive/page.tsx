@@ -3,11 +3,13 @@ import { redirect } from "next/navigation";
 import { requireAuth } from "../../../../lib/auth";
 import { getOrganization } from "../../../../lib/db";
 import { UserTopNav } from "../../../_components/UserTopNav";
-import { FiscalYearSelector } from "../../../../components/quotas/FiscalYearSelector";
-import { QuotaPeriodSelector } from "../../../../components/quotas/QuotaPeriodSelector";
 import type { QuotaPeriodRow } from "../../../../lib/quotaModels";
 import { getDistinctFiscalYears, getQuotaPeriods } from "../actions";
 import { pool } from "../../../../lib/pool";
+import { TopDealsFiltersClient } from "./TopDealsFiltersClient";
+import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
+import { getHealthAveragesByPeriods } from "../../../../lib/analyticsHealth";
+import { AverageHealthScorePanel } from "../../../_components/AverageHealthScorePanel";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -37,6 +39,12 @@ function clampPctFromScore30(score: any) {
   if (!Number.isFinite(n) || n <= 0) return null;
   const pct = Math.round((n / 30) * 100);
   return Math.max(0, Math.min(100, pct));
+}
+
+function healthExport(score: any) {
+  const raw = Number(score);
+  const pct = clampPctFromScore30(score);
+  return { pct: pct == null ? null : pct, raw: Number.isFinite(raw) && raw > 0 ? Math.round(raw) : null };
 }
 
 function HealthScorePill(props: { score: any }) {
@@ -179,10 +187,14 @@ export default async function AnalyticsQuotasExecutivePage({
   const periodsRes = await getQuotaPeriods().catch(() => ({ ok: true as const, data: [] as QuotaPeriodRow[] }));
   const allPeriods = periodsRes.ok ? periodsRes.data : [];
   const fiscalYearValues = Array.from(new Set(allPeriods.map((p) => String(p.fiscal_year || "").trim()).filter(Boolean))).sort((a, b) => b.localeCompare(a));
-  const yearToUse = fiscal_year || fiscalYearValues[0] || "";
-  const periods = yearToUse ? allPeriods.filter((p) => String(p.fiscal_year) === yearToUse) : allPeriods;
 
   const todayIso = new Date().toISOString().slice(0, 10);
+  const periodContainingToday =
+    allPeriods.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
+  const defaultYear = periodContainingToday ? String(periodContainingToday.fiscal_year) : fiscalYearValues[0] || "";
+  const yearToUse = fiscal_year || defaultYear;
+
+  const periods = yearToUse ? allPeriods.filter((p) => String(p.fiscal_year) === yearToUse) : allPeriods;
   const currentForYear = periods.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
   const selected =
     (quotaPeriodId && periods.find((p) => String(p.id) === quotaPeriodId)) || currentForYear || periods[0] || null;
@@ -203,6 +215,52 @@ export default async function AnalyticsQuotasExecutivePage({
 
   const topWon = sortDeals(topWonRaw, wonSortKey, wonDir);
   const topLost = sortDeals(topLostRaw, lostSortKey, lostDir);
+
+  const topWonExport = topWon.map((d) => {
+    const age = daysBetween(d.create_date, d.close_date);
+    const i = healthExport(d.baseline_health_score);
+    const f = healthExport(d.health_score);
+    return {
+      rep_name: d.rep_name,
+      account: d.account_name || "",
+      opportunity: d.opportunity_name || "",
+      product: d.product || "",
+      revenue: Number(d.amount || 0) || 0,
+      age_days: age == null ? "" : age,
+      initial_health_pct: i.pct == null ? "" : i.pct,
+      initial_health_raw_30: i.raw == null ? "" : i.raw,
+      final_health_pct: f.pct == null ? "" : f.pct,
+      final_health_raw_30: f.raw == null ? "" : f.raw,
+      create_date: d.create_date || "",
+      close_date: d.close_date || "",
+      opportunity_public_id: d.opportunity_public_id,
+    };
+  });
+  const topLostExport = topLost.map((d) => {
+    const age = daysBetween(d.create_date, d.close_date);
+    const i = healthExport(d.baseline_health_score);
+    const f = healthExport(d.health_score);
+    return {
+      rep_name: d.rep_name,
+      account: d.account_name || "",
+      opportunity: d.opportunity_name || "",
+      product: d.product || "",
+      revenue: Number(d.amount || 0) || 0,
+      age_days: age == null ? "" : age,
+      initial_health_pct: i.pct == null ? "" : i.pct,
+      initial_health_raw_30: i.raw == null ? "" : i.raw,
+      final_health_pct: f.pct == null ? "" : f.pct,
+      final_health_raw_30: f.raw == null ? "" : f.raw,
+      create_date: d.create_date || "",
+      close_date: d.close_date || "",
+      opportunity_public_id: d.opportunity_public_id,
+    };
+  });
+
+  const healthRows = selected
+    ? await getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: [String(selected.id)], repIds: null }).catch(() => [])
+    : [];
+  const health = (healthRows && healthRows[0]) ? (healthRows[0] as any) : null;
 
   const sortLabelClass = (active: boolean) => (active ? "text-yellow-700" : "");
   const sortCellClass = (active: boolean) => (active ? "bg-yellow-50 text-yellow-800" : "");
@@ -227,22 +285,22 @@ export default async function AnalyticsQuotasExecutivePage({
 
         <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
           <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Filters</h2>
-          <form method="GET" action="/analytics/quotas/executive" className="mt-3 grid gap-3 md:grid-cols-3">
-            <FiscalYearSelector name="fiscal_year" fiscalYears={fiscalYears} defaultValue={yearToUse} required={false} label="fiscal_year" />
-            <QuotaPeriodSelector name="quota_period_id" periods={periods} defaultValue={selected ? String(selected.id) : ""} required label="quota_period_id" />
-            <div className="flex items-end justify-end gap-2">
-              <Link
-                href="/analytics/quotas/executive"
-                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
-              >
-                Reset
-              </Link>
-              <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
-                Apply
-              </button>
-            </div>
-          </form>
+          <TopDealsFiltersClient
+            fiscalYears={fiscalYearValues}
+            periods={allPeriods.map((p) => ({
+              id: String(p.id),
+              period_name: String(p.period_name),
+              period_start: String(p.period_start),
+              period_end: String(p.period_end),
+              fiscal_year: String(p.fiscal_year),
+              fiscal_quarter: String(p.fiscal_quarter),
+            }))}
+            selectedFiscalYear={yearToUse}
+            selectedPeriodId={selected ? String(selected.id) : ""}
+          />
         </section>
+
+        {selected ? <AverageHealthScorePanel row={health} /> : null}
 
         {!selected ? (
           <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
@@ -289,6 +347,7 @@ export default async function AnalyticsQuotasExecutivePage({
                   Apply sort
                 </button>
               </form>
+              <ExportToExcelButton fileName={`Top Deals Won - ${selected.period_name}`} sheets={[{ name: "Top Won", rows: topWonExport }]} />
             </div>
 
             <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
@@ -378,6 +437,7 @@ export default async function AnalyticsQuotasExecutivePage({
                   Apply sort
                 </button>
               </form>
+              <ExportToExcelButton fileName={`Top Deals Closed Loss - ${selected.period_name}`} sheets={[{ name: "Top Closed Loss", rows: topLostExport }]} />
             </div>
 
             <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">

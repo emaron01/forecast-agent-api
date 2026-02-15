@@ -6,6 +6,9 @@ import { getOrganization } from "../../../lib/db";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { listCroAttainment, listManagerAttainment, listRepAttainment, listVpAttainment } from "../../../lib/quotaRollups";
 import { dateOnly } from "../../../lib/dateOnly";
+import { ExportToExcelButton } from "../../_components/ExportToExcelButton";
+import { getHealthAveragesByPeriods } from "../../../lib/analyticsHealth";
+import { AverageHealthScorePanel } from "../../_components/AverageHealthScorePanel";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -55,13 +58,18 @@ export default async function AnalyticsAttainmentPage({
   const orgName = org?.name || "Organization";
 
   const periods = await listQuotaPeriodsForOrg(ctx.user.org_id).catch(() => []);
-  const quotaPeriodId = String(sp(searchParams.quota_period_id) || "").trim();
+  const quotaPeriodIdRaw = String(sp(searchParams.quota_period_id) || "").trim();
+  const todayIso = dateOnly(new Date()) || new Date().toISOString().slice(0, 10);
+  const current = periods.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
+  const quotaPeriodId = quotaPeriodIdRaw || String(current?.id || periods[0]?.id || "");
   const selected = quotaPeriodId ? periods.find((p) => String(p.id) === quotaPeriodId) || null : null;
 
   const reps = selected ? await listRepAttainment({ orgId: ctx.user.org_id, quotaPeriodId }).catch(() => []) : [];
   const managers = selected ? await listManagerAttainment({ orgId: ctx.user.org_id, quotaPeriodId }).catch(() => []) : [];
   const vps = selected ? await listVpAttainment({ orgId: ctx.user.org_id, quotaPeriodId }).catch(() => []) : [];
   const cros = selected ? await listCroAttainment({ orgId: ctx.user.org_id, quotaPeriodId }).catch(() => []) : [];
+  const healthRows = selected ? await getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: [quotaPeriodId], repIds: null }).catch(() => []) : [];
+  const health = (healthRows && healthRows[0]) ? (healthRows[0] as any) : null;
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -91,9 +99,7 @@ export default async function AnalyticsAttainmentPage({
                 name="quota_period_id"
                 defaultValue={quotaPeriodId}
                 className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                required
               >
-                <option value="">(select)</option>
                 {periods.map((p) => (
                   <option key={p.id} value={String(p.id)}>
                     {p.period_name} ({p.fiscal_year} {p.fiscal_quarter}) ({dateOnly(p.period_start)} → {dateOnly(p.period_end)}) [id {p.id}]
@@ -117,15 +123,20 @@ export default async function AnalyticsAttainmentPage({
 
         {!selected ? (
           <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-            <p className="text-sm text-[color:var(--sf-text-secondary)]">Select a `quota_period_id` to view attainment dashboards.</p>
+            <p className="text-sm text-[color:var(--sf-text-secondary)]">No quota periods found.</p>
           </section>
         ) : null}
+
+        {selected ? <AverageHealthScorePanel row={health} /> : null}
 
         {selected ? (
           <section className="mt-5 overflow-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm">
             <div className="border-b border-[color:var(--sf-border)] px-4 py-3">
               <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Rep attainment</div>
               <div className="text-xs text-[color:var(--sf-text-secondary)]">Uses `public.rep_attainment(org_id, quota_period_id)`.</div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-b border-[color:var(--sf-border)] px-4 py-3">
+              <ExportToExcelButton fileName={`Attainment - Reps - ${selected.period_name}`} sheets={[{ name: "Reps", rows: reps as any }]} />
             </div>
             <table className="w-full text-left text-sm">
               <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
@@ -170,6 +181,9 @@ export default async function AnalyticsAttainmentPage({
               <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Manager attainment</div>
               <div className="text-xs text-[color:var(--sf-text-secondary)]">Uses `public.manager_attainment(org_id, quota_period_id)`.</div>
             </div>
+            <div className="flex items-center justify-end gap-2 border-b border-[color:var(--sf-border)] px-4 py-3">
+              <ExportToExcelButton fileName={`Attainment - Managers - ${selected.period_name}`} sheets={[{ name: "Managers", rows: managers as any }]} />
+            </div>
             <table className="w-full text-left text-sm">
               <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
                 <tr>
@@ -213,6 +227,9 @@ export default async function AnalyticsAttainmentPage({
               <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">VP attainment</div>
               <div className="text-xs text-[color:var(--sf-text-secondary)]">Uses `public.vp_attainment(org_id, quota_period_id)`.</div>
             </div>
+            <div className="flex items-center justify-end gap-2 border-b border-[color:var(--sf-border)] px-4 py-3">
+              <ExportToExcelButton fileName={`Attainment - VPs - ${selected.period_name}`} sheets={[{ name: "VPs", rows: vps as any }]} />
+            </div>
             <table className="w-full text-left text-sm">
               <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
                 <tr>
@@ -255,6 +272,9 @@ export default async function AnalyticsAttainmentPage({
             <div className="border-b border-[color:var(--sf-border)] px-4 py-3">
               <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">CRO/company attainment</div>
               <div className="text-xs text-[color:var(--sf-text-secondary)]">Uses `public.cro_attainment(org_id, quota_period_id)`.</div>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-b border-[color:var(--sf-border)] px-4 py-3">
+              <ExportToExcelButton fileName={`Attainment - CRO - ${selected.period_name}`} sheets={[{ name: "CRO", rows: cros as any }]} />
             </div>
             <table className="w-full text-left text-sm">
               <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">

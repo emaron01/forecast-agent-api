@@ -10,6 +10,9 @@ import { UserTopNav } from "../../../_components/UserTopNav";
 import { dateOnly } from "../../../../lib/dateOnly";
 import { QuotaPeriodSelector } from "../../../../components/quotas/QuotaPeriodSelector";
 import { FiscalYearSelector } from "../../../../components/quotas/FiscalYearSelector";
+import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
+import { getHealthAveragesByPeriods } from "../../../../lib/analyticsHealth";
+import { AverageHealthScorePanel } from "../../../_components/AverageHealthScorePanel";
 import {
   assignQuotaToUser,
   createQuotaPeriod,
@@ -232,9 +235,9 @@ export default async function AnalyticsQuotasAdminPage({
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
 
-  const quota_period_id = String(sp(searchParams.quota_period_id) || "").trim();
+  const quota_period_id_raw = String(sp(searchParams.quota_period_id) || "").trim();
   const period_id = String(sp(searchParams.period_id) || "").trim();
-  const fiscal_year = String(sp(searchParams.fiscal_year) || "").trim();
+  const fiscal_year_raw = String(sp(searchParams.fiscal_year) || "").trim();
   const exec_public_id = String(sp(searchParams.exec_public_id) || "").trim();
   const manager_public_id = String(sp(searchParams.manager_public_id) || "").trim();
   const rep_public_id = String(sp(searchParams.rep_public_id) || "").trim();
@@ -245,7 +248,15 @@ export default async function AnalyticsQuotasAdminPage({
 
   const periodsRes = await getQuotaPeriods().catch(() => ({ ok: true as const, data: [] as QuotaPeriodRow[] }));
   const allPeriods = periodsRes.ok ? periodsRes.data : [];
+  const todayIso = dateOnly(new Date()) || new Date().toISOString().slice(0, 10);
+  const periodContainingToday =
+    allPeriods.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
+  const defaultYear = periodContainingToday ? String(periodContainingToday.fiscal_year) : String(fiscalYears[0]?.fiscal_year || "").trim();
+  const fiscal_year = fiscal_year_raw || defaultYear;
   const periods = fiscal_year ? allPeriods.filter((p) => String(p.fiscal_year) === fiscal_year) : allPeriods;
+
+  const currentForYear = periods.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
+  const quota_period_id = quota_period_id_raw || String(currentForYear?.id || "");
 
   const currentPeriod = period_id ? periods.find((p) => String(p.id) === String(period_id)) || null : null;
 
@@ -324,6 +335,8 @@ export default async function AnalyticsQuotasAdminPage({
   const mgrAtt = rollupPeriodId ? await listManagerAttainment({ orgId: ctx.user.org_id, quotaPeriodId: rollupPeriodId }).catch(() => []) : [];
   const vpAtt = rollupPeriodId ? await listVpAttainment({ orgId: ctx.user.org_id, quotaPeriodId: rollupPeriodId }).catch(() => []) : [];
   const croAtt = rollupPeriodId ? await listCroAttainment({ orgId: ctx.user.org_id, quotaPeriodId: rollupPeriodId }).catch(() => []) : [];
+  const healthRows = rollupPeriodId ? await getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: [rollupPeriodId], repIds: null }).catch(() => []) : [];
+  const health = (healthRows && healthRows[0]) ? (healthRows[0] as any) : null;
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -692,6 +705,18 @@ export default async function AnalyticsQuotasAdminPage({
 
           {rollupPeriodId ? (
             <div className="mt-5 grid gap-5">
+              <div className="flex items-center justify-end">
+                <ExportToExcelButton
+                  fileName={`Quotas (Admin) - Rollups - ${rollupPeriodId}`}
+                  sheets={[
+                    { name: "Rep attainment", rows: repAtt as any },
+                    { name: "Manager attainment", rows: mgrAtt as any },
+                    { name: "VP attainment", rows: vpAtt as any },
+                    { name: "CRO attainment", rows: croAtt as any },
+                  ]}
+                />
+              </div>
+              <AverageHealthScorePanel row={health} />
               <div className="overflow-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm">
                 <div className="border-b border-[color:var(--sf-border)] px-4 py-3">
                   <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Rep attainment</div>

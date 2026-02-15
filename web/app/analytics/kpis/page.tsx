@@ -5,6 +5,8 @@ import { requireAuth } from "../../../lib/auth";
 import { getOrganization } from "../../../lib/db";
 import { pool } from "../../../lib/pool";
 import { UserTopNav } from "../../_components/UserTopNav";
+import { ExportToExcelButton } from "../../_components/ExportToExcelButton";
+import { getHealthAveragesByPeriods } from "../../../lib/analyticsHealth";
 
 export const runtime = "nodejs";
 
@@ -21,6 +23,19 @@ function fmtMoney(n: any) {
 function fmtPct(n: number | null) {
   if (n == null || !Number.isFinite(n)) return "—";
   return `${Math.round(n * 100)}%`;
+}
+
+function healthPctFrom30(score: any) {
+  const n = Number(score);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.max(0, Math.min(100, Math.round((n / 30) * 100)));
+}
+
+function healthColorClass(pct: number | null) {
+  if (pct == null) return "text-[color:var(--sf-text-disabled)]";
+  if (pct >= 80) return "text-[#2ECC71]";
+  if (pct >= 50) return "text-[#F1C40F]";
+  return "text-[#E74C3C]";
 }
 
 function safeDiv(n: number, d: number) {
@@ -378,14 +393,18 @@ export default async function QuarterlyKpisPage({
 
   const periodIds = visiblePeriods.map((p) => String(p.id)).filter(Boolean);
 
-  const [repKpisRows, createdRows, quotaRows, reps] = periodIds.length
+  const [repKpisRows, createdRows, quotaRows, reps, healthAvgRows] = periodIds.length
     ? await Promise.all([
         getRepKpisByPeriods({ orgId: ctx.user.org_id, periodIds, repIds: scopeRepIds }),
         getCreatedByRep({ orgId: ctx.user.org_id, periodIds, repIds: scopeRepIds }),
         getQuotaByRep({ orgId: ctx.user.org_id, periodIds, repIds: scopeRepIds }),
         listRepsForOrg(ctx.user.org_id).catch(() => []),
+        getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds, repIds: scopeRepIds }).catch(() => []),
       ])
-    : [[], [], [], []];
+    : [[], [], [], [], []];
+
+  const healthByPeriod = new Map<string, any>();
+  for (const r of healthAvgRows || []) healthByPeriod.set(String((r as any).quota_period_id), r);
 
   const repIdToManagerId = new Map<string, string>();
   const repIdToManagerName = new Map<string, string>();
@@ -911,6 +930,60 @@ export default async function QuarterlyKpisPage({
                 }
               }
               const agingAvgDays = agingCnt ? agingDaysSum / agingCnt : null;
+
+              const health = healthByPeriod.get(String(p.id)) || null;
+              const hAll = healthPctFrom30(health?.avg_health_all);
+              const hCommit = healthPctFrom30(health?.avg_health_commit);
+              const hBest = healthPctFrom30(health?.avg_health_best);
+              const hPipe = healthPctFrom30(health?.avg_health_pipeline);
+              const hWon = healthPctFrom30(health?.avg_health_won);
+              const hClosed = healthPctFrom30(health?.avg_health_closed);
+
+              const managerExportRows = block.managers.map((m) => ({
+                manager: m.manager_name,
+                quota: m.quota,
+                won_amount: m.won_amount,
+                won_count: m.won_count,
+                attainment_pct: m.attainment == null ? "" : Math.round(m.attainment * 100),
+                commit_coverage_pct: m.commit_coverage == null ? "" : Math.round(m.commit_coverage * 100),
+                best_coverage_pct: m.best_coverage == null ? "" : Math.round(m.best_coverage * 100),
+                pipeline_amount: m.active_amount,
+                win_rate_pct: m.win_rate == null ? "" : Math.round(m.win_rate * 100),
+                opp_to_win_pct: m.opp_to_win == null ? "" : Math.round(m.opp_to_win * 100),
+                aov: m.aov == null ? "" : m.aov,
+                partner_contribution_pct: m.partner_contribution == null ? "" : Math.round(m.partner_contribution * 100),
+                partner_win_rate_pct: m.partner_win_rate == null ? "" : Math.round(m.partner_win_rate * 100),
+                new_pipeline_amount: m.created_amount,
+                new_pipeline_count: m.created_count,
+                cycle_won_days: m.avg_days_won == null ? "" : Math.round(m.avg_days_won),
+                cycle_lost_days: m.avg_days_lost == null ? "" : Math.round(m.avg_days_lost),
+                aging_days: m.avg_days_active == null ? "" : Math.round(m.avg_days_active),
+                mix: `${fmtPct(m.mix_pipeline)} / ${fmtPct(m.mix_best)} / ${fmtPct(m.mix_commit)} / ${fmtPct(m.mix_won)}`,
+              }));
+              const repExportRows = block.managers.flatMap((m) =>
+                (m.reps || []).map((r) => ({
+                  manager: m.manager_name,
+                  rep: r.rep_name,
+                  quota: r.quota,
+                  won_amount: r.won_amount,
+                  won_count: r.won_count,
+                  attainment_pct: r.attainment == null ? "" : Math.round(r.attainment * 100),
+                  commit_coverage_pct: r.commit_coverage == null ? "" : Math.round(r.commit_coverage * 100),
+                  best_coverage_pct: r.best_coverage == null ? "" : Math.round(r.best_coverage * 100),
+                  pipeline_amount: r.active_amount,
+                  win_rate_pct: r.win_rate == null ? "" : Math.round(r.win_rate * 100),
+                  opp_to_win_pct: r.opp_to_win == null ? "" : Math.round(r.opp_to_win * 100),
+                  aov: r.aov == null ? "" : r.aov,
+                  partner_contribution_pct: r.partner_contribution == null ? "" : Math.round(r.partner_contribution * 100),
+                  partner_win_rate_pct: r.partner_win_rate == null ? "" : Math.round(r.partner_win_rate * 100),
+                  new_pipeline_amount: r.created_amount,
+                  new_pipeline_count: r.created_count,
+                  cycle_won_days: r.avg_days_won == null ? "" : Math.round(r.avg_days_won),
+                  cycle_lost_days: r.avg_days_lost == null ? "" : Math.round(r.avg_days_lost),
+                  aging_days: r.avg_days_active == null ? "" : Math.round(r.avg_days_active),
+                  mix: `${fmtPct(r.mix_pipeline)} / ${fmtPct(r.mix_best)} / ${fmtPct(r.mix_commit)} / ${fmtPct(r.mix_won)}`,
+                }))
+              );
               return (
                 <section key={p.id} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -923,6 +996,13 @@ export default async function QuarterlyKpisPage({
                         {p.period_start} → {p.period_end}
                       </div>
                     </div>
+                    <ExportToExcelButton
+                      fileName={`KPIs by quarter - ${summaryLabel}`}
+                      sheets={[
+                        { name: "Managers", rows: managerExportRows as any },
+                        { name: "Reps", rows: repExportRows as any },
+                      ]}
+                    />
                     <div className="flex flex-wrap gap-2 text-xs">
                       <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
                         <div className="text-[color:var(--sf-text-secondary)]">Quota Attainment</div>
@@ -940,6 +1020,14 @@ export default async function QuarterlyKpisPage({
                         <div className="text-[color:var(--sf-text-secondary)]">Aging (avg deal age)</div>
                         <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
                           {agingAvgDays == null ? "—" : `${Math.round(agingAvgDays)}d`}
+                        </div>
+                      </div>
+                      <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
+                        <div className="text-[color:var(--sf-text-secondary)]">Avg Health</div>
+                        <div className={`font-mono font-semibold ${healthColorClass(hAll)}`}>{hAll == null ? "—" : `${hAll}%`}</div>
+                        <div className="mt-0.5 text-[11px] text-[color:var(--sf-text-secondary)]">
+                          C {hCommit == null ? "—" : `${hCommit}%`} · B {hBest == null ? "—" : `${hBest}%`} · P {hPipe == null ? "—" : `${hPipe}%`} · W{" "}
+                          {hWon == null ? "—" : `${hWon}%`} · Cl {hClosed == null ? "—" : `${hClosed}%`}
                         </div>
                       </div>
                       <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
