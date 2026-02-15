@@ -12,6 +12,14 @@ type QuotaPeriodOption = {
   fiscal_quarter: string; // text
 };
 
+type ProductWonRow = {
+  product: string;
+  won_amount: number;
+  won_count: number;
+  avg_order_value: number;
+  avg_health_score: number | null;
+};
+
 function ordinalQuarterLabel(q: number) {
   if (q === 1) return "1st Quarter";
   if (q === 2) return "2nd Quarter";
@@ -202,6 +210,7 @@ export async function QuarterSalesForecastSummary(props: {
     pipeline_health_score: number | null;
     won_amount: number;
     won_count: number;
+    won_health_score: number | null;
   };
 
   const repRollups: RepQuarterRollupRow[] = canCompute
@@ -348,7 +357,11 @@ export async function QuarterSalesForecastSummary(props: {
             COALESCE(SUM(CASE
               WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN 1
               ELSE 0
-            END), 0)::int AS won_count
+            END), 0)::int AS won_count,
+            AVG(CASE
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN NULLIF(d.health_score, 0)
+              ELSE NULL
+            END)::float8 AS won_health_score
           FROM deals_in_qtr d
           LEFT JOIN reps r
             ON r.id = d.rep_id
@@ -370,9 +383,85 @@ export async function QuarterSalesForecastSummary(props: {
         .catch(() => [])
     : [];
 
+  const products: ProductWonRow[] = canCompute
+    ? await pool
+        .query<ProductWonRow>(
+          `
+          WITH qp AS (
+            SELECT period_start::date AS period_start, period_end::date AS period_end
+              FROM quota_periods
+             WHERE org_id = $1::bigint
+               AND id = $2::bigint
+             LIMIT 1
+          ),
+          deals AS (
+            SELECT
+              COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
+              COALESCE(o.amount, 0) AS amount,
+              o.health_score,
+              lower(
+                regexp_replace(
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+                  '[^a-zA-Z]+',
+                  ' ',
+                  'g'
+                )
+              ) AS fs,
+              CASE
+                WHEN o.close_date IS NULL THEN NULL
+                WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+                WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                  to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+                ELSE NULL
+              END AS close_d
+            FROM opportunities o
+            WHERE o.org_id = $1
+              AND (
+                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
+                OR (
+                  COALESCE(array_length($4::text[], 1), 0) > 0
+                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+                )
+              )
+          ),
+          deals_in_qtr AS (
+            SELECT d.*
+              FROM deals d
+              JOIN qp ON TRUE
+             WHERE d.close_d IS NOT NULL
+               AND d.close_d >= qp.period_start
+               AND d.close_d <= qp.period_end
+          ),
+          won_deals AS (
+            SELECT *
+              FROM deals_in_qtr
+             WHERE ((' ' || fs || ' ') LIKE '% won %')
+          )
+          SELECT
+            product,
+            COALESCE(SUM(amount), 0)::float8 AS won_amount,
+            COUNT(*)::int AS won_count,
+            CASE WHEN COUNT(*) > 0 THEN (COALESCE(SUM(amount), 0)::float8 / COUNT(*)::float8) ELSE 0 END AS avg_order_value,
+            AVG(NULLIF(health_score, 0))::float8 AS avg_health_score
+          FROM won_deals
+          GROUP BY product
+          ORDER BY won_amount DESC, product ASC
+          LIMIT 30
+          `,
+          [props.orgId, qpId, repIdsToUse, visibleRepNameKeys]
+        )
+        .then((r) => (r.rows || []) as any[])
+        .catch(() => [])
+    : [];
+
   const bucketHealth = canCompute
     ? await pool
-        .query<{ commit_health_score: number | null; best_case_health_score: number | null; pipeline_health_score: number | null }>(
+        .query<{
+          commit_health_score: number | null;
+          best_case_health_score: number | null;
+          pipeline_health_score: number | null;
+          won_health_score: number | null;
+        }>(
           `
           WITH qp AS (
             SELECT period_start::date AS period_start, period_end::date AS period_end
@@ -442,18 +531,25 @@ export async function QuarterSalesForecastSummary(props: {
               WHEN d.fs LIKE '%commit%' THEN NULL
               WHEN d.fs LIKE '%best%' THEN NULL
               ELSE NULLIF(d.health_score, 0)
-            END)::float8 AS pipeline_health_score
+            END)::float8 AS pipeline_health_score,
+            AVG(CASE
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN NULLIF(d.health_score, 0)
+              ELSE NULL
+            END)::float8 AS won_health_score
           FROM deals_in_qtr d
           `,
           [props.orgId, qpId, repIdsToUse, visibleRepNameKeys]
         )
-        .then((r) => r.rows?.[0] || { commit_health_score: null, best_case_health_score: null, pipeline_health_score: null })
-        .catch(() => ({ commit_health_score: null, best_case_health_score: null, pipeline_health_score: null }))
-    : { commit_health_score: null, best_case_health_score: null, pipeline_health_score: null };
+        .then((r) =>
+          r.rows?.[0] || { commit_health_score: null, best_case_health_score: null, pipeline_health_score: null, won_health_score: null }
+        )
+        .catch(() => ({ commit_health_score: null, best_case_health_score: null, pipeline_health_score: null, won_health_score: null }))
+    : { commit_health_score: null, best_case_health_score: null, pipeline_health_score: null, won_health_score: null };
 
   const commitHealthPct = healthPctFrom30(bucketHealth.commit_health_score);
   const bestHealthPct = healthPctFrom30(bucketHealth.best_case_health_score);
   const pipelineHealthPct = healthPctFrom30(bucketHealth.pipeline_health_score);
+  const wonHealthPct = healthPctFrom30(bucketHealth.won_health_score);
 
   const commitAmt = repRollups.reduce((acc, r) => acc + (Number(r.commit_amount || 0) || 0), 0);
   const commitCount = repRollups.reduce((acc, r) => acc + (Number(r.commit_count || 0) || 0), 0);
@@ -747,6 +843,9 @@ export async function QuarterSalesForecastSummary(props: {
             <div className="text-sm text-black/70">Closed Won</div>
             <div className="font-mono text-sm font-semibold">{fmtMoney(wonAmt)}</div>
             <div className="mt-1 text-sm text-black/70"># Opps: {wonCount}</div>
+            <div className="mt-1 text-sm text-black/70">
+              Avg Health: <span className={healthColorClass(wonHealthPct)}>{wonHealthPct == null ? "—" : `${wonHealthPct}%`}</span>
+            </div>
           </div>
           <div className={`${boxClass} w-full`}>
             <div className="text-sm text-black/70">Quarterly Quota</div>
@@ -787,6 +886,7 @@ export async function QuarterSalesForecastSummary(props: {
                   const cHealthPct = healthPctFrom30((r as any).commit_health_score);
                   const bHealthPct = healthPctFrom30((r as any).best_case_health_score);
                   const pHealthPct = healthPctFrom30((r as any).pipeline_health_score);
+                  const wHealthPct = healthPctFrom30((r as any).won_health_score);
                   const key = `${r.rep_id || "name"}:${r.rep_name}`;
                   return (
                     <tr key={key} className="text-[color:var(--sf-text-primary)]">
@@ -818,6 +918,9 @@ export async function QuarterSalesForecastSummary(props: {
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="font-mono text-sm font-semibold">{fmtMoney(Number(r.won_amount || 0) || 0)}</div>
                         <div className="text-sm text-[color:var(--sf-text-secondary)]"># {Number(r.won_count || 0) || 0}</div>
+                        <div className="text-sm text-[color:var(--sf-text-secondary)]">
+                          Avg: <span className={healthColorClass(wHealthPct)}>{wHealthPct == null ? "—" : `${wHealthPct}%`}</span>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -826,6 +929,44 @@ export async function QuarterSalesForecastSummary(props: {
             </table>
           </div>
         </details>
+      ) : null}
+
+      {products.length ? (
+        <section className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">
+            {role === "REP" ? "Revenue by product (Closed Won)" : "Team revenue by product (Closed Won)"}
+          </div>
+          <div className="mt-3 overflow-x-auto">
+            <table className="min-w-[760px] table-auto border-collapse text-sm">
+              <thead>
+                <tr className="text-left text-xs text-[color:var(--sf-text-secondary)]">
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Product</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Closed Won</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right"># Orders</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Avg / Order</th>
+                </tr>
+              </thead>
+              <tbody>
+                {products.map((p) => {
+                  const hp = healthPctFrom30(p.avg_health_score);
+                  return (
+                    <tr key={p.product} className="text-[color:var(--sf-text-primary)]">
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">{p.product}</td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-xs">{fmtMoney(p.won_amount)}</td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">{Number(p.won_count || 0) || 0}</td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
+                        <div className="font-mono text-xs font-semibold">{fmtMoney(p.avg_order_value)}</div>
+                        <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">
+                          Avg Health: <span className={healthColorClass(hp)}>{hp == null ? "—" : `${hp}%`}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
       ) : null}
 
       {debug ? (

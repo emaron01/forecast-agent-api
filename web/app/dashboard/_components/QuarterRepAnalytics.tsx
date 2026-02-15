@@ -20,6 +20,20 @@ function fmtMoney(n: any) {
   return v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
+function healthPctFrom30(score: any) {
+  const n = Number(score);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const pct = Math.round((n / 30) * 100);
+  return Math.max(0, Math.min(100, pct));
+}
+
+function healthColorClass(pct: number | null) {
+  if (pct == null) return "text-[color:var(--sf-text-disabled)]";
+  if (pct >= 80) return "text-[#2ECC71]";
+  if (pct >= 50) return "text-[#F1C40F]";
+  return "text-[#E74C3C]";
+}
+
 type QuotaPeriodLite = {
   id: string;
   period_name: string | null;
@@ -176,7 +190,7 @@ export async function QuarterRepAnalytics(props: {
 
   const products = canCompute
     ? await pool
-        .query<{ product: string; won_amount: number; won_count: number; avg_order_value: number }>(
+        .query<{ product: string; won_amount: number; won_count: number; avg_order_value: number; avg_health_score: number | null }>(
           `
           WITH qp AS (
             SELECT period_start::date AS period_start, period_end::date AS period_end
@@ -189,6 +203,7 @@ export async function QuarterRepAnalytics(props: {
             SELECT
               COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
               COALESCE(o.amount, 0) AS amount,
+              o.health_score,
               lower(
                 regexp_replace(
                   COALESCE(NULLIF(btrim(o.sales_stage), ''), NULLIF(btrim(o.forecast_stage), ''), ''),
@@ -231,7 +246,8 @@ export async function QuarterRepAnalytics(props: {
             product,
             COALESCE(SUM(amount), 0)::float8 AS won_amount,
             COUNT(*)::int AS won_count,
-            CASE WHEN COUNT(*) > 0 THEN (COALESCE(SUM(amount), 0)::float8 / COUNT(*)::float8) ELSE 0 END AS avg_order_value
+            CASE WHEN COUNT(*) > 0 THEN (COALESCE(SUM(amount), 0)::float8 / COUNT(*)::float8) ELSE 0 END AS avg_order_value,
+            AVG(NULLIF(health_score, 0))::float8 AS avg_health_score
           FROM won_deals
           GROUP BY product
           ORDER BY won_amount DESC, product ASC
@@ -298,14 +314,22 @@ export async function QuarterRepAnalytics(props: {
                 </thead>
                 <tbody>
                   {products.length ? (
-                    products.map((p) => (
-                      <tr key={p.product} className="border-t border-[color:var(--sf-border)]">
-                        <td className="px-4 py-3">{p.product}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(p.won_amount)}</td>
-                        <td className="px-4 py-3 text-right">{p.won_count}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(p.avg_order_value)}</td>
-                      </tr>
-                    ))
+                    products.map((p) => {
+                      const hp = healthPctFrom30(p.avg_health_score);
+                      return (
+                        <tr key={p.product} className="border-t border-[color:var(--sf-border)]">
+                          <td className="px-4 py-3">{p.product}</td>
+                          <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(p.won_amount)}</td>
+                          <td className="px-4 py-3 text-right">{p.won_count}</td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="font-mono text-xs">{fmtMoney(p.avg_order_value)}</div>
+                            <div className="mt-0.5 text-[11px] text-[color:var(--sf-text-secondary)]">
+                              Avg Health: <span className={healthColorClass(hp)}>{hp == null ? "—" : `${hp}%`}</span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   ) : (
                     <tr>
                       <td colSpan={4} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
