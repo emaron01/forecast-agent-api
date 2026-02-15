@@ -7,7 +7,7 @@ function NavLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="rounded-md px-2 py-1 text-[12px] font-medium text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface)] hover:text-[color:var(--sf-text-primary)]"
+      className="rounded-md px-2 py-0.5 text-[12px] font-medium leading-none text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface)] hover:text-[color:var(--sf-text-primary)]"
     >
       {label}
     </Link>
@@ -17,8 +17,8 @@ function NavLink({ href, label }: { href: string; label: string }) {
 export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser }) {
   return (
     <header className="border-b border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-      <div className="flex h-[45px] w-full items-center justify-between px-6">
-        <div className="flex items-center gap-3">
+      <div className="flex h-[30px] w-full items-center justify-between px-4">
+        <div className="flex items-center gap-2">
           <Link href="/dashboard" aria-label="SalesForecast home" className="shrink-0">
             <Image
               src="/brand/salesforecast-logo.png"

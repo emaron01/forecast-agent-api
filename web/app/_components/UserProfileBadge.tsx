@@ -28,7 +28,7 @@ export function UserProfileBadge({
     <div className="relative group">
       <button
         type="button"
-        className="grid h-9 w-9 place-items-center rounded-full bg-[color:var(--sf-accent-primary)] text-sm font-semibold text-[color:var(--sf-button-primary-text)] shadow-sm ring-1 ring-[color:var(--sf-border)] transition hover:bg-[color:var(--sf-accent-primary-hover)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-secondary)] focus:ring-offset-2 focus:ring-offset-[color:var(--sf-background)]"
+        className="grid h-7 w-7 place-items-center rounded-full bg-[color:var(--sf-accent-primary)] text-xs font-semibold text-[color:var(--sf-button-primary-text)] shadow-sm ring-1 ring-[color:var(--sf-border)] transition hover:bg-[color:var(--sf-accent-primary-hover)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-secondary)] focus:ring-offset-2 focus:ring-offset-[color:var(--sf-background)]"
         aria-label="User menu"
         title={`${displayName || email}${orgName ? ` · ${orgName}` : ""}`}
       >
