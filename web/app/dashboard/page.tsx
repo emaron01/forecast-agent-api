@@ -12,7 +12,7 @@ function ActionCard({ href, title, desc }: { href: string; title: string; desc: 
   return (
     <Link
       href={href}
-      className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm hover:border-[color:var(--sf-accent-secondary)]"
+      className="flex flex-col items-center justify-center rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 text-center shadow-sm hover:border-[color:var(--sf-accent-secondary)]"
     >
       <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">{title}</div>
       <div className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">{desc}</div>
