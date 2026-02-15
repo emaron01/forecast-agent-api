@@ -1122,7 +1122,7 @@ export default async function QuarterlyKpisPage({
                             const boxClass = "rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2";
 
                             return (
-                              <div className="mt-2 grid w-full gap-2 text-sm sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
+                              <div className="mt-2 grid w-full gap-2 text-sm grid-cols-[repeat(auto-fit,minmax(160px,1fr))]">
                                 <div className={boxClass}>
                                   <div className="text-xs text-[color:var(--sf-text-secondary)]">Commit</div>
                                   <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(commitTotal)}</div>
@@ -1159,7 +1159,7 @@ export default async function QuarterlyKpisPage({
                                   <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">&nbsp;</div>
                                 </div>
 
-                                <div className="lg:col-span-7">
+                                <div className="col-span-full">
                                   <div className="mt-2 flex flex-wrap gap-2 text-xs">
                                     <Chip label="Win Rate" value={fmtPct(winRate)} />
                                     <Chip label="Average Order Value" value={fmtMoney(block.aov)} />
