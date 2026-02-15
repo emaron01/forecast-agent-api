@@ -526,8 +526,10 @@ export async function QuarterSalesForecastSummary(props: {
       : 0;
 
   const pctToGoal = quotaAmt > 0 ? wonAmt / quotaAmt : null;
-  const pctToGoalClass = pctToGoal != null && pctToGoal >= 1 ? "text-[#16A34A]" : "text-black";
-  const boxClass = "rounded-lg border border-[#93C5FD] bg-[#DBEAFE] px-3 py-2 text-black";
+  const pctToGoalValueClass = pctToGoal != null && pctToGoal >= 1 ? "text-[#16A34A]" : "";
+  const boxClass = "rounded-lg border border-[#93C5FD] bg-[#DBEAFE] px-3 py-2 text-black text-center";
+  const buttonBoxClass =
+    "rounded-lg border border-[color:var(--sf-button-primary-bg)] bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-center text-[color:var(--sf-button-primary-text)]";
   const headline =
     role === "REP"
       ? repNameForHeadline
@@ -585,7 +587,7 @@ export async function QuarterSalesForecastSummary(props: {
           ) : null}
         </div>
 
-        <div className="grid w-full gap-3 text-sm sm:grid-cols-2 md:w-auto md:grid-cols-4 lg:grid-cols-7">
+        <div className="grid w-full justify-center justify-items-center gap-3 text-sm sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
           <div className={boxClass}>
             <div className="text-sm text-black/70">Commit</div>
             <div className="font-mono text-sm font-semibold">{fmtMoney(commitAmt)}</div>
@@ -606,18 +608,18 @@ export async function QuarterSalesForecastSummary(props: {
             <div className="font-mono text-sm font-semibold">{fmtMoney(totalAmt)}</div>
             <div className="mt-1 text-sm text-black/70"># Opps: {totalPipelineCount}</div>
           </div>
-          <div className={boxClass}>
-            <div className="text-sm text-black/70">Quarterly Quota</div>
+          <div className={buttonBoxClass}>
+            <div className="text-sm opacity-80">Closed Won</div>
+            <div className="font-mono text-sm font-semibold">{fmtMoney(wonAmt)}</div>
+            <div className="mt-1 text-sm opacity-80"># Opps: {wonCount}</div>
+          </div>
+          <div className={buttonBoxClass}>
+            <div className="text-sm opacity-80">Quarterly Quota</div>
             <div className="font-mono text-sm font-semibold">{fmtMoney(quotaAmt)}</div>
           </div>
-          <div className={boxClass}>
-            <div className="text-sm text-black/70">Closed Won</div>
-            <div className="font-mono text-sm font-semibold">{fmtMoney(wonAmt)}</div>
-            <div className="mt-1 text-sm text-black/70"># Opps: {wonCount}</div>
-          </div>
-          <div className={boxClass}>
-            <div className="text-sm text-black/70">% To Goal</div>
-            <div className={`font-mono text-sm font-semibold ${pctToGoalClass}`}>{fmtPct(pctToGoal)}</div>
+          <div className={buttonBoxClass}>
+            <div className="text-sm opacity-80">% To Goal</div>
+            <div className={`font-mono text-sm font-semibold ${pctToGoalValueClass}`}>{fmtPct(pctToGoal)}</div>
           </div>
         </div>
       </div>

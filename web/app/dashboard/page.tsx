@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { requireAuth } from "../../lib/auth";
-import { getOrganization, getVisibleUsers, listRecentOpportunitiesForAccountOwner } from "../../lib/db";
+import { getOrganization, getVisibleUsers } from "../../lib/db";
 import { redirect } from "next/navigation";
 import { UserTopNav } from "../_components/UserTopNav";
-import { dateOnly } from "../../lib/dateOnly";
 import { QuarterSalesForecastSummary } from "../forecast/_components/QuarterSalesForecastSummary";
 import { QuarterRepAnalytics } from "./_components/QuarterRepAnalytics";
 
@@ -153,12 +152,6 @@ export default async function DashboardPage({
   }
 
   // REP
-  const opportunities = await listRecentOpportunitiesForAccountOwner({
-    orgId: ctx.user.org_id,
-    accountOwnerName: ctx.user.account_owner_name || "",
-    limit: 50,
-  }).catch(() => []);
-
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
@@ -184,44 +177,6 @@ export default async function DashboardPage({
         <section className="mt-6 grid gap-4 md:grid-cols-3">
           <ActionCard href="/forecast" title="Sales Opportunities" desc="Primary rep opportunities dashboard." />
           <ActionCard href="/dashboard/excel-upload" title="Upload Opportunities" desc="Upload an Excel file of opportunities." />
-        </section>
-
-        <section className="mt-6 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Recent opportunities</h2>
-          <div className="mt-3 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
-                <tr>
-                  <th className="px-4 py-3">public_id</th>
-                  <th className="px-4 py-3">account</th>
-                  <th className="px-4 py-3">opportunity</th>
-                  <th className="px-4 py-3">amount</th>
-                  <th className="px-4 py-3">close</th>
-                  <th className="px-4 py-3">updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {opportunities.length ? (
-                  opportunities.map((o) => (
-                    <tr key={o.public_id} className="border-t border-[color:var(--sf-border)]">
-                      <td className="px-4 py-3 font-mono text-xs">{o.public_id}</td>
-                      <td className="px-4 py-3">{o.account_name || ""}</td>
-                      <td className="px-4 py-3">{o.opportunity_name || ""}</td>
-                      <td className="px-4 py-3">{o.amount ?? ""}</td>
-                      <td className="px-4 py-3">{dateOnly(o.close_date) || ""}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{dateOnly(o.updated_at) || ""}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]" colSpan={6}>
-                      No opportunities found for "{ctx.user.account_owner_name}".
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
         </section>
       </main>
     </div>
