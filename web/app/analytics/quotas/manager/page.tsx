@@ -16,6 +16,12 @@ function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
 }
 
+function fmtMoney(n: any) {
+  const v = Number(n || 0);
+  if (!Number.isFinite(v)) return "—";
+  return v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+}
+
 function quarterNumberFromAny(v: unknown): "" | "1" | "2" | "3" | "4" {
   const s = String(v ?? "").trim().toLowerCase();
   if (!s) return "";
@@ -215,8 +221,10 @@ export default async function AnalyticsQuotasManagerPage({
   const yearPeriods = fiscal_year ? periods : [];
   const byQuarter = new Map<string, QuotaPeriodRow>();
   for (const p of yearPeriods) {
-    const fq = String(p.fiscal_quarter || "").trim();
-    if (fq) byQuarter.set(fq, p);
+    const qn = quarterNumberFromAny(p.fiscal_quarter) || quarterNumberFromAny(p.period_name);
+    if (!qn) continue;
+    byQuarter.set(qn, p);
+    byQuarter.set(`Q${qn}`, p);
   }
   const q1p = byQuarter.get("Q1") || null;
   const q2p = byQuarter.get("Q2") || null;
@@ -263,6 +271,103 @@ export default async function AnalyticsQuotasManagerPage({
           },
         ]
       : [];
+
+  // --------------------------------------------
+  // Rep list: quota by quarter + closed won by quarter
+  // --------------------------------------------
+  const directRepIds = (directReps || [])
+    .map((r) => Number(r.id))
+    .filter((n) => Number.isFinite(n) && n > 0);
+
+  const quarters = [
+    { key: "Q1", p: q1p },
+    { key: "Q2", p: q2p },
+    { key: "Q3", p: q3p },
+    { key: "Q4", p: q4p },
+  ].filter((q) => !!q.p) as Array<{ key: "Q1" | "Q2" | "Q3" | "Q4"; p: QuotaPeriodRow }>;
+
+  const quarterIds = quarters.map((q) => String(q.p.id));
+
+  const repQuotaRows =
+    fiscal_year && directRepIds.length && quarterIds.length
+      ? await pool
+          .query<{ rep_id: string; quota_period_id: string; quota_amount: number }>(
+            `
+            SELECT
+              rep_id::text AS rep_id,
+              quota_period_id::text AS quota_period_id,
+              COALESCE(quota_amount, 0)::float8 AS quota_amount
+            FROM quotas
+            WHERE org_id = $1::bigint
+              AND role_level = 3
+              AND rep_id = ANY($2::bigint[])
+              AND quota_period_id = ANY($3::bigint[])
+            `,
+            [ctx.user.org_id, directRepIds, quarterIds]
+          )
+          .then((r) => r.rows || [])
+          .catch(() => [])
+      : [];
+
+  const repWonRows =
+    fiscal_year && directRepIds.length && quarterIds.length
+      ? await pool
+          .query<{ rep_id: string; quota_period_id: string; won_amount: number }>(
+            `
+            WITH periods AS (
+              SELECT id, period_start::date AS period_start, period_end::date AS period_end
+                FROM quota_periods
+               WHERE org_id = $1::bigint
+                 AND id = ANY($2::bigint[])
+            ),
+            deals AS (
+              SELECT
+                o.rep_id,
+                COALESCE(o.amount, 0) AS amount,
+                lower(
+                  regexp_replace(
+                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+                    '[^a-zA-Z]+',
+                    ' ',
+                    'g'
+                  )
+                ) AS fs,
+                CASE
+                  WHEN o.close_date IS NULL THEN NULL
+                  WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+                  WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                    to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+                  ELSE NULL
+                END AS close_d
+              FROM opportunities o
+              WHERE o.org_id = $1
+                AND o.rep_id = ANY($3::bigint[])
+            )
+            SELECT
+              d.rep_id::text AS rep_id,
+              p.id::text AS quota_period_id,
+              COALESCE(SUM(d.amount), 0)::float8 AS won_amount
+            FROM deals d
+            JOIN periods p ON d.close_d IS NOT NULL AND d.close_d >= p.period_start AND d.close_d <= p.period_end
+            WHERE ((' ' || d.fs || ' ') LIKE '% won %')
+            GROUP BY d.rep_id, p.id
+            `,
+            [ctx.user.org_id, quarterIds, directRepIds]
+          )
+          .then((r) => r.rows || [])
+          .catch(() => [])
+      : [];
+
+  const quotaByRepPeriod = new Map<string, number>();
+  for (const r of repQuotaRows) {
+    const k = `${String(r.rep_id)}|${String(r.quota_period_id)}`;
+    quotaByRepPeriod.set(k, Number((r as any).quota_amount || 0) || 0);
+  }
+  const wonByRepPeriod = new Map<string, number>();
+  for (const r of repWonRows) {
+    const k = `${String(r.rep_id)}|${String(r.quota_period_id)}`;
+    wonByRepPeriod.set(k, Number((r as any).won_amount || 0) || 0);
+  }
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -409,6 +514,64 @@ export default async function AnalyticsQuotasManagerPage({
         {rollupPeriodId ? (
           <section className="mt-5">
             <QuotaRollupTable title="Rep rollup" subtitle="Uses public.rep_attainment (direct reports only)" rows={repRows} />
+          </section>
+        ) : null}
+
+        {fiscal_year ? (
+          <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Rep quotas vs Closed Won (by quarter)</h2>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+              Direct reports · Fiscal year: <span className="font-mono text-xs">{fiscal_year}</span>
+            </p>
+
+            {!quarters.length ? (
+              <div className="mt-4 text-sm text-[color:var(--sf-text-secondary)]">
+                Missing quota periods for this fiscal year (Q1–Q4). Ask Admin to set quarter dates in quota periods.
+              </div>
+            ) : !directReps.length ? (
+              <div className="mt-4 text-sm text-[color:var(--sf-text-secondary)]">No direct-report reps found.</div>
+            ) : (
+              <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
+                <table className="w-full min-w-[980px] text-left text-sm">
+                  <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
+                    <tr>
+                      <th className="px-4 py-3">rep</th>
+                      {quarters.map((q) => (
+                        <th key={q.key} className="px-4 py-3">
+                          <div className="font-semibold text-[color:var(--sf-text-primary)]">{q.key}</div>
+                          <div className="mt-0.5 text-[11px] font-normal text-[color:var(--sf-text-secondary)]">
+                            {dateOnly(q.p.period_start)} → {dateOnly(q.p.period_end)}
+                          </div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {directReps.map((rep) => (
+                      <tr key={rep.public_id} className="border-t border-[color:var(--sf-border)]">
+                        <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{rep.rep_name || "—"}</td>
+                        {quarters.map((q) => {
+                          const pid = String(q.p.id);
+                          const repId = String(rep.id);
+                          const quota = quotaByRepPeriod.get(`${repId}|${pid}`) || 0;
+                          const won = wonByRepPeriod.get(`${repId}|${pid}`) || 0;
+                          return (
+                            <td key={`${rep.public_id}:${q.key}`} className="px-4 py-3 align-top">
+                              <div className="grid gap-1">
+                                <div className="text-[11px] text-[color:var(--sf-text-secondary)]">quota</div>
+                                <div className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(quota)}</div>
+                                <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">closed won</div>
+                                <div className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(won)}</div>
+                              </div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </section>
         ) : null}
       </main>

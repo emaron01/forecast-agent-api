@@ -20,14 +20,16 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
       <div className="flex h-[65px] w-full items-center justify-between px-6">
         <div className="flex items-center gap-2">
           <Link href="/dashboard" aria-label="SalesForecast home" className="shrink-0">
-            <Image
-              src="/brand/salesforecast-logo.png"
-              alt="SalesForecast.io"
-              width={520}
-              height={120}
-              priority={false}
-              className="h-[49px] w-auto object-contain"
-            />
+            <div className="h-[65px] w-[min(260px,40vw)] overflow-hidden">
+              <Image
+                src="/brand/salesforecast-logo.png"
+                alt="SalesForecast.io"
+                width={520}
+                height={120}
+                priority={false}
+                className="h-full w-full object-cover object-left"
+              />
+            </div>
           </Link>
           <nav className="flex flex-wrap items-center gap-1">
             <NavLink href="/dashboard" label="Dashboard" />
