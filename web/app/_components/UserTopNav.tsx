@@ -17,7 +17,7 @@ function NavLink({ href, label }: { href: string; label: string }) {
 export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser }) {
   return (
     <header className="border-b border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-      <div className="flex h-[80px] w-full items-center justify-between px-6">
+      <div className="flex h-[65px] w-full items-center justify-between px-6">
         <div className="flex items-center gap-2">
           <Link href="/dashboard" aria-label="SalesForecast home" className="shrink-0">
             <Image
