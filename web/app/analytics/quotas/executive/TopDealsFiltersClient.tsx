@@ -35,6 +35,7 @@ function setParam(params: URLSearchParams, k: string, v: string) {
 }
 
 export function TopDealsFiltersClient(props: {
+  basePath: string;
   fiscalYears: string[];
   periods: PeriodLite[];
   selectedFiscalYear: string;
@@ -55,7 +56,7 @@ export function TopDealsFiltersClient(props: {
     const params = new URLSearchParams(sp.toString());
     setParam(params, "fiscal_year", nextFiscalYear);
     setParam(params, "quota_period_id", nextPeriodId);
-    router.replace(`/analytics/quotas/executive?${params.toString()}`);
+    router.replace(`${props.basePath}?${params.toString()}`);
   }
 
   return (
@@ -102,7 +103,7 @@ export function TopDealsFiltersClient(props: {
       <div className="flex items-end justify-end gap-2">
         <button
           type="button"
-          onClick={() => router.replace("/analytics/quotas/executive")}
+          onClick={() => router.replace(props.basePath)}
           className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
         >
           Reset

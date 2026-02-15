@@ -4,9 +4,9 @@ import { requireAuth } from "../../../../lib/auth";
 import { getOrganization } from "../../../../lib/db";
 import { UserTopNav } from "../../../_components/UserTopNav";
 import type { QuotaPeriodRow } from "../../../../lib/quotaModels";
-import { getDistinctFiscalYears, getQuotaPeriods } from "../actions";
+import { getDistinctFiscalYears, getQuotaPeriods } from "../../quotas/actions";
 import { pool } from "../../../../lib/pool";
-import { TopDealsFiltersClient } from "./TopDealsFiltersClient";
+import { TopDealsFiltersClient } from "../../quotas/executive/TopDealsFiltersClient";
 import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
 import { getHealthAveragesByPeriods } from "../../../../lib/analyticsHealth";
 import { AverageHealthScorePanel } from "../../../_components/AverageHealthScorePanel";
@@ -17,10 +17,9 @@ function sp(v: string | string[] | undefined) {
 
 export const runtime = "nodejs";
 
-type TopDealRow = {
+type TopPartnerDealRow = {
   opportunity_public_id: string;
-  rep_id: string | null;
-  rep_name: string;
+  partner_name: string;
   account_name: string | null;
   opportunity_name: string | null;
   product: string | null;
@@ -31,7 +30,7 @@ type TopDealRow = {
   health_score: number | null;
 };
 
-type DealSortKey = "amount" | "rep" | "account" | "opportunity" | "product" | "age" | "initial_health" | "final_health";
+type DealSortKey = "amount" | "partner" | "account" | "opportunity" | "product" | "age" | "initial_health" | "final_health";
 type DealSortDir = "asc" | "desc";
 
 function clampPctFromScore30(score: any) {
@@ -50,7 +49,14 @@ function healthExport(score: any) {
 function HealthScorePill(props: { score: any }) {
   const s = Number(props.score);
   const pct = clampPctFromScore30(s);
-  const color = pct == null ? "text-[color:var(--sf-text-disabled)]" : pct >= 80 ? "text-[#2ECC71]" : pct >= 50 ? "text-[#F1C40F]" : "text-[#E74C3C]";
+  const color =
+    pct == null
+      ? "text-[color:var(--sf-text-disabled)]"
+      : pct >= 80
+        ? "text-[#2ECC71]"
+        : pct >= 50
+          ? "text-[#F1C40F]"
+          : "text-[#E74C3C]";
   return (
     <span className="rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1">
       <span className={color}>{pct == null ? "—" : `${pct}%`}</span>{" "}
@@ -80,17 +86,9 @@ function daysBetween(createDate: any, closeDate: any) {
   return Number.isFinite(d) ? d : null;
 }
 
-async function listTopDeals(args: {
-  orgId: number;
-  quotaPeriodId: string;
-  repIds: number[] | null;
-  outcome: "won" | "lost";
-  limit: number;
-}): Promise<TopDealRow[]> {
-  const useRepFilter = !!(args.repIds && args.repIds.length);
+async function listTopPartnerDeals(args: { orgId: number; quotaPeriodId: string; outcome: "won" | "lost"; limit: number }): Promise<TopPartnerDealRow[]> {
   const wantWon = args.outcome === "won";
-
-  const { rows } = await pool.query<TopDealRow>(
+  const { rows } = await pool.query<TopPartnerDealRow>(
     `
     WITH qp AS (
       SELECT period_start::date AS period_start, period_end::date AS period_end
@@ -101,8 +99,7 @@ async function listTopDeals(args: {
     )
     SELECT
       o.public_id::text AS opportunity_public_id,
-      o.rep_id::text AS rep_id,
-      COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), NULLIF(btrim(o.rep_name), ''), '(Unknown rep)') AS rep_name,
+      btrim(o.partner_name) AS partner_name,
       o.account_name,
       o.opportunity_name,
       o.product,
@@ -113,33 +110,31 @@ async function listTopDeals(args: {
       o.health_score::float8 AS health_score
     FROM opportunities o
     JOIN qp ON TRUE
-    LEFT JOIN reps r
-      ON r.organization_id = $1
-     AND r.id = o.rep_id
     WHERE o.org_id = $1
+      AND o.partner_name IS NOT NULL
+      AND btrim(o.partner_name) <> ''
       AND o.close_date IS NOT NULL
       AND o.close_date >= qp.period_start
       AND o.close_date <= qp.period_end
-      AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
       AND (
         CASE
-          WHEN $5::boolean THEN ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
+          WHEN $3::boolean THEN ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
           ELSE ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
         END
       )
     ORDER BY amount DESC NULLS LAST, o.id DESC
-    LIMIT $6
+    LIMIT $4
     `,
-    [args.orgId, args.quotaPeriodId, args.repIds || [], useRepFilter, wantWon, args.limit]
+    [args.orgId, args.quotaPeriodId, wantWon, args.limit]
   );
   return rows || [];
 }
 
-function sortDeals(list: TopDealRow[], sort: DealSortKey, dir: DealSortDir) {
+function sortDeals(list: TopPartnerDealRow[], sort: DealSortKey, dir: DealSortDir) {
   const mult = dir === "asc" ? 1 : -1;
-  const v = (d: TopDealRow) => {
+  const v = (d: TopPartnerDealRow) => {
     if (sort === "amount") return Number(d.amount || 0) || 0;
-    if (sort === "rep") return String(d.rep_name || "").toLowerCase();
+    if (sort === "partner") return String(d.partner_name || "").toLowerCase();
     if (sort === "account") return String(d.account_name || "").toLowerCase();
     if (sort === "opportunity") return String(d.opportunity_name || "").toLowerCase();
     if (sort === "product") return String(d.product || "").toLowerCase();
@@ -162,11 +157,7 @@ function sortDeals(list: TopDealRow[], sort: DealSortKey, dir: DealSortDir) {
   });
 }
 
-export default async function AnalyticsQuotasExecutivePage({
-  searchParams,
-}: {
-  searchParams: Record<string, string | string[] | undefined>;
-}) {
+export default async function AnalyticsTopPartnersPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
   if (ctx.user.role !== "EXEC_MANAGER") redirect("/dashboard");
@@ -196,14 +187,13 @@ export default async function AnalyticsQuotasExecutivePage({
 
   const periods = yearToUse ? allPeriods.filter((p) => String(p.fiscal_year) === yearToUse) : allPeriods;
   const currentForYear = periods.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
-  const selected =
-    (quotaPeriodId && periods.find((p) => String(p.id) === quotaPeriodId)) || currentForYear || periods[0] || null;
+  const selected = (quotaPeriodId && periods.find((p) => String(p.id) === quotaPeriodId)) || currentForYear || periods[0] || null;
 
-  const topWonRaw = selected ? await listTopDeals({ orgId: ctx.user.org_id, quotaPeriodId: String(selected.id), repIds: null, outcome: "won", limit: 10 }).catch(() => []) : [];
-  const topLostRaw = selected ? await listTopDeals({ orgId: ctx.user.org_id, quotaPeriodId: String(selected.id), repIds: null, outcome: "lost", limit: 10 }).catch(() => []) : [];
+  const topWonRaw = selected ? await listTopPartnerDeals({ orgId: ctx.user.org_id, quotaPeriodId: String(selected.id), outcome: "won", limit: 10 }).catch(() => []) : [];
+  const topLostRaw = selected ? await listTopPartnerDeals({ orgId: ctx.user.org_id, quotaPeriodId: String(selected.id), outcome: "lost", limit: 10 }).catch(() => []) : [];
 
   const safeSortKey = (k: string): DealSortKey =>
-    k === "rep" || k === "account" || k === "opportunity" || k === "product" || k === "age" || k === "initial_health" || k === "final_health" || k === "amount"
+    k === "partner" || k === "account" || k === "opportunity" || k === "product" || k === "age" || k === "initial_health" || k === "final_health" || k === "amount"
       ? (k as DealSortKey)
       : "amount";
   const safeDir = (d: string): DealSortDir => (d === "asc" || d === "desc" ? (d as DealSortDir) : "desc");
@@ -221,7 +211,7 @@ export default async function AnalyticsQuotasExecutivePage({
     const i = healthExport(d.baseline_health_score);
     const f = healthExport(d.health_score);
     return {
-      rep_name: d.rep_name,
+      partner_name: d.partner_name,
       account: d.account_name || "",
       opportunity: d.opportunity_name || "",
       product: d.product || "",
@@ -241,7 +231,7 @@ export default async function AnalyticsQuotasExecutivePage({
     const i = healthExport(d.baseline_health_score);
     const f = healthExport(d.health_score);
     return {
-      rep_name: d.rep_name,
+      partner_name: d.partner_name,
       account: d.account_name || "",
       opportunity: d.opportunity_name || "",
       product: d.product || "",
@@ -257,9 +247,7 @@ export default async function AnalyticsQuotasExecutivePage({
     };
   });
 
-  const healthRows = selected
-    ? await getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: [String(selected.id)], repIds: null }).catch(() => [])
-    : [];
+  const healthRows = selected ? await getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: [String(selected.id)], repIds: null }).catch(() => []) : [];
   const health = (healthRows && healthRows[0]) ? (healthRows[0] as any) : null;
 
   const sortLabelClass = (active: boolean) => (active ? "text-yellow-700" : "");
@@ -271,9 +259,9 @@ export default async function AnalyticsQuotasExecutivePage({
       <main className="mx-auto max-w-7xl p-6">
         <div className="flex items-end justify-between gap-4">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Top Deals</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Top Partners</h1>
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-              Top 10 deals by revenue in the quarter (Won + Closed Loss). Health colors match the Opportunity Score Cards view.
+              Top 10 deals by revenue in the quarter (Won + Closed Loss) with a partner. Health colors match the Opportunity Score Cards view.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -286,7 +274,7 @@ export default async function AnalyticsQuotasExecutivePage({
         <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
           <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Filters</h2>
           <TopDealsFiltersClient
-            basePath="/analytics/quotas/executive"
+            basePath="/analytics/partners/executive"
             fiscalYears={fiscalYearValues}
             periods={allPeriods.map((p) => ({
               id: String(p.id),
@@ -305,7 +293,7 @@ export default async function AnalyticsQuotasExecutivePage({
 
         {!selected ? (
           <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-            <p className="text-sm text-[color:var(--sf-text-secondary)]">Select a `quota_period_id` to view company rollups.</p>
+            <p className="text-sm text-[color:var(--sf-text-secondary)]">Select a `quota_period_id` to view top partner deals.</p>
           </section>
         ) : null}
 
@@ -313,13 +301,13 @@ export default async function AnalyticsQuotasExecutivePage({
           <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Top deals won (top 10 by revenue)</h2>
+                <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Top partner deals won (top 10 by revenue)</h2>
                 <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
                   Period: <span className="font-mono text-xs">{dateOnly(selected.period_start)}</span> →{" "}
                   <span className="font-mono text-xs">{dateOnly(selected.period_end)}</span>
                 </p>
               </div>
-              <form method="GET" action="/analytics/quotas/executive" className="flex flex-wrap items-end gap-2">
+              <form method="GET" action="/analytics/partners/executive" className="flex flex-wrap items-end gap-2">
                 <input type="hidden" name="fiscal_year" value={yearToUse} />
                 <input type="hidden" name="quota_period_id" value={String(selected.id)} />
                 <input type="hidden" name="lost_sort" value={lostSortKey} />
@@ -328,7 +316,7 @@ export default async function AnalyticsQuotasExecutivePage({
                   <label className="text-xs text-[color:var(--sf-text-secondary)]">Sort</label>
                   <select name="won_sort" defaultValue={wonSortKey} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm">
                     <option value="amount">Amount</option>
-                    <option value="rep">Rep</option>
+                    <option value="partner">Partner</option>
                     <option value="account">Account</option>
                     <option value="opportunity">Opportunity</option>
                     <option value="product">Product</option>
@@ -348,48 +336,47 @@ export default async function AnalyticsQuotasExecutivePage({
                   Apply sort
                 </button>
               </form>
-              <ExportToExcelButton fileName={`Top Deals Won - ${selected.period_name}`} sheets={[{ name: "Top Won", rows: topWonExport }]} />
+              <ExportToExcelButton fileName={`Top Partners Won - ${selected.period_name}`} sheets={[{ name: "Top Won", rows: topWonExport }]} />
             </div>
 
             <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-              <table className="w-full min-w-[1350px] text-left text-sm">
+              <table className="w-full min-w-[1200px] text-left text-sm">
                 <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
                   <tr>
-                    <th className={`px-4 py-3 ${sortLabelClass(wonSortKey === "rep")}`}>Rep</th>
-                    <th className={`px-4 py-3 ${sortLabelClass(wonSortKey === "account")}`}>Account</th>
-                    <th className={`px-4 py-3 ${sortLabelClass(wonSortKey === "opportunity")}`}>Opportunity</th>
-                    <th className={`px-4 py-3 ${sortLabelClass(wonSortKey === "product")}`}>Product</th>
-                    <th className={`px-4 py-3 text-right ${sortLabelClass(wonSortKey === "amount")}`}>Revenue</th>
-                    <th className={`px-4 py-3 text-right ${sortLabelClass(wonSortKey === "age")}`}>Age</th>
-                    <th className={`px-4 py-3 ${sortLabelClass(wonSortKey === "initial_health")}`}>Initial health</th>
-                    <th className={`px-4 py-3 ${sortLabelClass(wonSortKey === "final_health")}`}>Final health (close)</th>
+                    <th className={`px-4 py-3 ${sortLabelClass(wonSortKey === "partner")}`}>partner</th>
+                    <th className={`px-4 py-3 ${sortLabelClass(wonSortKey === "account")}`}>account</th>
+                    <th className={`px-4 py-3 ${sortLabelClass(wonSortKey === "opportunity")}`}>opportunity</th>
+                    <th className={`px-4 py-3 ${sortLabelClass(wonSortKey === "product")}`}>product</th>
+                    <th className={`px-4 py-3 text-right ${sortLabelClass(wonSortKey === "amount")}`}>revenue</th>
+                    <th className={`px-4 py-3 text-right ${sortLabelClass(wonSortKey === "age")}`}>age</th>
+                    <th className={`px-4 py-3 text-right ${sortLabelClass(wonSortKey === "initial_health")}`}>initial health</th>
+                    <th className={`px-4 py-3 text-right ${sortLabelClass(wonSortKey === "final_health")}`}>final health</th>
                   </tr>
                 </thead>
                 <tbody>
                   {topWon.length ? (
-                    topWon.map((d) => {
-                      const age = daysBetween(d.create_date, d.close_date);
-                      return (
-                        <tr key={d.opportunity_public_id} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
-                          <td className={`px-4 py-3 ${sortCellClass(wonSortKey === "rep")}`}>{d.rep_name}</td>
-                          <td className={`px-4 py-3 ${sortCellClass(wonSortKey === "account")}`}>{d.account_name || "—"}</td>
-                          <td className={`px-4 py-3 ${sortCellClass(wonSortKey === "opportunity")}`}>{d.opportunity_name || "—"}</td>
-                          <td className={`px-4 py-3 ${sortCellClass(wonSortKey === "product")}`}>{d.product || "—"}</td>
-                          <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(wonSortKey === "amount")}`}>{fmtMoney(d.amount)}</td>
-                          <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(wonSortKey === "age")}`}>{age == null ? "—" : `${age}d`}</td>
-                          <td className={`px-4 py-3 ${sortCellClass(wonSortKey === "initial_health")}`}>
-                            <HealthScorePill score={d.baseline_health_score} />
-                          </td>
-                          <td className={`px-4 py-3 ${sortCellClass(wonSortKey === "final_health")}`}>
-                            <HealthScorePill score={d.health_score} />
-                          </td>
-                        </tr>
-                      );
-                    })
+                    topWon.map((d) => (
+                      <tr key={d.opportunity_public_id} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
+                        <td className={`px-4 py-3 font-medium ${sortCellClass(wonSortKey === "partner")}`}>{d.partner_name}</td>
+                        <td className={`px-4 py-3 ${sortCellClass(wonSortKey === "account")}`}>{d.account_name || ""}</td>
+                        <td className={`px-4 py-3 ${sortCellClass(wonSortKey === "opportunity")}`}>{d.opportunity_name || ""}</td>
+                        <td className={`px-4 py-3 ${sortCellClass(wonSortKey === "product")}`}>{d.product || ""}</td>
+                        <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(wonSortKey === "amount")}`}>{fmtMoney(d.amount)}</td>
+                        <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(wonSortKey === "age")}`}>
+                          {daysBetween(d.create_date, d.close_date) == null ? "—" : `${daysBetween(d.create_date, d.close_date)}d`}
+                        </td>
+                        <td className={`px-4 py-3 text-right ${sortCellClass(wonSortKey === "initial_health")}`}>
+                          <HealthScorePill score={d.baseline_health_score} />
+                        </td>
+                        <td className={`px-4 py-3 text-right ${sortCellClass(wonSortKey === "final_health")}`}>
+                          <HealthScorePill score={d.health_score} />
+                        </td>
+                      </tr>
+                    ))
                   ) : (
                     <tr>
                       <td colSpan={8} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
-                        No won deals found for this period.
+                        No partner Won deals found for this quarter.
                       </td>
                     </tr>
                   )}
@@ -409,7 +396,7 @@ export default async function AnalyticsQuotasExecutivePage({
                   <span className="font-mono text-xs">{dateOnly(selected.period_end)}</span>
                 </p>
               </div>
-              <form method="GET" action="/analytics/quotas/executive" className="flex flex-wrap items-end gap-2">
+              <form method="GET" action="/analytics/partners/executive" className="flex flex-wrap items-end gap-2">
                 <input type="hidden" name="fiscal_year" value={yearToUse} />
                 <input type="hidden" name="quota_period_id" value={String(selected.id)} />
                 <input type="hidden" name="won_sort" value={wonSortKey} />
@@ -418,7 +405,7 @@ export default async function AnalyticsQuotasExecutivePage({
                   <label className="text-xs text-[color:var(--sf-text-secondary)]">Sort</label>
                   <select name="lost_sort" defaultValue={lostSortKey} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm">
                     <option value="amount">Amount</option>
-                    <option value="rep">Rep</option>
+                    <option value="partner">Partner</option>
                     <option value="account">Account</option>
                     <option value="opportunity">Opportunity</option>
                     <option value="product">Product</option>
@@ -438,48 +425,47 @@ export default async function AnalyticsQuotasExecutivePage({
                   Apply sort
                 </button>
               </form>
-              <ExportToExcelButton fileName={`Top Deals Closed Loss - ${selected.period_name}`} sheets={[{ name: "Top Closed Loss", rows: topLostExport }]} />
+              <ExportToExcelButton fileName={`Top Partners Closed Loss - ${selected.period_name}`} sheets={[{ name: "Top Closed Loss", rows: topLostExport }]} />
             </div>
 
             <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-              <table className="w-full min-w-[1350px] text-left text-sm">
+              <table className="w-full min-w-[1200px] text-left text-sm">
                 <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
                   <tr>
-                    <th className={`px-4 py-3 ${sortLabelClass(lostSortKey === "rep")}`}>Rep</th>
-                    <th className={`px-4 py-3 ${sortLabelClass(lostSortKey === "account")}`}>Account</th>
-                    <th className={`px-4 py-3 ${sortLabelClass(lostSortKey === "opportunity")}`}>Opportunity</th>
-                    <th className={`px-4 py-3 ${sortLabelClass(lostSortKey === "product")}`}>Product</th>
-                    <th className={`px-4 py-3 text-right ${sortLabelClass(lostSortKey === "amount")}`}>Revenue</th>
-                    <th className={`px-4 py-3 text-right ${sortLabelClass(lostSortKey === "age")}`}>Age</th>
-                    <th className={`px-4 py-3 ${sortLabelClass(lostSortKey === "initial_health")}`}>Initial health</th>
-                    <th className={`px-4 py-3 ${sortLabelClass(lostSortKey === "final_health")}`}>Final health (close)</th>
+                    <th className={`px-4 py-3 ${sortLabelClass(lostSortKey === "partner")}`}>partner</th>
+                    <th className={`px-4 py-3 ${sortLabelClass(lostSortKey === "account")}`}>account</th>
+                    <th className={`px-4 py-3 ${sortLabelClass(lostSortKey === "opportunity")}`}>opportunity</th>
+                    <th className={`px-4 py-3 ${sortLabelClass(lostSortKey === "product")}`}>product</th>
+                    <th className={`px-4 py-3 text-right ${sortLabelClass(lostSortKey === "amount")}`}>revenue</th>
+                    <th className={`px-4 py-3 text-right ${sortLabelClass(lostSortKey === "age")}`}>age</th>
+                    <th className={`px-4 py-3 text-right ${sortLabelClass(lostSortKey === "initial_health")}`}>initial health</th>
+                    <th className={`px-4 py-3 text-right ${sortLabelClass(lostSortKey === "final_health")}`}>final health</th>
                   </tr>
                 </thead>
                 <tbody>
                   {topLost.length ? (
-                    topLost.map((d) => {
-                      const age = daysBetween(d.create_date, d.close_date);
-                      return (
-                        <tr key={d.opportunity_public_id} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
-                          <td className={`px-4 py-3 ${sortCellClass(lostSortKey === "rep")}`}>{d.rep_name}</td>
-                          <td className={`px-4 py-3 ${sortCellClass(lostSortKey === "account")}`}>{d.account_name || "—"}</td>
-                          <td className={`px-4 py-3 ${sortCellClass(lostSortKey === "opportunity")}`}>{d.opportunity_name || "—"}</td>
-                          <td className={`px-4 py-3 ${sortCellClass(lostSortKey === "product")}`}>{d.product || "—"}</td>
-                          <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(lostSortKey === "amount")}`}>{fmtMoney(d.amount)}</td>
-                          <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(lostSortKey === "age")}`}>{age == null ? "—" : `${age}d`}</td>
-                          <td className={`px-4 py-3 ${sortCellClass(lostSortKey === "initial_health")}`}>
-                            <HealthScorePill score={d.baseline_health_score} />
-                          </td>
-                          <td className={`px-4 py-3 ${sortCellClass(lostSortKey === "final_health")}`}>
-                            <HealthScorePill score={d.health_score} />
-                          </td>
-                        </tr>
-                      );
-                    })
+                    topLost.map((d) => (
+                      <tr key={d.opportunity_public_id} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
+                        <td className={`px-4 py-3 font-medium ${sortCellClass(lostSortKey === "partner")}`}>{d.partner_name}</td>
+                        <td className={`px-4 py-3 ${sortCellClass(lostSortKey === "account")}`}>{d.account_name || ""}</td>
+                        <td className={`px-4 py-3 ${sortCellClass(lostSortKey === "opportunity")}`}>{d.opportunity_name || ""}</td>
+                        <td className={`px-4 py-3 ${sortCellClass(lostSortKey === "product")}`}>{d.product || ""}</td>
+                        <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(lostSortKey === "amount")}`}>{fmtMoney(d.amount)}</td>
+                        <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(lostSortKey === "age")}`}>
+                          {daysBetween(d.create_date, d.close_date) == null ? "—" : `${daysBetween(d.create_date, d.close_date)}d`}
+                        </td>
+                        <td className={`px-4 py-3 text-right ${sortCellClass(lostSortKey === "initial_health")}`}>
+                          <HealthScorePill score={d.baseline_health_score} />
+                        </td>
+                        <td className={`px-4 py-3 text-right ${sortCellClass(lostSortKey === "final_health")}`}>
+                          <HealthScorePill score={d.health_score} />
+                        </td>
+                      </tr>
+                    ))
                   ) : (
                     <tr>
                       <td colSpan={8} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
-                        No closed-loss deals found for this period.
+                        No partner Closed Loss deals found for this quarter.
                       </td>
                     </tr>
                   )}

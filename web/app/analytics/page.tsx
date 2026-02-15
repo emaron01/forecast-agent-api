@@ -48,6 +48,9 @@ export default async function AnalyticsPage() {
           {ctx.user.role === "EXEC_MANAGER" ? (
             <Card href="/analytics/quotas/executive" title="Top Deals" desc="Top Won + Closed Loss deals for the selected quarter (sortable)." />
           ) : null}
+          {ctx.user.role === "EXEC_MANAGER" ? (
+            <Card href="/analytics/partners/executive" title="Top Partners" desc="Top Won + Closed Loss deals with a partner for the selected quarter (sortable)." />
+          ) : null}
           {ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER" || ctx.user.role === "ADMIN" ? (
             <Card href="/analytics/custom-reports" title="Build Custom Reports" desc="Save/load custom rep comparison reports (fields + selected reps)." />
           ) : null}

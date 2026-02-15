@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import { requireAuth } from "../../../lib/auth";
 import { getOrganization } from "../../../lib/db";
 import { pool } from "../../../lib/pool";
@@ -23,6 +23,12 @@ function fmtMoney(n: any) {
 function fmtPct(n: number | null) {
   if (n == null || !Number.isFinite(n)) return "—";
   return `${Math.round(n * 100)}%`;
+}
+
+function fmtNum(n: any) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "—";
+  return v.toLocaleString();
 }
 
 function healthPctFrom30(score: any) {
@@ -79,9 +85,14 @@ type RepPeriodKpisRow = {
   best_amount: number;
   pipeline_amount: number;
   partner_closed_amount: number;
+  partner_won_amount: number;
   closed_amount: number;
   partner_won_count: number;
   partner_closed_count: number;
+  partner_closed_days_sum: number;
+  partner_closed_days_count: number;
+  direct_closed_days_sum: number;
+  direct_closed_days_count: number;
   avg_days_won: number | null;
   avg_days_lost: number | null;
   avg_days_active: number | null;
@@ -242,9 +253,38 @@ async function getRepKpisByPeriods(args: { orgId: number; periodIds: string[]; r
       COALESCE(SUM(CASE WHEN bucket = 'best' THEN amount ELSE 0 END), 0)::float8 AS best_amount,
       COALESCE(SUM(CASE WHEN bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
       COALESCE(SUM(CASE WHEN (is_won OR is_lost) AND partner_name IS NOT NULL AND btrim(partner_name) <> '' THEN amount ELSE 0 END), 0)::float8 AS partner_closed_amount,
+      COALESCE(SUM(CASE WHEN is_won AND partner_name IS NOT NULL AND btrim(partner_name) <> '' THEN amount ELSE 0 END), 0)::float8 AS partner_won_amount,
       COALESCE(SUM(CASE WHEN (is_won OR is_lost) THEN amount ELSE 0 END), 0)::float8 AS closed_amount,
       COALESCE(SUM(CASE WHEN is_won AND partner_name IS NOT NULL AND btrim(partner_name) <> '' THEN 1 ELSE 0 END), 0)::int AS partner_won_count,
       COALESCE(SUM(CASE WHEN (is_won OR is_lost) AND partner_name IS NOT NULL AND btrim(partner_name) <> '' THEN 1 ELSE 0 END), 0)::int AS partner_closed_count,
+      COALESCE(SUM(
+        CASE
+          WHEN (is_won OR is_lost) AND partner_name IS NOT NULL AND btrim(partner_name) <> '' AND create_date IS NOT NULL AND close_date IS NOT NULL
+          THEN EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0
+          ELSE 0
+        END
+      ), 0)::float8 AS partner_closed_days_sum,
+      COALESCE(SUM(
+        CASE
+          WHEN (is_won OR is_lost) AND partner_name IS NOT NULL AND btrim(partner_name) <> '' AND create_date IS NOT NULL AND close_date IS NOT NULL
+          THEN 1
+          ELSE 0
+        END
+      ), 0)::int AS partner_closed_days_count,
+      COALESCE(SUM(
+        CASE
+          WHEN (is_won OR is_lost) AND (partner_name IS NULL OR btrim(partner_name) = '') AND create_date IS NOT NULL AND close_date IS NOT NULL
+          THEN EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0
+          ELSE 0
+        END
+      ), 0)::float8 AS direct_closed_days_sum,
+      COALESCE(SUM(
+        CASE
+          WHEN (is_won OR is_lost) AND (partner_name IS NULL OR btrim(partner_name) = '') AND create_date IS NOT NULL AND close_date IS NOT NULL
+          THEN 1
+          ELSE 0
+        END
+      ), 0)::int AS direct_closed_days_count,
       AVG(
         CASE
           WHEN is_won AND create_date IS NOT NULL AND close_date IS NOT NULL
@@ -405,6 +445,21 @@ export default async function QuarterlyKpisPage({
 
   const healthByPeriod = new Map<string, any>();
   for (const r of healthAvgRows || []) healthByPeriod.set(String((r as any).quota_period_id), r);
+
+  const partnerWonAmountByPeriod = new Map<string, number>();
+  const partnerClosedDaysSumByPeriod = new Map<string, number>();
+  const partnerClosedDaysCntByPeriod = new Map<string, number>();
+  const directClosedDaysSumByPeriod = new Map<string, number>();
+  const directClosedDaysCntByPeriod = new Map<string, number>();
+  for (const rr of repKpisRows || []) {
+    const pid = String((rr as any).quota_period_id || "");
+    if (!pid) continue;
+    partnerWonAmountByPeriod.set(pid, (partnerWonAmountByPeriod.get(pid) || 0) + (Number((rr as any).partner_won_amount || 0) || 0));
+    partnerClosedDaysSumByPeriod.set(pid, (partnerClosedDaysSumByPeriod.get(pid) || 0) + (Number((rr as any).partner_closed_days_sum || 0) || 0));
+    partnerClosedDaysCntByPeriod.set(pid, (partnerClosedDaysCntByPeriod.get(pid) || 0) + (Number((rr as any).partner_closed_days_count || 0) || 0));
+    directClosedDaysSumByPeriod.set(pid, (directClosedDaysSumByPeriod.get(pid) || 0) + (Number((rr as any).direct_closed_days_sum || 0) || 0));
+    directClosedDaysCntByPeriod.set(pid, (directClosedDaysCntByPeriod.get(pid) || 0) + (Number((rr as any).direct_closed_days_count || 0) || 0));
+  }
 
   const repIdToManagerId = new Map<string, string>();
   const repIdToManagerName = new Map<string, string>();
@@ -937,6 +992,7 @@ export default async function QuarterlyKpisPage({
               const hBest = healthPctFrom30(health?.avg_health_best);
               const hPipe = healthPctFrom30(health?.avg_health_pipeline);
               const hWon = healthPctFrom30(health?.avg_health_won);
+              const hLost = healthPctFrom30(health?.avg_health_lost);
               const hClosed = healthPctFrom30(health?.avg_health_closed);
 
               const managerExportRows = block.managers.map((m) => ({
@@ -1003,71 +1059,88 @@ export default async function QuarterlyKpisPage({
                         { name: "Reps", rows: repExportRows as any },
                       ]}
                     />
-                    <div className="flex flex-wrap gap-2 text-xs">
-                      <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                        <div className="text-[color:var(--sf-text-secondary)]">Quota Attainment</div>
-                        <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(quotaAttainment)}</div>
-                      </div>
-                      <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                        <div className="text-[color:var(--sf-text-secondary)]">Closed Won</div>
-                        <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(block.won_amount)}</div>
-                      </div>
-                      <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                        <div className="text-[color:var(--sf-text-secondary)]">Pipeline Value</div>
-                        <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(block.pipeline_value)}</div>
-                      </div>
-                      <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                        <div className="text-[color:var(--sf-text-secondary)]">Aging (avg deal age)</div>
-                        <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
-                          {agingAvgDays == null ? "—" : `${Math.round(agingAvgDays)}d`}
-                        </div>
-                      </div>
-                      <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                        <div className="text-[color:var(--sf-text-secondary)]">Avg Health</div>
-                        <div className={`font-mono font-semibold ${healthColorClass(hAll)}`}>{hAll == null ? "—" : `${hAll}%`}</div>
-                        <div className="mt-0.5 text-[11px] text-[color:var(--sf-text-secondary)]">
-                          C {hCommit == null ? "—" : `${hCommit}%`} · B {hBest == null ? "—" : `${hBest}%`} · P {hPipe == null ? "—" : `${hPipe}%`} · W{" "}
-                          {hWon == null ? "—" : `${hWon}%`} · Cl {hClosed == null ? "—" : `${hClosed}%`}
-                        </div>
-                      </div>
-                      <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                        <div className="text-[color:var(--sf-text-secondary)]">Win Rate</div>
-                        <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(winRate)}</div>
-                      </div>
-                      <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                        <div className="text-[color:var(--sf-text-secondary)]">Average Order Value</div>
-                        <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(block.aov)}</div>
-                      </div>
-                      <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                        <div className="text-[color:var(--sf-text-secondary)]">New Pipeline Created</div>
-                        <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(block.created_amount)}</div>
-                      </div>
-                      <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                        <div className="text-[color:var(--sf-text-secondary)]">Commit Coverage</div>
-                        <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(commitCov)}</div>
-                      </div>
-                      <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                        <div className="text-[color:var(--sf-text-secondary)]">Best Case Coverage</div>
-                        <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(bestCov)}</div>
-                      </div>
-                      <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                        <div className="text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
-                        <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(oppToWin)}</div>
-                      </div>
-                      <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                        <div className="text-[color:var(--sf-text-secondary)]">Partner Contribution %</div>
-                        <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(partnerPct)}</div>
-                      </div>
-                      <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                        <div className="text-[color:var(--sf-text-secondary)]">Partner Win Rate</div>
-                        <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(partnerWin)}</div>
-                      </div>
-                      <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                        <div className="text-[color:var(--sf-text-secondary)]">Forecast Mix (P/B/C/W)</div>
-                        <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{mixStr}</div>
-                      </div>
-                    </div>
                   </div>
+
+                  {(() => {
+                    const closedCount = wonCountTotal + lostCountTotal;
+                    const directClosedCount = Math.max(0, closedCount - partnerClosedCountTotal);
+                    const directWonCount = Math.max(0, wonCountTotal - partnerWonCountTotal);
+
+                    const directClosedAmt = closedAmtTotal - partnerClosedAmtTotal;
+
+                    const partnerWonAmt = partnerWonAmountByPeriod.get(String(p.id)) || 0;
+                    const directWonAmt = wonAmountTotal - partnerWonAmt;
+
+                    const directAov = safeDiv(directWonAmt, directWonCount);
+                    const partnerAov = safeDiv(partnerWonAmt, partnerWonCountTotal);
+
+                    const partnerAge = safeDiv(partnerClosedDaysSumByPeriod.get(String(p.id)) || 0, partnerClosedDaysCntByPeriod.get(String(p.id)) || 0);
+                    const directAge = safeDiv(directClosedDaysSumByPeriod.get(String(p.id)) || 0, directClosedDaysCntByPeriod.get(String(p.id)) || 0);
+
+                    const mixDenCBP = commitTotal + bestTotal + pipelineTotal;
+                    const mixCBP = `${fmtPct(safeDiv(commitTotal, mixDenCBP))} / ${fmtPct(safeDiv(bestTotal, mixDenCBP))} / ${fmtPct(safeDiv(pipelineTotal, mixDenCBP))}`;
+                    const healthByBuckets = `C ${hCommit == null ? "—" : `${hCommit}%`} · B ${hBest == null ? "—" : `${hBest}%`} · P ${hPipe == null ? "—" : `${hPipe}%`} · W ${hWon == null ? "—" : `${hWon}%`} · Cl ${hClosed == null ? "—" : `${hClosed}%`}`;
+
+                    const Chip = (props: { label: string; value: ReactNode; sub?: ReactNode }) => (
+                      <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
+                        <div className="text-[color:var(--sf-text-secondary)]">{props.label}</div>
+                        <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{props.value}</div>
+                        {props.sub ? <div className="mt-0.5 text-[11px] text-[color:var(--sf-text-secondary)]">{props.sub}</div> : null}
+                      </div>
+                    );
+
+                    return (
+                      <div className="mt-4 grid gap-3">
+                        <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
+                          <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Core KPIs</div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                            <Chip label="Win Loss" value={`${fmtNum(wonCountTotal)} / ${fmtNum(lostCountTotal)}`} sub="Won / Lost (count)" />
+                            <Chip label="Quota Attainment" value={fmtPct(quotaAttainment)} />
+                            <Chip label="Closed Won" value={fmtMoney(block.won_amount)} sub={`Deals: ${fmtNum(wonCountTotal)}`} />
+                            <Chip label="Win Rate" value={fmtPct(winRate)} />
+                            <Chip label="Pipeline Value" value={fmtMoney(block.pipeline_value)} />
+                            <Chip label="Average Order Value" value={fmtMoney(block.aov)} />
+                            <Chip
+                              label="Avg Health Closed Won"
+                              value={<span className={healthColorClass(hWon)}>{hWon == null ? "—" : `${hWon}%`}</span>}
+                            />
+                            <Chip
+                              label="Avg Health Closed Loss"
+                              value={<span className={healthColorClass(hLost)}>{hLost == null ? "—" : `${hLost}%`}</span>}
+                            />
+                            <Chip label="Opp→Win Conversion" value={fmtPct(oppToWin)} />
+                            <Chip label="Aging (avg deal age)" value={agingAvgDays == null ? "—" : `${Math.round(agingAvgDays)}d`} />
+                            <Chip label="Direct Vs. Partner" value={`${fmtMoney(directClosedAmt)} / ${fmtMoney(partnerClosedAmtTotal)}`} sub="Direct / Partner (closed $)" />
+                          </div>
+                        </div>
+
+                        <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
+                          <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Direct vs Partner</div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                            <Chip label="# Direct Deals" value={fmtNum(directClosedCount)} />
+                            <Chip label="Direct AOV" value={directAov == null ? "—" : fmtMoney(directAov)} />
+                            <Chip label="Direct Average Age" value={directAge == null ? "—" : `${Math.round(directAge)}d`} />
+                            <Chip label="Partner Contribution %" value={fmtPct(partnerPct)} />
+                            <Chip label="# Partner Deals" value={fmtNum(partnerClosedCountTotal)} />
+                            <Chip label="Partner AOV" value={partnerAov == null ? "—" : fmtMoney(partnerAov)} />
+                            <Chip label="Partner Average Age" value={partnerAge == null ? "—" : `${Math.round(partnerAge)}d`} />
+                            <Chip label="Partner Win Rate" value={fmtPct(partnerWin)} />
+                          </div>
+                        </div>
+
+                        <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
+                          <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Pipeline</div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                            <Chip label="New Pipeline Created" value={fmtMoney(block.created_amount)} />
+                            <Chip label="Commit Coverage" value={fmtPct(commitCov)} />
+                            <Chip label="Best Case Coverage" value={fmtPct(bestCov)} />
+                            <Chip label="Forecast Mix (C/B/P)" value={mixCBP} sub="Commit / Best / Pipeline" />
+                            <Chip label="Average Health By C—B—P—W—Cl—" value={<span className={healthColorClass(hAll)}>{hAll == null ? "—" : `${hAll}%`}</span>} sub={healthByBuckets} />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   <details open={block.is_current} className="mt-4 flex flex-col">
                     <summary className="order-2 mt-3 cursor-pointer rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-medium text-[color:var(--sf-text-primary)]">

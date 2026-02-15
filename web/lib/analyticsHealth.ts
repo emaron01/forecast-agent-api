@@ -7,6 +7,7 @@ export type HealthAveragesRow = {
   avg_health_best: number | null;
   avg_health_pipeline: number | null;
   avg_health_won: number | null;
+  avg_health_lost: number | null;
   avg_health_closed: number | null; // won or lost
 };
 
@@ -64,6 +65,7 @@ export async function getHealthAveragesByPeriods(args: { orgId: number; periodId
       AVG(CASE WHEN bucket = 'best' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_best,
       AVG(CASE WHEN bucket = 'pipeline' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_pipeline,
       AVG(CASE WHEN is_won AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_won,
+      AVG(CASE WHEN is_lost AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_lost,
       AVG(CASE WHEN (is_won OR is_lost) AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_closed
     FROM classified
     GROUP BY quota_period_id
@@ -126,6 +128,7 @@ export async function getHealthAveragesByRepByPeriods(args: { orgId: number; per
       AVG(CASE WHEN bucket = 'best' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_best,
       AVG(CASE WHEN bucket = 'pipeline' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_pipeline,
       AVG(CASE WHEN is_won AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_won,
+      AVG(CASE WHEN is_lost AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_lost,
       AVG(CASE WHEN (is_won OR is_lost) AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_closed
     FROM classified
     GROUP BY quota_period_id, rep_id
