@@ -178,7 +178,6 @@ export default async function UsersPage({
               <th className="px-4 py-3">Title</th>
               <th className="px-4 py-3">CRM Name</th>
               <th className="px-4 py-3">Manager</th>
-              <th className="px-4 py-3">See Full Analytics</th>
               <th className="px-4 py-3">See All Users</th>
               <th className="px-4 py-3">Active</th>
               <th className="px-4 py-3 text-right">actions</th>
@@ -202,9 +201,6 @@ export default async function UsersPage({
                     ) : (
                       ""
                     )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <YesNoPill value={u.admin_has_full_analytics_access} />
                   </td>
                   <td className="px-4 py-3">
                     <YesNoPill value={u.see_all_visibility} />
@@ -248,7 +244,7 @@ export default async function UsersPage({
               ))
             ) : (
               <tr>
-                <td colSpan={9} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                <td colSpan={8} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
                   No users found.
                 </td>
               </tr>
