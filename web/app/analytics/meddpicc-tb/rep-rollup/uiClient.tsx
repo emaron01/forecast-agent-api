@@ -5,6 +5,8 @@ import { Fragment, useMemo } from "react";
 export type RepRollupRow = {
   stage_group: string; // Commit | Best Case | Pipeline | Closed Won | Closed Lost | Closed
   forecast_stage_norm: string; // raw normalized string (debug)
+  executive_id: string;
+  executive_name: string;
   manager_id: string;
   manager_name: string;
   rep_id: string;
@@ -159,13 +161,28 @@ function rollupWeighted(rows: RepRollupRow[]): Rollup {
 
 export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
   const model = useMemo(() => {
-    type RepGroup = { rep_id: string; rep_name: string; stages: Map<StageKey, RepRollupRow> };
+    type RepGroup = {
+      rep_id: string;
+      rep_name: string;
+      stages: Map<StageKey, RepRollupRow>;
+      allRows: RepRollupRow[];
+    };
     type ManagerGroup = { manager_id: string; manager_name: string; reps: Map<string, RepGroup>; allRows: RepRollupRow[] };
+    type ExecGroup = { executive_id: string; executive_name: string; managers: Map<string, ManagerGroup>; allRows: RepRollupRow[] };
 
-    const managers = new Map<string, ManagerGroup>();
+    const execs = new Map<string, ExecGroup>();
     for (const r of props.rows || []) {
+      const eid = String(r.executive_id || "");
+      const ex = execs.get(eid) || {
+        executive_id: eid,
+        executive_name: String(r.executive_name || "(Unassigned)"),
+        managers: new Map(),
+        allRows: [],
+      };
+      ex.allRows.push(r);
+
       const mid = String(r.manager_id || "");
-      const mgr = managers.get(mid) || {
+      const mgr = ex.managers.get(mid) || {
         manager_id: mid,
         manager_name: String(r.manager_name || "(Unassigned)"),
         reps: new Map(),
@@ -174,19 +191,32 @@ export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
       mgr.allRows.push(r);
 
       const rid = String(r.rep_id || "");
-      const rep = mgr.reps.get(rid) || { rep_id: rid, rep_name: String(r.rep_name || "(Unknown rep)"), stages: new Map() };
+      const rep = mgr.reps.get(rid) || {
+        rep_id: rid,
+        rep_name: String(r.rep_name || "(Unknown rep)"),
+        stages: new Map(),
+        allRows: [],
+      };
+      rep.allRows.push(r);
       const st = String(r.stage_group || "Pipeline") as StageKey;
       rep.stages.set(st, r);
       mgr.reps.set(rid, rep);
-      managers.set(mid, mgr);
+      ex.managers.set(mid, mgr);
+      execs.set(eid, ex);
     }
 
-    const managerList = Array.from(managers.values()).sort((a, b) => a.manager_name.localeCompare(b.manager_name));
-    for (const m of managerList) {
-      // sort reps by name
-      m.reps = new Map(Array.from(m.reps.entries()).sort(([, a], [, b]) => a.rep_name.localeCompare(b.rep_name)));
+    const execList = Array.from(execs.values()).sort((a, b) => a.executive_name.localeCompare(b.executive_name));
+    for (const ex of execList) {
+      const mgrList = Array.from(ex.managers.values()).sort((a, b) => a.manager_name.localeCompare(b.manager_name));
+      // sort reps by name within each manager, then rehydrate maps for deterministic iteration
+      ex.managers = new Map(
+        mgrList.map((m) => {
+          m.reps = new Map(Array.from(m.reps.entries()).sort(([, a], [, b]) => a.rep_name.localeCompare(b.rep_name)));
+          return [m.manager_id, m] as const;
+        })
+      );
     }
-    return managerList;
+    return execList;
   }, [props.rows]);
 
   return (
@@ -201,10 +231,9 @@ export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
       </div>
 
       <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-        <table className="w-full min-w-[1500px] text-left text-sm">
+        <table className="w-full min-w-[1400px] text-left text-sm">
           <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
             <tr>
-              <th className="px-3 py-3">Manager</th>
               <th className="px-3 py-3">Sales Rep</th>
               <th className="px-3 py-3 text-right">Opp Count</th>
               <th className="px-3 py-3">Forecast Stage</th>
@@ -221,60 +250,108 @@ export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
             </tr>
           </thead>
           <tbody>
-            {model.map((mgr) => {
-              const mgrTotal = rollupWeighted(mgr.allRows);
+            {model.map((ex) => {
+              const exTotal = rollupWeighted(ex.allRows);
               return (
-                <Fragment key={`mgr:${mgr.manager_id || "unassigned"}`}>
+                <Fragment key={`exec:${ex.executive_id || "unassigned"}`}>
                   <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
-                    <td className="px-3 py-3 text-xs font-semibold text-[color:var(--sf-text-primary)]">{mgr.manager_name}</td>
-                    <td className="px-3 py-3 text-xs font-semibold text-[color:var(--sf-text-primary)]">Manager</td>
-                    <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                      {fmtNum(mgrTotal.opp_count)}
+                    <td colSpan={13} className="px-3 py-3 text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                      Executive: {ex.executive_name}
                     </td>
-                    <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">—</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_metrics)}</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_eb)}</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_criteria)}</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_process)}</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_pain)}</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_champion)}</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_competition)}</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_timing)}</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_budget)}</td>
-                    <td className="px-3 py-3 text-center">{healthBadge(mgrTotal.avg_health_score)}</td>
                   </tr>
 
-                  {Array.from(mgr.reps.values()).map((rep) => {
-                    const stages = Array.from(rep.stages.keys()).sort((a, b) => stageOrder(a) - stageOrder(b) || a.localeCompare(b));
+                  <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]/60">
+                    <td className="px-3 py-3 text-xs font-semibold text-[color:var(--sf-text-primary)]">Executive total</td>
+                    <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                      {fmtNum(exTotal.opp_count)}
+                    </td>
+                    <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">—</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_metrics)}</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_eb)}</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_criteria)}</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_process)}</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_pain)}</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_champion)}</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_competition)}</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_timing)}</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_budget)}</td>
+                    <td className="px-3 py-3 text-center">{healthBadge(exTotal.avg_health_score)}</td>
+                  </tr>
+
+                  {Array.from(ex.managers.values()).map((mgr) => {
+                    const mgrTotal = rollupWeighted(mgr.allRows);
                     return (
-                      <Fragment key={`rep:${mgr.manager_id}:${rep.rep_id || rep.rep_name}`}>
-                        <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-                          <td className="px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Sales Rep</td>
-                          <td className="px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{rep.rep_name}</td>
-                          <td colSpan={12} className="px-3 py-2 text-xs text-[color:var(--sf-text-disabled)]">
-                            &nbsp;
+                      <Fragment key={`mgr:${ex.executive_id}:${mgr.manager_id || "unassigned"}`}>
+                        <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                          <td colSpan={13} className="px-3 py-3 text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                            Manager: {mgr.manager_name}
                           </td>
                         </tr>
 
-                        {stages.map((st) => {
-                          const r = rep.stages.get(st)!;
+                        <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]/40">
+                          <td className="px-3 py-3 text-xs font-semibold text-[color:var(--sf-text-primary)]">Manager total</td>
+                          <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                            {fmtNum(mgrTotal.opp_count)}
+                          </td>
+                          <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">—</td>
+                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_metrics)}</td>
+                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_eb)}</td>
+                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_criteria)}</td>
+                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_process)}</td>
+                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_pain)}</td>
+                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_champion)}</td>
+                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_competition)}</td>
+                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_timing)}</td>
+                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_budget)}</td>
+                          <td className="px-3 py-3 text-center">{healthBadge(mgrTotal.avg_health_score)}</td>
+                        </tr>
+
+                        {Array.from(mgr.reps.values()).map((rep) => {
+                          const repTotal = rollupWeighted(rep.allRows);
+                          const stages = Array.from(rep.stages.keys()).sort(
+                            (a, b) => stageOrder(a) - stageOrder(b) || a.localeCompare(b)
+                          );
                           return (
-                            <tr key={`stage:${mgr.manager_id}:${rep.rep_id}:${st}`} className="border-t border-[color:var(--sf-border)]">
-                              <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">{mgr.manager_name}</td>
-                              <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">&nbsp;</td>
-                              <td className="px-3 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtNum(r.opp_count)}</td>
-                              <td className="px-3 py-3 text-xs text-[color:var(--sf-text-primary)]">{st}</td>
-                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_metrics)}</td>
-                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_eb)}</td>
-                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_criteria)}</td>
-                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_process)}</td>
-                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_pain)}</td>
-                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_champion)}</td>
-                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_competition)}</td>
-                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_timing)}</td>
-                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_budget)}</td>
-                              <td className="px-3 py-3 text-center">{healthBadge(r.avg_health_score)}</td>
-                            </tr>
+                            <Fragment key={`rep:${ex.executive_id}:${mgr.manager_id}:${rep.rep_id || rep.rep_name}`}>
+                              <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                                <td className="px-3 py-3 text-xs font-semibold text-[color:var(--sf-text-primary)]">{rep.rep_name}</td>
+                                <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                                  {fmtNum(repTotal.opp_count)}
+                                </td>
+                                <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">Rep total</td>
+                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_metrics)}</td>
+                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_eb)}</td>
+                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_criteria)}</td>
+                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_process)}</td>
+                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_pain)}</td>
+                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_champion)}</td>
+                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_competition)}</td>
+                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_timing)}</td>
+                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_budget)}</td>
+                                <td className="px-3 py-3 text-center">{healthBadge(repTotal.avg_health_score)}</td>
+                              </tr>
+
+                              {stages.map((st) => {
+                                const r = rep.stages.get(st)!;
+                                return (
+                                  <tr key={`stage:${ex.executive_id}:${mgr.manager_id}:${rep.rep_id}:${st}`} className="border-t border-[color:var(--sf-border)]">
+                                    <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">&nbsp;</td>
+                                    <td className="px-3 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtNum(r.opp_count)}</td>
+                                    <td className="px-3 py-3 text-xs text-[color:var(--sf-text-primary)]">{st}</td>
+                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_metrics)}</td>
+                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_eb)}</td>
+                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_criteria)}</td>
+                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_process)}</td>
+                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_pain)}</td>
+                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_champion)}</td>
+                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_competition)}</td>
+                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_timing)}</td>
+                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_budget)}</td>
+                                    <td className="px-3 py-3 text-center">{healthBadge(r.avg_health_score)}</td>
+                                  </tr>
+                                );
+                              })}
+                            </Fragment>
                           );
                         })}
                       </Fragment>
@@ -285,7 +362,7 @@ export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
             })}
             {!props.rows.length ? (
               <tr>
-                <td colSpan={14} className="px-4 py-8 text-center text-sm text-[color:var(--sf-text-disabled)]">
+                <td colSpan={13} className="px-4 py-8 text-center text-sm text-[color:var(--sf-text-disabled)]">
                   No opportunities found for this period.
                 </td>
               </tr>

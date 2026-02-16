@@ -12,6 +12,27 @@ function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
 }
 
+function spAll(v: string | string[] | undefined) {
+  if (Array.isArray(v)) return v;
+  if (typeof v === "string" && v.trim()) return [v];
+  return [] as string[];
+}
+
+function parseIntList(v: Array<string | undefined>) {
+  const out: number[] = [];
+  for (const raw of v || []) {
+    const t = String(raw || "").trim();
+    if (!t) continue;
+    for (const part of t.split(/[,\s]+/g)) {
+      const s = part.trim();
+      if (!s) continue;
+      const n = Number.parseInt(s, 10);
+      if (Number.isFinite(n) && n > 0) out.push(n);
+    }
+  }
+  return Array.from(new Set(out));
+}
+
 type QuotaPeriodLite = {
   id: string;
   fiscal_year: string;
@@ -19,6 +40,12 @@ type QuotaPeriodLite = {
   period_name: string;
   period_start: string;
   period_end: string;
+};
+
+type RepOption = {
+  id: number;
+  name: string;
+  role: string | null;
 };
 
 export default async function MeddpiccRepRollupPage({
@@ -35,6 +62,37 @@ export default async function MeddpiccRepRollupPage({
 
   const quota_period_id = String(sp(searchParams?.quota_period_id) || "").trim();
   const include_closed = String(sp(searchParams?.include_closed) || "").trim() === "1";
+
+  const teamIds = parseIntList([...spAll(searchParams?.team_id), ...spAll(searchParams?.team_ids)]);
+  const repIds = parseIntList([...spAll(searchParams?.rep_id), ...spAll(searchParams?.rep_ids)]);
+
+  const repOptions = await pool
+    .query<RepOption>(
+      `
+      SELECT
+        id,
+        COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), '(Unnamed)') AS name,
+        role
+      FROM reps
+      WHERE organization_id = $1::bigint
+        AND (active IS TRUE OR active IS NULL)
+      ORDER BY
+        CASE
+          WHEN role = 'EXEC_MANAGER' THEN 0
+          WHEN role = 'MANAGER' THEN 1
+          WHEN role = 'REP' THEN 2
+          ELSE 9
+        END,
+        name ASC,
+        id ASC
+      `,
+      [ctx.user.org_id]
+    )
+    .then((r) => r.rows || [])
+    .catch(() => []);
+
+  const teamOptions = repOptions.filter((r) => r.role === "EXEC_MANAGER" || r.role === "MANAGER");
+  const repOnlyOptions = repOptions.filter((r) => r.role === "REP");
 
   const periods = await pool
     .query<QuotaPeriodLite>(
@@ -92,6 +150,8 @@ export default async function MeddpiccRepRollupPage({
           ),
           base AS (
             SELECT
+              e.id AS executive_id,
+              COALESCE(NULLIF(btrim(e.display_name), ''), NULLIF(btrim(e.rep_name), ''), '(Unassigned)') AS executive_name,
               o.rep_id,
               COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), NULLIF(btrim(o.rep_name), ''), '(Unknown rep)') AS rep_name,
               r.manager_rep_id AS manager_id,
@@ -123,10 +183,15 @@ export default async function MeddpiccRepRollupPage({
             LEFT JOIN reps m
               ON m.organization_id = $1
              AND m.id = r.manager_rep_id
+            LEFT JOIN reps e
+              ON e.organization_id = $1
+             AND e.id = m.manager_rep_id
             WHERE o.org_id = $1
               AND o.close_date IS NOT NULL
               AND o.close_date >= qp.period_start
               AND o.close_date <= qp.period_end
+              AND (COALESCE(array_length($4::int[], 1), 0) = 0 OR r.manager_rep_id = ANY($4::int[]) OR m.manager_rep_id = ANY($4::int[]))
+              AND (COALESCE(array_length($5::int[], 1), 0) = 0 OR o.rep_id = ANY($5::int[]))
           ),
           filtered AS (
             SELECT
@@ -150,6 +215,8 @@ export default async function MeddpiccRepRollupPage({
           )
           SELECT
             stage_group,
+            executive_id,
+            executive_name,
             manager_id,
             manager_name,
             rep_id,
@@ -167,10 +234,10 @@ export default async function MeddpiccRepRollupPage({
             AVG(NULLIF(timing_score, 0))::float8 AS avg_timing,
             AVG(NULLIF(budget_score, 0))::float8 AS avg_budget
           FROM filtered
-          GROUP BY stage_group, manager_id, manager_name, rep_id, rep_name
-          ORDER BY stage_group ASC, manager_name ASC, rep_name ASC
+          GROUP BY stage_group, executive_id, executive_name, manager_id, manager_name, rep_id, rep_name
+          ORDER BY stage_group ASC, executive_name ASC, manager_name ASC, rep_name ASC
           `,
-          [ctx.user.org_id, qp.id, include_closed]
+          [ctx.user.org_id, qp.id, include_closed, teamIds, repIds]
         )
         .then((r) => r.rows || [])
         .catch(() => [])
@@ -180,6 +247,8 @@ export default async function MeddpiccRepRollupPage({
     return {
       stage_group: String((r as any).stage_group || ""),
       forecast_stage_norm: "",
+      executive_id: r.executive_id == null ? "" : String(r.executive_id),
+      executive_name: String(r.executive_name || "(Unassigned)"),
       manager_id: r.manager_id == null ? "" : String(r.manager_id),
       manager_name: String(r.manager_name || "(Unassigned)"),
       rep_id: r.rep_id == null ? "" : String(r.rep_id),
@@ -245,6 +314,41 @@ export default async function MeddpiccRepRollupPage({
                   ))}
                 </select>
               </div>
+
+              <div className="grid gap-1">
+                <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Teams (Exec/Manager)</label>
+                <select
+                  name="team_id"
+                  multiple
+                  size={Math.min(6, Math.max(3, teamOptions.length))}
+                  defaultValue={teamIds.map(String)}
+                  className="min-w-[260px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                >
+                  {teamOptions.map((t) => (
+                    <option key={t.id} value={String(t.id)}>
+                      {t.role === "EXEC_MANAGER" ? `Executive: ${t.name}` : `Manager: ${t.name}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid gap-1">
+                <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Reps</label>
+                <select
+                  name="rep_id"
+                  multiple
+                  size={Math.min(6, Math.max(3, repOnlyOptions.length))}
+                  defaultValue={repIds.map(String)}
+                  className="min-w-[240px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                >
+                  {repOnlyOptions.map((t) => (
+                    <option key={t.id} value={String(t.id)}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <label className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
                 <input type="checkbox" name="include_closed" value="1" defaultChecked={include_closed} />
                 Include closed
