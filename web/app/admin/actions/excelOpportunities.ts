@@ -480,7 +480,11 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
               .trim();
             // Treat common "not applicable" markers as blank => false.
             const normalizedForBlank = raw.toLowerCase();
+            // Treat common placeholder punctuation (often used as "blank") as blank => false.
+            // Examples seen in spreadsheets: "`", "-", "—"
+            const punctuationOnly = /^[`'"’\-–—•]+$/.test(raw);
             if (
+              punctuationOnly ||
               normalizedForBlank === "n/a" ||
               normalizedForBlank === "na" ||
               normalizedForBlank === "np" ||

@@ -33,7 +33,6 @@ export default async function DashboardExcelUploadPage({
       </main>
     );
   }
-  if (ctx.user.role === "ADMIN") redirect("/admin");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
