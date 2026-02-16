@@ -125,7 +125,10 @@ function normalizeBooleanCell(v: unknown): boolean | null {
     if (v === 1) return true;
     if (v === 0) return false;
   }
-  const s = String(v).trim().toLowerCase();
+  const s = String(v)
+    .replaceAll("\u00A0", " ") // normalize non-breaking spaces from Excel exports
+    .trim()
+    .toLowerCase();
   if (!s) return null;
   // Common truthy/falsey values from Excel exports.
   // - "checked"/"unchecked" often appear from checkbox exports
@@ -457,9 +460,21 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
           if (isBlankCell(v)) {
             row[src] = false;
           } else {
-            const b = normalizeBooleanCell(v);
+            const raw = String(v ?? "")
+              .replaceAll("\u00A0", " ")
+              .trim();
+            // Treat common "not applicable" markers as blank => false.
+            const normalizedForBlank = raw.toLowerCase();
+            if (normalizedForBlank === "n/a" || normalizedForBlank === "na" || normalizedForBlank === "-") {
+              row[src] = false;
+              continue;
+            }
+
+            const b = normalizeBooleanCell(raw);
             if (b == null) {
-              issues.push(`Row ${rowNum}: Deal Registration must be true/false (column "${src}")`);
+              issues.push(
+                `Row ${rowNum}: Deal Registration must be true/false (or yes/no) (column "${src}"). Found: "${raw || "(blank)"}"`
+              );
             } else {
               row[src] = b;
             }
