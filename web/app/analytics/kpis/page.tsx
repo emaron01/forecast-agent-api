@@ -629,7 +629,15 @@ export default async function QuarterlyKpisPage({
   const defaultYear = periodContainingToday ? String(periodContainingToday.fiscal_year) : fiscalYears[0] || "";
   const yearToUse = yearParam || defaultYear;
 
-  const periodsForYear = yearToUse ? allPeriods.filter((p) => String(p.fiscal_year) === yearToUse) : allPeriods;
+  // Some orgs have quota periods with missing/blank fiscal_year; fall back to calendar year from period_start.
+  const periodsForYear = yearToUse
+    ? allPeriods.filter((p) => {
+        const fy = String((p as any).fiscal_year || "").trim();
+        if (fy) return fy === yearToUse;
+        const startYear = String((p as any).period_start || "").slice(0, 4);
+        return startYear === yearToUse;
+      })
+    : allPeriods;
   const currentForYear =
     periodsForYear.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
 
@@ -1603,17 +1611,17 @@ export default async function QuarterlyKpisPage({
                         list.reduce((acc, r) => acc + (Number((r as any)[key] || 0) || 0), 0);
 
                       return (
-                        <div className="order-1 mt-3 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-                          <table className="w-full min-w-[1400px] text-left text-sm">
-                            <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                        <div className="order-1 mt-3 max-w-full overflow-x-auto rounded-md border border-[color:var(--sf-border)]">
+                          <table className="w-full table-fixed text-left text-[11px] text-[color:var(--sf-text-primary)]">
+                            <thead className="bg-[color:var(--sf-surface-alt)] text-[11px] text-[color:var(--sf-text-secondary)]">
                               <tr>
-                                <th className="px-4 py-3">manager</th>
-                                <th className="px-4 py-3 text-right">commit</th>
-                                <th className="px-4 py-3 text-right">best</th>
-                                <th className="px-4 py-3 text-right">pipeline</th>
-                                <th className="px-4 py-3 text-right">total pipeline</th>
-                                <th className="px-4 py-3 text-right">won (in qtr)</th>
-                                <th className="px-4 py-3 text-right">lost (in qtr)</th>
+                                <th className="w-[220px] px-2 py-2">manager</th>
+                                <th className="px-2 py-2 text-right">commit</th>
+                                <th className="px-2 py-2 text-right">best</th>
+                                <th className="px-2 py-2 text-right">pipeline</th>
+                                <th className="px-2 py-2 text-right">total</th>
+                                <th className="px-2 py-2 text-right">won</th>
+                                <th className="px-2 py-2 text-right">lost</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1636,43 +1644,43 @@ export default async function QuarterlyKpisPage({
                                   return (
                                     <Fragment key={`${p.id}:${m.managerId}`}>
                                       <tr className="border-t border-[color:var(--sf-border)] align-top">
-                                        <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{m.managerName}</td>
-                                        <td className="px-4 py-3 text-right font-mono text-xs">
+                                        <td className="w-[220px] max-w-[220px] truncate px-2 py-2 font-medium">{m.managerName}</td>
+                                        <td className="px-2 py-2 text-right font-mono text-[11px] whitespace-nowrap">
                                           {fmtMoney(cAmt)} <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(cCnt)})</span>
                                         </td>
-                                        <td className="px-4 py-3 text-right font-mono text-xs">
+                                        <td className="px-2 py-2 text-right font-mono text-[11px] whitespace-nowrap">
                                           {fmtMoney(bAmt)} <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(bCnt)})</span>
                                         </td>
-                                        <td className="px-4 py-3 text-right font-mono text-xs">
+                                        <td className="px-2 py-2 text-right font-mono text-[11px] whitespace-nowrap">
                                           {fmtMoney(pAmt)} <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(pCnt)})</span>
                                         </td>
-                                        <td className="px-4 py-3 text-right font-mono text-xs">
+                                        <td className="px-2 py-2 text-right font-mono text-[11px] whitespace-nowrap">
                                           {fmtMoney(tAmt)} <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(tCnt)})</span>
                                         </td>
-                                        <td className="px-4 py-3 text-right font-mono text-xs">
+                                        <td className="px-2 py-2 text-right font-mono text-[11px] whitespace-nowrap">
                                           {fmtMoney(wAmt)} <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(wCnt)})</span>
                                         </td>
-                                        <td className="px-4 py-3 text-right font-mono text-xs">
+                                        <td className="px-2 py-2 text-right font-mono text-[11px] whitespace-nowrap">
                                           {fmtMoney(lAmt)} <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(lCnt)})</span>
                                         </td>
                                       </tr>
                                       <tr className="border-t border-[color:var(--sf-border)]">
-                                        <td colSpan={7} className="px-4 py-3">
+                                        <td colSpan={7} className="px-2 py-2">
                                           <details className="flex flex-col">
-                                            <summary className="order-2 mt-3 cursor-pointer rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]">
+                                            <summary className="order-2 mt-2 cursor-pointer rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1.5 text-xs text-[color:var(--sf-text-primary)]">
                                               Show / hide reps (created in quarter)
                                             </summary>
-                                            <div className="order-1 mt-3 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-                                              <table className="w-full min-w-[1400px] text-left text-sm">
-                                                <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                                            <div className="order-1 mt-2 max-w-full overflow-x-auto rounded-md border border-[color:var(--sf-border)]">
+                                              <table className="w-full table-fixed text-left text-[11px] text-[color:var(--sf-text-primary)]">
+                                                <thead className="bg-[color:var(--sf-surface-alt)] text-[11px] text-[color:var(--sf-text-secondary)]">
                                                   <tr>
-                                                    <th className="px-3 py-2">rep</th>
-                                                    <th className="px-3 py-2 text-right">commit</th>
-                                                    <th className="px-3 py-2 text-right">best</th>
-                                                    <th className="px-3 py-2 text-right">pipeline</th>
-                                                    <th className="px-3 py-2 text-right">total pipeline</th>
-                                                    <th className="px-3 py-2 text-right">won (in qtr)</th>
-                                                    <th className="px-3 py-2 text-right">lost (in qtr)</th>
+                                                    <th className="w-[220px] px-2 py-2">rep</th>
+                                                    <th className="px-2 py-2 text-right">commit</th>
+                                                    <th className="px-2 py-2 text-right">best</th>
+                                                    <th className="px-2 py-2 text-right">pipeline</th>
+                                                    <th className="px-2 py-2 text-right">total</th>
+                                                    <th className="px-2 py-2 text-right">won</th>
+                                                    <th className="px-2 py-2 text-right">lost</th>
                                                   </tr>
                                                 </thead>
                                                 <tbody>
@@ -1688,28 +1696,28 @@ export default async function QuarterlyKpisPage({
 
                                                     return (
                                                       <tr key={`${p.id}:${m.managerId}:${r.rep_id}`} className="border-t border-[color:var(--sf-border)]">
-                                                        <td className="px-3 py-2 font-medium text-[color:var(--sf-text-primary)]">{r.rep_name}</td>
-                                                        <td className="px-3 py-2 text-right font-mono text-xs">
+                                                        <td className="w-[220px] max-w-[220px] truncate px-2 py-2 font-medium">{r.rep_name}</td>
+                                                        <td className="px-2 py-2 text-right font-mono text-[11px] whitespace-nowrap">
                                                           {fmtMoney(rc)}{" "}
                                                           <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(rcc)})</span>
                                                         </td>
-                                                        <td className="px-3 py-2 text-right font-mono text-xs">
+                                                        <td className="px-2 py-2 text-right font-mono text-[11px] whitespace-nowrap">
                                                           {fmtMoney(rb)}{" "}
                                                           <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(rbc)})</span>
                                                         </td>
-                                                        <td className="px-3 py-2 text-right font-mono text-xs">
+                                                        <td className="px-2 py-2 text-right font-mono text-[11px] whitespace-nowrap">
                                                           {fmtMoney(rp)}{" "}
                                                           <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(rpc)})</span>
                                                         </td>
-                                                        <td className="px-3 py-2 text-right font-mono text-xs">
+                                                        <td className="px-2 py-2 text-right font-mono text-[11px] whitespace-nowrap">
                                                           {fmtMoney(rt)}{" "}
                                                           <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(rtc)})</span>
                                                         </td>
-                                                        <td className="px-3 py-2 text-right font-mono text-xs">
+                                                        <td className="px-2 py-2 text-right font-mono text-[11px] whitespace-nowrap">
                                                           {fmtMoney(r.won_amount)}{" "}
                                                           <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(r.won_count)})</span>
                                                         </td>
-                                                        <td className="px-3 py-2 text-right font-mono text-xs">
+                                                        <td className="px-2 py-2 text-right font-mono text-[11px] whitespace-nowrap">
                                                           {fmtMoney(r.lost_amount)}{" "}
                                                           <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(r.lost_count)})</span>
                                                         </td>
