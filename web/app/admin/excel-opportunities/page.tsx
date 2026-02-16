@@ -58,6 +58,7 @@ export default async function ExcelOpportunitiesPage({
         prefillSetPublicId={mappingSetPublicId}
         prefillMappings={prefillMappings}
         action={uploadExcelOpportunitiesAction}
+        allowDeleteAccounts={ctx.kind === "user" && ctx.user.role === "ADMIN"}
       />
     </main>
   );

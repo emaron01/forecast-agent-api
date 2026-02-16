@@ -79,6 +79,7 @@ export default async function DashboardExcelUploadPage({
             prefillSetPublicId={mappingSetPublicId}
             prefillMappings={prefillMappings}
             action={uploadExcelOpportunitiesAction}
+            allowDeleteAccounts={false}
           />
         </div>
       </main>

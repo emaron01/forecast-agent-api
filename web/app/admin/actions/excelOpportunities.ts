@@ -4,6 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import * as XLSX from "xlsx";
 import { requireOrgContext } from "../../../lib/auth";
+import { pool } from "../../../lib/pool";
 import {
   createFieldMappingSet,
   deleteFieldMappingSet,
@@ -41,7 +42,7 @@ const Schema = z.object({
   mappingSetName: z.string().optional(),
   mappingJson: z.string().optional(),
   processNow: z.enum(["true", "false"]).optional(),
-  intent: z.enum(["save_format", "upload_ingest", "delete_format"]).optional(),
+  intent: z.enum(["save_format", "upload_ingest", "delete_format", "delete_accounts"]).optional(),
 });
 
 function isEmptyRow(r: any) {
@@ -177,6 +178,8 @@ type ExcelUploadState =
       changed?: number; // opportunities changed (processed)
       processed?: number;
       error?: number;
+      deletedAccounts?: number;
+      deletedOpportunities?: number;
       intent: string;
       ts: number;
     }
@@ -260,11 +263,14 @@ function friendlyTargetName(t: string) {
 
 export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadState | undefined, formData: FormData): Promise<ExcelUploadState> {
   const intentRaw = String(formData.get("intent") || "").trim();
-  const intent = intentRaw === "save_format" || intentRaw === "upload_ingest" || intentRaw === "delete_format" ? intentRaw : "upload_ingest";
+  const intent =
+    intentRaw === "save_format" || intentRaw === "upload_ingest" || intentRaw === "delete_format" || intentRaw === "delete_accounts"
+      ? intentRaw
+      : "upload_ingest";
 
   try {
-    const { orgId } = await requireOrgContext();
-    // Excel upload is allowed for all org users.
+    const { ctx, orgId } = await requireOrgContext();
+    // Excel upload is allowed for all org users. Destructive operations are ADMIN-only.
 
     const parsed = Schema.parse({
       mapping_set_public_id: formData.get("mapping_set_public_id") || undefined,
@@ -299,6 +305,90 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
       revalidatePath("/admin/mapping-sets");
 
       return ok(intent, `Format deleted successfully.`, { mappingSetPublicId: mappingSetPublicIdInput, mappingSetName: set.name });
+    }
+
+    // Delete accounts (ADMIN only)
+    if (intent === "delete_accounts") {
+      if (!(ctx.kind === "user" && ctx.user.role === "ADMIN")) {
+        return err(intent, "Forbidden.", ["Only ADMIN users can delete accounts."]);
+      }
+      const confirm = String(formData.get("confirm_delete_accounts") || "").trim().toUpperCase();
+      const ack = String(formData.get("ack_delete_accounts") || "").trim() === "1";
+      if (!ack || confirm !== "DELETE") {
+        return err(intent, "Confirmation required.", [
+          `Check "I understand" and type DELETE to confirm.`,
+          `Required mapping: Account Name.`,
+        ]);
+      }
+
+      const file = formData.get("file");
+      if (!(file instanceof File)) return err(intent, "Please choose an Excel file to upload.", ["Choose an Excel file (.xlsx) first."]);
+
+      const mappingPairs = mappingPairsFromJson;
+      const accountMapping = mappingPairs.find((m) => m.target_field === "account_name") || null;
+      if (!accountMapping) {
+        return err(intent, "Your deletion file is missing the required mapping.", ["Missing required field mapping: Account Name"]);
+      }
+
+      const buf = Buffer.from(await file.arrayBuffer());
+      const rawRows = parseExcelToRawRows(buf, 20000);
+
+      const normalizeAccountKey = (s: any) =>
+        String(s || "")
+          .trim()
+          .replace(/\s+/g, " ")
+          .toLowerCase();
+
+      const keys = new Set<string>();
+      for (let i = 0; i < rawRows.length; i++) {
+        const r = rawRows[i];
+        const v = (r as any)?.[accountMapping.source_field];
+        const k = normalizeAccountKey(v);
+        if (!k) continue;
+        keys.add(k);
+        if (keys.size > 5000) break;
+      }
+      if (!keys.size) {
+        return err(intent, "No account names found in the deletion file.", [
+          `Map the "Account" field to a column that contains account names.`,
+          `The first sheet must contain data rows.`,
+        ]);
+      }
+      if (keys.size > 5000) {
+        return err(intent, "Too many accounts in deletion file.", ["Max unique accounts per deletion is 5000."]);
+      }
+
+      // Delete all opportunities for matching accounts (case/whitespace normalized).
+      const accountKeys = Array.from(keys.values());
+      const deleted = await pool
+        .query<{ deleted_count: number }>(
+          `
+          WITH del AS (
+            DELETE FROM opportunities
+             WHERE org_id = $1
+               AND lower(regexp_replace(btrim(COALESCE(account_name, '')), '\\s+', ' ', 'g')) = ANY($2::text[])
+            RETURNING 1
+          )
+          SELECT COUNT(*)::int AS deleted_count FROM del
+          `,
+          [orgId, accountKeys]
+        )
+        .then((r) => Number(r.rows?.[0]?.deleted_count || 0) || 0)
+        .catch(() => 0);
+
+      revalidatePath("/admin/excel-opportunities");
+      revalidatePath("/forecast");
+      revalidatePath("/forecast/simple");
+      revalidatePath("/forecast/opportunity-score-cards");
+      revalidatePath("/analytics");
+      revalidatePath("/analytics/meddpicc-tb");
+
+      const msg =
+        deleted > 0
+          ? `Deleted ${accountKeys.length} account(s) from the deletion list (${deleted} opportunities removed).`
+          : `No opportunities matched the ${accountKeys.length} account(s) in the deletion list.`;
+
+      return ok(intent, msg, { fileName: file.name, deletedAccounts: accountKeys.length, deletedOpportunities: deleted });
     }
 
     // For saving a format, we require a name + mapping JSON with required targets.

@@ -19,6 +19,8 @@ type ActionState =
       changed?: number; // opportunities changed (processed)
       processed?: number;
       error?: number;
+      deletedAccounts?: number;
+      deletedOpportunities?: number;
       intent: string;
       ts: number;
     }
@@ -145,6 +147,7 @@ export function ExcelUploadClient(props: {
   prefillSetPublicId: string;
   prefillMappings: FieldMapping[];
   action: (prevState: any, formData: FormData) => Promise<any>;
+  allowDeleteAccounts?: boolean;
 }) {
   const [mode, setMode] = useState<"existing" | "new">(props.prefillSetPublicId ? "existing" : "existing");
   const [mappingSetPublicId, setMappingSetPublicId] = useState(props.prefillSetPublicId || "");
@@ -165,9 +168,11 @@ export function ExcelUploadClient(props: {
   const [fileName, setFileName] = useState("");
   const [fileInputKey, setFileInputKey] = useState(0);
   const [dismissedBannerKey, setDismissedBannerKey] = useState<number | null>(null);
-  const [clickedIntent, setClickedIntent] = useState<null | "save_format" | "delete_format" | "upload_ingest">(null);
+  const [clickedIntent, setClickedIntent] = useState<null | "save_format" | "delete_format" | "upload_ingest" | "delete_accounts">(null);
   const [formatLoading, setFormatLoading] = useState(false);
   const [formatReloadKey, setFormatReloadKey] = useState(0);
+  const [confirmDeleteText, setConfirmDeleteText] = useState("");
+  const [ackDeleteAccounts, setAckDeleteAccounts] = useState(false);
 
   const mappingJson = useMemo(() => JSON.stringify(mapping || {}), [mapping]);
 
@@ -314,6 +319,19 @@ export function ExcelUploadClient(props: {
                 ) : null}
                 {typeof state.inserted === "number" ? <span className="ml-2">· Rows staged: {state.inserted}</span> : null}
                 {typeof state.changed === "number" ? <span className="ml-2">· Records updated: {state.changed}</span> : null}
+              </div>
+            ) : null}
+            {state && state.kind === "success" && state.intent === "delete_accounts" ? (
+              <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
+                {state.fileName ? (
+                  <span>
+                    File: <span className="font-mono">{state.fileName}</span>
+                  </span>
+                ) : null}
+                {typeof state.deletedAccounts === "number" ? <span className="ml-2">· Accounts: {state.deletedAccounts}</span> : null}
+                {typeof state.deletedOpportunities === "number" ? (
+                  <span className="ml-2">· Opportunities deleted: {state.deletedOpportunities}</span>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -529,6 +547,59 @@ export function ExcelUploadClient(props: {
               </SubmitButton>
             </div>
           </div>
+
+          {props.allowDeleteAccounts ? (
+            <div className="rounded-lg border border-[#E74C3C]/40 bg-[#E74C3C]/5 p-4">
+              <div className="text-sm font-semibold text-[#E74C3C]">Danger zone: Delete accounts (ADMIN only)</div>
+              <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                This treats the uploaded Excel file as a deletion list and will delete <span className="font-semibold">all opportunities</span> matching the
+                mapped <span className="font-mono">Account</span> column in the active org. This is irreversible.
+              </p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-[color:var(--sf-text-secondary)]">
+                <li>Required mapping: <span className="font-mono">Account</span></li>
+                <li>Other mappings are ignored for deletion.</li>
+                <li>Tip: Upload a file with a single column named “Account” for best results.</li>
+              </ul>
+
+              <div className="mt-3 grid gap-2 md:grid-cols-12">
+                <div className="md:col-span-6">
+                  <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Type DELETE to confirm</label>
+                  <input
+                    name="confirm_delete_accounts"
+                    value={confirmDeleteText}
+                    onChange={(e) => setConfirmDeleteText(e.target.value)}
+                    placeholder="DELETE"
+                    className="mt-1 w-full rounded-md border border-[#E74C3C]/50 bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none focus:ring-2 focus:ring-[#E74C3C]/40"
+                  />
+                </div>
+                <div className="md:col-span-4">
+                  <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Acknowledge</label>
+                  <label className="mt-2 flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                    <input
+                      type="checkbox"
+                      name="ack_delete_accounts"
+                      value="1"
+                      checked={ackDeleteAccounts}
+                      onChange={(e) => setAckDeleteAccounts(e.target.checked)}
+                    />
+                    I understand this deletes data.
+                  </label>
+                </div>
+                <div className="md:col-span-2 flex items-end">
+                  <SubmitButton
+                    name="intent"
+                    value="delete_accounts"
+                    variant="danger"
+                    disabled={!headers.length || !ackDeleteAccounts || confirmDeleteText.trim().toUpperCase() !== "DELETE"}
+                    active={clickedIntent === "delete_accounts"}
+                    onClick={() => setClickedIntent("delete_accounts")}
+                  >
+                    Delete accounts
+                  </SubmitButton>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </form>
 
         {/* Duplicate banner at bottom for easier visibility; Dismiss hides both. */}
