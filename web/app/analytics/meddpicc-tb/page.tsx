@@ -65,6 +65,11 @@ export default async function MeddpiccTbAnalyticsHubPage() {
             title="Rep rollup by Forecast Stage"
             desc="Opportunity counts + avg MEDDPICC+TB scores, rolled up to manager."
           />
+          <Card
+            href="/analytics/meddpicc-tb/verdict"
+            title="Verdict (CRM vs AI Forecast)"
+            desc="Sales Forecast vs The Verdict + variance and quarter range."
+          />
         </section>
       </main>
     </div>
