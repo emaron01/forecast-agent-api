@@ -56,6 +56,7 @@ export async function GET(req: Request) {
         to_regprocedure('public.normalize_row(jsonb,bigint)') IS NOT NULL AS has_normalize_row,
         to_regprocedure('public.validate_row(jsonb,integer)') IS NOT NULL AS has_validate_row,
         to_regprocedure('public.upsert_opportunity(jsonb,integer)') IS NOT NULL AS has_upsert_opportunity,
+        to_regprocedure('public.upsert_opportunity(jsonb,bigint)') IS NOT NULL AS has_upsert_opportunity_bigint,
         to_regprocedure('public.process_ingestion_batch(integer,bigint)') IS NOT NULL AS has_process_ingestion_batch
       `
     );

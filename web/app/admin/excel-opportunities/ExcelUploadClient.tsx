@@ -276,6 +276,59 @@ export function ExcelUploadClient(props: {
 
   const showBanner = !!state && state.ts !== dismissedBannerKey;
 
+  function Banner() {
+    if (!showBanner) return null;
+    return (
+      <div
+        className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
+          state?.kind === "success"
+            ? "border-[#2ECC71] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
+            : "border-[#E74C3C] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
+        }`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="font-semibold">{state?.kind === "success" ? state.message : state?.message || "Fix this:"}</div>
+            {state && state.kind === "error" && state.issues?.length ? (
+              <>
+                <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">What to fix in your spreadsheet:</div>
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+                  {state.issues.slice(0, 25).map((x, idx) => (
+                    <li key={idx}>{x}</li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+            {state && state.kind === "success" && state.intent === "upload_ingest" ? (
+              <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
+                {state.fileName ? (
+                  <span>
+                    File: <span className="font-mono">{state.fileName}</span>
+                  </span>
+                ) : null}
+                {state.mappingSetPublicId ? (
+                  <span>
+                    {state.fileName ? <span className="ml-2">·</span> : null} Format:{" "}
+                    <span className="font-mono">{state.mappingSetPublicId}</span>
+                  </span>
+                ) : null}
+                {typeof state.inserted === "number" ? <span className="ml-2">· Rows staged: {state.inserted}</span> : null}
+                {typeof state.changed === "number" ? <span className="ml-2">· Records updated: {state.changed}</span> : null}
+              </div>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className="text-xs font-medium opacity-80 hover:opacity-100"
+            onClick={() => setDismissedBannerKey(state?.ts ?? null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="grid gap-6">
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
@@ -310,55 +363,7 @@ export function ExcelUploadClient(props: {
           </div>
         </div>
 
-        {showBanner ? (
-          <div
-            className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
-              state?.kind === "success"
-                ? "border-[#2ECC71] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
-                : "border-[#E74C3C] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
-            }`}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="font-semibold">{state?.kind === "success" ? state.message : state?.message || "Fix this:"}</div>
-                {state && state.kind === "error" && state.issues?.length ? (
-                  <>
-                    <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">What to fix in your spreadsheet:</div>
-                    <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
-                      {state.issues.slice(0, 25).map((x, idx) => (
-                        <li key={idx}>{x}</li>
-                      ))}
-                    </ul>
-                  </>
-                ) : null}
-                {state && state.kind === "success" && state.intent === "upload_ingest" ? (
-                  <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
-                    {state.fileName ? (
-                      <span>
-                        File: <span className="font-mono">{state.fileName}</span>
-                      </span>
-                    ) : null}
-                    {state.mappingSetPublicId ? (
-                      <span>
-                        {state.fileName ? <span className="ml-2">·</span> : null} Format:{" "}
-                        <span className="font-mono">{state.mappingSetPublicId}</span>
-                      </span>
-                    ) : null}
-                    {typeof state.inserted === "number" ? <span className="ml-2">· Rows staged: {state.inserted}</span> : null}
-                    {typeof state.changed === "number" ? <span className="ml-2">· Records updated: {state.changed}</span> : null}
-                  </div>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                className="text-xs font-medium opacity-80 hover:opacity-100"
-                onClick={() => setDismissedBannerKey(state?.ts ?? null)}
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
-        ) : null}
+        <Banner />
 
         <form action={formAction} className="mt-4 grid gap-4">
           <div className="grid gap-2 md:grid-cols-2">
@@ -525,6 +530,9 @@ export function ExcelUploadClient(props: {
             </div>
           </div>
         </form>
+
+        {/* Duplicate banner at bottom for easier visibility; Dismiss hides both. */}
+        <Banner />
       </section>
 
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
