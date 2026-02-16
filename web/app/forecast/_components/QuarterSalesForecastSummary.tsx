@@ -101,7 +101,13 @@ export async function QuarterSalesForecastSummary(props: {
     [props.orgId]
   );
   const periods = (periodsRaw || []) as QuotaPeriodOption[];
-  const fiscalYears = Array.from(new Set(periods.map((p) => String(p.fiscal_year || "").trim()).filter(Boolean)));
+  // Some orgs have quota periods with blank fiscal_year strings; fall back to calendar year from period_start.
+  const fiscalYearKey = (p: QuotaPeriodOption) => {
+    const fy = String(p.fiscal_year || "").trim();
+    if (fy) return fy;
+    return String(p.period_start || "").slice(0, 4);
+  };
+  const fiscalYears = Array.from(new Set(periods.map((p) => fiscalYearKey(p)).filter(Boolean)));
   const fiscalYearsSorted = fiscalYears.slice().sort((a, b) => b.localeCompare(a));
   const selectedPeriodFromParam = selectedQuotaPeriodId
     ? periods.find((p) => String(p.id) === selectedQuotaPeriodId) || null
@@ -133,7 +139,7 @@ export async function QuarterSalesForecastSummary(props: {
     currentYear ||
     fiscalYearsSorted[0] ||
     "";
-  const periodsForYear = yearToUse ? periods.filter((p) => String(p.fiscal_year || "").trim() === yearToUse) : periods;
+  const periodsForYear = yearToUse ? periods.filter((p) => fiscalYearKey(p) === yearToUse) : periods;
 
   const selected =
     (selectedQuotaPeriodId && periodsForYear.find((p) => String(p.id) === selectedQuotaPeriodId)) ||
@@ -818,43 +824,28 @@ export async function QuarterSalesForecastSummary(props: {
         </div>
 
         <div className="grid w-full justify-items-stretch gap-3 text-sm sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
-          <div className={`${boxClass} w-full`}>
-            <div className="text-sm text-black/70">Commit</div>
-            <div className="font-mono text-sm font-semibold">{fmtMoney(commitAmt)}</div>
-            <div className="mt-1 text-sm text-black/70"># Opps: {commitCount}</div>
-            <div className="mt-1 text-sm text-black/70">
-              Avg Health: <span className={healthColorClass(commitHealthPct)}>{commitHealthPct == null ? "—" : `${commitHealthPct}%`}</span>
-            </div>
-          </div>
-          <div className={`${boxClass} w-full`}>
-            <div className="text-sm text-black/70">Best Case</div>
-            <div className="font-mono text-sm font-semibold">{fmtMoney(bestCaseAmt)}</div>
-            <div className="mt-1 text-sm text-black/70"># Opps: {bestCaseCount}</div>
-            <div className="mt-1 text-sm text-black/70">
-              Avg Health: <span className={healthColorClass(bestHealthPct)}>{bestHealthPct == null ? "—" : `${bestHealthPct}%`}</span>
-            </div>
-          </div>
-          <div className={`${boxClass} w-full`}>
-            <div className="text-sm text-black/70">Pipeline</div>
-            <div className="font-mono text-sm font-semibold">{fmtMoney(pipelineAmt)}</div>
-            <div className="mt-1 text-sm text-black/70"># Opps: {pipelineCount}</div>
-            <div className="mt-1 text-sm text-black/70">
-              Avg Health: <span className={healthColorClass(pipelineHealthPct)}>{pipelineHealthPct == null ? "—" : `${pipelineHealthPct}%`}</span>
-            </div>
-          </div>
-          <div className={`${boxClass} w-full`}>
-            <div className="text-sm text-black/70">Total Pipeline</div>
-            <div className="font-mono text-sm font-semibold">{fmtMoney(totalAmt)}</div>
-            <div className="mt-1 text-sm text-black/70"># Opps: {totalPipelineCount}</div>
-          </div>
-          <div className={`${boxClass} w-full`}>
-            <div className="text-sm text-black/70">Closed Won</div>
-            <div className="font-mono text-sm font-semibold">{fmtMoney(wonAmt)}</div>
-            <div className="mt-1 text-sm text-black/70"># Opps: {wonCount}</div>
-            <div className="mt-1 text-sm text-black/70">
-              Avg Health: <span className={healthColorClass(wonHealthPct)}>{wonHealthPct == null ? "—" : `${wonHealthPct}%`}</span>
-            </div>
-          </div>
+          {[
+            { key: "commit", label: "Commit", amount: commitAmt, count: commitCount, healthPct: commitHealthPct },
+            { key: "best", label: "Best Case", amount: bestCaseAmt, count: bestCaseCount, healthPct: bestHealthPct },
+            { key: "pipe", label: "Pipeline", amount: pipelineAmt, count: pipelineCount, healthPct: pipelineHealthPct },
+            { key: "total", label: "Total Pipeline", amount: totalAmt, count: totalPipelineCount, healthPct: null },
+            { key: "won", label: "Closed Won", amount: wonAmt, count: wonCount, healthPct: wonHealthPct },
+          ]
+            .filter((c) => !(Number(c.amount || 0) === 0 && Number(c.count || 0) === 0))
+            .map((c) => (
+              <div key={c.key} className={`${boxClass} w-full`}>
+                <div className="text-sm text-black/70">{c.label}</div>
+                <div className="font-mono text-sm font-semibold">{fmtMoney(c.amount)}</div>
+                <div className="mt-1 text-sm text-black/70"># Opps: {c.count}</div>
+                {"healthPct" in c && c.healthPct != null ? (
+                  <div className="mt-1 text-sm text-black/70">
+                    Avg Health:{" "}
+                    <span className={healthColorClass(c.healthPct)}>{c.healthPct == null ? "—" : `${c.healthPct}%`}</span>
+                  </div>
+                ) : null}
+              </div>
+            ))}
+
           <div className={`${boxClass} w-full`}>
             <div className="text-sm text-black/70">Quarterly Quota</div>
             <div className="font-mono text-sm font-semibold">{fmtMoney(quotaAmt)}</div>

@@ -645,10 +645,9 @@ export default async function QuarterlyKpisPage({
     .slice()
     .sort((a, b) => new Date(b.period_start).getTime() - new Date(a.period_start).getTime());
 
-  const visiblePeriods =
-    currentForYear != null
-      ? periodsSortedDesc.filter((p) => new Date(p.period_start).getTime() <= new Date(currentForYear.period_start).getTime())
-      : periodsSortedDesc;
+  // Show ALL quarters for the selected fiscal year (including future),
+  // ordered newest → oldest by period_start.
+  const visiblePeriods = periodsSortedDesc;
 
   // Scope: Exec/Admin see org; Manager sees direct reports (via reps.manager_rep_id); other non-rep roles treated as org.
   let scopeRepIds: number[] | null = null;
@@ -1362,53 +1361,27 @@ export default async function QuarterlyKpisPage({
                             const boxClass =
                               "min-w-0 overflow-hidden rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-2";
 
+                            const cards = [
+                              { key: "commit", label: "Commit", amount: commitTotal, count: commitCount },
+                              { key: "best", label: "Best Case", amount: bestTotal, count: bestCount },
+                              { key: "pipe", label: "Pipeline", amount: pipelineTotal, count: pipelineCount },
+                              { key: "total", label: "Total Pipeline", amount: totalPipelineAmt, count: totalPipelineCount },
+                              { key: "won", label: "Closed Won", amount: wonAmountTotal, count: wonCountTotal },
+                            ].filter((c) => !(Number(c.amount || 0) === 0 && Number(c.count || 0) === 0));
+
                             return (
                               <div className="mt-2 grid w-full max-w-full gap-2 text-sm grid-cols-[repeat(auto-fit,minmax(140px,1fr))]">
-                                <div className={boxClass}>
-                                  <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Commit</div>
-                                  <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
-                                    {fmtMoney(commitTotal)}
+                                {cards.map((c) => (
+                                  <div key={c.key} className={boxClass}>
+                                    <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">{c.label}</div>
+                                    <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
+                                      {fmtMoney(c.amount)}
+                                    </div>
+                                    <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
+                                      # Opps: {fmtNum(c.count)}
+                                    </div>
                                   </div>
-                                  <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
-                                    # Opps: {fmtNum(commitCount)}
-                                  </div>
-                                </div>
-                                <div className={boxClass}>
-                                  <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Best Case</div>
-                                  <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
-                                    {fmtMoney(bestTotal)}
-                                  </div>
-                                  <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
-                                    # Opps: {fmtNum(bestCount)}
-                                  </div>
-                                </div>
-                                <div className={boxClass}>
-                                  <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Pipeline</div>
-                                  <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
-                                    {fmtMoney(pipelineTotal)}
-                                  </div>
-                                  <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
-                                    # Opps: {fmtNum(pipelineCount)}
-                                  </div>
-                                </div>
-                                <div className={boxClass}>
-                                  <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Total Pipeline</div>
-                                  <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
-                                    {fmtMoney(totalPipelineAmt)}
-                                  </div>
-                                  <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
-                                    # Opps: {fmtNum(totalPipelineCount)}
-                                  </div>
-                                </div>
-                                <div className={boxClass}>
-                                  <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Closed Won</div>
-                                  <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
-                                    {fmtMoney(wonAmountTotal)}
-                                  </div>
-                                  <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
-                                    # Opps: {fmtNum(wonCountTotal)}
-                                  </div>
-                                </div>
+                                ))}
                                 <div className={boxClass}>
                                   <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Quarterly Quota</div>
                                   <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
