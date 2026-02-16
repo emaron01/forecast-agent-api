@@ -169,9 +169,9 @@ export async function createUserAction(formData: FormData) {
       parsed.role === "ADMIN" ? 0 : parsed.role === "EXEC_MANAGER" ? 1 : parsed.role === "MANAGER" ? 2 : 3;
     const hierarchy_level = expectedLevel;
 
-    // Only REP/MANAGER users should have a manager_user_id.
+    // Only REP/MANAGER/EXEC_MANAGER users should have a manager_user_id.
     let effectiveManagerId: number | null = null;
-    if (parsed.role === "REP" || parsed.role === "MANAGER") {
+    if (parsed.role === "REP" || parsed.role === "MANAGER" || parsed.role === "EXEC_MANAGER") {
       if (parsed.manager_user_public_id) {
         const id = await resolvePublicId("users", parsed.manager_user_public_id);
         const mgr = await getUserById({ orgId, userId: id });
@@ -181,6 +181,9 @@ export async function createUserAction(formData: FormData) {
         }
         if (parsed.role === "MANAGER" && mgr.role !== "EXEC_MANAGER") {
           throw new Error("MANAGER manager must be an EXEC_MANAGER user in this org");
+        }
+        if (parsed.role === "EXEC_MANAGER" && mgr.role !== "ADMIN") {
+          throw new Error("EXEC_MANAGER manager must be an ADMIN user in this org");
         }
         effectiveManagerId = id;
       }
@@ -307,7 +310,7 @@ export async function updateUserAction(formData: FormData) {
   const hierarchy_level = expectedLevel;
 
   let effectiveManagerId: number | null = null;
-  if (parsed.role === "REP" || parsed.role === "MANAGER") {
+  if (parsed.role === "REP" || parsed.role === "MANAGER" || parsed.role === "EXEC_MANAGER") {
     if (parsed.manager_user_public_id) {
       const id = await resolvePublicId("users", parsed.manager_user_public_id);
       if (id === userId) throw new Error("manager_user_id cannot reference the same user");
@@ -318,6 +321,9 @@ export async function updateUserAction(formData: FormData) {
       }
       if (parsed.role === "MANAGER" && mgr.role !== "EXEC_MANAGER") {
         throw new Error("MANAGER manager must be an EXEC_MANAGER user in this org");
+      }
+      if (parsed.role === "EXEC_MANAGER" && mgr.role !== "ADMIN") {
+        throw new Error("EXEC_MANAGER manager must be an ADMIN user in this org");
       }
       effectiveManagerId = id;
     }

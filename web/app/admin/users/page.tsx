@@ -75,6 +75,7 @@ export default async function UsersPage({
 
   const execManagers = isAdmin ? usersRaw.filter((u) => u.role === "EXEC_MANAGER" && u.active) : [];
   const managers = isAdmin ? usersRaw.filter((u) => u.role === "MANAGER" && u.active) : [];
+  const admins = isAdmin ? usersRaw.filter((u) => u.role === "ADMIN" && u.active) : [];
   const userById = new Map<number, (typeof usersRaw)[number]>(usersRaw.map((u) => [u.id, u]));
   // When a MANAGER views their REP list, `usersRaw` intentionally only contains REPs.
   // Ensure we can still render the Manager name (the current user) in the Manager column.
@@ -409,6 +410,23 @@ export default async function UsersPage({
                   </select>
                   <p className="text-xs text-[color:var(--sf-text-disabled)]">For managers, this must be an Executive Manager.</p>
                 </div>
+
+                <div className="grid gap-1" data-show-roles="EXEC_MANAGER" hidden>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
+                  <select
+                    name="manager_user_public_id"
+                    defaultValue={prefillManagerUserPublicId || ""}
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                  >
+                    <option value="">(none)</option>
+                    {admins.map((a) => (
+                      <option key={a.public_id} value={String(a.public_id)}>
+                        {a.display_name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">For executive managers, this must be an Admin.</p>
+                </div>
               </div>
             ) : null}
 
@@ -649,7 +667,7 @@ export default async function UsersPage({
                     defaultValue={
                       user.manager_user_id == null
                         ? ""
-                        : String(managers.find((m) => m.id === user.manager_user_id)?.public_id || "")
+                        : String(userById.get(user.manager_user_id)?.public_id || "")
                     }
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
@@ -672,7 +690,7 @@ export default async function UsersPage({
                     defaultValue={
                       user.manager_user_id == null
                         ? ""
-                        : String(execManagers.find((m) => m.id === user.manager_user_id)?.public_id || "")
+                        : String(userById.get(user.manager_user_id)?.public_id || "")
                     }
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
@@ -686,6 +704,25 @@ export default async function UsersPage({
                       ))}
                   </select>
                   <p className="text-xs text-[color:var(--sf-text-disabled)]">For managers, this must be an Executive Manager.</p>
+                </div>
+
+                <div className="grid gap-1" data-show-roles="EXEC_MANAGER" hidden>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
+                  <select
+                    name="manager_user_public_id"
+                    defaultValue={user.manager_user_id == null ? "" : String(userById.get(user.manager_user_id)?.public_id || "")}
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                  >
+                    <option value="">(none)</option>
+                    {admins
+                      .filter((a) => a.id !== user.id)
+                      .map((a) => (
+                        <option key={a.public_id} value={String(a.public_id)}>
+                          {a.display_name}
+                        </option>
+                      ))}
+                  </select>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">For executive managers, this must be an Admin.</p>
                 </div>
               </div>
             ) : null}
