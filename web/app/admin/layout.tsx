@@ -23,8 +23,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const orgName = org?.name || (ctx.kind === "master" ? "SaaS Owner" : "Organization");
   const displayName = ctx.kind === "user" ? ctx.user.display_name : ctx.email;
   const email = ctx.kind === "user" ? ctx.user.email : ctx.email;
-  const hasAdminAnalyticsAccess =
-    ctx.kind === "master" || (ctx.kind === "user" && ctx.user.role === "ADMIN" && !!ctx.user.admin_has_full_analytics_access);
+  const hasQuotaSetupAccess = ctx.kind === "master" || (ctx.kind === "user" && ctx.user.role === "ADMIN");
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -51,7 +50,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                   <NavLink href="/admin/org-profile" label="Org Profile" />
                   <NavLink href="/admin/hierarchy" label="Sales Organization" />
                   <NavLink href="/admin/mapping-sets" label="Mapping Sets" />
-                  {hasAdminAnalyticsAccess ? (
+                  {hasQuotaSetupAccess ? (
                     <>
                       <NavLink href="/admin/analytics" label="Analytics" />
                       <NavLink href="/admin/analytics/quota-periods" label="Quota Periods" />

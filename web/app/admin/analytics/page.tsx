@@ -17,7 +17,7 @@ function Card({ href, title, desc }: { href: string; title: string; desc: string
 export default async function AdminAnalyticsHome() {
   const { ctx } = await requireOrgContext();
   if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
-  if (ctx.kind === "user" && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
+  const hasFullAnalyticsAccess = ctx.kind === "master" || (ctx.kind === "user" && !!ctx.user.admin_has_full_analytics_access);
 
   return (
     <main>
@@ -29,12 +29,16 @@ export default async function AdminAnalyticsHome() {
       <section className="mt-6 grid gap-4 md:grid-cols-2">
         <Card href="/admin/analytics/quota-periods" title="Fiscal calendar" desc="Manage quota periods (quota_periods)." />
         <Card href="/admin/analytics/quotas" title="Quota assignments" desc="Assign quotas to reps, managers, VPs, and CRO." />
-        <Card href="/admin/analytics/quota-rollups" title="Quota roll-ups" desc="View quota roll-ups by level." />
-        <Card href="/admin/analytics/attainment" title="Attainment dashboards" desc="View attainment dashboards." />
-        <Card href="/admin/analytics/comparisons" title="Comparisons" desc="Compare CRM vs AI stages and quota attainment." />
-        <Card href="/analytics/quotas/admin" title="/analytics/quotas/admin" desc="Org-user admin quotas page (ADMIN only)." />
-        <Card href="/analytics/quotas/manager" title="/analytics/quotas/manager" desc="Org-user manager quotas page (MANAGER only)." />
-        <Card href="/analytics/quotas/executive" title="/analytics/quotas/executive" desc="Org-user executive quotas page (EXEC_MANAGER only)." />
+        {hasFullAnalyticsAccess ? (
+          <>
+            <Card href="/admin/analytics/quota-rollups" title="Quota roll-ups" desc="View quota roll-ups by level." />
+            <Card href="/admin/analytics/attainment" title="Attainment dashboards" desc="View attainment dashboards." />
+            <Card href="/admin/analytics/comparisons" title="Comparisons" desc="Compare CRM vs AI stages and quota attainment." />
+            <Card href="/analytics/quotas/admin" title="/analytics/quotas/admin" desc="Org-user admin quotas page (ADMIN only)." />
+            <Card href="/analytics/quotas/manager" title="/analytics/quotas/manager" desc="Org-user manager quotas page (MANAGER only)." />
+            <Card href="/analytics/quotas/executive" title="/analytics/quotas/executive" desc="Org-user executive quotas page (EXEC_MANAGER only)." />
+          </>
+        ) : null}
       </section>
 
       <section className="mt-6 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
@@ -51,21 +55,34 @@ export default async function AdminAnalyticsHome() {
               /admin/analytics/quotas
             </Link>
           </li>
-          <li>
-            <Link className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline" href="/admin/analytics/quota-rollups">
-              /admin/analytics/quota-rollups
-            </Link>
-          </li>
-          <li>
-            <Link className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline" href="/admin/analytics/attainment">
-              /admin/analytics/attainment
-            </Link>
-          </li>
-          <li>
-            <Link className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline" href="/admin/analytics/comparisons">
-              /admin/analytics/comparisons
-            </Link>
-          </li>
+          {hasFullAnalyticsAccess ? (
+            <>
+              <li>
+                <Link
+                  className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline"
+                  href="/admin/analytics/quota-rollups"
+                >
+                  /admin/analytics/quota-rollups
+                </Link>
+              </li>
+              <li>
+                <Link
+                  className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline"
+                  href="/admin/analytics/attainment"
+                >
+                  /admin/analytics/attainment
+                </Link>
+              </li>
+              <li>
+                <Link
+                  className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline"
+                  href="/admin/analytics/comparisons"
+                >
+                  /admin/analytics/comparisons
+                </Link>
+              </li>
+            </>
+          ) : null}
         </ul>
       </section>
     </main>

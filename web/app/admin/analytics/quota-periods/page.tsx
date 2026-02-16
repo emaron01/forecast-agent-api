@@ -89,7 +89,6 @@ export default async function QuotaPeriodsPage({
 }) {
   const { ctx } = await requireOrgContext();
   if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
-  if (ctx.kind === "user" && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
 
   const modal = sp(searchParams.modal) || "";
   const id = sp(searchParams.id) || "";
