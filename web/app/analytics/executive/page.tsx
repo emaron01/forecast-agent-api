@@ -7,6 +7,7 @@ import { pool } from "../../../lib/pool";
 import { getHealthAveragesByPeriods } from "../../../lib/analyticsHealth";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ExportToExcelButton } from "../../_components/ExportToExcelButton";
+import { ExecutiveKpisFiltersClient } from "./ExecutiveKpisFiltersClient";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -38,6 +39,26 @@ function healthFracFrom30(score: any) {
 function safeDiv(n: number, d: number) {
   if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) return null;
   return n / d;
+}
+
+function qoqMark(curr: number | null, prev: number | null, kind: "money" | "pct" | "num" | "days") {
+  if (curr == null || prev == null) return <span className="text-[color:var(--sf-text-disabled)]">—</span>;
+  const d = curr - prev;
+  const eps = 1e-9;
+  const abs = Math.abs(d);
+  if (abs <= eps) return <span className="font-mono text-xs text-[#F1C40F]">----</span>;
+
+  const label =
+    kind === "money"
+      ? fmtMoney(abs)
+      : kind === "pct"
+        ? fmtPct(abs)
+        : kind === "days"
+          ? `${Math.round(abs)}d`
+          : fmtNum(abs);
+
+  if (d > 0) return <span className="font-mono text-xs text-[#16A34A]">↑ {label}</span>;
+  return <span className="font-mono text-xs text-[#E74C3C]">↓ {label}</span>;
 }
 
 function deltaLabel(curr: number | null, prev: number | null, kind: "money" | "pct" | "num" | "days") {
@@ -91,8 +112,6 @@ type PeriodKpisRow = {
 
 type QuotaTotalsRow = { quota_period_id: string; quota_amount: number };
 type QuotaByRepPeriodRow = { quota_period_id: string; rep_id: string; quota_amount: number };
-type QuotaByManagerRow = { manager_id: string; manager_name: string; quota_amount: number };
-type QuotaByRepRow = { rep_id: string; rep_name: string; quota_amount: number };
 
 type RepPeriodKpisRow = {
   quota_period_id: string;
@@ -341,60 +360,6 @@ async function getQuotaByRepPeriod(args: { orgId: number; quotaPeriodIds: string
   return (rows || []) as any[];
 }
 
-async function getQuotaBreakdownForPeriod(args: { orgId: number; quotaPeriodId: string; repIds: number[] | null }) {
-  const useRepFilter = !!(args.repIds && args.repIds.length);
-  const [byManager, byRep] = await Promise.all([
-    pool
-      .query<QuotaByManagerRow>(
-        `
-        SELECT
-          q.manager_id::text AS manager_id,
-          COALESCE(NULLIF(btrim(m.display_name), ''), NULLIF(btrim(m.rep_name), ''), ('Manager ' || q.manager_id::text)) AS manager_name,
-          COALESCE(SUM(q.quota_amount), 0)::float8 AS quota_amount
-        FROM quotas q
-        LEFT JOIN reps m
-          ON m.organization_id = $1
-         AND m.id = q.manager_id
-        WHERE q.org_id = $1::bigint
-          AND q.role_level = 3
-          AND q.quota_period_id = $2::bigint
-          AND q.manager_id IS NOT NULL
-          AND (NOT $4::boolean OR q.rep_id = ANY($3::bigint[]))
-        GROUP BY q.manager_id, manager_name
-        ORDER BY quota_amount DESC, manager_name ASC
-        `,
-        [args.orgId, args.quotaPeriodId, args.repIds || [], useRepFilter]
-      )
-      .then((r) => r.rows || [])
-      .catch(() => []),
-    pool
-      .query<QuotaByRepRow>(
-        `
-        SELECT
-          q.rep_id::text AS rep_id,
-          COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), ('Rep ' || q.rep_id::text)) AS rep_name,
-          COALESCE(SUM(q.quota_amount), 0)::float8 AS quota_amount
-        FROM quotas q
-        LEFT JOIN reps r
-          ON r.organization_id = $1
-         AND r.id = q.rep_id
-        WHERE q.org_id = $1::bigint
-          AND q.role_level = 3
-          AND q.quota_period_id = $2::bigint
-          AND q.rep_id IS NOT NULL
-          AND (NOT $4::boolean OR q.rep_id = ANY($3::bigint[]))
-        GROUP BY q.rep_id, rep_name
-        ORDER BY quota_amount DESC, rep_name ASC
-        `,
-        [args.orgId, args.quotaPeriodId, args.repIds || [], useRepFilter]
-      )
-      .then((r) => r.rows || [])
-      .catch(() => []),
-  ]);
-
-  return { byManager, byRep };
-}
-
 async function getRepKpisByPeriod(args: { orgId: number; periodIds: string[]; repIds: number[] | null }) {
   const useRepFilter = !!(args.repIds && args.repIds.length);
   const { rows } = await pool.query<RepPeriodKpisRow>(
@@ -559,10 +524,11 @@ export default async function ExecutiveAnalyticsKpisPage({
   const fiscalYears = Array.from(new Set(periods.map((p) => String(p.fiscal_year || "").trim()).filter(Boolean))).sort((a, b) =>
     b.localeCompare(a)
   );
-  const yearToUse = fiscal_year || fiscalYears[0] || "";
-  const periodsForYear = yearToUse ? periods.filter((p) => String(p.fiscal_year) === yearToUse) : periods;
-
   const todayIso = new Date().toISOString().slice(0, 10);
+  const periodContainingToday = periods.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
+  const defaultYear = (periodContainingToday && String(periodContainingToday.fiscal_year || "").trim()) || fiscalYears[0] || "";
+  const yearToUse = fiscal_year || defaultYear;
+  const periodsForYear = yearToUse ? periods.filter((p) => String(p.fiscal_year) === yearToUse) : periods;
   const currentForYear = periodsForYear.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
 
   const selectedPeriod =
@@ -613,17 +579,16 @@ export default async function ExecutiveAnalyticsKpisPage({
   const prevPeriodId = prevPeriod ? String(prevPeriod.id) : "";
   const comparePeriodIds = [selectedPeriodId, prevPeriodId].filter(Boolean);
 
-  const [kpiRows, quotaTotals, repKpisRows, createdByRepRows, quotaByRepPeriod, quotaBreakdown, healthAvgRows] = selectedPeriodId
+  const [kpiRows, quotaTotals, repKpisRows, createdByRepRows, quotaByRepPeriod, healthAvgRows] = selectedPeriodId
     ? await Promise.all([
         getPeriodKpis({ orgId: ctx.user.org_id, periodIds: comparePeriodIds, repIds: scopeRepIds }),
         getQuotaTotals({ orgId: ctx.user.org_id, quotaPeriodIds: comparePeriodIds, repIds: scopeRepIds }),
         getRepKpisByPeriod({ orgId: ctx.user.org_id, periodIds: comparePeriodIds, repIds: scopeRepIds }),
         getCreatedByRep({ orgId: ctx.user.org_id, periodIds: comparePeriodIds, repIds: scopeRepIds }),
         getQuotaByRepPeriod({ orgId: ctx.user.org_id, quotaPeriodIds: comparePeriodIds, repIds: scopeRepIds }),
-        getQuotaBreakdownForPeriod({ orgId: ctx.user.org_id, quotaPeriodId: selectedPeriodId, repIds: scopeRepIds }),
         getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: comparePeriodIds, repIds: scopeRepIds }),
       ])
-    : [[], [], [], [], [], { byManager: [], byRep: [] }, []];
+    : [[], [], [], [], [], []];
 
   const kpiByPeriod = new Map<string, PeriodKpisRow>();
   for (const r of kpiRows) kpiByPeriod.set(String(r.quota_period_id), r);
@@ -637,6 +602,7 @@ export default async function ExecutiveAnalyticsKpisPage({
   const healthByPeriod = new Map<string, any>();
   for (const r of healthAvgRows || []) healthByPeriod.set(String((r as any).quota_period_id), r);
   const currHealth = selectedPeriodId ? healthByPeriod.get(selectedPeriodId) || null : null;
+  const prevHealth = prevPeriodId ? healthByPeriod.get(prevPeriodId) || null : null;
 
   const currQuota = selectedPeriodId ? quotaByPeriod.get(selectedPeriodId) || 0 : 0;
   const prevQuota = prevPeriodId ? quotaByPeriod.get(prevPeriodId) || 0 : 0;
@@ -912,7 +878,8 @@ export default async function ExecutiveAnalyticsKpisPage({
   const sortKey: "attainment" | "won" | "pipeline" | "win_rate" | "aov" =
     rep_sort === "won" || rep_sort === "pipeline" || rep_sort === "win_rate" || rep_sort === "aov" ? (rep_sort as any) : "attainment";
   const sortHighlight = (k: typeof sortKey) => (sortKey === k ? "text-yellow-700" : "");
-  const sortHighlightCell = (k: typeof sortKey) => (sortKey === k ? "bg-yellow-50 text-yellow-800" : "");
+  // Use explicit dark text on yellow highlight for readability in dark mode.
+  const sortHighlightCell = (k: typeof sortKey) => (sortKey === k ? "bg-yellow-50 text-black" : "");
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -935,94 +902,16 @@ export default async function ExecutiveAnalyticsKpisPage({
 
         <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
           <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Filters</h2>
-          <form method="GET" action="/analytics/executive" className="mt-3 grid gap-3 md:grid-cols-4">
-            <div className="grid gap-1">
-              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Fiscal Year</label>
-              <select
-                name="fiscal_year"
-                defaultValue={yearToUse}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-              >
-                {fiscalYears.map((fy) => (
-                  <option key={fy} value={fy}>
-                    {fy}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid gap-1">
-              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Quarter</label>
-              <select
-                name="quota_period_id"
-                defaultValue={selectedPeriodId}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                required
-              >
-                {periodsForYear.map((p) => (
-                  <option key={p.id} value={String(p.id)}>
-                    {p.period_name} (FY{p.fiscal_year} Q{p.fiscal_quarter})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid gap-1">
-              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Compare scope</label>
-              <select
-                name="scope"
-                defaultValue={scope}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-              >
-                <option value="company">Company</option>
-                <option value="manager">Manager (direct reports)</option>
-                <option value="rep">Rep</option>
-              </select>
-            </div>
-            <div className="flex items-end justify-end gap-2 md:col-span-1">
-              <Link
-                href="/analytics/executive"
-                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
-              >
-                Reset
-              </Link>
-              <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
-                Apply
-              </button>
-            </div>
-
-            {/* Scope-specific selects (always render; ignored unless scope matches) */}
-            <div className="grid gap-1 md:col-span-2">
-              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Manager</label>
-              <select
-                name="manager_rep_id"
-                defaultValue={manager_rep_id_raw}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-              >
-                <option value="">(select)</option>
-                {managers.map((m) => (
-                  <option key={String(m.id)} value={String(m.id)}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-              <div className="text-xs text-[color:var(--sf-text-disabled)]">Used when scope = Manager.</div>
-            </div>
-            <div className="grid gap-1 md:col-span-2">
-              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Rep</label>
-              <select
-                name="rep_id"
-                defaultValue={rep_id_raw}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-              >
-                <option value="">(select)</option>
-                {repOptions.map((r) => (
-                  <option key={String(r.id)} value={String(r.id)}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-              <div className="text-xs text-[color:var(--sf-text-disabled)]">Used when scope = Rep.</div>
-            </div>
-          </form>
+          <ExecutiveKpisFiltersClient
+            periods={periods as any}
+            managers={managers as any}
+            reps={repOptions as any}
+            defaultFiscalYear={yearToUse}
+            defaultQuotaPeriodId={selectedPeriodId}
+            defaultScope={scope}
+            defaultManagerRepId={manager_rep_id_raw}
+            defaultRepId={rep_id_raw}
+          />
         </section>
 
         {!selectedPeriod ? (
@@ -1053,7 +942,7 @@ export default async function ExecutiveAnalyticsKpisPage({
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3">
                 <div className="text-xs text-[color:var(--sf-text-secondary)]">Quota Attainment</div>
                 <div className="mt-1 text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(currAttainment)}</div>
-                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {deltaLabel(currAttainment, prevAttainment, "pct")}</div>
+                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {qoqMark(currAttainment, prevAttainment, "pct")}</div>
               </div>
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3">
                 <div className="text-xs text-[color:var(--sf-text-secondary)]">Average Health Score</div>
@@ -1063,41 +952,44 @@ export default async function ExecutiveAnalyticsKpisPage({
                   {fmtPct(healthFracFrom30(currHealth?.avg_health_pipeline))} · Won: {fmtPct(healthFracFrom30(currHealth?.avg_health_won))} · Closed:{" "}
                   {fmtPct(healthFracFrom30(currHealth?.avg_health_closed))}
                 </div>
+                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                  QoQ: {qoqMark(healthFracFrom30(currHealth?.avg_health_all), healthFracFrom30(prevHealth?.avg_health_all), "pct")}
+                </div>
               </div>
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3">
                 <div className="text-xs text-[color:var(--sf-text-secondary)]">Win Rate (Won / (Won+Lost))</div>
                 <div className="mt-1 text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(currWinRate)}</div>
-                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {deltaLabel(currWinRate, prevWinRate, "pct")}</div>
+                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {qoqMark(currWinRate, prevWinRate, "pct")}</div>
               </div>
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3">
                 <div className="text-xs text-[color:var(--sf-text-secondary)]">Pipeline Value (open)</div>
                 <div className="mt-1 text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(curr.active_amount)}</div>
-                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {deltaLabel(curr.active_amount, prev?.active_amount ?? null, "money")}</div>
+                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {qoqMark(curr.active_amount, prev?.active_amount ?? null, "money")}</div>
               </div>
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3">
                 <div className="text-xs text-[color:var(--sf-text-secondary)]">Average Order Value (AOV)</div>
                 <div className="mt-1 text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(currAov)}</div>
-                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {deltaLabel(currAov, prevAov, "money")}</div>
+                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {qoqMark(currAov, prevAov, "money")}</div>
               </div>
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3">
                 <div className="text-xs text-[color:var(--sf-text-secondary)]">Commit Coverage</div>
                 <div className="mt-1 text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(currCommitCoverage)}</div>
-                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {deltaLabel(currCommitCoverage, prevCommitCoverage, "pct")}</div>
+                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {qoqMark(currCommitCoverage, prevCommitCoverage, "pct")}</div>
               </div>
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3">
                 <div className="text-xs text-[color:var(--sf-text-secondary)]">Best Case Coverage</div>
                 <div className="mt-1 text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(currBestCoverage)}</div>
-                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {deltaLabel(currBestCoverage, prevBestCoverage, "pct")}</div>
+                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {qoqMark(currBestCoverage, prevBestCoverage, "pct")}</div>
               </div>
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3">
                 <div className="text-xs text-[color:var(--sf-text-secondary)]">Partner Contribution % (closed)</div>
                 <div className="mt-1 text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(currPartnerContribution)}</div>
-                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {deltaLabel(currPartnerContribution, prevPartnerContribution, "pct")}</div>
+                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {qoqMark(currPartnerContribution, prevPartnerContribution, "pct")}</div>
               </div>
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3">
                 <div className="text-xs text-[color:var(--sf-text-secondary)]">Partner Win Rate (closed)</div>
                 <div className="mt-1 text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(currPartnerWinRate)}</div>
-                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {deltaLabel(currPartnerWinRate, prevPartnerWinRate, "pct")}</div>
+                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {qoqMark(currPartnerWinRate, prevPartnerWinRate, "pct")}</div>
               </div>
             </div>
 
@@ -1111,7 +1003,7 @@ export default async function ExecutiveAnalyticsKpisPage({
                       {curr.avg_days_won == null ? "—" : `${Math.round(curr.avg_days_won)}d`}
                     </div>
                     <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">
-                      QoQ: {deltaLabel(curr.avg_days_won, prev?.avg_days_won ?? null, "days")}
+                      QoQ: {qoqMark(curr.avg_days_won, prev?.avg_days_won ?? null, "days")}
                     </div>
                   </div>
                   <div>
@@ -1120,7 +1012,7 @@ export default async function ExecutiveAnalyticsKpisPage({
                       {curr.avg_days_lost == null ? "—" : `${Math.round(curr.avg_days_lost)}d`}
                     </div>
                     <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">
-                      QoQ: {deltaLabel(curr.avg_days_lost, prev?.avg_days_lost ?? null, "days")}
+                      QoQ: {qoqMark(curr.avg_days_lost, prev?.avg_days_lost ?? null, "days")}
                     </div>
                   </div>
                   <div>
@@ -1129,7 +1021,7 @@ export default async function ExecutiveAnalyticsKpisPage({
                       {curr.avg_days_active == null ? "—" : `${Math.round(curr.avg_days_active)}d`}
                     </div>
                     <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">
-                      QoQ: {deltaLabel(curr.avg_days_active, prev?.avg_days_active ?? null, "days")}
+                      QoQ: {qoqMark(curr.avg_days_active, prev?.avg_days_active ?? null, "days")}
                     </div>
                   </div>
                 </div>
@@ -1147,7 +1039,7 @@ export default async function ExecutiveAnalyticsKpisPage({
                     <div key={x.label}>
                       <div className="text-xs text-[color:var(--sf-text-secondary)]">{x.label}</div>
                       <div className="mt-0.5 font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(x.v)}</div>
-                      <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {deltaLabel(x.v, x.pv, "pct")}</div>
+                      <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {qoqMark(x.v, x.pv, "pct")}</div>
                     </div>
                   ))}
                 </div>
@@ -1159,16 +1051,22 @@ export default async function ExecutiveAnalyticsKpisPage({
                 <div className="text-xs text-[color:var(--sf-text-secondary)]">New pipeline created (by create_date)</div>
                 <div className="mt-1 text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(curr.created_amount)}</div>
                 <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Deals: {fmtNum(curr.created_count)}</div>
+                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                  QoQ: {qoqMark(curr.created_amount, prev?.created_amount ?? null, "money")}
+                </div>
               </div>
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3">
                 <div className="text-xs text-[color:var(--sf-text-secondary)]">Opportunity→Win conversion</div>
                 <div className="mt-1 text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(currOppToWin)}</div>
-                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {deltaLabel(currOppToWin, prevOppToWin, "pct")}</div>
+                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">QoQ: {qoqMark(currOppToWin, prevOppToWin, "pct")}</div>
               </div>
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3">
                 <div className="text-xs text-[color:var(--sf-text-secondary)]">Closed Won (amount)</div>
                 <div className="mt-1 text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(curr.won_amount)}</div>
                 <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Deals: {fmtNum(curr.won_count)}</div>
+                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                  QoQ: {qoqMark(curr.won_amount, prev?.won_amount ?? null, "money")}
+                </div>
               </div>
             </div>
           </section>
@@ -1251,7 +1149,7 @@ export default async function ExecutiveAnalyticsKpisPage({
                           <Fragment key={`team:${mid || "unassigned"}`}>
                             <tr
                               key={`mgr:${mid || "unassigned"}`}
-                              className="border-t-2 border-yellow-300 bg-yellow-50 text-[color:var(--sf-text-primary)]"
+                              className="border-t-2 border-yellow-300 bg-yellow-50 text-black"
                             >
                               <td className="px-4 py-3 font-semibold">
                                 {managerLabel} <span className="text-xs font-normal text-[color:var(--sf-text-secondary)]">(team)</span>
@@ -1318,139 +1216,15 @@ export default async function ExecutiveAnalyticsKpisPage({
         ) : null}
 
         {selectedPeriod && curr ? (
-          <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Build Custom Reports</h2>
-                <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-                  Save/load custom rep comparison reports (pick reps + KPI fields).
-                </p>
-              </div>
-              <Link
-                href="/analytics/custom-reports"
-                className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
-              >
-                Open Custom Reports
-              </Link>
-            </div>
-          </section>
+          null
         ) : null}
 
         {selectedPeriod && curr ? (
-          <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Team comparison (manager roll-ups)</h2>
-            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-              Roll-ups are derived from rep-level KPIs and mapped using <span className="font-mono text-xs">reps.manager_rep_id</span>.
-            </p>
-
-            <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-              <table className="w-full min-w-[980px] text-left text-sm">
-                <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
-                  <tr>
-                    <th className="px-4 py-3">manager</th>
-                    <th className="px-4 py-3 text-right">quota</th>
-                    <th className="px-4 py-3 text-right">won</th>
-                    <th className="px-4 py-3 text-right">attainment</th>
-                    <th className="px-4 py-3 text-right">pipeline</th>
-                    <th className="px-4 py-3 text-right">win rate</th>
-                    <th className="px-4 py-3 text-right">partner %</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {managerRows.length ? (
-                    managerRows.map((m) => (
-                      <tr key={m.manager_id || "unassigned"} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
-                        <td className="px-4 py-3 font-medium">{m.manager_name}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(m.quota)}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(m.won_amount)}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct(m.attainment)}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(m.active_amount)}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct(m.win_rate)}</td>
-                        <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct(m.partner_contribution)}</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={7} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
-                        No manager roll-ups available.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          null
         ) : null}
 
         {selectedPeriod && curr ? (
-          <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-            <details className="flex flex-col">
-              <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">Quota breakdown</summary>
-              <div className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-secondary)]">
-                <div>
-                  Total quota (rep quotas): <span className="font-mono text-xs">{fmtMoney(currQuota)}</span>
-                </div>
-                <div className="text-xs text-[color:var(--sf-text-disabled)]">
-                  This is the sum of all <span className="font-mono">quotas</span> rows with <span className="font-mono">role_level=3</span> in the selected quarter
-                  (filtered by scope when scope ≠ Company).
-                </div>
-                <div className="mt-2 grid gap-3 md:grid-cols-2">
-                  <div className="overflow-auto rounded-md border border-[color:var(--sf-border)]">
-                    <table className="w-full min-w-[380px] text-left text-sm">
-                      <thead className="bg-[color:var(--sf-surface)] text-xs text-[color:var(--sf-text-secondary)]">
-                        <tr>
-                          <th className="px-3 py-2">manager</th>
-                          <th className="px-3 py-2 text-right">quota</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {quotaBreakdown.byManager.length ? (
-                          quotaBreakdown.byManager.map((m) => (
-                            <tr key={m.manager_id} className="border-t border-[color:var(--sf-border)]">
-                              <td className="px-3 py-2">{m.manager_name}</td>
-                              <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(m.quota_amount)}</td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={2} className="px-3 py-4 text-center text-[color:var(--sf-text-disabled)]">
-                              No manager quotas found.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="overflow-auto rounded-md border border-[color:var(--sf-border)]">
-                    <table className="w-full min-w-[380px] text-left text-sm">
-                      <thead className="bg-[color:var(--sf-surface)] text-xs text-[color:var(--sf-text-secondary)]">
-                        <tr>
-                          <th className="px-3 py-2">rep</th>
-                          <th className="px-3 py-2 text-right">quota</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {quotaBreakdown.byRep.length ? (
-                          quotaBreakdown.byRep.slice(0, 50).map((r) => (
-                            <tr key={r.rep_id} className="border-t border-[color:var(--sf-border)]">
-                              <td className="px-3 py-2">{r.rep_name}</td>
-                              <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(r.quota_amount)}</td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={2} className="px-3 py-4 text-center text-[color:var(--sf-text-disabled)]">
-                              No rep quotas found.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            </details>
-          </section>
+          null
         ) : null}
 
         <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">

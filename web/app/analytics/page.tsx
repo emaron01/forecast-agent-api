@@ -54,7 +54,7 @@ export default async function AnalyticsPage() {
             <Card href="/analytics/custom-reports" title="Build Custom Reports" desc="Save/load custom rep comparison reports (fields + selected reps)." />
           ) : null}
           {ctx.user.role === "EXEC_MANAGER" ? (
-            <Card href="/analytics/executive" title="Executive KPIs" desc="Quarter KPI dashboard with QoQ deltas + team/rep comparisons." />
+            <Card href="/analytics/executive" title="KPI Summary" desc="Quarter KPI dashboard with QoQ deltas + team/rep comparisons." />
           ) : null}
         </section>
       </main>
