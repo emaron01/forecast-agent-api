@@ -62,6 +62,9 @@ export function SimpleForecastDashboardClient(props: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
+  // Deal review workflow is rep-only. Managers/executives can still search and open Deal Score Cards.
+  const showDealReviewWorkflow = !!props.repFilterLocked;
+
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const selectedIds = useMemo(() => Object.entries(selected).filter(([, v]) => v).map(([id]) => id), [selected]);
 
@@ -157,13 +160,27 @@ export function SimpleForecastDashboardClient(props: {
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Sales Opportunities</h1>
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-              Select one or multiple opportunities for your SalesForecaster.IO Review.{" "}
-              <Link
-                className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline"
-                href="/forecast/opportunity-score-cards"
-              >
-                Click here for Opportunity Score Cards View.
-              </Link>
+              {showDealReviewWorkflow ? (
+                <>
+                  Select one or multiple opportunities for your SalesForecaster.IO Review.{" "}
+                  <Link
+                    className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline"
+                    href="/forecast/opportunity-score-cards"
+                  >
+                    Click here for Opportunity Score Cards View.
+                  </Link>
+                </>
+              ) : (
+                <>
+                  Search for a specific opportunity and open its Deal Score Card.{" "}
+                  <Link
+                    className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline"
+                    href="/forecast/opportunity-score-cards"
+                  >
+                    Opportunity Score Cards View.
+                  </Link>
+                </>
+              )}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -175,21 +192,25 @@ export function SimpleForecastDashboardClient(props: {
             >
               Sync CRM
             </button>
-            <button
-              type="button"
-              onClick={() => void startQueueReview()}
-              className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)] disabled:opacity-60"
-              disabled={busy || !selectedIds.length}
-              title="Run the agent through selected deals, one-by-one."
-            >
-              Review Queue ({selectedIds.length})
-            </button>
+            {showDealReviewWorkflow ? (
+              <button
+                type="button"
+                onClick={() => void startQueueReview()}
+                className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)] disabled:opacity-60"
+                disabled={busy || !selectedIds.length}
+                title="Run the agent through selected deals, one-by-one."
+              >
+                Review Queue ({selectedIds.length})
+              </button>
+            ) : null}
           </div>
         </div>
 
         <div className="mt-4 grid gap-3 md:grid-cols-12">
           <div className="md:col-span-5">
-            <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Search Opportunities For Review</label>
+            <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">
+              {showDealReviewWorkflow ? "Search Opportunities For Review" : "Search opportunities"}
+            </label>
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -234,27 +255,31 @@ export function SimpleForecastDashboardClient(props: {
             </div>
           )}
 
-          <div className="md:col-span-3 flex items-end justify-end gap-2">
-            <button
-              type="button"
-              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)] disabled:opacity-60"
-              disabled={busy || !filtered.length}
-              onClick={() => {
-                setSelected((prev) => {
-                  const next = { ...prev };
-                  for (const d of filtered) {
-                    const id = String(d.id || "");
-                    if (!id) continue;
-                    next[id] = !allVisibleSelected;
-                  }
-                  return next;
-                });
-              }}
-              title="Select/deselect all visible deals (after search filter)."
-            >
-              {allVisibleSelected ? "Clear All For Review" : "Select All For Review"}
-            </button>
-          </div>
+          {showDealReviewWorkflow ? (
+            <div className="md:col-span-3 flex items-end justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)] disabled:opacity-60"
+                disabled={busy || !filtered.length}
+                onClick={() => {
+                  setSelected((prev) => {
+                    const next = { ...prev };
+                    for (const d of filtered) {
+                      const id = String(d.id || "");
+                      if (!id) continue;
+                      next[id] = !allVisibleSelected;
+                    }
+                    return next;
+                  });
+                }}
+                title="Select/deselect all visible deals (after search filter)."
+              >
+                {allVisibleSelected ? "Clear All For Review" : "Select All For Review"}
+              </button>
+            </div>
+          ) : (
+            <div className="md:col-span-3" />
+          )}
         </div>
 
         {error ? (
@@ -268,7 +293,7 @@ export function SimpleForecastDashboardClient(props: {
         <table className="w-full min-w-[980px] text-left text-sm">
           <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
             <tr>
-              <th className="px-4 py-3 w-[56px]">Queue</th>
+              {showDealReviewWorkflow ? <th className="px-4 py-3 w-[56px]">Queue</th> : null}
               <th className="px-4 py-3">Account Name</th>
               <th className="px-4 py-3">Opp Name</th>
               <th className="px-4 py-3">Revenue</th>
@@ -276,7 +301,7 @@ export function SimpleForecastDashboardClient(props: {
               <th className="px-4 py-3">Forecast Stage</th>
               <th className="px-4 py-3">AI Forecast Stage</th>
               <th className="px-4 py-3">Health Score %</th>
-              <th className="px-4 py-3 text-right">Review</th>
+              <th className="px-4 py-3 text-right">{showDealReviewWorkflow ? "Review" : "Deal Score Card"}</th>
             </tr>
           </thead>
           <tbody>
@@ -286,14 +311,16 @@ export function SimpleForecastDashboardClient(props: {
               const bucket = normalizeForecastBucket(d.forecast_stage);
               return (
                 <tr key={id} className="border-t border-[color:var(--sf-border)]">
-                  <td className="px-4 py-3">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => setSelected((prev) => ({ ...prev, [id]: e.target.checked }))}
-                      aria-label="Queue for review"
-                    />
-                  </td>
+                  {showDealReviewWorkflow ? (
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => setSelected((prev) => ({ ...prev, [id]: e.target.checked }))}
+                        aria-label="Queue for review"
+                      />
+                    </td>
+                  ) : null}
                   <td className="px-4 py-3">{d.account_name || "—"}</td>
                   <td className="px-4 py-3">{d.opportunity_name || "—"}</td>
                   <td className="px-4 py-3">{fmtMoney(d.amount)}</td>
@@ -306,7 +333,7 @@ export function SimpleForecastDashboardClient(props: {
                       className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-xs font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
                       href={`/opportunities/${encodeURIComponent(id)}/deal-review`}
                     >
-                      Review
+                      {showDealReviewWorkflow ? "Review" : "View"}
                     </Link>
                   </td>
                 </tr>
@@ -314,7 +341,7 @@ export function SimpleForecastDashboardClient(props: {
             })}
             {!filtered.length ? (
               <tr>
-                <td className="px-4 py-8 text-center text-[color:var(--sf-text-disabled)]" colSpan={9}>
+                <td className="px-4 py-8 text-center text-[color:var(--sf-text-disabled)]" colSpan={showDealReviewWorkflow ? 9 : 8}>
                   No deals found.
                 </td>
               </tr>
