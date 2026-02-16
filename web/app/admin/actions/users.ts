@@ -86,7 +86,10 @@ async function syncDirectReportsFromVisibility(args: {
   visibleUserIds: number[];
 }) {
   const all = await listUsers({ orgId: args.orgId, includeInactive: true }).catch(() => []);
-  const userById = new Map<number, any>(all.map((u: any) => [Number(u.id), u]));
+  const userById = new Map<number, any>();
+  for (const u of all as any[]) {
+    userById.set(Number((u as any)?.id), u);
+  }
 
   const targetRole = args.managerRole === "EXEC_MANAGER" ? "MANAGER" : "REP";
   const desired = new Set<number>();
