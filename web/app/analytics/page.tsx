@@ -32,12 +32,11 @@ export default async function AnalyticsPage() {
       <main className="mx-auto max-w-4xl p-6">
         <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Analytics</h1>
         <p className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">
-          Quota attainment dashboards and stage comparisons.
+          KPI dashboards, comparisons, quotas, and reporting.
         </p>
 
         <section className="mt-6 grid gap-4 md:grid-cols-2">
           <Card href="/analytics/kpis" title="KPIs by quarter" desc="Quarter-by-quarter KPI breakdown with manager + rep expand/collapse." />
-          <Card href="/analytics/attainment" title="Attainment dashboards" desc="Rep → Manager → VP → CRO roll-ups for a quota period." />
           <Card href="/analytics/comparisons" title="Comparisons" desc="CRM Forecast Stage vs AI Forecast Stage + quota attainment." />
           {ctx.user.role === "ADMIN" ? (
             <Card href="/analytics/quotas/admin" title="Quotas (Admin)" desc="Admin quota management." />

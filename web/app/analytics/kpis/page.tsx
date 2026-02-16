@@ -114,6 +114,7 @@ type CreatedPipelineAggRow = {
   pipeline_amount: number;
   pipeline_count: number;
   pipeline_health_score: number | null;
+  total_pipeline_health_score: number | null;
   won_count: number;
   won_health_score: number | null;
   lost_count: number;
@@ -470,6 +471,7 @@ async function getCreatedPipelineAggByPeriods(args: { orgId: number; periodIds: 
       COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
       COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
       AVG(CASE WHEN is_active AND bucket = 'pipeline' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS pipeline_health_score,
+      AVG(CASE WHEN is_active THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS total_pipeline_health_score,
       COALESCE(SUM(CASE WHEN bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS won_count,
       AVG(CASE WHEN bucket = 'won' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS won_health_score,
       COALESCE(SUM(CASE WHEN bucket = 'lost' THEN 1 ELSE 0 END), 0)::int AS lost_count,
@@ -1475,6 +1477,7 @@ export default async function QuarterlyKpisPage({
                                 pipeline_amount: 0,
                                 pipeline_count: 0,
                                 pipeline_health_score: null,
+                                total_pipeline_health_score: null,
                                 won_count: 0,
                                 won_health_score: null,
                                 lost_count: 0,
@@ -1498,6 +1501,7 @@ export default async function QuarterlyKpisPage({
                             const hc = healthPctFrom30(createdAgg.commit_health_score);
                             const hb = healthPctFrom30(createdAgg.best_health_score);
                             const hp = healthPctFrom30(createdAgg.pipeline_health_score);
+                            const ht = healthPctFrom30(createdAgg.total_pipeline_health_score);
                             const hw = healthPctFrom30(createdAgg.won_health_score);
                             const hl = healthPctFrom30(createdAgg.lost_health_score);
 
@@ -1513,45 +1517,56 @@ export default async function QuarterlyKpisPage({
 
                             return (
                               <div className="mt-2 grid w-full max-w-full gap-2">
-                                <div className="grid w-full max-w-full gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
-                                  <Card label="Commit" value={fmtMoney(cAmt)} sub={<span># Opps: {fmtNum(cCnt)}</span>} />
-                                  <Card label="Best Case" value={fmtMoney(bAmt)} sub={<span># Opps: {fmtNum(bCnt)}</span>} />
-                                  <Card label="Pipeline" value={fmtMoney(pAmt)} sub={<span># Opps: {fmtNum(pCnt)}</span>} />
-                                  <Card label="Total Pipeline" value={fmtMoney(tAmt)} sub={<span># Opps: {fmtNum(tCnt)}</span>} />
-                                </div>
-
+                                <div className="text-[11px] font-semibold text-[color:var(--sf-text-primary)]">Forecast Mix</div>
                                 <div className="grid w-full max-w-full gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
                                   <Card
-                                    label="Commit (health)"
-                                    value={<span className={healthColorClass(hc)}>{hc == null ? "—" : `${hc}%`}</span>}
-                                    sub={<span># Opps: {fmtNum(cCnt)}</span>}
+                                    label={`Commit (${fmtPct(mixCommit)})`}
+                                    value={fmtMoney(cAmt)}
+                                    sub={
+                                      <>
+                                        <div># Opps: {fmtNum(cCnt)}</div>
+                                        <div>
+                                          Health: <span className={healthColorClass(hc)}>{hc == null ? "—" : `${hc}%`}</span>
+                                        </div>
+                                      </>
+                                    }
                                   />
                                   <Card
-                                    label="Best Case (health)"
-                                    value={<span className={healthColorClass(hb)}>{hb == null ? "—" : `${hb}%`}</span>}
-                                    sub={<span># Opps: {fmtNum(bCnt)}</span>}
+                                    label={`Best Case (${fmtPct(mixBest)})`}
+                                    value={fmtMoney(bAmt)}
+                                    sub={
+                                      <>
+                                        <div># Opps: {fmtNum(bCnt)}</div>
+                                        <div>
+                                          Health: <span className={healthColorClass(hb)}>{hb == null ? "—" : `${hb}%`}</span>
+                                        </div>
+                                      </>
+                                    }
                                   />
                                   <Card
-                                    label="Pipeline (health)"
-                                    value={<span className={healthColorClass(hp)}>{hp == null ? "—" : `${hp}%`}</span>}
-                                    sub={<span># Opps: {fmtNum(pCnt)}</span>}
+                                    label={`Pipeline (${fmtPct(mixPipeline)})`}
+                                    value={fmtMoney(pAmt)}
+                                    sub={
+                                      <>
+                                        <div># Opps: {fmtNum(pCnt)}</div>
+                                        <div>
+                                          Health: <span className={healthColorClass(hp)}>{hp == null ? "—" : `${hp}%`}</span>
+                                        </div>
+                                      </>
+                                    }
                                   />
                                   <Card
-                                    label="Won (health)"
-                                    value={<span className={healthColorClass(hw)}>{hw == null ? "—" : `${hw}%`}</span>}
-                                    sub={<span># Deals: {fmtNum(Number(createdAgg.won_count || 0) || 0)}</span>}
+                                    label="Total Pipeline"
+                                    value={fmtMoney(tAmt)}
+                                    sub={
+                                      <>
+                                        <div># Opps: {fmtNum(tCnt)}</div>
+                                        <div>
+                                          Health: <span className={healthColorClass(ht)}>{ht == null ? "—" : `${ht}%`}</span>
+                                        </div>
+                                      </>
+                                    }
                                   />
-                                  <Card
-                                    label="Lost (health)"
-                                    value={<span className={healthColorClass(hl)}>{hl == null ? "—" : `${hl}%`}</span>}
-                                    sub={<span># Deals: {fmtNum(Number(createdAgg.lost_count || 0) || 0)}</span>}
-                                  />
-                                </div>
-
-                                <div className="grid w-full max-w-full gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
-                                  <Card label="Forecast Mix: Commit" value={fmtPct(mixCommit)} sub="Commit / Best / Pipeline" />
-                                  <Card label="Forecast Mix: Best" value={fmtPct(mixBest)} sub="Commit / Best / Pipeline" />
-                                  <Card label="Forecast Mix: Pipeline" value={fmtPct(mixPipeline)} sub="Commit / Best / Pipeline" />
                                 </div>
                               </div>
                             );
