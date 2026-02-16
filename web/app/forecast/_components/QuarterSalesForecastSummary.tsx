@@ -208,6 +208,7 @@ export async function QuarterSalesForecastSummary(props: {
     pipeline_amount: number;
     pipeline_count: number;
     pipeline_health_score: number | null;
+    total_pipeline_health_score: number | null;
     won_amount: number;
     won_count: number;
     won_health_score: number | null;
@@ -350,6 +351,13 @@ export async function QuarterSalesForecastSummary(props: {
               WHEN d.fs LIKE '%best%' THEN NULL
               ELSE NULLIF(d.health_score, 0)
             END)::float8 AS pipeline_health_score,
+            AVG(CASE
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
+                OR ((' ' || d.fs || ' ') LIKE '% lost %')
+                OR ((' ' || d.fs || ' ') LIKE '% closed %')
+              THEN NULL
+              ELSE NULLIF(d.health_score, 0)
+            END)::float8 AS total_pipeline_health_score,
             COALESCE(SUM(CASE
               WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN d.amount
               ELSE 0
@@ -877,6 +885,7 @@ export async function QuarterSalesForecastSummary(props: {
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Pipeline</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Avg Health</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Total Pipeline</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Avg Health</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Closed Won</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Avg Health</th>
                 </tr>
@@ -890,6 +899,7 @@ export async function QuarterSalesForecastSummary(props: {
                   const cHealthPct = healthPctFrom30((r as any).commit_health_score);
                   const bHealthPct = healthPctFrom30((r as any).best_case_health_score);
                   const pHealthPct = healthPctFrom30((r as any).pipeline_health_score);
+                  const tHealthPct = healthPctFrom30((r as any).total_pipeline_health_score);
                   const wHealthPct = healthPctFrom30((r as any).won_health_score);
                   const key = `${r.rep_id || "name"}:${r.rep_name}`;
                   return (
@@ -918,6 +928,9 @@ export async function QuarterSalesForecastSummary(props: {
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="font-mono text-sm font-semibold">{fmtMoney(tAmt)}</div>
+                      </td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                        <span className={healthColorClass(tHealthPct)}>{tHealthPct == null ? "—" : `${tHealthPct}%`}</span>
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="font-mono text-sm font-semibold">{fmtMoney(Number(r.won_amount || 0) || 0)}</div>
