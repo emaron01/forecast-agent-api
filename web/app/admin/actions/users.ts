@@ -229,22 +229,22 @@ export async function createUserAction(formData: FormData) {
     if (hierarchy_level === 2 && !(parsed.see_all_visibility ?? false) && visibleIds.length === 0) {
       throw new Error("MANAGER must have visibility assignments unless see_all_visibility is enabled");
     }
-    if ((hierarchy_level === 1 || hierarchy_level === 2) && !(parsed.see_all_visibility ?? false)) {
+    if (hierarchy_level === 1 || hierarchy_level === 2) {
+      // Persist both the see-all flag and the selected edges.
+      // Edges are stored even when see-all is enabled so direct-report assignments can persist.
       await replaceManagerVisibility({
         orgId,
         managerUserId: created.id,
         visibleUserIds: visibleIds,
-        see_all_visibility: false,
+        see_all_visibility: !!(parsed.see_all_visibility ?? false),
       });
-      // Treat visibility assignments as direct-report assignments.
+      // Treat visibility selections as direct-report assignments (role-specific).
       await syncDirectReportsFromVisibility({
         orgId,
         managerUserId: created.id,
         managerRole: parsed.role === "EXEC_MANAGER" ? "EXEC_MANAGER" : "MANAGER",
         visibleUserIds: visibleIds,
       });
-    } else if (hierarchy_level === 1 || hierarchy_level === 2) {
-      await replaceManagerVisibility({ orgId, managerUserId: created.id, visibleUserIds: [], see_all_visibility: true });
     }
 
     revalidatePath("/admin/users");
@@ -360,22 +360,19 @@ export async function updateUserAction(formData: FormData) {
   if (hierarchy_level === 2 && !(parsed.see_all_visibility ?? false) && visibleIds.length === 0) {
     throw new Error("MANAGER must have visibility assignments unless see_all_visibility is enabled");
   }
-  if ((hierarchy_level === 1 || hierarchy_level === 2) && !(parsed.see_all_visibility ?? false)) {
+  if (hierarchy_level === 1 || hierarchy_level === 2) {
     await replaceManagerVisibility({
       orgId,
       managerUserId: userId,
       visibleUserIds: visibleIds,
-      see_all_visibility: false,
+      see_all_visibility: !!(parsed.see_all_visibility ?? false),
     });
-    // Treat visibility assignments as direct-report assignments.
     await syncDirectReportsFromVisibility({
       orgId,
       managerUserId: userId,
       managerRole: parsed.role === "EXEC_MANAGER" ? "EXEC_MANAGER" : "MANAGER",
       visibleUserIds: visibleIds,
     });
-  } else if (hierarchy_level === 1 || hierarchy_level === 2) {
-    await replaceManagerVisibility({ orgId, managerUserId: userId, visibleUserIds: [], see_all_visibility: true });
   } else {
     // Non-manager: clear edges + disable see-all.
     await replaceManagerVisibility({ orgId, managerUserId: userId, visibleUserIds: [], see_all_visibility: false }).catch(() => null);

@@ -2357,9 +2357,10 @@ export async function replaceManagerVisibility(args: {
       // Clear existing edges.
       await c.query(`DELETE FROM manager_visibility WHERE manager_user_id = $1`, [managerUserId]);
 
-      if (!see_all_visibility && visibleUserIds.length) {
+      if (visibleUserIds.length) {
         // Insert only users in this org that are valid visibility targets.
         // Exec managers and managers can see only level 2 (managers) and level 3 (reps); never admins.
+        // NOTE: We store edges even when see_all_visibility=true so direct-report assignments persist.
         const targetsRes = await c.query(
           `
           SELECT id, role, hierarchy_level
@@ -2411,7 +2412,7 @@ export async function replaceManagerVisibility(args: {
       }
 
       await c.query("COMMIT");
-      return { ok: true, count: see_all_visibility ? 0 : visibleUserIds.length };
+      return { ok: true, count: visibleUserIds.length };
     } catch (e) {
       await c.query("ROLLBACK");
       throw e;
