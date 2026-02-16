@@ -15,7 +15,13 @@ export type RepHealthAveragesRow = HealthAveragesRow & {
   rep_id: string;
 };
 
-export async function getHealthAveragesByPeriods(args: { orgId: number; periodIds: string[]; repIds: number[] | null }) {
+export async function getHealthAveragesByPeriods(args: {
+  orgId: number;
+  periodIds: string[];
+  repIds: number[] | null;
+  dateStart?: string | null;
+  dateEnd?: string | null;
+}) {
   if (!args.periodIds.length) return [] as HealthAveragesRow[];
   const useRepFilter = !!(args.repIds && args.repIds.length);
   const { rows } = await pool.query<HealthAveragesRow>(
@@ -24,7 +30,9 @@ export async function getHealthAveragesByPeriods(args: { orgId: number; periodId
       SELECT
         id::bigint AS quota_period_id,
         period_start::date AS period_start,
-        period_end::date AS period_end
+        period_end::date AS period_end,
+        GREATEST(period_start::date, COALESCE($5::date, period_start::date)) AS range_start,
+        LEAST(period_end::date, COALESCE($6::date, period_end::date)) AS range_end
       FROM quota_periods
       WHERE org_id = $1::bigint
         AND id = ANY($2::bigint[])
@@ -38,22 +46,22 @@ export async function getHealthAveragesByPeriods(args: { orgId: number; periodId
       JOIN opportunities o
         ON o.org_id = $1
        AND o.close_date IS NOT NULL
-       AND o.close_date >= p.period_start
-       AND o.close_date <= p.period_end
+       AND o.close_date >= p.range_start
+       AND o.close_date <= p.range_end
        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
     ),
     classified AS (
       SELECT
         *,
         ((' ' || fs || ' ') LIKE '% won %') AS is_won,
-        ((' ' || fs || ' ') LIKE '% lost %') AS is_lost,
-        (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) AS is_active,
+        (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
+        (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %')) AS is_active,
         CASE
-          WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) AND fs LIKE '%commit%' THEN 'commit'
-          WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) AND fs LIKE '%best%' THEN 'best'
-          WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) THEN 'pipeline'
+          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %') AND fs LIKE '%commit%') THEN 'commit'
+          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %') AND fs LIKE '%best%') THEN 'best'
+          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %')) THEN 'pipeline'
           WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 'won'
-          WHEN ((' ' || fs || ' ') LIKE '% lost %') THEN 'lost'
+          WHEN (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) THEN 'lost'
           ELSE 'other'
         END AS bucket
       FROM base
@@ -71,7 +79,7 @@ export async function getHealthAveragesByPeriods(args: { orgId: number; periodId
     GROUP BY quota_period_id
     ORDER BY quota_period_id DESC
     `,
-    [args.orgId, args.periodIds, args.repIds || [], useRepFilter]
+    [args.orgId, args.periodIds, args.repIds || [], useRepFilter, args.dateStart || null, args.dateEnd || null]
   );
   return (rows || []) as any[];
 }
@@ -117,13 +125,13 @@ export async function getHealthAveragesByRepByPeriods(args: {
       SELECT
         *,
         ((' ' || fs || ' ') LIKE '% won %') AS is_won,
-        ((' ' || fs || ' ') LIKE '% lost %') AS is_lost,
+        (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
         CASE
-          WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) AND fs LIKE '%commit%' THEN 'commit'
-          WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) AND fs LIKE '%best%' THEN 'best'
-          WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) THEN 'pipeline'
+          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %') AND fs LIKE '%commit%') THEN 'commit'
+          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %') AND fs LIKE '%best%') THEN 'best'
+          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %')) THEN 'pipeline'
           WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 'won'
-          WHEN ((' ' || fs || ' ') LIKE '% lost %') THEN 'lost'
+          WHEN (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) THEN 'lost'
           ELSE 'other'
         END AS bucket
       FROM base

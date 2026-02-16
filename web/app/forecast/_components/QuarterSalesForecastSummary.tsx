@@ -2,6 +2,7 @@ import Link from "next/link";
 import { pool } from "../../../lib/pool";
 import type { AuthUser } from "../../../lib/auth";
 import { getVisibleUsers } from "../../../lib/db";
+import { ForecastPeriodFiltersClient } from "./ForecastPeriodFiltersClient";
 
 type QuotaPeriodOption = {
   id: string; // bigint as text
@@ -780,33 +781,20 @@ export async function QuarterSalesForecastSummary(props: {
       <div className="grid gap-4">
         <div>
           <div className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">{headline}</div>
-          <form method="GET" action={props.currentPath} className="mt-2 flex items-center gap-2">
-            <select
-              name="fiscal_year"
-              defaultValue={yearToUse}
-              className="w-[160px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-            >
-              {fiscalYearsSorted.map((fy) => (
-                <option key={fy} value={fy}>
-                  {fy}
-                </option>
-              ))}
-            </select>
-            <select
-              name="quota_period_id"
-              defaultValue={qpId}
-              className="w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-            >
-              {periodsForYear.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {String(p.period_name || "").trim() || periodLabel(p)}
-                </option>
-              ))}
-            </select>
-            <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
-              Apply
-            </button>
-          </form>
+          <ForecastPeriodFiltersClient
+            basePath={props.currentPath}
+            fiscalYears={fiscalYearsSorted}
+            periods={periods.map((p) => ({
+              id: String(p.id),
+              period_name: String(p.period_name || "").trim() || periodLabel(p),
+              period_start: String(p.period_start),
+              period_end: String(p.period_end),
+              fiscal_year: fiscalYearKey(p),
+              fiscal_quarter: String(p.fiscal_quarter),
+            }))}
+            selectedFiscalYear={yearToUse}
+            selectedPeriodId={qpId}
+          />
           {role === "REP" && !userRepName ? (
             <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
               Rep visibility is restricted to your own records, but your account is missing `account_owner_name`.

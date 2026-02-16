@@ -40,9 +40,13 @@ export function TopDealsFiltersClient(props: {
   periods: PeriodLite[];
   selectedFiscalYear: string;
   selectedPeriodId: string;
+  showDateRange?: boolean;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
+
+  const startDate = String(sp.get("start_date") || "").trim();
+  const endDate = String(sp.get("end_date") || "").trim();
 
   const periodsForYear = useMemo(() => {
     const y = String(props.selectedFiscalYear || "").trim();
@@ -60,7 +64,7 @@ export function TopDealsFiltersClient(props: {
   }
 
   return (
-    <div className="mt-3 grid gap-3 md:grid-cols-3">
+    <div className={`mt-3 grid gap-3 ${props.showDateRange ? "md:grid-cols-5" : "md:grid-cols-3"}`}>
       <div className="grid gap-1">
         <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Fiscal Year</label>
         <select
@@ -97,8 +101,39 @@ export function TopDealsFiltersClient(props: {
             </option>
           ))}
         </select>
-        <div className="text-xs text-[color:var(--sf-text-disabled)]">Changing Year/Quarter reloads automatically.</div>
       </div>
+
+      {props.showDateRange ? (
+        <div className="grid gap-1">
+          <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Start date</label>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => {
+              const params = new URLSearchParams(sp.toString());
+              setParam(params, "start_date", String(e.target.value || ""));
+              router.replace(`${props.basePath}?${params.toString()}`);
+            }}
+            className="w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+          />
+        </div>
+      ) : null}
+
+      {props.showDateRange ? (
+        <div className="grid gap-1">
+          <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">End date</label>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => {
+              const params = new URLSearchParams(sp.toString());
+              setParam(params, "end_date", String(e.target.value || ""));
+              router.replace(`${props.basePath}?${params.toString()}`);
+            }}
+            className="w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+          />
+        </div>
+      ) : null}
 
       <div className="flex items-end justify-end gap-2">
         <button

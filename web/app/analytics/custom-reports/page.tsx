@@ -6,6 +6,7 @@ import { pool } from "../../../lib/pool";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { CustomReportDesignerClient } from "./CustomReportDesignerClient";
 import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
+import { TopDealsFiltersClient } from "../quotas/executive/TopDealsFiltersClient";
 
 export const runtime = "nodejs";
 
@@ -377,65 +378,21 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
 
         <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
           <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Filters</h2>
-          <form method="GET" action="/analytics/custom-reports" className="mt-3 grid gap-3 md:grid-cols-5">
-            <div className="grid gap-1">
-              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Fiscal Year</label>
-              <select
-                name="fiscal_year"
-                defaultValue={yearToUse}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-              >
-                {fiscalYears.map((fy) => (
-                  <option key={fy} value={fy}>
-                    {fy}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid gap-1">
-              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Quarter</label>
-              <select
-                name="quota_period_id"
-                defaultValue={selectedPeriod ? String(selectedPeriod.id) : ""}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-              >
-                {periodsForYear.map((p) => (
-                  <option key={p.id} value={String(p.id)}>
-                    {p.period_name} (FY{p.fiscal_year} Q{p.fiscal_quarter})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid gap-1">
-              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Start date</label>
-              <input
-                type="date"
-                name="start_date"
-                defaultValue={start_date}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-              />
-            </div>
-            <div className="grid gap-1">
-              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">End date</label>
-              <input
-                type="date"
-                name="end_date"
-                defaultValue={end_date}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-              />
-            </div>
-            <div className="flex items-end justify-end gap-2">
-              <Link
-                href="/analytics/custom-reports"
-                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
-              >
-                Reset
-              </Link>
-              <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
-                Apply
-              </button>
-            </div>
-          </form>
+          <TopDealsFiltersClient
+            basePath="/analytics/custom-reports"
+            fiscalYears={fiscalYears}
+            periods={periods.map((p) => ({
+              id: String(p.id),
+              period_name: String(p.period_name),
+              period_start: String(p.period_start),
+              period_end: String(p.period_end),
+              fiscal_year: String(p.fiscal_year),
+              fiscal_quarter: String(p.fiscal_quarter),
+            }))}
+            selectedFiscalYear={yearToUse}
+            selectedPeriodId={selectedPeriod ? String(selectedPeriod.id) : ""}
+            showDateRange={true}
+          />
         </section>
 
         <CustomReportDesignerClient

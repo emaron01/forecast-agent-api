@@ -15,6 +15,17 @@ function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
 }
 
+function isIsoDateOnly(s: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(s || "").trim());
+}
+
+function normalizeDateRange(startRaw: string, endRaw: string) {
+  let start = isIsoDateOnly(startRaw) ? String(startRaw).trim() : "";
+  let end = isIsoDateOnly(endRaw) ? String(endRaw).trim() : "";
+  if (start && end && start > end) [start, end] = [end, start];
+  return { start, end };
+}
+
 export const runtime = "nodejs";
 
 type TopPartnerDealRow = {
@@ -86,12 +97,23 @@ function daysBetween(createDate: any, closeDate: any) {
   return Number.isFinite(d) ? d : null;
 }
 
-async function listTopPartnerDeals(args: { orgId: number; quotaPeriodId: string; outcome: "won" | "lost"; limit: number }): Promise<TopPartnerDealRow[]> {
+async function listTopPartnerDeals(args: {
+  orgId: number;
+  quotaPeriodId: string;
+  outcome: "won" | "lost";
+  limit: number;
+  dateStart?: string | null;
+  dateEnd?: string | null;
+}): Promise<TopPartnerDealRow[]> {
   const wantWon = args.outcome === "won";
   const { rows } = await pool.query<TopPartnerDealRow>(
     `
     WITH qp AS (
-      SELECT period_start::date AS period_start, period_end::date AS period_end
+      SELECT
+        period_start::date AS period_start,
+        period_end::date AS period_end,
+        GREATEST(period_start::date, COALESCE($5::date, period_start::date)) AS range_start,
+        LEAST(period_end::date, COALESCE($6::date, period_end::date)) AS range_end
       FROM quota_periods
       WHERE org_id = $1::bigint
         AND id = $2::bigint
@@ -114,18 +136,21 @@ async function listTopPartnerDeals(args: { orgId: number; quotaPeriodId: string;
       AND o.partner_name IS NOT NULL
       AND btrim(o.partner_name) <> ''
       AND o.close_date IS NOT NULL
-      AND o.close_date >= qp.period_start
-      AND o.close_date <= qp.period_end
+      AND o.close_date >= qp.range_start
+      AND o.close_date <= qp.range_end
       AND (
         CASE
           WHEN $3::boolean THEN ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
-          ELSE ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
+          ELSE (
+            ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
+            OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
+          )
         END
       )
     ORDER BY amount DESC NULLS LAST, o.id DESC
     LIMIT $4
     `,
-    [args.orgId, args.quotaPeriodId, wantWon, args.limit]
+    [args.orgId, args.quotaPeriodId, wantWon, args.limit, args.dateStart || null, args.dateEnd || null]
   );
   return rows || [];
 }
@@ -167,6 +192,7 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
 
   const quotaPeriodId = String(sp(searchParams.quota_period_id) || "").trim();
   const fiscal_year = String(sp(searchParams.fiscal_year) || "").trim();
+  const { start: start_date, end: end_date } = normalizeDateRange(String(sp(searchParams.start_date) || "").trim(), String(sp(searchParams.end_date) || "").trim());
   const won_sort = String(sp(searchParams.won_sort) || "amount").trim() as DealSortKey;
   const won_dir = String(sp(searchParams.won_dir) || "desc").trim() as DealSortDir;
   const lost_sort = String(sp(searchParams.lost_sort) || "amount").trim() as DealSortKey;
@@ -189,8 +215,26 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
   const currentForYear = periods.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
   const selected = (quotaPeriodId && periods.find((p) => String(p.id) === quotaPeriodId)) || currentForYear || periods[0] || null;
 
-  const topWonRaw = selected ? await listTopPartnerDeals({ orgId: ctx.user.org_id, quotaPeriodId: String(selected.id), outcome: "won", limit: 10 }).catch(() => []) : [];
-  const topLostRaw = selected ? await listTopPartnerDeals({ orgId: ctx.user.org_id, quotaPeriodId: String(selected.id), outcome: "lost", limit: 10 }).catch(() => []) : [];
+  const topWonRaw = selected
+    ? await listTopPartnerDeals({
+        orgId: ctx.user.org_id,
+        quotaPeriodId: String(selected.id),
+        outcome: "won",
+        limit: 10,
+        dateStart: start_date || null,
+        dateEnd: end_date || null,
+      }).catch(() => [])
+    : [];
+  const topLostRaw = selected
+    ? await listTopPartnerDeals({
+        orgId: ctx.user.org_id,
+        quotaPeriodId: String(selected.id),
+        outcome: "lost",
+        limit: 10,
+        dateStart: start_date || null,
+        dateEnd: end_date || null,
+      }).catch(() => [])
+    : [];
 
   const safeSortKey = (k: string): DealSortKey =>
     k === "partner" || k === "account" || k === "opportunity" || k === "product" || k === "age" || k === "initial_health" || k === "final_health" || k === "amount"
@@ -247,7 +291,9 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
     };
   });
 
-  const healthRows = selected ? await getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: [String(selected.id)], repIds: null }).catch(() => []) : [];
+  const healthRows = selected
+    ? await getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: [String(selected.id)], repIds: null, dateStart: start_date || null, dateEnd: end_date || null }).catch(() => [])
+    : [];
   const health = (healthRows && healthRows[0]) ? (healthRows[0] as any) : null;
 
   const sortLabelClass = (active: boolean) => (active ? "text-yellow-700" : "");
@@ -286,6 +332,7 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
             }))}
             selectedFiscalYear={yearToUse}
             selectedPeriodId={selected ? String(selected.id) : ""}
+            showDateRange={true}
           />
         </section>
 
@@ -310,6 +357,8 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
               <form method="GET" action="/analytics/partners/executive" className="flex flex-wrap items-end gap-2">
                 <input type="hidden" name="fiscal_year" value={yearToUse} />
                 <input type="hidden" name="quota_period_id" value={String(selected.id)} />
+                {start_date ? <input type="hidden" name="start_date" value={start_date} /> : null}
+                {end_date ? <input type="hidden" name="end_date" value={end_date} /> : null}
                 <input type="hidden" name="lost_sort" value={lostSortKey} />
                 <input type="hidden" name="lost_dir" value={lostDir} />
                 <div className="grid gap-1">
@@ -402,6 +451,8 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
               <form method="GET" action="/analytics/partners/executive" className="flex flex-wrap items-end gap-2">
                 <input type="hidden" name="fiscal_year" value={yearToUse} />
                 <input type="hidden" name="quota_period_id" value={String(selected.id)} />
+                {start_date ? <input type="hidden" name="start_date" value={start_date} /> : null}
+                {end_date ? <input type="hidden" name="end_date" value={end_date} /> : null}
                 <input type="hidden" name="won_sort" value={wonSortKey} />
                 <input type="hidden" name="won_dir" value={wonDir} />
                 <div className="grid gap-1">
