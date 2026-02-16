@@ -161,9 +161,7 @@ export default async function UsersPage({
         <table className="w-full text-left text-sm">
           <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
             <tr>
-              <th className="px-4 py-3">public_id</th>
               <th className="px-4 py-3">role</th>
-              <th className="px-4 py-3">hierarchy</th>
               <th className="px-4 py-3">display_name</th>
               <th className="px-4 py-3">title</th>
               <th className="px-4 py-3">email</th>
@@ -179,9 +177,7 @@ export default async function UsersPage({
             {users.length ? (
               users.map((u) => (
                 <tr key={u.public_id} className="border-t border-[color:var(--sf-border)]">
-                  <td className="px-4 py-3 font-mono text-xs">{u.public_id}</td>
                   <td className="px-4 py-3">{labelForLevel(roleToLevel(u.role), u.role)}</td>
-                  <td className="px-4 py-3">{u.hierarchy_level}</td>
                   <td className="px-4 py-3">{u.display_name}</td>
                   <td className="px-4 py-3">{u.title || ""}</td>
                   <td className="px-4 py-3">{u.email}</td>
@@ -189,10 +185,7 @@ export default async function UsersPage({
                   <td className="px-4 py-3">
                     {u.manager_user_id != null ? (
                       <span className="text-[color:var(--sf-text-primary)]">
-                        {userById.get(u.manager_user_id)?.display_name || ""}{" "}
-                        <span className="font-mono text-xs text-[color:var(--sf-text-disabled)]">
-                          {userById.get(u.manager_user_id)?.public_id || ""}
-                        </span>
+                        {userById.get(u.manager_user_id)?.display_name || ""}
                       </span>
                     ) : (
                       ""
@@ -237,7 +230,7 @@ export default async function UsersPage({
               ))
             ) : (
               <tr>
-                <td colSpan={12} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                <td colSpan={10} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
                   No users found.
                 </td>
               </tr>
@@ -358,7 +351,7 @@ export default async function UsersPage({
                         <span>
                           {u.display_name}{" "}
                           <span className="text-xs text-[color:var(--sf-text-disabled)]">
-                            ({u.role}, level {u.hierarchy_level})
+                            ({u.role})
                           </span>
                         </span>
                       </label>
@@ -624,7 +617,7 @@ export default async function UsersPage({
                         <span>
                           {u.display_name}{" "}
                           <span className="text-xs text-[color:var(--sf-text-disabled)]">
-                            ({u.role}, level {u.hierarchy_level})
+                            ({u.role})
                           </span>
                         </span>
                       </label>
