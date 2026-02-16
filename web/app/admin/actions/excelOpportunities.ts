@@ -127,8 +127,25 @@ function normalizeBooleanCell(v: unknown): boolean | null {
   }
   const s = String(v).trim().toLowerCase();
   if (!s) return null;
-  if (s === "true" || s === "t" || s === "yes" || s === "y" || s === "1") return true;
-  if (s === "false" || s === "f" || s === "no" || s === "n" || s === "0") return false;
+  // Common truthy/falsey values from Excel exports.
+  // - "checked"/"unchecked" often appear from checkbox exports
+  // - "on"/"off" from HTML-like sources
+  // - "x" / "✔" used by some templates
+  if (
+    s === "true" ||
+    s === "t" ||
+    s === "yes" ||
+    s === "y" ||
+    s === "1" ||
+    s === "checked" ||
+    s === "check" ||
+    s === "x" ||
+    s === "✔" ||
+    s === "on"
+  )
+    return true;
+  if (s === "false" || s === "f" || s === "no" || s === "n" || s === "0" || s === "unchecked" || s === "off" || s === "null")
+    return false;
   return null;
 }
 
@@ -434,7 +451,12 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
         const src = byTarget.get("deal_registration") || "";
         if (src) {
           const v = row?.[src];
-          if (!isBlankCell(v)) {
+          // Always coerce Deal Registration to a strict boolean for ingestion:
+          // - blanks/null => false
+          // - Yes/No/checked/etc => true/false
+          if (isBlankCell(v)) {
+            row[src] = false;
+          } else {
             const b = normalizeBooleanCell(v);
             if (b == null) {
               issues.push(`Row ${rowNum}: Deal Registration must be true/false (column "${src}")`);

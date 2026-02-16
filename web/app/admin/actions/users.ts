@@ -66,8 +66,51 @@ function closeHref() {
   return "/admin/users";
 }
 
+function buildSuccessRedirect(params: Record<string, string | undefined | null>) {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    const s = String(v ?? "").trim();
+    if (s) sp.set(k, s);
+  }
+  return `/admin/users?${sp.toString()}`;
+}
+
 function buildDisplayName(first_name: string, last_name: string) {
   return `${String(first_name || "").trim()} ${String(last_name || "").trim()}`.trim();
+}
+
+async function syncDirectReportsFromVisibility(args: {
+  orgId: number;
+  managerUserId: number;
+  managerRole: "EXEC_MANAGER" | "MANAGER";
+  visibleUserIds: number[];
+}) {
+  const all = await listUsers({ orgId: args.orgId, includeInactive: true }).catch(() => []);
+  const userById = new Map<number, any>(all.map((u: any) => [Number(u.id), u]));
+
+  const targetRole = args.managerRole === "EXEC_MANAGER" ? "MANAGER" : "REP";
+  const desired = new Set<number>();
+
+  for (const id of args.visibleUserIds) {
+    const u = userById.get(Number(id));
+    if (!u) continue;
+    if (String(u.role) !== targetRole) continue;
+    desired.add(Number(id));
+  }
+
+  // Assign selected direct reports.
+  for (const id of desired) {
+    await setUserManagerUserId({ orgId: args.orgId, userId: id, manager_user_id: args.managerUserId });
+  }
+
+  // Unassign any previous direct reports that are no longer selected.
+  for (const u of all as any[]) {
+    if (String(u.role) !== targetRole) continue;
+    if (u.manager_user_id == null) continue;
+    if (Number(u.manager_user_id) !== args.managerUserId) continue;
+    if (desired.has(Number(u.id))) continue;
+    await setUserManagerUserId({ orgId: args.orgId, userId: Number(u.id), manager_user_id: null });
+  }
 }
 
 export async function createUserAction(formData: FormData) {
@@ -187,17 +230,36 @@ export async function createUserAction(formData: FormData) {
         visibleUserIds: visibleIds,
         see_all_visibility: false,
       });
+      // Treat visibility assignments as direct-report assignments.
+      await syncDirectReportsFromVisibility({
+        orgId,
+        managerUserId: created.id,
+        managerRole: parsed.role === "EXEC_MANAGER" ? "EXEC_MANAGER" : "MANAGER",
+        visibleUserIds: visibleIds,
+      });
     } else if (hierarchy_level === 1 || hierarchy_level === 2) {
       await replaceManagerVisibility({ orgId, managerUserId: created.id, visibleUserIds: [], see_all_visibility: true });
     }
 
     revalidatePath("/admin/users");
-    redirect(closeHref());
+    redirect(buildSuccessRedirect({ created: created.public_id }));
   } catch (e) {
     if (isNextRedirectError(e)) throw e;
     const msg = String((e as any)?.message || "");
     if (msg.toLowerCase().includes("passwords do not match")) {
       redirect(buildErrorRedirect({ ...prefill, error: "passwords_do_not_match" }));
+    }
+    if (msg.toLowerCase().includes("account_owner_name is required")) {
+      redirect(buildErrorRedirect({ ...prefill, error: "missing_account_owner_name" }));
+    }
+    if (msg.toLowerCase().includes("visibility assignments")) {
+      redirect(buildErrorRedirect({ ...prefill, error: "missing_visibility_assignments" }));
+    }
+    if (msg.toLowerCase().includes("duplicate key") || msg.toLowerCase().includes("already exists")) {
+      redirect(buildErrorRedirect({ ...prefill, error: "email_in_use" }));
+    }
+    if (msg.toLowerCase().includes("manager_user_id")) {
+      redirect(buildErrorRedirect({ ...prefill, error: "invalid_manager" }));
     }
     redirect(buildErrorRedirect({ ...prefill, error: "invalid_request" }));
   }
@@ -295,6 +357,13 @@ export async function updateUserAction(formData: FormData) {
       managerUserId: userId,
       visibleUserIds: visibleIds,
       see_all_visibility: false,
+    });
+    // Treat visibility assignments as direct-report assignments.
+    await syncDirectReportsFromVisibility({
+      orgId,
+      managerUserId: userId,
+      managerRole: parsed.role === "EXEC_MANAGER" ? "EXEC_MANAGER" : "MANAGER",
+      visibleUserIds: visibleIds,
     });
   } else if (hierarchy_level === 1 || hierarchy_level === 2) {
     await replaceManagerVisibility({ orgId, managerUserId: userId, visibleUserIds: [], see_all_visibility: true });

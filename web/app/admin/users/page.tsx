@@ -27,6 +27,7 @@ export default async function UsersPage({
   const modal = sp(searchParams.modal) || "";
   const userPublicId = sp(searchParams.id) || "";
   const reset = sp(searchParams.reset) || "";
+  const created = sp(searchParams.created) || "";
   const roleFilter = sp(searchParams.role) || "";
   const error = sp(searchParams.error) || "";
   const prefillEmail = sp(searchParams.email) || "";
@@ -67,6 +68,8 @@ export default async function UsersPage({
   const execManagers = isAdmin ? usersRaw.filter((u) => u.role === "EXEC_MANAGER" && u.active) : [];
   const managers = isAdmin ? usersRaw.filter((u) => u.role === "MANAGER" && u.active) : [];
   const userById = new Map<number, (typeof usersRaw)[number]>(usersRaw.map((u) => [u.id, u]));
+
+  const createdUser = created ? usersRaw.find((u) => String(u.public_id) === String(created)) || null : null;
 
   const userId = userPublicId ? await resolvePublicId("users", userPublicId).catch(() => 0) : 0;
   const user =
@@ -111,6 +114,19 @@ export default async function UsersPage({
                 {reset}
               </Link>
             </>
+          )}
+        </div>
+      ) : null}
+
+      {created ? (
+        <div className="mt-4 rounded-md border border-[#2ECC71] bg-[color:var(--sf-surface)] px-4 py-3 text-sm text-[color:var(--sf-text-primary)]">
+          {createdUser ? (
+            <>
+              User created: <span className="font-semibold">{createdUser.display_name}</span>{" "}
+              <span className="text-[color:var(--sf-text-secondary)]">({createdUser.email})</span>
+            </>
+          ) : (
+            <>User created.</>
           )}
         </div>
       ) : null}
@@ -237,7 +253,15 @@ export default async function UsersPage({
               <div className="rounded-lg border border-[#E74C3C] bg-[color:var(--sf-surface-alt)] px-4 py-3 text-sm text-[color:var(--sf-text-primary)]">
                 {error === "passwords_do_not_match"
                   ? "Passwords don't match. Please re-enter them."
-                  : "Please check your inputs and try again."}
+                  : error === "missing_account_owner_name"
+                    ? "CRM Account Owner Name is required for REPs. Copy/paste it exactly as it appears in your CRM."
+                    : error === "email_in_use"
+                      ? "That email is already in use. Choose a different email."
+                      : error === "missing_visibility_assignments"
+                        ? "Managers must have visibility assignments unless “Can View All User Data” is enabled."
+                        : error === "invalid_manager"
+                          ? "Invalid manager selection. Please choose a valid manager in this org for the selected role."
+                          : "Unable to create user. Please check your inputs and try again."}
               </div>
             ) : null}
             {isManager ? <input type="hidden" name="role" value="REP" /> : null}
@@ -319,10 +343,10 @@ export default async function UsersPage({
 
             {isAdmin ? (
               <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3" data-show-roles="EXEC_MANAGER,MANAGER" hidden>
-                <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Manager visibility assignments</div>
+                <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct reports (assignments)</div>
                 <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-                  If creating an EXEC_MANAGER/MANAGER and <span className="font-mono">Can View All User Data</span> is unchecked, you must assign at least
-                  one visible user.
+                  If creating an EXEC_MANAGER/MANAGER and <span className="font-mono">Can View All User Data</span> is unchecked, select who reports to them.
+                  These selections also control their visibility scope.
                 </p>
                 <div className="mt-2 grid gap-2">
                   {users
@@ -578,10 +602,10 @@ export default async function UsersPage({
                 data-show-roles="EXEC_MANAGER,MANAGER"
                 hidden={!(user.role === "EXEC_MANAGER" || user.role === "MANAGER")}
               >
-                <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Manager visibility assignments</div>
+                <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct reports (assignments)</div>
                 <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
                   If editing an EXEC_MANAGER/MANAGER and <span className="font-mono">Can View All User Data</span> is unchecked, select which users
-                  they can see.
+                  report to them. These selections also control their visibility scope.
                 </p>
                 <div className="mt-2 grid gap-2">
                   {users
