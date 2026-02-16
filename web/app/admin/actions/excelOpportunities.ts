@@ -147,7 +147,19 @@ function normalizeBooleanCell(v: unknown): boolean | null {
     s === "on"
   )
     return true;
-  if (s === "false" || s === "f" || s === "no" || s === "n" || s === "0" || s === "unchecked" || s === "off" || s === "null")
+  if (
+    s === "false" ||
+    s === "f" ||
+    s === "no" ||
+    s === "n" ||
+    s === "0" ||
+    s === "unchecked" ||
+    s === "off" ||
+    s === "null" ||
+    // Common "not provided / not applicable" shorthands seen in uploads.
+    s === "np" ||
+    s === "n/p"
+  )
     return false;
   return null;
 }
@@ -465,7 +477,15 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
               .trim();
             // Treat common "not applicable" markers as blank => false.
             const normalizedForBlank = raw.toLowerCase();
-            if (normalizedForBlank === "n/a" || normalizedForBlank === "na" || normalizedForBlank === "-") {
+            if (
+              normalizedForBlank === "n/a" ||
+              normalizedForBlank === "na" ||
+              normalizedForBlank === "np" ||
+              normalizedForBlank === "n/p" ||
+              normalizedForBlank === "-" ||
+              normalizedForBlank === "not applicable" ||
+              normalizedForBlank === "not provided"
+            ) {
               row[src] = false;
               continue;
             }
