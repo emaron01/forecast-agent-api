@@ -76,7 +76,13 @@ export async function getHealthAveragesByPeriods(args: { orgId: number; periodId
   return (rows || []) as any[];
 }
 
-export async function getHealthAveragesByRepByPeriods(args: { orgId: number; periodIds: string[]; repIds: number[] | null }) {
+export async function getHealthAveragesByRepByPeriods(args: {
+  orgId: number;
+  periodIds: string[];
+  repIds: number[] | null;
+  dateStart?: string | null;
+  dateEnd?: string | null;
+}) {
   if (!args.periodIds.length) return [] as RepHealthAveragesRow[];
   const useRepFilter = !!(args.repIds && args.repIds.length);
   const { rows } = await pool.query<RepHealthAveragesRow>(
@@ -85,7 +91,9 @@ export async function getHealthAveragesByRepByPeriods(args: { orgId: number; per
       SELECT
         id::bigint AS quota_period_id,
         period_start::date AS period_start,
-        period_end::date AS period_end
+        period_end::date AS period_end,
+        GREATEST(period_start::date, COALESCE($5::date, period_start::date)) AS range_start,
+        LEAST(period_end::date, COALESCE($6::date, period_end::date)) AS range_end
       FROM quota_periods
       WHERE org_id = $1::bigint
         AND id = ANY($2::bigint[])
@@ -101,8 +109,8 @@ export async function getHealthAveragesByRepByPeriods(args: { orgId: number; per
         ON o.org_id = $1
        AND o.rep_id IS NOT NULL
        AND o.close_date IS NOT NULL
-       AND o.close_date >= p.period_start
-       AND o.close_date <= p.period_end
+       AND o.close_date >= p.range_start
+       AND o.close_date <= p.range_end
        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
     ),
     classified AS (
@@ -134,7 +142,7 @@ export async function getHealthAveragesByRepByPeriods(args: { orgId: number; per
     GROUP BY quota_period_id, rep_id
     ORDER BY quota_period_id DESC, rep_id ASC
     `,
-    [args.orgId, args.periodIds, args.repIds || [], useRepFilter]
+    [args.orgId, args.periodIds, args.repIds || [], useRepFilter, args.dateStart || null, args.dateEnd || null]
   );
   return (rows || []) as any[];
 }

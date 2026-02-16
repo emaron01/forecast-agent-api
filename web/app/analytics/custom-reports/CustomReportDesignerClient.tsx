@@ -605,10 +605,12 @@ export function CustomReportDesignerClient(props: {
           </div>
         </div>
         <div className="mt-2 max-h-[420px] overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-          <div className="grid grid-cols-1 gap-2 p-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 p-2 sm:grid-cols-2 lg:grid-cols-3">
             {repGroupsForPicker.map((eg) => {
-              const execOnlyIds = eg.execRow ? [String(eg.execRow.rep_id)] : [];
-              const execChecked = areAllRepIdsChecked(execOnlyIds);
+              const execTeamIds = reps
+                .filter((r) => execIdForRep(String(r.rep_id)) === String(eg.execId))
+                .map((r) => String(r.rep_id));
+              const execChecked = areAllRepIdsChecked(execTeamIds);
 
               return (
                 <div key={`exec:${eg.execId}`} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
@@ -617,8 +619,8 @@ export function CustomReportDesignerClient(props: {
                       <input
                         type="checkbox"
                         checked={execChecked}
-                        onChange={() => setRepIdsChecked(execOnlyIds, !execChecked)}
-                        disabled={!execOnlyIds.length}
+                        onChange={() => setRepIdsChecked(execTeamIds, !execChecked)}
+                        disabled={!execTeamIds.length}
                       />
                       <span className="truncate">Executive: {eg.execName}</span>
                     </label>
@@ -626,11 +628,10 @@ export function CustomReportDesignerClient(props: {
 
                   <div className="grid gap-2 p-2">
                     {eg.managers.map((mg) => {
-                      const managerOnlyIds = mg.managerRow ? [String(mg.managerRow.rep_id)] : [];
-                      const managerChecked = areAllRepIdsChecked(managerOnlyIds);
-
-                      const memberIds = mg.members.map((r) => String(r.rep_id));
-                      const membersChecked = areAllRepIdsChecked(memberIds);
+                      const managerTeamIds = Array.from(
+                        new Set([String(mg.managerId || ""), ...mg.members.map((r) => String(r.rep_id))].filter(Boolean))
+                      );
+                      const managerChecked = areAllRepIdsChecked(managerTeamIds);
 
                       return (
                         <div
@@ -642,22 +643,10 @@ export function CustomReportDesignerClient(props: {
                               <input
                                 type="checkbox"
                                 checked={managerChecked}
-                                onChange={() => setRepIdsChecked(managerOnlyIds, !managerChecked)}
-                                disabled={!managerOnlyIds.length}
+                                onChange={() => setRepIdsChecked(managerTeamIds, !managerChecked)}
+                                disabled={!managerTeamIds.length}
                               />
-                              <span className="truncate">Manager: {mg.managerName}</span>
-                            </label>
-                          </div>
-
-                          <div className="flex items-center gap-3 border-b border-[color:var(--sf-border)] px-3 py-2">
-                            <label className="flex min-w-0 items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
-                              <input
-                                type="checkbox"
-                                checked={membersChecked}
-                                onChange={() => setRepIdsChecked(memberIds, !membersChecked)}
-                                disabled={!memberIds.length}
-                              />
-                              <span className="truncate">Rep Team members</span>
+                              <span className="truncate">{mg.managerId ? `Manager: ${mg.managerName}` : `Team: ${mg.managerName}`}</span>
                             </label>
                           </div>
 

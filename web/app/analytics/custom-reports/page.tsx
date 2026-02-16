@@ -13,6 +13,17 @@ function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
 }
 
+function isIsoDateOnly(s: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(s || "").trim());
+}
+
+function normalizeDateRange(startRaw: string, endRaw: string) {
+  let start = isIsoDateOnly(startRaw) ? String(startRaw).trim() : "";
+  let end = isIsoDateOnly(endRaw) ? String(endRaw).trim() : "";
+  if (start && end && start > end) [start, end] = [end, start];
+  return { start, end };
+}
+
 type QuotaPeriodLite = {
   id: string;
   period_name: string;
@@ -85,12 +96,23 @@ type RepPeriodKpisRow = {
   avg_days_active: number | null;
 };
 
-async function getRepKpisByPeriod(args: { orgId: number; periodId: string; repIds: number[] | null }) {
+async function getRepKpisByPeriod(args: {
+  orgId: number;
+  periodId: string;
+  repIds: number[] | null;
+  dateStart?: string | null;
+  dateEnd?: string | null;
+}) {
   const useRepFilter = !!(args.repIds && args.repIds.length);
   const { rows } = await pool.query<RepPeriodKpisRow>(
     `
     WITH p AS (
-      SELECT id::bigint AS quota_period_id, period_start::date AS period_start, period_end::date AS period_end
+      SELECT
+        id::bigint AS quota_period_id,
+        period_start::date AS period_start,
+        period_end::date AS period_end,
+        GREATEST(period_start::date, COALESCE($5::date, period_start::date)) AS range_start,
+        LEAST(period_end::date, COALESCE($6::date, period_end::date)) AS range_end
       FROM quota_periods
       WHERE org_id = $1::bigint
         AND id = $2::bigint
@@ -106,16 +128,16 @@ async function getRepKpisByPeriod(args: { orgId: number; periodId: string; repId
         o.create_date,
         o.close_date,
         lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
-        p.period_end::timestamptz AS period_end_ts,
-        p.period_start::date AS period_start,
-        p.period_end::date AS period_end
+        p.range_end::timestamptz AS period_end_ts,
+        p.range_start::date AS period_start,
+        p.range_end::date AS period_end
       FROM p
       JOIN opportunities o
         ON o.org_id = $1
        AND o.rep_id IS NOT NULL
        AND o.close_date IS NOT NULL
-       AND o.close_date >= p.period_start
-       AND o.close_date <= p.period_end
+       AND o.close_date >= p.range_start
+       AND o.close_date <= p.range_end
        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
       LEFT JOIN reps r
         ON r.organization_id = $1
@@ -161,7 +183,7 @@ async function getRepKpisByPeriod(args: { orgId: number; periodId: string; repId
     GROUP BY quota_period_id, rep_id, rep_name
     ORDER BY won_amount DESC, rep_name ASC
     `,
-    [args.orgId, args.periodId, args.repIds || [], useRepFilter]
+    [args.orgId, args.periodId, args.repIds || [], useRepFilter, args.dateStart || null, args.dateEnd || null]
   );
   return (rows || []) as any[];
 }
@@ -203,6 +225,7 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
 
   const fiscal_year = String(sp(searchParams.fiscal_year) || "").trim();
   const quota_period_id = String(sp(searchParams.quota_period_id) || "").trim();
+  const { start: start_date, end: end_date } = normalizeDateRange(String(sp(searchParams.start_date) || "").trim(), String(sp(searchParams.end_date) || "").trim());
 
   const periods = await listQuotaPeriodsForOrg(ctx.user.org_id).catch(() => []);
   const fiscalYears = Array.from(new Set(periods.map((p) => String(p.fiscal_year || "").trim()).filter(Boolean))).sort((a, b) => b.localeCompare(a));
@@ -233,36 +256,54 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
     }
   }
 
-  const repKpisRows = selectedPeriod ? await getRepKpisByPeriod({ orgId: ctx.user.org_id, periodId: String(selectedPeriod.id), repIds: null }).catch(() => []) : [];
+  const repKpisRows = selectedPeriod
+    ? await getRepKpisByPeriod({
+        orgId: ctx.user.org_id,
+        periodId: String(selectedPeriod.id),
+        repIds: null,
+        dateStart: start_date || null,
+        dateEnd: end_date || null,
+      }).catch(() => [])
+    : [];
   const quotaRows = selectedPeriod ? await getQuotaByRepForPeriod({ orgId: ctx.user.org_id, quotaPeriodId: String(selectedPeriod.id), repIds: null }).catch(() => []) : [];
   const quotaByRep = new Map<string, number>();
   for (const q of quotaRows) quotaByRep.set(String(q.rep_id), Number(q.quota_amount || 0) || 0);
 
   const repHealthRows = selectedPeriod
-    ? await getHealthAveragesByRepByPeriods({ orgId: ctx.user.org_id, periodIds: [String(selectedPeriod.id)], repIds: null }).catch(() => [])
+    ? await getHealthAveragesByRepByPeriods({
+        orgId: ctx.user.org_id,
+        periodIds: [String(selectedPeriod.id)],
+        repIds: null,
+        dateStart: start_date || null,
+        dateEnd: end_date || null,
+      }).catch(() => [])
     : [];
   const healthByRepId = new Map<string, any>();
   for (const r of repHealthRows || []) healthByRepId.set(String((r as any).rep_id), r);
 
-  const repRows = repKpisRows.map((c: any) => {
-    const rep_id = String(c.rep_id);
+  const kpisByRepId = new Map<string, any>();
+  for (const c of repKpisRows || []) kpisByRepId.set(String((c as any).rep_id), c);
+
+  const repRows = repOptions.map((opt: any) => {
+    const rep_id = String(opt.id);
+    const c: any = kpisByRepId.get(rep_id) || null;
     const quota = quotaByRep.get(rep_id) || 0;
-    const won_amount = Number(c.won_amount || 0) || 0;
-    const won_count = Number(c.won_count || 0) || 0;
-    const lost_count = Number(c.lost_count || 0) || 0;
-    const active_amount = Number(c.active_amount || 0) || 0;
-    const total_count = Number(c.total_count || 0) || 0;
+    const won_amount = Number(c?.won_amount || 0) || 0;
+    const won_count = Number(c?.won_count || 0) || 0;
+    const lost_count = Number(c?.lost_count || 0) || 0;
+    const active_amount = Number(c?.active_amount || 0) || 0;
+    const total_count = Number(c?.total_count || 0) || 0;
     const manager_id = repIdToManagerId.get(rep_id) || "";
     const manager_name = manager_id ? managerNameById.get(manager_id) || `Manager ${manager_id}` : "(Unassigned)";
 
-    const commit_amount = Number(c.commit_amount || 0) || 0;
-    const best_amount = Number(c.best_amount || 0) || 0;
-    const pipeline_amount = Number(c.pipeline_amount || 0) || 0;
+    const commit_amount = Number(c?.commit_amount || 0) || 0;
+    const best_amount = Number(c?.best_amount || 0) || 0;
+    const pipeline_amount = Number(c?.pipeline_amount || 0) || 0;
     const mixDen = pipeline_amount + best_amount + commit_amount + won_amount;
 
     return {
       rep_id,
-      rep_name: String(c.rep_name || "").trim() || `Rep ${rep_id}`,
+      rep_name: String(opt?.name || "").trim() || String(c?.rep_name || "").trim() || `Rep ${rep_id}`,
       manager_id,
       manager_name,
       avg_health_all: healthByRepId.get(rep_id)?.avg_health_all ?? null,
@@ -288,17 +329,19 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
       attainment: safeDiv(won_amount, quota),
       commit_coverage: safeDiv(commit_amount, quota),
       best_coverage: safeDiv(best_amount, quota),
-      partner_contribution: safeDiv(Number(c.partner_closed_amount || 0) || 0, Number(c.closed_amount || 0) || 0),
-      partner_win_rate: safeDiv(Number(c.partner_won_count || 0) || 0, Number(c.partner_closed_count || 0) || 0),
-      avg_days_won: c.avg_days_won == null ? null : Number(c.avg_days_won),
-      avg_days_lost: c.avg_days_lost == null ? null : Number(c.avg_days_lost),
-      avg_days_active: c.avg_days_active == null ? null : Number(c.avg_days_active),
+      partner_contribution: safeDiv(Number(c?.partner_closed_amount || 0) || 0, Number(c?.closed_amount || 0) || 0),
+      partner_win_rate: safeDiv(Number(c?.partner_won_count || 0) || 0, Number(c?.partner_closed_count || 0) || 0),
+      avg_days_won: c?.avg_days_won == null ? null : Number(c.avg_days_won),
+      avg_days_lost: c?.avg_days_lost == null ? null : Number(c.avg_days_lost),
+      avg_days_active: c?.avg_days_active == null ? null : Number(c.avg_days_active),
       mix_pipeline: safeDiv(pipeline_amount, mixDen),
       mix_best: safeDiv(best_amount, mixDen),
       mix_commit: safeDiv(commit_amount, mixDen),
       mix_won: safeDiv(won_amount, mixDen),
     };
   });
+
+  repRows.sort((a: any, b: any) => (Number(b.won_amount || 0) - Number(a.won_amount || 0)) || String(a.rep_name).localeCompare(String(b.rep_name)));
 
   // Saved reports for this user
   const { rows: saved } = await pool.query(
@@ -334,7 +377,7 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
 
         <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
           <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Filters</h2>
-          <form method="GET" action="/analytics/custom-reports" className="mt-3 grid gap-3 md:grid-cols-3">
+          <form method="GET" action="/analytics/custom-reports" className="mt-3 grid gap-3 md:grid-cols-5">
             <div className="grid gap-1">
               <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Fiscal Year</label>
               <select
@@ -363,6 +406,24 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
                 ))}
               </select>
             </div>
+            <div className="grid gap-1">
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Start date</label>
+              <input
+                type="date"
+                name="start_date"
+                defaultValue={start_date}
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+              />
+            </div>
+            <div className="grid gap-1">
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">End date</label>
+              <input
+                type="date"
+                name="end_date"
+                defaultValue={end_date}
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+              />
+            </div>
             <div className="flex items-end justify-end gap-2">
               <Link
                 href="/analytics/custom-reports"
@@ -384,8 +445,11 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
           savedReports={(saved || []) as any}
           periodLabel={
             selectedPeriod
-              ? `${selectedPeriod.period_name} (FY${selectedPeriod.fiscal_year} Q${selectedPeriod.fiscal_quarter})`
-              : "—"
+              ? `${selectedPeriod.period_name} (FY${selectedPeriod.fiscal_year} Q${selectedPeriod.fiscal_quarter})${
+                  start_date || end_date ? ` · Dates: ${start_date || "…"} → ${end_date || "…"}`
+                    : ""
+                }`
+              : `—${start_date || end_date ? ` · Dates: ${start_date || "…"} → ${end_date || "…"}` : ""}`
           }
         />
       </main>

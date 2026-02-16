@@ -645,9 +645,24 @@ export default async function QuarterlyKpisPage({
     .slice()
     .sort((a, b) => new Date(b.period_start).getTime() - new Date(a.period_start).getTime());
 
-  // Show ALL quarters for the selected fiscal year (including future),
-  // ordered newest → oldest by period_start.
-  const visiblePeriods = periodsSortedDesc;
+  // Show quarters up through the CURRENT quarter only (no future quarters),
+  // and always list the current quarter first.
+  const visiblePeriods = (() => {
+    if (!periodsSortedDesc.length) return [] as typeof periodsSortedDesc;
+    const cur = currentForYear;
+    if (!cur) {
+      // Fallback: show only periods that have started (by today's date), newest → oldest.
+      const todayIso = dateOnly(new Date());
+      return periodsSortedDesc.filter((p) => String(p.period_start) <= todayIso);
+    }
+    const curStart = new Date(cur.period_start).getTime();
+    const pastAndCurrent = periodsSortedDesc.filter((p) => new Date(p.period_start).getTime() <= curStart);
+    // Ensure current quarter is first, then remaining past quarters newest → oldest.
+    const rest = pastAndCurrent
+      .filter((p) => String(p.id) !== String(cur.id))
+      .sort((a, b) => new Date(b.period_start).getTime() - new Date(a.period_start).getTime());
+    return [cur, ...rest];
+  })();
 
   // Scope: Exec/Admin see org; Manager sees direct reports (via reps.manager_rep_id); other non-rep roles treated as org.
   let scopeRepIds: number[] | null = null;
