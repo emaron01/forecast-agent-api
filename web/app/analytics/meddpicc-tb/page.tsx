@@ -60,6 +60,11 @@ export default async function MeddpiccTbAnalyticsHubPage() {
             title="Tips Populated (by category)"
             desc="Shows which MEDDPICC categories have an agent tip populated."
           />
+          <Card
+            href="/analytics/meddpicc-tb/rep-rollup"
+            title="Rep rollup by Forecast Stage"
+            desc="Opportunity counts + avg MEDDPICC+TB scores, rolled up to manager."
+          />
         </section>
       </main>
     </div>
