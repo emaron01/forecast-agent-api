@@ -58,6 +58,13 @@ function healthPct(deal: Deal) {
   return Math.max(0, Math.min(100, Math.round((total / 30) * 100)));
 }
 
+function healthColorClass(pct: number | null) {
+  if (pct == null) return "text-[color:var(--sf-text-disabled)]";
+  if (pct >= 80) return "text-[#2ECC71]";
+  if (pct >= 50) return "text-[#F1C40F]";
+  return "text-[#E74C3C]";
+}
+
 function labelFromSummary(summary: any, fallbackScore: any) {
   const s = String(summary || "");
   if (s.includes(":")) return s.split(":")[0].trim();
@@ -231,6 +238,12 @@ export function ForecastDashboardClient(props: {
     return list;
   }, [allDeals, search, sort]);
 
+  const avgHealthPct = useMemo(() => {
+    const vals = filtered.map((d) => healthPct(d)).filter((n) => Number.isFinite(n) && n > 0) as number[];
+    if (!vals.length) return null;
+    return Math.max(0, Math.min(100, Math.round(vals.reduce((a, b) => a + b, 0) / vals.length)));
+  }, [filtered]);
+
   const pillClass =
     statusKind === "ok"
       ? "border-[#2ECC71] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
@@ -243,7 +256,12 @@ export function ForecastDashboardClient(props: {
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Opportunity Score Cards View</h1>
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Opportunity Score Cards View</h1>
+              <div className="text-sm text-[color:var(--sf-text-secondary)]">
+                Avg Health Score: <span className={`font-semibold ${healthColorClass(avgHealthPct)}`}>{avgHealthPct == null ? "—" : `${avgHealthPct}%`}</span>
+              </div>
+            </div>
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
               Legacy card view (polls server for updates). Primary rep view is Sales Opportunities.
             </p>

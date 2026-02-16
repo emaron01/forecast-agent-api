@@ -475,6 +475,7 @@ export async function QuarterSalesForecastSummary(props: {
           commit_health_score: number | null;
           best_case_health_score: number | null;
           pipeline_health_score: number | null;
+          total_pipeline_health_score: number | null;
           won_health_score: number | null;
         }>(
           `
@@ -548,6 +549,13 @@ export async function QuarterSalesForecastSummary(props: {
               ELSE NULLIF(d.health_score, 0)
             END)::float8 AS pipeline_health_score,
             AVG(CASE
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
+                OR ((' ' || d.fs || ' ') LIKE '% lost %')
+                OR ((' ' || d.fs || ' ') LIKE '% closed %')
+              THEN NULL
+              ELSE NULLIF(d.health_score, 0)
+            END)::float8 AS total_pipeline_health_score,
+            AVG(CASE
               WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN NULLIF(d.health_score, 0)
               ELSE NULL
             END)::float8 AS won_health_score
@@ -556,14 +564,33 @@ export async function QuarterSalesForecastSummary(props: {
           [props.orgId, qpId, repIdsToUse, visibleRepNameKeys]
         )
         .then((r) =>
-          r.rows?.[0] || { commit_health_score: null, best_case_health_score: null, pipeline_health_score: null, won_health_score: null }
+          r.rows?.[0] || {
+            commit_health_score: null,
+            best_case_health_score: null,
+            pipeline_health_score: null,
+            total_pipeline_health_score: null,
+            won_health_score: null,
+          }
         )
-        .catch(() => ({ commit_health_score: null, best_case_health_score: null, pipeline_health_score: null, won_health_score: null }))
-    : { commit_health_score: null, best_case_health_score: null, pipeline_health_score: null, won_health_score: null };
+        .catch(() => ({
+          commit_health_score: null,
+          best_case_health_score: null,
+          pipeline_health_score: null,
+          total_pipeline_health_score: null,
+          won_health_score: null,
+        }))
+    : {
+        commit_health_score: null,
+        best_case_health_score: null,
+        pipeline_health_score: null,
+        total_pipeline_health_score: null,
+        won_health_score: null,
+      };
 
   const commitHealthPct = healthPctFrom30(bucketHealth.commit_health_score);
   const bestHealthPct = healthPctFrom30(bucketHealth.best_case_health_score);
   const pipelineHealthPct = healthPctFrom30(bucketHealth.pipeline_health_score);
+  const totalPipelineHealthPct = healthPctFrom30(bucketHealth.total_pipeline_health_score);
   const wonHealthPct = healthPctFrom30(bucketHealth.won_health_score);
 
   const commitAmt = repRollups.reduce((acc, r) => acc + (Number(r.commit_amount || 0) || 0), 0);
@@ -816,7 +843,7 @@ export async function QuarterSalesForecastSummary(props: {
             { key: "commit", label: "Commit", amount: commitAmt, count: commitCount, healthPct: commitHealthPct },
             { key: "best", label: "Best Case", amount: bestCaseAmt, count: bestCaseCount, healthPct: bestHealthPct },
             { key: "pipe", label: "Pipeline", amount: pipelineAmt, count: pipelineCount, healthPct: pipelineHealthPct },
-            { key: "total", label: "Total Pipeline", amount: totalAmt, count: totalPipelineCount, healthPct: null },
+            { key: "total", label: "Total Pipeline", amount: totalAmt, count: totalPipelineCount, healthPct: totalPipelineHealthPct },
             { key: "won", label: "Closed Won", amount: wonAmt, count: wonCount, healthPct: wonHealthPct },
           ]
             .filter((c) => !(Number(c.amount || 0) === 0 && Number(c.count || 0) === 0))

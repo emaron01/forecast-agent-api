@@ -32,6 +32,20 @@ function healthPct(deal: Deal) {
   return `${Math.max(0, Math.min(100, pct))}%`;
 }
 
+function healthPctFrom30(score: any) {
+  const n = Number(score);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const pct = Math.round((n / 30) * 100);
+  return Math.max(0, Math.min(100, pct));
+}
+
+function healthColorClass(pct: number | null) {
+  if (pct == null) return "text-[color:var(--sf-text-disabled)]";
+  if (pct >= 80) return "text-[#2ECC71]";
+  if (pct >= 50) return "text-[#F1C40F]";
+  return "text-[#E74C3C]";
+}
+
 function normalizeForecastBucket(stageLike: any): "Commit" | "Best Case" | "Pipeline" {
   const s = String(stageLike || "").trim().toLowerCase();
   if (s.includes("commit")) return "Commit";
@@ -80,6 +94,15 @@ export function SimpleForecastDashboardClient(props: {
       return hay.includes(q);
     });
   }, [deals, search]);
+
+  const avgHealthPct = useMemo(() => {
+    const scores = filtered
+      .map((d) => Number(d.health_score))
+      .filter((n) => Number.isFinite(n) && n > 0) as number[];
+    if (!scores.length) return null;
+    const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+    return healthPctFrom30(avgScore);
+  }, [filtered]);
 
   async function refresh() {
     setBusy(true);
@@ -158,7 +181,12 @@ export function SimpleForecastDashboardClient(props: {
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Sales Opportunities</h1>
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Sales Opportunities</h1>
+              <div className="text-sm text-[color:var(--sf-text-secondary)]">
+                Avg Health Score: <span className={`font-semibold ${healthColorClass(avgHealthPct)}`}>{avgHealthPct == null ? "—" : `${avgHealthPct}%`}</span>
+              </div>
+            </div>
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
               {showDealReviewWorkflow ? (
                 <>
