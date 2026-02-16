@@ -8,6 +8,7 @@ import {
   createFieldMappingSet,
   deleteFieldMappingSet,
   getFieldMappingSet,
+  listIngestionStagingErrorsInRange,
   listIngestionStagingByFilter,
   listFieldMappings,
   listFieldMappingSets,
@@ -414,6 +415,8 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
     for (let i = 0; i < rawRows.length; i++) {
       const row = rawRows[i] as any;
       const rowNum = i + 2; // header row is 1 in Excel
+      // Keep the original Excel row number for better diagnostics downstream.
+      row.__excel_row_num = rowNum;
 
       for (const req of requiredSources) {
         const v = row?.[req.source];
@@ -516,17 +519,34 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
       throw new Error(`Ingestion processing failed: ${e?.message || String(e)}`);
     }) : null;
     if (processNow) {
-      const errorRows = await listIngestionStagingByFilter({
-        organizationId: orgId,
-        mappingSetId,
-        filter: "error",
-        limit: 25,
-      }).catch(() => []);
+      const idMin = (staged as any)?.firstId ? String((staged as any).firstId) : "";
+      const idMax = (staged as any)?.lastId ? String((staged as any).lastId) : "";
+      const errorRows =
+        idMin && idMax
+          ? await listIngestionStagingErrorsInRange({
+              organizationId: orgId,
+              mappingSetId,
+              idMin,
+              idMax,
+              limit: 25,
+            }).catch(() => [])
+          : await listIngestionStagingByFilter({
+              organizationId: orgId,
+              mappingSetId,
+              filter: "error",
+              limit: 25,
+            }).catch(() => []);
       if (errorRows?.length) {
         return err(
           intent,
           "Your file uploaded, but we couldn’t ingest some rows.",
-          errorRows.map((r: any) => String(r.error_message || "Unknown error")).filter(Boolean)
+          errorRows
+            .map((r: any) => {
+              const excelRow = (r?.raw_row as any)?.__excel_row_num;
+              const prefix = excelRow ? `Row ${excelRow}: ` : "";
+              return prefix + String(r?.error_message || "Unknown error");
+            })
+            .filter(Boolean)
         );
       }
     }

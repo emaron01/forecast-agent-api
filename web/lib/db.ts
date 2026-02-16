@@ -912,6 +912,8 @@ export async function stageIngestionRows(args: { organizationId: number; mapping
     await c.query("BEGIN");
     try {
       let inserted = 0;
+      let firstId: string | null = null;
+      let lastId: string | null = null;
       // Chunk inserts to keep statement size reasonable.
       const chunkSize = 250;
       for (let i = 0; i < rawRows.length; i += chunkSize) {
@@ -924,22 +926,67 @@ export async function stageIngestionRows(args: { organizationId: number; mapping
           rowsSql.push(`($${p + 1}, $${p + 2}::bigint, $${p + 3}::jsonb)`);
           p += 3;
         }
-        await c.query(
+        const res = await c.query<{ id: string }>(
           `
           INSERT INTO ingestion_staging (organization_id, mapping_set_id, raw_row)
           VALUES ${rowsSql.join(", ")}
+          RETURNING id::text AS id
           `,
           values
         );
+        const ids = (res.rows || []).map((r) => String(r.id)).filter(Boolean);
+        if (ids.length) {
+          // IDs are monotonic within the transaction, so first/last is safe.
+          if (!firstId) firstId = ids[0];
+          lastId = ids[ids.length - 1];
+        }
         inserted += chunk.length;
       }
       await c.query("COMMIT");
-      return { inserted };
+      return { inserted, firstId: firstId || undefined, lastId: lastId || undefined };
     } catch (e) {
       await c.query("ROLLBACK");
       throw e;
     }
   });
+}
+
+export async function listIngestionStagingErrorsInRange(args: {
+  organizationId: number;
+  mappingSetId: string;
+  idMin: string;
+  idMax: string;
+  limit?: number;
+}) {
+  const organizationId = zOrganizationId.parse(args.organizationId);
+  const mappingSetId = zMappingSetId.parse(args.mappingSetId);
+  const idMin = zMappingSetId.parse(args.idMin);
+  const idMax = zMappingSetId.parse(args.idMax);
+  const limit = Math.max(1, Math.min(500, Number(args.limit ?? 100) || 100));
+
+  const { rows } = await pool.query(
+    `
+    SELECT
+      id::text AS id,
+      public_id::text AS public_id,
+      organization_id,
+      mapping_set_id::text AS mapping_set_id,
+      raw_row,
+      normalized_row,
+      status,
+      error_message
+    FROM ingestion_staging
+    WHERE organization_id = $1
+      AND mapping_set_id = $2::bigint
+      AND id >= $3::bigint
+      AND id <= $4::bigint
+      AND error_message IS NOT NULL
+    ORDER BY id DESC
+    LIMIT $5
+    `,
+    [organizationId, mappingSetId, idMin, idMax, limit]
+  );
+  return rows as IngestionStagingRow[];
 }
 
 export async function processIngestionBatch(args: { organizationId: number; mappingSetId: string }) {
