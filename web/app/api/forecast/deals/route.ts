@@ -49,6 +49,7 @@ export async function GET(req: Request) {
 
     const role = auth.user.role;
     const isManagerish = role === "MANAGER" || role === "EXEC_MANAGER";
+    const isAdmin = role === "ADMIN";
 
     const normalize = (s: string) => String(s || "").trim();
 
@@ -144,18 +145,10 @@ export async function GET(req: Request) {
       .map((u) => normalize(u.account_owner_name || ""))
       .filter(Boolean);
 
-    // If a specific rep is requested, enforce visibility if we have it; otherwise allow managers/execs to request directly.
-    const repNamesToUse = (() => {
-      if (requestedRepName) {
-        const rn = normalize(requestedRepName);
-        if (!rn) return null;
-        if (visibleRepNames.length && !visibleRepNames.includes(rn)) return null;
-        return [rn];
-      }
-      return visibleRepNames;
-    })();
-
-    if (repNamesToUse == null) return jsonError(403, "Forbidden");
+    // IMPORTANT:
+    // - `rep_name` query param is treated as a *filter* (supports partial typing) and should never 403.
+    // - Visibility is enforced separately for manager-ish roles via visible REP user names (when available).
+    const requestedLike = normalize(requestedRepName);
 
     const baseSelect = `
       SELECT
@@ -194,60 +187,65 @@ export async function GET(req: Request) {
       WHERE org_id = $1
     `;
 
-    const qpCte = quotaPeriodId
-      ? `
+    // Build WHERE/params in a stable, index-safe way.
+    const params: any[] = [auth.user.org_id];
+    let p = 1;
+    const where: string[] = [];
+
+    // Visibility scoping (MANAGER / EXEC_MANAGER only). Admins see all org deals.
+    // NOTE: If we can't compute visible rep names, we do not block access (existing behavior).
+    if (isManagerish && visibleRepNames.length) {
+      params.push(visibleRepNames);
+      where.push(`btrim(COALESCE(rep_name, '')) = ANY($${++p}::text[])`);
+    }
+
+    // Rep filter: allow partial typing; never 403.
+    if (requestedLike) {
+      params.push(`%${requestedLike}%`);
+      where.push(`btrim(COALESCE(rep_name, '')) ILIKE $${++p}`);
+    }
+
+    // Quota period filter.
+    let qpCte = "";
+    let qpJoin = "";
+    if (quotaPeriodId) {
+      params.push(quotaPeriodId);
+      const qpIdx = ++p;
+      qpCte = `
       , qp AS (
         SELECT period_start, period_end
           FROM quota_periods
          WHERE org_id = $1::bigint
-           AND id = $${repNamesToUse.length ? 4 : 3}::bigint
+           AND id = $${qpIdx}::bigint
          LIMIT 1
       )
-    `
-      : "";
+      `;
+      qpJoin = "JOIN qp ON TRUE";
+      where.push(`close_date IS NOT NULL`);
+      where.push(`close_date >= qp.period_start`);
+      where.push(`close_date <= qp.period_end`);
+    }
 
-    const qpJoin = quotaPeriodId ? "JOIN qp ON TRUE" : "";
-    const qpWhere = quotaPeriodId
-      ? `
-        AND close_date IS NOT NULL
-        AND close_date >= qp.period_start
-        AND close_date <= qp.period_end
-      `
-      : "";
+    params.push(limit);
+    const limitIdx = ++p;
 
     const baseSelectWithJoin = qpJoin ? baseSelect.replace("FROM opportunities", `FROM opportunities\n      ${qpJoin}`) : baseSelect;
-
-    const whereRep =
-      repNamesToUse.length
-        ? "AND btrim(COALESCE(rep_name, '')) = ANY($2::text[])"
-        : isManagerish
-          ? "" // fallback: if no REP user accounts are present, still show org deals
-          : "AND 1=0";
-
-    const limitParam = repNamesToUse.length ? 3 : 2;
-    const allParams = repNamesToUse.length
-      ? quotaPeriodId
-        ? [auth.user.org_id, repNamesToUse, limit, quotaPeriodId]
-        : [auth.user.org_id, repNamesToUse, limit]
-      : quotaPeriodId
-        ? [auth.user.org_id, limit, quotaPeriodId]
-        : [auth.user.org_id, limit];
+    const whereSql = where.length ? `\n        AND ${where.join("\n        AND ")}\n` : "\n";
 
     const { rows } = await pool.query(
       `
       WITH base AS (SELECT 1) ${qpCte}
       ${baseSelectWithJoin}
-        ${whereRep}
-      ${qpWhere}
+        ${whereSql}
       ORDER BY updated_at DESC NULLS LAST, id DESC
-      LIMIT $${limitParam}
+      LIMIT $${limitIdx}
       `,
-      allParams
+      params
     );
 
     // If manager scoping yields nothing (often due to rep_name mismatch with user account_owner_name),
     // fall back to showing org deals so uploads are still visible.
-    if (isManagerish && !requestedRepName && repNamesToUse.length && !(rows || []).length) {
+    if (isManagerish && !requestedLike && visibleRepNames.length && !(rows || []).length) {
       const { rows: allRows } = await pool.query(
         `
         ${baseSelect}
