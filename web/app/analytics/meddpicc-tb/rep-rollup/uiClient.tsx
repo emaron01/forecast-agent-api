@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo } from "react";
 
 export type RepRollupRow = {
   stage_group: string; // Commit | Best Case | Pipeline | Closed Won | Closed Lost | Closed
@@ -28,176 +28,165 @@ function safeNum(n: any) {
   return Number.isFinite(v) ? v : 0;
 }
 
-function computeAiStageFromAvgHealth(avgHealthScore: number | null, stageGroup: string) {
-  const sg = String(stageGroup || "");
-  if (sg === "Closed Won") return "Won";
-  if (sg === "Closed Lost") return "Lost";
-  if (sg === "Closed") return "Closed";
-  const n = Number(avgHealthScore);
-  if (!Number.isFinite(n) || n <= 0) return "—";
-  if (n >= 24) return "Commit";
-  if (n >= 18) return "Best Case";
-  return "Pipeline";
-}
-
-function scoreColorClassFromAvg(avg: number | null) {
-  if (avg == null || !Number.isFinite(avg)) return "text-[color:var(--sf-text-disabled)] bg-[color:var(--sf-surface-alt)]";
-  // Convert avg to nearest score bucket (1/2/3), then apply score color rules.
-  const bucket = avg >= 2.75 ? 3 : avg >= 1.75 ? 2 : 1;
-  return bucket >= 3
-    ? "text-[#2ECC71] bg-[#2ECC71]/10"
-    : bucket >= 2
-      ? "text-[#F1C40F] bg-[#F1C40F]/10"
-      : "text-[#E74C3C] bg-[#E74C3C]/10";
-}
-
-function scoreCell(avg: number | null) {
-  const v = avg == null || !Number.isFinite(avg) ? null : avg;
-  return (
-    <span className={`inline-flex min-w-[56px] items-center justify-center rounded-md px-2 py-1 text-xs font-semibold ${scoreColorClassFromAvg(v)}`}>
-      {v == null ? "—" : v.toFixed(1)}
-    </span>
-  );
-}
-
 function fmtNum(n: any) {
   const v = Number(n);
   if (!Number.isFinite(v)) return "—";
   return v.toLocaleString();
 }
 
-function fmtHealth(avg: number | null) {
-  const v = avg == null || !Number.isFinite(avg) ? null : avg;
-  if (v == null) return "—";
-  return `${v.toFixed(1)}/30`;
+function levelBadge(avg: number | null) {
+  const n = avg == null ? null : Number(avg);
+  if (n == null || !Number.isFinite(n) || n <= 0) {
+    return (
+      <span className="inline-flex min-w-[64px] items-center justify-center rounded-md bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs font-semibold text-[color:var(--sf-text-disabled)]">
+        —
+      </span>
+    );
+  }
+  // Low (0-1), Medium (2), High (3) using existing agent score colors.
+  const level = n >= 2.75 ? "High" : n >= 1.75 ? "Medium" : "Low";
+  const cls =
+    level === "High"
+      ? "text-[#2ECC71] bg-[#2ECC71]/10"
+      : level === "Medium"
+        ? "text-[#F1C40F] bg-[#F1C40F]/10"
+        : "text-[#E74C3C] bg-[#E74C3C]/10";
+  return (
+    <span className={`inline-flex min-w-[64px] items-center justify-center rounded-md px-2 py-1 text-xs font-semibold ${cls}`}>
+      {level}
+    </span>
+  );
 }
 
-type SortKey = "opp_count" | "health" | "pain" | "metrics" | "champion" | "eb" | "competition" | "criteria" | "process" | "paper" | "timing" | "budget";
+function healthPctFrom30(score: number | null) {
+  const n = score == null ? null : Number(score);
+  if (n == null || !Number.isFinite(n) || n <= 0) return null;
+  const pct = Math.round((n / 30) * 100);
+  return Math.max(0, Math.min(100, pct));
+}
 
-export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
-  const [sortKey, setSortKey] = useState<SortKey>("opp_count");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+function healthColorClass(pct: number | null) {
+  if (pct == null) return "text-[color:var(--sf-text-disabled)] bg-[color:var(--sf-surface-alt)]";
+  if (pct >= 80) return "text-[#2ECC71] bg-[#2ECC71]/10";
+  if (pct >= 50) return "text-[#F1C40F] bg-[#F1C40F]/10";
+  return "text-[#E74C3C] bg-[#E74C3C]/10";
+}
 
-  const stageOrder = (s: string) => {
-    const k = String(s || "");
-    if (k === "Commit") return 1;
-    if (k === "Best Case") return 2;
-    if (k === "Pipeline") return 3;
-    if (k === "Closed Won") return 4;
-    if (k === "Closed Lost") return 5;
-    if (k === "Closed") return 6;
-    return 99;
+function healthBadge(avgHealthScore: number | null) {
+  const pct = healthPctFrom30(avgHealthScore);
+  return (
+    <span className={`inline-flex min-w-[64px] items-center justify-center rounded-md px-2 py-1 text-xs font-semibold ${healthColorClass(pct)}`}>
+      {pct == null ? "—" : `${pct}%`}
+    </span>
+  );
+}
+
+type StageKey = "Commit" | "Best Case" | "Pipeline" | "Closed Won" | "Closed Lost" | "Closed";
+
+function stageOrder(s: string) {
+  const k = String(s || "");
+  if (k === "Commit") return 1;
+  if (k === "Best Case") return 2;
+  if (k === "Pipeline") return 3;
+  if (k === "Closed Won") return 4;
+  if (k === "Closed Lost") return 5;
+  if (k === "Closed") return 6;
+  return 99;
+}
+
+type Rollup = {
+  opp_count: number;
+  avg_health_score: number | null;
+  avg_metrics: number | null;
+  avg_eb: number | null;
+  avg_criteria: number | null;
+  avg_process: number | null;
+  avg_pain: number | null;
+  avg_champion: number | null;
+  avg_competition: number | null;
+  avg_timing: number | null;
+  avg_budget: number | null;
+};
+
+function rollupWeighted(rows: RepRollupRow[]): Rollup {
+  const sums: Record<string, { num: number; den: number }> = {};
+  const add = (k: keyof Rollup, v: any, w: number) => {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return;
+    const cur = sums[String(k)] || { num: 0, den: 0 };
+    cur.num += n * w;
+    cur.den += w;
+    sums[String(k)] = cur;
   };
 
-  const grouped = useMemo(() => {
-    const byStage = new Map<string, RepRollupRow[]>();
+  let opp = 0;
+  for (const r of rows || []) {
+    const w = Math.max(0, safeNum(r.opp_count));
+    if (w <= 0) continue;
+    opp += w;
+    add("avg_health_score", r.avg_health_score, w);
+    add("avg_metrics", r.avg_metrics, w);
+    add("avg_eb", r.avg_eb, w);
+    add("avg_criteria", r.avg_criteria, w);
+    add("avg_process", r.avg_process, w);
+    add("avg_pain", r.avg_pain, w);
+    add("avg_champion", r.avg_champion, w);
+    add("avg_competition", r.avg_competition, w);
+    add("avg_timing", r.avg_timing, w);
+    add("avg_budget", r.avg_budget, w);
+  }
+
+  const avg = (k: keyof Rollup) => {
+    const s = sums[String(k)];
+    if (!s || s.den <= 0) return null;
+    return s.num / s.den;
+  };
+
+  return {
+    opp_count: opp,
+    avg_health_score: avg("avg_health_score"),
+    avg_metrics: avg("avg_metrics"),
+    avg_eb: avg("avg_eb"),
+    avg_criteria: avg("avg_criteria"),
+    avg_process: avg("avg_process"),
+    avg_pain: avg("avg_pain"),
+    avg_champion: avg("avg_champion"),
+    avg_competition: avg("avg_competition"),
+    avg_timing: avg("avg_timing"),
+    avg_budget: avg("avg_budget"),
+  };
+}
+
+export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
+  const model = useMemo(() => {
+    type RepGroup = { rep_id: string; rep_name: string; stages: Map<StageKey, RepRollupRow> };
+    type ManagerGroup = { manager_id: string; manager_name: string; reps: Map<string, RepGroup>; allRows: RepRollupRow[] };
+
+    const managers = new Map<string, ManagerGroup>();
     for (const r of props.rows || []) {
-      const k = String(r.stage_group || "Pipeline");
-      const arr = byStage.get(k) || [];
-      arr.push(r);
-      byStage.set(k, arr);
-    }
-
-    const stages = Array.from(byStage.keys()).sort((a, b) => stageOrder(a) - stageOrder(b) || a.localeCompare(b));
-    const out: Array<{ stage: string; rows: RepRollupRow[] }> = [];
-
-    const getVal = (r: RepRollupRow) => {
-      switch (sortKey) {
-        case "health":
-          return safeNum(r.avg_health_score);
-        case "pain":
-          return safeNum(r.avg_pain);
-        case "metrics":
-          return safeNum(r.avg_metrics);
-        case "champion":
-          return safeNum(r.avg_champion);
-        case "eb":
-          return safeNum(r.avg_eb);
-        case "competition":
-          return safeNum(r.avg_competition);
-        case "criteria":
-          return safeNum(r.avg_criteria);
-        case "process":
-          return safeNum(r.avg_process);
-        case "paper":
-          return safeNum(r.avg_paper);
-        case "timing":
-          return safeNum(r.avg_timing);
-        case "budget":
-          return safeNum(r.avg_budget);
-        default:
-          return safeNum(r.opp_count);
-      }
-    };
-
-    const dirMult = sortDir === "asc" ? 1 : -1;
-
-    for (const st of stages) {
-      const arr = (byStage.get(st) || []).slice();
-      // Sort reps inside stage (manager -> rep, but ranked by chosen metric)
-      arr.sort((a, b) => {
-        // keep within manager groups, but allow managers to float by metric (via their total rows later)
-        const am = String(a.manager_name || "");
-        const bm = String(b.manager_name || "");
-        if (am !== bm) return am.localeCompare(bm);
-        const av = getVal(a);
-        const bv = getVal(b);
-        if (bv !== av) return (bv - av) * dirMult;
-        return String(a.rep_name || "").localeCompare(String(b.rep_name || ""));
-      });
-      out.push({ stage: st, rows: arr });
-    }
-    return out;
-  }, [props.rows, sortDir, sortKey]);
-
-  const managerRollupsByStage = useMemo(() => {
-    const byStage = new Map<string, Map<string, { manager_name: string; opp_count: number; avg_health_score: number | null; avg_pain: number | null; avg_metrics: number | null; avg_champion: number | null; avg_eb: number | null; avg_competition: number | null; avg_criteria: number | null; avg_process: number | null; avg_paper: number | null; avg_timing: number | null; avg_budget: number | null }>>();
-    for (const r of props.rows || []) {
-      const st = String(r.stage_group || "Pipeline");
       const mid = String(r.manager_id || "");
-      const stageMap = byStage.get(st) || new Map();
-      const cur = stageMap.get(mid) || {
+      const mgr = managers.get(mid) || {
+        manager_id: mid,
         manager_name: String(r.manager_name || "(Unassigned)"),
-        opp_count: 0,
-        avg_health_score: null,
-        avg_pain: null,
-        avg_metrics: null,
-        avg_champion: null,
-        avg_eb: null,
-        avg_competition: null,
-        avg_criteria: null,
-        avg_process: null,
-        avg_paper: null,
-        avg_timing: null,
-        avg_budget: null,
+        reps: new Map(),
+        allRows: [],
       };
+      mgr.allRows.push(r);
 
-      const w = Math.max(0, safeNum(r.opp_count));
-      const wavg = (prev: number | null, next: number | null) => {
-        const p = prev == null ? null : Number(prev);
-        const n = next == null ? null : Number(next);
-        if (!Number.isFinite(n as any)) return p;
-        if (p == null || !Number.isFinite(p as any) || cur.opp_count <= 0) return n;
-        return (p * cur.opp_count + (n as number) * w) / (cur.opp_count + w);
-      };
-
-      cur.avg_health_score = wavg(cur.avg_health_score, r.avg_health_score);
-      cur.avg_pain = wavg(cur.avg_pain, r.avg_pain);
-      cur.avg_metrics = wavg(cur.avg_metrics, r.avg_metrics);
-      cur.avg_champion = wavg(cur.avg_champion, r.avg_champion);
-      cur.avg_eb = wavg(cur.avg_eb, r.avg_eb);
-      cur.avg_competition = wavg(cur.avg_competition, r.avg_competition);
-      cur.avg_criteria = wavg(cur.avg_criteria, r.avg_criteria);
-      cur.avg_process = wavg(cur.avg_process, r.avg_process);
-      cur.avg_paper = wavg(cur.avg_paper, r.avg_paper);
-      cur.avg_timing = wavg(cur.avg_timing, r.avg_timing);
-      cur.avg_budget = wavg(cur.avg_budget, r.avg_budget);
-
-      cur.opp_count += w;
-      stageMap.set(mid, cur);
-      byStage.set(st, stageMap);
+      const rid = String(r.rep_id || "");
+      const rep = mgr.reps.get(rid) || { rep_id: rid, rep_name: String(r.rep_name || "(Unknown rep)"), stages: new Map() };
+      const st = String(r.stage_group || "Pipeline") as StageKey;
+      rep.stages.set(st, r);
+      mgr.reps.set(rid, rep);
+      managers.set(mid, mgr);
     }
-    return byStage;
+
+    const managerList = Array.from(managers.values()).sort((a, b) => a.manager_name.localeCompare(b.manager_name));
+    for (const m of managerList) {
+      // sort reps by name
+      m.reps = new Map(Array.from(m.reps.entries()).sort(([, a], [, b]) => a.rep_name.localeCompare(b.rep_name)));
+    }
+    return managerList;
   }, [props.rows]);
 
   return (
@@ -209,40 +198,6 @@ export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
             Grouped by <span className="font-mono text-xs">Forecast Stage</span> and rolled up to manager.
           </p>
         </div>
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="grid gap-1">
-            <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Sort</label>
-            <select
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as any)}
-              className="h-[40px] min-w-[210px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-            >
-              <option value="opp_count">Opportunity Count</option>
-              <option value="health">MEDDPICC+TB (Avg Total)</option>
-              <option value="pain">Pain</option>
-              <option value="metrics">Metrics</option>
-              <option value="champion">Champion</option>
-              <option value="eb">Economic Buyer</option>
-              <option value="competition">Competition</option>
-              <option value="criteria">Decision Criteria</option>
-              <option value="process">Decision Process</option>
-              <option value="paper">Paper Process</option>
-              <option value="timing">Timing</option>
-              <option value="budget">Budget</option>
-            </select>
-          </div>
-          <div className="grid gap-1">
-            <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Dir</label>
-            <select
-              value={sortDir}
-              onChange={(e) => setSortDir(e.target.value as any)}
-              className="h-[40px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-            >
-              <option value="desc">Desc</option>
-              <option value="asc">Asc</option>
-            </select>
-          </div>
-        </div>
       </div>
 
       <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
@@ -253,98 +208,75 @@ export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
               <th className="px-3 py-3">Sales Rep</th>
               <th className="px-3 py-3 text-right">Opp Count</th>
               <th className="px-3 py-3">Forecast Stage</th>
-              <th className="px-3 py-3">AI Stage</th>
-              <th className="px-3 py-3 text-right">MEDDPICC+TB</th>
-              <th className="px-2 py-3 text-center">Pain</th>
               <th className="px-2 py-3 text-center">Metrics</th>
-              <th className="px-2 py-3 text-center">Champion</th>
-              <th className="px-2 py-3 text-center">EB</th>
+              <th className="px-2 py-3 text-center">Economic buyer</th>
+              <th className="px-2 py-3 text-center">Decision Criteria</th>
+              <th className="px-2 py-3 text-center">Decision Process</th>
+              <th className="px-2 py-3 text-center">Pain</th>
+              <th className="px-2 py-3 text-center">Champ</th>
               <th className="px-2 py-3 text-center">Comp</th>
-              <th className="px-2 py-3 text-center">Criteria</th>
-              <th className="px-2 py-3 text-center">Process</th>
-              <th className="px-2 py-3 text-center">Paper</th>
               <th className="px-2 py-3 text-center">Timing</th>
               <th className="px-2 py-3 text-center">Budget</th>
+              <th className="px-3 py-3 text-center">Average Deal Health</th>
             </tr>
           </thead>
           <tbody>
-            {grouped.map((g) => {
-              const stageManagers = managerRollupsByStage.get(g.stage) || new Map();
-              const rowsByManager = new Map<string, RepRollupRow[]>();
-              for (const r of g.rows) {
-                const k = String(r.manager_id || "");
-                const arr = rowsByManager.get(k) || [];
-                arr.push(r);
-                rowsByManager.set(k, arr);
-              }
-              const managerIds = Array.from(rowsByManager.keys()).sort((a, b) => {
-                const an = stageManagers.get(a)?.manager_name || "";
-                const bn = stageManagers.get(b)?.manager_name || "";
-                return an.localeCompare(bn);
-              });
-
+            {model.map((mgr) => {
+              const mgrTotal = rollupWeighted(mgr.allRows);
               return (
-                <Fragment key={`stage:${g.stage}`}>
+                <Fragment key={`mgr:${mgr.manager_id || "unassigned"}`}>
                   <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
-                    <td colSpan={16} className="px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                      Forecast Stage: {g.stage}
+                    <td className="px-3 py-3 text-xs font-semibold text-[color:var(--sf-text-primary)]">{mgr.manager_name}</td>
+                    <td className="px-3 py-3 text-xs font-semibold text-[color:var(--sf-text-primary)]">Manager</td>
+                    <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                      {fmtNum(mgrTotal.opp_count)}
                     </td>
+                    <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">—</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_metrics)}</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_eb)}</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_criteria)}</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_process)}</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_pain)}</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_champion)}</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_competition)}</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_timing)}</td>
+                    <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_budget)}</td>
+                    <td className="px-3 py-3 text-center">{healthBadge(mgrTotal.avg_health_score)}</td>
                   </tr>
 
-                  {managerIds.map((mid) => {
-                    const mgr = stageManagers.get(mid) || null;
-                    const members = rowsByManager.get(mid) || [];
+                  {Array.from(mgr.reps.values()).map((rep) => {
+                    const stages = Array.from(rep.stages.keys()).sort((a, b) => stageOrder(a) - stageOrder(b) || a.localeCompare(b));
                     return (
-                      <Fragment key={`mgr:${g.stage}:${mid || "unassigned"}`}>
-                        {mgr ? (
-                          <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-                            <td className="px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{mgr.manager_name}</td>
-                            <td className="px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">Manager Total</td>
-                            <td className="px-3 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                              {fmtNum(mgr.opp_count)}
-                            </td>
-                            <td className="px-3 py-2 text-xs text-[color:var(--sf-text-primary)]">{g.stage}</td>
-                            <td className="px-3 py-2 text-xs text-[color:var(--sf-text-primary)]">
-                              {computeAiStageFromAvgHealth(mgr.avg_health_score, g.stage)}
-                            </td>
-                            <td className="px-3 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                              {fmtHealth(mgr.avg_health_score)}
-                            </td>
-                            <td className="px-2 py-2 text-center">{scoreCell(mgr.avg_pain)}</td>
-                            <td className="px-2 py-2 text-center">{scoreCell(mgr.avg_metrics)}</td>
-                            <td className="px-2 py-2 text-center">{scoreCell(mgr.avg_champion)}</td>
-                            <td className="px-2 py-2 text-center">{scoreCell(mgr.avg_eb)}</td>
-                            <td className="px-2 py-2 text-center">{scoreCell(mgr.avg_competition)}</td>
-                            <td className="px-2 py-2 text-center">{scoreCell(mgr.avg_criteria)}</td>
-                            <td className="px-2 py-2 text-center">{scoreCell(mgr.avg_process)}</td>
-                            <td className="px-2 py-2 text-center">{scoreCell(mgr.avg_paper)}</td>
-                            <td className="px-2 py-2 text-center">{scoreCell(mgr.avg_timing)}</td>
-                            <td className="px-2 py-2 text-center">{scoreCell(mgr.avg_budget)}</td>
-                          </tr>
-                        ) : null}
+                      <Fragment key={`rep:${mgr.manager_id}:${rep.rep_id || rep.rep_name}`}>
+                        <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                          <td className="px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Sales Rep</td>
+                          <td className="px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{rep.rep_name}</td>
+                          <td colSpan={12} className="px-3 py-2 text-xs text-[color:var(--sf-text-disabled)]">
+                            &nbsp;
+                          </td>
+                        </tr>
 
-                        {members.map((r) => (
-                          <tr key={`rep:${g.stage}:${mid}:${r.rep_id}`} className="border-t border-[color:var(--sf-border)]">
-                            <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">{r.manager_name}</td>
-                            <td className="px-3 py-3 font-medium text-[color:var(--sf-text-primary)]">{r.rep_name}</td>
-                            <td className="px-3 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtNum(r.opp_count)}</td>
-                            <td className="px-3 py-3 text-xs text-[color:var(--sf-text-primary)]">{g.stage}</td>
-                            <td className="px-3 py-3 text-xs text-[color:var(--sf-text-primary)]">
-                              {computeAiStageFromAvgHealth(r.avg_health_score, g.stage)}
-                            </td>
-                            <td className="px-3 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtHealth(r.avg_health_score)}</td>
-                            <td className="px-2 py-3 text-center">{scoreCell(r.avg_pain)}</td>
-                            <td className="px-2 py-3 text-center">{scoreCell(r.avg_metrics)}</td>
-                            <td className="px-2 py-3 text-center">{scoreCell(r.avg_champion)}</td>
-                            <td className="px-2 py-3 text-center">{scoreCell(r.avg_eb)}</td>
-                            <td className="px-2 py-3 text-center">{scoreCell(r.avg_competition)}</td>
-                            <td className="px-2 py-3 text-center">{scoreCell(r.avg_criteria)}</td>
-                            <td className="px-2 py-3 text-center">{scoreCell(r.avg_process)}</td>
-                            <td className="px-2 py-3 text-center">{scoreCell(r.avg_paper)}</td>
-                            <td className="px-2 py-3 text-center">{scoreCell(r.avg_timing)}</td>
-                            <td className="px-2 py-3 text-center">{scoreCell(r.avg_budget)}</td>
-                          </tr>
-                        ))}
+                        {stages.map((st) => {
+                          const r = rep.stages.get(st)!;
+                          return (
+                            <tr key={`stage:${mgr.manager_id}:${rep.rep_id}:${st}`} className="border-t border-[color:var(--sf-border)]">
+                              <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">{mgr.manager_name}</td>
+                              <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">&nbsp;</td>
+                              <td className="px-3 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtNum(r.opp_count)}</td>
+                              <td className="px-3 py-3 text-xs text-[color:var(--sf-text-primary)]">{st}</td>
+                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_metrics)}</td>
+                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_eb)}</td>
+                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_criteria)}</td>
+                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_process)}</td>
+                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_pain)}</td>
+                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_champion)}</td>
+                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_competition)}</td>
+                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_timing)}</td>
+                              <td className="px-2 py-3 text-center">{levelBadge(r.avg_budget)}</td>
+                              <td className="px-3 py-3 text-center">{healthBadge(r.avg_health_score)}</td>
+                            </tr>
+                          );
+                        })}
                       </Fragment>
                     );
                   })}
@@ -353,7 +285,7 @@ export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
             })}
             {!props.rows.length ? (
               <tr>
-                <td colSpan={16} className="px-4 py-8 text-center text-sm text-[color:var(--sf-text-disabled)]">
+                <td colSpan={14} className="px-4 py-8 text-center text-sm text-[color:var(--sf-text-disabled)]">
                   No opportunities found for this period.
                 </td>
               </tr>

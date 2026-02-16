@@ -21,16 +21,6 @@ type QuotaPeriodLite = {
   period_end: string;
 };
 
-function stageGroupLabelFromNormalized(fs: string) {
-  const s = ` ${String(fs || "").trim().toLowerCase()} `;
-  if (s.includes(" won ")) return "Closed Won";
-  if (s.includes(" lost ")) return "Closed Lost";
-  if (s.includes(" commit ")) return "Commit";
-  if (s.includes(" best ")) return "Best Case";
-  if (s.includes(" closed ")) return "Closed";
-  return "Pipeline";
-}
-
 export default async function MeddpiccRepRollupPage({
   searchParams,
 }: {
@@ -74,7 +64,7 @@ export default async function MeddpiccRepRollupPage({
   const rows = qp
     ? await pool
         .query<{
-          forecast_stage_norm: string;
+          stage_group: string;
           manager_id: number | null;
           manager_name: string | null;
           rep_id: number | null;
@@ -139,7 +129,16 @@ export default async function MeddpiccRepRollupPage({
               AND o.close_date <= qp.period_end
           ),
           filtered AS (
-            SELECT *
+            SELECT
+              *,
+              CASE
+                WHEN ((' ' || forecast_stage_norm || ' ') LIKE '% won %') THEN 'Closed Won'
+                WHEN ((' ' || forecast_stage_norm || ' ') LIKE '% lost %') THEN 'Closed Lost'
+                WHEN ((' ' || forecast_stage_norm || ' ') LIKE '% closed %') THEN 'Closed'
+                WHEN forecast_stage_norm LIKE '%commit%' THEN 'Commit'
+                WHEN forecast_stage_norm LIKE '%best%' THEN 'Best Case'
+                ELSE 'Pipeline'
+              END AS stage_group
               FROM base
              WHERE
                $3::boolean
@@ -150,7 +149,7 @@ export default async function MeddpiccRepRollupPage({
                )
           )
           SELECT
-            forecast_stage_norm,
+            stage_group,
             manager_id,
             manager_name,
             rep_id,
@@ -168,8 +167,8 @@ export default async function MeddpiccRepRollupPage({
             AVG(NULLIF(timing_score, 0))::float8 AS avg_timing,
             AVG(NULLIF(budget_score, 0))::float8 AS avg_budget
           FROM filtered
-          GROUP BY forecast_stage_norm, manager_id, manager_name, rep_id, rep_name
-          ORDER BY forecast_stage_norm ASC, manager_name ASC, rep_name ASC
+          GROUP BY stage_group, manager_id, manager_name, rep_id, rep_name
+          ORDER BY stage_group ASC, manager_name ASC, rep_name ASC
           `,
           [ctx.user.org_id, qp.id, include_closed]
         )
@@ -178,10 +177,9 @@ export default async function MeddpiccRepRollupPage({
     : [];
 
   const repRows: RepRollupRow[] = (rows || []).map((r) => {
-    const stageGroup = stageGroupLabelFromNormalized(String(r.forecast_stage_norm || ""));
     return {
-      stage_group: stageGroup,
-      forecast_stage_norm: String(r.forecast_stage_norm || ""),
+      stage_group: String((r as any).stage_group || ""),
+      forecast_stage_norm: "",
       manager_id: r.manager_id == null ? "" : String(r.manager_id),
       manager_name: String(r.manager_name || "(Unassigned)"),
       rep_id: r.rep_id == null ? "" : String(r.rep_id),
