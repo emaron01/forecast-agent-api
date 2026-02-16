@@ -16,6 +16,7 @@ export default async function AnalyticsComparisonsPage({
 }) {
   const { ctx, orgId } = await requireOrgContext();
   if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
 
   const periods = await listQuotaPeriods().catch(() => []);
   const quotaPeriodId = String(sp(searchParams.quota_period_id) || "").trim();

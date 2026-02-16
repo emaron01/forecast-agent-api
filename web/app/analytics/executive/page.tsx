@@ -508,6 +508,7 @@ export default async function ExecutiveAnalyticsKpisPage({
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
   if (ctx.user.role !== "EXEC_MANAGER" && ctx.user.role !== "ADMIN") redirect("/dashboard");
+  if (ctx.user.role === "ADMIN" && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";

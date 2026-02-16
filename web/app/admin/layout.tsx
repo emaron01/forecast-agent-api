@@ -23,6 +23,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const orgName = org?.name || (ctx.kind === "master" ? "SaaS Owner" : "Organization");
   const displayName = ctx.kind === "user" ? ctx.user.display_name : ctx.email;
   const email = ctx.kind === "user" ? ctx.user.email : ctx.email;
+  const hasAdminAnalyticsAccess =
+    ctx.kind === "master" || (ctx.kind === "user" && ctx.user.role === "ADMIN" && !!ctx.user.admin_has_full_analytics_access);
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -39,6 +41,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                   <NavLink href="/admin/organizations" label="Organizations" />
                   <NavLink href="/admin/all-users" label="All Users" />
                   <NavLink href="/admin/email-templates" label="Email Templates" />
+                  <NavLink href="/admin/ingestion" label="Ingestion" />
                 </>
               ) : null}
               <NavLink href="/admin/users" label="Users" />
@@ -48,8 +51,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                   <NavLink href="/admin/org-profile" label="Org Profile" />
                   <NavLink href="/admin/hierarchy" label="Sales Organization" />
                   <NavLink href="/admin/mapping-sets" label="Mapping Sets" />
-                  <NavLink href="/admin/ingestion" label="Ingestion" />
-                  <NavLink href="/admin/analytics" label="Analytics" />
+                  {hasAdminAnalyticsAccess ? <NavLink href="/admin/analytics" label="Analytics" /> : null}
                 </>
               )}
             </nav>

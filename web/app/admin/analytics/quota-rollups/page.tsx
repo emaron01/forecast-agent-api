@@ -19,6 +19,7 @@ function rollupByPeriod(quotas: Array<{ quota_period_id: string; quota_amount: n
 export default async function QuotaRollupsPage() {
   const { ctx } = await requireOrgContext();
   if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
 
   const vp = await listQuotasByVP().catch(() => []);
   const cro = await listQuotasByCRO().catch(() => []);

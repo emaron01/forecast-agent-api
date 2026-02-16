@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { listFieldMappingSets, listIngestionBatchSummaries, type IngestionBatchSummaryRow } from "../../../lib/db";
+import { listFieldMappingSets, listIngestionBatchSummaries, listOrganizations, type IngestionBatchSummaryRow } from "../../../lib/db";
 import { retryFailedAction, stageJsonRowsAction, triggerProcessAction } from "../actions/ingestion";
 import { requireOrgContext } from "../../../lib/auth";
 import { redirect } from "next/navigation";
+import { setMasterOrgAction } from "../../actions/auth";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -14,7 +15,9 @@ export default async function IngestionAdminPage({
   searchParams: Record<string, string | string[] | undefined>;
 }) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind !== "master") redirect("/admin");
+  const orgs = await listOrganizations({ activeOnly: true }).catch(() => []);
+  const activeOrgPublicId = orgs.find((o) => o.id === orgId)?.public_id || "";
   const sets = await listFieldMappingSets({ organizationId: orgId });
   const summaries = await listIngestionBatchSummaries({ organizationId: orgId }).catch(
     (): IngestionBatchSummaryRow[] => []
@@ -32,6 +35,28 @@ export default async function IngestionAdminPage({
           <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
             View pending/processed/error rows, retry failures, and trigger `process_ingestion_batch`.
           </p>
+        </div>
+        <div className="flex flex-wrap items-end justify-end gap-2">
+          <form action={setMasterOrgAction} className="flex items-end gap-2">
+            <input type="hidden" name="returnTo" value="/admin/ingestion" />
+            <div className="grid gap-1">
+              <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Customer</label>
+              <select
+                name="org_public_id"
+                defaultValue={activeOrgPublicId}
+                className="w-[260px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+              >
+                {orgs.map((o) => (
+                  <option key={o.public_id} value={String(o.public_id)}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button className="h-[40px] rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
+              Set
+            </button>
+          </form>
         </div>
       </div>
 

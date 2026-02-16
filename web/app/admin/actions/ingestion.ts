@@ -14,7 +14,7 @@ const ProcessSchema = z.object({
 
 export async function triggerProcessAction(formData: FormData) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind !== "master") redirect("/admin");
 
   const parsed = ProcessSchema.parse({
     mapping_set_public_id: formData.get("mapping_set_public_id"),
@@ -35,7 +35,7 @@ const RetrySchema = z.object({
 
 export async function retryFailedAction(formData: FormData) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind !== "master") redirect("/admin");
 
   const parsed = RetrySchema.parse({
     mapping_set_public_id: formData.get("mapping_set_public_id"),
@@ -65,7 +65,7 @@ const StageSchema = z.object({
 
 export async function stageJsonRowsAction(formData: FormData) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind !== "master") redirect("/admin");
 
   const parsed = StageSchema.parse({
     mapping_set_public_id: formData.get("mapping_set_public_id"),

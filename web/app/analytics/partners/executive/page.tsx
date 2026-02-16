@@ -185,7 +185,8 @@ function sortDeals(list: TopPartnerDealRow[], sort: DealSortKey, dir: DealSortDi
 export default async function AnalyticsTopPartnersPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role !== "EXEC_MANAGER") redirect("/dashboard");
+  if (ctx.user.role === "ADMIN" && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
+  if (ctx.user.role !== "EXEC_MANAGER" && ctx.user.role !== "ADMIN") redirect("/dashboard");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";

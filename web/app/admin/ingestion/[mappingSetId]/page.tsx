@@ -25,7 +25,7 @@ export default async function IngestionRowsPage({
   searchParams: Record<string, string | string[] | undefined>;
 }) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind !== "master") redirect("/admin");
   const mappingSetPublicId = params.mappingSetId;
   const mappingSetId = await resolvePublicTextId("field_mapping_sets", mappingSetPublicId).catch(() => "");
   const filter = (sp(searchParams.filter) || "all") as "all" | "pending" | "processed" | "error";

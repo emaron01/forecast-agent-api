@@ -100,7 +100,7 @@ export default async function HierarchyPage({
           </div>
 
           {executives.length ? (
-            <div className="grid gap-4">
+            <div className="grid gap-4 md:grid-cols-3">
               {executives.map((exec) => {
                 const myManagers = managersByExecId.get(exec.id) || [];
                 return (

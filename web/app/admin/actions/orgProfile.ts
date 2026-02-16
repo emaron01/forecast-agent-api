@@ -51,7 +51,7 @@ export async function updateOrgProfileAction(formData: FormData) {
     name: org.name,
     active: org.active,
     parent_org_id: ctx.kind === "master" ? (parent_org_id ?? org.parent_org_id) : org.parent_org_id,
-    billing_plan: norm(parsed.billing_plan) ?? org.billing_plan,
+    billing_plan: ctx.kind === "master" ? (norm(parsed.billing_plan) ?? org.billing_plan) : org.billing_plan,
     hq_address_line1: norm(parsed.hq_address_line1) ?? org.hq_address_line1,
     hq_address_line2: norm(parsed.hq_address_line2) ?? org.hq_address_line2,
     hq_city: norm(parsed.hq_city) ?? org.hq_city,

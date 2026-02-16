@@ -18,6 +18,8 @@ export default async function AdminHome() {
   const ctx = await requireManagerAdminOrMaster();
   if (ctx.kind === "user" && ctx.user.role === "MANAGER") redirect("/admin/users");
 
+  const hasAnalyticsAccess = ctx.kind === "master" || (ctx.kind === "user" && ctx.user.role === "ADMIN" && !!ctx.user.admin_has_full_analytics_access);
+
   return (
     <main className="grid gap-4 md:grid-cols-3">
       {ctx.kind === "master" ? (
@@ -26,6 +28,7 @@ export default async function AdminHome() {
           <Card href="/admin/organizations" title="Organizations" desc="Create and manage organizations. Set your active org." />
           <Card href="/admin/all-users" title="All Users" desc="View users across all organizations." />
           <Card href="/admin/email-templates" title="Email Templates" desc="Manage welcome/invite/reset templates." />
+          <Card href="/admin/ingestion" title="Ingestion" desc="Tech support: monitor staging rows and trigger processing (owner only)." />
         </>
       ) : null}
       <Card href="/admin/users" title="Users" desc="Create, edit, deactivate, and manage roles and reporting lines." />
@@ -33,8 +36,16 @@ export default async function AdminHome() {
       <Card href="/admin/org-profile" title="Org Profile" desc="Manage organization profile fields." />
       <Card href="/admin/hierarchy" title="Sales Organization" desc="set-up, edit and review Sales Org Assignmnets." />
       <Card href="/admin/mapping-sets" title="Mapping Sets" desc="Manage mapping sets and their field mappings." />
-      <Card href="/admin/ingestion" title="Ingestion" desc="Monitor pending/processed/error rows, retry failures, and trigger processing." />
-      <Card href="/admin/analytics" title="Analytics" desc="Quota calendar, assignments, roll-ups, and dashboards." />
+      {hasAnalyticsAccess ? (
+        <>
+          <Card href="/admin/analytics/quota-periods" title="Quota periods" desc="Manage fiscal calendar (quota periods)." />
+          <Card href="/admin/analytics/quotas" title="Quotas" desc="Assign quotas to reps and manage quota sets." />
+          <Card href="/analytics/executive" title="Executive Analytics" desc="Company + manager + rep KPI views." />
+          <Card href="/analytics/partners/executive" title="Top Partners" desc="Top partner deals by revenue (won + closed loss)." />
+          <Card href="/analytics/quotas/executive" title="Executive Quotas" desc="Quota rollups and attainment (executive view)." />
+          <Card href="/analytics/custom-reports" title="Custom Reports" desc="Build and save custom rep comparison reports." />
+        </>
+      ) : null}
     </main>
   );
 }
