@@ -17,6 +17,14 @@ function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
 }
 
+function YesNoPill(props: { value: any }) {
+  const v = !!props.value;
+  const cls = v
+    ? "border-[#16A34A] bg-[#ECFDF5] text-[#16A34A]"
+    : "border-[#E74C3C] bg-[#FEF2F2] text-[#E74C3C]";
+  return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${cls}`}>{v ? "Yes" : "No"}</span>;
+}
+
 export default async function UsersPage({
   searchParams,
 }: {
@@ -68,6 +76,11 @@ export default async function UsersPage({
   const execManagers = isAdmin ? usersRaw.filter((u) => u.role === "EXEC_MANAGER" && u.active) : [];
   const managers = isAdmin ? usersRaw.filter((u) => u.role === "MANAGER" && u.active) : [];
   const userById = new Map<number, (typeof usersRaw)[number]>(usersRaw.map((u) => [u.id, u]));
+  // When a MANAGER views their REP list, `usersRaw` intentionally only contains REPs.
+  // Ensure we can still render the Manager name (the current user) in the Manager column.
+  if (ctx.kind === "user" && !userById.has(ctx.user.id)) {
+    userById.set(ctx.user.id, ctx.user as any);
+  }
 
   const createdUser = created ? usersRaw.find((u) => String(u.public_id) === String(created)) || null : null;
 
@@ -122,8 +135,7 @@ export default async function UsersPage({
         <div className="mt-4 rounded-md border border-[#2ECC71] bg-[color:var(--sf-surface)] px-4 py-3 text-sm text-[color:var(--sf-text-primary)]">
           {createdUser ? (
             <>
-              User created: <span className="font-semibold">{createdUser.display_name}</span>{" "}
-              <span className="text-[color:var(--sf-text-secondary)]">({createdUser.email})</span>
+              User created: <span className="font-semibold">{createdUser.display_name}</span>
             </>
           ) : (
             <>User created.</>
@@ -161,15 +173,14 @@ export default async function UsersPage({
         <table className="w-full text-left text-sm">
           <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
             <tr>
-              <th className="px-4 py-3">role</th>
-              <th className="px-4 py-3">display_name</th>
-              <th className="px-4 py-3">title</th>
-              <th className="px-4 py-3">email</th>
-              <th className="px-4 py-3">account_owner_name</th>
-              <th className="px-4 py-3">manager_user</th>
-              <th className="px-4 py-3">admin_full_analytics</th>
-              <th className="px-4 py-3">see_all</th>
-              <th className="px-4 py-3">active</th>
+              <th className="px-4 py-3">Role</th>
+              <th className="px-4 py-3">User Name</th>
+              <th className="px-4 py-3">Title</th>
+              <th className="px-4 py-3">CRM Name</th>
+              <th className="px-4 py-3">Manager</th>
+              <th className="px-4 py-3">See Full Analytics</th>
+              <th className="px-4 py-3">See All Users</th>
+              <th className="px-4 py-3">Active</th>
               <th className="px-4 py-3 text-right">actions</th>
             </tr>
           </thead>
@@ -180,20 +191,27 @@ export default async function UsersPage({
                   <td className="px-4 py-3">{labelForLevel(roleToLevel(u.role), u.role)}</td>
                   <td className="px-4 py-3">{u.display_name}</td>
                   <td className="px-4 py-3">{u.title || ""}</td>
-                  <td className="px-4 py-3">{u.email}</td>
                   <td className="px-4 py-3">{u.account_owner_name}</td>
                   <td className="px-4 py-3">
                     {u.manager_user_id != null ? (
                       <span className="text-[color:var(--sf-text-primary)]">
-                        {userById.get(u.manager_user_id)?.display_name || ""}
+                        {String((userById.get(u.manager_user_id) as any)?.display_name || "").trim() ||
+                          String((userById.get(u.manager_user_id) as any)?.email || "").trim() ||
+                          ""}
                       </span>
                     ) : (
                       ""
                     )}
                   </td>
-                  <td className="px-4 py-3">{u.admin_has_full_analytics_access ? "true" : "false"}</td>
-                  <td className="px-4 py-3">{u.see_all_visibility ? "true" : "false"}</td>
-                  <td className="px-4 py-3">{u.active ? "true" : "false"}</td>
+                  <td className="px-4 py-3">
+                    <YesNoPill value={u.admin_has_full_analytics_access} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <YesNoPill value={u.see_all_visibility} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <YesNoPill value={u.active} />
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <div className="inline-flex items-center gap-2">
                       {isManager && u.manager_user_id == null ? (
@@ -230,7 +248,7 @@ export default async function UsersPage({
               ))
             ) : (
               <tr>
-                <td colSpan={10} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                <td colSpan={9} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
                   No users found.
                 </td>
               </tr>
