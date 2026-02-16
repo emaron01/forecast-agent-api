@@ -38,6 +38,13 @@ export default async function AnalyticsPage() {
         <section className="mt-6 grid gap-4 md:grid-cols-2">
           <Card href="/analytics/kpis" title="KPIs by quarter" desc="Quarter-by-quarter KPI breakdown with manager + rep expand/collapse." />
           <Card href="/analytics/comparisons" title="Comparisons" desc="CRM Forecast Stage vs AI Forecast Stage + quota attainment." />
+          {ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER" || ctx.user.role === "ADMIN" ? (
+            <Card
+              href="/analytics/meddpicc-tb"
+              title="MEDDPICC+TB"
+              desc="Deal heatmap + risk/next steps report (sortable)."
+            />
+          ) : null}
           {ctx.user.role === "ADMIN" ? (
             <Card href="/analytics/quotas/admin" title="Quotas (Admin)" desc="Admin quota management." />
           ) : null}

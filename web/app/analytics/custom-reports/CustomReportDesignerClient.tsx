@@ -157,6 +157,142 @@ function renderMetricValue(key: MetricKey, r: RepRow) {
   return fmtNum(v);
 }
 
+function safeNum(n: any) {
+  const v = Number(n);
+  return Number.isFinite(v) ? v : 0;
+}
+
+function wavg(pairs: Array<{ v: number | null; w: number }>) {
+  let num = 0;
+  let den = 0;
+  for (const p of pairs) {
+    if (p.v == null) continue;
+    const w = safeNum(p.w);
+    if (w <= 0) continue;
+    num += safeNum(p.v) * w;
+    den += w;
+  }
+  return den > 0 ? num / den : null;
+}
+
+function rollupRepRows(args: { label: string; execName: string; managerName: string; rows: RepRow[] }): RepRow {
+  const rows = args.rows || [];
+  const sum = <K extends keyof RepRow>(key: K) => rows.reduce((acc, r) => acc + safeNum((r as any)[key]), 0);
+
+  const quota = sum("quota");
+  const total_count = sum("total_count");
+  const won_amount = sum("won_amount");
+  const won_count = sum("won_count");
+  const lost_count = sum("lost_count");
+  const active_amount = sum("active_amount");
+  const commit_amount = sum("commit_amount");
+  const best_amount = sum("best_amount");
+  const pipeline_amount = sum("pipeline_amount");
+  const created_amount = sum("created_amount");
+  const created_count = sum("created_count");
+
+  const active_count = Math.max(0, total_count - won_count - lost_count);
+  const closed_count = won_count + lost_count;
+
+  const win_rate = won_count + lost_count > 0 ? won_count / (won_count + lost_count) : null;
+  const opp_to_win = total_count > 0 ? won_count / total_count : null;
+  const aov = won_count > 0 ? won_amount / won_count : null;
+  const attainment = quota > 0 ? won_amount / quota : null;
+  const commit_coverage = quota > 0 ? commit_amount / quota : null;
+  const best_coverage = quota > 0 ? best_amount / quota : null;
+
+  const partner_contribution = wavg(rows.map((r) => ({ v: r.partner_contribution, w: safeNum(r.won_amount) })));
+  const partner_win_rate = wavg(rows.map((r) => ({ v: r.partner_win_rate, w: safeNum(r.won_count) + safeNum(r.lost_count) })));
+
+  const avg_days_won = wavg(rows.map((r) => ({ v: r.avg_days_won, w: safeNum(r.won_count) })));
+  const avg_days_lost = wavg(rows.map((r) => ({ v: r.avg_days_lost, w: safeNum(r.lost_count) })));
+  const avg_days_active = wavg(
+    rows.map((r) => {
+      const tc = safeNum(r.total_count);
+      const wc = safeNum(r.won_count);
+      const lc = safeNum(r.lost_count);
+      const ac = Math.max(0, tc - wc - lc);
+      return { v: r.avg_days_active, w: ac };
+    })
+  );
+
+  const avg_health_all = wavg(rows.map((r) => ({ v: r.avg_health_all, w: safeNum(r.total_count) })));
+  const avg_health_won = wavg(rows.map((r) => ({ v: r.avg_health_won, w: safeNum(r.won_count) })));
+  const avg_health_closed = wavg(rows.map((r) => ({ v: r.avg_health_closed, w: safeNum(r.won_count) + safeNum(r.lost_count) })));
+  const avg_health_pipeline = wavg(
+    rows.map((r) => {
+      const tc = safeNum(r.total_count);
+      const wc = safeNum(r.won_count);
+      const lc = safeNum(r.lost_count);
+      const ac = Math.max(0, tc - wc - lc);
+      return { v: r.avg_health_pipeline, w: ac };
+    })
+  );
+  const avg_health_commit = wavg(
+    rows.map((r) => {
+      const tc = safeNum(r.total_count);
+      const wc = safeNum(r.won_count);
+      const lc = safeNum(r.lost_count);
+      const ac = Math.max(0, tc - wc - lc);
+      return { v: r.avg_health_commit, w: ac };
+    })
+  );
+  const avg_health_best = wavg(
+    rows.map((r) => {
+      const tc = safeNum(r.total_count);
+      const wc = safeNum(r.won_count);
+      const lc = safeNum(r.lost_count);
+      const ac = Math.max(0, tc - wc - lc);
+      return { v: r.avg_health_best, w: ac };
+    })
+  );
+
+  const mixDen = pipeline_amount + best_amount + commit_amount + won_amount;
+  const mix_pipeline = mixDen > 0 ? pipeline_amount / mixDen : null;
+  const mix_best = mixDen > 0 ? best_amount / mixDen : null;
+  const mix_commit = mixDen > 0 ? commit_amount / mixDen : null;
+  const mix_won = mixDen > 0 ? won_amount / mixDen : null;
+
+  return {
+    rep_id: "",
+    rep_name: args.label,
+    manager_id: "",
+    manager_name: args.managerName,
+    avg_health_all,
+    avg_health_commit,
+    avg_health_best,
+    avg_health_pipeline,
+    avg_health_won,
+    avg_health_closed,
+    quota,
+    total_count,
+    won_amount,
+    won_count,
+    lost_count,
+    active_amount,
+    commit_amount,
+    best_amount,
+    pipeline_amount,
+    created_amount,
+    created_count,
+    win_rate,
+    opp_to_win,
+    aov,
+    attainment,
+    commit_coverage,
+    best_coverage,
+    partner_contribution,
+    partner_win_rate,
+    avg_days_won,
+    avg_days_lost,
+    avg_days_active,
+    mix_pipeline,
+    mix_best,
+    mix_commit,
+    mix_won,
+  };
+}
+
 function normalizeConfig(cfg: any): { repIds: string[]; metrics: MetricKey[] } {
   const repIds = Array.isArray(cfg?.repIds) ? cfg.repIds.map((x: any) => String(x)).filter(Boolean) : [];
   const metricsRaw = Array.isArray(cfg?.metrics) ? cfg.metrics.map((x: any) => String(x)).filter(Boolean) : [];
@@ -433,6 +569,30 @@ export function CustomReportDesignerClient(props: {
     return groups;
   }, [selectedReps, repNameById, managerIdById]);
 
+  const rollupsByExecId = useMemo(() => {
+    const m = new Map<string, RepRow>();
+    const byExec = new Map<string, RepRow[]>();
+    for (const g of groupedSelected) {
+      const arr = byExec.get(g.execId) || [];
+      arr.push(...g.reps);
+      byExec.set(g.execId, arr);
+    }
+    for (const [execId, rows] of byExec.entries()) {
+      const execName = execId ? repNameById.get(execId) || `Executive ${execId}` : "(Unassigned)";
+      m.set(execId, rollupRepRows({ label: `Executive Total: ${execName}`, execName, managerName: "", rows }));
+    }
+    return m;
+  }, [groupedSelected, repNameById]);
+
+  const rollupsByExecMgrKey = useMemo(() => {
+    const m = new Map<string, RepRow>();
+    for (const g of groupedSelected) {
+      const key = `${g.execId}|${g.mgrId}`;
+      m.set(key, rollupRepRows({ label: `Manager Total: ${g.mgrName}`, execName: g.execName, managerName: g.mgrName, rows: g.reps }));
+    }
+    return m;
+  }, [groupedSelected]);
+
   const execOptions = useMemo(() => {
     const ids = new Set<string>();
     for (const r of repDirectory) {
@@ -693,11 +853,11 @@ export function CustomReportDesignerClient(props: {
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-end justify-between gap-2">
+      <div className="mt-4 grid grid-cols-3 items-end gap-2">
         <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Preview</div>
-        <div className="text-xs text-[color:var(--sf-text-secondary)]">
-          Executive: <span className="font-mono">{selectedTeamsLabel.execLabel}</span> · Manager:{" "}
-          <span className="font-mono">{selectedTeamsLabel.mgrLabel}</span>
+        <div className="text-sm font-semibold text-center text-[color:var(--sf-text-secondary)]">{props.periodLabel}</div>
+        <div className="text-sm font-semibold text-right text-[color:var(--sf-text-secondary)]">
+          Executive: <span className="font-mono">{selectedTeamsLabel.execLabel}</span> · Manager: <span className="font-mono">{selectedTeamsLabel.mgrLabel}</span>
         </div>
       </div>
       <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
@@ -713,25 +873,50 @@ export function CustomReportDesignerClient(props: {
             </tr>
           </thead>
           <tbody>
-            {groupedSelected.map((g) => (
-              <Fragment key={`grp:${g.execId}:${g.mgrId}`}>
-                <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
-                  <td colSpan={1 + metricList.length} className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                    Executive: {g.execName} · Manager: {g.mgrName}
-                  </td>
-                </tr>
-                {g.reps.map((r) => (
-                  <tr key={`rep:${g.execId}:${g.mgrId}:${r.rep_id}`} className="border-t border-[color:var(--sf-border)]">
-                    <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{r.rep_name}</td>
-                    {metricList.map((k) => (
-                      <td key={k} className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">
-                        {renderMetricValue(k, r)}
+            {groupedSelected.map((g, idx) => {
+              const prevExecId = idx > 0 ? groupedSelected[idx - 1]?.execId : null;
+              const showExecSubtotal = idx === 0 || String(prevExecId) !== String(g.execId);
+              const execSubtotal = rollupsByExecId.get(g.execId) || null;
+              const mgrSubtotal = rollupsByExecMgrKey.get(`${g.execId}|${g.mgrId}`) || null;
+              return (
+                <Fragment key={`grp:${g.execId}:${g.mgrId}`}>
+                  {showExecSubtotal && execSubtotal ? (
+                    <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                      <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{execSubtotal.rep_name}</td>
+                      {metricList.map((k) => (
+                        <td key={k} className="px-4 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                          {renderMetricValue(k, execSubtotal)}
+                        </td>
+                      ))}
+                    </tr>
+                  ) : null}
+
+                  {mgrSubtotal ? (
+                    <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                      <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                        Executive: {g.execName} · {mgrSubtotal.rep_name}
                       </td>
-                    ))}
-                  </tr>
-                ))}
-              </Fragment>
-            ))}
+                      {metricList.map((k) => (
+                        <td key={k} className="px-4 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                          {renderMetricValue(k, mgrSubtotal)}
+                        </td>
+                      ))}
+                    </tr>
+                  ) : null}
+
+                  {g.reps.map((r) => (
+                    <tr key={`rep:${g.execId}:${g.mgrId}:${r.rep_id}`} className="border-t border-[color:var(--sf-border)]">
+                      <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{r.rep_name}</td>
+                      {metricList.map((k) => (
+                        <td key={k} className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">
+                          {renderMetricValue(k, r)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </Fragment>
+              );
+            })}
             {!selectedReps.length ? (
               <tr>
                 <td colSpan={1 + metricList.length} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">

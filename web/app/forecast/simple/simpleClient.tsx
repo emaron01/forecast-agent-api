@@ -197,6 +197,13 @@ export function SimpleForecastDashboardClient(props: {
                   >
                     Click here for Opportunity Score Cards View.
                   </Link>
+                  {" "}
+                  <Link
+                    className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline"
+                    href="/forecast/meddpicc-heatmap"
+                  >
+                    MEDDPICC+TB Heatmap.
+                  </Link>
                 </>
               ) : (
                 <>
@@ -206,6 +213,13 @@ export function SimpleForecastDashboardClient(props: {
                     href="/forecast/opportunity-score-cards"
                   >
                     Opportunity Score Cards View.
+                  </Link>
+                  {" "}
+                  <Link
+                    className="text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline"
+                    href="/forecast/meddpicc-heatmap"
+                  >
+                    MEDDPICC+TB Heatmap.
                   </Link>
                 </>
               )}
