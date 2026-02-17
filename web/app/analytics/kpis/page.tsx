@@ -1245,7 +1245,7 @@ export default async function QuarterlyKpisPage({
                 safeDiv(commitTotal, mixDen)
               )} / ${fmtPct(safeDiv(wonAmountTotal, mixDen))}`;
 
-              // Aging (avg deal age): weighted avg of rep active-age by active deal count.
+              // Aging (avg days): weighted avg of rep active-age by active deal count.
               let agingDaysSum = 0;
               let agingCnt = 0;
               for (const m of block.managers) {
@@ -1415,6 +1415,7 @@ export default async function QuarterlyKpisPage({
                                 <div className="col-span-full">
                                   <div className="mt-2 flex flex-wrap gap-2 text-xs">
                                     <Chip label="Win Rate" value={fmtPct(winRate)} />
+                                    <Chip label="Win/Loss Count" value={`${fmtNum(wonCountTotal)} / ${fmtNum(lostCountTotal)}`} />
                                     <Chip label="Average Order Value" value={fmtMoney(block.aov)} />
                                     <Chip
                                       label="Avg Health Closed Won"
@@ -1425,7 +1426,7 @@ export default async function QuarterlyKpisPage({
                                       value={<span className={healthColorClass(hLost)}>{hLost == null ? "—" : `${hLost}%`}</span>}
                                     />
                                     <Chip label="Opp→Win Conversion" value={fmtPct(oppToWin)} />
-                                    <Chip label="Aging (avg deal age)" value={agingAvgDays == null ? "—" : `${Math.round(agingAvgDays)}d`} />
+                                    <Chip label="Aging (avg days)" value={agingAvgDays == null ? "—" : String(Math.round(agingAvgDays))} />
                                   </div>
                                 </div>
                               </div>
@@ -1434,25 +1435,16 @@ export default async function QuarterlyKpisPage({
                         </div>
 
                         <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
-                          <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Core KPIs</div>
-                          <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                            <Chip label="Win Loss" value={`${fmtNum(wonCountTotal)} / ${fmtNum(lostCountTotal)}`} sub="Won / Lost (count)" />
-                            <Chip label="Quota Attainment" value={fmtPct(quotaAttainment)} />
-                            <Chip label="Closed Won" value={fmtMoney(block.won_amount)} sub={`Deals: ${fmtNum(wonCountTotal)}`} />
-                            <Chip label="Direct Vs. Partner" value={`${fmtMoney(directClosedAmt)} / ${fmtMoney(partnerClosedAmtTotal)}`} sub="Direct / Partner (closed $)" />
-                          </div>
-                        </div>
-
-                        <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
                           <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Direct vs Partner</div>
                           <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                            <Chip label="Direct vs. Partner (closed won)" value={`${fmtMoney(directWonAmt)} / ${fmtMoney(partnerWonAmt)}`} />
                             <Chip label="# Direct Deals" value={fmtNum(directClosedCount)} />
                             <Chip label="Direct AOV" value={directAov == null ? "—" : fmtMoney(directAov)} />
-                            <Chip label="Direct Average Age" value={directAge == null ? "—" : `${Math.round(directAge)}d`} />
+                            <Chip label="Direct Average Age" value={directAge == null ? "—" : String(Math.round(directAge))} />
                             <Chip label="Partner Contribution %" value={fmtPct(partnerPct)} />
                             <Chip label="# Partner Deals" value={fmtNum(partnerClosedCountTotal)} />
                             <Chip label="Partner AOV" value={partnerAov == null ? "—" : fmtMoney(partnerAov)} />
-                            <Chip label="Partner Average Age" value={partnerAge == null ? "—" : `${Math.round(partnerAge)}d`} />
+                            <Chip label="Partner Average Age" value={partnerAge == null ? "—" : String(Math.round(partnerAge))} />
                             <Chip label="Partner Win Rate" value={fmtPct(partnerWin)} />
                           </div>
                         </div>

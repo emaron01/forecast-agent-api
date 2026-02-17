@@ -376,7 +376,7 @@ export default async function AnalyticsQuotasExecutivePage({
                           <td className={`px-4 py-3 ${sortCellClass(wonSortKey === "opportunity")}`}>{d.opportunity_name || "—"}</td>
                           <td className={`px-4 py-3 ${sortCellClass(wonSortKey === "product")}`}>{d.product || "—"}</td>
                           <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(wonSortKey === "amount")}`}>{fmtMoney(d.amount)}</td>
-                          <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(wonSortKey === "age")}`}>{age == null ? "—" : `${age}d`}</td>
+                          <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(wonSortKey === "age")}`}>{age == null ? "—" : String(age)}</td>
                           <td className={`px-4 py-3 ${sortCellClass(wonSortKey === "initial_health")}`}>
                             <HealthScorePill score={d.baseline_health_score} />
                           </td>
@@ -469,7 +469,7 @@ export default async function AnalyticsQuotasExecutivePage({
                           <td className={`px-4 py-3 ${sortCellClass(lostSortKey === "opportunity")}`}>{d.opportunity_name || "—"}</td>
                           <td className={`px-4 py-3 ${sortCellClass(lostSortKey === "product")}`}>{d.product || "—"}</td>
                           <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(lostSortKey === "amount")}`}>{fmtMoney(d.amount)}</td>
-                          <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(lostSortKey === "age")}`}>{age == null ? "—" : `${age}d`}</td>
+                          <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(lostSortKey === "age")}`}>{age == null ? "—" : String(age)}</td>
                           <td className={`px-4 py-3 ${sortCellClass(lostSortKey === "initial_health")}`}>
                             <HealthScorePill score={d.baseline_health_score} />
                           </td>

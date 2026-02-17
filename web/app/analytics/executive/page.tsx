@@ -54,7 +54,7 @@ function qoqMark(curr: number | null, prev: number | null, kind: "money" | "pct"
       : kind === "pct"
         ? fmtPct(abs)
         : kind === "days"
-          ? `${Math.round(abs)}d`
+          ? `${Math.round(abs)}`
           : fmtNum(abs);
 
   if (d > 0) return <span className="font-mono text-xs text-[#16A34A]">↑ {label}</span>;
@@ -68,7 +68,7 @@ function deltaLabel(curr: number | null, prev: number | null, kind: "money" | "p
   const abs = Math.abs(d);
   if (kind === "money") return `${sign}${fmtMoney(abs)}`;
   if (kind === "pct") return `${sign}${fmtPct(abs)}`;
-  if (kind === "days") return `${sign}${Math.round(abs)}d`;
+  if (kind === "days") return `${sign}${Math.round(abs)}`;
   return `${sign}${fmtNum(abs)}`;
 }
 
@@ -1001,7 +1001,7 @@ export default async function ExecutiveAnalyticsKpisPage({
                   <div>
                     <div className="text-xs text-[color:var(--sf-text-secondary)]">Won</div>
                     <div className="mt-0.5 font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">
-                      {curr.avg_days_won == null ? "—" : `${Math.round(curr.avg_days_won)}d`}
+                      {curr.avg_days_won == null ? "—" : String(Math.round(curr.avg_days_won))}
                     </div>
                     <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">
                       QoQ: {qoqMark(curr.avg_days_won, prev?.avg_days_won ?? null, "days")}
@@ -1010,7 +1010,7 @@ export default async function ExecutiveAnalyticsKpisPage({
                   <div>
                     <div className="text-xs text-[color:var(--sf-text-secondary)]">Lost</div>
                     <div className="mt-0.5 font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">
-                      {curr.avg_days_lost == null ? "—" : `${Math.round(curr.avg_days_lost)}d`}
+                      {curr.avg_days_lost == null ? "—" : String(Math.round(curr.avg_days_lost))}
                     </div>
                     <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">
                       QoQ: {qoqMark(curr.avg_days_lost, prev?.avg_days_lost ?? null, "days")}
@@ -1019,7 +1019,7 @@ export default async function ExecutiveAnalyticsKpisPage({
                   <div>
                     <div className="text-xs text-[color:var(--sf-text-secondary)]">Active (age)</div>
                     <div className="mt-0.5 font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">
-                      {curr.avg_days_active == null ? "—" : `${Math.round(curr.avg_days_active)}d`}
+                      {curr.avg_days_active == null ? "—" : String(Math.round(curr.avg_days_active))}
                     </div>
                     <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">
                       QoQ: {qoqMark(curr.avg_days_active, prev?.avg_days_active ?? null, "days")}
@@ -1185,9 +1185,9 @@ export default async function ExecutiveAnalyticsKpisPage({
                                 <td className={`px-4 py-3 text-right font-mono text-xs ${sortHighlightCell("win_rate")}`}>{fmtPct(r.win_rate)}</td>
                                 <td className={`px-4 py-3 text-right font-mono text-xs ${sortHighlightCell("aov")}`}>{fmtMoney(r.aov)}</td>
                                 <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct(r.partner_contribution)}</td>
-                                <td className="px-4 py-3 text-right font-mono text-xs">{r.avg_days_won == null ? "—" : `${Math.round(r.avg_days_won)}d`}</td>
-                                <td className="px-4 py-3 text-right font-mono text-xs">{r.avg_days_lost == null ? "—" : `${Math.round(r.avg_days_lost)}d`}</td>
-                                <td className="px-4 py-3 text-right font-mono text-xs">{r.avg_days_active == null ? "—" : `${Math.round(r.avg_days_active)}d`}</td>
+                                <td className="px-4 py-3 text-right font-mono text-xs">{r.avg_days_won == null ? "—" : String(Math.round(r.avg_days_won))}</td>
+                                <td className="px-4 py-3 text-right font-mono text-xs">{r.avg_days_lost == null ? "—" : String(Math.round(r.avg_days_lost))}</td>
+                                <td className="px-4 py-3 text-right font-mono text-xs">{r.avg_days_active == null ? "—" : String(Math.round(r.avg_days_active))}</td>
                               </tr>
                             ))}
                           </Fragment>

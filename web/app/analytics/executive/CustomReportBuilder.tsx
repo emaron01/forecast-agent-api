@@ -80,7 +80,7 @@ const METRICS: Array<{ key: MetricKey; label: string }> = [
   { key: "created_count", label: "New Opps Created (#)" },
   { key: "avg_days_won", label: "Sales Cycle (Won, days)" },
   { key: "avg_days_lost", label: "Sales Cycle (Lost, days)" },
-  { key: "avg_days_active", label: "Active Age (days)" },
+  { key: "avg_days_active", label: "Aging (avg days)" },
   { key: "mix_pipeline", label: "Mix: Pipeline (%)" },
   { key: "mix_best", label: "Mix: Best (%)" },
   { key: "mix_commit", label: "Mix: Commit (%)" },
@@ -110,7 +110,7 @@ function renderMetricValue(key: MetricKey, r: RepRow) {
     return fmtPct(v == null ? null : Number(v));
   }
   if (key.includes("amount") || key === "quota" || key === "aov") return fmtMoney(v);
-  if (key.startsWith("avg_days_")) return v == null ? "—" : `${Math.round(Number(v))}d`;
+  if (key.startsWith("avg_days_")) return v == null ? "—" : String(Math.round(Number(v)));
   return fmtNum(v);
 }
 

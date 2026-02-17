@@ -92,7 +92,7 @@ const METRICS: Array<{ key: MetricKey; label: string }> = [
   { key: "avg_health_pipeline", label: "Avg Health (Pipeline)" },
   { key: "avg_health_won", label: "Avg Health (Won)" },
   { key: "aov", label: "AOV ($)" },
-  { key: "avg_days_active", label: "Aging (Avg deal age, days)" },
+  { key: "avg_days_active", label: "Aging (avg days)" },
   { key: "best_amount", label: "Best Case ($)" },
   { key: "best_coverage", label: "Best Case Coverage (%)" },
   { key: "commit_amount", label: "Commit ($)" },
@@ -153,7 +153,7 @@ function renderMetricValue(key: MetricKey, r: RepRow) {
     return fmtPct(v == null ? null : Number(v));
   }
   if (key.includes("amount") || key === "quota" || key === "aov") return fmtMoney(v);
-  if (key.startsWith("avg_days_")) return v == null ? "—" : `${Math.round(Number(v))}d`;
+  if (key.startsWith("avg_days_")) return v == null ? "—" : String(Math.round(Number(v)));
   return fmtNum(v);
 }
 

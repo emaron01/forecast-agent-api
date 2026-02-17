@@ -36,25 +36,24 @@ function fmtNum(n: any) {
   return v.toLocaleString();
 }
 
-function levelBadge(avg: number | null) {
+function lmhBadge(avg: number | null) {
   const n = avg == null ? null : Number(avg);
   if (n == null || !Number.isFinite(n) || n <= 0) {
     return (
-      <span className="inline-flex min-w-[64px] items-center justify-center rounded-md bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs font-semibold text-[color:var(--sf-text-disabled)]">
+      <span className="inline-flex min-w-[40px] items-center justify-center rounded-md bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs font-semibold text-[color:var(--sf-text-disabled)]">
         —
       </span>
     );
   }
-  // Low (0-1), Medium (2), High (3) using existing agent score colors.
-  const level = n >= 2.75 ? "High" : n >= 1.75 ? "Medium" : "Low";
-  const cls =
-    level === "High"
-      ? "text-[#2ECC71] bg-[#2ECC71]/10"
-      : level === "Medium"
-        ? "text-[#F1C40F] bg-[#F1C40F]/10"
-        : "text-[#E74C3C] bg-[#E74C3C]/10";
+  // Display compact levels (keep same red/yellow/green semantics):
+  // - L: 0
+  // - M: 1–2
+  // - H: 3
+  const k = Math.round(n);
+  const level = k >= 3 ? "H" : k >= 1 ? "M" : "L";
+  const cls = level === "H" ? "text-[#2ECC71] bg-[#2ECC71]/10" : level === "M" ? "text-[#F1C40F] bg-[#F1C40F]/10" : "text-[#E74C3C] bg-[#E74C3C]/10";
   return (
-    <span className={`inline-flex min-w-[64px] items-center justify-center rounded-md px-2 py-1 text-xs font-semibold ${cls}`}>
+    <span className={`inline-flex min-w-[40px] items-center justify-center rounded-md px-2 py-1 text-xs font-semibold ${cls}`}>
       {level}
     </span>
   );
@@ -234,19 +233,40 @@ export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
         <table className="w-full min-w-[1400px] text-left text-sm">
           <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
             <tr>
-              <th className="px-3 py-3">Sales Rep</th>
-              <th className="px-3 py-3 text-right">Opp Count</th>
-              <th className="px-3 py-3">Forecast Stage</th>
+              <th className="px-3 py-3">
+                <span className="block leading-tight">Sales</span>
+                <span className="block leading-tight">Rep</span>
+              </th>
+              <th className="px-3 py-3 text-right">
+                <span className="block leading-tight">Opp</span>
+                <span className="block leading-tight">Count</span>
+              </th>
+              <th className="px-3 py-3">
+                <span className="block leading-tight">Forecast</span>
+                <span className="block leading-tight">Stage</span>
+              </th>
+              <th className="px-3 py-3 text-center">
+                <span className="block leading-tight">Average</span>
+                <span className="block leading-tight">Health</span>
+              </th>
               <th className="px-2 py-3 text-center">Metrics</th>
-              <th className="px-2 py-3 text-center">Economic buyer</th>
-              <th className="px-2 py-3 text-center">Decision Criteria</th>
-              <th className="px-2 py-3 text-center">Decision Process</th>
+              <th className="px-2 py-3 text-center">
+                <span className="block leading-tight">Economic</span>
+                <span className="block leading-tight">buyer</span>
+              </th>
+              <th className="px-2 py-3 text-center">
+                <span className="block leading-tight">Decision</span>
+                <span className="block leading-tight">Criteria</span>
+              </th>
+              <th className="px-2 py-3 text-center">
+                <span className="block leading-tight">Decision</span>
+                <span className="block leading-tight">Process</span>
+              </th>
               <th className="px-2 py-3 text-center">Pain</th>
               <th className="px-2 py-3 text-center">Champ</th>
               <th className="px-2 py-3 text-center">Comp</th>
               <th className="px-2 py-3 text-center">Timing</th>
               <th className="px-2 py-3 text-center">Budget</th>
-              <th className="px-3 py-3 text-center">Average Deal Health</th>
             </tr>
           </thead>
           <tbody>
@@ -266,16 +286,16 @@ export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
                       {fmtNum(exTotal.opp_count)}
                     </td>
                     <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">—</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_metrics)}</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_eb)}</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_criteria)}</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_process)}</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_pain)}</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_champion)}</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_competition)}</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_timing)}</td>
-                    <td className="px-2 py-3 text-center">{levelBadge(exTotal.avg_budget)}</td>
                     <td className="px-3 py-3 text-center">{healthBadge(exTotal.avg_health_score)}</td>
+                    <td className="px-2 py-3 text-center">{lmhBadge(exTotal.avg_metrics)}</td>
+                    <td className="px-2 py-3 text-center">{lmhBadge(exTotal.avg_eb)}</td>
+                    <td className="px-2 py-3 text-center">{lmhBadge(exTotal.avg_criteria)}</td>
+                    <td className="px-2 py-3 text-center">{lmhBadge(exTotal.avg_process)}</td>
+                    <td className="px-2 py-3 text-center">{lmhBadge(exTotal.avg_pain)}</td>
+                    <td className="px-2 py-3 text-center">{lmhBadge(exTotal.avg_champion)}</td>
+                    <td className="px-2 py-3 text-center">{lmhBadge(exTotal.avg_competition)}</td>
+                    <td className="px-2 py-3 text-center">{lmhBadge(exTotal.avg_timing)}</td>
+                    <td className="px-2 py-3 text-center">{lmhBadge(exTotal.avg_budget)}</td>
                   </tr>
 
                   {Array.from(ex.managers.values()).map((mgr) => {
@@ -294,16 +314,16 @@ export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
                             {fmtNum(mgrTotal.opp_count)}
                           </td>
                           <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">—</td>
-                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_metrics)}</td>
-                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_eb)}</td>
-                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_criteria)}</td>
-                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_process)}</td>
-                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_pain)}</td>
-                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_champion)}</td>
-                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_competition)}</td>
-                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_timing)}</td>
-                          <td className="px-2 py-3 text-center">{levelBadge(mgrTotal.avg_budget)}</td>
                           <td className="px-3 py-3 text-center">{healthBadge(mgrTotal.avg_health_score)}</td>
+                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_metrics)}</td>
+                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_eb)}</td>
+                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_criteria)}</td>
+                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_process)}</td>
+                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_pain)}</td>
+                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_champion)}</td>
+                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_competition)}</td>
+                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_timing)}</td>
+                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_budget)}</td>
                         </tr>
 
                         {Array.from(mgr.reps.values()).map((rep) => {
@@ -319,16 +339,16 @@ export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
                                   {fmtNum(repTotal.opp_count)}
                                 </td>
                                 <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">Rep total</td>
-                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_metrics)}</td>
-                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_eb)}</td>
-                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_criteria)}</td>
-                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_process)}</td>
-                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_pain)}</td>
-                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_champion)}</td>
-                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_competition)}</td>
-                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_timing)}</td>
-                                <td className="px-2 py-3 text-center">{levelBadge(repTotal.avg_budget)}</td>
                                 <td className="px-3 py-3 text-center">{healthBadge(repTotal.avg_health_score)}</td>
+                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_metrics)}</td>
+                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_eb)}</td>
+                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_criteria)}</td>
+                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_process)}</td>
+                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_pain)}</td>
+                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_champion)}</td>
+                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_competition)}</td>
+                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_timing)}</td>
+                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_budget)}</td>
                               </tr>
 
                               {stages.map((st) => {
@@ -338,16 +358,16 @@ export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
                                     <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">&nbsp;</td>
                                     <td className="px-3 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtNum(r.opp_count)}</td>
                                     <td className="px-3 py-3 text-xs text-[color:var(--sf-text-primary)]">{st}</td>
-                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_metrics)}</td>
-                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_eb)}</td>
-                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_criteria)}</td>
-                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_process)}</td>
-                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_pain)}</td>
-                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_champion)}</td>
-                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_competition)}</td>
-                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_timing)}</td>
-                                    <td className="px-2 py-3 text-center">{levelBadge(r.avg_budget)}</td>
                                     <td className="px-3 py-3 text-center">{healthBadge(r.avg_health_score)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_metrics)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_eb)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_criteria)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_process)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_pain)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_champion)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_competition)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_timing)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_budget)}</td>
                                   </tr>
                                 );
                               })}

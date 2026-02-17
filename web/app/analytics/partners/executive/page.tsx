@@ -412,7 +412,7 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
                         <td className={`px-4 py-3 ${sortCellClass(wonSortKey === "product")}`}>{d.product || ""}</td>
                         <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(wonSortKey === "amount")}`}>{fmtMoney(d.amount)}</td>
                         <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(wonSortKey === "age")}`}>
-                          {daysBetween(d.create_date, d.close_date) == null ? "—" : `${daysBetween(d.create_date, d.close_date)}d`}
+                          {daysBetween(d.create_date, d.close_date) == null ? "—" : String(daysBetween(d.create_date, d.close_date))}
                         </td>
                         <td className={`px-4 py-3 text-right ${sortCellClass(wonSortKey === "initial_health")}`}>
                           <HealthScorePill score={d.baseline_health_score} />
@@ -506,7 +506,7 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
                         <td className={`px-4 py-3 ${sortCellClass(lostSortKey === "product")}`}>{d.product || ""}</td>
                         <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(lostSortKey === "amount")}`}>{fmtMoney(d.amount)}</td>
                         <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(lostSortKey === "age")}`}>
-                          {daysBetween(d.create_date, d.close_date) == null ? "—" : `${daysBetween(d.create_date, d.close_date)}d`}
+                          {daysBetween(d.create_date, d.close_date) == null ? "—" : String(daysBetween(d.create_date, d.close_date))}
                         </td>
                         <td className={`px-4 py-3 text-right ${sortCellClass(lostSortKey === "initial_health")}`}>
                           <HealthScorePill score={d.baseline_health_score} />

@@ -46,6 +46,7 @@ type RepOption = {
   id: number;
   name: string;
   role: string | null;
+  manager_rep_id: number | null;
 };
 
 export default async function MeddpiccRepRollupPage({
@@ -72,7 +73,8 @@ export default async function MeddpiccRepRollupPage({
       SELECT
         id,
         COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), '(Unnamed)') AS name,
-        role
+        role,
+        manager_rep_id
       FROM reps
       WHERE organization_id = $1::bigint
         AND (active IS TRUE OR active IS NULL)
@@ -91,8 +93,33 @@ export default async function MeddpiccRepRollupPage({
     .then((r) => r.rows || [])
     .catch(() => []);
 
-  const teamOptions = repOptions.filter((r) => r.role === "EXEC_MANAGER" || r.role === "MANAGER");
+  const execOptions = repOptions.filter((r) => r.role === "EXEC_MANAGER");
+  const managerOptions = repOptions.filter((r) => r.role === "MANAGER");
   const repOnlyOptions = repOptions.filter((r) => r.role === "REP");
+
+  const managersByExec = new Map<number, RepOption[]>();
+  for (const m of managerOptions) {
+    const eid = m.manager_rep_id ?? 0;
+    const list = managersByExec.get(eid) || [];
+    list.push(m);
+    managersByExec.set(eid, list);
+  }
+  for (const [k, v] of managersByExec.entries()) {
+    v.sort((a, b) => a.name.localeCompare(b.name));
+    managersByExec.set(k, v);
+  }
+
+  const repsByManager = new Map<number, RepOption[]>();
+  for (const r of repOnlyOptions) {
+    const mid = r.manager_rep_id ?? 0;
+    const list = repsByManager.get(mid) || [];
+    list.push(r);
+    repsByManager.set(mid, list);
+  }
+  for (const [k, v] of repsByManager.entries()) {
+    v.sort((a, b) => a.name.localeCompare(b.name));
+    repsByManager.set(k, v);
+  }
 
   const periods = await pool
     .query<QuotaPeriodLite>(
@@ -291,76 +318,106 @@ export default async function MeddpiccRepRollupPage({
         </div>
 
         <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Filters</h2>
-              <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-                Period: <span className="font-mono text-xs">{qp?.period_start || "—"}</span> →{" "}
-                <span className="font-mono text-xs">{qp?.period_end || "—"}</span>
-              </p>
-            </div>
-            <form method="GET" action="/analytics/meddpicc-tb/rep-rollup" className="flex flex-wrap items-end gap-2">
-              <div className="grid gap-1">
-                <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Quota period</label>
-                <select
-                  name="quota_period_id"
-                  defaultValue={qpId}
-                  className="h-[40px] min-w-[240px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                >
-                  {periods.map((p) => (
-                    <option key={p.id} value={String(p.id)}>
-                      {String(p.period_name || "").trim() || `${p.period_start} → ${p.period_end}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid gap-1">
-                <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Teams (Exec/Manager)</label>
-                <select
-                  name="team_id"
-                  multiple
-                  size={Math.min(6, Math.max(3, teamOptions.length))}
-                  defaultValue={teamIds.map(String)}
-                  className="min-w-[260px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                >
-                  {teamOptions.map((t) => (
-                    <option key={t.id} value={String(t.id)}>
-                      {t.role === "EXEC_MANAGER" ? `Executive: ${t.name}` : `Manager: ${t.name}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid gap-1">
-                <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Reps</label>
-                <select
-                  name="rep_id"
-                  multiple
-                  size={Math.min(6, Math.max(3, repOnlyOptions.length))}
-                  defaultValue={repIds.map(String)}
-                  className="min-w-[240px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                >
-                  {repOnlyOptions.map((t) => (
-                    <option key={t.id} value={String(t.id)}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <label className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
-                <input type="checkbox" name="include_closed" value="1" defaultChecked={include_closed} />
-                Include closed
-              </label>
-              <button
-                type="submit"
-                className="h-[40px] rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
-              >
-                Apply
-              </button>
-            </form>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Filters</h2>
           </div>
+
+          <form method="GET" action="/analytics/meddpicc-tb/rep-rollup" className="mt-3 grid gap-4 md:grid-cols-12">
+            <section className="md:col-span-8">
+              <div className="text-xs font-medium text-[color:var(--sf-text-secondary)]">People (organized by team)</div>
+              <div className="mt-2 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                <div className="grid gap-2">
+                  {(execOptions.length ? execOptions : [{ id: 0, name: "(Unassigned)", role: "EXEC_MANAGER", manager_rep_id: null }]).map((ex) => {
+                    const exId = Number(ex.id) || 0;
+                    const execChecked = teamIds.includes(exId);
+                    const mgrs = managersByExec.get(exId) || [];
+                    return (
+                      <details key={`exec:${exId}`} open className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2">
+                        <summary className="cursor-pointer select-none text-sm font-semibold text-[color:var(--sf-text-primary)]">
+                          <label className="inline-flex items-center gap-2">
+                            <input type="checkbox" name="team_id" value={String(exId)} defaultChecked={execChecked} />
+                            Executive: {ex.name}
+                          </label>
+                        </summary>
+
+                        <div className="mt-2 grid gap-2 pl-4">
+                          {(mgrs.length ? mgrs : [{ id: 0, name: "(Unassigned)", role: "MANAGER", manager_rep_id: exId }]).map((m) => {
+                            const mid = Number(m.id) || 0;
+                            const mgrChecked = teamIds.includes(mid);
+                            const reps = repsByManager.get(mid) || [];
+                            return (
+                              <div key={`mgr:${exId}:${mid}`} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2">
+                                <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">
+                                  <label className="inline-flex items-center gap-2">
+                                    <input type="checkbox" name="team_id" value={String(mid)} defaultChecked={mgrChecked} />
+                                    Manager: {m.name}
+                                  </label>
+                                </div>
+                                <div className="mt-2 grid gap-1 pl-6">
+                                  {(reps.length ? reps : [{ id: 0, name: "(No reps)", role: "REP", manager_rep_id: mid }]).map((r) => {
+                                    const rid = Number(r.id) || 0;
+                                    const repChecked = repIds.includes(rid);
+                                    return (
+                                      <label
+                                        key={`rep:${mid}:${rid}`}
+                                        className="inline-flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]"
+                                      >
+                                        <input type="checkbox" name="rep_id" value={String(rid)} defaultChecked={repChecked} disabled={rid === 0} />
+                                        {r.name}
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </details>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+
+            <section className="md:col-span-4 md:justify-self-end">
+              <div className="grid gap-3">
+                <div className="grid gap-1">
+                  <div className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Period</div>
+                  <div className="text-sm text-[color:var(--sf-text-secondary)]">
+                    <span className="font-mono text-xs">{qp?.period_start || "—"}</span> →{" "}
+                    <span className="font-mono text-xs">{qp?.period_end || "—"}</span>
+                  </div>
+                </div>
+
+                <div className="grid gap-1">
+                  <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Quarter</label>
+                  <select
+                    name="quota_period_id"
+                    defaultValue={qpId}
+                    className="h-[40px] w-full min-w-[240px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                  >
+                    {periods.map((p) => (
+                      <option key={p.id} value={String(p.id)}>
+                        {String(p.period_name || "").trim() || `${p.period_start} → ${p.period_end}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <label className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                  <input type="checkbox" name="include_closed" value="1" defaultChecked={include_closed} />
+                  Include closed
+                </label>
+
+                <button
+                  type="submit"
+                  className="h-[40px] w-full rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
+                >
+                  Apply
+                </button>
+              </div>
+            </section>
+          </form>
         </section>
 
         <MeddpiccRepRollupClient rows={repRows} />
