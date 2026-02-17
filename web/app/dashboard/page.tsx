@@ -175,6 +175,7 @@ export default async function DashboardPage({
         <QuarterRepAnalytics orgId={ctx.user.org_id} user={ctx.user} searchParams={searchParams} />
 
         <section className="mt-6 grid gap-4 md:grid-cols-3">
+          <ActionCard href="/forecast/meddpicc-heatmap" title="Analytics" desc="MEDDPICC+TB Heatmap (Timing + Budget)." />
           <ActionCard href="/forecast" title="Sales Opportunities" desc="Primary rep opportunities dashboard." />
           <ActionCard href="/dashboard/excel-upload" title="Upload Opportunities" desc="Upload an Excel file of opportunities." />
         </section>

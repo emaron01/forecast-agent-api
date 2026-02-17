@@ -249,10 +249,6 @@ export function MeddpiccHeatmapClient(props: {
               <Link className="text-[color:var(--sf-accent-primary)] hover:underline" href="/forecast/opportunity-score-cards">
                 Opportunity Score Cards View
               </Link>
-              {" · "}
-              <Link className="text-[color:var(--sf-accent-primary)] hover:underline" href="/forecast">
-                Sales Opportunities
-              </Link>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">

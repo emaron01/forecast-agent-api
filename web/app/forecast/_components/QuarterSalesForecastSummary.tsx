@@ -163,8 +163,13 @@ export async function QuarterSalesForecastSummary(props: {
 
   const visibleRepUsers = (visibleUsers || []).filter((u) => u && u.role === "REP" && u.active);
   const visibleRepUserIds = Array.from(new Set(visibleRepUsers.map((u) => Number(u.id)).filter((n) => Number.isFinite(n) && n > 0)));
+  // Improve matching: some orgs store opp rep_name as user display_name (not account_owner_name).
   const visibleRepNameKeys = Array.from(
-    new Set(visibleRepUsers.map((u) => normalizeNameKey(u.account_owner_name || "")).filter(Boolean))
+    new Set(
+      visibleRepUsers
+        .flatMap((u) => [normalizeNameKey(u.account_owner_name || ""), normalizeNameKey(u.display_name || ""), normalizeNameKey(u.email || "")])
+        .filter(Boolean)
+    )
   );
 
   // Map visible REP users -> rep ids when possible (opportunities.rep_id is reps.id).
