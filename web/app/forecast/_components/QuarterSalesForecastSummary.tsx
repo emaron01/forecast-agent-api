@@ -243,10 +243,10 @@ export async function QuarterSalesForecastSummary(props: {
               o.rep_id,
               o.rep_name,
               o.health_score,
-              -- Use forecast_stage when present; fall back to sales_stage (many CRMs mark Won/Lost there).
+              -- Forecast reporting standard: forecast_stage drives all classification.
               lower(
                 regexp_replace(
-                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
                   '[^a-zA-Z]+',
                   ' ',
                   'g'
@@ -421,7 +421,7 @@ export async function QuarterSalesForecastSummary(props: {
               o.health_score,
               lower(
                 regexp_replace(
-                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+            COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
                   '[^a-zA-Z]+',
                   ' ',
                   'g'
@@ -496,7 +496,7 @@ export async function QuarterSalesForecastSummary(props: {
               o.health_score,
               lower(
                 regexp_replace(
-                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+            COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
                   '[^a-zA-Z]+',
                   ' ',
                   'g'
@@ -640,7 +640,7 @@ export async function QuarterSalesForecastSummary(props: {
                 o.sales_stage,
                 lower(
                   regexp_replace(
-                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
                     '[^a-zA-Z]+',
                     ' ',
                     'g'
@@ -732,7 +732,7 @@ export async function QuarterSalesForecastSummary(props: {
                 o.sales_stage,
                 lower(
                   regexp_replace(
-                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
                     '[^a-zA-Z]+',
                     ' ',
                     'g'

@@ -14,13 +14,9 @@ export function closedOutcomeFromStage(stageLike: any): ClosedOutcome | null {
 }
 
 export function closedOutcomeFromOpportunityRow(row: any): ClosedOutcome | null {
-  // Prefer explicit sales stage, then forecast stage.
-  return (
-    closedOutcomeFromStage(row?.sales_stage) ||
-    closedOutcomeFromStage(row?.stage) ||
-    closedOutcomeFromStage(row?.forecast_stage) ||
-    null
-  );
+  // Forecast reporting standard: forecast_stage drives all “closed” detection.
+  // (We intentionally do NOT use sales_stage here.)
+  return closedOutcomeFromStage(row?.forecast_stage) || null;
 }
 
 export function isClosedOpportunityRow(row: any) {

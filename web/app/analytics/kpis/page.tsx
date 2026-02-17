@@ -426,7 +426,7 @@ async function getCreatedPipelineAggByPeriods(args: { orgId: number; periodIds: 
         p.period_end,
         lower(
           regexp_replace(
-            COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+            COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
             '[^a-zA-Z]+',
             ' ',
             'g'
@@ -508,7 +508,7 @@ async function getCreatedPipelineByRepByPeriods(args: { orgId: number; periodIds
         COALESCE(o.amount, 0)::float8 AS amount,
         lower(
           regexp_replace(
-            COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+            COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
             '[^a-zA-Z]+',
             ' ',
             'g'

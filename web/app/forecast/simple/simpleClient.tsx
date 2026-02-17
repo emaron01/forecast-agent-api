@@ -54,7 +54,7 @@ function normalizeForecastBucket(stageLike: any): "Commit" | "Best Case" | "Pipe
 }
 
 function isClosedDeal(d: Deal) {
-  return closedOutcomeFromStage((d as any)?.forecast_stage) || closedOutcomeFromStage((d as any)?.stage) || null;
+  return closedOutcomeFromStage((d as any)?.forecast_stage) || null;
 }
 
 export function SimpleForecastDashboardClient(props: {

@@ -52,11 +52,18 @@ function scoreColorClass(s: any) {
 function scoreLabel(s: any) {
   const n = Number(s);
   if (!Number.isFinite(n) || n <= 0) return "—";
-  return `${Math.round(n)}/3`;
+  const k = Math.round(n);
+  // Display compact labels instead of "#/3"
+  // - L: 0–1
+  // - M: 2
+  // - H: 3
+  if (k >= 3) return "H";
+  if (k >= 2) return "M";
+  return "L";
 }
 
 function isClosedDeal(d: Deal) {
-  return closedOutcomeFromStage((d as any)?.forecast_stage) || closedOutcomeFromStage((d as any)?.stage) || null;
+  return closedOutcomeFromStage((d as any)?.forecast_stage) || null;
 }
 
 type SortKey =

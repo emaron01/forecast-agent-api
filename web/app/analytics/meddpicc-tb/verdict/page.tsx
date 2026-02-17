@@ -134,7 +134,7 @@ export default async function VerdictForecastPage({
                 o.health_score,
                 lower(
                   regexp_replace(
-                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
                     '[^a-zA-Z]+',
                     ' ',
                     'g'

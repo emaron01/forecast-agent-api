@@ -394,7 +394,7 @@ export function ForecastDashboardClient(props: {
           const total = Number(d.health_score ?? scoreTotal(d)) || 0;
           const justSaved = saveBlinksRef.current.has(String(d.id || ""));
           const dealId = String(d.id || "");
-          const closed = closedOutcomeFromStage(d.stage) || closedOutcomeFromStage(d.forecast_stage);
+          const closed = closedOutcomeFromStage(d.forecast_stage);
 
           return (
             <article

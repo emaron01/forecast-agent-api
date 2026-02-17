@@ -159,7 +159,8 @@ export async function QuarterRepAnalytics(props: {
               COALESCE(o.amount, 0) AS amount,
               lower(
                 regexp_replace(
-                  COALESCE(NULLIF(btrim(o.sales_stage), ''), NULLIF(btrim(o.forecast_stage), ''), ''),
+                  -- Forecast reporting standard: forecast_stage drives all classification.
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
                   '[^a-zA-Z]+',
                   ' ',
                   'g'

@@ -345,7 +345,7 @@ export default async function AnalyticsQuotasManagerPage({
                 COALESCE(o.amount, 0) AS amount,
                 lower(
                   regexp_replace(
-                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
                     '[^a-zA-Z]+',
                     ' ',
                     'g'

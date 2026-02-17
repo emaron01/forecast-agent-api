@@ -158,7 +158,7 @@ export default async function MeddpiccRepRollupPage({
               COALESCE(NULLIF(btrim(m.display_name), ''), NULLIF(btrim(m.rep_name), ''), '(Unassigned)') AS manager_name,
               lower(
                 regexp_replace(
-                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), NULLIF(btrim(o.sales_stage), ''), ''),
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
                   '[^a-zA-Z]+',
                   ' ',
                   'g'
