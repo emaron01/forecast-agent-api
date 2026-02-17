@@ -188,77 +188,6 @@ export async function QuarterRepAnalytics(props: {
   const wonCount = Number(wonStats?.won_count || 0) || 0;
   const aov = wonCount > 0 ? wonAmount / wonCount : null;
 
-  const products = canCompute
-    ? await pool
-        .query<{ product: string; won_amount: number; won_count: number; avg_order_value: number; avg_health_score: number | null }>(
-          `
-          WITH qp AS (
-            SELECT period_start::date AS period_start, period_end::date AS period_end
-              FROM quota_periods
-             WHERE org_id = $1::bigint
-               AND id = $2::bigint
-             LIMIT 1
-          ),
-          deals AS (
-            SELECT
-              COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
-              COALESCE(o.amount, 0) AS amount,
-              o.health_score,
-              lower(
-                regexp_replace(
-                  COALESCE(NULLIF(btrim(o.sales_stage), ''), NULLIF(btrim(o.forecast_stage), ''), ''),
-                  '[^a-zA-Z]+',
-                  ' ',
-                  'g'
-                )
-              ) AS fs,
-              CASE
-                WHEN o.close_date IS NULL THEN NULL
-                WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
-                WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-                  to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
-                ELSE NULL
-              END AS close_d
-            FROM opportunities o
-            WHERE o.org_id = $1
-              AND (
-                ($3::bigint IS NOT NULL AND o.rep_id = $3::bigint)
-                OR (
-                  $4 <> ''
-                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = $4
-                )
-              )
-          ),
-          deals_in_qtr AS (
-            SELECT d.*
-              FROM deals d
-              JOIN qp ON TRUE
-             WHERE d.close_d IS NOT NULL
-               AND d.close_d >= qp.period_start
-               AND d.close_d <= qp.period_end
-          ),
-          won_deals AS (
-            SELECT *
-              FROM deals_in_qtr
-             WHERE ((' ' || fs || ' ') LIKE '% won %')
-          )
-          SELECT
-            product,
-            COALESCE(SUM(amount), 0)::float8 AS won_amount,
-            COUNT(*)::int AS won_count,
-            CASE WHEN COUNT(*) > 0 THEN (COALESCE(SUM(amount), 0)::float8 / COUNT(*)::float8) ELSE 0 END AS avg_order_value,
-            AVG(NULLIF(health_score, 0))::float8 AS avg_health_score
-          FROM won_deals
-          GROUP BY product
-          ORDER BY won_amount DESC, product ASC
-          LIMIT 50
-          `,
-          [props.orgId, qp.id, repId, repNameKey]
-        )
-        .then((r) => r.rows || [])
-        .catch(() => [])
-    : [];
-
   return (
     <section className="mt-6 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -297,47 +226,6 @@ export async function QuarterRepAnalytics(props: {
             <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
               <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Average Order Value</div>
               <div className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{aov == null ? "—" : fmtMoney(aov)}</div>
-            </div>
-          </div>
-
-          <div className="mt-5">
-            <h3 className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Revenue by product (Closed Won)</h3>
-            <div className="mt-3 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-              <table className="w-full min-w-[720px] text-left text-sm">
-                <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
-                  <tr>
-                    <th className="px-4 py-3">product</th>
-                    <th className="px-4 py-3 text-right">closed won revenue</th>
-                    <th className="px-4 py-3 text-right"># orders</th>
-                    <th className="px-4 py-3 text-right">avg / order</th>
-                    <th className="px-4 py-3 text-right">avg health</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {products.length ? (
-                    products.map((p) => {
-                      const hp = healthPctFrom30(p.avg_health_score);
-                      return (
-                        <tr key={p.product} className="border-t border-[color:var(--sf-border)]">
-                          <td className="px-4 py-3">{p.product}</td>
-                          <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(p.won_amount)}</td>
-                          <td className="px-4 py-3 text-right">{p.won_count}</td>
-                          <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(p.avg_order_value)}</td>
-                          <td className="px-4 py-3 text-right font-mono text-xs">
-                            <span className={healthColorClass(hp)}>{hp == null ? "—" : `${hp}%`}</span>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
-                        No closed-won deals found for this quarter.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
             </div>
           </div>
         </>

@@ -846,7 +846,6 @@ export async function QuarterSalesForecastSummary(props: {
             { key: "total", label: "Total Pipeline", amount: totalAmt, count: totalPipelineCount, healthPct: totalPipelineHealthPct },
             { key: "won", label: "Closed Won", amount: wonAmt, count: wonCount, healthPct: wonHealthPct },
           ]
-            .filter((c) => !(Number(c.amount || 0) === 0 && Number(c.count || 0) === 0))
             .map((c) => (
               <div key={c.key} className={`${boxClass} w-full`}>
                 <div className="text-sm text-black/70">{c.label}</div>

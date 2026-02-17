@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { closedOutcomeFromStage } from "../../../lib/opportunityOutcome";
 import { dateOnly } from "../../../lib/dateOnly";
 
@@ -212,8 +212,9 @@ export function MeddpiccHeatmapClient(props: {
     }
   }
 
-  const thBtn = (label: string, k: SortKey, align: "left" | "right" | "center" = "left") => {
+  const thBtn = (label: ReactNode, k: SortKey, align: "left" | "right" | "center" = "left") => {
     const alignClass = align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
+    const arrow = sortKey === k ? (sortDir === "asc" ? "↑" : "↓") : "";
     return (
     <button
       type="button"
@@ -221,8 +222,10 @@ export function MeddpiccHeatmapClient(props: {
       className={`w-full select-none ${alignClass} hover:text-[color:var(--sf-text-primary)]`}
       title="Sort"
     >
-      {label}
-      {sortKey === k ? (sortDir === "asc" ? " ↑" : " ↓") : ""}
+      <span className="inline-flex items-start gap-1">
+        <span className="inline-flex flex-col leading-tight">{label}</span>
+        {arrow ? <span className="text-[10px] leading-4">{arrow}</span> : null}
+      </span>
     </button>
     );
   };
@@ -317,22 +320,58 @@ export function MeddpiccHeatmapClient(props: {
         {error ? <div className="mt-3 rounded-md border border-[#E74C3C]/40 bg-[#E74C3C]/10 p-3 text-sm text-[#E74C3C]">{error}</div> : null}
 
         <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-          <table className="w-full min-w-[1500px] text-left text-sm">
+          <table className="w-full min-w-[1200px] text-left text-sm">
             <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
               <tr>
-                <th className="px-4 py-3">{thBtn("Account Name", "account")}</th>
-                <th className="px-4 py-3 text-right">{thBtn("Revenue", "amount", "right")}</th>
-                <th className="px-4 py-3">{thBtn("Close Date", "close_date")}</th>
-                <th className="px-4 py-3">{thBtn("Forecast Stage", "forecast_stage")}</th>
-                <th className="px-4 py-3">{thBtn("AI Stage", "ai_stage")}</th>
+                <th className="px-3 py-3">{thBtn("Account", "account")}</th>
+                <th className="px-3 py-3 text-right">{thBtn("Revenue", "amount", "right")}</th>
+                <th className="px-3 py-3">{thBtn("Close Date", "close_date")}</th>
+                <th className="px-3 py-3">{thBtn("Forecast Stage", "forecast_stage")}</th>
+                <th className="px-3 py-3">{thBtn("AI Stage", "ai_stage")}</th>
                 <th className="px-2 py-3 text-center">{thBtn("Pain", "pain", "center")}</th>
                 <th className="px-2 py-3 text-center">{thBtn("Metrics", "metrics", "center")}</th>
                 <th className="px-2 py-3 text-center">{thBtn("Champion", "champion", "center")}</th>
-                <th className="px-2 py-3 text-center">{thBtn("Economic Buyer", "eb", "center")}</th>
+                <th className="px-2 py-3 text-center">
+                  {thBtn(
+                    <>
+                      <span>Economic</span>
+                      <span>Buyer</span>
+                    </>,
+                    "eb",
+                    "center"
+                  )}
+                </th>
                 <th className="px-2 py-3 text-center">{thBtn("Competition", "competition", "center")}</th>
-                <th className="px-2 py-3 text-center">{thBtn("Decision Criteria", "criteria", "center")}</th>
-                <th className="px-2 py-3 text-center">{thBtn("Decision Process", "process", "center")}</th>
-                <th className="px-2 py-3 text-center">{thBtn("Paper Process", "paper", "center")}</th>
+                <th className="px-2 py-3 text-center">
+                  {thBtn(
+                    <>
+                      <span>Decision</span>
+                      <span>Criteria</span>
+                    </>,
+                    "criteria",
+                    "center"
+                  )}
+                </th>
+                <th className="px-2 py-3 text-center">
+                  {thBtn(
+                    <>
+                      <span>Decision</span>
+                      <span>Process</span>
+                    </>,
+                    "process",
+                    "center"
+                  )}
+                </th>
+                <th className="px-2 py-3 text-center">
+                  {thBtn(
+                    <>
+                      <span>Paper</span>
+                      <span>Process</span>
+                    </>,
+                    "paper",
+                    "center"
+                  )}
+                </th>
                 <th className="px-2 py-3 text-center">{thBtn("Timing", "timing", "center")}</th>
                 <th className="px-2 py-3 text-center">{thBtn("Budget", "budget", "center")}</th>
               </tr>
@@ -340,16 +379,16 @@ export function MeddpiccHeatmapClient(props: {
             <tbody>
               {sorted.map((d) => (
                 <tr key={String(d.id)} className="border-t border-[color:var(--sf-border)]">
-                  <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">
-                    <div className="min-w-[240px]">
+                  <td className="px-3 py-3 font-medium text-[color:var(--sf-text-primary)]">
+                    <div className="min-w-[200px]">
                       <div className="truncate">{d.account_name || "—"}</div>
                       <div className="mt-0.5 truncate text-xs text-[color:var(--sf-text-disabled)]">{d.opportunity_name || ""}</div>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(d.amount)}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-[color:var(--sf-text-primary)]">{safeDate(d.close_date)}</td>
-                  <td className="px-4 py-3 text-[color:var(--sf-text-primary)]">{d.forecast_stage || "—"}</td>
-                  <td className="px-4 py-3 text-[color:var(--sf-text-primary)]">{d.ai_verdict || "—"}</td>
+                  <td className="px-3 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(d.amount)}</td>
+                  <td className="px-3 py-3 font-mono text-xs text-[color:var(--sf-text-primary)]">{safeDate(d.close_date)}</td>
+                  <td className="px-3 py-3 text-[color:var(--sf-text-primary)]">{d.forecast_stage || "—"}</td>
+                  <td className="px-3 py-3 text-[color:var(--sf-text-primary)]">{d.ai_verdict || "—"}</td>
                   <td className="px-2 py-3 text-center">{scoreCell(d.pain_score)}</td>
                   <td className="px-2 py-3 text-center">{scoreCell(d.metrics_score)}</td>
                   <td className="px-2 py-3 text-center">{scoreCell(d.champion_score)}</td>
