@@ -5,6 +5,7 @@ import { getOrganization } from "../../../../lib/db";
 import { pool } from "../../../../lib/pool";
 import { getCompanyAttainmentForPeriod } from "../../../../lib/quotaComparisons";
 import { UserTopNav } from "../../../_components/UserTopNav";
+import { VerdictFiltersClient } from "./FiltersClient";
 
 export const runtime = "nodejs";
 
@@ -16,6 +17,21 @@ function spAll(v: string | string[] | undefined) {
   if (Array.isArray(v)) return v;
   if (typeof v === "string" && v.trim()) return [v];
   return [] as string[];
+}
+
+function parseIntList(v: Array<string | undefined>) {
+  const out: number[] = [];
+  for (const raw of v || []) {
+    const t = String(raw || "").trim();
+    if (!t) continue;
+    for (const part of t.split(/[,\s]+/g)) {
+      const s = part.trim();
+      if (!s) continue;
+      const n = Number.parseInt(s, 10);
+      if (Number.isFinite(n) && n > 0) out.push(n);
+    }
+  }
+  return Array.from(new Set(out));
 }
 
 function fmtMoney(n: any) {
@@ -116,16 +132,6 @@ export default async function VerdictForecastPage({
 
   const quota_period_id = String(sp(searchParams?.quota_period_id) || "").trim();
 
-  const ALL_OWNER_ROLES = ["EXEC_MANAGER", "MANAGER", "REP"] as const;
-  const selectedOwnerRolesRaw = spAll(searchParams?.owner_role).map((r) => String(r || "").trim().toUpperCase());
-  const selectedOwnerRolesSet = new Set<string>(
-    selectedOwnerRolesRaw.filter((r) => (ALL_OWNER_ROLES as readonly string[]).includes(r))
-  );
-  const effectiveOwnerRoles =
-    selectedOwnerRolesSet.size > 0 ? Array.from(selectedOwnerRolesSet) : Array.from(ALL_OWNER_ROLES);
-  // If all roles are selected, treat this as "no filter" to preserve original behavior.
-  const ownerRolesFilter = effectiveOwnerRoles.length === ALL_OWNER_ROLES.length ? ([] as string[]) : effectiveOwnerRoles;
-
   const periods = await pool
     .query<QuotaPeriodLite>(
       `
@@ -145,11 +151,64 @@ export default async function VerdictForecastPage({
     .then((r) => r.rows || [])
     .catch(() => []);
 
+  type RepDirectoryRow = { id: number; name: string; role: string | null; manager_rep_id: number | null };
+  const repDirectory = await pool
+    .query<RepDirectoryRow>(
+      `
+      SELECT
+        id,
+        COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), '(Unnamed)') AS name,
+        role,
+        manager_rep_id
+      FROM reps
+      WHERE organization_id = $1::bigint
+        AND (active IS TRUE OR active IS NULL)
+      ORDER BY
+        CASE
+          WHEN role = 'EXEC_MANAGER' THEN 0
+          WHEN role = 'MANAGER' THEN 1
+          WHEN role = 'REP' THEN 2
+          ELSE 9
+        END,
+        name ASC,
+        id ASC
+      `,
+      [ctx.user.org_id]
+    )
+    .then((r) => (r.rows || []).map((x) => ({ ...x, id: Number(x.id), manager_rep_id: x.manager_rep_id == null ? null : Number(x.manager_rep_id) })))
+    .catch(() => []);
+
+  const { rows: savedReports } = await pool.query(
+    `
+    SELECT id::text AS id, report_type, name, description, config, created_at::text AS created_at, updated_at::text AS updated_at
+    FROM analytics_saved_reports
+    WHERE org_id = $1::bigint
+      AND owner_user_id = $2::bigint
+      AND report_type = 'verdict_filters_v1'
+    ORDER BY updated_at DESC, created_at DESC
+    LIMIT 100
+    `,
+    [ctx.user.org_id, ctx.user.id]
+  );
+
+  const saved_report_id = String(sp(searchParams?.saved_report_id) || "").trim();
+  const teamIdsQuery = parseIntList([...spAll(searchParams?.team_id), ...spAll(searchParams?.team_ids)]);
+  const repIdsQuery = parseIntList([...spAll(searchParams?.rep_id), ...spAll(searchParams?.rep_ids)]);
+
   const todayIso = new Date().toISOString().slice(0, 10);
   const containingToday = periods.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
   const defaultQuotaPeriodId = String(containingToday?.id || periods?.[0]?.id || "").trim();
-  const qpId = quota_period_id || defaultQuotaPeriodId;
+  const savedRow = saved_report_id ? (savedReports || []).find((r: any) => String(r.id) === saved_report_id) || null : null;
+  const savedCfg = savedRow?.config as any;
+  const savedQuotaPeriodId = String(savedCfg?.quotaPeriodId || "").trim();
+  const savedTeamIds = parseIntList((Array.isArray(savedCfg?.teamIds) ? savedCfg.teamIds : []).map((x: any) => String(x)));
+  const savedRepIds = parseIntList((Array.isArray(savedCfg?.repIds) ? savedCfg.repIds : []).map((x: any) => String(x)));
+
+  const qpId = quota_period_id || savedQuotaPeriodId || defaultQuotaPeriodId;
   const qp = qpId ? periods.find((p) => String(p.id) === qpId) || null : null;
+
+  const activeTeamIds = saved_report_id ? savedTeamIds : teamIdsQuery;
+  const activeRepIds = saved_report_id ? savedRepIds : repIdsQuery;
 
   const company = qpId ? await getCompanyAttainmentForPeriod({ orgId: ctx.user.org_id, quotaPeriodId: qpId }).catch(() => null) : null;
   const quarterlyQuotaAmount = Number(company?.quarterly_company_quota_amount || 0) || 0;
@@ -186,11 +245,25 @@ export default async function VerdictForecastPage({
               LEFT JOIN reps r
                 ON r.organization_id = $1
                AND r.id = o.rep_id
+              LEFT JOIN reps m
+                ON m.organization_id = $1
+               AND m.id = r.manager_rep_id
               WHERE o.org_id = $1
                 AND o.close_date IS NOT NULL
                 AND o.close_date >= qp.period_start
                 AND o.close_date <= qp.period_end
-                AND (COALESCE(array_length($3::text[], 1), 0) = 0 OR r.role = ANY($3::text[]))
+                AND (
+                  (COALESCE(array_length($3::bigint[], 1), 0) = 0 AND COALESCE(array_length($4::bigint[], 1), 0) = 0)
+                  OR (
+                    COALESCE(array_length($3::bigint[], 1), 0) > 0
+                    AND (
+                      o.rep_id = ANY($3::bigint[])
+                      OR r.manager_rep_id = ANY($3::bigint[])
+                      OR m.manager_rep_id = ANY($3::bigint[])
+                    )
+                  )
+                  OR (COALESCE(array_length($4::bigint[], 1), 0) > 0 AND o.rep_id = ANY($4::bigint[]))
+                )
             ),
             classified AS (
               SELECT
@@ -229,7 +302,7 @@ export default async function VerdictForecastPage({
             FROM classified
             GROUP BY GROUPING SETS ((owner_role), ())
             `,
-            [ctx.user.org_id, qpId, ownerRolesFilter]
+            [ctx.user.org_id, qpId, activeTeamIds, activeRepIds]
           )
         .then((r) => r.rows || [])
         .catch(() => [])
@@ -284,6 +357,7 @@ export default async function VerdictForecastPage({
   };
 
   const boxGrid = "mt-4 grid gap-3 text-sm sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5";
+  const ALL_OWNER_ROLES = ["EXEC_MANAGER", "MANAGER", "REP"] as const;
   const ownerRoleLabel = (k: string) => {
     const key = String(k || "").toUpperCase();
     if (key === "EXEC_MANAGER") return "Executive";
@@ -320,50 +394,17 @@ export default async function VerdictForecastPage({
           </div>
         </div>
 
-        <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Quarter</h2>
-              <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-                Period: <span className="font-mono text-xs">{qp?.period_start || "—"}</span> →{" "}
-                <span className="font-mono text-xs">{qp?.period_end || "—"}</span>
-              </p>
-            </div>
-            <form method="GET" action="/analytics/meddpicc-tb/verdict" className="flex flex-wrap items-end gap-2">
-              <div className="grid gap-1">
-                <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Quota period</label>
-                <select
-                  name="quota_period_id"
-                  defaultValue={qpId}
-                  className="h-[40px] min-w-[260px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                >
-                  {periods.map((p) => (
-                    <option key={p.id} value={String(p.id)}>
-                      {String(p.period_name || "").trim() || `${p.period_start} → ${p.period_end}`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid gap-1">
-                <div className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Owner roles</div>
-                <div className="flex flex-wrap gap-3 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                  {ALL_OWNER_ROLES.map((r) => (
-                    <label key={r} className="inline-flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
-                      <input type="checkbox" name="owner_role" value={r} defaultChecked={effectiveOwnerRoles.includes(r)} />
-                      {ownerRoleLabel(r)}
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <button
-                type="submit"
-                className="h-[40px] rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
-              >
-                Apply
-              </button>
-            </form>
-          </div>
-        </section>
+        <VerdictFiltersClient
+          basePath="/analytics/meddpicc-tb/verdict"
+          periodLabel={qp ? `${qp.period_name} (FY${qp.fiscal_year} Q${qp.fiscal_quarter})` : "—"}
+          periods={periods}
+          repDirectory={repDirectory as any}
+          savedReports={(savedReports || []) as any}
+          initialQuotaPeriodId={qpId}
+          initialTeamIds={activeTeamIds.map(String)}
+          initialRepIds={activeRepIds.map(String)}
+          initialSavedReportId={savedRow?.id ? String(savedRow.id) : ""}
+        />
 
         <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
           <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Quota + verdict</h2>
@@ -395,7 +436,7 @@ export default async function VerdictForecastPage({
                 </tr>
               </thead>
               <tbody>
-                {effectiveOwnerRoles.map((k) => {
+                {Array.from(ALL_OWNER_ROLES).map((k) => {
                   const row = aggByRole.get(k) || normalizeAggRow(null, k);
                   const da = row.ai_total_amount - row.crm_total_amount;
                   const dc = row.ai_total_count - row.crm_total_count;
