@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "../../../../../lib/auth";
-import { getUserById, updateUser, deleteUser, replaceManagerVisibility } from "../../../../../lib/db";
+import { getUserById, updateUser, deleteUser, replaceManagerVisibility, syncRepsFromUsers } from "../../../../../lib/db";
 import { resolvePublicId } from "../../../../../lib/publicId";
 import { UpdateUserSchema } from "../../../../../lib/validation";
 
@@ -88,6 +88,9 @@ export async function PATCH(req: Request) {
     } else {
       await replaceManagerVisibility({ orgId, managerUserId: updated.id, visibleUserIds: [], see_all_visibility: false }).catch(() => null);
     }
+
+    // Keep the `reps` directory in sync with `users` (names + hierarchy).
+    await syncRepsFromUsers({ organizationId: orgId }).catch(() => null);
 
     const { id: _id, org_id: _orgId, manager_user_id: _mgr, password_hash: _pw, ...publicUser } = updated as any;
     return NextResponse.json({ ok: true, user: publicUser });

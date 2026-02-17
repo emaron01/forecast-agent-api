@@ -7,6 +7,8 @@ import { UserTopNav } from "../../_components/UserTopNav";
 import { CustomReportDesignerClient } from "./CustomReportDesignerClient";
 import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
 import { TopDealsFiltersClient } from "../quotas/executive/TopDealsFiltersClient";
+import { getScopedRepDirectory } from "../../../lib/repScope";
+import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
 
 export const runtime = "nodejs";
 
@@ -54,26 +56,6 @@ async function listQuotaPeriodsForOrg(orgId: number): Promise<QuotaPeriodLite[]>
 }
 
 type RepOption = { id: number; name: string; manager_rep_id: number | null };
-
-async function listRepOptions(orgId: number): Promise<RepOption[]> {
-  const { rows } = await pool.query(
-    `
-    SELECT id, display_name, rep_name, manager_rep_id
-      FROM reps
-     WHERE organization_id = $1
-       AND active IS TRUE
-     ORDER BY COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), id::text) ASC, id ASC
-    `,
-    [orgId]
-  );
-  return (rows || [])
-    .map((r: any) => ({
-      id: Number(r.id),
-      name: String(r.display_name || "").trim() || String(r.rep_name || "").trim() || `Rep ${r.id}`,
-      manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
-    }))
-    .filter((r: any) => Number.isFinite(r.id) && r.id > 0);
-}
 
 type RepPeriodKpisRow = {
   quota_period_id: string;
@@ -219,7 +201,6 @@ function safeDiv(n: number, d: number) {
 export default async function AnalyticsCustomReportsPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role === "REP") redirect("/dashboard");
   if (ctx.user.role === "ADMIN" && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
@@ -241,8 +222,19 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
   const currentForYear = periodsForYear.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
   const selectedPeriod = (quota_period_id && periodsForYear.find((p) => String(p.id) === quota_period_id)) || currentForYear || periodsForYear[0] || null;
 
-  // For custom reports, default to org-wide rep set (like Exec view). Manager scoping can be added later.
-  const repOptions = await listRepOptions(ctx.user.org_id).catch(() => []);
+  // Scope visible people by role:
+  // - REP: only themselves
+  // - MANAGER: their reps (+ self)
+  // - EXEC_MANAGER: their managers + reps (+ self)
+  // - ADMIN: all
+  const scope = await getScopedRepDirectory({ orgId: ctx.user.org_id, userId: ctx.user.id, role: ctx.user.role as any }).catch(() => null);
+  const repDirectoryFull = scope?.repDirectory || [];
+  const allowedRepIds = scope?.allowedRepIds ?? null;
+  const repOptions: RepOption[] = repDirectoryFull.map((r) => ({ id: r.id, name: r.name, manager_rep_id: r.manager_rep_id }));
+
+  // REP users should see the page, but only for themselves.
+  if (ctx.user.role === "REP" && !repOptions.length) redirect("/dashboard");
+
   const repIdToManagerId = new Map<string, string>();
   const managerNameById = new Map<string, string>();
   for (const r of repOptions) {
@@ -262,12 +254,14 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
     ? await getRepKpisByPeriod({
         orgId: ctx.user.org_id,
         periodId: String(selectedPeriod.id),
-        repIds: null,
+        repIds: allowedRepIds,
         dateStart: start_date || null,
         dateEnd: end_date || null,
       }).catch(() => [])
     : [];
-  const quotaRows = selectedPeriod ? await getQuotaByRepForPeriod({ orgId: ctx.user.org_id, quotaPeriodId: String(selectedPeriod.id), repIds: null }).catch(() => []) : [];
+  const quotaRows = selectedPeriod
+    ? await getQuotaByRepForPeriod({ orgId: ctx.user.org_id, quotaPeriodId: String(selectedPeriod.id), repIds: allowedRepIds }).catch(() => [])
+    : [];
   const quotaByRep = new Map<string, number>();
   for (const q of quotaRows) quotaByRep.set(String(q.rep_id), Number(q.quota_amount || 0) || 0);
 
@@ -275,13 +269,25 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
     ? await getHealthAveragesByRepByPeriods({
         orgId: ctx.user.org_id,
         periodIds: [String(selectedPeriod.id)],
-        repIds: null,
+        repIds: allowedRepIds,
         dateStart: start_date || null,
         dateEnd: end_date || null,
       }).catch(() => [])
     : [];
   const healthByRepId = new Map<string, any>();
   for (const r of repHealthRows || []) healthByRepId.set(String((r as any).rep_id), r);
+
+  const meddpiccRows = selectedPeriod
+    ? await getMeddpiccAveragesByRepByPeriods({
+        orgId: ctx.user.org_id,
+        periodIds: [String(selectedPeriod.id)],
+        repIds: allowedRepIds,
+        dateStart: start_date || null,
+        dateEnd: end_date || null,
+      }).catch(() => [])
+    : [];
+  const meddpiccByRepId = new Map<string, any>();
+  for (const r of meddpiccRows || []) meddpiccByRepId.set(String((r as any).rep_id), r);
 
   const kpisByRepId = new Map<string, any>();
   for (const c of repKpisRows || []) kpisByRepId.set(String((c as any).rep_id), c);
@@ -297,6 +303,7 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
     const total_count = Number(c?.total_count || 0) || 0;
     const manager_id = repIdToManagerId.get(rep_id) || "";
     const manager_name = manager_id ? managerNameById.get(manager_id) || `Manager ${manager_id}` : "(Unassigned)";
+    const mh: any = meddpiccByRepId.get(rep_id) || null;
 
     const commit_amount = Number(c?.commit_amount || 0) || 0;
     const best_amount = Number(c?.best_amount || 0) || 0;
@@ -314,6 +321,16 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
       avg_health_pipeline: healthByRepId.get(rep_id)?.avg_health_pipeline ?? null,
       avg_health_won: healthByRepId.get(rep_id)?.avg_health_won ?? null,
       avg_health_closed: healthByRepId.get(rep_id)?.avg_health_closed ?? null,
+      avg_pain: mh?.avg_pain ?? null,
+      avg_metrics: mh?.avg_metrics ?? null,
+      avg_champion: mh?.avg_champion ?? null,
+      avg_eb: mh?.avg_eb ?? null,
+      avg_competition: mh?.avg_competition ?? null,
+      avg_criteria: mh?.avg_criteria ?? null,
+      avg_process: mh?.avg_process ?? null,
+      avg_paper: mh?.avg_paper ?? null,
+      avg_timing: mh?.avg_timing ?? null,
+      avg_budget: mh?.avg_budget ?? null,
       quota,
       total_count,
       won_amount,

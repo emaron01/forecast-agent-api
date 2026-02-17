@@ -6,6 +6,7 @@ import { pool } from "../../../../lib/pool";
 import { getCompanyAttainmentForPeriod } from "../../../../lib/quotaComparisons";
 import { UserTopNav } from "../../../_components/UserTopNav";
 import { VerdictFiltersClient } from "./FiltersClient";
+import { getScopedRepDirectory } from "../../../../lib/repScope";
 
 export const runtime = "nodejs";
 
@@ -152,31 +153,14 @@ export default async function VerdictForecastPage({
     .catch(() => []);
 
   type RepDirectoryRow = { id: number; name: string; role: string | null; manager_rep_id: number | null };
-  const repDirectory = await pool
-    .query<RepDirectoryRow>(
-      `
-      SELECT
-        id,
-        COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), '(Unnamed)') AS name,
-        role,
-        manager_rep_id
-      FROM reps
-      WHERE organization_id = $1::bigint
-        AND (active IS TRUE OR active IS NULL)
-      ORDER BY
-        CASE
-          WHEN role = 'EXEC_MANAGER' THEN 0
-          WHEN role = 'MANAGER' THEN 1
-          WHEN role = 'REP' THEN 2
-          ELSE 9
-        END,
-        name ASC,
-        id ASC
-      `,
-      [ctx.user.org_id]
-    )
-    .then((r) => (r.rows || []).map((x) => ({ ...x, id: Number(x.id), manager_rep_id: x.manager_rep_id == null ? null : Number(x.manager_rep_id) })))
-    .catch(() => []);
+  const scope = await getScopedRepDirectory({ orgId: ctx.user.org_id, userId: ctx.user.id, role: ctx.user.role as any }).catch(() => null);
+  const repDirectory: RepDirectoryRow[] = (scope?.repDirectory || []).map((r) => ({
+    id: Number(r.id),
+    name: String(r.name || "").trim(),
+    role: r.role == null ? null : String(r.role),
+    manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
+  }));
+  const visibleIds = scope?.allowedRepIds ?? null;
 
   const { rows: savedReports } = await pool.query(
     `
@@ -209,6 +193,9 @@ export default async function VerdictForecastPage({
 
   const activeTeamIds = saved_report_id ? savedTeamIds : teamIdsQuery;
   const activeRepIds = saved_report_id ? savedRepIds : repIdsQuery;
+  const visibleSet = visibleIds ? new Set<number>(visibleIds) : null;
+  const scopedTeamIds = visibleSet ? activeTeamIds.filter((id) => visibleSet.has(id)) : activeTeamIds;
+  const scopedRepIds = visibleSet ? activeRepIds.filter((id) => visibleSet.has(id)) : activeRepIds;
 
   const company = qpId ? await getCompanyAttainmentForPeriod({ orgId: ctx.user.org_id, quotaPeriodId: qpId }).catch(() => null) : null;
   const quarterlyQuotaAmount = Number(company?.quarterly_company_quota_amount || 0) || 0;
@@ -302,7 +289,7 @@ export default async function VerdictForecastPage({
             FROM classified
             GROUP BY GROUPING SETS ((owner_role), ())
             `,
-            [ctx.user.org_id, qpId, activeTeamIds, activeRepIds]
+            [ctx.user.org_id, qpId, scopedTeamIds, scopedRepIds]
           )
         .then((r) => r.rows || [])
         .catch(() => [])
@@ -401,8 +388,8 @@ export default async function VerdictForecastPage({
           repDirectory={repDirectory as any}
           savedReports={(savedReports || []) as any}
           initialQuotaPeriodId={qpId}
-          initialTeamIds={activeTeamIds.map(String)}
-          initialRepIds={activeRepIds.map(String)}
+          initialTeamIds={scopedTeamIds.map(String)}
+          initialRepIds={scopedRepIds.map(String)}
           initialSavedReportId={savedRow?.id ? String(savedRow.id) : ""}
         />
 

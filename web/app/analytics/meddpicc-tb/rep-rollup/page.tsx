@@ -5,6 +5,7 @@ import { getOrganization } from "../../../../lib/db";
 import { pool } from "../../../../lib/pool";
 import { UserTopNav } from "../../../_components/UserTopNav";
 import { MeddpiccRepRollupClient, type RepRollupRow } from "./uiClient";
+import { getScopedRepDirectory } from "../../../../lib/repScope";
 
 export const runtime = "nodejs";
 
@@ -67,31 +68,15 @@ export default async function MeddpiccRepRollupPage({
   const teamIds = parseIntList([...spAll(searchParams?.team_id), ...spAll(searchParams?.team_ids)]);
   const repIds = parseIntList([...spAll(searchParams?.rep_id), ...spAll(searchParams?.rep_ids)]);
 
-  const repOptions = await pool
-    .query<RepOption>(
-      `
-      SELECT
-        id,
-        COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), '(Unnamed)') AS name,
-        role,
-        manager_rep_id
-      FROM reps
-      WHERE organization_id = $1::bigint
-        AND (active IS TRUE OR active IS NULL)
-      ORDER BY
-        CASE
-          WHEN role = 'EXEC_MANAGER' THEN 0
-          WHEN role = 'MANAGER' THEN 1
-          WHEN role = 'REP' THEN 2
-          ELSE 9
-        END,
-        name ASC,
-        id ASC
-      `,
-      [ctx.user.org_id]
-    )
-    .then((r) => r.rows || [])
-    .catch(() => []);
+  const scope = await getScopedRepDirectory({ orgId: ctx.user.org_id, userId: ctx.user.id, role: ctx.user.role as any }).catch(() => null);
+  const repOptions: RepOption[] = (scope?.repDirectory || []).map((r: any) => ({
+    id: Number(r.id),
+    name: String(r.name || "").trim() || "(Unnamed)",
+    role: r.role == null ? null : String(r.role),
+    manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
+  }));
+  const visibleIds = scope?.allowedRepIds ?? null;
+  const visibleSet = visibleIds ? new Set<number>(visibleIds) : null;
 
   const execOptions = repOptions.filter((r) => r.role === "EXEC_MANAGER");
   const managerOptions = repOptions.filter((r) => r.role === "MANAGER");
@@ -145,6 +130,9 @@ export default async function MeddpiccRepRollupPage({
   const defaultQuotaPeriodId = String(containingToday?.id || periods?.[0]?.id || "").trim();
   const qpId = quota_period_id || defaultQuotaPeriodId;
   const qp = qpId ? periods.find((p) => String(p.id) === qpId) || null : null;
+
+  const scopedTeamIds = visibleSet ? teamIds.filter((id) => visibleSet.has(id)) : teamIds;
+  const scopedRepIds = visibleSet ? repIds.filter((id) => visibleSet.has(id)) : repIds;
 
   const rows = qp
     ? await pool
@@ -264,7 +252,7 @@ export default async function MeddpiccRepRollupPage({
           GROUP BY stage_group, executive_id, executive_name, manager_id, manager_name, rep_id, rep_name
           ORDER BY stage_group ASC, executive_name ASC, manager_name ASC, rep_name ASC
           `,
-          [ctx.user.org_id, qp.id, include_closed, teamIds, repIds]
+          [ctx.user.org_id, qp.id, include_closed, scopedTeamIds, scopedRepIds]
         )
         .then((r) => r.rows || [])
         .catch(() => [])

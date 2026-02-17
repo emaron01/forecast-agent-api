@@ -12,6 +12,7 @@ import {
   getUserById,
   listUsers,
   setUserManagerUserId,
+  syncRepsFromUsers,
   updateUser,
 } from "../../../lib/db";
 import { hashPassword } from "../../../lib/password";
@@ -247,6 +248,9 @@ export async function createUserAction(formData: FormData) {
       });
     }
 
+    // Keep the `reps` directory in sync with `users` (names + hierarchy).
+    await syncRepsFromUsers({ organizationId: orgId }).catch(() => null);
+
     revalidatePath("/admin/users");
     redirect(buildSuccessRedirect({ created: created.public_id }));
   } catch (e) {
@@ -377,6 +381,9 @@ export async function updateUserAction(formData: FormData) {
     // Non-manager: clear edges + disable see-all.
     await replaceManagerVisibility({ orgId, managerUserId: userId, visibleUserIds: [], see_all_visibility: false }).catch(() => null);
   }
+
+  // Keep the `reps` directory in sync with `users` (names + hierarchy).
+  await syncRepsFromUsers({ organizationId: orgId }).catch(() => null);
 
   revalidatePath("/admin/users");
   redirect(closeHref());

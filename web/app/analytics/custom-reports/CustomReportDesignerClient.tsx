@@ -14,6 +14,16 @@ type RepRow = {
   avg_health_pipeline: number | null;
   avg_health_won: number | null;
   avg_health_closed: number | null;
+  avg_pain: number | null;
+  avg_metrics: number | null;
+  avg_champion: number | null;
+  avg_eb: number | null;
+  avg_competition: number | null;
+  avg_criteria: number | null;
+  avg_process: number | null;
+  avg_paper: number | null;
+  avg_timing: number | null;
+  avg_budget: number | null;
   quota: number;
   total_count: number;
   won_amount: number;
@@ -59,6 +69,16 @@ type MetricKey =
   | "avg_health_pipeline"
   | "avg_health_won"
   | "avg_health_closed"
+  | "avg_pain"
+  | "avg_metrics"
+  | "avg_champion"
+  | "avg_eb"
+  | "avg_competition"
+  | "avg_criteria"
+  | "avg_process"
+  | "avg_paper"
+  | "avg_timing"
+  | "avg_budget"
   | "quota"
   | "won_amount"
   | "won_count"
@@ -116,6 +136,21 @@ const METRICS: Array<{ key: MetricKey; label: string }> = [
   { key: "won_count", label: "# Won" },
 ];
 
+const MEDDPICC_HEALTH_METRICS: Array<{ key: MetricKey; label: string }> = [
+  { key: "avg_metrics", label: "Metrics" },
+  { key: "avg_eb", label: "Economic Buyer" },
+  { key: "avg_criteria", label: "Decision Criteria" },
+  { key: "avg_process", label: "Decision Process" },
+  { key: "avg_pain", label: "Pain" },
+  { key: "avg_champion", label: "Champion" },
+  { key: "avg_competition", label: "Competition" },
+  { key: "avg_paper", label: "Paper Process" },
+  { key: "avg_timing", label: "Timing" },
+  { key: "avg_budget", label: "Budget" },
+];
+
+const ALL_METRICS: Array<{ key: MetricKey; label: string }> = [...METRICS, ...MEDDPICC_HEALTH_METRICS];
+
 function fmtMoney(n: any) {
   const v = Number(n || 0);
   if (!Number.isFinite(v)) return "—";
@@ -139,9 +174,28 @@ function fmtNum(n: any) {
   return v.toLocaleString();
 }
 
+function lmhFromAvg(avg: any) {
+  const n = avg == null ? null : Number(avg);
+  if (n == null || !Number.isFinite(n) || n <= 0) {
+    return { label: "—", cls: "text-[color:var(--sf-text-disabled)] bg-[color:var(--sf-surface-alt)]" };
+  }
+  const k = Math.round(n);
+  const level = k >= 3 ? "H" : k >= 1 ? "M" : "L";
+  const cls =
+    level === "H"
+      ? "text-[#2ECC71] bg-[#2ECC71]/10"
+      : level === "M"
+        ? "text-[#F1C40F] bg-[#F1C40F]/10"
+        : "text-[#E74C3C] bg-[#E74C3C]/10";
+  return { label: level, cls };
+}
+
+const MEDDPICC_KEYS = new Set<MetricKey>(MEDDPICC_HEALTH_METRICS.map((m) => m.key));
+
 function renderMetricValue(key: MetricKey, r: RepRow) {
   const v: any = (r as any)[key];
   if (key.startsWith("avg_health_")) return fmtPct(healthFracFrom30(v));
+  if (MEDDPICC_KEYS.has(key)) return lmhFromAvg(v).label;
   if (
     key.endsWith("_coverage") ||
     key === "attainment" ||
@@ -155,6 +209,14 @@ function renderMetricValue(key: MetricKey, r: RepRow) {
   if (key.includes("amount") || key === "quota" || key === "aov") return fmtMoney(v);
   if (key.startsWith("avg_days_")) return v == null ? "—" : String(Math.round(Number(v)));
   return fmtNum(v);
+}
+
+function renderMetricCell(key: MetricKey, r: RepRow) {
+  if (MEDDPICC_KEYS.has(key)) {
+    const b = lmhFromAvg((r as any)[key]);
+    return <span className={`inline-flex min-w-[40px] items-center justify-center rounded-md px-2 py-1 text-xs font-semibold ${b.cls}`}>{b.label}</span>;
+  }
+  return renderMetricValue(key, r);
 }
 
 function safeNum(n: any) {
@@ -247,6 +309,17 @@ function rollupRepRows(args: { label: string; execName: string; managerName: str
     })
   );
 
+  const avg_pain = wavg(rows.map((r) => ({ v: r.avg_pain, w: safeNum(r.total_count) })));
+  const avg_metrics = wavg(rows.map((r) => ({ v: r.avg_metrics, w: safeNum(r.total_count) })));
+  const avg_champion = wavg(rows.map((r) => ({ v: r.avg_champion, w: safeNum(r.total_count) })));
+  const avg_eb = wavg(rows.map((r) => ({ v: r.avg_eb, w: safeNum(r.total_count) })));
+  const avg_competition = wavg(rows.map((r) => ({ v: r.avg_competition, w: safeNum(r.total_count) })));
+  const avg_criteria = wavg(rows.map((r) => ({ v: r.avg_criteria, w: safeNum(r.total_count) })));
+  const avg_process = wavg(rows.map((r) => ({ v: r.avg_process, w: safeNum(r.total_count) })));
+  const avg_paper = wavg(rows.map((r) => ({ v: r.avg_paper, w: safeNum(r.total_count) })));
+  const avg_timing = wavg(rows.map((r) => ({ v: r.avg_timing, w: safeNum(r.total_count) })));
+  const avg_budget = wavg(rows.map((r) => ({ v: r.avg_budget, w: safeNum(r.total_count) })));
+
   const mixDen = pipeline_amount + best_amount + commit_amount + won_amount;
   const mix_pipeline = mixDen > 0 ? pipeline_amount / mixDen : null;
   const mix_best = mixDen > 0 ? best_amount / mixDen : null;
@@ -264,6 +337,16 @@ function rollupRepRows(args: { label: string; execName: string; managerName: str
     avg_health_pipeline,
     avg_health_won,
     avg_health_closed,
+    avg_pain,
+    avg_metrics,
+    avg_champion,
+    avg_eb,
+    avg_competition,
+    avg_criteria,
+    avg_process,
+    avg_paper,
+    avg_timing,
+    avg_budget,
     quota,
     total_count,
     won_amount,
@@ -296,7 +379,7 @@ function rollupRepRows(args: { label: string; execName: string; managerName: str
 function normalizeConfig(cfg: any): { repIds: string[]; metrics: MetricKey[] } {
   const repIds = Array.isArray(cfg?.repIds) ? cfg.repIds.map((x: any) => String(x)).filter(Boolean) : [];
   const metricsRaw = Array.isArray(cfg?.metrics) ? cfg.metrics.map((x: any) => String(x)).filter(Boolean) : [];
-  const metrics = metricsRaw.filter((k) => METRICS.some((m) => m.key === (k as any))) as MetricKey[];
+  const metrics = metricsRaw.filter((k) => ALL_METRICS.some((m) => m.key === (k as any))) as MetricKey[];
   return { repIds, metrics };
 }
 
@@ -407,7 +490,7 @@ export function CustomReportDesignerClient(props: {
   const metricsAlpha = useMemo(() => METRICS.slice().sort((a, b) => a.label.localeCompare(b.label)), []);
   const labelForMetric = useMemo(() => {
     const m = new Map<MetricKey, string>();
-    for (const x of METRICS) m.set(x.key, x.label);
+    for (const x of ALL_METRICS) m.set(x.key, x.label);
     return m;
   }, []);
   const metricList = useMemo(
@@ -546,11 +629,11 @@ export function CustomReportDesignerClient(props: {
         team: `Executive: ${selectedTeamsLabel.execLabel} | Manager: ${selectedTeamsLabel.mgrLabel}`,
       };
       for (const k of metricList) {
-        out[METRICS.find((m) => m.key === k)?.label || k] = renderMetricValue(k, r);
+        out[labelForMetric.get(k) || k] = renderMetricValue(k, r);
       }
       return out;
     });
-  }, [metricList, selectedReps, selectedTeamsLabel]);
+  }, [metricList, selectedReps, selectedTeamsLabel, labelForMetric]);
 
   const groupedSelected = useMemo(() => {
     const byKey = new Map<string, { execId: string; execName: string; mgrId: string; mgrName: string; reps: RepRow[] }>();
@@ -853,6 +936,24 @@ export function CustomReportDesignerClient(props: {
         </div>
       </div>
 
+      <div className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">MEDDPICC+TB Health</div>
+        <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+          Averages shown as <span className="font-mono">L</span> (0), <span className="font-mono">M</span> (1–2), <span className="font-mono">H</span> (3)
+        </div>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {MEDDPICC_HEALTH_METRICS.map((m) => {
+            const checked = selectedMetrics.has(m.key);
+            return (
+              <label key={m.key} className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                <input type="checkbox" checked={checked} onChange={() => toggleMetric(m.key)} />
+                <span>{m.label}</span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="mt-4 grid grid-cols-3 items-end gap-2">
         <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Preview</div>
         <div className="text-sm font-semibold text-center text-[color:var(--sf-text-secondary)]">{props.periodLabel}</div>
@@ -867,7 +968,7 @@ export function CustomReportDesignerClient(props: {
               <th className="px-4 py-3">rep</th>
               {metricList.map((k) => (
                 <th key={k} className="px-4 py-3 text-right">
-                  {METRICS.find((m) => m.key === k)?.label || k}
+                      {labelForMetric.get(k) || k}
                 </th>
               ))}
             </tr>
@@ -885,7 +986,7 @@ export function CustomReportDesignerClient(props: {
                       <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{execSubtotal.rep_name}</td>
                       {metricList.map((k) => (
                         <td key={k} className="px-4 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                          {renderMetricValue(k, execSubtotal)}
+                          {renderMetricCell(k, execSubtotal)}
                         </td>
                       ))}
                     </tr>
@@ -898,7 +999,7 @@ export function CustomReportDesignerClient(props: {
                       </td>
                       {metricList.map((k) => (
                         <td key={k} className="px-4 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                          {renderMetricValue(k, mgrSubtotal)}
+                          {renderMetricCell(k, mgrSubtotal)}
                         </td>
                       ))}
                     </tr>
@@ -909,7 +1010,7 @@ export function CustomReportDesignerClient(props: {
                       <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{r.rep_name}</td>
                       {metricList.map((k) => (
                         <td key={k} className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">
-                          {renderMetricValue(k, r)}
+                          {renderMetricCell(k, r)}
                         </td>
                       ))}
                     </tr>
