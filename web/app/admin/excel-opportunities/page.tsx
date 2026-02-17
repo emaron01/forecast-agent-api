@@ -38,12 +38,14 @@ export default async function ExcelOpportunitiesPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link
-            href="/admin/mapping-sets"
-            className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
-          >
-            Mapping sets
-          </Link>
+          {ctx.kind === "master" ? (
+            <Link
+              href="/admin/mapping-sets"
+              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+            >
+              Mapping sets
+            </Link>
+          ) : null}
           <Link
             href="/admin/ingestion"
             className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"

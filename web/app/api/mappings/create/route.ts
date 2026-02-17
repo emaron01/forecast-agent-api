@@ -21,14 +21,18 @@ export async function POST(req: Request) {
   try {
     const auth = await getAuth();
     if (!auth) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    // Hard lock: Mapping set creation via this API is owner/super-user only.
+    // Customers create/update/delete saved formats through the Import page server action,
+    // which validates target fields against an allowlist.
+    if (auth.kind !== "master") return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
 
     const body = BodySchema.parse(await req.json().catch(() => ({})));
-    const explicitOrgId = auth.kind === "master" && body.org_public_id ? await resolvePublicId("organizations", body.org_public_id) : 0;
-    const cookieOrgId = auth.kind === "master" ? auth.orgId || 0 : 0;
-    if (auth.kind === "master" && explicitOrgId && cookieOrgId && explicitOrgId !== cookieOrgId) {
+    const explicitOrgId = body.org_public_id ? await resolvePublicId("organizations", body.org_public_id) : 0;
+    const cookieOrgId = auth.orgId || 0;
+    if (explicitOrgId && cookieOrgId && explicitOrgId !== cookieOrgId) {
       return NextResponse.json({ ok: false, error: "org_mismatch" }, { status: 400 });
     }
-    const organizationId = auth.kind === "user" ? auth.user.org_id : explicitOrgId || cookieOrgId || 0;
+    const organizationId = explicitOrgId || cookieOrgId || 0;
     if (!organizationId) return NextResponse.json({ ok: false, error: "missing_org" }, { status: 400 });
 
     const set = await createFieldMappingSet({

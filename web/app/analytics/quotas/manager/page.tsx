@@ -8,12 +8,9 @@ import type { QuotaPeriodRow, QuotaRow } from "../../../../lib/quotaModels";
 import { UserTopNav } from "../../../_components/UserTopNav";
 import { dateOnly } from "../../../../lib/dateOnly";
 import { FiscalYearSelector } from "../../../../components/quotas/FiscalYearSelector";
-import { QuotaRollupChart } from "../../../../components/quotas/QuotaRollupChart";
-import { QuotaRollupTable, type QuotaRollupRow } from "../../../../components/quotas/QuotaRollupTable";
-import { assignQuotaToUser, getDistinctFiscalYears, getQuotaPeriods, getQuotaRollupByManager } from "../actions";
+import { assignQuotaToUser, getDistinctFiscalYears, getQuotaPeriods } from "../actions";
 import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
-import { getHealthAveragesByPeriods } from "../../../../lib/analyticsHealth";
-import { AverageHealthScorePanel } from "../../../_components/AverageHealthScorePanel";
+import { RepQuotaSetupClient } from "./RepQuotaSetupClient";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -55,12 +52,15 @@ type DirectRep = { id: number; public_id: string; rep_name: string | null };
 async function listDirectReps(args: { orgId: number; managerRepId: number }): Promise<DirectRep[]> {
   const { rows } = await pool.query<DirectRep>(
     `
-    SELECT r.id, r.public_id::text AS public_id, r.rep_name
+    SELECT
+      r.id,
+      r.public_id::text AS public_id,
+      COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), ('Rep ' || r.id::text)) AS rep_name
       FROM reps r
      WHERE r.organization_id = $1
        AND r.manager_rep_id = $2
        AND r.active IS TRUE
-     ORDER BY r.rep_name ASC, r.id ASC
+     ORDER BY rep_name ASC, r.id ASC
     `,
     [args.orgId, args.managerRepId]
   );
@@ -116,7 +116,7 @@ async function saveRepQuotasForYearAction(formData: FormData) {
   const fiscal_year = String(formData.get("fiscal_year") || "").trim();
   const rep_public_id = String(formData.get("rep_public_id") || "").trim();
   const annual_target_raw = String(formData.get("annual_target") || "").trim();
-  const annual_target = annual_target_raw ? Number(annual_target_raw) : undefined;
+  const annual_target = annual_target_raw ? Number(annual_target_raw) : NaN;
   const q1_quota = Number(formData.get("q1_quota") || 0) || 0;
   const q2_quota = Number(formData.get("q2_quota") || 0) || 0;
   const q3_quota = Number(formData.get("q3_quota") || 0) || 0;
@@ -125,6 +125,22 @@ async function saveRepQuotasForYearAction(formData: FormData) {
   if (!fiscal_year) redirect(`/analytics/quotas/manager?error=${encodeURIComponent("fiscal_year is required")}`);
   if (!rep_public_id)
     redirect(`/analytics/quotas/manager?fiscal_year=${encodeURIComponent(fiscal_year)}&error=${encodeURIComponent("rep is required")}`);
+  if (!Number.isFinite(annual_target) || annual_target <= 0) {
+    redirect(
+      `/analytics/quotas/manager?fiscal_year=${encodeURIComponent(fiscal_year)}&rep_public_id=${encodeURIComponent(rep_public_id)}&error=${encodeURIComponent(
+        "annual_target is required"
+      )}`
+    );
+  }
+  const annualTarget = Number(annual_target);
+  const sum = (Number(q1_quota) || 0) + (Number(q2_quota) || 0) + (Number(q3_quota) || 0) + (Number(q4_quota) || 0);
+  if (sum - annualTarget > 1e-6) {
+    redirect(
+      `/analytics/quotas/manager?fiscal_year=${encodeURIComponent(fiscal_year)}&rep_public_id=${encodeURIComponent(rep_public_id)}&error=${encodeURIComponent(
+        "Quarter quotas exceed annual quota"
+      )}`
+    );
+  }
 
   const ctx = await requireAuth();
   if (ctx.kind !== "user" || ctx.user.role !== "MANAGER") redirect("/dashboard");
@@ -169,7 +185,7 @@ async function saveRepQuotasForYearAction(formData: FormData) {
       rep_id: String(repId),
       manager_id: String(mgrRepId),
       quota_amount: qa.quota_amount,
-      annual_target,
+      annual_target: annualTarget,
     });
     if ("error" in r) {
       redirect(
@@ -203,7 +219,6 @@ export default async function AnalyticsQuotasManagerPage({
 
   const fiscal_year_raw = String(sp(searchParams.fiscal_year) || "").trim();
   const rep_public_id = String(sp(searchParams.rep_public_id) || "").trim();
-  const rollup_quarter_raw = String(sp(searchParams.rollup_quarter) || "").trim();
   const error = String(sp(searchParams.error) || "").trim();
 
   const fyRes = await getDistinctFiscalYears().catch(() => ({ ok: true as const, data: [] as Array<{ fiscal_year: string }> }));
@@ -217,14 +232,6 @@ export default async function AnalyticsQuotasManagerPage({
   const defaultYear = periodContainingToday ? String(periodContainingToday.fiscal_year) : String(fiscalYears[0]?.fiscal_year || "").trim();
   const fiscal_year = fiscal_year_raw || defaultYear;
   const periods = fiscal_year ? allPeriods.filter((p) => String(p.fiscal_year) === fiscal_year) : allPeriods;
-
-  const defaultRollupQuarter = (() => {
-    if (!periodContainingToday) return "Q1";
-    if (String(periodContainingToday.fiscal_year) !== String(fiscal_year)) return "Q1";
-    const qn = quarterNumberFromAny(periodContainingToday.fiscal_quarter) || quarterNumberFromAny(periodContainingToday.period_name);
-    return qn ? `Q${qn}` : "Q1";
-  })();
-  const rollup_quarter = rollup_quarter_raw || defaultRollupQuarter;
 
   const mgrRepId = await managerRepIdForUser({ orgId: ctx.user.org_id, userId: ctx.user.id });
   if (!mgrRepId) redirect("/dashboard");
@@ -263,37 +270,14 @@ export default async function AnalyticsQuotasManagerPage({
     if (!quotaByPeriodId.has(k)) quotaByPeriodId.set(k, q);
   }
 
-  const rollupPeriodId = (byQuarter.get(rollup_quarter)?.id as any) ? String(byQuarter.get(rollup_quarter)?.id) : "";
-  const rollupRes = rollupPeriodId
-    ? await getQuotaRollupByManager({ quota_period_id: rollupPeriodId }).catch(() => ({ ok: true as const, data: null as any }))
-    : null;
-  const rollup = rollupRes && rollupRes.ok ? rollupRes.data : null;
-  const healthRows = rollupPeriodId
-    ? await getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: [rollupPeriodId], repIds: directRepIds.length ? directRepIds : null }).catch(() => [])
-    : [];
-  const health = (healthRows && healthRows[0]) ? (healthRows[0] as any) : null;
-
-  const repRows: QuotaRollupRow[] =
-    rollup?.rep_attainment?.map((r: any) => ({
-      id: String(r.rep_id),
-      name: String(r.rep_name || ""),
-      quota_amount: Number(r.quota_amount) || 0,
-      actual_amount: Number(r.actual_amount) || 0,
-      attainment: r.attainment == null ? null : Number(r.attainment),
-    })) || [];
-
-  const mgrRow: QuotaRollupRow[] =
-    rollup?.manager_attainment
-      ? [
-          {
-            id: String((rollup.manager_attainment as any).manager_id),
-            name: String((rollup.manager_attainment as any).manager_name || ""),
-            quota_amount: Number((rollup.manager_attainment as any).quota_amount) || 0,
-            actual_amount: Number((rollup.manager_attainment as any).actual_amount) || 0,
-            attainment: (rollup.manager_attainment as any).attainment == null ? null : Number((rollup.manager_attainment as any).attainment),
-          },
-        ]
-      : [];
+  const existingAnnualQuota = (() => {
+    for (const q of quotas || []) {
+      const n = (q as any).annual_target;
+      const v = n == null ? null : Number(n);
+      if (v != null && Number.isFinite(v) && v > 0) return v;
+    }
+    return null;
+  })();
 
   // --------------------------------------------
   // Rep list: quota by quarter + closed won by quarter
@@ -414,7 +398,6 @@ export default async function AnalyticsQuotasManagerPage({
         <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
           <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Filters</h2>
           <form method="GET" action="/analytics/quotas/manager" className="mt-3 grid gap-3 md:grid-cols-3">
-            <input type="hidden" name="rollup_quarter" value={rollup_quarter} />
             <FiscalYearSelector name="fiscal_year" fiscalYears={fiscalYears} defaultValue={fiscal_year} required={false} label="Fiscal Year" />
             <div className="grid gap-1">
               <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Sales Rep</label>
@@ -458,103 +441,43 @@ export default async function AnalyticsQuotasManagerPage({
               Rep: <span className="font-medium">{selectedRepName || "—"}</span> · Fiscal year:{" "}
               <span className="font-mono text-xs">{fiscal_year}</span>
             </p>
-
-            <form action={saveRepQuotasForYearAction} className="mt-4 grid gap-4">
-              <input type="hidden" name="fiscal_year" value={fiscal_year} />
-              <input type="hidden" name="rep_public_id" value={selectedRepPublicId} />
-
-              <div className="grid gap-1">
-                <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Annual quota</label>
-                <input
-                  name="annual_target"
-                  type="number"
-                  step="0.01"
-                  className="w-64 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
-                  placeholder="0"
-                  required
-                />
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                {[
-                  { key: "q1", label: "1st Quarter", p: q1p },
-                  { key: "q2", label: "2nd Quarter", p: q2p },
-                  { key: "q3", label: "3rd Quarter", p: q3p },
-                  { key: "q4", label: "4th Quarter", p: q4p },
-                ].map((q) => {
-                  const pid = q.p ? String(q.p.id) : "";
-                  const existing = pid ? quotaByPeriodId.get(pid) || null : null;
-                  return (
-                    <div key={q.key} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-                      <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{q.label}</div>
-                      <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-                        {q.p ? (
-                          <>
-                            {dateOnly(q.p.period_start)} → {dateOnly(q.p.period_end)}
-                          </>
-                        ) : (
-                          "Missing quarter period"
-                        )}
-                      </div>
-                      <div className="mt-3 grid gap-1">
-                        <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Rep quota</label>
-                        <input
-                          name={`${q.key}_quota`}
-                          type="number"
-                          step="0.01"
-                          defaultValue={existing ? String(existing.quota_amount ?? "") : ""}
-                          className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
-                          placeholder="0"
-                          required
-                          disabled={!q.p}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="flex items-center justify-end gap-2">
-                <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
-                  Save and next rep
-                </button>
-              </div>
-            </form>
-          </section>
-        ) : null}
-
-        {rollupPeriodId ? (
-          <section className="mt-5 grid gap-5 md:grid-cols-2">
-            <QuotaRollupChart title="Quota vs attainment (direct reports)" rows={repRows} />
-            <div className="grid gap-3">
-              <QuotaRollupTable title="Manager rollup" subtitle="Uses public.manager_attainment" rows={mgrRow} />
-              <div className="flex items-center justify-end">
-                <ExportToExcelButton
-                  fileName={`Team Quotas - Rollup - ${fiscal_year} ${rollup_quarter}`}
-                  sheets={[
-                    { name: "Direct reports", rows: repRows as any },
-                    { name: "Manager", rows: mgrRow as any },
-                  ]}
-                />
-              </div>
-            </div>
-          </section>
-        ) : null}
-
-        {rollupPeriodId ? <AverageHealthScorePanel title="Average Health Score (direct reports)" row={health} /> : null}
-
-        {rollupPeriodId ? (
-          <section className="mt-5">
-            <div className="flex items-end justify-between gap-3">
-              <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Rep rollup</div>
-            </div>
-            <div className="mt-3">
-              <QuotaRollupTable title="Rep rollup" subtitle="Uses public.rep_attainment (direct reports only)" rows={repRows} />
-            </div>
-
-            <div className="mt-3 flex items-center justify-end">
-              <ExportToExcelButton fileName={`Team Quotas - Rep rollup - ${fiscal_year} ${rollup_quarter}`} sheets={[{ name: "Reps", rows: repRows as any }]} />
-            </div>
+            <RepQuotaSetupClient
+              action={saveRepQuotasForYearAction}
+              fiscalYear={fiscal_year}
+              repPublicId={selectedRepPublicId}
+              repName={selectedRepName}
+              initialAnnualQuota={existingAnnualQuota}
+              quarters={[
+                {
+                  key: "q1",
+                  label: "1st Quarter",
+                  periodLabel: q1p ? `${dateOnly(q1p.period_start)} → ${dateOnly(q1p.period_end)}` : "Missing quarter period",
+                  initialQuotaAmount: q1p ? Number(quotaByPeriodId.get(String(q1p.id))?.quota_amount || 0) || 0 : 0,
+                  disabled: !q1p,
+                },
+                {
+                  key: "q2",
+                  label: "2nd Quarter",
+                  periodLabel: q2p ? `${dateOnly(q2p.period_start)} → ${dateOnly(q2p.period_end)}` : "Missing quarter period",
+                  initialQuotaAmount: q2p ? Number(quotaByPeriodId.get(String(q2p.id))?.quota_amount || 0) || 0 : 0,
+                  disabled: !q2p,
+                },
+                {
+                  key: "q3",
+                  label: "3rd Quarter",
+                  periodLabel: q3p ? `${dateOnly(q3p.period_start)} → ${dateOnly(q3p.period_end)}` : "Missing quarter period",
+                  initialQuotaAmount: q3p ? Number(quotaByPeriodId.get(String(q3p.id))?.quota_amount || 0) || 0 : 0,
+                  disabled: !q3p,
+                },
+                {
+                  key: "q4",
+                  label: "4th Quarter",
+                  periodLabel: q4p ? `${dateOnly(q4p.period_start)} → ${dateOnly(q4p.period_end)}` : "Missing quarter period",
+                  initialQuotaAmount: q4p ? Number(quotaByPeriodId.get(String(q4p.id))?.quota_amount || 0) || 0 : 0,
+                  disabled: !q4p,
+                },
+              ]}
+            />
           </section>
         ) : null}
 

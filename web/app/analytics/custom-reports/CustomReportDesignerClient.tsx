@@ -995,7 +995,7 @@ export function CustomReportDesignerClient(props: {
                   {mgrSubtotal ? (
                     <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
                       <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                        Executive: {g.execName} · {mgrSubtotal.rep_name}
+                        {mgrSubtotal.rep_name}
                       </td>
                       {metricList.map((k) => (
                         <td key={k} className="px-4 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">

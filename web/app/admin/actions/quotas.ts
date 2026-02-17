@@ -202,6 +202,7 @@ const UpdateQuotaSchema = CreateQuotaSchema.extend({
 const UpsertRepQuotaSetSchema = z.object({
   rep_id: zBigintText,
   fiscal_year: z.string().min(1),
+  annual_target: z.coerce.number(),
   q1_quota_amount: z.coerce.number(),
   q2_quota_amount: z.coerce.number(),
   q3_quota_amount: z.coerce.number(),
@@ -393,6 +394,7 @@ export async function upsertRepQuotaSet(formData: FormData): Promise<{ ok: true 
   const parsed = UpsertRepQuotaSetSchema.parse({
     rep_id: formData.get("rep_id"),
     fiscal_year: formData.get("fiscal_year"),
+    annual_target: formData.get("annual_target"),
     q1_quota_amount: formData.get("q1_quota_amount"),
     q2_quota_amount: formData.get("q2_quota_amount"),
     q3_quota_amount: formData.get("q3_quota_amount"),
@@ -408,7 +410,30 @@ export async function upsertRepQuotaSet(formData: FormData): Promise<{ ok: true 
     );
   }
 
-  const annual_target = parsed.q1_quota_amount + parsed.q2_quota_amount + parsed.q3_quota_amount + parsed.q4_quota_amount;
+  const annual_target = Number(parsed.annual_target);
+  if (!Number.isFinite(annual_target) || annual_target <= 0) {
+    redirect(
+      `/admin/analytics/quotas?rep_id=${encodeURIComponent(String(parsed.rep_id))}` +
+        `&fiscal_year=${encodeURIComponent(String(parsed.fiscal_year))}` +
+        `&error=${encodeURIComponent("annual quota must be a positive number")}`
+    );
+  }
+
+  const quarterSum = Number(parsed.q1_quota_amount) + Number(parsed.q2_quota_amount) + Number(parsed.q3_quota_amount) + Number(parsed.q4_quota_amount);
+  if (!Number.isFinite(quarterSum) || quarterSum < 0) {
+    redirect(
+      `/admin/analytics/quotas?rep_id=${encodeURIComponent(String(parsed.rep_id))}` +
+        `&fiscal_year=${encodeURIComponent(String(parsed.fiscal_year))}` +
+        `&error=${encodeURIComponent("quarter quotas must be valid numbers")}`
+    );
+  }
+  if (quarterSum - annual_target > 1e-6) {
+    redirect(
+      `/admin/analytics/quotas?rep_id=${encodeURIComponent(String(parsed.rep_id))}` +
+        `&fiscal_year=${encodeURIComponent(String(parsed.fiscal_year))}` +
+        `&error=${encodeURIComponent("all 4 quarters cannot exceed the annual quota")}`
+    );
+  }
 
   const rep = await pool.query<{ manager_rep_id: number | null }>(
     `

@@ -407,47 +407,6 @@ export default async function VerdictForecastPage({
         </section>
 
         <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Role comparison (Total Pipeline)</h2>
-          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Compare Sales Forecast vs The Verdict totals by owner role.</p>
-
-          <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-            <table className="w-full min-w-[900px] text-left text-sm">
-              <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
-                <tr>
-                  <th className="px-4 py-3">Role</th>
-                  <th className="px-4 py-3 text-right">Sales Forecast (Total)</th>
-                  <th className="px-4 py-3 text-right">Verdict (Total)</th>
-                  <th className="px-4 py-3 text-right">Δ Total</th>
-                  <th className="px-4 py-3 text-right">Δ # Opps</th>
-                  <th className="px-4 py-3">Range</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from(ALL_OWNER_ROLES).map((k) => {
-                  const row = aggByRole.get(k) || normalizeAggRow(null, k);
-                  const da = row.ai_total_amount - row.crm_total_amount;
-                  const dc = row.ai_total_count - row.crm_total_count;
-                  return (
-                    <tr key={k} className="border-t border-[color:var(--sf-border)]">
-                      <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{ownerRoleLabel(k)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(row.crm_total_amount)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(row.ai_total_amount)}</td>
-                      <td className={`px-4 py-3 text-right font-mono text-xs ${deltaClass(da)}`}>
-                        {da === 0 ? "—" : `${da > 0 ? "+" : ""}${fmtMoney(Math.abs(da)).replace("$", "$")}`}
-                      </td>
-                      <td className={`px-4 py-3 text-right font-mono text-xs ${deltaClass(dc)}`}>
-                        {dc === 0 ? "—" : `${dc > 0 ? "+" : ""}${fmtNum(Math.abs(dc))}`}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-[color:var(--sf-text-secondary)]">{rangeLabel(row.crm_total_amount, row.ai_total_amount)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
           <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Sales Forecast Module</h2>
           <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Buckets based on CRM Forecast Stage.</p>
           <div className={boxGrid}>
@@ -525,6 +484,49 @@ export default async function VerdictForecastPage({
                     <td className="px-4 py-3 font-mono text-xs text-[color:var(--sf-text-secondary)]">{r.range}</td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+          <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Role comparison (Total Pipeline)</h2>
+          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Compare Sales Forecast vs The Verdict totals by owner role.</p>
+
+          <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
+            <table className="w-full min-w-[900px] text-left text-sm">
+              <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                <tr>
+                  <th className="px-4 py-3">Role</th>
+                  <th className="px-4 py-3 text-right">Sales Forecast (Total)</th>
+                  <th className="px-4 py-3 text-right">Verdict (Total)</th>
+                  <th className="px-4 py-3 text-right">Δ Total</th>
+                  <th className="px-4 py-3 text-right">Δ # Opps</th>
+                  <th className="px-4 py-3">Range</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from(ALL_OWNER_ROLES).map((k) => {
+                  const row = aggByRole.get(k) || normalizeAggRow(null, k);
+                  const da = row.ai_total_amount - row.crm_total_amount;
+                  const dc = row.ai_total_count - row.crm_total_count;
+                  return (
+                    <tr key={k} className="border-t border-[color:var(--sf-border)]">
+                      <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{ownerRoleLabel(k)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(row.crm_total_amount)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(row.ai_total_amount)}</td>
+                      <td className={`px-4 py-3 text-right font-mono text-xs ${deltaClass(da)}`}>
+                        {da === 0 ? "—" : `${da > 0 ? "+" : ""}${fmtMoney(Math.abs(da)).replace("$", "$")}`}
+                      </td>
+                      <td className={`px-4 py-3 text-right font-mono text-xs ${deltaClass(dc)}`}>
+                        {dc === 0 ? "—" : `${dc > 0 ? "+" : ""}${fmtNum(Math.abs(dc))}`}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-[color:var(--sf-text-secondary)]">
+                        {rangeLabel(row.crm_total_amount, row.ai_total_amount)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

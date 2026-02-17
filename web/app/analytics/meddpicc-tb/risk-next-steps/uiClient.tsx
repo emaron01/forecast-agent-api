@@ -16,6 +16,7 @@ type Deal = Record<string, any> & {
   forecast_stage?: string | null;
   ai_verdict?: string | null;
   ai_forecast?: string | null;
+  health_score?: number | null;
   risk_summary?: string | null;
   next_steps?: string | null;
   updated_at?: string | null;
@@ -37,7 +38,21 @@ function isClosedDeal(d: Deal) {
   return closedOutcomeFromStage((d as any)?.forecast_stage) || null;
 }
 
-type SortKey = "account" | "amount" | "close_date" | "forecast_stage" | "ai_stage" | "risk_summary" | "next_steps";
+function healthPctFrom30(score: any) {
+  const n = Number(score);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const pct = Math.round((n / 30) * 100);
+  return Math.max(0, Math.min(100, pct));
+}
+
+function healthColorClass(pct: number | null) {
+  if (pct == null) return "text-[color:var(--sf-text-disabled)]";
+  if (pct >= 80) return "text-[#2ECC71]";
+  if (pct >= 50) return "text-[#F1C40F]";
+  return "text-[#E74C3C]";
+}
+
+type SortKey = "account" | "amount" | "close_date" | "forecast_stage" | "ai_stage" | "health" | "risk_summary" | "next_steps";
 
 export function MeddpiccRiskNextStepsClient(props: {
   quotaPeriods?: Array<{ id: string; label: string }>;
@@ -132,6 +147,8 @@ export function MeddpiccRiskNextStepsClient(props: {
           return getStr(d.forecast_stage);
         case "ai_stage":
           return getStr(d.ai_verdict);
+        case "health":
+          return getNum(healthPctFrom30(d.health_score));
         case "risk_summary":
           return getStr(d.risk_summary);
         case "next_steps":
@@ -260,6 +277,7 @@ export function MeddpiccRiskNextStepsClient(props: {
                 <th className="px-4 py-3">{thBtn("Close Date", "close_date")}</th>
                 <th className="px-4 py-3">{thBtn("Forecast Stage", "forecast_stage")}</th>
                 <th className="px-4 py-3">{thBtn("AI Stage", "ai_stage")}</th>
+                <th className="px-4 py-3 text-right">{thBtn("Health %", "health", "right")}</th>
                 <th className="px-4 py-3">{thBtn("Risk Summary", "risk_summary")}</th>
                 <th className="px-4 py-3">{thBtn("Next Steps", "next_steps")}</th>
               </tr>
@@ -277,6 +295,12 @@ export function MeddpiccRiskNextStepsClient(props: {
                   <td className="px-4 py-3 font-mono text-xs text-[color:var(--sf-text-primary)]">{safeDate(d.close_date)}</td>
                   <td className="px-4 py-3 text-[color:var(--sf-text-primary)]">{d.forecast_stage || "—"}</td>
                   <td className="px-4 py-3 text-[color:var(--sf-text-primary)]">{d.ai_verdict || "—"}</td>
+                  <td className="px-4 py-3 text-right font-mono text-xs">
+                    {(() => {
+                      const hp = healthPctFrom30(d.health_score);
+                      return <span className={healthColorClass(hp)}>{hp == null ? "—" : `${hp}%`}</span>;
+                    })()}
+                  </td>
                   <td className="px-4 py-3 text-xs text-[color:var(--sf-text-primary)]">
                     <div className="min-w-[320px] whitespace-pre-wrap">{String(d.risk_summary || "").trim() || "—"}</div>
                   </td>
@@ -287,7 +311,7 @@ export function MeddpiccRiskNextStepsClient(props: {
               ))}
               {!busy && !sorted.length ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-[color:var(--sf-text-disabled)]">
+                  <td colSpan={8} className="px-4 py-8 text-center text-sm text-[color:var(--sf-text-disabled)]">
                     No deals found.
                   </td>
                 </tr>

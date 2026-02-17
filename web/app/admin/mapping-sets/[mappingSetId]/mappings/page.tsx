@@ -18,7 +18,9 @@ export default async function FieldMappingsPage({
   searchParams: Record<string, string | string[] | undefined>;
 }) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  // Mapping Sets control what fields can be imported (free-text target_field in mappings).
+  // Customers should manage saved formats from the Import/Excel Upload page, not edit ingestible fields.
+  if (ctx.kind !== "master") redirect("/admin");
   const mappingSetPublicId = params.mappingSetId;
   const mappingSetId = await resolvePublicTextId("field_mapping_sets", mappingSetPublicId).catch(() => "");
   const modal = sp(searchParams.modal) || "";

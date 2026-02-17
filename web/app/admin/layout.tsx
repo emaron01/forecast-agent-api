@@ -49,7 +49,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                 <>
                   <NavLink href="/admin/org-profile" label="Org Profile" />
                   <NavLink href="/admin/hierarchy" label="Sales Organization" />
-                  <NavLink href="/admin/mapping-sets" label="Mapping Sets" />
+                  {ctx.kind === "master" ? <NavLink href="/admin/mapping-sets" label="Mapping Sets" /> : null}
                   {hasQuotaSetupAccess ? (
                     <>
                       <NavLink href="/admin/analytics" label="Analytics" />

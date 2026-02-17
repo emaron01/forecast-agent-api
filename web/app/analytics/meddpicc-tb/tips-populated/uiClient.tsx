@@ -236,6 +236,13 @@ export function MeddpiccTipsPopulatedClient(props: {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/analytics/meddpicc-tb/heatmap"
+              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface)]"
+              title="Open MEDDPICC+TB heatmap view"
+            >
+              View heatmap
+            </Link>
             <button
               type="button"
               onClick={() => void refresh()}

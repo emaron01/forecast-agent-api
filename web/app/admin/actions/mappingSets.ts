@@ -20,7 +20,7 @@ function emptyToNull(s: string | undefined) {
 
 export async function createMappingSetAction(formData: FormData) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind !== "master") redirect("/admin");
 
   const parsed = Schema.omit({ public_id: true }).parse({
     name: formData.get("name"),
@@ -39,7 +39,7 @@ export async function createMappingSetAction(formData: FormData) {
 
 export async function updateMappingSetAction(formData: FormData) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind !== "master") redirect("/admin");
 
   const parsed = Schema.extend({ public_id: z.string().uuid() }).parse({
     public_id: formData.get("public_id"),
@@ -61,7 +61,7 @@ export async function updateMappingSetAction(formData: FormData) {
 
 export async function deleteMappingSetAction(formData: FormData) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind !== "master") redirect("/admin");
 
   const parsed = z
     .object({

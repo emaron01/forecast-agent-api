@@ -13,6 +13,7 @@ import { FiscalYearSelector } from "../../../../components/quotas/FiscalYearSele
 import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
 import { getHealthAveragesByPeriods } from "../../../../lib/analyticsHealth";
 import { AverageHealthScorePanel } from "../../../_components/AverageHealthScorePanel";
+import { RepQuotaSetupClient } from "./RepQuotaSetupClient";
 import {
   assignQuotaToUser,
   createQuotaPeriod,
@@ -108,16 +109,30 @@ async function saveRepQuotaSetupAction(formData: FormData) {
   const q4_end = String(formData.get("q4_end") || "").trim();
 
   const annual_target_raw = String(formData.get("annual_target") || "").trim();
-  const annual_target = annual_target_raw ? Number(annual_target_raw) : undefined;
+  const annual_target = annual_target_raw ? Number(annual_target_raw) : NaN;
 
-  const q1_quota = Number(formData.get("q1_quota") || 0) || 0;
-  const q2_quota = Number(formData.get("q2_quota") || 0) || 0;
-  const q3_quota = Number(formData.get("q3_quota") || 0) || 0;
-  const q4_quota = Number(formData.get("q4_quota") || 0) || 0;
+  const q1_quota_raw = String(formData.get("q1_quota") || "").trim();
+  const q2_quota_raw = String(formData.get("q2_quota") || "").trim();
+  const q3_quota_raw = String(formData.get("q3_quota") || "").trim();
+  const q4_quota_raw = String(formData.get("q4_quota") || "").trim();
+  const q1_quota = q1_quota_raw ? Number(q1_quota_raw) : NaN;
+  const q2_quota = q2_quota_raw ? Number(q2_quota_raw) : NaN;
+  const q3_quota = q3_quota_raw ? Number(q3_quota_raw) : NaN;
+  const q4_quota = q4_quota_raw ? Number(q4_quota_raw) : NaN;
 
   if (!fiscal_year) redirect(`/analytics/quotas/admin?error=${encodeURIComponent("fiscal_year is required")}`);
   if (!rep_public_id) redirect(`/analytics/quotas/admin?error=${encodeURIComponent("rep is required")}`);
   if (!manager_public_id) redirect(`/analytics/quotas/admin?error=${encodeURIComponent("manager is required")}`);
+  if (!Number.isFinite(annual_target) || annual_target <= 0) {
+    redirect(`/analytics/quotas/admin?error=${encodeURIComponent("annual quota must be a positive number")}`);
+  }
+  if (![q1_quota, q2_quota, q3_quota, q4_quota].every((n) => Number.isFinite(n) && n >= 0)) {
+    redirect(`/analytics/quotas/admin?error=${encodeURIComponent("quarter quotas must be valid numbers")}`);
+  }
+  const quarterSum = q1_quota + q2_quota + q3_quota + q4_quota;
+  if (quarterSum - annual_target > 1e-6) {
+    redirect(`/analytics/quotas/admin?error=${encodeURIComponent("all 4 quarters cannot exceed the annual quota")}`);
+  }
 
   const ctx = await requireAuth();
   if (ctx.kind !== "user" || ctx.user.role !== "ADMIN") redirect("/dashboard");
@@ -327,8 +342,8 @@ export default async function AnalyticsQuotasAdminPage({
     if (!k) continue;
     if (!quotaByPeriodId.has(k)) quotaByPeriodId.set(k, { quota_amount: (q as any).quota_amount ?? null, annual_target: (q as any).annual_target ?? null });
   }
-  const annualTargetDefault =
-    (repQuotas.find((q) => q.annual_target != null)?.annual_target ?? null) != null ? String(repQuotas.find((q) => q.annual_target != null)?.annual_target) : "";
+  const initialAnnualQuota = repQuotas.find((q) => q.annual_target != null)?.annual_target ?? null;
+  const initialAnnualQuotaNum = initialAnnualQuota != null && Number.isFinite(Number(initialAnnualQuota)) ? Number(initialAnnualQuota) : null;
 
   const rollupPeriodId = quota_period_id || "";
   const repAtt = rollupPeriodId ? await listRepAttainment({ orgId: ctx.user.org_id, quotaPeriodId: rollupPeriodId }).catch(() => []) : [];
@@ -475,102 +490,39 @@ export default async function AnalyticsQuotasAdminPage({
               </div>
             </form>
 
-            <form action={saveRepQuotaSetupAction} className="mt-5 grid gap-4">
-              <input type="hidden" name="exec_public_id" value={exec_public_id} />
-              <input type="hidden" name="manager_public_id" value={manager_public_id} />
-              <input type="hidden" name="rep_public_id" value={rep_public_id} />
-              <input type="hidden" name="fiscal_year" value={fiscal_year} />
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="grid gap-1">
-                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Annual quota</label>
-                  <input
-                    name="annual_target"
-                    type="number"
-                    step="0.01"
-                    defaultValue={annualTargetDefault}
-                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
-                    placeholder="0"
-                    required
-                    disabled={!selectedRep || !fiscal_year}
-                  />
-                </div>
-                <div className="grid gap-1">
-                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Selected rep</label>
-                  <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]">
-                    {selectedRep?.rep_name || "—"}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                {[
-                  { key: "q1", label: "1st Quarter", fq: "1", p: q1p },
-                  { key: "q2", label: "2nd Quarter", fq: "2", p: q2p },
-                  { key: "q3", label: "3rd Quarter", fq: "3", p: q3p },
-                  { key: "q4", label: "4th Quarter", fq: "4", p: q4p },
-                ].map((q) => {
-                  const pid = q.p ? String(q.p.id) : "";
-                  const existing = pid ? quotaByPeriodId.get(pid) || null : null;
-                  const startDefault = q.p ? String(q.p.period_start || "") : "";
-                  const endDefault = q.p ? String(q.p.period_end || "") : "";
-                  const quotaDefault = existing && existing.quota_amount != null ? String(existing.quota_amount) : "";
-                  return (
-                  <div key={q.key} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-                    <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{q.label}</div>
-                    <div className="mt-3 grid gap-3">
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <div className="grid gap-1">
-                          <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Start Date</label>
-                          <input
-                            name={`${q.key}_start`}
-                            type="date"
-                            defaultValue={startDefault}
-                            className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
-                            required
-                            disabled={!selectedRep || !fiscal_year}
-                          />
-                        </div>
-                        <div className="grid gap-1">
-                          <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">End Date</label>
-                          <input
-                            name={`${q.key}_end`}
-                            type="date"
-                            defaultValue={endDefault}
-                            className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
-                            required
-                            disabled={!selectedRep || !fiscal_year}
-                          />
-                        </div>
-                      </div>
-                      <div className="grid gap-1">
-                        <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Rep quota ({q.fq})</label>
-                        <input
-                          name={`${q.key}_quota`}
-                          type="number"
-                          step="0.01"
-                          defaultValue={quotaDefault}
-                          className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
-                          placeholder="0"
-                          required
-                          disabled={!selectedRep || !fiscal_year}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  );
-                })}
-              </div>
-
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
-                  disabled={!selectedRep || !fiscal_year}
-                >
-                  Save and next rep
-                </button>
-              </div>
-            </form>
+            <RepQuotaSetupClient
+              action={saveRepQuotaSetupAction}
+              fiscalYear={fiscal_year}
+              execPublicId={exec_public_id}
+              managerPublicId={manager_public_id}
+              repPublicId={rep_public_id}
+              repName={selectedRep?.rep_name || ""}
+              initialAnnualQuota={initialAnnualQuotaNum}
+              quarters={(
+                [
+                  { key: "q1", label: "1st Quarter", fiscalQuarter: "1", p: q1p },
+                  { key: "q2", label: "2nd Quarter", fiscalQuarter: "2", p: q2p },
+                  { key: "q3", label: "3rd Quarter", fiscalQuarter: "3", p: q3p },
+                  { key: "q4", label: "4th Quarter", fiscalQuarter: "4", p: q4p },
+                ] as const
+              ).map((q) => {
+                const pid = q.p ? String(q.p.id) : "";
+                const existing = pid ? quotaByPeriodId.get(pid) || null : null;
+                const startDefault = q.p ? String(q.p.period_start || "") : "";
+                const endDefault = q.p ? String(q.p.period_end || "") : "";
+                const quotaDefaultNum =
+                  existing && existing.quota_amount != null && Number.isFinite(Number(existing.quota_amount)) ? Number(existing.quota_amount) : 0;
+                return {
+                  key: q.key,
+                  label: q.label,
+                  fiscalQuarter: q.fiscalQuarter,
+                  initialStartDate: startDefault,
+                  initialEndDate: endDefault,
+                  initialQuotaAmount: quotaDefaultNum,
+                  disabled: !selectedRep || !fiscal_year,
+                };
+              })}
+            />
           </div>
 
           <div className="overflow-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm">

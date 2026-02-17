@@ -37,7 +37,9 @@ export default async function AdminHome() {
       <Card href="/admin/excel-opportunities" title="Excel Upload" desc="Upload an Excel of opportunities and map fields." />
       <Card href="/admin/org-profile" title="Org Profile" desc="Manage organization profile fields." />
       <Card href="/admin/hierarchy" title="Sales Organization" desc="set-up, edit and review Sales Org Assignmnets." />
-      <Card href="/admin/mapping-sets" title="Mapping Sets" desc="Manage mapping sets and their field mappings." />
+      {ctx.kind === "master" ? (
+        <Card href="/admin/mapping-sets" title="Mapping Sets" desc="Owner-only: manage mapping sets and their field mappings." />
+      ) : null}
       {hasQuotaSetupAccess ? (
         <>
           <Card href="/admin/analytics/quota-periods" title="Quota periods" desc="Manage fiscal calendar (quota periods)." />

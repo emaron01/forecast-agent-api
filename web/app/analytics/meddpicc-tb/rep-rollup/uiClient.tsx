@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo } from "react";
+import { Fragment, useMemo, useState } from "react";
 
 export type RepRollupRow = {
   stage_group: string; // Commit | Best Case | Pipeline | Closed Won | Closed Lost | Closed
@@ -159,6 +159,8 @@ function rollupWeighted(rows: RepRollupRow[]): Rollup {
 }
 
 export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
+  const [showDetails, setShowDetails] = useState(false);
+
   const model = useMemo(() => {
     type RepGroup = {
       rep_id: string;
@@ -227,6 +229,10 @@ export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
             Grouped by <span className="font-mono text-xs">Forecast Stage</span> and rolled up to manager.
           </p>
         </div>
+        <label className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
+          <input type="checkbox" checked={showDetails} onChange={(e) => setShowDetails(e.target.checked)} />
+          Show manager + rep breakdown
+        </label>
       </div>
 
       <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
@@ -298,85 +304,90 @@ export function MeddpiccRepRollupClient(props: { rows: RepRollupRow[] }) {
                     <td className="px-2 py-3 text-center">{lmhBadge(exTotal.avg_budget)}</td>
                   </tr>
 
-                  {Array.from(ex.managers.values()).map((mgr) => {
-                    const mgrTotal = rollupWeighted(mgr.allRows);
-                    return (
-                      <Fragment key={`mgr:${ex.executive_id}:${mgr.manager_id || "unassigned"}`}>
-                        <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
-                          <td colSpan={13} className="px-3 py-3 text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                            Manager: {mgr.manager_name}
-                          </td>
-                        </tr>
+                  {showDetails
+                    ? Array.from(ex.managers.values()).map((mgr) => {
+                        const mgrTotal = rollupWeighted(mgr.allRows);
+                        return (
+                          <Fragment key={`mgr:${ex.executive_id}:${mgr.manager_id || "unassigned"}`}>
+                            <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                              <td colSpan={13} className="px-3 py-3 text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                                Manager: {mgr.manager_name}
+                              </td>
+                            </tr>
 
-                        <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]/40">
-                          <td className="px-3 py-3 text-xs font-semibold text-[color:var(--sf-text-primary)]">Manager total</td>
-                          <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                            {fmtNum(mgrTotal.opp_count)}
-                          </td>
-                          <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">—</td>
-                          <td className="px-3 py-3 text-center">{healthBadge(mgrTotal.avg_health_score)}</td>
-                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_metrics)}</td>
-                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_eb)}</td>
-                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_criteria)}</td>
-                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_process)}</td>
-                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_pain)}</td>
-                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_champion)}</td>
-                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_competition)}</td>
-                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_timing)}</td>
-                          <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_budget)}</td>
-                        </tr>
+                            <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]/40">
+                              <td className="px-3 py-3 text-xs font-semibold text-[color:var(--sf-text-primary)]">Manager total</td>
+                              <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                                {fmtNum(mgrTotal.opp_count)}
+                              </td>
+                              <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">—</td>
+                              <td className="px-3 py-3 text-center">{healthBadge(mgrTotal.avg_health_score)}</td>
+                              <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_metrics)}</td>
+                              <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_eb)}</td>
+                              <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_criteria)}</td>
+                              <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_process)}</td>
+                              <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_pain)}</td>
+                              <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_champion)}</td>
+                              <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_competition)}</td>
+                              <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_timing)}</td>
+                              <td className="px-2 py-3 text-center">{lmhBadge(mgrTotal.avg_budget)}</td>
+                            </tr>
 
-                        {Array.from(mgr.reps.values()).map((rep) => {
-                          const repTotal = rollupWeighted(rep.allRows);
-                          const stages = Array.from(rep.stages.keys()).sort(
-                            (a, b) => stageOrder(a) - stageOrder(b) || a.localeCompare(b)
-                          );
-                          return (
-                            <Fragment key={`rep:${ex.executive_id}:${mgr.manager_id}:${rep.rep_id || rep.rep_name}`}>
-                              <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-                                <td className="px-3 py-3 text-xs font-semibold text-[color:var(--sf-text-primary)]">{rep.rep_name}</td>
-                                <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                                  {fmtNum(repTotal.opp_count)}
-                                </td>
-                                <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">Rep total</td>
-                                <td className="px-3 py-3 text-center">{healthBadge(repTotal.avg_health_score)}</td>
-                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_metrics)}</td>
-                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_eb)}</td>
-                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_criteria)}</td>
-                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_process)}</td>
-                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_pain)}</td>
-                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_champion)}</td>
-                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_competition)}</td>
-                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_timing)}</td>
-                                <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_budget)}</td>
-                              </tr>
-
-                              {stages.map((st) => {
-                                const r = rep.stages.get(st)!;
-                                return (
-                                  <tr key={`stage:${ex.executive_id}:${mgr.manager_id}:${rep.rep_id}:${st}`} className="border-t border-[color:var(--sf-border)]">
-                                    <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">&nbsp;</td>
-                                    <td className="px-3 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtNum(r.opp_count)}</td>
-                                    <td className="px-3 py-3 text-xs text-[color:var(--sf-text-primary)]">{st}</td>
-                                    <td className="px-3 py-3 text-center">{healthBadge(r.avg_health_score)}</td>
-                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_metrics)}</td>
-                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_eb)}</td>
-                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_criteria)}</td>
-                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_process)}</td>
-                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_pain)}</td>
-                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_champion)}</td>
-                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_competition)}</td>
-                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_timing)}</td>
-                                    <td className="px-2 py-3 text-center">{lmhBadge(r.avg_budget)}</td>
+                            {Array.from(mgr.reps.values()).map((rep) => {
+                              const repTotal = rollupWeighted(rep.allRows);
+                              const stages = Array.from(rep.stages.keys()).sort(
+                                (a, b) => stageOrder(a) - stageOrder(b) || a.localeCompare(b)
+                              );
+                              return (
+                                <Fragment key={`rep:${ex.executive_id}:${mgr.manager_id}:${rep.rep_id || rep.rep_name}`}>
+                                  <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                                    <td className="px-3 py-3 text-xs font-semibold text-[color:var(--sf-text-primary)]">{rep.rep_name}</td>
+                                    <td className="px-3 py-3 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                                      {fmtNum(repTotal.opp_count)}
+                                    </td>
+                                    <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">Rep total</td>
+                                    <td className="px-3 py-3 text-center">{healthBadge(repTotal.avg_health_score)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_metrics)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_eb)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_criteria)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_process)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_pain)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_champion)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_competition)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_timing)}</td>
+                                    <td className="px-2 py-3 text-center">{lmhBadge(repTotal.avg_budget)}</td>
                                   </tr>
-                                );
-                              })}
-                            </Fragment>
-                          );
-                        })}
-                      </Fragment>
-                    );
-                  })}
+
+                                  {stages.map((st) => {
+                                    const r = rep.stages.get(st)!;
+                                    return (
+                                      <tr
+                                        key={`stage:${ex.executive_id}:${mgr.manager_id}:${rep.rep_id}:${st}`}
+                                        className="border-t border-[color:var(--sf-border)]"
+                                      >
+                                        <td className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">&nbsp;</td>
+                                        <td className="px-3 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtNum(r.opp_count)}</td>
+                                        <td className="px-3 py-3 text-xs text-[color:var(--sf-text-primary)]">{st}</td>
+                                        <td className="px-3 py-3 text-center">{healthBadge(r.avg_health_score)}</td>
+                                        <td className="px-2 py-3 text-center">{lmhBadge(r.avg_metrics)}</td>
+                                        <td className="px-2 py-3 text-center">{lmhBadge(r.avg_eb)}</td>
+                                        <td className="px-2 py-3 text-center">{lmhBadge(r.avg_criteria)}</td>
+                                        <td className="px-2 py-3 text-center">{lmhBadge(r.avg_process)}</td>
+                                        <td className="px-2 py-3 text-center">{lmhBadge(r.avg_pain)}</td>
+                                        <td className="px-2 py-3 text-center">{lmhBadge(r.avg_champion)}</td>
+                                        <td className="px-2 py-3 text-center">{lmhBadge(r.avg_competition)}</td>
+                                        <td className="px-2 py-3 text-center">{lmhBadge(r.avg_timing)}</td>
+                                        <td className="px-2 py-3 text-center">{lmhBadge(r.avg_budget)}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </Fragment>
+                              );
+                            })}
+                          </Fragment>
+                        );
+                      })
+                    : null}
                 </Fragment>
               );
             })}

@@ -21,6 +21,15 @@ type ProductWonRow = {
   avg_health_score: number | null;
 };
 
+type ProductWonByRepRow = {
+  rep_name: string;
+  product: string;
+  won_amount: number;
+  won_count: number;
+  avg_order_value: number;
+  avg_health_score: number | null;
+};
+
 function ordinalQuarterLabel(q: number) {
   if (q === 1) return "1st Quarter";
   if (q === 2) return "2nd Quarter";
@@ -474,6 +483,97 @@ export async function QuarterSalesForecastSummary(props: {
         .catch(() => [])
     : [];
 
+  const productsByRep: ProductWonByRepRow[] = canCompute
+    ? await pool
+        .query<ProductWonByRepRow>(
+          `
+          WITH qp AS (
+            SELECT period_start::date AS period_start, period_end::date AS period_end
+              FROM quota_periods
+             WHERE org_id = $1::bigint
+               AND id = $2::bigint
+             LIMIT 1
+          ),
+          deals AS (
+            SELECT
+              COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
+              COALESCE(o.amount, 0) AS amount,
+              o.health_score,
+              o.rep_id,
+              o.rep_name,
+              lower(
+                regexp_replace(
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                  '[^a-zA-Z]+',
+                  ' ',
+                  'g'
+                )
+              ) AS fs,
+              CASE
+                WHEN o.close_date IS NULL THEN NULL
+                WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+                WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                  to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+                ELSE NULL
+              END AS close_d
+            FROM opportunities o
+            WHERE o.org_id = $1
+              AND (
+                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
+                OR (
+                  COALESCE(array_length($4::text[], 1), 0) > 0
+                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+                )
+              )
+          ),
+          deals_in_qtr AS (
+            SELECT d.*
+              FROM deals d
+              JOIN qp ON TRUE
+             WHERE d.close_d IS NOT NULL
+               AND d.close_d >= qp.period_start
+               AND d.close_d <= qp.period_end
+          ),
+          won_deals AS (
+            SELECT *
+              FROM deals_in_qtr
+             WHERE ((' ' || fs || ' ') LIKE '% won %')
+          )
+          SELECT
+            COALESCE(
+              NULLIF(btrim(r.display_name), ''),
+              NULLIF(btrim(r.rep_name), ''),
+              NULLIF(btrim(r.crm_owner_name), ''),
+              NULLIF(btrim(d.rep_name), ''),
+              '(Unknown rep)'
+            ) AS rep_name,
+            d.product,
+            COALESCE(SUM(d.amount), 0)::float8 AS won_amount,
+            COUNT(*)::int AS won_count,
+            CASE WHEN COUNT(*) > 0 THEN (COALESCE(SUM(d.amount), 0)::float8 / COUNT(*)::float8) ELSE 0 END AS avg_order_value,
+            AVG(NULLIF(d.health_score, 0))::float8 AS avg_health_score
+          FROM won_deals d
+          LEFT JOIN reps r
+            ON r.id = d.rep_id
+           AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+          GROUP BY
+            COALESCE(
+              NULLIF(btrim(r.display_name), ''),
+              NULLIF(btrim(r.rep_name), ''),
+              NULLIF(btrim(r.crm_owner_name), ''),
+              NULLIF(btrim(d.rep_name), ''),
+              '(Unknown rep)'
+            ),
+            d.product
+          ORDER BY won_amount DESC, rep_name ASC, product ASC
+          LIMIT 200
+          `,
+          [props.orgId, qpId, repIdsToUse, visibleRepNameKeys]
+        )
+        .then((r) => (r.rows || []) as any[])
+        .catch(() => [])
+    : [];
+
   const bucketHealth = canCompute
     ? await pool
         .query<{
@@ -795,6 +895,7 @@ export async function QuarterSalesForecastSummary(props: {
 
   const pctToGoal = quotaAmt > 0 ? wonAmt / quotaAmt : null;
   const pctToGoalValueClass = pctToGoal != null && pctToGoal >= 1 ? "text-[#16A34A]" : "";
+  const toGoAmt = quotaAmt > 0 ? Math.max(0, quotaAmt - wonAmt) : null;
   const boxClass = "rounded-lg border border-[#93C5FD] bg-[#DBEAFE] px-3 py-2 text-black";
   const headline =
     role === "REP"
@@ -872,6 +973,11 @@ export async function QuarterSalesForecastSummary(props: {
             <div className={`font-mono text-sm font-semibold ${pctToGoalValueClass}`}>{fmtPct(pctToGoal)}</div>
             <div className="mt-1 text-sm text-black/70">&nbsp;</div>
           </div>
+          <div className={`${boxClass} w-full`}>
+            <div className="text-sm text-black/70">To Go</div>
+            <div className="font-mono text-sm font-semibold">{toGoAmt == null ? "—" : fmtMoney(toGoAmt)}</div>
+            <div className="mt-1 text-sm text-black/70">&nbsp;</div>
+          </div>
         </div>
       </div>
 
@@ -881,7 +987,7 @@ export async function QuarterSalesForecastSummary(props: {
             Rep breakdown ({repRollups.length})
           </summary>
           <div className="mt-3 overflow-x-auto">
-            <table className="min-w-[760px] table-auto border-collapse text-sm">
+            <table className="min-w-[900px] table-auto border-collapse text-sm">
               <thead>
                 <tr className="text-left text-xs text-[color:var(--sf-text-secondary)]">
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Rep</th>
@@ -910,7 +1016,7 @@ export async function QuarterSalesForecastSummary(props: {
                   const wHealthPct = healthPctFrom30((r as any).won_health_score);
                   const key = `${r.rep_id || "name"}:${r.rep_name}`;
                   return (
-                    <tr key={key} className="text-[color:var(--sf-text-primary)]">
+                    <tr key={key} className="text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]">
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">{r.rep_name}</td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="font-mono text-sm font-semibold">{fmtMoney(cAmt)}</div>
@@ -991,6 +1097,56 @@ export async function QuarterSalesForecastSummary(props: {
               </tbody>
             </table>
           </div>
+
+          {role !== "REP" ? (
+            <details className="mt-3">
+              <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">
+                Rep breakdown (by product)
+              </summary>
+              <div className="mt-3 overflow-x-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                {(() => {
+                  const rows: ProductWonByRepRow[] = canCompute
+                    ? (productsByRep || [])
+                    : [];
+                  if (!rows.length) {
+                    return <div className="px-4 py-6 text-sm text-[color:var(--sf-text-secondary)]">No closed-won deals found for this period.</div>;
+                  }
+                  return (
+                    <table className="min-w-[920px] w-full table-auto border-collapse text-sm">
+                      <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
+                        <tr>
+                          <th className="px-3 py-2">Rep</th>
+                          <th className="px-3 py-2">Product</th>
+                          <th className="px-3 py-2 text-right">Closed Won</th>
+                          <th className="px-3 py-2 text-right"># Orders</th>
+                          <th className="px-3 py-2 text-right">Avg / Order</th>
+                          <th className="px-3 py-2 text-right">Avg Health</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((r) => {
+                          const hp = healthPctFrom30(r.avg_health_score);
+                          const key = `${r.rep_name}|${r.product}`;
+                          return (
+                            <tr key={key} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
+                              <td className="px-3 py-2">{r.rep_name}</td>
+                              <td className="px-3 py-2">{r.product}</td>
+                              <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(r.won_amount)}</td>
+                              <td className="px-3 py-2 text-right">{Number(r.won_count || 0) || 0}</td>
+                              <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(r.avg_order_value)}</td>
+                              <td className="px-3 py-2 text-right font-mono text-xs">
+                                <span className={healthColorClass(hp)}>{hp == null ? "—" : `${hp}%`}</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  );
+                })()}
+              </div>
+            </details>
+          ) : null}
         </section>
       ) : null}
 

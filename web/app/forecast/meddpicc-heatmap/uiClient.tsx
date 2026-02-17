@@ -386,6 +386,9 @@ export function MeddpiccHeatmapClient(props: {
                     <div className="min-w-[200px]">
                       <div className="truncate">{d.account_name || "—"}</div>
                       <div className="mt-0.5 truncate text-xs text-[color:var(--sf-text-disabled)]">{d.opportunity_name || ""}</div>
+                      {String(d.rep_name || "").trim() ? (
+                        <div className="mt-0.5 truncate text-xs text-[color:var(--sf-text-secondary)]">{d.rep_name}</div>
+                      ) : null}
                     </div>
                   </td>
                   <td className="px-3 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(d.amount)}</td>

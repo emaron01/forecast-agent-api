@@ -727,6 +727,25 @@ export default async function QuarterlyKpisPage({
     repIdToManagerId.set(String(id), mid);
   }
 
+  // For expand/collapse tables, ensure we can list all managers in-scope even if they have 0 activity.
+  const activeReps = (reps || []).filter((r) => r && r.active !== false);
+  const repsInScope = scopeRepIds && scopeRepIds.length
+    ? activeReps.filter((r) => scopeRepIds!.includes(Number(r.id)))
+    : activeReps;
+  const managerCandidatesForScope = (() => {
+    const ids = new Set<string>();
+    for (const r of repsInScope) {
+      const mid = r.manager_rep_id == null ? "" : String(r.manager_rep_id);
+      if (mid) ids.add(mid);
+    }
+    return Array.from(ids.values())
+      .map((managerId) => ({
+        managerId,
+        managerName: repIdToRepName.get(managerId) || `Manager ${managerId}`,
+      }))
+      .sort((a, b) => a.managerName.localeCompare(b.managerName));
+  })();
+
   // Index maps
   const createdByKey = new Map<string, { amount: number; count: number }>();
   for (const r of createdRows) {
@@ -1591,6 +1610,13 @@ export default async function QuarterlyKpisPage({
                         byManager.set(key, cur);
                       }
 
+                      // Add missing managers (0 activity) so expand/collapse is stable.
+                      for (const m of managerCandidatesForScope) {
+                        const key = String(m.managerId || "").trim();
+                        if (!key) continue;
+                        if (!byManager.has(key)) byManager.set(key, { managerName: m.managerName, reps: [] });
+                      }
+
                       const managers = Array.from(byManager.entries())
                         .map(([managerId, v]) => ({ managerId, managerName: v.managerName, reps: v.reps }))
                         .sort((a, b) => a.managerName.localeCompare(b.managerName));
@@ -1661,6 +1687,11 @@ export default async function QuarterlyKpisPage({
                                               Show / hide reps (created in quarter)
                                             </summary>
                                             <div className="order-1 mt-2 max-w-full overflow-x-auto rounded-md border border-[color:var(--sf-border)]">
+                                              {!reps.length ? (
+                                                <div className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">
+                                                  No reps with created pipeline for this manager in this period.
+                                                </div>
+                                              ) : null}
                                               <table className="w-full table-fixed text-left text-[11px] text-[color:var(--sf-text-primary)]">
                                                 <thead className="bg-[color:var(--sf-surface-alt)] text-[11px] text-[color:var(--sf-text-secondary)]">
                                                   <tr>

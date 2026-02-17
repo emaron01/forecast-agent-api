@@ -16,7 +16,7 @@ const Schema = z.object({
 
 export async function createFieldMappingAction(formData: FormData) {
   const { ctx } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind !== "master") redirect("/admin");
 
   const parsed = Schema.omit({ public_id: true }).parse({
     mapping_set_public_id: formData.get("mapping_set_public_id"),
@@ -37,7 +37,7 @@ export async function createFieldMappingAction(formData: FormData) {
 
 export async function updateFieldMappingAction(formData: FormData) {
   const { ctx } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind !== "master") redirect("/admin");
 
   const parsed = Schema.extend({ public_id: z.string().uuid() }).parse({
     mapping_set_public_id: formData.get("mapping_set_public_id"),
@@ -61,7 +61,7 @@ export async function updateFieldMappingAction(formData: FormData) {
 
 export async function deleteFieldMappingAction(formData: FormData) {
   const { ctx } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind !== "master") redirect("/admin");
 
   const parsed = z
     .object({
