@@ -10,6 +10,7 @@ import { TopDealsFiltersClient } from "./TopDealsFiltersClient";
 import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
 import { getHealthAveragesByPeriods } from "../../../../lib/analyticsHealth";
 import { AverageHealthScorePanel } from "../../../_components/AverageHealthScorePanel";
+import { getScopedRepDirectory } from "../../../../lib/repScope";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -200,8 +201,18 @@ export default async function AnalyticsQuotasExecutivePage({
   const selected =
     (quotaPeriodId && periods.find((p) => String(p.id) === quotaPeriodId)) || currentForYear || periods[0] || null;
 
-  const topWonRaw = selected ? await listTopDeals({ orgId: ctx.user.org_id, quotaPeriodId: String(selected.id), repIds: null, outcome: "won", limit: 10 }).catch(() => []) : [];
-  const topLostRaw = selected ? await listTopDeals({ orgId: ctx.user.org_id, quotaPeriodId: String(selected.id), repIds: null, outcome: "lost", limit: 10 }).catch(() => []) : [];
+  const scope =
+    ctx.user.role === "ADMIN"
+      ? { allowedRepIds: null as number[] | null }
+      : await getScopedRepDirectory({ orgId: ctx.user.org_id, userId: ctx.user.id, role: "EXEC_MANAGER" }).catch(() => ({
+          repDirectory: [],
+          allowedRepIds: [0] as number[],
+          myRepId: null as number | null,
+        }));
+  const scopeRepIds = ctx.user.role === "ADMIN" ? null : (scope as any).allowedRepIds;
+
+  const topWonRaw = selected ? await listTopDeals({ orgId: ctx.user.org_id, quotaPeriodId: String(selected.id), repIds: scopeRepIds, outcome: "won", limit: 10 }).catch(() => []) : [];
+  const topLostRaw = selected ? await listTopDeals({ orgId: ctx.user.org_id, quotaPeriodId: String(selected.id), repIds: scopeRepIds, outcome: "lost", limit: 10 }).catch(() => []) : [];
 
   const safeSortKey = (k: string): DealSortKey =>
     k === "rep" || k === "account" || k === "opportunity" || k === "product" || k === "age" || k === "initial_health" || k === "final_health" || k === "amount"
@@ -259,7 +270,7 @@ export default async function AnalyticsQuotasExecutivePage({
   });
 
   const healthRows = selected
-    ? await getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: [String(selected.id)], repIds: null }).catch(() => [])
+    ? await getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: [String(selected.id)], repIds: scopeRepIds }).catch(() => [])
     : [];
   const health = (healthRows && healthRows[0]) ? (healthRows[0] as any) : null;
 

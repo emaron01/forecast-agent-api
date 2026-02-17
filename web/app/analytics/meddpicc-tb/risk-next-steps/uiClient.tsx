@@ -33,7 +33,8 @@ function safeDate(d: any) {
 }
 
 function isClosedDeal(d: Deal) {
-  return closedOutcomeFromStage((d as any)?.forecast_stage) || closedOutcomeFromStage((d as any)?.stage) || null;
+  // Analytics/reporting standard: forecast_stage drives all “closed” detection.
+  return closedOutcomeFromStage((d as any)?.forecast_stage) || null;
 }
 
 type SortKey = "account" | "amount" | "close_date" | "forecast_stage" | "ai_stage" | "risk_summary" | "next_steps";

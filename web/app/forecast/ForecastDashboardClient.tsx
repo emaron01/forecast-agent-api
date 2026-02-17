@@ -197,7 +197,6 @@ export function ForecastDashboardClient(props: {
           d.account_name,
           d.opportunity_name,
           d.rep_name,
-          d.stage,
           d.forecast_stage,
           d.ai_verdict,
           d.risk_summary,
@@ -414,9 +413,6 @@ export function ForecastDashboardClient(props: {
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                     <span className="rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-[color:var(--sf-text-secondary)]">
                       Rep: {d.rep_name || "—"}
-                    </span>
-                    <span className="rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-[color:var(--sf-text-secondary)]">
-                      Stage: {d.stage || "—"}
                     </span>
                     <span className="rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-[color:var(--sf-text-secondary)]">
                       Forecast: {d.forecast_stage || "—"}

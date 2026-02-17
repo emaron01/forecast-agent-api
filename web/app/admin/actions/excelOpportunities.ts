@@ -224,13 +224,15 @@ function parseMappingPairs(rawMappingJson: string) {
     // Excel headers can contain leading/trailing/hidden whitespace and must match the raw row keys exactly.
     const rawSource = String(source ?? "");
     if (!rawSource.trim()) continue;
-    const canonicalTarget = parsedTarget.data === "stage" ? "sales_stage" : parsedTarget.data;
+    // Reporting standard: Forecast Stage is canonical for analytics bucketing.
+    // Treat legacy `stage` / `sales_stage` mappings as aliases for `forecast_stage`.
+    const canonicalTarget = parsedTarget.data === "stage" || parsedTarget.data === "sales_stage" ? "forecast_stage" : parsedTarget.data;
     pairs.push({ source_field: rawSource, target_field: canonicalTarget });
   }
   return pairs;
 }
 
-const REQUIRED_TARGETS = ["account_name", "opportunity_name", "amount", "rep_name", "crm_opp_id", "create_date_raw", "close_date"] as const;
+const REQUIRED_TARGETS = ["account_name", "opportunity_name", "amount", "rep_name", "crm_opp_id", "create_date_raw", "close_date", "forecast_stage"] as const;
 
 function friendlyTargetName(t: string) {
   switch (t) {
@@ -248,10 +250,10 @@ function friendlyTargetName(t: string) {
       return "Create Date";
     case "close_date":
       return "Close Date";
-    case "sales_stage":
-      return "Sales Stage";
     case "forecast_stage":
       return "Forecast Stage";
+    case "sales_stage":
+      return "Forecast Stage (legacy Sales Stage)";
     case "partner_name":
       return "Partner Name";
     case "deal_registration":
@@ -471,7 +473,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
       const existing = await listFieldMappings({ mappingSetId }).catch(() => []);
       mappingPairs = existing.map((m) => ({
         source_field: m.source_field,
-        target_field: m.target_field === "stage" ? "sales_stage" : m.target_field,
+        target_field: m.target_field === "stage" || m.target_field === "sales_stage" ? "forecast_stage" : m.target_field,
       }));
     }
 

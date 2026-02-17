@@ -10,6 +10,7 @@ import { TopDealsFiltersClient } from "../../quotas/executive/TopDealsFiltersCli
 import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
 import { getHealthAveragesByPeriods } from "../../../../lib/analyticsHealth";
 import { AverageHealthScorePanel } from "../../../_components/AverageHealthScorePanel";
+import { getScopedRepDirectory } from "../../../../lib/repScope";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -104,8 +105,10 @@ async function listTopPartnerDeals(args: {
   limit: number;
   dateStart?: string | null;
   dateEnd?: string | null;
+  repIds: number[] | null;
 }): Promise<TopPartnerDealRow[]> {
   const wantWon = args.outcome === "won";
+  const useRepFilter = !!(args.repIds && args.repIds.length);
   const { rows } = await pool.query<TopPartnerDealRow>(
     `
     WITH qp AS (
@@ -133,6 +136,7 @@ async function listTopPartnerDeals(args: {
     FROM opportunities o
     JOIN qp ON TRUE
     WHERE o.org_id = $1
+      AND (NOT $8::boolean OR o.rep_id = ANY($7::bigint[]))
       AND o.partner_name IS NOT NULL
       AND btrim(o.partner_name) <> ''
       AND o.close_date IS NOT NULL
@@ -150,7 +154,7 @@ async function listTopPartnerDeals(args: {
     ORDER BY amount DESC NULLS LAST, o.id DESC
     LIMIT $4
     `,
-    [args.orgId, args.quotaPeriodId, wantWon, args.limit, args.dateStart || null, args.dateEnd || null]
+    [args.orgId, args.quotaPeriodId, wantWon, args.limit, args.dateStart || null, args.dateEnd || null, args.repIds || [], useRepFilter]
   );
   return rows || [];
 }
@@ -216,6 +220,16 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
   const currentForYear = periods.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
   const selected = (quotaPeriodId && periods.find((p) => String(p.id) === quotaPeriodId)) || currentForYear || periods[0] || null;
 
+  const scope =
+    ctx.user.role === "ADMIN"
+      ? { allowedRepIds: null as number[] | null }
+      : await getScopedRepDirectory({ orgId: ctx.user.org_id, userId: ctx.user.id, role: "EXEC_MANAGER" }).catch(() => ({
+          repDirectory: [],
+          allowedRepIds: [0] as number[],
+          myRepId: null as number | null,
+        }));
+  const scopeRepIds = ctx.user.role === "ADMIN" ? null : (scope as any).allowedRepIds;
+
   const topWonRaw = selected
     ? await listTopPartnerDeals({
         orgId: ctx.user.org_id,
@@ -224,6 +238,7 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
         limit: 10,
         dateStart: start_date || null,
         dateEnd: end_date || null,
+        repIds: scopeRepIds,
       }).catch(() => [])
     : [];
   const topLostRaw = selected
@@ -234,6 +249,7 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
         limit: 10,
         dateStart: start_date || null,
         dateEnd: end_date || null,
+        repIds: scopeRepIds,
       }).catch(() => [])
     : [];
 
@@ -293,7 +309,7 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
   });
 
   const healthRows = selected
-    ? await getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: [String(selected.id)], repIds: null, dateStart: start_date || null, dateEnd: end_date || null }).catch(() => [])
+    ? await getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: [String(selected.id)], repIds: scopeRepIds, dateStart: start_date || null, dateEnd: end_date || null }).catch(() => [])
     : [];
   const health = (healthRows && healthRows[0]) ? (healthRows[0] as any) : null;
 

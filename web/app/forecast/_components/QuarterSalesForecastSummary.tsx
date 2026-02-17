@@ -282,9 +282,9 @@ export async function QuarterSalesForecastSummary(props: {
           SELECT
             COALESCE(d.rep_id::text, '') AS rep_id,
             COALESCE(
+              NULLIF(btrim(r.display_name), ''),
               NULLIF(btrim(r.rep_name), ''),
               NULLIF(btrim(r.crm_owner_name), ''),
-              NULLIF(btrim(r.display_name), ''),
               NULLIF(btrim(d.rep_name), ''),
               '(Unknown rep)'
             ) AS rep_name,
@@ -389,9 +389,9 @@ export async function QuarterSalesForecastSummary(props: {
           GROUP BY
             COALESCE(d.rep_id::text, ''),
             COALESCE(
+              NULLIF(btrim(r.display_name), ''),
               NULLIF(btrim(r.rep_name), ''),
               NULLIF(btrim(r.crm_owner_name), ''),
-              NULLIF(btrim(r.display_name), ''),
               NULLIF(btrim(d.rep_name), ''),
               '(Unknown rep)'
             )
@@ -637,7 +637,6 @@ export async function QuarterSalesForecastSummary(props: {
                 o.amount,
                 o.close_date::text AS close_date_raw,
                 o.forecast_stage,
-                o.sales_stage,
                 lower(
                   regexp_replace(
                     COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
@@ -708,7 +707,6 @@ export async function QuarterSalesForecastSummary(props: {
             close_date_raw: string | null;
             close_d: string | null;
             forecast_stage: string | null;
-            sales_stage: string | null;
             fs: string;
             match_kind: string;
           }>(
@@ -729,7 +727,6 @@ export async function QuarterSalesForecastSummary(props: {
                 o.amount,
                 o.close_date::text AS close_date_raw,
                 o.forecast_stage,
-                o.sales_stage,
                 lower(
                   regexp_replace(
                     COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),

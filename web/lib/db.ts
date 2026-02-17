@@ -992,6 +992,20 @@ export async function listIngestionStagingErrorsInRange(args: {
 export async function processIngestionBatch(args: { organizationId: number; mappingSetId: string }) {
   const organizationId = zOrganizationId.parse(args.organizationId);
   const mappingSetId = zMappingSetId.parse(args.mappingSetId);
+
+  // Reporting standard:
+  // - Forecast Stage is the canonical stage dimension for all analytics bucketing.
+  // - Treat legacy `sales_stage` / `stage` mappings as aliases and migrate them before processing.
+  await pool.query(
+    `
+    UPDATE field_mappings
+       SET target_field = 'forecast_stage'
+     WHERE mapping_set_id = $1::bigint
+       AND target_field IN ('sales_stage', 'stage')
+    `,
+    [mappingSetId]
+  );
+
   // Always call the public schema function to avoid accidentally hitting a legacy overload
   // in a different schema on the DB search_path.
   const { rows } = await pool.query<{ result: any }>(`SELECT public.process_ingestion_batch($1::int, $2::bigint) AS result`, [
@@ -1019,6 +1033,19 @@ export async function processIngestionBatch(args: { organizationId: number; mapp
 
   const s = SummarySchema.safeParse(parsed);
   if (!s.success) return { ok: true, processed: 0, error: 0, changed: 0 };
+
+  // Backfill: some historical uploads populated `sales_stage` only.
+  // To make analytics deterministic, copy `sales_stage` into `forecast_stage` when missing.
+  await pool.query(
+    `
+    UPDATE opportunities
+       SET forecast_stage = sales_stage
+     WHERE org_id = $1::bigint
+       AND NULLIF(btrim(COALESCE(forecast_stage, '')), '') IS NULL
+       AND NULLIF(btrim(COALESCE(sales_stage, '')), '') IS NOT NULL
+    `,
+    [organizationId]
+  );
 
   return { ok: s.data.ok, processed: s.data.processed, error: s.data.error, changed: s.data.processed };
 }

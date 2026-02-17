@@ -7,6 +7,7 @@ import { pool } from "../../../lib/pool";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ExportToExcelButton } from "../../_components/ExportToExcelButton";
 import { getHealthAveragesByPeriods } from "../../../lib/analyticsHealth";
+import { getScopedRepDirectory } from "../../../lib/repScope";
 
 export const runtime = "nodejs";
 
@@ -664,11 +665,20 @@ export default async function QuarterlyKpisPage({
     return [cur, ...rest];
   })();
 
-  // Scope: Exec/Admin see org; Manager sees direct reports (via reps.manager_rep_id); other non-rep roles treated as org.
+  // Scope: Admin sees org. Exec sees their team. Manager sees direct reports (and self is included via repScope elsewhere in the product).
   let scopeRepIds: number[] | null = null;
   if (ctx.user.role === "MANAGER") {
     const mgrRepId = await managerRepIdForUser({ orgId: ctx.user.org_id, userId: ctx.user.id });
     scopeRepIds = mgrRepId ? await listDirectRepIds({ orgId: ctx.user.org_id, managerRepId: mgrRepId }).catch(() => []) : [];
+    // Include the manager's own rep_id if present (managers often carry deals).
+    if (mgrRepId && Number.isFinite(mgrRepId) && !scopeRepIds.includes(mgrRepId)) scopeRepIds = [mgrRepId, ...scopeRepIds];
+  } else if (ctx.user.role === "EXEC_MANAGER") {
+    const s = await getScopedRepDirectory({ orgId: ctx.user.org_id, userId: ctx.user.id, role: "EXEC_MANAGER" }).catch(() => ({
+      repDirectory: [],
+      allowedRepIds: [0] as number[],
+      myRepId: null as number | null,
+    }));
+    scopeRepIds = s.allowedRepIds;
   } else {
     scopeRepIds = null;
   }

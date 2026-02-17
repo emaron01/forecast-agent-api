@@ -8,6 +8,7 @@ import { getHealthAveragesByPeriods } from "../../../lib/analyticsHealth";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ExportToExcelButton } from "../../_components/ExportToExcelButton";
 import { ExecutiveKpisFiltersClient } from "./ExecutiveKpisFiltersClient";
+import { getScopedRepDirectory } from "../../../lib/repScope";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -542,8 +543,18 @@ export default async function ExecutiveAnalyticsKpisPage({
           .sort((a, b) => new Date(b.period_start).getTime() - new Date(a.period_start).getTime())[0] || null
       : null;
 
-  const managers = await listManagerOptions(ctx.user.org_id).catch(() => []);
-  const reps = await listRepsForOrg(ctx.user.org_id).catch(() => []);
+  const repScope = await getScopedRepDirectory({ orgId: ctx.user.org_id, userId: ctx.user.id, role: ctx.user.role as any }).catch(() => ({
+    repDirectory: [],
+    allowedRepIds: ctx.user.role === "ADMIN" ? (null as number[] | null) : ([0] as number[]),
+    myRepId: null as number | null,
+  }));
+  const allowedSet = repScope.allowedRepIds ? new Set(repScope.allowedRepIds.map((n) => String(n))) : null;
+
+  const managersAll = await listManagerOptions(ctx.user.org_id).catch(() => []);
+  const managers = allowedSet ? managersAll.filter((m) => allowedSet.has(String(m.id))) : managersAll;
+
+  const repsAll = await listRepsForOrg(ctx.user.org_id).catch(() => []);
+  const reps = allowedSet ? repsAll.filter((r) => allowedSet.has(String((r as any).id))) : repsAll;
   const repOptions: RepOption[] = reps
     .filter((r) => r && r.active !== false)
     .map((r) => ({
@@ -569,11 +580,14 @@ export default async function ExecutiveAnalyticsKpisPage({
 
   let scopeRepIds: number[] | null = null;
   if (scope === "manager" && managerRepId && Number.isFinite(managerRepId)) {
-    scopeRepIds = await listDirectRepIds(ctx.user.org_id, managerRepId).catch(() => []);
+    const direct = await listDirectRepIds(ctx.user.org_id, managerRepId).catch(() => []);
+    scopeRepIds = allowedSet ? direct.filter((id) => allowedSet.has(String(id))) : direct;
+    if (allowedSet && !allowedSet.has(String(managerRepId))) scopeRepIds = [0];
   } else if (scope === "rep" && repId && Number.isFinite(repId)) {
-    scopeRepIds = [repId];
+    if (allowedSet && !allowedSet.has(String(repId))) scopeRepIds = [0];
+    else scopeRepIds = [repId];
   } else {
-    scopeRepIds = null; // company
+    scopeRepIds = repScope.allowedRepIds; // ADMIN => company (null), EXEC => team scope
   }
 
   const selectedPeriodId = selectedPeriod ? String(selectedPeriod.id) : "";
@@ -641,7 +655,7 @@ export default async function ExecutiveAnalyticsKpisPage({
       ? `Manager: ${managers.find((m) => String(m.id) === String(managerRepId))?.name || manager_rep_id_raw || "—"}`
       : scope === "rep"
         ? `Rep: ${repOptions.find((r) => String(r.id) === String(repId))?.name || rep_id_raw || "—"}`
-        : "Company";
+        : repScope.allowedRepIds ? "Team" : "Company";
 
   const quotaByRepPeriodMap = new Map<string, number>();
   for (const q of quotaByRepPeriod) {

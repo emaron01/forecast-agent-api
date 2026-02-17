@@ -9,6 +9,7 @@ import { dateOnly } from "../../../lib/dateOnly";
 import { ExportToExcelButton } from "../../_components/ExportToExcelButton";
 import { getHealthAveragesByPeriods } from "../../../lib/analyticsHealth";
 import { AverageHealthScorePanel } from "../../_components/AverageHealthScorePanel";
+import { getScopedRepDirectory } from "../../../lib/repScope";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -66,12 +67,19 @@ export default async function AnalyticsComparisonsPage({
   const quotaPeriodId = quotaPeriodIdRaw || String(current?.id || periods[0]?.id || "");
   const selected = quotaPeriodId ? periods.find((p) => String(p.id) === quotaPeriodId) || null : null;
 
-  const company = selected ? await getCompanyAttainmentForPeriod({ orgId: ctx.user.org_id, quotaPeriodId }).catch(() => null) : null;
-  const reps = selected ? await listRepAttainmentForPeriod({ orgId: ctx.user.org_id, quotaPeriodId, limit: 200 }).catch(() => []) : [];
+  const scope = await getScopedRepDirectory({ orgId: ctx.user.org_id, userId: ctx.user.id, role: ctx.user.role as any }).catch(() => ({
+    repDirectory: [],
+    allowedRepIds: [0] as number[],
+    myRepId: null as number | null,
+  }));
+  const scopeRepIds = scope.allowedRepIds; // MANAGER/EXEC_MANAGER always scoped here
+
+  const company = selected ? await getCompanyAttainmentForPeriod({ orgId: ctx.user.org_id, quotaPeriodId, repIds: scopeRepIds }).catch(() => null) : null;
+  const reps = selected ? await listRepAttainmentForPeriod({ orgId: ctx.user.org_id, quotaPeriodId, repIds: scopeRepIds, limit: 200 }).catch(() => []) : [];
   const deals = selected
-    ? await listStageComparisonsForPeriod({ orgId: ctx.user.org_id, quotaPeriodId, limit: 200, onlyMismatches }).catch(() => [])
+    ? await listStageComparisonsForPeriod({ orgId: ctx.user.org_id, quotaPeriodId, repIds: scopeRepIds, limit: 200, onlyMismatches }).catch(() => [])
     : [];
-  const healthRows = selected ? await getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: [quotaPeriodId], repIds: null }).catch(() => []) : [];
+  const healthRows = selected ? await getHealthAveragesByPeriods({ orgId: ctx.user.org_id, periodIds: [quotaPeriodId], repIds: scopeRepIds }).catch(() => []) : [];
   const health = (healthRows && healthRows[0]) ? (healthRows[0] as any) : null;
 
   return (
@@ -147,7 +155,7 @@ export default async function AnalyticsComparisonsPage({
           <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Quota attainment (company)</h2>
+                <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Quota attainment (scoped)</h2>
                 <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
                   Period: <span className="font-mono text-xs">{dateOnly(company.period_start)}</span> →{" "}
                   <span className="font-mono text-xs">{dateOnly(company.period_end)}</span> | Fiscal year:{" "}

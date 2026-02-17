@@ -43,6 +43,7 @@ export type RepAttainmentRow = {
 export async function listStageComparisonsForPeriod(args: {
   orgId: number;
   quotaPeriodId: string;
+  repIds?: number[] | null;
   limit?: number;
   onlyMismatches?: boolean;
 }): Promise<StageComparisonRow[]> {
@@ -50,6 +51,8 @@ export async function listStageComparisonsForPeriod(args: {
   const quotaPeriodId = zQuotaPeriodId.parse(args.quotaPeriodId);
   const limit = Math.max(1, Math.min(500, Number(args.limit ?? 200) || 200));
   const onlyMismatches = Boolean(args.onlyMismatches ?? false);
+  const repIds = (args.repIds || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0);
+  const useRepFilter = repIds.length > 0;
 
   const { rows } = await pool.query<StageComparisonRow>(
     `
@@ -77,6 +80,7 @@ export async function listStageComparisonsForPeriod(args: {
       FROM opportunities o
       JOIN qp ON TRUE
       WHERE o.org_id = $1
+        AND (NOT $3::boolean OR o.rep_id = ANY($4::bigint[]))
         AND o.close_date IS NOT NULL
         AND o.close_date >= qp.period_start
         AND o.close_date <= qp.period_end
@@ -98,22 +102,28 @@ export async function listStageComparisonsForPeriod(args: {
       ) AS stage_match,
       updated_at
     FROM deals
-    WHERE ($3::bool IS FALSE)
+    WHERE ($5::bool IS FALSE)
        OR (
          lower(btrim(COALESCE(crm_forecast_stage, ''))) <> lower(btrim(COALESCE(ai_forecast_stage, '')))
        )
     ORDER BY updated_at DESC NULLS LAST, opportunity_public_id DESC
-    LIMIT $4
+    LIMIT $6
     `,
-    [orgId, quotaPeriodId, onlyMismatches, limit]
+    [orgId, quotaPeriodId, useRepFilter, repIds, onlyMismatches, limit]
   );
 
   return rows as StageComparisonRow[];
 }
 
-export async function getCompanyAttainmentForPeriod(args: { orgId: number; quotaPeriodId: string }): Promise<CompanyAttainmentRow | null> {
+export async function getCompanyAttainmentForPeriod(args: {
+  orgId: number;
+  quotaPeriodId: string;
+  repIds?: number[] | null;
+}): Promise<CompanyAttainmentRow | null> {
   const orgId = zOrganizationId.parse(args.orgId);
   const quotaPeriodId = zQuotaPeriodId.parse(args.quotaPeriodId);
+  const repIds = (args.repIds || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0);
+  const useRepFilter = repIds.length > 0;
 
   const { rows } = await pool.query<CompanyAttainmentRow>(
     `
@@ -135,6 +145,7 @@ export async function getCompanyAttainmentForPeriod(args: { orgId: number; quota
         FROM opportunities o
         JOIN qp ON TRUE
        WHERE o.org_id = $1
+         AND (NOT $3::boolean OR o.rep_id = ANY($4::bigint[]))
          AND o.close_date IS NOT NULL
          AND o.close_date >= qp.period_start
          AND o.close_date <= qp.period_end
@@ -144,13 +155,17 @@ export async function getCompanyAttainmentForPeriod(args: { orgId: number; quota
         FROM quotas q
        WHERE q.org_id = $1::bigint
          AND q.quota_period_id = $2::bigint
-         AND q.role_level = 0
+         AND (
+           ((NOT $3::boolean) AND q.role_level = 0)
+           OR ($3::boolean AND q.role_level = 3 AND q.rep_id = ANY($4::bigint[]))
+         )
     ),
     annual_actual AS (
       SELECT COALESCE(SUM(o.amount), 0)::float8 AS amt
         FROM opportunities o
         JOIN year_bounds y ON TRUE
        WHERE o.org_id = $1
+         AND (NOT $3::boolean OR o.rep_id = ANY($4::bigint[]))
          AND o.close_date IS NOT NULL
          AND o.close_date >= y.year_start
          AND o.close_date <= y.year_end
@@ -160,7 +175,10 @@ export async function getCompanyAttainmentForPeriod(args: { orgId: number; quota
         FROM quotas q
         JOIN quota_periods p ON p.id = q.quota_period_id
        WHERE q.org_id = $1::bigint
-         AND q.role_level = 0
+         AND (
+           ((NOT $3::boolean) AND q.role_level = 0)
+           OR ($3::boolean AND q.role_level = 3 AND q.rep_id = ANY($4::bigint[]))
+         )
          AND p.org_id = $1::bigint
          AND p.fiscal_year = (SELECT fiscal_year FROM qp)
     )
@@ -179,7 +197,7 @@ export async function getCompanyAttainmentForPeriod(args: { orgId: number; quota
            ELSE (SELECT amt FROM annual_actual) / (SELECT amt FROM annual_company_quota)
       END AS annual_attainment
     `,
-    [orgId, quotaPeriodId]
+    [orgId, quotaPeriodId, useRepFilter, repIds]
   );
 
   return (rows?.[0] as CompanyAttainmentRow | undefined) || null;
@@ -188,11 +206,14 @@ export async function getCompanyAttainmentForPeriod(args: { orgId: number; quota
 export async function listRepAttainmentForPeriod(args: {
   orgId: number;
   quotaPeriodId: string;
+  repIds?: number[] | null;
   limit?: number;
 }): Promise<RepAttainmentRow[]> {
   const orgId = zOrganizationId.parse(args.orgId);
   const quotaPeriodId = zQuotaPeriodId.parse(args.quotaPeriodId);
   const limit = Math.max(1, Math.min(500, Number(args.limit ?? 200) || 200));
+  const repIds = (args.repIds || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0);
+  const useRepFilter = repIds.length > 0;
 
   const { rows } = await pool.query<RepAttainmentRow>(
     `
@@ -211,6 +232,7 @@ export async function listRepAttainmentForPeriod(args: {
       JOIN qp ON TRUE
       WHERE o.org_id = $1
         AND o.rep_id IS NOT NULL
+        AND (NOT $3::boolean OR o.rep_id = ANY($4::bigint[]))
         AND o.close_date IS NOT NULL
         AND o.close_date >= qp.period_start
         AND o.close_date <= qp.period_end
@@ -234,10 +256,11 @@ export async function listRepAttainmentForPeriod(args: {
       AND q.quota_period_id = $2::bigint
       AND q.rep_id IS NOT NULL
       AND q.role_level = 3
+      AND (NOT $3::boolean OR q.rep_id = ANY($4::bigint[]))
     ORDER BY attainment DESC NULLS LAST, quota_amount DESC, rep_id ASC
-    LIMIT $3
+    LIMIT $5
     `,
-    [orgId, quotaPeriodId, limit]
+    [orgId, quotaPeriodId, useRepFilter, repIds, limit]
   );
 
   return rows as RepAttainmentRow[];
