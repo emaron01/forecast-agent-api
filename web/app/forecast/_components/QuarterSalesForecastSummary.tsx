@@ -962,8 +962,8 @@ export async function QuarterSalesForecastSummary(props: {
   const pctVerdictWeighted = quota > 0 ? summary.weighted.verdict.forecast / quota : null;
   const leftVerdictWeighted = quota - summary.weighted.verdict.forecast;
   const gapPctToGoal = pctVerdictWeighted != null && pctCrmWeighted != null ? pctVerdictWeighted - pctCrmWeighted : null;
-  // Per spec: Left To Go gap = CRM Rep-Weighted − Verdict Weighted.
-  const gapLeftToGo = summary.weighted.crm.forecast - summary.weighted.verdict.forecast;
+  // Gap for "Left To Go" is based on the Left To Go values: (CRM Left To Go) − (Verdict Left To Go).
+  const gapLeftToGo = leftCrmWeighted - leftVerdictWeighted;
   const headline =
     role === "REP"
       ? repNameForHeadline
