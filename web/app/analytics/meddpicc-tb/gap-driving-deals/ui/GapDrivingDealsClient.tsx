@@ -130,6 +130,15 @@ function scoreBadgeClass(score: number | null) {
   return "border-[#E74C3C]/60 bg-[#E74C3C]/10 text-[#E74C3C]";
 }
 
+function healthPctClass(pct: number | null) {
+  if (pct == null) return "text-[color:var(--sf-text-secondary)]";
+  const n = Number(pct);
+  if (!Number.isFinite(n)) return "text-[color:var(--sf-text-secondary)]";
+  if (n >= 80) return "text-[#2ECC71]";
+  if (n >= 50) return "text-[#F1C40F]";
+  return "text-[#E74C3C]";
+}
+
 function canonicalTitle(key: string) {
   const row = (MEDDPICC_CANONICAL as any)?.[key] || null;
   return String(row?.titleLine || key).trim() || key;
@@ -465,23 +474,24 @@ export function GapDrivingDealsClient(props: {
                               <div className="mt-2">
                                 <Link
                                   href={`/opportunities/${encodeURIComponent(d.id)}/deal-review`}
-                                  className="inline-flex h-[34px] items-center justify-center rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 text-sm font-medium text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
+                                  className="inline-flex h-[34px] items-center justify-center rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 text-sm font-medium text-[color:var(--sf-accent-primary)] hover:bg-[color:var(--sf-surface-alt)]"
                                 >
-                                  View Deal
+                                  View Full Deal
                                 </Link>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <div className="text-xs text-[color:var(--sf-text-secondary)]">Gap</div>
-                              <div className={`font-mono text-sm font-semibold ${deltaClass(d.weighted.gap)}`}>{fmtMoney(d.weighted.gap)}</div>
-                            </div>
                           </div>
 
-                          <div className="mt-3 grid gap-3 md:grid-cols-3">
+                          <div className="mt-3 grid gap-3 md:grid-cols-4">
                             <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
                               <div className="text-xs text-[color:var(--sf-text-secondary)]">Amount</div>
                               <div className="mt-0.5 font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(d.amount)}</div>
-                              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Health {d.health.health_pct == null ? "—" : `${d.health.health_pct}%`}</div>
+                              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                                Health{" "}
+                                <span className={`font-semibold ${healthPctClass(d.health.health_pct)}`}>
+                                  {d.health.health_pct == null ? "—" : `${d.health.health_pct}%`}
+                                </span>
+                              </div>
                             </div>
                             <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
                               <div className="text-xs text-[color:var(--sf-text-secondary)]">CRM weighted</div>
@@ -493,12 +503,16 @@ export function GapDrivingDealsClient(props: {
                               <div className="mt-0.5 font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(d.weighted.ai_weighted)}</div>
                               <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Modifier × {Number(d.health.health_modifier || 1).toFixed(2)}</div>
                             </div>
+                            <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
+                              <div className="text-xs text-[color:var(--sf-text-secondary)]">Gap</div>
+                              <div className={`mt-0.5 font-mono text-sm font-semibold ${deltaClass(d.weighted.gap)}`}>{fmtMoney(d.weighted.gap)}</div>
+                              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">AI − CRM</div>
+                            </div>
                           </div>
 
                           <div className="mt-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">MEDDPICC+TB</div>
-                              <div className="text-xs text-[color:var(--sf-text-secondary)]">Red 0–1 · Yellow 2 · Green 3</div>
                             </div>
                             <div className="mt-2 flex flex-wrap gap-2">
                               {d.meddpicc_tb.map((c) => {
@@ -522,7 +536,7 @@ export function GapDrivingDealsClient(props: {
                                     ].join(" ")}
                                     title={label}
                                   >
-                                    {label} {Number.isFinite(s) ? `${s}/3` : "—"}
+                                    {label}
                                   </button>
                                 );
                               })}
@@ -538,12 +552,6 @@ export function GapDrivingDealsClient(props: {
                                       </div>
                                       <div className="mt-1 text-sm font-semibold text-[color:var(--sf-accent-primary)]">
                                         {activeCat.score_label || "—"}
-                                      </div>
-                                    </div>
-                                    <div className="text-right">
-                                      <div className="text-xs text-[color:var(--sf-text-secondary)]">Score</div>
-                                      <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">
-                                        {activeCat.score == null ? "—" : `${activeCat.score}/3`}
                                       </div>
                                     </div>
                                   </div>
