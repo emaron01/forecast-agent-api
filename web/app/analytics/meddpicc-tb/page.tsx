@@ -73,6 +73,11 @@ export default async function MeddpiccTbAnalyticsHubPage() {
             title="Verdict (CRM vs AI Forecast)"
             desc="Sales Forecast vs The Verdict + variance and quarter range."
           />
+          <Card
+            href="/analytics/meddpicc-tb/gap-driving-deals"
+            title="Deals Driving the Gap"
+            desc="Deal-level breakdown of which opportunities drive the weighted outlook gap."
+          />
         </section>
       </main>
     </div>
