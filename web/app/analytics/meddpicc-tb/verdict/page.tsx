@@ -8,6 +8,7 @@ import { VerdictFiltersClient } from "./FiltersClient";
 import { getScopedRepDirectory } from "../../../../lib/repScope";
 import { getForecastStageProbabilities } from "../../../../lib/forecastStageProbabilities";
 import { computeSalesVsVerdictForecastSummary } from "../../../../lib/forecastSummary";
+import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
 
 export const runtime = "nodejs";
 
@@ -129,29 +130,11 @@ export default async function VerdictForecastPage({
   const scopedRepIds = Array.isArray(allowedRepIds) ? allowedRepIds : [];
   const useScopedRepIds = allowedRepIds !== null;
 
-  const { rows: savedReports } = await pool.query(
-    `
-    SELECT id::text AS id, report_type, name, description, config, created_at::text AS created_at, updated_at::text AS updated_at
-    FROM analytics_saved_reports
-    WHERE org_id = $1::bigint
-      AND owner_user_id = $2::bigint
-      AND report_type = 'verdict_filters_v1'
-    ORDER BY updated_at DESC, created_at DESC
-    LIMIT 100
-    `,
-    [ctx.user.org_id, ctx.user.id]
-  );
-
-  const saved_report_id = String(sp(searchParams?.saved_report_id) || "").trim();
-
   const todayIso = new Date().toISOString().slice(0, 10);
   const containingToday = periods.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
   const defaultQuotaPeriodId = String(containingToday?.id || periods?.[0]?.id || "").trim();
-  const savedRow = saved_report_id ? (savedReports || []).find((r: any) => String(r.id) === saved_report_id) || null : null;
-  const savedCfg = savedRow?.config as any;
-  const savedQuotaPeriodId = String(savedCfg?.quotaPeriodId || "").trim();
 
-  const qpId = quota_period_id || savedQuotaPeriodId || defaultQuotaPeriodId;
+  const qpId = quota_period_id || defaultQuotaPeriodId;
   const qp = qpId ? periods.find((p) => String(p.id) === qpId) || null : null;
 
   const orgProb = await getForecastStageProbabilities({ orgId: ctx.user.org_id }).catch(() => ({
@@ -694,15 +677,88 @@ export default async function VerdictForecastPage({
               </Link>
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            <ExportToExcelButton
+              fileName={`Verdict - ${qp ? `${qp.period_name} (FY${qp.fiscal_year} Q${qp.fiscal_quarter})` : "Quarter"}`}
+              sheets={[
+                {
+                  name: "Summary (Buckets)",
+                  rows: [
+                    {
+                      commit: summary.crm_totals.commit,
+                      best_case: summary.crm_totals.best_case,
+                      pipeline: summary.crm_totals.pipeline,
+                      total_pipeline: summary.crm_totals.commit + summary.crm_totals.best_case + summary.crm_totals.pipeline,
+                      won: summary.crm_totals.won,
+                      quota: summary.crm_totals.quota,
+                    },
+                  ],
+                },
+                {
+                  name: "Weighted Forecast",
+                  rows: [
+                    {
+                      label: "CRM Forecast (Rep-Weighted)",
+                      commit_closing: summary.weighted.crm.commit_weighted,
+                      best_case_closing: summary.weighted.crm.best_case_weighted,
+                      pipeline_closing: summary.weighted.crm.pipeline_weighted,
+                      weighted_qtr_closing: summary.weighted.crm.forecast,
+                      won: summary.crm_totals.won,
+                      quota: summary.crm_totals.quota,
+                      pct_to_goal: summary.crm_totals.quota > 0 ? summary.weighted.crm.forecast / summary.crm_totals.quota : "",
+                      left_to_go: summary.crm_totals.quota - summary.weighted.crm.forecast,
+                    },
+                    {
+                      label: "Verdict Forecast (AI-Weighted)",
+                      commit_closing: summary.weighted.verdict.commit_weighted,
+                      best_case_closing: summary.weighted.verdict.best_case_weighted,
+                      pipeline_closing: summary.weighted.verdict.pipeline_weighted,
+                      weighted_qtr_closing: summary.weighted.verdict.forecast,
+                      won: summary.crm_totals.won,
+                      quota: summary.crm_totals.quota,
+                      pct_to_goal: summary.crm_totals.quota > 0 ? summary.weighted.verdict.forecast / summary.crm_totals.quota : "",
+                      left_to_go: summary.crm_totals.quota - summary.weighted.verdict.forecast,
+                    },
+                    {
+                      label: "Forecast Gap (Verdict - CRM)",
+                      commit_closing: summary.weighted.verdict.commit_weighted - summary.weighted.crm.commit_weighted,
+                      best_case_closing: summary.weighted.verdict.best_case_weighted - summary.weighted.crm.best_case_weighted,
+                      pipeline_closing: summary.weighted.verdict.pipeline_weighted - summary.weighted.crm.pipeline_weighted,
+                      weighted_qtr_closing: summary.forecast_gap,
+                      won: summary.crm_totals.won,
+                      quota: summary.crm_totals.quota,
+                      pct_to_goal:
+                        summary.crm_totals.quota > 0
+                          ? summary.weighted.verdict.forecast / summary.crm_totals.quota - summary.weighted.crm.forecast / summary.crm_totals.quota
+                          : "",
+                      left_to_go: (summary.crm_totals.quota - summary.weighted.verdict.forecast) - (summary.crm_totals.quota - summary.weighted.crm.forecast),
+                    },
+                  ],
+                },
+                {
+                  name: "People (Total Pipeline)",
+                  rows: (pipelineByRep || []).map((r) => ({
+                    manager: r.manager_name,
+                    rep: r.rep_name,
+                    crm_total_pipeline: r.crm_total_amount,
+                    verdict_total_pipeline: r.verdict_total_amount,
+                    delta_total: r.verdict_total_amount - r.crm_total_amount,
+                    crm_opp_count: r.crm_total_count,
+                    verdict_opp_count: r.verdict_total_count,
+                    delta_opp_count: r.verdict_total_count - r.crm_total_count,
+                  })),
+                },
+              ]}
+              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface)]"
+            />
+          </div>
         </div>
 
         <VerdictFiltersClient
           basePath="/analytics/meddpicc-tb/verdict"
           periodLabel={qp ? `${qp.period_name} (FY${qp.fiscal_year} Q${qp.fiscal_quarter})` : "—"}
           periods={periods}
-          savedReports={(savedReports || []) as any}
           initialQuotaPeriodId={qpId}
-          initialSavedReportId={savedRow?.id ? String(savedRow.id) : ""}
         />
 
         <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
@@ -728,6 +784,9 @@ export default async function VerdictForecastPage({
             const pctVerdictWeighted = quota > 0 ? verdictWeighted / quota : null;
             const leftVerdictWeighted = quota - verdictWeighted;
 
+            const gapPctToGoal = pctVerdictWeighted != null && pctCrmWeighted != null ? pctVerdictWeighted - pctCrmWeighted : null;
+            const gapLeftToGo = leftVerdictWeighted - leftCrmWeighted;
+
             const weightedGap = {
               commit: summary.weighted.verdict.commit_weighted - summary.weighted.crm.commit_weighted,
               best_case: summary.weighted.verdict.best_case_weighted - summary.weighted.crm.best_case_weighted,
@@ -746,7 +805,7 @@ export default async function VerdictForecastPage({
             return (
               <div className="mt-4 grid gap-4">
                 <div>
-                  <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">From CRM Forecast Stage buckets</div>
+                  <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Non-Weighted CRM Forecast</div>
                   <div className="mt-2 overflow-auto rounded-md border border-[color:var(--sf-border)]">
                     <table className="w-full min-w-[980px] text-left text-sm">
                       <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
@@ -757,7 +816,7 @@ export default async function VerdictForecastPage({
                           <th className={thR}>Total Pipeline</th>
                           <th className={thR}>Won</th>
                           <th className={thR}>Quota</th>
-                          <th className={thR}>% To Goal</th>
+                          <th className={thR}>Quarter To Date % To Goal</th>
                           <th className={thR}>Left To Go</th>
                         </tr>
                       </thead>
@@ -778,7 +837,7 @@ export default async function VerdictForecastPage({
                 </div>
 
                 <div>
-                  <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Quarterly Weighted Forecast</div>
+                  <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Weighted CRM Forecast Projections</div>
                   <div className="mt-2 overflow-auto rounded-md border border-[color:var(--sf-border)]">
                     <table className="w-full min-w-[1120px] text-left text-sm">
                       <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
@@ -832,10 +891,10 @@ export default async function VerdictForecastPage({
                           <td className={`${tdNum} ${deltaClass(weightedGap.best_case)}`}>{money(weightedGap.best_case)}</td>
                           <td className={`${tdNum} ${deltaClass(weightedGap.pipeline)}`}>{money(weightedGap.pipeline)}</td>
                           <td className={`${tdNum} ${deltaClass(weightedGap.forecast)}`}>{money(weightedGap.forecast)}</td>
-                          <td className={tdNum}>—</td>
-                          <td className={tdNum}>—</td>
-                          <td className={tdNum}>—</td>
-                          <td className={tdNum}>—</td>
+                          <td className={tdNum}>{money(won)}</td>
+                          <td className={tdNum}>{money(quota)}</td>
+                          <td className={`${tdNum} ${gapPctToGoal == null ? "" : deltaClass(gapPctToGoal)}`}>{pctCell(gapPctToGoal)}</td>
+                          <td className={`${tdNum} ${deltaClass(gapLeftToGo)}`}>{money(gapLeftToGo)}</td>
                         </tr>
                       </tbody>
                     </table>

@@ -150,6 +150,10 @@ async function deleteRuleAction(formData: FormData) {
 }
 
 function overlaps(a: RuleRow, b: RuleRow) {
+  // Overlaps only matter *within the same mapped category*.
+  // Different categories are filtered at usage-time (e.g. Commit vs Best Case vs Pipeline),
+  // so cross-category overlaps are expected and not ambiguous.
+  if (String(a.mapped_category || "").trim() !== String(b.mapped_category || "").trim()) return false;
   const lo = Math.max(Number(a.min_score), Number(b.min_score));
   const hi = Math.min(Number(a.max_score), Number(b.max_score));
   return lo <= hi;
