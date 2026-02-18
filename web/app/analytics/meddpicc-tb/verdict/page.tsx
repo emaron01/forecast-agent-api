@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { requireAuth } from "../../../../lib/auth";
 import { getOrganization } from "../../../../lib/db";
 import { pool } from "../../../../lib/pool";
-import { getCompanyAttainmentForPeriod } from "../../../../lib/quotaComparisons";
 import { UserTopNav } from "../../../_components/UserTopNav";
 import { VerdictFiltersClient } from "./FiltersClient";
 import { getScopedRepDirectory } from "../../../../lib/repScope";
@@ -12,27 +11,6 @@ export const runtime = "nodejs";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
-}
-
-function spAll(v: string | string[] | undefined) {
-  if (Array.isArray(v)) return v;
-  if (typeof v === "string" && v.trim()) return [v];
-  return [] as string[];
-}
-
-function parseIntList(v: Array<string | undefined>) {
-  const out: number[] = [];
-  for (const raw of v || []) {
-    const t = String(raw || "").trim();
-    if (!t) continue;
-    for (const part of t.split(/[,\s]+/g)) {
-      const s = part.trim();
-      if (!s) continue;
-      const n = Number.parseInt(s, 10);
-      if (Number.isFinite(n) && n > 0) out.push(n);
-    }
-  }
-  return Array.from(new Set(out));
 }
 
 function fmtMoney(n: any) {
@@ -163,15 +141,11 @@ export default async function VerdictForecastPage({
     .then((r) => r.rows || [])
     .catch(() => []);
 
-  type RepDirectoryRow = { id: number; name: string; role: string | null; manager_rep_id: number | null };
   const scope = await getScopedRepDirectory({ orgId: ctx.user.org_id, userId: ctx.user.id, role: ctx.user.role as any }).catch(() => null);
-  const repDirectory: RepDirectoryRow[] = (scope?.repDirectory || []).map((r) => ({
-    id: Number(r.id),
-    name: String(r.name || "").trim(),
-    role: r.role == null ? null : String(r.role),
-    manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
-  }));
-  const visibleIds = scope?.allowedRepIds ?? null;
+  // IMPORTANT: enforce scope by default; only explicit `null` means "no filter" (admin).
+  const allowedRepIds = scope?.allowedRepIds; // number[] | null | undefined
+  const scopedRepIds = Array.isArray(allowedRepIds) ? allowedRepIds : [];
+  const useScopedRepIds = allowedRepIds !== null;
 
   const { rows: savedReports } = await pool.query(
     `
@@ -187,8 +161,6 @@ export default async function VerdictForecastPage({
   );
 
   const saved_report_id = String(sp(searchParams?.saved_report_id) || "").trim();
-  const teamIdsQuery = parseIntList([...spAll(searchParams?.team_id), ...spAll(searchParams?.team_ids)]);
-  const repIdsQuery = parseIntList([...spAll(searchParams?.rep_id), ...spAll(searchParams?.rep_ids)]);
 
   const todayIso = new Date().toISOString().slice(0, 10);
   const containingToday = periods.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
@@ -196,20 +168,32 @@ export default async function VerdictForecastPage({
   const savedRow = saved_report_id ? (savedReports || []).find((r: any) => String(r.id) === saved_report_id) || null : null;
   const savedCfg = savedRow?.config as any;
   const savedQuotaPeriodId = String(savedCfg?.quotaPeriodId || "").trim();
-  const savedTeamIds = parseIntList((Array.isArray(savedCfg?.teamIds) ? savedCfg.teamIds : []).map((x: any) => String(x)));
-  const savedRepIds = parseIntList((Array.isArray(savedCfg?.repIds) ? savedCfg.repIds : []).map((x: any) => String(x)));
 
   const qpId = quota_period_id || savedQuotaPeriodId || defaultQuotaPeriodId;
   const qp = qpId ? periods.find((p) => String(p.id) === qpId) || null : null;
 
-  const activeTeamIds = saved_report_id ? savedTeamIds : teamIdsQuery;
-  const activeRepIds = saved_report_id ? savedRepIds : repIdsQuery;
-  const visibleSet = visibleIds ? new Set<number>(visibleIds) : null;
-  const scopedTeamIds = visibleSet ? activeTeamIds.filter((id) => visibleSet.has(id)) : activeTeamIds;
-  const scopedRepIds = visibleSet ? activeRepIds.filter((id) => visibleSet.has(id)) : activeRepIds;
-
-  const company = qpId ? await getCompanyAttainmentForPeriod({ orgId: ctx.user.org_id, quotaPeriodId: qpId }).catch(() => null) : null;
-  const quarterlyQuotaAmount = Number(company?.quarterly_company_quota_amount || 0) || 0;
+  const quarterlyQuotaAmount = qpId
+    ? await pool
+        .query<{ quota_amount: number }>(
+          `
+          SELECT
+            COALESCE(SUM(q.quota_amount), 0)::float8 AS quota_amount
+          FROM quotas q
+          JOIN reps r
+            ON r.organization_id = $1::bigint
+           AND r.id = q.rep_id
+          WHERE q.org_id = $1::bigint
+            AND q.quota_period_id = $2::bigint
+            AND q.role_level = 3
+            AND q.rep_id IS NOT NULL
+            AND r.role = 'REP'
+            AND (NOT $3::boolean OR q.rep_id = ANY($4::bigint[]))
+          `,
+          [ctx.user.org_id, qpId, useScopedRepIds, scopedRepIds]
+        )
+        .then((r) => Number(r.rows?.[0]?.quota_amount || 0) || 0)
+        .catch(() => 0)
+    : 0;
 
   const aggRows: ForecastAggByRoleRow[] = qpId && qp
     ? await pool
@@ -243,25 +227,11 @@ export default async function VerdictForecastPage({
               LEFT JOIN reps r
                 ON r.organization_id = $1
                AND r.id = o.rep_id
-              LEFT JOIN reps m
-                ON m.organization_id = $1
-               AND m.id = r.manager_rep_id
               WHERE o.org_id = $1
                 AND o.close_date IS NOT NULL
                 AND o.close_date >= qp.period_start
                 AND o.close_date <= qp.period_end
-                AND (
-                  (COALESCE(array_length($3::bigint[], 1), 0) = 0 AND COALESCE(array_length($4::bigint[], 1), 0) = 0)
-                  OR (
-                    COALESCE(array_length($3::bigint[], 1), 0) > 0
-                    AND (
-                      o.rep_id = ANY($3::bigint[])
-                      OR r.manager_rep_id = ANY($3::bigint[])
-                      OR m.manager_rep_id = ANY($3::bigint[])
-                    )
-                  )
-                  OR (COALESCE(array_length($4::bigint[], 1), 0) > 0 AND o.rep_id = ANY($4::bigint[]))
-                )
+                AND (NOT $3::boolean OR o.rep_id = ANY($4::bigint[]))
             ),
             classified AS (
               SELECT
@@ -300,7 +270,7 @@ export default async function VerdictForecastPage({
             FROM classified
             GROUP BY GROUPING SETS ((owner_role), ())
             `,
-            [ctx.user.org_id, qpId, scopedTeamIds, scopedRepIds]
+            [ctx.user.org_id, qpId, useScopedRepIds, scopedRepIds]
           )
         .then((r) => r.rows || [])
         .catch(() => [])
@@ -390,25 +360,11 @@ export default async function VerdictForecastPage({
             LEFT JOIN reps m
               ON m.organization_id = $1
              AND m.id = r.manager_rep_id
-            LEFT JOIN reps e
-              ON e.organization_id = $1
-             AND e.id = m.manager_rep_id
             WHERE o.org_id = $1
               AND o.close_date IS NOT NULL
               AND o.close_date >= qp.period_start
               AND o.close_date <= qp.period_end
-              AND (
-                (COALESCE(array_length($3::bigint[], 1), 0) = 0 AND COALESCE(array_length($4::bigint[], 1), 0) = 0)
-                OR (
-                  COALESCE(array_length($3::bigint[], 1), 0) > 0
-                  AND (
-                    o.rep_id = ANY($3::bigint[])
-                    OR r.manager_rep_id = ANY($3::bigint[])
-                    OR m.manager_rep_id = ANY($3::bigint[])
-                  )
-                )
-                OR (COALESCE(array_length($4::bigint[], 1), 0) > 0 AND o.rep_id = ANY($4::bigint[]))
-              )
+              AND (NOT $3::boolean OR o.rep_id = ANY($4::bigint[]))
           ),
           classified AS (
             SELECT
@@ -432,7 +388,7 @@ export default async function VerdictForecastPage({
           GROUP BY COALESCE(manager_rep_id::text, ''), COALESCE(NULLIF(btrim(manager_name_norm), ''), '(Unassigned)'), COALESCE(rep_id::text, ''), COALESCE(NULLIF(btrim(rep_name_norm), ''), '(Unknown rep)')
           ORDER BY manager_name ASC, rep_name ASC
           `,
-          [ctx.user.org_id, qpId, scopedTeamIds, scopedRepIds]
+          [ctx.user.org_id, qpId, useScopedRepIds, scopedRepIds]
         )
         .then((r) => (r.rows || []) as any[])
         .catch(() => [])
@@ -484,11 +440,8 @@ export default async function VerdictForecastPage({
           basePath="/analytics/meddpicc-tb/verdict"
           periodLabel={qp ? `${qp.period_name} (FY${qp.fiscal_year} Q${qp.fiscal_quarter})` : "—"}
           periods={periods}
-          repDirectory={repDirectory as any}
           savedReports={(savedReports || []) as any}
           initialQuotaPeriodId={qpId}
-          initialTeamIds={scopedTeamIds.map(String)}
-          initialRepIds={scopedRepIds.map(String)}
           initialSavedReportId={savedRow?.id ? String(savedRow.id) : ""}
         />
 
@@ -498,7 +451,7 @@ export default async function VerdictForecastPage({
             End of Quarter Verdict uses <span className="font-mono text-xs">mid-range AI Commit</span> + Closed Won.
           </p>
           <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-            <Stat label="Quota" value={fmtMoney(quarterlyQuotaAmount)} subLabel="Company quota (role_level = 0)" />
+            <Stat label="Quota" value={fmtMoney(quarterlyQuotaAmount)} subLabel="Sum of REP quotas (scope-aware)" />
             <Stat label="% to Goal" value={pctToGoal == null ? "—" : fmtPct(pctToGoal)} subLabel="(End of Quarter Verdict ÷ Quota)" />
             <Stat label="Left to Go" value={fmtMoney(leftToGo)} subLabel="Quota − Won" />
             <Stat label="End of Quarter Verdict" value={fmtMoney(endOfQuarterVerdict)} subLabel="Won + mid-range AI Commit" />

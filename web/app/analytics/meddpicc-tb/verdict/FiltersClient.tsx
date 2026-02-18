@@ -11,13 +11,6 @@ type PeriodLite = {
   period_end: string;
 };
 
-type RepDirectoryRow = {
-  id: number;
-  name: string;
-  role: string | null;
-  manager_rep_id: number | null;
-};
-
 type SavedReportRow = {
   id: string;
   report_type: string;
@@ -28,35 +21,23 @@ type SavedReportRow = {
   updated_at?: string;
 };
 
-function normalizeConfig(cfg: any): { quotaPeriodId: string; teamIds: string[]; repIds: string[] } {
+function normalizeConfig(cfg: any): { quotaPeriodId: string } {
   const quotaPeriodId = String(cfg?.quotaPeriodId || "").trim();
-  const teamIds = Array.isArray(cfg?.teamIds) ? cfg.teamIds.map((x: any) => String(x)).filter(Boolean) : [];
-  const repIds = Array.isArray(cfg?.repIds) ? cfg.repIds.map((x: any) => String(x)).filter(Boolean) : [];
-  return { quotaPeriodId, teamIds, repIds };
-}
-
-function dedupeStr(ids: string[]) {
-  return Array.from(new Set((ids || []).map((x) => String(x || "").trim()).filter(Boolean)));
+  return { quotaPeriodId };
 }
 
 export function VerdictFiltersClient(props: {
   basePath: string;
   periodLabel: string;
   periods: PeriodLite[];
-  repDirectory: RepDirectoryRow[];
   savedReports: SavedReportRow[];
   initialQuotaPeriodId: string;
-  initialTeamIds: string[];
-  initialRepIds: string[];
   initialSavedReportId: string;
 }) {
   const periods = props.periods || [];
-  const reps = props.repDirectory || [];
   const saved = props.savedReports || [];
 
   const [quotaPeriodId, setQuotaPeriodId] = useState<string>(() => String(props.initialQuotaPeriodId || ""));
-  const [selectedTeamIds, setSelectedTeamIds] = useState<Set<string>>(() => new Set(dedupeStr(props.initialTeamIds)));
-  const [selectedRepIds, setSelectedRepIds] = useState<Set<string>>(() => new Set(dedupeStr(props.initialRepIds)));
 
   const [reportId, setReportId] = useState<string>(() => String(props.initialSavedReportId || ""));
   const [name, setName] = useState<string>("");
@@ -66,80 +47,17 @@ export function VerdictFiltersClient(props: {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string>("");
 
-  const execOptions = useMemo(() => reps.filter((r) => String(r.role || "").toUpperCase() === "EXEC_MANAGER"), [reps]);
-  const managerOptions = useMemo(() => reps.filter((r) => String(r.role || "").toUpperCase() === "MANAGER"), [reps]);
-  const repOptions = useMemo(() => reps.filter((r) => String(r.role || "").toUpperCase() === "REP"), [reps]);
-
-  const managersByExec = useMemo(() => {
-    const m = new Map<string, RepDirectoryRow[]>();
-    for (const mgr of managerOptions) {
-      const eid = mgr.manager_rep_id == null ? "" : String(mgr.manager_rep_id);
-      const list = m.get(eid) || [];
-      list.push(mgr);
-      m.set(eid, list);
-    }
-    for (const [k, v] of m.entries()) {
-      v.sort((a, b) => a.name.localeCompare(b.name));
-      m.set(k, v);
-    }
-    return m;
-  }, [managerOptions]);
-
-  const repsByManager = useMemo(() => {
-    const m = new Map<string, RepDirectoryRow[]>();
-    for (const rep of repOptions) {
-      const mid = rep.manager_rep_id == null ? "" : String(rep.manager_rep_id);
-      const list = m.get(mid) || [];
-      list.push(rep);
-      m.set(mid, list);
-    }
-    for (const [k, v] of m.entries()) {
-      v.sort((a, b) => a.name.localeCompare(b.name));
-      m.set(k, v);
-    }
-    return m;
-  }, [repOptions]);
-
   const loadedSavedConfig = useMemo(() => {
     const r = savedPickId ? saved.find((x) => String(x.id) === String(savedPickId)) || null : null;
     return r ? normalizeConfig(r.config) : null;
   }, [saved, savedPickId]);
 
   const isDirty = useMemo(() => {
-    if (!loadedSavedConfig) return selectedTeamIds.size > 0 || selectedRepIds.size > 0 || Boolean(quotaPeriodId);
-    const curTeam = dedupeStr(Array.from(selectedTeamIds.values())).sort();
-    const curRep = dedupeStr(Array.from(selectedRepIds.values())).sort();
-    const savedTeam = dedupeStr(loadedSavedConfig.teamIds).sort();
-    const savedRep = dedupeStr(loadedSavedConfig.repIds).sort();
-    const qpMatch = String(loadedSavedConfig.quotaPeriodId || "") === String(quotaPeriodId || "");
-    return !qpMatch || curTeam.join(",") !== savedTeam.join(",") || curRep.join(",") !== savedRep.join(",");
-  }, [loadedSavedConfig, quotaPeriodId, selectedTeamIds, selectedRepIds]);
-
-  function toggleTeam(id: string) {
-    const key = String(id || "").trim();
-    if (!key) return;
-    setSelectedTeamIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
-
-  function toggleRep(id: string) {
-    const key = String(id || "").trim();
-    if (!key) return;
-    setSelectedRepIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
+    if (!loadedSavedConfig) return Boolean(quotaPeriodId);
+    return String(loadedSavedConfig.quotaPeriodId || "") !== String(quotaPeriodId || "");
+  }, [loadedSavedConfig, quotaPeriodId]);
 
   function clearSelection() {
-    setSelectedTeamIds(new Set());
-    setSelectedRepIds(new Set());
     setReportId("");
     setName("");
     setDescription("");
@@ -156,8 +74,6 @@ export function VerdictFiltersClient(props: {
       return `${props.basePath}?${sp.toString()}`;
     }
 
-    for (const id of Array.from(selectedTeamIds.values())) sp.append("team_id", id);
-    for (const id of Array.from(selectedRepIds.values())) sp.append("rep_id", id);
     return sp.toString() ? `${props.basePath}?${sp.toString()}` : props.basePath;
   }
 
@@ -180,10 +96,8 @@ export function VerdictFiltersClient(props: {
         name: name.trim(),
         description: description.trim() ? description.trim() : null,
         config: {
-          version: 1,
+          version: 2,
           quotaPeriodId: quotaPeriodId || "",
-          teamIds: Array.from(selectedTeamIds.values()),
-          repIds: Array.from(selectedRepIds.values()),
         },
       };
       const res = await fetch("/api/analytics/saved-reports", {
@@ -224,8 +138,6 @@ export function VerdictFiltersClient(props: {
   function loadReport(r: SavedReportRow) {
     const cfg = normalizeConfig(r.config);
     setQuotaPeriodId(cfg.quotaPeriodId || quotaPeriodId);
-    setSelectedTeamIds(new Set(dedupeStr(cfg.teamIds)));
-    setSelectedRepIds(new Set(dedupeStr(cfg.repIds)));
     setReportId(String(r.id || ""));
     setName(String(r.name || ""));
     setDescription(String(r.description || ""));
@@ -274,6 +186,21 @@ export function VerdictFiltersClient(props: {
           </select>
           <button
             type="button"
+            onClick={startNewSavedReport}
+            className="h-[40px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface)]"
+          >
+            New saved
+          </button>
+          <button
+            type="button"
+            disabled={!savedPickId || busy}
+            onClick={() => void deleteReport(String(savedPickId))}
+            className="h-[40px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)] disabled:opacity-50"
+          >
+            Delete saved
+          </button>
+          <button
+            type="button"
             onClick={() => setShowReportMeta((v) => !v)}
             className="h-[40px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface)]"
           >
@@ -313,7 +240,7 @@ export function VerdictFiltersClient(props: {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                placeholder="e.g. FY26 Q3 focus team"
+                placeholder="e.g. FY26 Q3"
               />
             </div>
             <div className="grid gap-1">
@@ -332,8 +259,8 @@ export function VerdictFiltersClient(props: {
         <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">{status}</div>
       ) : null}
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-12">
-        <section className="lg:col-span-4">
+      <div className="mt-4 grid gap-4">
+        <section>
           <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
             <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Quarter</div>
             <div className="mt-2 grid gap-1">
@@ -349,107 +276,6 @@ export function VerdictFiltersClient(props: {
                   </option>
                 ))}
               </select>
-            </div>
-          </div>
-        </section>
-
-        <section className="lg:col-span-8">
-          <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Reps</div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={startNewSavedReport}
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs hover:bg-[color:var(--sf-surface)]"
-                >
-                  New saved
-                </button>
-                <button
-                  type="button"
-                  disabled={!savedPickId}
-                  onClick={() => void deleteReport(String(savedPickId))}
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)] disabled:opacity-50"
-                >
-                  Delete saved
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-2 max-h-[520px] overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-              <div className="grid grid-cols-1 gap-2 p-2 sm:grid-cols-2">
-                {(execOptions.length ? execOptions : [{ id: 0, name: "(Unassigned)", role: "EXEC_MANAGER", manager_rep_id: null }]).map((ex) => {
-                  const exId = String(ex.id || "");
-                  const execChecked = selectedTeamIds.has(exId);
-                  const mgrs = managersByExec.get(exId) || [];
-                  return (
-                    <div key={`exec:${exId || "unassigned"}`} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-                      <div className="flex items-center gap-3 border-b border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                        <label className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">
-                          <input
-                            type="checkbox"
-                            checked={execChecked}
-                            onChange={() => toggleTeam(exId)}
-                            disabled={!exId || exId === "0"}
-                          />
-                          <span className="truncate">Executive: {ex.name}</span>
-                        </label>
-                      </div>
-
-                      <div className="grid gap-2 p-2">
-                        {(mgrs.length ? mgrs : [{ id: 0, name: "(Unassigned)", role: "MANAGER", manager_rep_id: Number(ex.id) || null }]).map((m) => {
-                          const mid = String(m.id || "");
-                          const mgrChecked = selectedTeamIds.has(mid);
-                          const repsForMgr = repsByManager.get(mid) || [];
-                          return (
-                            <div
-                              key={`mgr:${exId}:${mid || "unassigned"}`}
-                              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]"
-                            >
-                              <div className="flex items-center gap-3 border-b border-[color:var(--sf-border)] px-3 py-2">
-                                <label className="flex min-w-0 items-center gap-2 text-sm font-medium text-[color:var(--sf-text-primary)]">
-                                  <input
-                                    type="checkbox"
-                                    checked={mgrChecked}
-                                    onChange={() => toggleTeam(mid)}
-                                    disabled={!mid || mid === "0"}
-                                  />
-                                  <span className="truncate">Manager: {m.name}</span>
-                                </label>
-                              </div>
-
-                              <div className="divide-y divide-[color:var(--sf-border)]">
-                                {(repsForMgr.length ? repsForMgr : [{ id: 0, name: "(No reps)", role: "REP", manager_rep_id: Number(m.id) || null }]).map((r) => {
-                                  const rid = String(r.id || "");
-                                  const repChecked = selectedRepIds.has(rid);
-                                  return (
-                                    <div key={`rep:${exId}:${mid}:${rid || "0"}`} className="flex items-center gap-3 px-3 py-2">
-                                      <label className="flex min-w-0 items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
-                                        <input
-                                          type="checkbox"
-                                          checked={repChecked}
-                                          onChange={() => toggleRep(rid)}
-                                          disabled={!rid || rid === "0"}
-                                        />
-                                        <span className="truncate">{r.name}</span>
-                                      </label>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {!reps.length ? <div className="px-3 py-6 text-center text-sm text-[color:var(--sf-text-disabled)]">No reps found.</div> : null}
-              </div>
-            </div>
-            <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
-              Tip: check an Executive or Manager to include their whole team; optionally pick individual reps too.
             </div>
           </div>
         </section>
