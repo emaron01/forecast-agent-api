@@ -951,8 +951,6 @@ export async function QuarterSalesForecastSummary(props: {
   });
 
   const quota = summary.crm_totals.quota;
-  const pctWonToGoal = quota > 0 ? summary.crm_totals.won / quota : null;
-  const leftWonToGo = quota - summary.crm_totals.won;
   const crmWeightedPipelineClosing =
     summary.weighted.crm.commit_weighted + summary.weighted.crm.best_case_weighted + summary.weighted.crm.pipeline_weighted;
   const verdictWeightedPipelineClosing =
@@ -965,7 +963,7 @@ export async function QuarterSalesForecastSummary(props: {
   const leftVerdictWeighted = quota - summary.weighted.verdict.forecast;
   const gapPctToGoal = pctVerdictWeighted != null && pctCrmWeighted != null ? pctVerdictWeighted - pctCrmWeighted : null;
   // Per spec: Left To Go gap = CRM Rep-Weighted − Verdict Weighted.
-  const gapLeftToGo = summary.weighted.crm.forecast - summary.weighted.verdict.forecast;
+  const gapLeftToGo = -summary.forecast_gap;
   const headline =
     role === "REP"
       ? repNameForHeadline
@@ -1016,14 +1014,10 @@ export async function QuarterSalesForecastSummary(props: {
               <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
                 <tr>
                   <th className="px-3 py-2 text-left">CRM Actuals</th>
-                  <th className="px-3 py-2 text-right">Commit Closing</th>
-                  <th className="px-3 py-2 text-right">Best Case Closing</th>
-                  <th className="px-3 py-2 text-right">Pipeline Closing</th>
+                  <th className="px-3 py-2 text-right">Commit</th>
+                  <th className="px-3 py-2 text-right">Best Case</th>
+                  <th className="px-3 py-2 text-right">Pipeline</th>
                   <th className="px-3 py-2 text-right">Total Pipeline</th>
-                  <th className="px-3 py-2 text-right">Current Closed Won</th>
-                  <th className="px-3 py-2 text-right">Quota</th>
-                  <th className="px-3 py-2 text-right">% To Goal</th>
-                  <th className="px-3 py-2 text-right">Left To Go</th>
                 </tr>
               </thead>
               <tbody className="text-[color:var(--sf-text-primary)]">
@@ -1033,10 +1027,6 @@ export async function QuarterSalesForecastSummary(props: {
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(bestCaseAmt)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(pipelineAmt)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(totalAmt)}</td>
-                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(wonAmt)}</td>
-                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(quota)}</td>
-                  <td className="px-3 py-2 text-right font-mono">{fmtPct(pctWonToGoal)}</td>
-                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(leftWonToGo)}</td>
                 </tr>
               </tbody>
             </table>
@@ -1050,12 +1040,9 @@ export async function QuarterSalesForecastSummary(props: {
                   <th className="px-3 py-2 text-right">Commit Closing</th>
                   <th className="px-3 py-2 text-right">Best Case Closing</th>
                   <th className="px-3 py-2 text-right">Pipeline Closing</th>
-                  <th className="px-3 py-2 text-right">Weighted Pipeline Closing</th>
+                  <th className="px-3 py-2 text-right">Total Pipeline Closing</th>
                   <th className="px-3 py-2 text-right">Current Closed Won</th>
-                  <th className="px-3 py-2 text-right">
-                    <div>Projected Closed Won</div>
-                    <div className="text-[10px] font-normal text-[color:var(--sf-text-secondary)]">Qtr End Revenue</div>
-                  </th>
+                  <th className="px-3 py-2 text-right">Projected Closed Won</th>
                   <th className="px-3 py-2 text-right">Quota</th>
                   <th className="px-3 py-2 text-right">Projected % To Goal</th>
                   <th className="px-3 py-2 text-right">Left To Go</th>
