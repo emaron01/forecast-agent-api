@@ -90,29 +90,6 @@ function rangeLabel(a: number, b: number) {
   return `${fmtMoney(lo)} → ${fmtMoney(hi)}`;
 }
 
-function Box(props: { label: string; amount: number; count: number; subLabel?: string }) {
-  return (
-    <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3">
-      <div className="text-xs text-[color:var(--sf-text-secondary)]">{props.label}</div>
-      <div className="mt-1 font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(props.amount)}</div>
-      <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-        # Opps: <span className="font-mono">{fmtNum(props.count)}</span>
-        {props.subLabel ? <span className="ml-2">{props.subLabel}</span> : null}
-      </div>
-    </div>
-  );
-}
-
-function Stat(props: { label: string; value: string; subLabel?: string }) {
-  return (
-    <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3">
-      <div className="text-xs text-[color:var(--sf-text-secondary)]">{props.label}</div>
-      <div className="mt-1 font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{props.value}</div>
-      {props.subLabel ? <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">{props.subLabel}</div> : null}
-    </div>
-  );
-}
-
 export default async function VerdictForecastPage({
   searchParams,
 }: {
@@ -469,8 +446,6 @@ export default async function VerdictForecastPage({
     total_count: aggAll.verdict_total_count - aggAll.crm_total_count,
   };
 
-  const boxGrid = "mt-4 grid gap-3 text-sm sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5";
-
   const leftToGo = quarterlyQuotaAmount - (Number(aggAll.won_amount || 0) || 0);
   const summary = computeSalesVsVerdictForecastSummary({
     crm_totals: {
@@ -711,117 +686,171 @@ export default async function VerdictForecastPage({
         />
 
         <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Sales Forecast vs The Verdict (weighted)</h2>
+          <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Sales Forecast vs AI Forecast (summary)</h2>
           <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-            CRM Forecast represents what the team believes. The Verdict represents what the evidence supports. The Gap highlights where coaching and
-            inspection are needed.
+            Rep‑Weighted uses org forecast probabilities. AI‑Weighted uses health score rules (modifier/suppression) applied to CRM buckets, then the same org
+            probabilities. No blending.
           </p>
-          <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
-            <Stat label="Quota" value={fmtMoney(quarterlyQuotaAmount)} subLabel="Sum of REP quotas (scope-aware)" />
-            <Stat label="CRM Forecast (Rep‑Weighted)" value={fmtMoney(summary.weighted.crm.forecast)} subLabel="Won + weighted CRM buckets" />
-            <Stat label="Verdict Forecast (AI‑Weighted)" value={fmtMoney(summary.weighted.verdict.forecast)} subLabel="Won + weighted (adjusted) buckets" />
-            <Stat label="Forecast Gap (CRM − Verdict)" value={fmtMoney(summary.forecast_gap)} subLabel="Rep‑Weighted − AI‑Weighted" />
-            <Stat label="% to Goal (Verdict)" value={pctToGoal == null ? "—" : fmtPct(pctToGoal)} subLabel="(Verdict Forecast ÷ Quota)" />
-          </div>
-        </section>
 
-        <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">CRM totals by bucket (rep forecast)</h2>
-          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Raw totals (unweighted), grouped by CRM Forecast Stage.</p>
-          <div className={boxGrid}>
-            <Box label="Commit" amount={aggAll.crm_commit_amount} count={aggAll.crm_commit_count} />
-            <Box label="Best Case" amount={aggAll.crm_best_amount} count={aggAll.crm_best_count} />
-            <Box label="Pipeline" amount={aggAll.crm_pipeline_amount} count={aggAll.crm_pipeline_count} />
-            <Box label="Total Pipeline" amount={aggAll.crm_total_amount} count={aggAll.crm_total_count} />
-            <Box label="Closed Won" amount={aggAll.won_amount} count={aggAll.won_count} />
-          </div>
-        </section>
+          {(() => {
+            const quota = Number(quarterlyQuotaAmount || 0) || 0;
+            const won = Number(summary.crm_totals.won || 0) || 0;
 
-        <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Verdict totals by bucket (AI adjusted)</h2>
-          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-            Adjusted totals (unweighted) computed as CRM bucket amount × health modifier (amount-weighted).
-          </p>
-          <div className={boxGrid}>
-            <Box
-              label={`Commit (× ${aggAll.commit_modifier.toFixed(2)})`}
-              amount={summary.verdict_totals.commit}
-              count={aggAll.crm_commit_count}
-            />
-            <Box
-              label={`Best Case (× ${aggAll.best_case_modifier.toFixed(2)})`}
-              amount={summary.verdict_totals.best_case}
-              count={aggAll.crm_best_count}
-            />
-            <Box
-              label={`Pipeline (× ${aggAll.pipeline_modifier.toFixed(2)})`}
-              amount={summary.verdict_totals.pipeline}
-              count={aggAll.crm_pipeline_count}
-            />
-            <Box label="Total Pipeline" amount={aggAll.verdict_total_amount} count={aggAll.verdict_total_count} />
-            <Box label="Closed Won" amount={aggAll.won_amount} count={aggAll.won_count} subLabel="(same)" />
-          </div>
+            const pctWon = quota > 0 ? won / quota : null;
+            const leftWon = quota - won;
+
+            const crmWeighted = summary.weighted.crm.forecast;
+            const verdictWeighted = summary.weighted.verdict.forecast;
+
+            const pctCrmWeighted = quota > 0 ? crmWeighted / quota : null;
+            const leftCrmWeighted = quota - crmWeighted;
+
+            const pctVerdictWeighted = quota > 0 ? verdictWeighted / quota : null;
+            const leftVerdictWeighted = quota - verdictWeighted;
+
+            const totalsGap = {
+              commit: summary.crm_totals.commit - summary.verdict_totals.commit,
+              best_case: summary.crm_totals.best_case - summary.verdict_totals.best_case,
+              pipeline: summary.crm_totals.pipeline - summary.verdict_totals.pipeline,
+              total_pipeline:
+                (summary.crm_totals.commit + summary.crm_totals.best_case + summary.crm_totals.pipeline) -
+                (summary.verdict_totals.commit + summary.verdict_totals.best_case + summary.verdict_totals.pipeline),
+            };
+
+            const weightedGap = {
+              commit: summary.weighted.crm.commit_weighted - summary.weighted.verdict.commit_weighted,
+              best_case: summary.weighted.crm.best_case_weighted - summary.weighted.verdict.best_case_weighted,
+              pipeline: summary.weighted.crm.pipeline_weighted - summary.weighted.verdict.pipeline_weighted,
+              forecast: summary.forecast_gap,
+            };
+
+            const td = "px-3 py-2 align-top";
+            const tdNum = `${td} text-right font-mono text-xs`;
+            const th = "px-3 py-2 text-left text-xs font-semibold text-[color:var(--sf-text-secondary)]";
+            const thR = `${th} text-right`;
+
+            const pctCell = (v: number | null) => (v == null ? "—" : fmtPct(v));
+            const money = (v: any) => fmtMoney(v);
+
+            return (
+              <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
+                <table className="w-full min-w-[1180px] text-left text-sm">
+                  <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
+                    <tr>
+                      <th className={th} rowSpan={2}>
+                        Row
+                      </th>
+                      <th className={th} colSpan={4}>
+                        CRM Totals
+                      </th>
+                      <th className={th} colSpan={4}>
+                        Quarterly Weighted Forecast
+                      </th>
+                      <th className={th} colSpan={4}>
+                        Targets
+                      </th>
+                    </tr>
+                    <tr>
+                      <th className={thR}>Commit</th>
+                      <th className={thR}>Best Case</th>
+                      <th className={thR}>Pipeline</th>
+                      <th className={thR}>Total Pipeline</th>
+                      <th className={thR}>Commit Closing</th>
+                      <th className={thR}>Best Case Closing</th>
+                      <th className={thR}>Pipeline Closing</th>
+                      <th className={thR}>Weighted Qtr Closing</th>
+                      <th className={thR}>Won</th>
+                      <th className={thR}>Quota</th>
+                      <th className={thR}>% To Goal</th>
+                      <th className={thR}>Left To Go</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-[color:var(--sf-text-primary)]">
+                    <tr className="border-t border-[color:var(--sf-border)]">
+                      <td className={td}>
+                        <div className="font-medium">CRM Totals</div>
+                        <div className="text-xs text-[color:var(--sf-text-secondary)]">From CRM Forecast Stage buckets</div>
+                      </td>
+                      <td className={tdNum}>{money(summary.crm_totals.commit)}</td>
+                      <td className={tdNum}>{money(summary.crm_totals.best_case)}</td>
+                      <td className={tdNum}>{money(summary.crm_totals.pipeline)}</td>
+                      <td className={tdNum}>{money(summary.crm_totals.commit + summary.crm_totals.best_case + summary.crm_totals.pipeline)}</td>
+                      <td className={tdNum}>—</td>
+                      <td className={tdNum}>—</td>
+                      <td className={tdNum}>—</td>
+                      <td className={tdNum}>—</td>
+                      <td className={tdNum}>{money(won)}</td>
+                      <td className={tdNum}>{money(quota)}</td>
+                      <td className={tdNum}>{pctCell(pctWon)}</td>
+                      <td className={tdNum}>{money(leftWon)}</td>
+                    </tr>
+
+                    <tr className="border-t border-[color:var(--sf-border)]">
+                      <td className={td}>
+                        <div className="font-medium">CRM Forecast (Rep‑Weighted)</div>
+                        <div className="text-xs text-[color:var(--sf-text-secondary)]">Bucket × org %</div>
+                      </td>
+                      <td className={tdNum}>—</td>
+                      <td className={tdNum}>—</td>
+                      <td className={tdNum}>—</td>
+                      <td className={tdNum}>—</td>
+                      <td className={tdNum}>{money(summary.weighted.crm.commit_weighted)}</td>
+                      <td className={tdNum}>{money(summary.weighted.crm.best_case_weighted)}</td>
+                      <td className={tdNum}>{money(summary.weighted.crm.pipeline_weighted)}</td>
+                      <td className={tdNum}>{money(crmWeighted)}</td>
+                      <td className={tdNum}>{money(won)}</td>
+                      <td className={tdNum}>{money(quota)}</td>
+                      <td className={tdNum}>{pctCell(pctCrmWeighted)}</td>
+                      <td className={tdNum}>{money(leftCrmWeighted)}</td>
+                    </tr>
+
+                    <tr className="border-t border-[color:var(--sf-border)]">
+                      <td className={td}>
+                        <div className="font-medium">Verdict Forecast (AI‑Weighted)</div>
+                        <div className="text-xs text-[color:var(--sf-text-secondary)]">Bucket × AI modifier × org %</div>
+                      </td>
+                      <td className={tdNum}>{money(summary.verdict_totals.commit)}</td>
+                      <td className={tdNum}>{money(summary.verdict_totals.best_case)}</td>
+                      <td className={tdNum}>{money(summary.verdict_totals.pipeline)}</td>
+                      <td className={tdNum}>{money(summary.verdict_totals.commit + summary.verdict_totals.best_case + summary.verdict_totals.pipeline)}</td>
+                      <td className={tdNum}>{money(summary.weighted.verdict.commit_weighted)}</td>
+                      <td className={tdNum}>{money(summary.weighted.verdict.best_case_weighted)}</td>
+                      <td className={tdNum}>{money(summary.weighted.verdict.pipeline_weighted)}</td>
+                      <td className={tdNum}>{money(verdictWeighted)}</td>
+                      <td className={tdNum}>{money(won)}</td>
+                      <td className={tdNum}>{money(quota)}</td>
+                      <td className={tdNum}>{pctCell(pctVerdictWeighted)}</td>
+                      <td className={tdNum}>{money(leftVerdictWeighted)}</td>
+                    </tr>
+
+                    <tr className="border-t border-[color:var(--sf-border)]">
+                      <td className={td}>
+                        <div className="font-medium">Forecast Gap (CRM − Verdict)</div>
+                        <div className="text-xs text-[color:var(--sf-text-secondary)]">Difference drives coaching</div>
+                      </td>
+                      <td className={tdNum}>{money(totalsGap.commit)}</td>
+                      <td className={tdNum}>{money(totalsGap.best_case)}</td>
+                      <td className={tdNum}>{money(totalsGap.pipeline)}</td>
+                      <td className={tdNum}>{money(totalsGap.total_pipeline)}</td>
+                      <td className={tdNum}>{money(weightedGap.commit)}</td>
+                      <td className={tdNum}>{money(weightedGap.best_case)}</td>
+                      <td className={tdNum}>{money(weightedGap.pipeline)}</td>
+                      <td className={tdNum}>{money(weightedGap.forecast)}</td>
+                      <td className={tdNum}>—</td>
+                      <td className={tdNum}>—</td>
+                      <td className={tdNum}>—</td>
+                      <td className={tdNum}>—</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+
           <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">
-            Org probabilities: Commit {fmtPct(orgProb.commit)} · Best Case {fmtPct(orgProb.best_case)} · Pipeline {fmtPct(orgProb.pipeline)}
-          </div>
-        </section>
-
-        <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Forecast Gap (CRM − Verdict)</h2>
-          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-            Weighted gap: <span className="font-mono">{fmtMoney(summary.forecast_gap)}</span>
-          </p>
-
-          <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-            <table className="w-full min-w-[900px] text-left text-sm">
-              <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
-                <tr>
-                  <th className="px-4 py-3">Bucket</th>
-                  <th className="px-4 py-3 text-right">Δ Amount</th>
-                  <th className="px-4 py-3 text-right">Δ # Opps</th>
-                  <th className="px-4 py-3">Range</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  {
-                    k: "Commit",
-                    da: diff.commit_amount,
-                    dc: diff.commit_count,
-                    range: rangeLabel(aggAll.crm_commit_amount, summary.verdict_totals.commit),
-                  },
-                  {
-                    k: "Best Case",
-                    da: diff.best_amount,
-                    dc: diff.best_count,
-                    range: rangeLabel(aggAll.crm_best_amount, summary.verdict_totals.best_case),
-                  },
-                  {
-                    k: "Pipeline",
-                    da: diff.pipeline_amount,
-                    dc: diff.pipeline_count,
-                    range: rangeLabel(aggAll.crm_pipeline_amount, summary.verdict_totals.pipeline),
-                  },
-                  {
-                    k: "Total Pipeline",
-                    da: diff.total_amount,
-                    dc: diff.total_count,
-                    range: rangeLabel(aggAll.crm_total_amount, aggAll.verdict_total_amount),
-                  },
-                ].map((r) => (
-                  <tr key={r.k} className="border-t border-[color:var(--sf-border)]">
-                    <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{r.k}</td>
-                    <td className={`px-4 py-3 text-right font-mono text-xs ${deltaClass(r.da)}`}>
-                      {r.da === 0 ? "—" : `${r.da > 0 ? "+" : ""}${fmtMoney(Math.abs(r.da)).replace("$", "$")}`}
-                    </td>
-                    <td className={`px-4 py-3 text-right font-mono text-xs ${deltaClass(r.dc)}`}>
-                      {r.dc === 0 ? "—" : `${r.dc > 0 ? "+" : ""}${fmtNum(Math.abs(r.dc))}`}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-[color:var(--sf-text-secondary)]">{r.range}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            Org forecast probabilities: Commit {fmtPct(orgProb.commit)} · Best Case {fmtPct(orgProb.best_case)} · Pipeline {fmtPct(orgProb.pipeline)} ·
+            Health modifiers (amount‑weighted): Commit × {aggAll.commit_modifier.toFixed(2)} · Best Case × {aggAll.best_case_modifier.toFixed(2)} · Pipeline ×{" "}
+            {aggAll.pipeline_modifier.toFixed(2)}
           </div>
         </section>
 
