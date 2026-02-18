@@ -7,6 +7,7 @@ import { dateOnly } from "../../../../lib/dateOnly";
 
 type Deal = Record<string, any> & {
   id: string;
+  rep_id?: string | null;
   rep_name?: string | null;
   account_name?: string | null;
   opportunity_name?: string | null;
@@ -17,6 +18,8 @@ type Deal = Record<string, any> & {
   ai_verdict?: string | null;
   ai_forecast?: string | null;
   updated_at?: string | null;
+  risk_summary?: string | null;
+  next_steps?: string | null;
 
   pain_tip?: string | null;
   metrics_tip?: string | null;
@@ -56,6 +59,34 @@ function safeDate(d: any) {
 function isClosedDeal(d: Deal) {
   // Analytics/reporting standard: forecast_stage drives all “closed” detection.
   return closedOutcomeFromStage((d as any)?.forecast_stage) || null;
+}
+
+function healthPctFrom30(score: any) {
+  const n = Number(score);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const pct = Math.round((n / 30) * 100);
+  return Math.max(0, Math.min(100, pct));
+}
+
+function healthColorClass(pct: number | null) {
+  if (pct == null) return "text-[color:var(--sf-text-disabled)]";
+  if (pct >= 80) return "text-[#2ECC71]";
+  if (pct >= 50) return "text-[#F1C40F]";
+  return "text-[#E74C3C]";
+}
+
+function normForecastStage(stage: any) {
+  const raw = String(stage || "").toLowerCase();
+  const norm = raw.replace(/[^a-zA-Z]+/g, " ").trim();
+  return ` ${norm} `;
+}
+
+function isAtRiskDeal(d: Deal) {
+  const fs = normForecastStage((d as any)?.forecast_stage);
+  const commitOrBest = fs.includes(" commit ") || fs.includes(" best ");
+  if (!commitOrBest) return false;
+  const hs = Number((d as any)?.health_score);
+  return Number.isFinite(hs) && hs > 0 && hs < 24;
 }
 
 type TipField = { key: keyof Deal; label: string; scoreKey: keyof Deal };
@@ -108,6 +139,7 @@ export function MeddpiccTipsPopulatedClient(props: {
   const [quotaPeriodId, setQuotaPeriodId] = useState<string>(props.defaultQuotaPeriodId || "");
   const [includeClosed, setIncludeClosed] = useState(false);
   const [onlyWithTips, setOnlyWithTips] = useState(true);
+  const [atRiskOnly, setAtRiskOnly] = useState(false);
 
   const [sortKey, setSortKey] = useState<SortKey>("tips_count");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -131,7 +163,8 @@ export function MeddpiccTipsPopulatedClient(props: {
       const params = new URLSearchParams();
       if (repFilter.trim()) params.set("rep_name", repFilter.trim());
       if (quotaPeriodId) params.set("quota_period_id", quotaPeriodId);
-      params.set("limit", "500");
+      if (atRiskOnly) params.set("at_risk", "1");
+      params.set("limit", atRiskOnly ? "2000" : "500");
       const res = await fetch(`/api/forecast/deals?${params.toString()}`, { cache: "no-store" });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || `API error (${res.status})`);
@@ -153,7 +186,7 @@ export function MeddpiccTipsPopulatedClient(props: {
   useEffect(() => {
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repFilter, quotaPeriodId]);
+  }, [repFilter, quotaPeriodId, atRiskOnly]);
 
   const enriched = useMemo(() => {
     return (deals || []).map((d) => {
@@ -165,7 +198,8 @@ export function MeddpiccTipsPopulatedClient(props: {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const base = includeClosed ? enriched : enriched.filter((x) => !isClosedDeal(x.deal));
-    const withTips = onlyWithTips ? base.filter((x) => x.tipsCount > 0) : base;
+    const riskFiltered = atRiskOnly ? base.filter((x) => isAtRiskDeal(x.deal)) : base;
+    const withTips = onlyWithTips ? riskFiltered.filter((x) => x.tipsCount > 0) : riskFiltered;
     if (!q) return withTips;
     return withTips.filter((x) => {
       const d = x.deal;
@@ -176,6 +210,8 @@ export function MeddpiccTipsPopulatedClient(props: {
         d.forecast_stage,
         d.ai_verdict,
         d.ai_forecast,
+        d.risk_summary,
+        d.next_steps,
         x.tipsList,
       ]
         .filter(Boolean)
@@ -183,7 +219,7 @@ export function MeddpiccTipsPopulatedClient(props: {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [enriched, includeClosed, onlyWithTips, search]);
+  }, [atRiskOnly, enriched, includeClosed, onlyWithTips, search]);
 
   const sorted = useMemo(() => {
     const dir = sortDir === "asc" ? 1 : -1;
@@ -297,7 +333,7 @@ export function MeddpiccTipsPopulatedClient(props: {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Account, opportunity, category…"
+              placeholder="Account, opportunity, category, risk…"
               className="mt-1 w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
             />
           </div>
@@ -338,6 +374,10 @@ export function MeddpiccTipsPopulatedClient(props: {
                 <input type="checkbox" checked={onlyWithTips} onChange={(e) => setOnlyWithTips(e.target.checked)} />
                 Only with tips
               </label>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={atRiskOnly} onChange={(e) => setAtRiskOnly(e.target.checked)} />
+                At-risk (Commit/Best + red/yellow health)
+              </label>
             </div>
           </div>
         </div>
@@ -345,11 +385,13 @@ export function MeddpiccTipsPopulatedClient(props: {
         {error ? <div className="mt-3 rounded-md border border-[#E74C3C]/40 bg-[#E74C3C]/10 p-3 text-sm text-[#E74C3C]">{error}</div> : null}
 
         <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-          <table className="w-full min-w-[1250px] text-left text-sm">
+          <table className="w-full min-w-[1450px] text-left text-sm">
             <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
               <tr>
                 <th className="px-4 py-3">{thBtn("Account Name", "account")}</th>
+                <th className="px-4 py-3">Sales Rep</th>
                 <th className="px-4 py-3 text-right">{thBtn("Revenue", "amount", "right")}</th>
+                <th className="px-4 py-3 text-right">Avg Health Score</th>
                 <th className="px-4 py-3">{thBtn("Close Date", "close_date")}</th>
                 <th className="px-4 py-3">{thBtn("Forecast Stage", "forecast_stage")}</th>
                 <th className="px-4 py-3">{thBtn("AI Stage", "ai_stage")}</th>
@@ -360,15 +402,55 @@ export function MeddpiccTipsPopulatedClient(props: {
             <tbody>
               {sorted.map((x) => {
                 const d = x.deal;
+                const risk = String((d as any)?.risk_summary || "").trim();
+                const next = String((d as any)?.next_steps || "").trim();
+                const hp = healthPctFrom30((d as any)?.health_score);
                 return (
                   <tr key={String(d.id)} className="border-t border-[color:var(--sf-border)] align-top">
                     <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">
-                      <div className="min-w-[220px]">
+                      <div className="min-w-[300px]">
                         <div className="truncate">{d.account_name || "—"}</div>
                         <div className="mt-0.5 truncate text-xs text-[color:var(--sf-text-disabled)]">{d.opportunity_name || ""}</div>
+                        {d.id ? (
+                          <Link
+                            href={`/opportunities/${encodeURIComponent(String(d.id))}/deal-review`}
+                            className="mt-2 inline-flex items-center justify-center rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs font-medium text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
+                            title="Open full deal review"
+                          >
+                            View full deal card
+                          </Link>
+                        ) : null}
+                        {risk || next ? (
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                            <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-2">
+                              <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                                Risk summary
+                              </div>
+                              <div className="mt-1 whitespace-pre-wrap text-xs font-normal text-[color:var(--sf-text-primary)]">{risk || "—"}</div>
+                            </div>
+                            <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-2">
+                              <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                                Next steps
+                              </div>
+                              <div className="mt-1 whitespace-pre-wrap text-xs font-normal text-[color:var(--sf-text-primary)]">{next || "—"}</div>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     </td>
+                    <td className="px-4 py-3 text-xs text-[color:var(--sf-text-primary)]">
+                      <div className="min-w-[160px] truncate">{d.rep_name || "—"}</div>
+                    </td>
                     <td className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(d.amount)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">
+                      {hp == null ? (
+                        <span className="text-[color:var(--sf-text-disabled)]">—</span>
+                      ) : (
+                        <span className={healthColorClass(hp)}>
+                          {Number(d.health_score || 0) || 0} <span className="text-[color:var(--sf-text-secondary)]">({hp}%)</span>
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 font-mono text-xs text-[color:var(--sf-text-primary)]">{safeDate(d.close_date)}</td>
                     <td className="px-4 py-3 text-[color:var(--sf-text-primary)]">{d.forecast_stage || "—"}</td>
                     <td className="px-4 py-3 text-[color:var(--sf-text-primary)]">{d.ai_verdict || "—"}</td>
@@ -383,7 +465,15 @@ export function MeddpiccTipsPopulatedClient(props: {
                                 <div key={`${String(d.id)}:${String(t.key)}`} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-2">
                                   <div className="flex items-start justify-between gap-2">
                                     <div className="min-w-0">
-                                      <div className="truncate text-xs font-semibold text-[color:var(--sf-text-primary)]">{t.label}</div>
+                                      <div className="flex min-w-0 items-center gap-2">
+                                        <div className="truncate text-xs font-semibold text-[color:var(--sf-text-primary)]">{t.label}</div>
+                                        <span
+                                          className={`shrink-0 rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold ${scoreColorClass(t.score)}`}
+                                          title="Tip health score"
+                                        >
+                                          {t.score == null ? "—" : String(t.score)}
+                                        </span>
+                                      </div>
                                     </div>
                                     <button
                                       type="button"
@@ -411,7 +501,7 @@ export function MeddpiccTipsPopulatedClient(props: {
               })}
               {!busy && !sorted.length ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm text-[color:var(--sf-text-disabled)]">
+                  <td colSpan={9} className="px-4 py-8 text-center text-sm text-[color:var(--sf-text-disabled)]">
                     No deals found.
                   </td>
                 </tr>

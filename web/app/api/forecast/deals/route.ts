@@ -39,13 +39,15 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const requestedRepName = String(url.searchParams.get("rep_name") || "").trim();
+    const atRiskRaw = String(url.searchParams.get("at_risk") || "").trim().toLowerCase();
+    const atRisk = atRiskRaw === "1" || atRiskRaw === "true" || atRiskRaw === "yes" || atRiskRaw === "on";
     const quotaPeriodId = z
       .string()
       .regex(/^\d+$/)
       .optional()
       .catch(undefined)
       .parse(String(url.searchParams.get("quota_period_id") || "").trim() || undefined);
-    const limit = z.coerce.number().int().min(1).max(500).catch(200).parse(url.searchParams.get("limit"));
+    const limit = z.coerce.number().int().min(1).max(2000).catch(200).parse(url.searchParams.get("limit"));
 
     const roleRaw = String(auth.user.role || "").trim();
     const scopedRole =
@@ -120,6 +122,22 @@ export async function GET(req: Request) {
     if (requestedLike) {
       params.push(`%${requestedLike}%`);
       where.push(`btrim(COALESCE(o.rep_name, '')) ILIKE $${++p}`);
+    }
+
+    // At-risk filter: Commit/Best Case (CRM forecast stage) with red/yellow avg health score.
+    // Health colors: >= 80% (>= 24/30) is green. We want < 24 (red/yellow).
+    if (atRisk) {
+      where.push(`o.health_score IS NOT NULL`);
+      where.push(`o.health_score > 0`);
+      where.push(`o.health_score < 24`);
+      where.push(
+        `
+        (
+          (' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% commit %'
+          OR (' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% best %'
+        )
+        `.trim()
+      );
     }
 
     // Quota period filter.
