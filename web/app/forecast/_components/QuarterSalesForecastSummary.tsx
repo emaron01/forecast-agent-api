@@ -1018,6 +1018,11 @@ export async function QuarterSalesForecastSummary(props: {
                   <th className="px-3 py-2 text-right">Best Case</th>
                   <th className="px-3 py-2 text-right">Pipeline</th>
                   <th className="px-3 py-2 text-right">Total Pipeline</th>
+                  <th className="px-3 py-2 text-right">Current Closed Won</th>
+                  <th className="px-3 py-2 text-right">&nbsp;</th>
+                  <th className="px-3 py-2 text-right">Quota</th>
+                  <th className="px-3 py-2 text-right">% To Goal</th>
+                  <th className="px-3 py-2 text-right">Left To Go</th>
                 </tr>
               </thead>
               <tbody className="text-[color:var(--sf-text-primary)]">
@@ -1027,6 +1032,11 @@ export async function QuarterSalesForecastSummary(props: {
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(bestCaseAmt)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(pipelineAmt)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(totalAmt)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.crm_totals.won)}</td>
+                  <td className="px-3 py-2 text-right font-mono">&nbsp;</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(quota)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtPct(quota > 0 ? summary.crm_totals.won / quota : null)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(quota - summary.crm_totals.won)}</td>
                 </tr>
               </tbody>
             </table>
