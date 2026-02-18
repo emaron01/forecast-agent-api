@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { MEDDPICC_CANONICAL } from "../../../../../lib/meddpiccCanonical";
 
 type PeriodLite = {
   id: string;
@@ -46,15 +48,24 @@ type DealOut = {
     ai_weighted: number;
     gap: number;
   };
+  meddpicc_tb: Array<{
+    key:
+      | "pain"
+      | "metrics"
+      | "champion"
+      | "criteria"
+      | "competition"
+      | "timing"
+      | "budget"
+      | "economic_buyer"
+      | "process"
+      | "paper";
+    score: number | null;
+    score_label: string;
+    tip: string | null;
+    evidence: string | null;
+  }>;
   signals: {
-    scores: {
-      pain: number | null;
-      metrics: number | null;
-      champion: number | null;
-      economic_buyer: number | null;
-      paper: number | null;
-      process: number | null;
-    };
     risk_summary: string | null;
     next_steps: string | null;
   };
@@ -108,6 +119,42 @@ function deltaClass(n: number) {
   return n > 0 ? "text-[#2ECC71]" : "text-[#E74C3C]";
 }
 
+function scoreBadgeClass(score: number | null) {
+  const s = Number(score == null ? 0 : score);
+  // Spec:
+  // - Red: 0-1
+  // - Yellow: 2
+  // - Green: 3
+  if (s >= 3) return "border-[#2ECC71]/50 bg-[#2ECC71]/10 text-[#2ECC71]";
+  if (s >= 2) return "border-[#F1C40F]/60 bg-[#F1C40F]/10 text-[#F1C40F]";
+  return "border-[#E74C3C]/60 bg-[#E74C3C]/10 text-[#E74C3C]";
+}
+
+function canonicalTitle(key: string) {
+  const row = (MEDDPICC_CANONICAL as any)?.[key] || null;
+  return String(row?.titleLine || key).trim() || key;
+}
+
+function canonicalMeaning(key: string) {
+  const row = (MEDDPICC_CANONICAL as any)?.[key] || null;
+  return String(row?.meaningLine || "").trim();
+}
+
+function chipLabel(key: string) {
+  const k = String(key || "").trim();
+  if (k === "economic_buyer") return "Economic Buyer";
+  if (k === "paper") return "Paper Process";
+  if (k === "process") return "Decision Process";
+  if (k === "champion") return "Champion";
+  if (k === "criteria") return "Decision Criteria";
+  if (k === "competition") return "Competition";
+  if (k === "timing") return "Timeline";
+  if (k === "budget") return "Budget";
+  if (k === "metrics") return "Metrics";
+  if (k === "pain") return "Pain";
+  return canonicalTitle(k);
+}
+
 function buildHref(basePath: string, params: URLSearchParams) {
   const qs = params.toString();
   return qs ? `${basePath}?${qs}` : basePath;
@@ -136,6 +183,7 @@ export function GapDrivingDealsClient(props: {
 
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, string>>({});
 
   const currentSearch = typeof window !== "undefined" ? window.location.search : "";
   const qs = useMemo(() => {
@@ -193,8 +241,8 @@ export function GapDrivingDealsClient(props: {
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Deals Driving the Gap</div>
-            <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">
+            <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">Deals Driving the Gap</div>
+            <div className="mt-1 text-base font-semibold text-[color:var(--sf-text-primary)]">
               CRM Outlook {fmtMoney(headerTotals.crm_outlook_weighted)} · AI Outlook {fmtMoney(headerTotals.ai_outlook_weighted)} ·{" "}
               <span className={deltaClass(headerTotals.gap)}>Gap {fmtMoney(headerTotals.gap)}</span>
             </div>
@@ -385,8 +433,8 @@ export function GapDrivingDealsClient(props: {
               <section key={k} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{g.label}</div>
-                    <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">
+                    <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">{g.label}</div>
+                    <div className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
                       CRM {fmtMoney(totals.crm_weighted)} · AI {fmtMoney(totals.ai_weighted)} ·{" "}
                       <span className={deltaClass(totals.gap)}>Gap {fmtMoney(totals.gap)}</span> · {deals.length} deal(s)
                     </div>
@@ -401,15 +449,26 @@ export function GapDrivingDealsClient(props: {
                   <div className="mt-4 grid gap-3">
                     {deals.map((d) => {
                       const title = [d.deal_name.account_name, d.deal_name.opportunity_name].filter(Boolean).join(" — ") || "(Untitled deal)";
-                      const scores = d.signals.scores;
+                      const activeKey = String(expanded[d.id] || "").trim();
+                      const activeCat = d.meddpicc_tb.find((c) => c.key === (activeKey as any)) || null;
+                      const activeTitle = activeCat ? canonicalTitle(activeCat.key) : "";
+                      const activeMeaning = activeCat ? canonicalMeaning(activeCat.key) : "";
                       return (
                         <div key={d.id} className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
-                              <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{title}</div>
-                              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                              <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">{title}</div>
+                              <div className="mt-1 text-base text-[color:var(--sf-text-secondary)]">
                                 Close {d.close_date || "—"} · Stage {d.crm_stage.label}
                                 {d.health.suppression ? " · Suppressed" : ""}
+                              </div>
+                              <div className="mt-2">
+                                <Link
+                                  href={`/opportunities/${encodeURIComponent(d.id)}/deal-review`}
+                                  className="inline-flex h-[34px] items-center justify-center rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 text-sm font-medium text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
+                                >
+                                  View Deal
+                                </Link>
                               </div>
                             </div>
                             <div className="text-right">
@@ -436,16 +495,83 @@ export function GapDrivingDealsClient(props: {
                             </div>
                           </div>
 
-                          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[color:var(--sf-text-secondary)]">
-                            <span className="rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1">
-                              EB: {scores.economic_buyer ?? "—"}
-                            </span>
-                            <span className="rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1">
-                              Paper: {scores.paper ?? "—"}
-                            </span>
-                            <span className="rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1">
-                              Champ: {scores.champion ?? "—"}
-                            </span>
+                          <div className="mt-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">MEDDPICC+TB</div>
+                              <div className="text-xs text-[color:var(--sf-text-secondary)]">Red 0–1 · Yellow 2 · Green 3</div>
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {d.meddpicc_tb.map((c) => {
+                                const s = Number(c.score == null ? 0 : c.score);
+                                const active = activeKey === c.key;
+                                const label = chipLabel(c.key);
+                                return (
+                                  <button
+                                    key={c.key}
+                                    type="button"
+                                    onClick={() =>
+                                      setExpanded((prev) => ({
+                                        ...prev,
+                                        [d.id]: active ? "" : c.key,
+                                      }))
+                                    }
+                                    className={[
+                                      "rounded-full border px-3 py-1 text-xs font-semibold",
+                                      scoreBadgeClass(Number.isFinite(s) ? s : 0),
+                                      active ? "ring-2 ring-[color:var(--sf-accent-primary)]/30" : "",
+                                    ].join(" ")}
+                                    title={label}
+                                  >
+                                    {label} {Number.isFinite(s) ? `${s}/3` : "—"}
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {activeCat ? (
+                              <div className="mt-3 overflow-hidden rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                                <div className="p-3">
+                                  <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                      <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">
+                                        {activeTitle} {activeMeaning ? <span className="font-normal text-[color:var(--sf-text-secondary)]">— {activeMeaning}</span> : null}
+                                      </div>
+                                      <div className="mt-1 text-sm font-semibold text-[color:var(--sf-accent-primary)]">
+                                        {activeCat.score_label || "—"}
+                                      </div>
+                                    </div>
+                                    <div className="text-right">
+                                      <div className="text-xs text-[color:var(--sf-text-secondary)]">Score</div>
+                                      <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">
+                                        {activeCat.score == null ? "—" : `${activeCat.score}/3`}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-3 grid gap-2 md:grid-cols-2">
+                                    <div className="rounded-md border border-[#F1C40F]/40 bg-[#F1C40F]/10 p-3 text-sm text-[color:var(--sf-text-primary)]">
+                                      <div className="text-xs font-semibold text-[#F1C40F]">Tip</div>
+                                      <div className="mt-1">{activeCat.tip || "—"}</div>
+                                    </div>
+                                    <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)]">
+                                      <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Evidence</div>
+                                      <div className="mt-1">{activeCat.evidence || "—"}</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : null}
+
+                            <div className="mt-3 grid gap-2 md:grid-cols-2">
+                              <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
+                                <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Risk Summary</div>
+                                <div className="mt-1 text-sm text-[color:var(--sf-text-primary)]">{d.signals.risk_summary || "—"}</div>
+                              </div>
+                              <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
+                                <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Next Steps</div>
+                                <div className="mt-1 text-sm text-[color:var(--sf-text-primary)]">{d.signals.next_steps || "—"}</div>
+                              </div>
+                            </div>
                           </div>
 
                           {d.risk_flags.length ? (

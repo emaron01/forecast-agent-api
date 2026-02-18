@@ -145,6 +145,16 @@ type DealRow = {
   competition_score: number | null;
   timing_score: number | null;
   budget_score: number | null;
+  pain_summary: string | null;
+  metrics_summary: string | null;
+  champion_summary: string | null;
+  eb_summary: string | null;
+  paper_summary: string | null;
+  process_summary: string | null;
+  criteria_summary: string | null;
+  competition_summary: string | null;
+  timing_summary: string | null;
+  budget_summary: string | null;
   pain_tip: string | null;
   metrics_tip: string | null;
   champion_tip: string | null;
@@ -249,6 +259,51 @@ function uniqueNonEmpty(lines: Array<string | null | undefined>) {
     out.push(s);
   }
   return out;
+}
+
+type MeddpiccCategoryKey =
+  | "pain"
+  | "metrics"
+  | "champion"
+  | "economic_buyer"
+  | "criteria"
+  | "process"
+  | "paper"
+  | "competition"
+  | "timing"
+  | "budget";
+
+type MeddpiccCategoryRow = {
+  key: MeddpiccCategoryKey;
+  score: number | null;
+  score_label: string;
+  tip: string | null;
+  evidence: string | null;
+};
+
+function cleanText(v: any) {
+  const s = String(v ?? "").trim();
+  return s ? s : null;
+}
+
+function buildMeddpiccCategories(deal: DealRow, labels: ScoreLabelMap): MeddpiccCategoryRow[] {
+  const scoreLabel = (key: MeddpiccCategoryKey, score: number | null) => {
+    const lbl = labelForScore(labels, key as any, score);
+    return lbl || "";
+  };
+
+  return [
+    { key: "pain", score: deal.pain_score, score_label: scoreLabel("pain", deal.pain_score), tip: cleanText(deal.pain_tip), evidence: cleanText(deal.pain_summary) },
+    { key: "metrics", score: deal.metrics_score, score_label: scoreLabel("metrics", deal.metrics_score), tip: cleanText(deal.metrics_tip), evidence: cleanText(deal.metrics_summary) },
+    { key: "champion", score: deal.champion_score, score_label: scoreLabel("champion", deal.champion_score), tip: cleanText(deal.champion_tip), evidence: cleanText(deal.champion_summary) },
+    { key: "criteria", score: deal.criteria_score, score_label: scoreLabel("criteria", deal.criteria_score), tip: cleanText(deal.criteria_tip), evidence: cleanText(deal.criteria_summary) },
+    { key: "competition", score: deal.competition_score, score_label: scoreLabel("competition", deal.competition_score), tip: cleanText(deal.competition_tip), evidence: cleanText(deal.competition_summary) },
+    { key: "timing", score: deal.timing_score, score_label: scoreLabel("timing", deal.timing_score), tip: cleanText(deal.timing_tip), evidence: cleanText(deal.timing_summary) },
+    { key: "budget", score: deal.budget_score, score_label: scoreLabel("budget", deal.budget_score), tip: cleanText(deal.budget_tip), evidence: cleanText(deal.budget_summary) },
+    { key: "economic_buyer", score: deal.eb_score, score_label: scoreLabel("economic_buyer", deal.eb_score), tip: cleanText(deal.eb_tip), evidence: cleanText(deal.eb_summary) },
+    { key: "process", score: deal.process_score, score_label: scoreLabel("process", deal.process_score), tip: cleanText(deal.process_tip), evidence: cleanText(deal.process_summary) },
+    { key: "paper", score: deal.paper_score, score_label: scoreLabel("paper", deal.paper_score), tip: cleanText(deal.paper_tip), evidence: cleanText(deal.paper_summary) },
+  ];
 }
 
 export async function GET(req: Request) {
@@ -404,6 +459,8 @@ export async function GET(req: Request) {
           o.next_steps,
           o.pain_score, o.metrics_score, o.champion_score, o.eb_score, o.paper_score, o.process_score,
           o.criteria_score, o.competition_score, o.timing_score, o.budget_score,
+          o.pain_summary, o.metrics_summary, o.champion_summary, o.eb_summary, o.paper_summary, o.process_summary,
+          o.criteria_summary, o.competition_summary, o.timing_summary, o.budget_summary,
           o.pain_tip, o.metrics_tip, o.champion_tip, o.eb_tip, o.paper_tip, o.process_tip,
           o.criteria_tip, o.competition_tip, o.timing_tip, o.budget_tip,
           lower(
@@ -512,6 +569,8 @@ export async function GET(req: Request) {
         next_steps,
         pain_score, metrics_score, champion_score, eb_score, paper_score, process_score,
         criteria_score, competition_score, timing_score, budget_score,
+        pain_summary, metrics_summary, champion_summary, eb_summary, paper_summary, process_summary,
+        criteria_summary, competition_summary, timing_summary, budget_summary,
         pain_tip, metrics_tip, champion_tip, eb_tip, paper_tip, process_tip,
         criteria_tip, competition_tip, timing_tip, budget_tip
       FROM modded
@@ -561,6 +620,8 @@ export async function GET(req: Request) {
             o.next_steps,
             o.pain_score, o.metrics_score, o.champion_score, o.eb_score, o.paper_score, o.process_score,
             o.criteria_score, o.competition_score, o.timing_score, o.budget_score,
+            o.pain_summary, o.metrics_summary, o.champion_summary, o.eb_summary, o.paper_summary, o.process_summary,
+            o.criteria_summary, o.competition_summary, o.timing_summary, o.budget_summary,
             o.pain_tip, o.metrics_tip, o.champion_tip, o.eb_tip, o.paper_tip, o.process_tip,
             o.criteria_tip, o.competition_tip, o.timing_tip, o.budget_tip,
             lower(
@@ -639,6 +700,8 @@ export async function GET(req: Request) {
           next_steps,
           pain_score, metrics_score, champion_score, eb_score, paper_score, process_score,
           criteria_score, competition_score, timing_score, budget_score,
+          pain_summary, metrics_summary, champion_summary, eb_summary, paper_summary, process_summary,
+          criteria_summary, competition_summary, timing_summary, budget_summary,
           pain_tip, metrics_tip, champion_tip, eb_tip, paper_tip, process_tip,
           criteria_tip, competition_tip, timing_tip, budget_tip
         FROM open_only
@@ -697,15 +760,8 @@ export async function GET(req: Request) {
         ai_weighted: number;
         gap: number;
       };
+      meddpicc_tb: MeddpiccCategoryRow[];
       signals: {
-        scores: {
-          pain: number | null;
-          metrics: number | null;
-          champion: number | null;
-          economic_buyer: number | null;
-          paper: number | null;
-          process: number | null;
-        };
         risk_summary: string | null;
         next_steps: string | null;
       };
@@ -722,6 +778,7 @@ export async function GET(req: Request) {
 
       const riskFlags = extractRiskFlags(d, labels);
       const coaching = uniqueNonEmpty(riskFlags.map((r) => r.tip));
+      const categories = buildMeddpiccCategories(d, labels);
 
       return {
         id: String(d.id),
@@ -754,15 +811,8 @@ export async function GET(req: Request) {
           ai_weighted: aiWeighted,
           gap,
         },
+        meddpicc_tb: categories,
         signals: {
-          scores: {
-            pain: d.pain_score == null ? null : scoreAsInt(d.pain_score),
-            metrics: d.metrics_score == null ? null : scoreAsInt(d.metrics_score),
-            champion: d.champion_score == null ? null : scoreAsInt(d.champion_score),
-            economic_buyer: d.eb_score == null ? null : scoreAsInt(d.eb_score),
-            paper: d.paper_score == null ? null : scoreAsInt(d.paper_score),
-            process: d.process_score == null ? null : scoreAsInt(d.process_score),
-          },
           risk_summary: d.risk_summary,
           next_steps: d.next_steps,
         },
