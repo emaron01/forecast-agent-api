@@ -136,6 +136,12 @@ export default async function OrganizationsPage({
                         Edit
                       </Link>
                       <Link
+                        href={`/admin/organizations/health-score-rules?org=${encodeURIComponent(String(o.public_id))}`}
+                        className="rounded-md border border-[color:var(--sf-border)] px-2 py-1 text-xs hover:bg-[color:var(--sf-surface-alt)]"
+                      >
+                        Health rules
+                      </Link>
+                      <Link
                         href={`/admin/organizations?modal=delete&id=${encodeURIComponent(String(o.public_id))}`}
                         className="rounded-md border border-[#E74C3C] px-2 py-1 text-xs text-[#E74C3C] hover:bg-[color:var(--sf-surface-alt)]"
                       >

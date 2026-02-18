@@ -7,6 +7,13 @@ import { requireOrgContext } from "../../../../lib/auth";
 import { listReps, syncRepsFromUsers } from "../../../../lib/db";
 import { RepQuotaSetFormClient } from "./RepQuotaSetFormClient";
 
+function repLabel(r: any) {
+  const dn = String(r?.display_name || "").trim();
+  if (dn) return dn;
+  const rn = String(r?.rep_name || "").trim();
+  return rn || "(Unnamed)";
+}
+
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
 }
@@ -110,7 +117,7 @@ export default async function QuotasPage({
   const annualTargetAny = (q1 as any)?.annual_target ?? (q2 as any)?.annual_target ?? (q3 as any)?.annual_target ?? (q4 as any)?.annual_target ?? null;
   const annualTargetNum = annualTargetAny != null && Number.isFinite(Number(annualTargetAny)) ? Number(annualTargetAny) : null;
 
-  const selectedRepName = rep_id ? reps.find((r) => String(r.id) === String(rep_id))?.rep_name || "" : "";
+  const selectedRepName = rep_id ? repLabel(reps.find((r) => String(r.id) === String(rep_id))) : "";
 
   return (
     <main>
@@ -165,7 +172,7 @@ export default async function QuotasPage({
               <option value="">(select)</option>
               {reps.map((r) => (
                 <option key={r.id} value={String(r.id)}>
-                  {r.rep_name} ({r.id})
+                  {repLabel(r)} ({r.id})
                 </option>
               ))}
             </select>
@@ -266,7 +273,7 @@ export default async function QuotasPage({
           <RepQuotaSetFormClient
             action={upsertRepQuotaSetAction}
             mode="new"
-            reps={reps.map((r) => ({ id: String(r.id), name: String(r.rep_name || "") }))}
+            reps={reps.map((r) => ({ id: String(r.id), name: repLabel(r) }))}
             fiscalYears={fiscalYears}
             defaultRepId={rep_id}
             defaultFiscalYear={fiscal_year}
@@ -282,7 +289,7 @@ export default async function QuotasPage({
           <RepQuotaSetFormClient
             action={upsertRepQuotaSetAction}
             mode="edit"
-            reps={reps.map((r) => ({ id: String(r.id), name: String(r.rep_name || "") }))}
+            reps={reps.map((r) => ({ id: String(r.id), name: repLabel(r) }))}
             fiscalYears={fiscalYears}
             defaultRepId={rep_id}
             defaultFiscalYear={fiscal_year}

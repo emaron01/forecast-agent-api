@@ -29,6 +29,7 @@ export default async function AdminAnalyticsHome() {
       <section className="mt-6 grid gap-4 md:grid-cols-2">
         <Card href="/admin/analytics/quota-periods" title="Fiscal calendar" desc="Manage quota periods (quota_periods)." />
         <Card href="/admin/analytics/quotas" title="Quota assignments" desc="Assign quotas to reps, managers, VPs, and CRO." />
+        <Card href="/admin/analytics/forecast-probabilities" title="Forecast probabilities" desc="Set close probabilities by forecast category (Commit/Best/Pipeline)." />
         {hasFullAnalyticsAccess ? (
           <>
             <Card href="/admin/analytics/quota-rollups" title="Quota roll-ups" desc="View quota roll-ups by level." />
