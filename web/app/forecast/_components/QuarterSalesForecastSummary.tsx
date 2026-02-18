@@ -953,6 +953,12 @@ export async function QuarterSalesForecastSummary(props: {
   const quota = summary.crm_totals.quota;
   const pctWonToGoal = quota > 0 ? summary.crm_totals.won / quota : null;
   const leftWonToGo = quota - summary.crm_totals.won;
+  const crmWeightedPipelineClosing =
+    summary.weighted.crm.commit_weighted + summary.weighted.crm.best_case_weighted + summary.weighted.crm.pipeline_weighted;
+  const verdictWeightedPipelineClosing =
+    summary.weighted.verdict.commit_weighted + summary.weighted.verdict.best_case_weighted + summary.weighted.verdict.pipeline_weighted;
+  const crmProjectedClosedWon = summary.crm_totals.won + crmWeightedPipelineClosing;
+  const verdictProjectedClosedWon = summary.crm_totals.won + verdictWeightedPipelineClosing;
   const pctCrmWeighted = quota > 0 ? summary.weighted.crm.forecast / quota : null;
   const leftCrmWeighted = quota - summary.weighted.crm.forecast;
   const pctVerdictWeighted = quota > 0 ? summary.weighted.verdict.forecast / quota : null;
@@ -1010,11 +1016,11 @@ export async function QuarterSalesForecastSummary(props: {
               <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
                 <tr>
                   <th className="px-3 py-2 text-left">CRM Actuals</th>
-                  <th className="px-3 py-2 text-right">Commit</th>
-                  <th className="px-3 py-2 text-right">Best Case</th>
-                  <th className="px-3 py-2 text-right">Pipeline</th>
+                  <th className="px-3 py-2 text-right">Commit Closing</th>
+                  <th className="px-3 py-2 text-right">Best Case Closing</th>
+                  <th className="px-3 py-2 text-right">Pipeline Closing</th>
                   <th className="px-3 py-2 text-right">Total Pipeline</th>
-                  <th className="px-3 py-2 text-right">Closed Won</th>
+                  <th className="px-3 py-2 text-right">Current Closed Won</th>
                   <th className="px-3 py-2 text-right">Quota</th>
                   <th className="px-3 py-2 text-right">% To Goal</th>
                   <th className="px-3 py-2 text-right">Left To Go</th>
@@ -1041,13 +1047,17 @@ export async function QuarterSalesForecastSummary(props: {
               <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
                 <tr>
                   <th className="px-3 py-2 text-left">Weighted CRM Quarter Projections</th>
-                  <th className="px-3 py-2 text-right">Commit</th>
-                  <th className="px-3 py-2 text-right">Best Case</th>
-                  <th className="px-3 py-2 text-right">Pipeline</th>
+                  <th className="px-3 py-2 text-right">Commit Closing</th>
+                  <th className="px-3 py-2 text-right">Best Case Closing</th>
+                  <th className="px-3 py-2 text-right">Pipeline Closing</th>
                   <th className="px-3 py-2 text-right">Weighted Pipeline Closing</th>
-                  <th className="px-3 py-2 text-right">Won</th>
+                  <th className="px-3 py-2 text-right">Current Closed Won</th>
+                  <th className="px-3 py-2 text-right">
+                    <div>Projected Closed Won</div>
+                    <div className="text-[10px] font-normal text-[color:var(--sf-text-secondary)]">Qtr End Revenue</div>
+                  </th>
                   <th className="px-3 py-2 text-right">Quota</th>
-                  <th className="px-3 py-2 text-right">% To Goal</th>
+                  <th className="px-3 py-2 text-right">Projected % To Goal</th>
                   <th className="px-3 py-2 text-right">Left To Go</th>
                 </tr>
               </thead>
@@ -1057,8 +1067,9 @@ export async function QuarterSalesForecastSummary(props: {
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.crm.commit_weighted)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.crm.best_case_weighted)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.crm.pipeline_weighted)}</td>
-                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.crm.forecast)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(crmWeightedPipelineClosing)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.crm_totals.won)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(crmProjectedClosedWon)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(quota)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtPct(pctCrmWeighted)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(leftCrmWeighted)}</td>
@@ -1068,8 +1079,9 @@ export async function QuarterSalesForecastSummary(props: {
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.verdict.commit_weighted)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.verdict.best_case_weighted)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.verdict.pipeline_weighted)}</td>
-                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.verdict.forecast)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(verdictWeightedPipelineClosing)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.crm_totals.won)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(verdictProjectedClosedWon)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(quota)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtPct(pctVerdictWeighted)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(leftVerdictWeighted)}</td>
@@ -1097,8 +1109,13 @@ export async function QuarterSalesForecastSummary(props: {
                   >
                     {fmtMoney(summary.weighted.verdict.pipeline_weighted - summary.weighted.crm.pipeline_weighted)}
                   </td>
-                  <td className={`px-3 py-2 text-right font-mono ${deltaTextClass(summary.forecast_gap)}`}>{fmtMoney(summary.forecast_gap)}</td>
+                  <td
+                    className={`px-3 py-2 text-right font-mono ${deltaTextClass(verdictWeightedPipelineClosing - crmWeightedPipelineClosing)}`}
+                  >
+                    {fmtMoney(verdictWeightedPipelineClosing - crmWeightedPipelineClosing)}
+                  </td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.crm_totals.won)}</td>
+                  <td className={`px-3 py-2 text-right font-mono ${deltaTextClass(summary.forecast_gap)}`}>{fmtMoney(summary.forecast_gap)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(quota)}</td>
                   <td className={`px-3 py-2 text-right font-mono ${deltaTextClass(gapPctToGoal)}`}>{fmtPct(gapPctToGoal)}</td>
                   <td className={`px-3 py-2 text-right font-mono ${deltaTextClass(gapLeftToGo)}`}>{fmtMoney(gapLeftToGo)}</td>
@@ -1108,10 +1125,8 @@ export async function QuarterSalesForecastSummary(props: {
           </div>
 
           <div className="text-xs text-[color:var(--sf-text-secondary)]">
-            CRM Forecast Rep-Weighted Modifiers: Commit {healthModifiers.commit_modifier.toFixed(2)}× · Best Case{" "}
-            {healthModifiers.best_case_modifier.toFixed(2)}× · Pipeline {healthModifiers.pipeline_modifier.toFixed(2)}×
-            {" "}
-            · Verdict Forecast (AI-Weighted based on Deal Review Scores)
+            CRM Forecast Rep-Weighted Probabilities: Commit {Math.round(orgProbs.commit * 100)}% · Best Case {Math.round(orgProbs.best_case * 100)}% ·
+            Pipeline {Math.round(orgProbs.pipeline * 100)}% · Verdict Forecast (AI-Weighted based on Deal Review Scores)
           </div>
         </div>
       </div>
