@@ -120,6 +120,8 @@ async function resetDefaultsAction(formData: FormData) {
     VALUES
       ($1::int, 27, 30, 'Commit', false, 1.0, NOW(), NOW()),
       ($1::int, 24, 26, 'Commit', false, 0.9, NOW(), NOW()),
+      ($1::int, 21, 23, 'Commit', false, 0.87, NOW(), NOW()),
+      ($1::int, 0, 20, 'Commit', false, 0.85, NOW(), NOW()),
       ($1::int, 21, 23, 'Best Case', false, 1.0, NOW(), NOW()),
       ($1::int, 18, 20, 'Best Case', true, 0.0, NOW(), NOW()),
       ($1::int, 0, 17, 'Pipeline', false, 1.0, NOW(), NOW())
@@ -275,7 +277,7 @@ export default async function HealthScoreRulesAdminPage({ searchParams }: { sear
               <div className="text-sm text-[color:var(--sf-text-primary)]">
                 <div className="font-semibold">Default ranges</div>
                 <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)] font-mono">
-                  27–30 Commit (1.0) · 24–26 Commit (0.9) · 21–23 Best Case (1.0) · 18–20 Best Case (suppressed, 0.0) · 0–17 Pipeline (1.0)
+                  27–30 Commit (1.0) · 24–26 Commit (0.9) · 21–23 Commit (0.87) · 0–20 Commit (0.85) · 21–23 Best Case (1.0) · 18–20 Best Case (suppressed, 0.0) · 0–17 Pipeline (1.0)
                 </div>
               </div>
               <Link
@@ -551,6 +553,8 @@ export default async function HealthScoreRulesAdminPage({ searchParams }: { sear
                 <div className="mt-2 grid gap-1 font-mono text-xs">
                   <div>27–30 → Commit · modifier 1.0</div>
                   <div>24–26 → Commit · modifier 0.9</div>
+                  <div>21–23 → Commit · modifier 0.87</div>
+                  <div>0–20 → Commit · modifier 0.85</div>
                   <div>21–23 → Best Case · modifier 1.0</div>
                   <div>18–20 → Best Case · suppression true · modifier 0.0</div>
                   <div>0–17 → Pipeline · modifier 1.0</div>

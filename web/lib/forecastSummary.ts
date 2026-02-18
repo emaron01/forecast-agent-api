@@ -42,7 +42,7 @@ export type SalesVsVerdictForecastSummary = {
       forecast: number;
     };
   };
-  forecast_gap: number; // CRM weighted forecast − Verdict weighted forecast
+  forecast_gap: number; // Verdict weighted forecast − CRM weighted forecast
 };
 
 function n0(v: any) {
@@ -68,7 +68,7 @@ function nonNeg(v: any) {
  * Definitions (authoritative):
  * - CRM Weighted Forecast = won + (commit × commit_pct) + (best_case × best_case_pct) + (pipeline × pipeline_pct)
  * - Verdict Weighted Forecast = won + ((commit × commit_modifier) × commit_pct) + ((best_case × best_case_modifier) × best_case_pct) + ((pipeline × pipeline_modifier) × pipeline_pct)
- * - Forecast Gap = CRM Weighted Forecast − Verdict Weighted Forecast
+ * - Forecast Gap = Verdict Weighted Forecast − CRM Weighted Forecast
  */
 export function computeSalesVsVerdictForecastSummary(args: {
   crm_totals: CrmTotals;
@@ -109,7 +109,7 @@ export function computeSalesVsVerdictForecastSummary(args: {
   const verdictPipeWeighted = verdictPipeBase * probs.pipeline_pct;
   const verdictForecast = crm.won + verdictCommitWeighted + verdictBestWeighted + verdictPipeWeighted;
 
-  const forecastGap = crmForecast - verdictForecast;
+  const forecastGap = verdictForecast - crmForecast;
 
   return {
     crm_totals: crm,

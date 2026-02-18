@@ -248,6 +248,13 @@ export default async function VerdictForecastPage({
               SELECT suppression, probability_modifier
                 FROM health_score_rules
                WHERE org_id = $1::int
+                 AND c.crm_bucket IS NOT NULL
+                 AND mapped_category = CASE
+                   WHEN c.crm_bucket = 'commit' THEN 'Commit'
+                   WHEN c.crm_bucket = 'best_case' THEN 'Best Case'
+                   WHEN c.crm_bucket = 'pipeline' THEN 'Pipeline'
+                   ELSE mapped_category
+                 END
                  AND c.health_score IS NOT NULL
                  AND c.health_score >= min_score
                  AND c.health_score <= max_score
@@ -518,7 +525,13 @@ export default async function VerdictForecastPage({
               ((' ' || fs || ' ') LIKE '% won %') AS is_won,
               (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
               ((' ' || fs || ' ') LIKE '% closed %') AS is_closed_kw,
-              (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %') AND NOT ((' ' || fs || ' ') LIKE '% loss %') AND NOT ((' ' || fs || ' ') LIKE '% closed %')) AS is_open
+              (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %') AND NOT ((' ' || fs || ' ') LIKE '% loss %') AND NOT ((' ' || fs || ' ') LIKE '% closed %')) AS is_open,
+              CASE
+                WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %') AND NOT ((' ' || fs || ' ') LIKE '% loss %') AND NOT ((' ' || fs || ' ') LIKE '% closed %')) AND fs LIKE '%commit%' THEN 'commit'
+                WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %') AND NOT ((' ' || fs || ' ') LIKE '% loss %') AND NOT ((' ' || fs || ' ') LIKE '% closed %')) AND fs LIKE '%best%' THEN 'best_case'
+                WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %') AND NOT ((' ' || fs || ' ') LIKE '% loss %') AND NOT ((' ' || fs || ' ') LIKE '% closed %')) THEN 'pipeline'
+                ELSE NULL
+              END AS crm_bucket
             FROM deals
           ),
           with_rules AS (
@@ -531,6 +544,13 @@ export default async function VerdictForecastPage({
               SELECT suppression, probability_modifier
                 FROM health_score_rules
                WHERE org_id = $1::int
+                 AND c.crm_bucket IS NOT NULL
+                 AND mapped_category = CASE
+                   WHEN c.crm_bucket = 'commit' THEN 'Commit'
+                   WHEN c.crm_bucket = 'best_case' THEN 'Best Case'
+                   WHEN c.crm_bucket = 'pipeline' THEN 'Pipeline'
+                   ELSE mapped_category
+                 END
                  AND c.health_score IS NOT NULL
                  AND c.health_score >= min_score
                  AND c.health_score <= max_score
@@ -709,9 +729,9 @@ export default async function VerdictForecastPage({
             const leftVerdictWeighted = quota - verdictWeighted;
 
             const weightedGap = {
-              commit: summary.weighted.crm.commit_weighted - summary.weighted.verdict.commit_weighted,
-              best_case: summary.weighted.crm.best_case_weighted - summary.weighted.verdict.best_case_weighted,
-              pipeline: summary.weighted.crm.pipeline_weighted - summary.weighted.verdict.pipeline_weighted,
+              commit: summary.weighted.verdict.commit_weighted - summary.weighted.crm.commit_weighted,
+              best_case: summary.weighted.verdict.best_case_weighted - summary.weighted.crm.best_case_weighted,
+              pipeline: summary.weighted.verdict.pipeline_weighted - summary.weighted.crm.pipeline_weighted,
               forecast: summary.forecast_gap,
             };
 
@@ -805,7 +825,7 @@ export default async function VerdictForecastPage({
                         </tr>
                         <tr className="border-t border-[color:var(--sf-border)]">
                           <td className={td}>
-                            <div className="font-medium">Forecast Gap (CRM − Verdict)</div>
+                            <div className="font-medium">Forecast Gap (Verdict − CRM)</div>
                             <div className="text-xs text-[color:var(--sf-text-secondary)]">Difference drives coaching</div>
                           </td>
                           <td className={`${tdNum} ${deltaClass(weightedGap.commit)}`}>{money(weightedGap.commit)}</td>
