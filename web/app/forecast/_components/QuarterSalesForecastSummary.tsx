@@ -1074,17 +1074,6 @@ export async function QuarterSalesForecastSummary(props: {
                   <td className="px-3 py-2 text-right font-mono">{fmtPct(pctVerdictWeighted)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(leftVerdictWeighted)}</td>
                 </tr>
-                <tr className="border-t border-[color:var(--sf-border)]">
-                  <td className="px-3 py-2">Verdict Forecast (AI-Weighted based on Deal Review Scores)</td>
-                  <td className="px-3 py-2 text-right font-mono">&nbsp;</td>
-                  <td className="px-3 py-2 text-right font-mono">&nbsp;</td>
-                  <td className="px-3 py-2 text-right font-mono">&nbsp;</td>
-                  <td className="px-3 py-2 text-right font-mono">&nbsp;</td>
-                  <td className="px-3 py-2 text-right font-mono">&nbsp;</td>
-                  <td className="px-3 py-2 text-right font-mono">&nbsp;</td>
-                  <td className="px-3 py-2 text-right font-mono">&nbsp;</td>
-                  <td className="px-3 py-2 text-right font-mono">&nbsp;</td>
-                </tr>
                 <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
                   <td className="px-3 py-2 font-semibold">Forecast Gap (Verdict - CRM)</td>
                   <td
@@ -1121,6 +1110,8 @@ export async function QuarterSalesForecastSummary(props: {
           <div className="text-xs text-[color:var(--sf-text-secondary)]">
             CRM Forecast Rep-Weighted Modifiers: Commit {healthModifiers.commit_modifier.toFixed(2)}× · Best Case{" "}
             {healthModifiers.best_case_modifier.toFixed(2)}× · Pipeline {healthModifiers.pipeline_modifier.toFixed(2)}×
+            {" "}
+            · Verdict Forecast (AI-Weighted based on Deal Review Scores)
           </div>
         </div>
       </div>
