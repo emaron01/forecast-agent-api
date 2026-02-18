@@ -2,6 +2,8 @@ import Link from "next/link";
 import { pool } from "../../../lib/pool";
 import type { AuthUser } from "../../../lib/auth";
 import { getVisibleUsers } from "../../../lib/db";
+import { getForecastStageProbabilities } from "../../../lib/forecastStageProbabilities";
+import { computeSalesVsVerdictForecastSummary } from "../../../lib/forecastSummary";
 import { ForecastPeriodFiltersClient } from "./ForecastPeriodFiltersClient";
 
 type QuotaPeriodOption = {
@@ -574,130 +576,6 @@ export async function QuarterSalesForecastSummary(props: {
         .catch(() => [])
     : [];
 
-  const bucketHealth = canCompute
-    ? await pool
-        .query<{
-          commit_health_score: number | null;
-          best_case_health_score: number | null;
-          pipeline_health_score: number | null;
-          total_pipeline_health_score: number | null;
-          won_health_score: number | null;
-        }>(
-          `
-          WITH qp AS (
-            SELECT period_start::date AS period_start, period_end::date AS period_end
-              FROM quota_periods
-             WHERE org_id = $1::bigint
-               AND id = $2::bigint
-             LIMIT 1
-          ),
-          deals AS (
-            SELECT
-              o.health_score,
-              lower(
-                regexp_replace(
-            COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
-                  '[^a-zA-Z]+',
-                  ' ',
-                  'g'
-                )
-              ) AS fs,
-              CASE
-                WHEN o.close_date IS NULL THEN NULL
-                WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
-                WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-                  to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
-                ELSE NULL
-              END AS close_d
-            FROM opportunities o
-            WHERE o.org_id = $1
-              AND (
-                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-                OR (
-                  COALESCE(array_length($4::text[], 1), 0) > 0
-                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-                )
-              )
-          ),
-          deals_in_qtr AS (
-            SELECT d.*
-              FROM deals d
-              JOIN qp ON TRUE
-             WHERE d.close_d IS NOT NULL
-               AND d.close_d >= qp.period_start
-               AND d.close_d <= qp.period_end
-          )
-          SELECT
-            AVG(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
-                OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% closed %')
-              THEN NULL
-              WHEN d.fs LIKE '%commit%' THEN NULLIF(d.health_score, 0)
-              ELSE NULL
-            END)::float8 AS commit_health_score,
-            AVG(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
-                OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% closed %')
-              THEN NULL
-              WHEN d.fs LIKE '%best%' THEN NULLIF(d.health_score, 0)
-              ELSE NULL
-            END)::float8 AS best_case_health_score,
-            AVG(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
-                OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% closed %')
-              THEN NULL
-              WHEN d.fs LIKE '%commit%' THEN NULL
-              WHEN d.fs LIKE '%best%' THEN NULL
-              ELSE NULLIF(d.health_score, 0)
-            END)::float8 AS pipeline_health_score,
-            AVG(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
-                OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% closed %')
-              THEN NULL
-              ELSE NULLIF(d.health_score, 0)
-            END)::float8 AS total_pipeline_health_score,
-            AVG(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN NULLIF(d.health_score, 0)
-              ELSE NULL
-            END)::float8 AS won_health_score
-          FROM deals_in_qtr d
-          `,
-          [props.orgId, qpId, repIdsToUse, visibleRepNameKeys]
-        )
-        .then((r) =>
-          r.rows?.[0] || {
-            commit_health_score: null,
-            best_case_health_score: null,
-            pipeline_health_score: null,
-            total_pipeline_health_score: null,
-            won_health_score: null,
-          }
-        )
-        .catch(() => ({
-          commit_health_score: null,
-          best_case_health_score: null,
-          pipeline_health_score: null,
-          total_pipeline_health_score: null,
-          won_health_score: null,
-        }))
-    : {
-        commit_health_score: null,
-        best_case_health_score: null,
-        pipeline_health_score: null,
-        total_pipeline_health_score: null,
-        won_health_score: null,
-      };
-
-  const commitHealthPct = healthPctFrom30(bucketHealth.commit_health_score);
-  const bestHealthPct = healthPctFrom30(bucketHealth.best_case_health_score);
-  const pipelineHealthPct = healthPctFrom30(bucketHealth.pipeline_health_score);
-  const totalPipelineHealthPct = healthPctFrom30(bucketHealth.total_pipeline_health_score);
-  const wonHealthPct = healthPctFrom30(bucketHealth.won_health_score);
-
   const commitAmt = repRollups.reduce((acc, r) => acc + (Number(r.commit_amount || 0) || 0), 0);
   const commitCount = repRollups.reduce((acc, r) => acc + (Number(r.commit_count || 0) || 0), 0);
   const bestCaseAmt = repRollups.reduce((acc, r) => acc + (Number(r.best_case_amount || 0) || 0), 0);
@@ -708,6 +586,162 @@ export async function QuarterSalesForecastSummary(props: {
   const wonAmt = repRollups.reduce((acc, r) => acc + (Number(r.won_amount || 0) || 0), 0);
   const wonCount = repRollups.reduce((acc, r) => acc + (Number(r.won_count || 0) || 0), 0);
   const totalPipelineCount = commitCount + bestCaseCount + pipelineCount;
+
+  const orgProbs = await getForecastStageProbabilities({ orgId: props.orgId }).catch(() => ({
+    commit: 0.8,
+    best_case: 0.325,
+    pipeline: 0.1,
+  }));
+
+  const verdictAgg = canCompute
+    ? await (async () => {
+        type Row = {
+          commit_crm: number;
+          commit_verdict: number;
+          best_case_crm: number;
+          best_case_verdict: number;
+          pipeline_crm: number;
+          pipeline_verdict: number;
+        };
+
+        const empty: Row = {
+          commit_crm: 0,
+          commit_verdict: 0,
+          best_case_crm: 0,
+          best_case_verdict: 0,
+          pipeline_crm: 0,
+          pipeline_verdict: 0,
+        };
+
+        try {
+          const row = await pool
+            .query<Row>(
+              `
+              WITH qp AS (
+                SELECT period_start::date AS period_start, period_end::date AS period_end
+                  FROM quota_periods
+                 WHERE org_id = $1::bigint
+                   AND id = $2::bigint
+                 LIMIT 1
+              ),
+              deals AS (
+                SELECT
+                  COALESCE(o.amount, 0) AS amount,
+                  o.health_score,
+                  lower(
+                    regexp_replace(
+                      COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                      '[^a-zA-Z]+',
+                      ' ',
+                      'g'
+                    )
+                  ) AS fs,
+                  CASE
+                    WHEN o.close_date IS NULL THEN NULL
+                    WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+                    WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                      to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+                    ELSE NULL
+                  END AS close_d
+                FROM opportunities o
+                WHERE o.org_id = $1
+                  AND (
+                    (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
+                    OR (
+                      COALESCE(array_length($4::text[], 1), 0) > 0
+                      AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+                    )
+                  )
+              ),
+              deals_in_qtr AS (
+                SELECT d.*
+                  FROM deals d
+                  JOIN qp ON TRUE
+                 WHERE d.close_d IS NOT NULL
+                   AND d.close_d >= qp.period_start
+                   AND d.close_d <= qp.period_end
+              ),
+              open_deals AS (
+                SELECT *
+                  FROM deals_in_qtr d
+                 WHERE NOT ((' ' || d.fs || ' ') LIKE '% won %')
+                   AND NOT ((' ' || d.fs || ' ') LIKE '% lost %')
+                   AND NOT ((' ' || d.fs || ' ') LIKE '% closed %')
+              ),
+              classified AS (
+                SELECT
+                  *,
+                  CASE
+                    WHEN fs LIKE '%commit%' THEN 'commit'
+                    WHEN fs LIKE '%best%' THEN 'best_case'
+                    ELSE 'pipeline'
+                  END AS crm_bucket
+                FROM open_deals
+              ),
+              with_rules AS (
+                SELECT
+                  c.*,
+                  COALESCE(hr.suppression, FALSE) AS suppression,
+                  COALESCE(hr.probability_modifier, 1.0)::float8 AS probability_modifier
+                FROM classified c
+                LEFT JOIN LATERAL (
+                  SELECT suppression, probability_modifier
+                    FROM health_score_rules
+                   WHERE org_id = $1::int
+                     AND c.crm_bucket IS NOT NULL
+                     AND mapped_category = CASE
+                       WHEN c.crm_bucket = 'commit' THEN 'Commit'
+                       WHEN c.crm_bucket = 'best_case' THEN 'Best Case'
+                       WHEN c.crm_bucket = 'pipeline' THEN 'Pipeline'
+                       ELSE mapped_category
+                     END
+                     AND c.health_score IS NOT NULL
+                     AND c.health_score >= min_score
+                     AND c.health_score <= max_score
+                   ORDER BY min_score DESC
+                   LIMIT 1
+                ) hr ON TRUE
+              ),
+              with_modifier AS (
+                SELECT
+                  *,
+                  CASE WHEN suppression THEN 0.0::float8 ELSE COALESCE(probability_modifier, 1.0)::float8 END AS health_modifier
+                FROM with_rules
+              )
+              SELECT
+                COALESCE(SUM(CASE WHEN crm_bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_crm,
+                COALESCE(SUM(CASE WHEN crm_bucket = 'commit' THEN amount * health_modifier ELSE 0 END), 0)::float8 AS commit_verdict,
+                COALESCE(SUM(CASE WHEN crm_bucket = 'best_case' THEN amount ELSE 0 END), 0)::float8 AS best_case_crm,
+                COALESCE(SUM(CASE WHEN crm_bucket = 'best_case' THEN amount * health_modifier ELSE 0 END), 0)::float8 AS best_case_verdict,
+                COALESCE(SUM(CASE WHEN crm_bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_crm,
+                COALESCE(SUM(CASE WHEN crm_bucket = 'pipeline' THEN amount * health_modifier ELSE 0 END), 0)::float8 AS pipeline_verdict
+              FROM with_modifier
+              `,
+              [props.orgId, qpId, repIdsToUse, visibleRepNameKeys]
+            )
+            .then((r) => r.rows?.[0] || empty);
+          return row;
+        } catch (e: any) {
+          // If health_score_rules isn't present yet, treat Verdict = CRM (modifier=1.0).
+          const code = String(e?.code || "");
+          if (code === "42P01") return empty;
+          throw e;
+        }
+      })()
+    : {
+        commit_crm: 0,
+        commit_verdict: 0,
+        best_case_crm: 0,
+        best_case_verdict: 0,
+        pipeline_crm: 0,
+        pipeline_verdict: 0,
+      };
+
+  const healthModifiers = {
+    commit_modifier: verdictAgg.commit_crm > 0 ? verdictAgg.commit_verdict / verdictAgg.commit_crm : 1,
+    best_case_modifier: verdictAgg.best_case_crm > 0 ? verdictAgg.best_case_verdict / verdictAgg.best_case_crm : 1,
+    pipeline_modifier: verdictAgg.pipeline_crm > 0 ? verdictAgg.pipeline_verdict / verdictAgg.pipeline_crm : 1,
+  };
 
   const debugInfo =
     debug && canCompute
@@ -893,10 +927,30 @@ export async function QuarterSalesForecastSummary(props: {
           .catch(() => 0)
       : 0;
 
-  const pctToGoal = quotaAmt > 0 ? wonAmt / quotaAmt : null;
-  const pctToGoalValueClass = pctToGoal != null && pctToGoal >= 1 ? "text-[#16A34A]" : "";
-  const toGoAmt = quotaAmt > 0 ? Math.max(0, quotaAmt - wonAmt) : null;
-  const boxClass = "rounded-lg border border-[#93C5FD] bg-[#DBEAFE] px-3 py-2 text-black";
+  const summary = computeSalesVsVerdictForecastSummary({
+    crm_totals: {
+      commit: commitAmt,
+      best_case: bestCaseAmt,
+      pipeline: pipelineAmt,
+      won: wonAmt,
+      quota: quotaAmt,
+    },
+    org_probabilities: {
+      commit_pct: orgProbs.commit,
+      best_case_pct: orgProbs.best_case,
+      pipeline_pct: orgProbs.pipeline,
+    },
+    health_modifiers: healthModifiers,
+  });
+
+  const quota = summary.crm_totals.quota;
+  const pctCrmWeighted = quota > 0 ? summary.weighted.crm.forecast / quota : null;
+  const leftCrmWeighted = quota - summary.weighted.crm.forecast;
+  const pctVerdictWeighted = quota > 0 ? summary.weighted.verdict.forecast / quota : null;
+  const leftVerdictWeighted = quota - summary.weighted.verdict.forecast;
+  const gapPctToGoal = pctVerdictWeighted != null && pctCrmWeighted != null ? pctVerdictWeighted - pctCrmWeighted : null;
+  // Per spec: Left To Go gap = CRM Rep-Weighted − Verdict Weighted.
+  const gapLeftToGo = summary.weighted.crm.forecast - summary.weighted.verdict.forecast;
   const headline =
     role === "REP"
       ? repNameForHeadline
@@ -941,42 +995,99 @@ export async function QuarterSalesForecastSummary(props: {
           ) : null}
         </div>
 
-        <div className="grid w-full justify-items-stretch gap-3 text-sm sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
-          {[
-            { key: "commit", label: "Commit", amount: commitAmt, count: commitCount, healthPct: commitHealthPct },
-            { key: "best", label: "Best Case", amount: bestCaseAmt, count: bestCaseCount, healthPct: bestHealthPct },
-            { key: "pipe", label: "Pipeline", amount: pipelineAmt, count: pipelineCount, healthPct: pipelineHealthPct },
-            { key: "total", label: "Total Pipeline", amount: totalAmt, count: totalPipelineCount, healthPct: totalPipelineHealthPct },
-            { key: "won", label: "Closed Won", amount: wonAmt, count: wonCount, healthPct: wonHealthPct },
-          ]
-            .map((c) => (
-              <div key={c.key} className={`${boxClass} w-full`}>
-                <div className="text-sm text-black/70">{c.label}</div>
-                <div className="font-mono text-sm font-semibold">{fmtMoney(c.amount)}</div>
-                <div className="mt-1 text-sm text-black/70"># Opps: {c.count}</div>
-                {"healthPct" in c && c.healthPct != null ? (
-                  <div className="mt-1 text-sm text-black/70">
-                    Avg Health:{" "}
-                    <span className={healthColorClass(c.healthPct)}>{c.healthPct == null ? "—" : `${c.healthPct}%`}</span>
-                  </div>
-                ) : null}
-              </div>
-            ))}
+        <div className="grid gap-4">
+          <div className="overflow-x-auto rounded-lg border border-[color:var(--sf-border)]">
+            <table className="min-w-[760px] w-full border-collapse text-sm">
+              <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                <tr>
+                  <th className="px-3 py-2 text-left">Summary</th>
+                  <th className="px-3 py-2 text-right">Commit</th>
+                  <th className="px-3 py-2 text-right">Best Case</th>
+                  <th className="px-3 py-2 text-right">Pipeline</th>
+                  <th className="px-3 py-2 text-right">Total Pipeline</th>
+                  <th className="px-3 py-2 text-right">Closed Won</th>
+                  <th className="px-3 py-2 text-right">Quota</th>
+                </tr>
+              </thead>
+              <tbody className="text-[color:var(--sf-text-primary)]">
+                <tr className="border-t border-[color:var(--sf-border)]">
+                  <td className="px-3 py-2">CRM (Buckets)</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(commitAmt)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(bestCaseAmt)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(pipelineAmt)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(totalAmt)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(wonAmt)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(quota)}</td>
+                </tr>
+                <tr className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-secondary)]">
+                  <td className="px-3 py-2">Verdict modifiers (avg)</td>
+                  <td className="px-3 py-2 text-right font-mono">{healthModifiers.commit_modifier.toFixed(2)}×</td>
+                  <td className="px-3 py-2 text-right font-mono">{healthModifiers.best_case_modifier.toFixed(2)}×</td>
+                  <td className="px-3 py-2 text-right font-mono">{healthModifiers.pipeline_modifier.toFixed(2)}×</td>
+                  <td className="px-3 py-2 text-right font-mono">—</td>
+                  <td className="px-3 py-2 text-right font-mono">—</td>
+                  <td className="px-3 py-2 text-right font-mono">—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
 
-          <div className={`${boxClass} w-full`}>
-            <div className="text-sm text-black/70">Quarterly Quota</div>
-            <div className="font-mono text-sm font-semibold">{fmtMoney(quotaAmt)}</div>
-            <div className="mt-1 text-sm text-black/70">&nbsp;</div>
+          <div className="overflow-x-auto rounded-lg border border-[color:var(--sf-border)]">
+            <table className="min-w-[980px] w-full border-collapse text-sm">
+              <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                <tr>
+                  <th className="px-3 py-2 text-left">Weighted Forecast</th>
+                  <th className="px-3 py-2 text-right">Commit Closing</th>
+                  <th className="px-3 py-2 text-right">Best Case Closing</th>
+                  <th className="px-3 py-2 text-right">Pipeline Closing</th>
+                  <th className="px-3 py-2 text-right">Weighted Qtr Closing</th>
+                  <th className="px-3 py-2 text-right">Won</th>
+                  <th className="px-3 py-2 text-right">Quota</th>
+                  <th className="px-3 py-2 text-right">% To Goal</th>
+                  <th className="px-3 py-2 text-right">Left To Go</th>
+                </tr>
+              </thead>
+              <tbody className="text-[color:var(--sf-text-primary)]">
+                <tr className="border-t border-[color:var(--sf-border)]">
+                  <td className="px-3 py-2">CRM Forecast (Rep-Weighted)</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.crm.commit_weighted)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.crm.best_case_weighted)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.crm.pipeline_weighted)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.crm.forecast)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.crm_totals.won)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(quota)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtPct(pctCrmWeighted)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(leftCrmWeighted)}</td>
+                </tr>
+                <tr className="border-t border-[color:var(--sf-border)]">
+                  <td className="px-3 py-2">Verdict Forecast (AI-Weighted)</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.verdict.commit_weighted)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.verdict.best_case_weighted)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.verdict.pipeline_weighted)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.verdict.forecast)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.crm_totals.won)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(quota)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtPct(pctVerdictWeighted)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(leftVerdictWeighted)}</td>
+                </tr>
+                <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                  <td className="px-3 py-2 font-semibold">Forecast Gap (Verdict - CRM)</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.verdict.commit_weighted - summary.weighted.crm.commit_weighted)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.verdict.best_case_weighted - summary.weighted.crm.best_case_weighted)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.verdict.pipeline_weighted - summary.weighted.crm.pipeline_weighted)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.forecast_gap)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.crm_totals.won)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(quota)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtPct(gapPctToGoal)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{fmtMoney(gapLeftToGo)}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-          <div className={`${boxClass} w-full`}>
-            <div className="text-sm text-black/70">% To Goal</div>
-            <div className={`font-mono text-sm font-semibold ${pctToGoalValueClass}`}>{fmtPct(pctToGoal)}</div>
-            <div className="mt-1 text-sm text-black/70">&nbsp;</div>
-          </div>
-          <div className={`${boxClass} w-full`}>
-            <div className="text-sm text-black/70">To Go</div>
-            <div className="font-mono text-sm font-semibold">{toGoAmt == null ? "—" : fmtMoney(toGoAmt)}</div>
-            <div className="mt-1 text-sm text-black/70">&nbsp;</div>
+
+          <div className="text-xs text-[color:var(--sf-text-secondary)]">
+            Probabilities: Commit {Math.round(orgProbs.commit * 100)}% · Best Case {Math.round(orgProbs.best_case * 100)}% · Pipeline{" "}
+            {Math.round(orgProbs.pipeline * 100)}%
           </div>
         </div>
       </div>

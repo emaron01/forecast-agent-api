@@ -761,7 +761,7 @@ export default async function VerdictForecastPage({
           initialQuotaPeriodId={qpId}
         />
 
-        <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+        <section className="mt-3 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
           <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Sales Forecast vs AI Forecast (summary)</h2>
           <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
             Rep‑Weighted uses org forecast probabilities. AI‑Weighted uses health score rules (modifier/suppression) applied to CRM buckets, then the same org
@@ -785,6 +785,7 @@ export default async function VerdictForecastPage({
             const leftVerdictWeighted = quota - verdictWeighted;
 
             const gapPctToGoal = pctVerdictWeighted != null && pctCrmWeighted != null ? pctVerdictWeighted - pctCrmWeighted : null;
+            // Per spec: Left To Go gap = CRM Rep-Weighted − Verdict Weighted.
             const gapLeftToGo = leftVerdictWeighted - leftCrmWeighted;
 
             const weightedGap = {
