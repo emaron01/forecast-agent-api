@@ -269,13 +269,14 @@ export function MeddpiccRiskNextStepsClient(props: {
         {error ? <div className="mt-3 rounded-md border border-[#E74C3C]/40 bg-[#E74C3C]/10 p-3 text-sm text-[#E74C3C]">{error}</div> : null}
 
         <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-          <table className="w-full min-w-[1400px] text-left text-sm">
+          <table className="w-full min-w-[1320px] text-left text-sm">
             <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
               <tr>
                 <th className="px-4 py-3">{thBtn("Account Name", "account")}</th>
+                <th className="px-4 py-3">Sales Rep</th>
                 <th className="px-4 py-3 text-right">{thBtn("Avg Health Score", "health", "right")}</th>
                 <th className="px-4 py-3 text-right">{thBtn("Revenue", "amount", "right")}</th>
-                <th className="px-4 py-3">{thBtn("Close Date", "close_date")}</th>
+                <th className="px-4 py-3 whitespace-nowrap">{thBtn("Close Date", "close_date")}</th>
                 <th className="px-4 py-3">{thBtn("Forecast Stage", "forecast_stage")}</th>
                 <th className="px-4 py-3">{thBtn("AI Stage", "ai_stage")}</th>
                 <th className="px-4 py-3">{thBtn("Risk Summary", "risk_summary")}</th>
@@ -286,10 +287,22 @@ export function MeddpiccRiskNextStepsClient(props: {
               {sorted.map((d) => (
                 <tr key={String(d.id)} className="border-t border-[color:var(--sf-border)] align-top">
                   <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">
-                    <div className="min-w-[220px]">
+                    <div className="min-w-[240px]">
                       <div className="truncate">{d.account_name || "—"}</div>
                       <div className="mt-0.5 truncate text-xs text-[color:var(--sf-text-disabled)]">{d.opportunity_name || ""}</div>
+                      {d.id ? (
+                        <Link
+                          href={`/opportunities/${encodeURIComponent(String(d.id))}/deal-review`}
+                          className="mt-2 inline-flex items-center justify-center rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs font-medium text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
+                          title="Open full deal review"
+                        >
+                          View full deal review
+                        </Link>
+                      ) : null}
                     </div>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-[color:var(--sf-text-primary)]">
+                    <div className="min-w-[160px] truncate">{d.rep_name || "—"}</div>
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-xs">
                     {(() => {
@@ -298,20 +311,20 @@ export function MeddpiccRiskNextStepsClient(props: {
                     })()}
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(d.amount)}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-[color:var(--sf-text-primary)]">{safeDate(d.close_date)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap font-mono text-xs text-[color:var(--sf-text-primary)]">{safeDate(d.close_date)}</td>
                   <td className="px-4 py-3 text-[color:var(--sf-text-primary)]">{d.forecast_stage || "—"}</td>
                   <td className="px-4 py-3 text-[color:var(--sf-text-primary)]">{d.ai_verdict || "—"}</td>
                   <td className="px-4 py-3 text-xs text-[color:var(--sf-text-primary)]">
-                    <div className="min-w-[320px] whitespace-pre-wrap">{String(d.risk_summary || "").trim() || "—"}</div>
+                    <div className="max-w-[300px] whitespace-pre-wrap break-words">{String(d.risk_summary || "").trim() || "—"}</div>
                   </td>
                   <td className="px-4 py-3 text-xs text-[color:var(--sf-text-primary)]">
-                    <div className="min-w-[320px] whitespace-pre-wrap">{String(d.next_steps || "").trim() || "—"}</div>
+                    <div className="max-w-[300px] whitespace-pre-wrap break-words">{String(d.next_steps || "").trim() || "—"}</div>
                   </td>
                 </tr>
               ))}
               {!busy && !sorted.length ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-sm text-[color:var(--sf-text-disabled)]">
+                  <td colSpan={9} className="px-4 py-8 text-center text-sm text-[color:var(--sf-text-disabled)]">
                     No deals found.
                   </td>
                 </tr>
