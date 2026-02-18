@@ -1049,7 +1049,7 @@ export async function QuarterSalesForecastSummary(props: {
             <table className="min-w-[980px] w-full border-collapse text-sm">
               <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
                 <tr>
-                  <th className="px-3 py-2 text-center">Weighted CRM Quarter Projections</th>
+                  <th className="px-3 py-2 text-center">Quarterly Weighted Outlook</th>
                   <th className="px-3 py-2 text-center">
                     <div>Commit</div>
                     <div>Closing</div>
@@ -1081,7 +1081,10 @@ export async function QuarterSalesForecastSummary(props: {
               </thead>
               <tbody className="text-[color:var(--sf-text-primary)]">
                 <tr className="border-t border-[color:var(--sf-border)]">
-                  <td className="px-3 py-2 text-center">CRM Projections (Rep-Weighted)</td>
+                  <td className="px-3 py-2 text-center">
+                    <div>CRM Outlook</div>
+                    <div>(Rep‑Weighted)</div>
+                  </td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.crm.commit_weighted)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.crm.best_case_weighted)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.crm.pipeline_weighted)}</td>
@@ -1093,7 +1096,10 @@ export async function QuarterSalesForecastSummary(props: {
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(leftCrmWeighted)}</td>
                 </tr>
                 <tr className="border-t border-[color:var(--sf-border)]">
-                  <td className="px-3 py-2 text-center">SalesForecast.IO (AI-Weighted)</td>
+                  <td className="px-3 py-2 text-center">
+                    <div>SalesForecast.IO Outlook</div>
+                    <div>(AI‑Weighted)</div>
+                  </td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.verdict.commit_weighted)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.verdict.best_case_weighted)}</td>
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(summary.weighted.verdict.pipeline_weighted)}</td>
@@ -1105,7 +1111,10 @@ export async function QuarterSalesForecastSummary(props: {
                   <td className="px-3 py-2 text-right font-mono">{fmtMoney(leftVerdictWeighted)}</td>
                 </tr>
                 <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-                  <td className="px-3 py-2 text-center font-semibold">Forecast Gap (Verdict - CRM)</td>
+                  <td className="px-3 py-2 text-center font-semibold">
+                    <div>Outlook Gap</div>
+                    <div>(AI − CRM)</div>
+                  </td>
                   <td
                     className={`px-3 py-2 text-right font-mono ${deltaTextClass(
                       summary.weighted.verdict.commit_weighted - summary.weighted.crm.commit_weighted
