@@ -376,6 +376,55 @@ function rollupRepRows(args: { label: string; execName: string; managerName: str
   };
 }
 
+function hasAnyReportData(r: RepRow | null | undefined) {
+  if (!r) return false;
+  // Conservative "has any actual data" check so we can suppress empty subtotal sections.
+  if (safeNum(r.total_count) > 0) return true;
+  if (safeNum(r.won_count) > 0) return true;
+  if (safeNum(r.lost_count) > 0) return true;
+  if (safeNum(r.active_amount) > 0) return true;
+  if (safeNum(r.won_amount) > 0) return true;
+  if (safeNum(r.created_amount) > 0) return true;
+  if (safeNum(r.created_count) > 0) return true;
+  if (safeNum(r.commit_amount) > 0) return true;
+  if (safeNum(r.best_amount) > 0) return true;
+  if (safeNum(r.pipeline_amount) > 0) return true;
+  if (safeNum(r.quota) > 0) return true;
+
+  const avgKeys: Array<keyof RepRow> = [
+    "avg_health_all",
+    "avg_health_commit",
+    "avg_health_best",
+    "avg_health_pipeline",
+    "avg_health_won",
+    "avg_health_closed",
+    "avg_pain",
+    "avg_metrics",
+    "avg_champion",
+    "avg_eb",
+    "avg_competition",
+    "avg_criteria",
+    "avg_process",
+    "avg_paper",
+    "avg_timing",
+    "avg_budget",
+  ];
+  for (const k of avgKeys) {
+    const v = (r as any)[k];
+    if (v == null) continue;
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) return true;
+  }
+  return false;
+}
+
+function rowsEquivalentForMetrics(metricList: MetricKey[], a: RepRow, b: RepRow) {
+  for (const k of metricList) {
+    if (renderMetricValue(k, a) !== renderMetricValue(k, b)) return false;
+  }
+  return true;
+}
+
 function normalizeConfig(cfg: any): { repIds: string[]; metrics: MetricKey[] } {
   const repIds = Array.isArray(cfg?.repIds) ? cfg.repIds.map((x: any) => String(x)).filter(Boolean) : [];
   const metricsRaw = Array.isArray(cfg?.metrics) ? cfg.metrics.map((x: any) => String(x)).filter(Boolean) : [];
@@ -674,6 +723,15 @@ export function CustomReportDesignerClient(props: {
       m.set(key, rollupRepRows({ label: `Manager Total: ${g.mgrName}`, execName: g.execName, managerName: g.mgrName, rows: g.reps }));
     }
     return m;
+  }, [groupedSelected]);
+
+  const managerIdsWithGroups = useMemo(() => {
+    const s = new Set<string>();
+    for (const g of groupedSelected) {
+      const mid = String(g.mgrId || "");
+      if (mid) s.add(mid);
+    }
+    return s;
   }, [groupedSelected]);
 
   const execOptions = useMemo(() => {
@@ -979,9 +1037,27 @@ export function CustomReportDesignerClient(props: {
               const showExecSubtotal = idx === 0 || String(prevExecId) !== String(g.execId);
               const execSubtotal = rollupsByExecId.get(g.execId) || null;
               const mgrSubtotal = rollupsByExecMgrKey.get(`${g.execId}|${g.mgrId}`) || null;
+
+              const visibleReps = g.reps.filter((r) => {
+                // If a rep is also a manager elsewhere, don't show them under an "(Unassigned)" manager bucket.
+                // Their hierarchy is represented by a Manager Total section.
+                if (!String(g.mgrId || "") && managerIdsWithGroups.has(String(r.rep_id || ""))) return false;
+
+                // Hide a manager/executive "rep row" if it exactly duplicates the subtotal row for this section.
+                if (mgrSubtotal && String(g.mgrId || "") && String(r.rep_id || "") === String(g.mgrId || "")) {
+                  if (rowsEquivalentForMetrics(metricList, r, mgrSubtotal)) return false;
+                }
+                if (execSubtotal && showExecSubtotal && String(g.execId || "") && String(r.rep_id || "") === String(g.execId || "")) {
+                  if (rowsEquivalentForMetrics(metricList, r, execSubtotal)) return false;
+                }
+                return true;
+              });
+
+              const showExecRow = showExecSubtotal && !!execSubtotal && hasAnyReportData(execSubtotal);
+              const showMgrRow = !!mgrSubtotal && (visibleReps.length > 0 || hasAnyReportData(mgrSubtotal));
               return (
                 <Fragment key={`grp:${g.execId}:${g.mgrId}`}>
-                  {showExecSubtotal && execSubtotal ? (
+                  {showExecRow ? (
                     <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
                       <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{execSubtotal.rep_name}</td>
                       {metricList.map((k) => (
@@ -992,7 +1068,7 @@ export function CustomReportDesignerClient(props: {
                     </tr>
                   ) : null}
 
-                  {mgrSubtotal ? (
+                  {showMgrRow ? (
                     <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
                       <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">
                         {mgrSubtotal.rep_name}
@@ -1005,7 +1081,7 @@ export function CustomReportDesignerClient(props: {
                     </tr>
                   ) : null}
 
-                  {g.reps.map((r) => (
+                  {visibleReps.map((r) => (
                     <tr key={`rep:${g.execId}:${g.mgrId}:${r.rep_id}`} className="border-t border-[color:var(--sf-border)]">
                       <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{r.rep_name}</td>
                       {metricList.map((k) => (

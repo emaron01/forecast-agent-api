@@ -28,6 +28,18 @@ type Deal = Record<string, any> & {
   paper_tip?: string | null;
   timing_tip?: string | null;
   budget_tip?: string | null;
+
+  health_score?: number | null;
+  pain_score?: number | null;
+  metrics_score?: number | null;
+  champion_score?: number | null;
+  eb_score?: number | null;
+  competition_score?: number | null;
+  criteria_score?: number | null;
+  process_score?: number | null;
+  paper_score?: number | null;
+  timing_score?: number | null;
+  budget_score?: number | null;
 };
 
 function fmtMoney(n: any) {
@@ -46,24 +58,37 @@ function isClosedDeal(d: Deal) {
   return closedOutcomeFromStage((d as any)?.forecast_stage) || null;
 }
 
-const TIP_FIELDS: Array<{ key: keyof Deal; label: string }> = [
-  { key: "pain_tip", label: "Pain" },
-  { key: "metrics_tip", label: "Metrics" },
-  { key: "champion_tip", label: "Champion" },
-  { key: "eb_tip", label: "Economic Buyer" },
-  { key: "competition_tip", label: "Competition" },
-  { key: "criteria_tip", label: "Decision Criteria" },
-  { key: "process_tip", label: "Decision Process" },
-  { key: "paper_tip", label: "Paper Process" },
-  { key: "timing_tip", label: "Timing" },
-  { key: "budget_tip", label: "Budget" },
+type TipField = { key: keyof Deal; label: string; scoreKey: keyof Deal };
+type PopulatedTip = { key: keyof Deal; label: string; score: number | null; tipText: string };
+
+function scoreColorClass(s: any) {
+  const n = Number(s);
+  if (!Number.isFinite(n) || n <= 0) return "text-[color:var(--sf-text-disabled)] bg-[color:var(--sf-surface-alt)]";
+  return n >= 3 ? "text-[#2ECC71] bg-[#2ECC71]/10" : n >= 2 ? "text-[#F1C40F] bg-[#F1C40F]/10" : "text-[#E74C3C] bg-[#E74C3C]/10";
+}
+
+const TIP_FIELDS: TipField[] = [
+  { key: "pain_tip", label: "Pain", scoreKey: "pain_score" },
+  { key: "metrics_tip", label: "Metrics", scoreKey: "metrics_score" },
+  { key: "champion_tip", label: "Champion", scoreKey: "champion_score" },
+  { key: "eb_tip", label: "Economic Buyer", scoreKey: "eb_score" },
+  { key: "competition_tip", label: "Competition", scoreKey: "competition_score" },
+  { key: "criteria_tip", label: "Decision Criteria", scoreKey: "criteria_score" },
+  { key: "process_tip", label: "Decision Process", scoreKey: "process_score" },
+  { key: "paper_tip", label: "Paper Process", scoreKey: "paper_score" },
+  { key: "timing_tip", label: "Timing", scoreKey: "timing_score" },
+  { key: "budget_tip", label: "Budget", scoreKey: "budget_score" },
 ];
 
-function tipsPopulated(d: Deal) {
-  const out: string[] = [];
+function tipsPopulated(d: Deal): PopulatedTip[] {
+  const out: PopulatedTip[] = [];
   for (const f of TIP_FIELDS) {
-    const v = String((d as any)?.[f.key] || "").trim();
-    if (v) out.push(f.label);
+    const tipText = String((d as any)?.[f.key] || "").trim();
+    if (!tipText) continue;
+    const scoreRaw = (d as any)?.[f.scoreKey];
+    const scoreNum = Number(scoreRaw);
+    const score = Number.isFinite(scoreNum) ? scoreNum : null;
+    out.push({ key: f.key, label: f.label, score, tipText });
   }
   return out;
 }
@@ -86,6 +111,18 @@ export function MeddpiccTipsPopulatedClient(props: {
 
   const [sortKey, setSortKey] = useState<SortKey>("tips_count");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const [openTips, setOpenTips] = useState<Set<string>>(() => new Set());
+
+  function toggleTip(dealId: string, tipKey: string) {
+    const k = `${dealId}::${tipKey}`;
+    setOpenTips((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  }
 
   async function refresh() {
     setBusy(true);
@@ -121,7 +158,7 @@ export function MeddpiccTipsPopulatedClient(props: {
   const enriched = useMemo(() => {
     return (deals || []).map((d) => {
       const tips = tipsPopulated(d);
-      return { deal: d, tips, tipsCount: tips.length, tipsList: tips.join(", ") };
+      return { deal: d, tips, tipsCount: tips.length, tipsList: tips.map((t) => t.label).join(", ") };
     });
   }, [deals]);
 
@@ -337,7 +374,37 @@ export function MeddpiccTipsPopulatedClient(props: {
                     <td className="px-4 py-3 text-[color:var(--sf-text-primary)]">{d.ai_verdict || "—"}</td>
                     <td className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{x.tipsCount || 0}</td>
                     <td className="px-4 py-3 text-xs text-[color:var(--sf-text-primary)]">
-                      <div className="min-w-[420px] whitespace-pre-wrap">{x.tipsList || "—"}</div>
+                      <div className="min-w-[520px]">
+                        {x.tips.length ? (
+                          <div className="grid gap-2">
+                            {x.tips.map((t) => {
+                              const isOpen = openTips.has(`${String(d.id)}::${String(t.key)}`);
+                              return (
+                                <div key={`${String(d.id)}:${String(t.key)}`} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-2">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <div className="truncate text-xs font-semibold text-[color:var(--sf-text-primary)]">{t.label}</div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleTip(String(d.id), String(t.key))}
+                                      className={`inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${scoreColorClass(t.score)}`}
+                                      title="View tip"
+                                    >
+                                      {isOpen ? "Hide" : "View"}
+                                    </button>
+                                  </div>
+                                  {isOpen ? (
+                                    <div className="mt-2 whitespace-pre-wrap text-xs text-[color:var(--sf-text-primary)]">{t.tipText}</div>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="whitespace-pre-wrap">{x.tipsList || "—"}</div>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );

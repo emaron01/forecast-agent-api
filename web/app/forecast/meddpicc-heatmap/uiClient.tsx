@@ -62,6 +62,20 @@ function scoreLabel(s: any) {
   return "L";
 }
 
+function healthPctFrom30(score: any) {
+  const n = Number(score);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const pct = Math.round((n / 30) * 100);
+  return Math.max(0, Math.min(100, pct));
+}
+
+function healthColorClass(pct: number | null) {
+  if (pct == null) return "text-[color:var(--sf-text-disabled)] bg-[color:var(--sf-surface-alt)]";
+  if (pct >= 80) return "text-[#2ECC71] bg-[#2ECC71]/10";
+  if (pct >= 50) return "text-[#F1C40F] bg-[#F1C40F]/10";
+  return "text-[#E74C3C] bg-[#E74C3C]/10";
+}
+
 function isClosedDeal(d: Deal) {
   return closedOutcomeFromStage((d as any)?.forecast_stage) || null;
 }
@@ -243,6 +257,15 @@ export function MeddpiccHeatmapClient(props: {
     </span>
   );
 
+  const healthCell = (score: any) => {
+    const pct = healthPctFrom30(score);
+    return (
+      <span className={`inline-flex min-w-[64px] items-center justify-center rounded-md px-2 py-1 text-xs font-semibold ${healthColorClass(pct)}`}>
+        {pct == null ? "—" : `${pct}%`}
+      </span>
+    );
+  };
+
   return (
     <div className="grid gap-4">
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
@@ -327,6 +350,7 @@ export function MeddpiccHeatmapClient(props: {
             <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
               <tr>
                 <th className="px-3 py-3">{thBtn("Account", "account")}</th>
+                <th className="px-3 py-3 text-center">Health %</th>
                 <th className="px-3 py-3 text-right">{thBtn("Revenue", "amount", "right")}</th>
                 <th className="px-3 py-3">{thBtn("Close Date", "close_date")}</th>
                 <th className="px-3 py-3">{thBtn("Forecast Stage", "forecast_stage")}</th>
@@ -391,6 +415,7 @@ export function MeddpiccHeatmapClient(props: {
                       ) : null}
                     </div>
                   </td>
+                  <td className="px-3 py-3 text-center">{healthCell(d.health_score)}</td>
                   <td className="px-3 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(d.amount)}</td>
                   <td className="px-3 py-3 font-mono text-xs text-[color:var(--sf-text-primary)]">{safeDate(d.close_date)}</td>
                   <td className="px-3 py-3 text-[color:var(--sf-text-primary)]">{d.forecast_stage || "—"}</td>
@@ -409,7 +434,7 @@ export function MeddpiccHeatmapClient(props: {
               ))}
               {!busy && !sorted.length ? (
                 <tr>
-                  <td colSpan={15} className="px-4 py-8 text-center text-sm text-[color:var(--sf-text-disabled)]">
+                  <td colSpan={16} className="px-4 py-8 text-center text-sm text-[color:var(--sf-text-disabled)]">
                     No deals found.
                   </td>
                 </tr>

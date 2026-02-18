@@ -273,11 +273,11 @@ export function MeddpiccRiskNextStepsClient(props: {
             <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
               <tr>
                 <th className="px-4 py-3">{thBtn("Account Name", "account")}</th>
+                <th className="px-4 py-3 text-right">{thBtn("Avg Health Score", "health", "right")}</th>
                 <th className="px-4 py-3 text-right">{thBtn("Revenue", "amount", "right")}</th>
                 <th className="px-4 py-3">{thBtn("Close Date", "close_date")}</th>
                 <th className="px-4 py-3">{thBtn("Forecast Stage", "forecast_stage")}</th>
                 <th className="px-4 py-3">{thBtn("AI Stage", "ai_stage")}</th>
-                <th className="px-4 py-3 text-right">{thBtn("Health %", "health", "right")}</th>
                 <th className="px-4 py-3">{thBtn("Risk Summary", "risk_summary")}</th>
                 <th className="px-4 py-3">{thBtn("Next Steps", "next_steps")}</th>
               </tr>
@@ -291,16 +291,16 @@ export function MeddpiccRiskNextStepsClient(props: {
                       <div className="mt-0.5 truncate text-xs text-[color:var(--sf-text-disabled)]">{d.opportunity_name || ""}</div>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(d.amount)}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-[color:var(--sf-text-primary)]">{safeDate(d.close_date)}</td>
-                  <td className="px-4 py-3 text-[color:var(--sf-text-primary)]">{d.forecast_stage || "—"}</td>
-                  <td className="px-4 py-3 text-[color:var(--sf-text-primary)]">{d.ai_verdict || "—"}</td>
                   <td className="px-4 py-3 text-right font-mono text-xs">
                     {(() => {
                       const hp = healthPctFrom30(d.health_score);
                       return <span className={healthColorClass(hp)}>{hp == null ? "—" : `${hp}%`}</span>;
                     })()}
                   </td>
+                  <td className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(d.amount)}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-[color:var(--sf-text-primary)]">{safeDate(d.close_date)}</td>
+                  <td className="px-4 py-3 text-[color:var(--sf-text-primary)]">{d.forecast_stage || "—"}</td>
+                  <td className="px-4 py-3 text-[color:var(--sf-text-primary)]">{d.ai_verdict || "—"}</td>
                   <td className="px-4 py-3 text-xs text-[color:var(--sf-text-primary)]">
                     <div className="min-w-[320px] whitespace-pre-wrap">{String(d.risk_summary || "").trim() || "—"}</div>
                   </td>

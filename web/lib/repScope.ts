@@ -170,65 +170,81 @@ export async function getScopedRepDirectory(args: {
   }
 
   // EXEC_MANAGER
-  const mgrRes = await pool.query(
+  // IMPORTANT: exec visibility should include the full descendant tree (not just 1 level of managers → reps),
+  // otherwise team dropdowns can miss indirect reports.
+  const { rows } = await pool.query(
     `
-    SELECT
+    WITH RECURSIVE tree AS (
+      SELECT
+        r.id,
+        COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), '(Unnamed)') AS name,
+        r.role,
+        r.manager_rep_id,
+        r.user_id,
+        r.active,
+        ARRAY[r.id] AS path
+      FROM reps r
+      WHERE r.organization_id = $1::bigint
+        AND r.id = $2::bigint
+
+      UNION ALL
+
+      SELECT
+        c.id,
+        COALESCE(NULLIF(btrim(c.display_name), ''), NULLIF(btrim(c.rep_name), ''), '(Unnamed)') AS name,
+        c.role,
+        c.manager_rep_id,
+        c.user_id,
+        c.active,
+        (t.path || c.id)
+      FROM reps c
+      JOIN tree t
+        ON c.manager_rep_id = t.id
+      WHERE c.organization_id = $1::bigint
+        AND (c.active IS TRUE OR c.active IS NULL)
+        AND NOT (c.id = ANY(t.path))
+    )
+    SELECT DISTINCT ON (id)
       id,
-      COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), '(Unnamed)') AS name,
+      name,
       role,
       manager_rep_id,
       user_id,
       active
-    FROM reps
-    WHERE organization_id = $1::bigint
-      AND role = 'MANAGER'
-      AND manager_rep_id = $2::bigint
-      AND (active IS TRUE OR active IS NULL)
-    ORDER BY name ASC, id ASC
+    FROM tree
+    ORDER BY
+      id ASC,
+      CASE
+        WHEN role = 'EXEC_MANAGER' THEN 0
+        WHEN role = 'MANAGER' THEN 1
+        WHEN role = 'REP' THEN 2
+        ELSE 9
+      END,
+      name ASC
     `,
     [orgId, me.id]
   );
-  const managers = (mgrRes.rows || []).map((r: any) => ({
+
+  const list = (rows || []).map((r: any) => ({
     id: Number(r.id),
     name: String(r.name || "").trim() || "(Unnamed)",
     role: r.role == null ? null : String(r.role),
     manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
     user_id: r.user_id == null ? null : Number(r.user_id),
     active: r.active == null ? null : !!r.active,
-  }));
-  const managerIds = managers.map((m) => m.id).filter((n) => Number.isFinite(n) && n > 0);
+  })) as RepDirectoryRow[];
 
-  const repsRes = managerIds.length
-    ? await pool.query(
-        `
-        SELECT
-          id,
-          COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), '(Unnamed)') AS name,
-          role,
-          manager_rep_id,
-          user_id,
-          active
-        FROM reps
-        WHERE organization_id = $1::bigint
-          AND role = 'REP'
-          AND manager_rep_id = ANY($2::bigint[])
-          AND (active IS TRUE OR active IS NULL)
-        ORDER BY name ASC, id ASC
-        `,
-        [orgId, managerIds]
-      )
-    : ({ rows: [] } as any);
+  // Keep stable ordering: exec → managers → reps, alphabetical.
+  list.sort((a, b) => {
+    const rank = (x: RepDirectoryRow) => (x.role === "EXEC_MANAGER" ? 0 : x.role === "MANAGER" ? 1 : x.role === "REP" ? 2 : 9);
+    const dr = rank(a) - rank(b);
+    if (dr !== 0) return dr;
+    const dn = a.name.localeCompare(b.name);
+    if (dn !== 0) return dn;
+    return a.id - b.id;
+  });
 
-  const reps = (repsRes.rows || []).map((r: any) => ({
-    id: Number(r.id),
-    name: String(r.name || "").trim() || "(Unnamed)",
-    role: r.role == null ? null : String(r.role),
-    manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
-    user_id: r.user_id == null ? null : Number(r.user_id),
-    active: r.active == null ? null : !!r.active,
-  }));
-
-  const allowed = [me.id, ...managerIds, ...reps.map((r) => r.id)];
-  return { repDirectory: [me, ...managers, ...reps], allowedRepIds: allowed, myRepId: me.id };
+  const allowed = Array.from(new Set(list.map((r) => r.id).filter((n) => Number.isFinite(n) && n > 0)));
+  return { repDirectory: list, allowedRepIds: allowed, myRepId: me.id };
 }
 

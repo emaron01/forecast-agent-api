@@ -30,7 +30,7 @@ export default async function MeddpiccTbAnalyticsHubPage() {
     <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
       <main className="mx-auto max-w-4xl p-6">
-        <div className="flex items-end justify-between gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">MEDDPICC+TB Reports</h1>
             <p className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">
@@ -38,7 +38,10 @@ export default async function MeddpiccTbAnalyticsHubPage() {
             </p>
           </div>
           <div>
-            <Link href="/analytics" className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]">
+            <Link
+              href="/analytics"
+              className="inline-flex h-[40px] shrink-0 items-center justify-center whitespace-nowrap rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
+            >
               Analytics home
             </Link>
           </div>

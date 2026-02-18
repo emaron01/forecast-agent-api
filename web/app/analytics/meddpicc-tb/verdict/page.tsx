@@ -90,6 +90,17 @@ type ForecastAggRow = {
 
 type ForecastAggByRoleRow = ForecastAggRow & { owner_role: string };
 
+type TotalPipelineByRepRow = {
+  manager_id: string;
+  manager_name: string;
+  rep_id: string;
+  rep_name: string;
+  crm_total_amount: number;
+  crm_total_count: number;
+  ai_total_amount: number;
+  ai_total_count: number;
+};
+
 function rangeLabel(a: number, b: number) {
   const lo = Math.min(a, b);
   const hi = Math.max(a, b);
@@ -325,13 +336,6 @@ export default async function VerdictForecastPage({
   const allAggRowRaw = aggList.find((r) => String((r as any)?.owner_role || "").toUpperCase() === "ALL") || null;
   const aggAll = normalizeAggRow(allAggRowRaw, "ALL");
 
-  const aggByRole = new Map<string, ForecastAggByRoleRow>();
-  for (const row of aggList) {
-    const k = String((row as any)?.owner_role || "").toUpperCase();
-    if (!k || k === "ALL") continue;
-    aggByRole.set(k, normalizeAggRow(row, k));
-  }
-
   const diff = {
     commit_amount: aggAll.ai_commit_amount - aggAll.crm_commit_amount,
     commit_count: aggAll.ai_commit_count - aggAll.crm_commit_count,
@@ -344,19 +348,114 @@ export default async function VerdictForecastPage({
   };
 
   const boxGrid = "mt-4 grid gap-3 text-sm sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5";
-  const ALL_OWNER_ROLES = ["EXEC_MANAGER", "MANAGER", "REP"] as const;
-  const ownerRoleLabel = (k: string) => {
-    const key = String(k || "").toUpperCase();
-    if (key === "EXEC_MANAGER") return "Executive";
-    if (key === "MANAGER") return "Manager";
-    if (key === "REP") return "Rep";
-    return key;
-  };
 
   const commitMid = (Number(aggAll.crm_commit_amount || 0) + Number(aggAll.ai_commit_amount || 0)) / 2;
   const endOfQuarterVerdict = (Number(aggAll.won_amount || 0) || 0) + (Number.isFinite(commitMid) ? commitMid : 0);
   const leftToGo = quarterlyQuotaAmount - (Number(aggAll.won_amount || 0) || 0);
   const pctToGoal = quarterlyQuotaAmount > 0 ? endOfQuarterVerdict / quarterlyQuotaAmount : null;
+
+  const pipelineByRepRows: TotalPipelineByRepRow[] = qpId && qp
+    ? await pool
+        .query<TotalPipelineByRepRow>(
+          `
+          WITH qp AS (
+            SELECT period_start::date AS period_start, period_end::date AS period_end
+              FROM quota_periods
+             WHERE org_id = $1::bigint
+               AND id = $2::bigint
+             LIMIT 1
+          ),
+          deals AS (
+            SELECT
+              COALESCE(o.amount, 0)::float8 AS amount,
+              o.health_score,
+              o.rep_id,
+              o.rep_name,
+              r.manager_rep_id,
+              COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), NULLIF(btrim(o.rep_name), ''), '(Unknown rep)') AS rep_name_norm,
+              COALESCE(NULLIF(btrim(m.display_name), ''), NULLIF(btrim(m.rep_name), ''), '(Unassigned)') AS manager_name_norm,
+              lower(
+                regexp_replace(
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                  '[^a-zA-Z]+',
+                  ' ',
+                  'g'
+                )
+              ) AS fs
+            FROM opportunities o
+            JOIN qp ON TRUE
+            LEFT JOIN reps r
+              ON r.organization_id = $1
+             AND r.id = o.rep_id
+            LEFT JOIN reps m
+              ON m.organization_id = $1
+             AND m.id = r.manager_rep_id
+            LEFT JOIN reps e
+              ON e.organization_id = $1
+             AND e.id = m.manager_rep_id
+            WHERE o.org_id = $1
+              AND o.close_date IS NOT NULL
+              AND o.close_date >= qp.period_start
+              AND o.close_date <= qp.period_end
+              AND (
+                (COALESCE(array_length($3::bigint[], 1), 0) = 0 AND COALESCE(array_length($4::bigint[], 1), 0) = 0)
+                OR (
+                  COALESCE(array_length($3::bigint[], 1), 0) > 0
+                  AND (
+                    o.rep_id = ANY($3::bigint[])
+                    OR r.manager_rep_id = ANY($3::bigint[])
+                    OR m.manager_rep_id = ANY($3::bigint[])
+                  )
+                )
+                OR (COALESCE(array_length($4::bigint[], 1), 0) > 0 AND o.rep_id = ANY($4::bigint[]))
+              )
+          ),
+          classified AS (
+            SELECT
+              *,
+              ((' ' || fs || ' ') LIKE '% won %') AS is_won,
+              ((' ' || fs || ' ') LIKE '% lost %') AS is_lost,
+              ((' ' || fs || ' ') LIKE '% closed %') AS is_closed_kw,
+              (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %') AND NOT ((' ' || fs || ' ') LIKE '% closed %')) AS is_open
+            FROM deals
+          )
+          SELECT
+            COALESCE(manager_rep_id::text, '') AS manager_id,
+            COALESCE(NULLIF(btrim(manager_name_norm), ''), '(Unassigned)') AS manager_name,
+            COALESCE(rep_id::text, '') AS rep_id,
+            COALESCE(NULLIF(btrim(rep_name_norm), ''), '(Unknown rep)') AS rep_name,
+            COALESCE(SUM(CASE WHEN is_open THEN amount ELSE 0 END), 0)::float8 AS crm_total_amount,
+            COALESCE(SUM(CASE WHEN is_open THEN 1 ELSE 0 END), 0)::int AS crm_total_count,
+            COALESCE(SUM(CASE WHEN is_open THEN amount ELSE 0 END), 0)::float8 AS ai_total_amount,
+            COALESCE(SUM(CASE WHEN is_open THEN 1 ELSE 0 END), 0)::int AS ai_total_count
+          FROM classified
+          GROUP BY COALESCE(manager_rep_id::text, ''), COALESCE(NULLIF(btrim(manager_name_norm), ''), '(Unassigned)'), COALESCE(rep_id::text, ''), COALESCE(NULLIF(btrim(rep_name_norm), ''), '(Unknown rep)')
+          ORDER BY manager_name ASC, rep_name ASC
+          `,
+          [ctx.user.org_id, qpId, scopedTeamIds, scopedRepIds]
+        )
+        .then((r) => (r.rows || []) as any[])
+        .catch(() => [])
+    : [];
+
+  const pipelineByRep = (pipelineByRepRows || []).filter((r) => (Number(r.crm_total_count || 0) || 0) > 0 || (Number(r.ai_total_count || 0) || 0) > 0);
+
+  const pipelineGroups = (() => {
+    const byMgr = new Map<string, { manager_id: string; manager_name: string; reps: TotalPipelineByRepRow[] }>();
+    for (const r of pipelineByRep) {
+      const mid = String(r.manager_id || "");
+      const mname = String(r.manager_name || "(Unassigned)");
+      const key = mid || "(unassigned)";
+      const cur = byMgr.get(key) || { manager_id: mid, manager_name: mname, reps: [] };
+      cur.manager_name = mname;
+      cur.reps.push(r);
+      byMgr.set(key, cur);
+    }
+    const groups = Array.from(byMgr.values());
+    groups.sort((a, b) => a.manager_name.localeCompare(b.manager_name));
+    for (const g of groups) g.reps.sort((a, b) => (Number(b.crm_total_amount || 0) - Number(a.crm_total_amount || 0)) || a.rep_name.localeCompare(b.rep_name));
+    return groups;
+  })();
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -490,46 +589,93 @@ export default async function VerdictForecastPage({
         </section>
 
         <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Role comparison (Total Pipeline)</h2>
-          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Compare Sales Forecast vs The Verdict totals by owner role.</p>
+          <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">People comparison (Total Pipeline)</h2>
+          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+            Rep breakdown grouped by manager. Visibility respects your team scope.
+          </p>
 
-          <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-            <table className="w-full min-w-[900px] text-left text-sm">
-              <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
-                <tr>
-                  <th className="px-4 py-3">Role</th>
-                  <th className="px-4 py-3 text-right">Sales Forecast (Total)</th>
-                  <th className="px-4 py-3 text-right">Verdict (Total)</th>
-                  <th className="px-4 py-3 text-right">Δ Total</th>
-                  <th className="px-4 py-3 text-right">Δ # Opps</th>
-                  <th className="px-4 py-3">Range</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from(ALL_OWNER_ROLES).map((k) => {
-                  const row = aggByRole.get(k) || normalizeAggRow(null, k);
-                  const da = row.ai_total_amount - row.crm_total_amount;
-                  const dc = row.ai_total_count - row.crm_total_count;
-                  return (
-                    <tr key={k} className="border-t border-[color:var(--sf-border)]">
-                      <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{ownerRoleLabel(k)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(row.crm_total_amount)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(row.ai_total_amount)}</td>
-                      <td className={`px-4 py-3 text-right font-mono text-xs ${deltaClass(da)}`}>
-                        {da === 0 ? "—" : `${da > 0 ? "+" : ""}${fmtMoney(Math.abs(da)).replace("$", "$")}`}
-                      </td>
-                      <td className={`px-4 py-3 text-right font-mono text-xs ${deltaClass(dc)}`}>
-                        {dc === 0 ? "—" : `${dc > 0 ? "+" : ""}${fmtNum(Math.abs(dc))}`}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-[color:var(--sf-text-secondary)]">
-                        {rangeLabel(row.crm_total_amount, row.ai_total_amount)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          {!pipelineGroups.length ? (
+            <div className="mt-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 text-sm text-[color:var(--sf-text-secondary)]">
+              No open pipeline found for the selected period + filters.
+            </div>
+          ) : (
+            <div className="mt-4 grid gap-3">
+              {pipelineGroups.map((g) => {
+                const crmAmt = g.reps.reduce((acc, r) => acc + (Number(r.crm_total_amount || 0) || 0), 0);
+                const aiAmt = g.reps.reduce((acc, r) => acc + (Number(r.ai_total_amount || 0) || 0), 0);
+                const crmCnt = g.reps.reduce((acc, r) => acc + (Number(r.crm_total_count || 0) || 0), 0);
+                const aiCnt = g.reps.reduce((acc, r) => acc + (Number(r.ai_total_count || 0) || 0), 0);
+                const da = aiAmt - crmAmt;
+                const dc = aiCnt - crmCnt;
+                return (
+                  <details key={`mgr:${g.manager_id || "unassigned"}`} className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                    <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">
+                      {g.manager_name}{" "}
+                      <span className="ml-2 text-xs font-normal text-[color:var(--sf-text-secondary)]">
+                        ({g.reps.length} reps) · SF {fmtMoney(crmAmt)} · Verdict {fmtMoney(aiAmt)}
+                      </span>
+                    </summary>
+
+                    <div className="mt-3 overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                      <table className="w-full min-w-[900px] text-left text-sm">
+                        <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                          <tr>
+                            <th className="px-4 py-3">Rep</th>
+                            <th className="px-4 py-3 text-right">Sales Forecast (Total)</th>
+                            <th className="px-4 py-3 text-right">Verdict (Total)</th>
+                            <th className="px-4 py-3 text-right">Δ Total</th>
+                            <th className="px-4 py-3 text-right">Δ # Opps</th>
+                            <th className="px-4 py-3">Range</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                            <td className="px-4 py-3 font-semibold text-[color:var(--sf-text-primary)]">Manager total</td>
+                            <td className="px-4 py-3 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(crmAmt)}</td>
+                            <td className="px-4 py-3 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(aiAmt)}</td>
+                            <td className={`px-4 py-3 text-right font-mono text-xs font-semibold ${deltaClass(da)}`}>
+                              {da === 0 ? "—" : `${da > 0 ? "+" : ""}${fmtMoney(Math.abs(da)).replace("$", "$")}`}
+                            </td>
+                            <td className={`px-4 py-3 text-right font-mono text-xs font-semibold ${deltaClass(dc)}`}>
+                              {dc === 0 ? "—" : `${dc > 0 ? "+" : ""}${fmtNum(Math.abs(dc))}`}
+                            </td>
+                            <td className="px-4 py-3 font-mono text-xs text-[color:var(--sf-text-secondary)]">{rangeLabel(crmAmt, aiAmt)}</td>
+                          </tr>
+
+                          {g.reps.map((r) => {
+                            const rDa = (Number(r.ai_total_amount || 0) || 0) - (Number(r.crm_total_amount || 0) || 0);
+                            const rDc = (Number(r.ai_total_count || 0) || 0) - (Number(r.crm_total_count || 0) || 0);
+                            return (
+                              <tr key={`rep:${g.manager_id}:${r.rep_id}`} className="border-t border-[color:var(--sf-border)]">
+                                <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{r.rep_name}</td>
+                                <td className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">
+                                  {fmtMoney(r.crm_total_amount)}{" "}
+                                  <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(r.crm_total_count)})</span>
+                                </td>
+                                <td className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">
+                                  {fmtMoney(r.ai_total_amount)}{" "}
+                                  <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(r.ai_total_count)})</span>
+                                </td>
+                                <td className={`px-4 py-3 text-right font-mono text-xs ${deltaClass(rDa)}`}>
+                                  {rDa === 0 ? "—" : `${rDa > 0 ? "+" : ""}${fmtMoney(Math.abs(rDa)).replace("$", "$")}`}
+                                </td>
+                                <td className={`px-4 py-3 text-right font-mono text-xs ${deltaClass(rDc)}`}>
+                                  {rDc === 0 ? "—" : `${rDc > 0 ? "+" : ""}${fmtNum(Math.abs(rDc))}`}
+                                </td>
+                                <td className="px-4 py-3 font-mono text-xs text-[color:var(--sf-text-secondary)]">
+                                  {rangeLabel(r.crm_total_amount, r.ai_total_amount)}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+                );
+              })}
+            </div>
+          )}
         </section>
       </main>
     </div>

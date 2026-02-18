@@ -13,27 +13,6 @@ function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
 }
 
-function spAll(v: string | string[] | undefined) {
-  if (Array.isArray(v)) return v;
-  if (typeof v === "string" && v.trim()) return [v];
-  return [] as string[];
-}
-
-function parseIntList(v: Array<string | undefined>) {
-  const out: number[] = [];
-  for (const raw of v || []) {
-    const t = String(raw || "").trim();
-    if (!t) continue;
-    for (const part of t.split(/[,\s]+/g)) {
-      const s = part.trim();
-      if (!s) continue;
-      const n = Number.parseInt(s, 10);
-      if (Number.isFinite(n) && n > 0) out.push(n);
-    }
-  }
-  return Array.from(new Set(out));
-}
-
 type QuotaPeriodLite = {
   id: string;
   fiscal_year: string;
@@ -41,13 +20,6 @@ type QuotaPeriodLite = {
   period_name: string;
   period_start: string;
   period_end: string;
-};
-
-type RepOption = {
-  id: number;
-  name: string;
-  role: string | null;
-  manager_rep_id: number | null;
 };
 
 export default async function MeddpiccRepRollupPage({
@@ -64,47 +36,14 @@ export default async function MeddpiccRepRollupPage({
 
   const quota_period_id = String(sp(searchParams?.quota_period_id) || "").trim();
   const include_closed = String(sp(searchParams?.include_closed) || "").trim() === "1";
+  const show_breakdown = String(sp(searchParams?.show_breakdown) || "").trim() === "1";
 
-  const teamIds = parseIntList([...spAll(searchParams?.team_id), ...spAll(searchParams?.team_ids)]);
-  const repIds = parseIntList([...spAll(searchParams?.rep_id), ...spAll(searchParams?.rep_ids)]);
-
-  const scope = await getScopedRepDirectory({ orgId: ctx.user.org_id, userId: ctx.user.id, role: ctx.user.role as any }).catch(() => null);
-  const repOptions: RepOption[] = (scope?.repDirectory || []).map((r: any) => ({
-    id: Number(r.id),
-    name: String(r.name || "").trim() || "(Unnamed)",
-    role: r.role == null ? null : String(r.role),
-    manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
-  }));
-  const visibleIds = scope?.allowedRepIds ?? null;
-  const visibleSet = visibleIds ? new Set<number>(visibleIds) : null;
-
-  const execOptions = repOptions.filter((r) => r.role === "EXEC_MANAGER");
-  const managerOptions = repOptions.filter((r) => r.role === "MANAGER");
-  const repOnlyOptions = repOptions.filter((r) => r.role === "REP");
-
-  const managersByExec = new Map<number, RepOption[]>();
-  for (const m of managerOptions) {
-    const eid = m.manager_rep_id ?? 0;
-    const list = managersByExec.get(eid) || [];
-    list.push(m);
-    managersByExec.set(eid, list);
-  }
-  for (const [k, v] of managersByExec.entries()) {
-    v.sort((a, b) => a.name.localeCompare(b.name));
-    managersByExec.set(k, v);
-  }
-
-  const repsByManager = new Map<number, RepOption[]>();
-  for (const r of repOnlyOptions) {
-    const mid = r.manager_rep_id ?? 0;
-    const list = repsByManager.get(mid) || [];
-    list.push(r);
-    repsByManager.set(mid, list);
-  }
-  for (const [k, v] of repsByManager.entries()) {
-    v.sort((a, b) => a.name.localeCompare(b.name));
-    repsByManager.set(k, v);
-  }
+  const scope = await getScopedRepDirectory({
+    orgId: ctx.user.org_id,
+    userId: ctx.user.id,
+    role: ctx.user.role as any,
+  }).catch(() => null);
+  const visibleRepIds = scope?.allowedRepIds && scope.allowedRepIds.length ? scope.allowedRepIds : null; // null => admin (no filter)
 
   const periods = await pool
     .query<QuotaPeriodLite>(
@@ -130,9 +69,6 @@ export default async function MeddpiccRepRollupPage({
   const defaultQuotaPeriodId = String(containingToday?.id || periods?.[0]?.id || "").trim();
   const qpId = quota_period_id || defaultQuotaPeriodId;
   const qp = qpId ? periods.find((p) => String(p.id) === qpId) || null : null;
-
-  const scopedTeamIds = visibleSet ? teamIds.filter((id) => visibleSet.has(id)) : teamIds;
-  const scopedRepIds = visibleSet ? repIds.filter((id) => visibleSet.has(id)) : repIds;
 
   const rows = qp
     ? await pool
@@ -205,8 +141,7 @@ export default async function MeddpiccRepRollupPage({
               AND o.close_date IS NOT NULL
               AND o.close_date >= qp.period_start
               AND o.close_date <= qp.period_end
-              AND (COALESCE(array_length($4::int[], 1), 0) = 0 OR r.manager_rep_id = ANY($4::int[]) OR m.manager_rep_id = ANY($4::int[]))
-              AND (COALESCE(array_length($5::int[], 1), 0) = 0 OR o.rep_id = ANY($5::int[]))
+              AND (NOT $4::boolean OR o.rep_id = ANY($5::bigint[]))
           ),
           filtered AS (
             SELECT
@@ -252,7 +187,7 @@ export default async function MeddpiccRepRollupPage({
           GROUP BY stage_group, executive_id, executive_name, manager_id, manager_name, rep_id, rep_name
           ORDER BY stage_group ASC, executive_name ASC, manager_name ASC, rep_name ASC
           `,
-          [ctx.user.org_id, qp.id, include_closed, scopedTeamIds, scopedRepIds]
+          [ctx.user.org_id, qp.id, include_closed, !!(visibleRepIds && visibleRepIds.length), visibleRepIds || []]
         )
         .then((r) => r.rows || [])
         .catch(() => [])
@@ -306,109 +241,52 @@ export default async function MeddpiccRepRollupPage({
         </div>
 
         <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Filters</h2>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Filters</h2>
+              <div className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+                <span className="font-mono text-xs">{qp?.period_start || "—"}</span> →{" "}
+                <span className="font-mono text-xs">{qp?.period_end || "—"}</span>
+              </div>
+            </div>
           </div>
 
-          <form method="GET" action="/analytics/meddpicc-tb/rep-rollup" className="mt-3 grid gap-4 md:grid-cols-12">
-            <section className="md:col-span-8">
-              <div className="text-xs font-medium text-[color:var(--sf-text-secondary)]">People (organized by team)</div>
-              <div className="mt-2 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
-                <div className="grid gap-2">
-                  {(execOptions.length ? execOptions : [{ id: 0, name: "(Unassigned)", role: "EXEC_MANAGER", manager_rep_id: null }]).map((ex) => {
-                    const exId = Number(ex.id) || 0;
-                    const execChecked = teamIds.includes(exId);
-                    const mgrs = managersByExec.get(exId) || [];
-                    return (
-                      <details key={`exec:${exId}`} open className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2">
-                        <summary className="cursor-pointer select-none text-sm font-semibold text-[color:var(--sf-text-primary)]">
-                          <label className="inline-flex items-center gap-2">
-                            <input type="checkbox" name="team_id" value={String(exId)} defaultChecked={execChecked} />
-                            Executive: {ex.name}
-                          </label>
-                        </summary>
+          <form method="GET" action="/analytics/meddpicc-tb/rep-rollup" className="mt-3 flex flex-wrap items-end gap-3">
+            <div className="grid gap-1">
+              <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Quarter</label>
+              <select
+                name="quota_period_id"
+                defaultValue={qpId}
+                className="h-[40px] min-w-[240px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+              >
+                {periods.map((p) => (
+                  <option key={p.id} value={String(p.id)}>
+                    {String(p.period_name || "").trim() || `${p.period_start} → ${p.period_end}`}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-                        <div className="mt-2 grid gap-2 pl-4">
-                          {(mgrs.length ? mgrs : [{ id: 0, name: "(Unassigned)", role: "MANAGER", manager_rep_id: exId }]).map((m) => {
-                            const mid = Number(m.id) || 0;
-                            const mgrChecked = teamIds.includes(mid);
-                            const reps = repsByManager.get(mid) || [];
-                            return (
-                              <div key={`mgr:${exId}:${mid}`} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2">
-                                <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">
-                                  <label className="inline-flex items-center gap-2">
-                                    <input type="checkbox" name="team_id" value={String(mid)} defaultChecked={mgrChecked} />
-                                    Manager: {m.name}
-                                  </label>
-                                </div>
-                                <div className="mt-2 grid gap-1 pl-6">
-                                  {(reps.length ? reps : [{ id: 0, name: "(No reps)", role: "REP", manager_rep_id: mid }]).map((r) => {
-                                    const rid = Number(r.id) || 0;
-                                    const repChecked = repIds.includes(rid);
-                                    return (
-                                      <label
-                                        key={`rep:${mid}:${rid}`}
-                                        className="inline-flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]"
-                                      >
-                                        <input type="checkbox" name="rep_id" value={String(rid)} defaultChecked={repChecked} disabled={rid === 0} />
-                                        {r.name}
-                                      </label>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </details>
-                    );
-                  })}
-                </div>
-              </div>
-            </section>
+            <label className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
+              <input type="checkbox" name="include_closed" value="1" defaultChecked={include_closed} />
+              Include closed
+            </label>
 
-            <section className="md:col-span-4 md:justify-self-end">
-              <div className="grid gap-3">
-                <div className="grid gap-1">
-                  <div className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Period</div>
-                  <div className="text-sm text-[color:var(--sf-text-secondary)]">
-                    <span className="font-mono text-xs">{qp?.period_start || "—"}</span> →{" "}
-                    <span className="font-mono text-xs">{qp?.period_end || "—"}</span>
-                  </div>
-                </div>
+            <label className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
+              <input type="checkbox" name="show_breakdown" value="1" defaultChecked={show_breakdown} />
+              Show manager + rep breakdown
+            </label>
 
-                <div className="grid gap-1">
-                  <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Quarter</label>
-                  <select
-                    name="quota_period_id"
-                    defaultValue={qpId}
-                    className="h-[40px] w-full min-w-[240px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                  >
-                    {periods.map((p) => (
-                      <option key={p.id} value={String(p.id)}>
-                        {String(p.period_name || "").trim() || `${p.period_start} → ${p.period_end}`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <label className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
-                  <input type="checkbox" name="include_closed" value="1" defaultChecked={include_closed} />
-                  Include closed
-                </label>
-
-                <button
-                  type="submit"
-                  className="h-[40px] w-full rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
-                >
-                  Apply
-                </button>
-              </div>
-            </section>
+            <button
+              type="submit"
+              className="h-[40px] rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
+            >
+              Apply
+            </button>
           </form>
         </section>
 
-        <MeddpiccRepRollupClient rows={repRows} />
+        <MeddpiccRepRollupClient rows={repRows} defaultShowDetails={show_breakdown} />
       </main>
     </div>
   );

@@ -82,7 +82,6 @@ type QuotaPeriodLite = {
   fiscal_quarter: string;
 };
 
-type RepLite = { id: number; rep_name: string; display_name: string | null; manager_rep_id: number | null; active: boolean | null };
 type ManagerOption = { id: number; name: string };
 type RepOption = { id: number; name: string; manager_rep_id: number | null };
 
@@ -159,57 +158,30 @@ async function listQuotaPeriodsForOrg(orgId: number): Promise<QuotaPeriodLite[]>
   return (rows || []) as QuotaPeriodLite[];
 }
 
-async function listRepsForOrg(orgId: number): Promise<RepLite[]> {
-  const { rows } = await pool.query<RepLite>(
-    `
-    SELECT
-      id,
-      rep_name,
-      display_name,
-      manager_rep_id,
-      active
-    FROM reps
-    WHERE organization_id = $1
-    ORDER BY COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), id::text) ASC, id ASC
-    `,
-    [orgId]
-  );
-  return (rows || []) as RepLite[];
-}
-
-async function listManagerOptions(orgId: number): Promise<ManagerOption[]> {
-  const { rows } = await pool.query<{ id: number; name: string }>(
-    `
-    WITH mgr_ids AS (
-      SELECT DISTINCT manager_rep_id AS id
-        FROM reps
-       WHERE organization_id = $1
-         AND manager_rep_id IS NOT NULL
-    )
-    SELECT
-      r.id,
-      COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), ('Manager ' || r.id::text)) AS name
-    FROM reps r
-    JOIN mgr_ids m ON m.id = r.id
-    WHERE r.organization_id = $1
-    ORDER BY name ASC, r.id ASC
-    `,
-    [orgId]
-  );
-  return (rows || []) as any[];
-}
-
-async function listDirectRepIds(orgId: number, managerRepId: number): Promise<number[]> {
+async function listDescendantRepIds(orgId: number, rootRepId: number): Promise<number[]> {
   const { rows } = await pool.query<{ id: number }>(
     `
-    SELECT id
-      FROM reps
-     WHERE organization_id = $1
-       AND manager_rep_id = $2
-       AND active IS TRUE
+    WITH RECURSIVE tree AS (
+      SELECT r.id, ARRAY[r.id] AS path
+        FROM reps r
+       WHERE r.organization_id = $1::bigint
+         AND r.id = $2::bigint
+
+      UNION ALL
+
+      SELECT c.id, (t.path || c.id)
+        FROM reps c
+        JOIN tree t
+          ON c.manager_rep_id = t.id
+       WHERE c.organization_id = $1::bigint
+         AND (c.active IS TRUE OR c.active IS NULL)
+         AND NOT (c.id = ANY(t.path))
+    )
+    SELECT DISTINCT id
+      FROM tree
      ORDER BY id ASC
     `,
-    [orgId, managerRepId]
+    [orgId, rootRepId]
   );
   return (rows || []).map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0);
 }
@@ -550,38 +522,37 @@ export default async function ExecutiveAnalyticsKpisPage({
   }));
   const allowedSet = repScope.allowedRepIds ? new Set(repScope.allowedRepIds.map((n) => String(n))) : null;
 
-  const managersAll = await listManagerOptions(ctx.user.org_id).catch(() => []);
-  const managers = allowedSet ? managersAll.filter((m) => allowedSet.has(String(m.id))) : managersAll;
+  const directory = (repScope.repDirectory || []).filter((r) => r && Number.isFinite(r.id) && r.id > 0);
+  const directoryInScope = allowedSet ? directory.filter((r) => allowedSet.has(String(r.id))) : directory;
 
-  const repsAll = await listRepsForOrg(ctx.user.org_id).catch(() => []);
-  const reps = allowedSet ? repsAll.filter((r) => allowedSet.has(String((r as any).id))) : repsAll;
-  const repOptions: RepOption[] = reps
-    .filter((r) => r && r.active !== false)
-    .map((r) => ({
-      id: Number(r.id),
-      name: String(r.display_name || "").trim() || String(r.rep_name || "").trim() || `Rep ${r.id}`,
-      manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
-    }))
-    .filter((r) => Number.isFinite(r.id) && r.id > 0);
+  const managers: ManagerOption[] = directoryInScope
+    .filter((r) => String(r.role || "").toUpperCase() === "MANAGER")
+    .map((r) => ({ id: Number(r.id), name: String(r.name || "").trim() || `Manager ${r.id}` }))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+
+  const repOptions: RepOption[] = directoryInScope
+    .filter((r) => String(r.role || "").toUpperCase() === "REP")
+    .map((r) => ({ id: Number(r.id), name: String(r.name || "").trim() || `Rep ${r.id}`, manager_rep_id: r.manager_rep_id }))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+
+  const nameById = new Map<string, string>();
+  for (const r of directoryInScope) nameById.set(String(r.id), String(r.name || "").trim() || `Rep ${r.id}`);
 
   const repIdToManagerId = new Map<string, string>();
-  for (const r of reps) {
-    const id = Number(r.id);
-    if (!Number.isFinite(id) || id <= 0) continue;
+  for (const r of directoryInScope) {
     const mid = r.manager_rep_id == null ? "" : String(r.manager_rep_id);
-    repIdToManagerId.set(String(id), mid);
+    repIdToManagerId.set(String(r.id), mid);
   }
 
-  const managerNameById = new Map<string, string>();
-  for (const m of managers) managerNameById.set(String(m.id), String(m.name));
+  const managerNameById = new Map<string, string>(nameById.entries());
 
   const managerRepId = manager_rep_id_raw ? Number(manager_rep_id_raw) : null;
   const repId = rep_id_raw ? Number(rep_id_raw) : null;
 
   let scopeRepIds: number[] | null = null;
   if (scope === "manager" && managerRepId && Number.isFinite(managerRepId)) {
-    const direct = await listDirectRepIds(ctx.user.org_id, managerRepId).catch(() => []);
-    scopeRepIds = allowedSet ? direct.filter((id) => allowedSet.has(String(id))) : direct;
+    const desc = await listDescendantRepIds(ctx.user.org_id, managerRepId).catch(() => []);
+    scopeRepIds = allowedSet ? desc.filter((id) => allowedSet.has(String(id))) : desc;
     if (allowedSet && !allowedSet.has(String(managerRepId))) scopeRepIds = [0];
   } else if (scope === "rep" && repId && Number.isFinite(repId)) {
     if (allowedSet && !allowedSet.has(String(repId))) scopeRepIds = [0];

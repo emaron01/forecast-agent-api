@@ -51,9 +51,20 @@ export function ExecutiveKpisFiltersClient(props: {
   }, [props.periods, year]);
 
   const [quotaPeriodId, setQuotaPeriodId] = useState(props.defaultQuotaPeriodId || periodsForYear[0]?.id || "");
-  const [scope, setScope] = useState(props.defaultScope || "company");
-  const [managerRepId, setManagerRepId] = useState(props.defaultManagerRepId || "");
-  const [repId, setRepId] = useState(props.defaultRepId || "");
+  const initialPick = (() => {
+    const s = String(props.defaultScope || "company").trim();
+    if (s === "manager" && String(props.defaultManagerRepId || "").trim()) return `mgr:${String(props.defaultManagerRepId).trim()}`;
+    if (s === "rep" && String(props.defaultRepId || "").trim()) return `rep:${String(props.defaultRepId).trim()}`;
+    return "company";
+  })();
+  const [teamPick, setTeamPick] = useState<string>(initialPick);
+
+  const { scope, managerRepId, repId } = useMemo(() => {
+    const v = String(teamPick || "company").trim();
+    if (v.startsWith("mgr:")) return { scope: "manager", managerRepId: v.slice(4), repId: "" };
+    if (v.startsWith("rep:")) return { scope: "rep", managerRepId: "", repId: v.slice(4) };
+    return { scope: "company", managerRepId: "", repId: "" };
+  }, [teamPick]);
 
   function push(next: Record<string, string>) {
     const sp = new URLSearchParams(searchParams.toString());
@@ -72,6 +83,13 @@ export function ExecutiveKpisFiltersClient(props: {
     const urlMgr = String(searchParams.get("manager_rep_id") || "").trim();
     const urlRep = String(searchParams.get("rep_id") || "").trim();
 
+    const pickFromUrl =
+      urlScope === "manager" && urlMgr
+        ? `mgr:${urlMgr}`
+        : urlScope === "rep" && urlRep
+          ? `rep:${urlRep}`
+          : "company";
+
     const needYear = !urlYear && !!year;
     const needQp = !urlQp && !!quotaPeriodId;
     const needScope = !urlScope && !!scope;
@@ -87,6 +105,9 @@ export function ExecutiveKpisFiltersClient(props: {
         rep_id: urlRep || (scope === "rep" ? repId : ""),
       });
     }
+
+    // Keep local pick in sync with URL on first load.
+    setTeamPick(pickFromUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -111,6 +132,25 @@ export function ExecutiveKpisFiltersClient(props: {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodsForYear]);
+
+  const managersSorted = useMemo(
+    () => (props.managers || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)) || Number(a.id) - Number(b.id)),
+    [props.managers]
+  );
+  const repsSorted = useMemo(
+    () => (props.reps || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)) || Number(a.id) - Number(b.id)),
+    [props.reps]
+  );
+  const repsByManager = useMemo(() => {
+    const m = new Map<string, RepOption[]>();
+    for (const r of repsSorted) {
+      const mid = r.manager_rep_id == null ? "" : String(r.manager_rep_id);
+      const list = m.get(mid) || [];
+      list.push(r);
+      m.set(mid, list);
+    }
+    return m;
+  }, [repsSorted]);
 
   return (
     <form className="mt-3 grid gap-3 md:grid-cols-4" onSubmit={(e) => e.preventDefault()}>
@@ -148,69 +188,52 @@ export function ExecutiveKpisFiltersClient(props: {
         </select>
       </div>
 
-      <div className="grid gap-1">
-        <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Compare scope</label>
+      <div className="grid gap-1 md:col-span-2">
+        <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Team member</label>
         <select
-          value={scope}
+          value={teamPick}
           onChange={(e) => {
-            const next = String(e.target.value || "company").trim();
-            setScope(next);
-            push({
-              scope: next,
-              manager_rep_id: next === "manager" ? managerRepId : "",
-              rep_id: next === "rep" ? repId : "",
-            });
+            const next = String(e.target.value || "company");
+            setTeamPick(next);
+            const parsed =
+              next.startsWith("mgr:") ? { scope: "manager", manager_rep_id: next.slice(4), rep_id: "" }
+              : next.startsWith("rep:") ? { scope: "rep", manager_rep_id: "", rep_id: next.slice(4) }
+              : { scope: "company", manager_rep_id: "", rep_id: "" };
+            push({ scope: parsed.scope, manager_rep_id: parsed.manager_rep_id, rep_id: parsed.rep_id });
           }}
           className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
         >
           <option value="company">Company</option>
-          <option value="manager">Manager (direct reports)</option>
-          <option value="rep">Rep</option>
+          {managersSorted.map((m) => {
+            const reps = repsByManager.get(String(m.id)) || [];
+            return (
+              <optgroup key={String(m.id)} label={m.name}>
+                <option value={`mgr:${String(m.id)}`}>{`Manager: ${m.name}`}</option>
+                {reps.map((r) => (
+                  <option key={String(r.id)} value={`rep:${String(r.id)}`}>
+                    {`\u00A0\u00A0Rep: ${r.name}`}
+                  </option>
+                ))}
+              </optgroup>
+            );
+          })}
+          {(() => {
+            const unassigned = repsByManager.get("") || [];
+            if (!unassigned.length) return null;
+            return (
+              <optgroup label="(Unassigned)">
+                {unassigned.map((r) => (
+                  <option key={String(r.id)} value={`rep:${String(r.id)}`}>
+                    {`Rep: ${r.name}`}
+                  </option>
+                ))}
+              </optgroup>
+            );
+          })()}
         </select>
-      </div>
-
-      <div className="grid gap-1 md:col-span-2">
-        <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Manager</label>
-        <select
-          value={managerRepId}
-          onChange={(e) => {
-            const next = String(e.target.value || "").trim();
-            setManagerRepId(next);
-            setScope(next ? "manager" : scope);
-            push({ scope: next ? "manager" : scope, manager_rep_id: next, rep_id: "" });
-          }}
-          className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-        >
-          <option value="">(select)</option>
-          {props.managers.map((m) => (
-            <option key={String(m.id)} value={String(m.id)}>
-              {m.name}
-            </option>
-          ))}
-        </select>
-        <div className="text-xs text-[color:var(--sf-text-disabled)]">Selecting a manager sets scope = Manager.</div>
-      </div>
-
-      <div className="grid gap-1 md:col-span-2">
-        <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Rep</label>
-        <select
-          value={repId}
-          onChange={(e) => {
-            const next = String(e.target.value || "").trim();
-            setRepId(next);
-            setScope(next ? "rep" : scope);
-            push({ scope: next ? "rep" : scope, rep_id: next, manager_rep_id: "" });
-          }}
-          className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-        >
-          <option value="">(select)</option>
-          {props.reps.map((r) => (
-            <option key={String(r.id)} value={String(r.id)}>
-              {r.name}
-            </option>
-          ))}
-        </select>
-        <div className="text-xs text-[color:var(--sf-text-disabled)]">Selecting a rep sets scope = Rep.</div>
+        <div className="text-xs text-[color:var(--sf-text-disabled)]">
+          Choose a manager to scope to their team; choose a rep to scope to that rep.
+        </div>
       </div>
     </form>
   );
