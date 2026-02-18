@@ -9,6 +9,9 @@ import { resolvePublicId } from "../../../../lib/publicId";
 
 export const runtime = "nodejs";
 
+const CATEGORY_OPTIONS = ["Commit", "Best Case", "Pipeline"] as const;
+type CategoryOption = (typeof CATEGORY_OPTIONS)[number];
+
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
 }
@@ -62,6 +65,9 @@ async function upsertRuleAction(formData: FormData) {
   if (min_score == null || max_score == null) redirect(`${closeHref(orgPublicId)}&error=${encodeURIComponent("min/max score are required")}`);
   if (min_score > max_score) redirect(`${closeHref(orgPublicId)}&error=${encodeURIComponent("min_score cannot exceed max_score")}`);
   if (!mapped_category) redirect(`${closeHref(orgPublicId)}&error=${encodeURIComponent("mapped_category is required")}`);
+  if (!CATEGORY_OPTIONS.includes(mapped_category as any)) {
+    redirect(`${closeHref(orgPublicId)}&error=${encodeURIComponent("mapped_category must be Commit, Best Case, or Pipeline")}`);
+  }
   if (probability_modifier == null || probability_modifier < 0 || probability_modifier > 9.9999) {
     redirect(`${closeHref(orgPublicId)}&error=${encodeURIComponent("probability_modifier must be between 0 and 9.9999")}`);
   }
@@ -92,6 +98,33 @@ async function upsertRuleAction(formData: FormData) {
       [orgId, min_score, max_score, mapped_category, suppression, probability_modifier]
     );
   }
+
+  revalidatePath("/admin/organizations/health-score-rules");
+  redirect(`${closeHref(orgPublicId)}&saved=1`);
+}
+
+async function resetDefaultsAction(formData: FormData) {
+  "use server";
+  const ctx = await requireAuth();
+  if (ctx.kind !== "master") redirect("/admin");
+
+  const orgPublicId = String(formData.get("org_public_id") || "").trim();
+  if (!orgPublicId) redirect(closeHref());
+  const orgId = await resolvePublicId("organizations", orgPublicId).catch(() => 0);
+  if (!orgId) redirect(closeHref());
+
+  await pool.query(`DELETE FROM health_score_rules WHERE org_id = $1::int`, [orgId]);
+  await pool.query(
+    `
+    INSERT INTO health_score_rules (org_id, min_score, max_score, mapped_category, suppression, probability_modifier, created_at, updated_at)
+    VALUES
+      ($1::int, 24, 30, 'Commit', false, 1.0, NOW(), NOW()),
+      ($1::int, 21, 23, 'Best Case', false, 1.0, NOW(), NOW()),
+      ($1::int, 18, 20, 'Best Case', true, 0.0, NOW(), NOW()),
+      ($1::int, 0, 17, 'Pipeline', false, 1.0, NOW(), NOW())
+    `,
+    [orgId]
+  );
 
   revalidatePath("/admin/organizations/health-score-rules");
   redirect(`${closeHref(orgPublicId)}&saved=1`);
@@ -232,6 +265,27 @@ export default async function HealthScoreRulesAdminPage({ searchParams }: { sear
         </section>
       ) : (
         <>
+          <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Defaults</h2>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+              Use defaults to avoid typos and to match standard forecasting categories. This will replace all existing rules for this org.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+              <div className="text-sm text-[color:var(--sf-text-primary)]">
+                <div className="font-semibold">Default ranges</div>
+                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)] font-mono">
+                  24–30 Commit (1.0) · 21–23 Best Case (1.0) · 18–20 Best Case (suppressed, 0.0) · 0–17 Pipeline (1.0)
+                </div>
+              </div>
+              <Link
+                href={`${closeHref(orgPublicId)}&modal=defaults`}
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+              >
+                Reset to defaults
+              </Link>
+            </div>
+          </section>
+
           {overlapPairs.length ? (
             <section className="mt-5 rounded-xl border border-[#F1C40F]/40 bg-[#F1C40F]/10 p-5 shadow-sm">
               <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Warning: overlapping ranges</div>
@@ -339,7 +393,18 @@ export default async function HealthScoreRulesAdminPage({ searchParams }: { sear
             </div>
             <div className="grid gap-1">
               <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">mapped_category</label>
-              <input name="mapped_category" maxLength={50} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm" required />
+              <select
+                name="mapped_category"
+                defaultValue="Commit"
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                required
+              >
+                {CATEGORY_OPTIONS.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <div className="grid gap-1">
@@ -403,13 +468,18 @@ export default async function HealthScoreRulesAdminPage({ searchParams }: { sear
             </div>
             <div className="grid gap-1">
               <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">mapped_category</label>
-              <input
+              <select
                 name="mapped_category"
-                maxLength={50}
-                defaultValue={String(currentRule.mapped_category || "")}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm"
+                defaultValue={CATEGORY_OPTIONS.includes(currentRule.mapped_category as any) ? (currentRule.mapped_category as CategoryOption) : "Pipeline"}
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                 required
-              />
+              >
+                {CATEGORY_OPTIONS.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <div className="grid gap-1">
@@ -464,6 +534,34 @@ export default async function HealthScoreRulesAdminPage({ searchParams }: { sear
                 Cancel
               </Link>
               <button className="rounded-md bg-[#E74C3C] px-3 py-2 text-sm font-medium text-white hover:opacity-90">Delete</button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {modal === "defaults" && org ? (
+        <Modal title="Reset to defaults" closeHref={closeHref(orgPublicId)}>
+          <form action={resetDefaultsAction} className="grid gap-4">
+            <input type="hidden" name="org_public_id" value={orgPublicId} />
+            <div className="rounded-md border border-[#F1C40F]/40 bg-[#F1C40F]/10 p-3 text-sm text-[color:var(--sf-text-primary)]">
+              <div className="font-semibold">This will replace all existing rules.</div>
+              <div className="mt-1 text-[color:var(--sf-text-secondary)]">
+                Defaults:
+                <div className="mt-2 grid gap-1 font-mono text-xs">
+                  <div>24–30 → Commit · modifier 1.0</div>
+                  <div>21–23 → Best Case · modifier 1.0</div>
+                  <div>18–20 → Best Case · suppression true · modifier 0.0</div>
+                  <div>0–17 → Pipeline · modifier 1.0</div>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Link href={closeHref(orgPublicId)} className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]">
+                Cancel
+              </Link>
+              <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
+                Reset
+              </button>
             </div>
           </form>
         </Modal>
