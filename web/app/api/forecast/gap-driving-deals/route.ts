@@ -408,7 +408,64 @@ export async function GET(req: Request) {
       userId: auth.user.id,
       role: scopedRole,
     });
-    const allowedRepIds = scope.allowedRepIds; // null => admin
+    let allowedRepIds = scope.allowedRepIds; // null => admin
+
+    // Some test/prod environments have REP users whose `reps.user_id` linkage is missing, causing
+    // getScopedRepDirectory() to return an empty scope even though opps have rep_id set.
+    // For REP users only, recover by resolving their rep id directly from reps.user_id.
+    if (scopedRole === "REP" && Array.isArray(allowedRepIds) && allowedRepIds.length === 0) {
+      const repIdFromUser = await pool
+        .query<{ id: number }>(
+          `
+          SELECT id
+            FROM reps
+           WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
+             AND user_id = $2::bigint
+           ORDER BY id ASC
+           LIMIT 1
+          `,
+          [auth.user.org_id, auth.user.id]
+        )
+        .then((r) => Number(r.rows?.[0]?.id || 0) || 0)
+        .catch(() => 0);
+      if (repIdFromUser > 0) allowedRepIds = [repIdFromUser];
+    }
+
+    // If reps.user_id isn’t wired, fall back to matching REP identity to reps names.
+    if (scopedRole === "REP" && Array.isArray(allowedRepIds) && allowedRepIds.length === 0) {
+      const keys = [
+        normalizeNameKey((auth.user as any).account_owner_name),
+        normalizeNameKey((auth.user as any).display_name),
+        normalizeNameKey((auth.user as any).email),
+      ].filter(Boolean);
+
+      if (keys.length) {
+        const repIdsFromKeys = await pool
+          .query<{ id: number }>(
+            `
+            WITH r AS (
+              SELECT id,
+                     lower(regexp_replace(btrim(COALESCE(crm_owner_name, '')), '\\s+', ' ', 'g')) AS crm_k,
+                     lower(regexp_replace(btrim(COALESCE(rep_name, '')), '\\s+', ' ', 'g')) AS rep_k,
+                     lower(regexp_replace(btrim(COALESCE(display_name, '')), '\\s+', ' ', 'g')) AS disp_k
+                FROM reps
+               WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
+            )
+            SELECT DISTINCT id
+              FROM r
+             WHERE (crm_k <> '' AND crm_k = ANY($2::text[]))
+                OR (rep_k <> '' AND rep_k = ANY($2::text[]))
+                OR (disp_k <> '' AND disp_k = ANY($2::text[]))
+             ORDER BY id ASC
+             LIMIT 25
+            `,
+            [auth.user.org_id, keys]
+          )
+          .then((r) => (r.rows || []).map((x) => Number(x.id)).filter((n) => Number.isFinite(n) && n > 0))
+          .catch(() => []);
+        if (repIdsFromKeys.length) allowedRepIds = repIdsFromKeys;
+      }
+    }
     const allowedRepNameKeys: string[] = [];
     if (allowedRepIds !== null && allowedRepIds.length) {
       const repKeys = await pool
