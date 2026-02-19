@@ -266,6 +266,11 @@ export function GapDrivingDealsClient(props: {
     const hasRepFilter = !!String(next.get("rep_public_id") || "").trim() || !!String(next.get("rep_name") || "").trim();
     const defaultRepName = String(props.defaultRepName || "").trim();
     if (!hasRepFilter && defaultRepName) next.set("rep_name", defaultRepName);
+    // Guard: stale `health_min_pct=0&health_max_pct=0` can break results; treat as "no health filter".
+    if (next.get("health_min_pct") === "0" && next.get("health_max_pct") === "0") {
+      next.delete("health_min_pct");
+      next.delete("health_max_pct");
+    }
     return next;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spKey, props.initialQuotaPeriodId, props.defaultRepName]);

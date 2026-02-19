@@ -364,8 +364,13 @@ export async function GET(req: Request) {
 
     const suppressedOnly = parseBool(url.searchParams.get("suppressed_only") || url.searchParams.get("suppressedOnly"));
 
-    const healthMinPct = z.coerce.number().min(0).max(100).optional().catch(undefined).parse(url.searchParams.get("health_min_pct"));
-    const healthMaxPct = z.coerce.number().min(0).max(100).optional().catch(undefined).parse(url.searchParams.get("health_max_pct"));
+    let healthMinPct = z.coerce.number().min(0).max(100).optional().catch(undefined).parse(url.searchParams.get("health_min_pct"));
+    let healthMaxPct = z.coerce.number().min(0).max(100).optional().catch(undefined).parse(url.searchParams.get("health_max_pct"));
+    // Guard: `0..0` is not a meaningful health filter for this report, and can accidentally zero out results.
+    if (healthMinPct === 0 && healthMaxPct === 0) {
+      healthMinPct = undefined;
+      healthMaxPct = undefined;
+    }
 
     const mode = z
       .enum(["drivers", "risk"])
