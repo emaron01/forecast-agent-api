@@ -5,26 +5,9 @@ import { getOrganization } from "../../../lib/db";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
-import { HeroBand } from "../../../components/dashboard/executive/HeroBand";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
 
 export const runtime = "nodejs";
-
-function headlineFromDelta(args: { gap: number; bucketDeltas: { commit: number; best_case: number; pipeline: number } }) {
-  const gap = Number(args.gap || 0) || 0;
-  const top = [
-    { key: "Commit", v: args.bucketDeltas.commit },
-    { key: "Best Case", v: args.bucketDeltas.best_case },
-    { key: "Pipeline", v: args.bucketDeltas.pipeline },
-  ].sort((a, b) => Math.abs(b.v) - Math.abs(a.v))[0];
-
-  const dir = gap < 0 ? "below" : gap > 0 ? "above" : "aligned with";
-  const driver = top && Math.abs(top.v) > 1 ? `${top.key} deals` : "deal health modifiers";
-
-  // Executive-friendly: keep it short and directional.
-  if (gap === 0) return "AI forecast is aligned with CRM for this quarter.";
-  return `AI forecast is ${dir} CRM primarily due to ${driver}.`;
-}
 
 export default async function ExecutiveDashboardPage({
   searchParams,
@@ -44,12 +27,6 @@ export default async function ExecutiveDashboardPage({
     user: ctx.user,
     searchParams,
   });
-
-  const title = summary.selectedPeriod
-    ? `FY${summary.selectedPeriod.fiscal_year} Q${summary.selectedPeriod.fiscal_quarter} Forecast`
-    : "Forecast";
-
-  const headline = headlineFromDelta({ gap: summary.forecastGap, bucketDeltas: summary.bucketDeltas });
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -83,20 +60,12 @@ export default async function ExecutiveDashboardPage({
         </div>
 
         <div className="mt-4 grid gap-4">
-          <HeroBand
-            title={title}
-            aiPctToGoal={summary.pctToGoal}
-            quota={summary.quota}
-            aiForecast={summary.aiForecast.weighted_forecast}
-            leftToGo={summary.leftToGo}
-            aiAdjustmentVsCrm={summary.forecastGap}
-            headlineRight={headline}
-          />
-
           <ExecutiveGapInsightsClient
             basePath="/dashboard/executive"
             quotaPeriodId={summary.selectedQuotaPeriodId}
             reps={summary.reps}
+            fiscalYear={String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "—"}
+            fiscalQuarter={String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—"}
             quota={summary.quota}
             aiForecast={summary.aiForecast.weighted_forecast}
             crmForecast={summary.crmForecast.weighted_forecast}
@@ -106,6 +75,8 @@ export default async function ExecutiveDashboardPage({
               best_case: summary.bucketDeltas.best_case,
               pipeline: summary.bucketDeltas.pipeline,
             }}
+            aiPctToGoal={summary.pctToGoal}
+            leftToGo={summary.leftToGo}
             defaultTopN={5}
           />
         </div>
