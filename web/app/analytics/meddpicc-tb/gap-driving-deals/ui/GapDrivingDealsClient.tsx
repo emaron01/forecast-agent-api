@@ -82,6 +82,7 @@ type ApiResponse =
       quota_period: PeriodLite | null;
       filters: Record<string, any>;
       totals: { crm_outlook_weighted: number; ai_outlook_weighted: number; gap: number };
+      shown_totals?: { crm_outlook_weighted: number; ai_outlook_weighted: number; gap: number };
       rep_context: null | {
         rep_public_id: string;
         rep_name: string | null;
@@ -91,9 +92,9 @@ type ApiResponse =
         last_quarter_accuracy_pct: number | null;
       };
       groups: {
-        commit: { label: string; deals: DealOut[]; totals: { crm_weighted: number; ai_weighted: number; gap: number } };
-        best_case: { label: string; deals: DealOut[]; totals: { crm_weighted: number; ai_weighted: number; gap: number } };
-        pipeline: { label: string; deals: DealOut[]; totals: { crm_weighted: number; ai_weighted: number; gap: number } };
+        commit: { label: string; deals: DealOut[]; totals: { crm_weighted: number; ai_weighted: number; gap: number }; shown_totals?: { crm_weighted: number; ai_weighted: number; gap: number } };
+        best_case: { label: string; deals: DealOut[]; totals: { crm_weighted: number; ai_weighted: number; gap: number }; shown_totals?: { crm_weighted: number; ai_weighted: number; gap: number } };
+        pipeline: { label: string; deals: DealOut[]; totals: { crm_weighted: number; ai_weighted: number; gap: number }; shown_totals?: { crm_weighted: number; ai_weighted: number; gap: number } };
       };
     };
 
@@ -422,6 +423,10 @@ export function GapDrivingDealsClient(props: {
     data && (data as any).ok === true
       ? (data as any).totals
       : { crm_outlook_weighted: 0, ai_outlook_weighted: 0, gap: 0 };
+  const headerShownTotals =
+    data && (data as any).ok === true && (data as any).shown_totals
+      ? (data as any).shown_totals
+      : null;
 
   const riskOptions: Array<{ key: string; label: string }> = [
     { key: "economic_buyer", label: "Economic Buyer" },
@@ -452,6 +457,11 @@ export function GapDrivingDealsClient(props: {
                 ? "Gap Drivers: top score-driven deals explaining the AI vs CRM delta."
                 : "All At Risk: every deal where AI outlook is lower than CRM (sorted by downside)."}
             </div>
+            {headerShownTotals ? (
+              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                Showing {fmtMoney(headerShownTotals.gap)} of {fmtMoney(headerTotals.gap)} gap from displayed deals.
+              </div>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {!props.hideQuotaPeriodSelect ? (
@@ -859,6 +869,7 @@ export function GapDrivingDealsClient(props: {
             const g = asOk(data)!.groups[k];
             const totals = g.totals;
             const deals = g.deals || [];
+            const shownTotals = (g as any).shown_totals || null;
             return (
               <section key={k} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -867,6 +878,12 @@ export function GapDrivingDealsClient(props: {
                     <div className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
                       CRM {fmtMoney(totals.crm_weighted)} · AI {fmtMoney(totals.ai_weighted)} ·{" "}
                       <span className={deltaClass(totals.gap)}>Gap {fmtMoney(totals.gap)}</span> · {deals.length} deal(s)
+                      {shownTotals ? (
+                        <span>
+                          {" "}
+                          · showing {fmtMoney(Number(shownTotals.gap || 0) || 0)} gap from displayed
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 </div>

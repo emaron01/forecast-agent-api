@@ -1060,7 +1060,25 @@ export async function GET(req: Request) {
       });
 
       if (!driverMode) return sorted;
-      return sorted.slice(0, Math.max(1, driverTakePerBucket));
+      // Prefer explaining the direction of the gap (downside for negative, upside for positive).
+      const dirOnly = sorted.filter((d) => {
+        if (dir < 0) return d.weighted.gap < 0;
+        return d.weighted.gap > 0;
+      });
+      const list = dirOnly.length ? dirOnly : sorted;
+
+      // Take enough deals to explain ~90% of the directional gap (capped).
+      const totalDirectionalGap = list.reduce((acc, d) => acc + (dir < 0 ? Math.min(0, d.weighted.gap) : Math.max(0, d.weighted.gap)), 0);
+      const targetAbs = Math.abs(totalDirectionalGap) * 0.9;
+      let cumAbs = 0;
+      const out: DealOut[] = [];
+      for (const d of list) {
+        out.push(d);
+        cumAbs += Math.abs(d.weighted.gap);
+        if (targetAbs > 0 && cumAbs >= targetAbs) break;
+        if (out.length >= Math.max(1, driverTakePerBucket)) break;
+      }
+      return out;
     };
 
     const groupAtRiskFor = (bucket: "commit" | "best_case" | "pipeline") => {
@@ -1093,14 +1111,28 @@ export async function GET(req: Request) {
 
     const sum = (xs: DealOut[], key: "crm_weighted" | "ai_weighted" | "gap") => xs.reduce((acc, d) => acc + n0(d.weighted[key]), 0);
 
-    const commitTotals = { crm_weighted: sum(commitDeals, "crm_weighted"), ai_weighted: sum(commitDeals, "ai_weighted"), gap: sum(commitDeals, "gap") };
-    const bestTotals = { crm_weighted: sum(bestDeals, "crm_weighted"), ai_weighted: sum(bestDeals, "ai_weighted"), gap: sum(bestDeals, "gap") };
-    const pipeTotals = { crm_weighted: sum(pipeDeals, "crm_weighted"), ai_weighted: sum(pipeDeals, "ai_weighted"), gap: sum(pipeDeals, "gap") };
+    const universeCommit = groupAllFor("commit");
+    const universeBest = groupAllFor("best_case");
+    const universePipe = groupAllFor("pipeline");
+
+    const universeCommitTotals = { crm_weighted: sum(universeCommit, "crm_weighted"), ai_weighted: sum(universeCommit, "ai_weighted"), gap: sum(universeCommit, "gap") };
+    const universeBestTotals = { crm_weighted: sum(universeBest, "crm_weighted"), ai_weighted: sum(universeBest, "ai_weighted"), gap: sum(universeBest, "gap") };
+    const universePipeTotals = { crm_weighted: sum(universePipe, "crm_weighted"), ai_weighted: sum(universePipe, "ai_weighted"), gap: sum(universePipe, "gap") };
+
+    const shownCommitTotals = { crm_weighted: sum(commitDeals, "crm_weighted"), ai_weighted: sum(commitDeals, "ai_weighted"), gap: sum(commitDeals, "gap") };
+    const shownBestTotals = { crm_weighted: sum(bestDeals, "crm_weighted"), ai_weighted: sum(bestDeals, "ai_weighted"), gap: sum(bestDeals, "gap") };
+    const shownPipeTotals = { crm_weighted: sum(pipeDeals, "crm_weighted"), ai_weighted: sum(pipeDeals, "ai_weighted"), gap: sum(pipeDeals, "gap") };
 
     const totals = {
-      crm_outlook_weighted: commitTotals.crm_weighted + bestTotals.crm_weighted + pipeTotals.crm_weighted,
-      ai_outlook_weighted: commitTotals.ai_weighted + bestTotals.ai_weighted + pipeTotals.ai_weighted,
-      gap: commitTotals.gap + bestTotals.gap + pipeTotals.gap,
+      crm_outlook_weighted: universeCommitTotals.crm_weighted + universeBestTotals.crm_weighted + universePipeTotals.crm_weighted,
+      ai_outlook_weighted: universeCommitTotals.ai_weighted + universeBestTotals.ai_weighted + universePipeTotals.ai_weighted,
+      gap: universeCommitTotals.gap + universeBestTotals.gap + universePipeTotals.gap,
+    };
+
+    const shown_totals = {
+      crm_outlook_weighted: shownCommitTotals.crm_weighted + shownBestTotals.crm_weighted + shownPipeTotals.crm_weighted,
+      ai_outlook_weighted: shownCommitTotals.ai_weighted + shownBestTotals.ai_weighted + shownPipeTotals.ai_weighted,
+      gap: shownCommitTotals.gap + shownBestTotals.gap + shownPipeTotals.gap,
     };
 
     // Rep context panel (only when a single rep is explicitly selected).
@@ -1242,11 +1274,12 @@ export async function GET(req: Request) {
         hi_enabled: hiOn,
       },
       totals,
+      shown_totals,
       rep_context: repContext,
       groups: {
-        commit: { label: "Commit deals driving the gap", deals: commitDeals, totals: commitTotals },
-        best_case: { label: "Best Case deals driving the gap", deals: bestDeals, totals: bestTotals },
-        pipeline: { label: "Pipeline deals driving the gap", deals: pipeDeals, totals: pipeTotals },
+        commit: { label: "Commit deals driving the gap", deals: commitDeals, totals: universeCommitTotals, shown_totals: shownCommitTotals },
+        best_case: { label: "Best Case deals driving the gap", deals: bestDeals, totals: universeBestTotals, shown_totals: shownBestTotals },
+        pipeline: { label: "Pipeline deals driving the gap", deals: pipeDeals, totals: universePipeTotals, shown_totals: shownPipeTotals },
       },
     });
   } catch (e: any) {
