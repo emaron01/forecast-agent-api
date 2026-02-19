@@ -212,11 +212,21 @@ function healthPresetFromParams(sp: URLSearchParams): HealthPreset {
   return "all";
 }
 
+function boolParam(sp: URLSearchParams, key: string): boolean | null {
+  const raw = sp.get(key);
+  if (raw == null) return null;
+  const s = String(raw || "").trim().toLowerCase();
+  if (s === "1" || s === "true" || s === "yes" || s === "on") return true;
+  if (s === "0" || s === "false" || s === "no" || s === "off") return false;
+  return null;
+}
+
 export function GapDrivingDealsClient(props: {
   basePath: string;
   periods: PeriodLite[];
   reps: RepOption[];
   initialQuotaPeriodId: string;
+  hideQuotaPeriodSelect?: boolean;
 }) {
   const periods = props.periods || [];
   const reps = props.reps || [];
@@ -259,11 +269,31 @@ export function GapDrivingDealsClient(props: {
     };
   }, [apiUrl]);
 
-  const stage = String(qs.get("stage") || "");
   const repPublicId = String(qs.get("rep_public_id") || "");
   const riskCategory = String(qs.get("risk_category") || "");
   const suppressedOnly = String(qs.get("suppressed_only") || "") === "1";
   const healthPreset = healthPresetFromParams(qs);
+
+  const bucketAnyParam = qs.has("bucket_commit") || qs.has("bucket_best_case") || qs.has("bucket_pipeline");
+  const bucketCommit = bucketAnyParam ? boolParam(qs, "bucket_commit") !== false : true;
+  const bucketBestCase = bucketAnyParam ? boolParam(qs, "bucket_best_case") !== false : true;
+  const bucketPipeline = bucketAnyParam ? boolParam(qs, "bucket_pipeline") === true : false;
+
+  const hiAnyParam =
+    qs.has("hi_enabled") ||
+    qs.has("hi_commit_health_lt") ||
+    qs.has("hi_best_case_suppressed") ||
+    qs.has("hi_eb_max") ||
+    qs.has("hi_budget_max") ||
+    qs.has("hi_paper_max");
+  const hiEnabled = hiAnyParam ? String(qs.get("hi_enabled") || "") === "1" : true;
+  const hiCommitHealthLt = hiAnyParam ? (String(qs.get("hi_commit_health_lt") || "") ? true : false) : true;
+  const hiBestCaseSuppressed = hiAnyParam ? String(qs.get("hi_best_case_suppressed") || "") === "1" : true;
+  const hiEb = hiAnyParam ? (String(qs.get("hi_eb_max") || "") ? true : false) : true;
+  const hiBudget = hiAnyParam ? (String(qs.get("hi_budget_max") || "") ? true : false) : true;
+  const hiPaper = hiAnyParam ? (String(qs.get("hi_paper_max") || "") ? true : false) : true;
+
+  const repFilterOn = !!repPublicId;
 
   const setParamAndGo = (mutate: (sp: URLSearchParams) => void) => {
     const sp = new URLSearchParams(qs);
@@ -271,10 +301,73 @@ export function GapDrivingDealsClient(props: {
     window.location.href = buildHref(props.basePath, sp);
   };
 
+  const resetToHighRiskDefaults = () => {
+    const sp = new URLSearchParams(qs);
+
+    // Always keep quarter selection.
+    const qp = String(sp.get("quota_period_id") || props.initialQuotaPeriodId || "").trim();
+    sp.forEach((_v, k) => {
+      // no-op (can't mutate during forEach reliably)
+    });
+
+    // Clear report filters.
+    [
+      "rep_public_id",
+      "repPublicId",
+      "rep_name",
+      "stage",
+      "health_min_pct",
+      "health_max_pct",
+      "risk_category",
+      "riskType",
+      "suppressed_only",
+      "suppressedOnly",
+      "bucket_commit",
+      "bucket_best_case",
+      "bucket_pipeline",
+      "hi_enabled",
+      "hi_commit_health_lt",
+      "hi_best_case_suppressed",
+      "hi_eb_max",
+      "hi_budget_max",
+      "hi_paper_max",
+    ].forEach((k) => sp.delete(k));
+
+    if (qp) sp.set("quota_period_id", qp);
+
+    // Defaults requested.
+    sp.set("bucket_commit", "1");
+    sp.set("bucket_best_case", "1");
+    sp.set("bucket_pipeline", "0");
+
+    sp.set("hi_enabled", "1");
+    sp.set("hi_commit_health_lt", "26");
+    sp.set("hi_best_case_suppressed", "1");
+    sp.set("hi_eb_max", "2");
+    sp.set("hi_budget_max", "2");
+    sp.set("hi_paper_max", "2");
+
+    window.location.href = buildHref(props.basePath, sp);
+  };
+
   const headerTotals =
     data && (data as any).ok === true
       ? (data as any).totals
       : { crm_outlook_weighted: 0, ai_outlook_weighted: 0, gap: 0 };
+
+  const riskOptions: Array<{ key: string; label: string }> = [
+    { key: "economic_buyer", label: "Economic Buyer" },
+    { key: "paper", label: "Paper Process" },
+    { key: "champion", label: "Internal Sponsor" },
+    { key: "process", label: "Decision Process" },
+    { key: "timing", label: "Timing" },
+    { key: "criteria", label: "Criteria" },
+    { key: "competition", label: "Competition" },
+    { key: "budget", label: "Budget" },
+    { key: "pain", label: "Pain" },
+    { key: "metrics", label: "Metrics" },
+    { key: "suppressed", label: "Suppressed" },
+  ];
 
   return (
     <div className="mt-4 grid gap-4">
@@ -288,113 +381,177 @@ export function GapDrivingDealsClient(props: {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={String(qs.get("quota_period_id") || props.initialQuotaPeriodId || "")}
-              onChange={(e) =>
-                setParamAndGo((sp) => {
-                  const next = String(e.target.value || "");
-                  if (next) sp.set("quota_period_id", next);
-                  else sp.delete("quota_period_id");
-                })
-              }
-              className="h-[36px] max-w-[520px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-            >
-              {periods.map((p) => (
-                <option key={p.id} value={String(p.id)}>
-                  {(String(p.period_name || "").trim() || `${p.period_start} → ${p.period_end}`) + ` (FY${p.fiscal_year} Q${p.fiscal_quarter})`}
-                </option>
-              ))}
-            </select>
+            {!props.hideQuotaPeriodSelect ? (
+              <select
+                value={String(qs.get("quota_period_id") || props.initialQuotaPeriodId || "")}
+                onChange={(e) =>
+                  setParamAndGo((sp) => {
+                    const next = String(e.target.value || "");
+                    if (next) sp.set("quota_period_id", next);
+                    else sp.delete("quota_period_id");
+                  })
+                }
+                className="h-[36px] max-w-[520px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+              >
+                {periods.map((p) => (
+                  <option key={p.id} value={String(p.id)}>
+                    {(String(p.period_name || "").trim() || `${p.period_start} → ${p.period_end}`) + ` (FY${p.fiscal_year} Q${p.fiscal_quarter})`}
+                  </option>
+                ))}
+              </select>
+            ) : null}
 
-            <select
-              value={repPublicId}
-              onChange={(e) =>
-                setParamAndGo((sp) => {
-                  const next = String(e.target.value || "").trim();
-                  if (next) sp.set("rep_public_id", next);
-                  else sp.delete("rep_public_id");
-                })
-              }
-              className="h-[36px] max-w-[280px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+            <button
+              onClick={resetToHighRiskDefaults}
+              className="h-[36px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 text-sm font-medium hover:bg-[color:var(--sf-surface-alt)]"
             >
-              <option value="">All reps</option>
-              {reps.map((r) => (
-                <option key={r.public_id} value={r.public_id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
+              View High Risk Report
+            </button>
+          </div>
+        </div>
 
-            <select
-              value={stage}
-              onChange={(e) =>
-                setParamAndGo((sp) => {
-                  const next = String(e.target.value || "").trim();
-                  if (next) sp.set("stage", next);
-                  else sp.delete("stage");
-                })
-              }
-              className="h-[36px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-            >
-              <option value="">All stages</option>
-              <option value="Commit">Commit</option>
-              <option value="Best Case">Best Case</option>
-              <option value="Pipeline">Pipeline</option>
-            </select>
+        <div className="mt-3 grid gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Buckets</span>
+            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+              <input
+                type="checkbox"
+                checked={bucketCommit}
+                onChange={(e) =>
+                  setParamAndGo((sp) => {
+                    sp.set("bucket_commit", e.target.checked ? "1" : "0");
+                  })
+                }
+              />
+              Commit
+            </label>
+            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+              <input
+                type="checkbox"
+                checked={bucketBestCase}
+                onChange={(e) =>
+                  setParamAndGo((sp) => {
+                    sp.set("bucket_best_case", e.target.checked ? "1" : "0");
+                  })
+                }
+              />
+              Best Case
+            </label>
+            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+              <input
+                type="checkbox"
+                checked={bucketPipeline}
+                onChange={(e) =>
+                  setParamAndGo((sp) => {
+                    sp.set("bucket_pipeline", e.target.checked ? "1" : "0");
+                  })
+                }
+              />
+              Pipeline
+            </label>
 
-            <select
-              value={healthPreset}
-              onChange={(e) =>
-                setParamAndGo((sp) => {
-                  const next = String(e.target.value || "") as HealthPreset;
-                  sp.delete("health_min_pct");
-                  sp.delete("health_max_pct");
-                  if (next === "green") {
-                    sp.set("health_min_pct", "80");
-                    sp.set("health_max_pct", "100");
-                  } else if (next === "yellow") {
-                    sp.set("health_min_pct", "50");
-                    sp.set("health_max_pct", "79");
-                  } else if (next === "red") {
-                    sp.set("health_min_pct", "0");
-                    sp.set("health_max_pct", "49");
+            <span className="ml-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Rep</span>
+            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+              <input
+                type="checkbox"
+                checked={!repFilterOn}
+                onChange={(e) => {
+                  if (!e.target.checked) return;
+                  setParamAndGo((sp) => {
+                    sp.delete("rep_public_id");
+                    sp.delete("repPublicId");
+                    sp.delete("rep_name");
+                  });
+                }}
+              />
+              All reps
+            </label>
+            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+              <input
+                type="checkbox"
+                checked={repFilterOn}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    // Pick first rep if none selected yet.
+                    const first = reps?.[0]?.public_id ? String(reps[0].public_id) : "";
+                    setParamAndGo((sp) => {
+                      if (first) sp.set("rep_public_id", first);
+                    });
+                  } else {
+                    setParamAndGo((sp) => {
+                      sp.delete("rep_public_id");
+                      sp.delete("repPublicId");
+                      sp.delete("rep_name");
+                    });
                   }
-                })
-              }
-              className="h-[36px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-            >
-              <option value="all">All health</option>
-              <option value="green">Green (80–100%)</option>
-              <option value="yellow">Yellow (50–79%)</option>
-              <option value="red">Red (0–49%)</option>
-            </select>
+                }}
+              />
+              Filter rep
+            </label>
+            {repFilterOn ? (
+              <select
+                value={repPublicId}
+                onChange={(e) =>
+                  setParamAndGo((sp) => {
+                    const next = String(e.target.value || "").trim();
+                    if (next) sp.set("rep_public_id", next);
+                    else sp.delete("rep_public_id");
+                  })
+                }
+                className="h-[30px] max-w-[280px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
+              >
+                {reps.map((r) => (
+                  <option key={r.public_id} value={r.public_id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+          </div>
 
-            <select
-              value={riskCategory}
-              onChange={(e) =>
-                setParamAndGo((sp) => {
-                  const next = String(e.target.value || "").trim();
-                  if (next) sp.set("risk_category", next);
-                  else sp.delete("risk_category");
-                })
-              }
-              className="h-[36px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-            >
-              <option value="">All risks</option>
-              <option value="economic_buyer">Economic Buyer</option>
-              <option value="paper">Paper Process</option>
-              <option value="champion">Internal Sponsor</option>
-              <option value="process">Decision Process</option>
-              <option value="timing">Timing</option>
-              <option value="criteria">Criteria</option>
-              <option value="competition">Competition</option>
-              <option value="budget">Budget</option>
-              <option value="pain">Pain</option>
-              <option value="metrics">Metrics</option>
-              <option value="suppressed">Suppressed</option>
-            </select>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Risk type</span>
+            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+              <input
+                type="checkbox"
+                checked={!riskCategory}
+                onChange={(e) => {
+                  if (!e.target.checked) return;
+                  setParamAndGo((sp) => {
+                    sp.delete("risk_category");
+                    sp.delete("riskType");
+                  });
+                }}
+              />
+              All risks
+            </label>
+            <details className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+              <summary className="cursor-pointer select-none">
+                Choose risk {riskCategory ? `(${riskOptions.find((x) => x.key === riskCategory)?.label || riskCategory})` : "(All)"}
+              </summary>
+              <div className="mt-2 flex flex-wrap gap-2 pb-2">
+                {riskOptions.map((opt) => (
+                  <label
+                    key={opt.key}
+                    className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={riskCategory === opt.key}
+                      onChange={(e) =>
+                        setParamAndGo((sp) => {
+                          if (e.target.checked) sp.set("risk_category", opt.key);
+                          else sp.delete("risk_category");
+                        })
+                      }
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+            </details>
 
-            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]">
+            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
               <input
                 type="checkbox"
                 checked={suppressedOnly}
@@ -407,15 +564,131 @@ export function GapDrivingDealsClient(props: {
               />
               Suppressed only
             </label>
+          </div>
 
-            <button
-              onClick={() => {
-                window.location.href = buildHref(props.basePath, new URLSearchParams({ quota_period_id: String(qs.get("quota_period_id") || props.initialQuotaPeriodId || "") }));
-              }}
-              className="h-[36px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 text-sm hover:bg-[color:var(--sf-surface-alt)]"
-            >
-              Clear
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">High Risk OR rules</span>
+            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+              <input
+                type="checkbox"
+                checked={hiEnabled}
+                onChange={(e) =>
+                  setParamAndGo((sp) => {
+                    sp.set("hi_enabled", e.target.checked ? "1" : "0");
+                  })
+                }
+              />
+              Enabled
+            </label>
+
+            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+              <input
+                type="checkbox"
+                checked={hiCommitHealthLt}
+                onChange={(e) =>
+                  setParamAndGo((sp) => {
+                    if (e.target.checked) sp.set("hi_commit_health_lt", "26");
+                    else sp.delete("hi_commit_health_lt");
+                  })
+                }
+              />
+              Commit &lt; 26
+            </label>
+
+            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+              <input
+                type="checkbox"
+                checked={hiBestCaseSuppressed}
+                onChange={(e) =>
+                  setParamAndGo((sp) => {
+                    if (e.target.checked) sp.set("hi_best_case_suppressed", "1");
+                    else sp.delete("hi_best_case_suppressed");
+                  })
+                }
+              />
+              Suppressed Best Case
+            </label>
+
+            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+              <input
+                type="checkbox"
+                checked={hiEb}
+                onChange={(e) =>
+                  setParamAndGo((sp) => {
+                    if (e.target.checked) sp.set("hi_eb_max", "2");
+                    else sp.delete("hi_eb_max");
+                  })
+                }
+              />
+              EB 0–2
+            </label>
+
+            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+              <input
+                type="checkbox"
+                checked={hiBudget}
+                onChange={(e) =>
+                  setParamAndGo((sp) => {
+                    if (e.target.checked) sp.set("hi_budget_max", "2");
+                    else sp.delete("hi_budget_max");
+                  })
+                }
+              />
+              Budget 0–2
+            </label>
+
+            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+              <input
+                type="checkbox"
+                checked={hiPaper}
+                onChange={(e) =>
+                  setParamAndGo((sp) => {
+                    if (e.target.checked) sp.set("hi_paper_max", "2");
+                    else sp.delete("hi_paper_max");
+                  })
+                }
+              />
+              Paper Process 0–2
+            </label>
+
+            <details className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+              <summary className="cursor-pointer select-none">Health filter (optional)</summary>
+              <div className="mt-2 flex flex-wrap gap-2 pb-2">
+                {(["all", "green", "yellow", "red"] as const).map((p) => (
+                  <label
+                    key={p}
+                    className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={healthPreset === p}
+                      onChange={(e) =>
+                        setParamAndGo((sp) => {
+                          if (!e.target.checked) {
+                            sp.delete("health_min_pct");
+                            sp.delete("health_max_pct");
+                            return;
+                          }
+                          sp.delete("health_min_pct");
+                          sp.delete("health_max_pct");
+                          if (p === "green") {
+                            sp.set("health_min_pct", "80");
+                            sp.set("health_max_pct", "100");
+                          } else if (p === "yellow") {
+                            sp.set("health_min_pct", "50");
+                            sp.set("health_max_pct", "79");
+                          } else if (p === "red") {
+                            sp.set("health_min_pct", "0");
+                            sp.set("health_max_pct", "49");
+                          }
+                        })
+                      }
+                    />
+                    {p === "all" ? "All" : p}
+                  </label>
+                ))}
+              </div>
+            </details>
           </div>
         </div>
 
@@ -465,7 +738,9 @@ export function GapDrivingDealsClient(props: {
 
       {asOk(data) ? (
         <div className="grid gap-4">
-          {(["commit", "best_case", "pipeline"] as const).map((k) => {
+          {(["commit", "best_case", "pipeline"] as const)
+            .filter((k) => (k === "commit" ? bucketCommit : k === "best_case" ? bucketBestCase : bucketPipeline))
+            .map((k) => {
             const g = asOk(data)!.groups[k];
             const totals = g.totals;
             const deals = g.deals || [];
@@ -540,7 +815,8 @@ export function GapDrivingDealsClient(props: {
 
                           <div className="mt-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                              <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">MEDDPICC+TB</div>
+                              <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">MEDDPICC+TB Risk Factors</div>
+                              <div className="text-xs text-[color:var(--sf-text-secondary)]">Click to view AI assessment</div>
                             </div>
                             <div className="mt-2 flex flex-wrap gap-2">
                               {d.meddpicc_tb

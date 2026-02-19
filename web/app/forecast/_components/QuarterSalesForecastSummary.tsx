@@ -2,9 +2,11 @@ import Link from "next/link";
 import { pool } from "../../../lib/pool";
 import type { AuthUser } from "../../../lib/auth";
 import { getVisibleUsers } from "../../../lib/db";
+import { getScopedRepDirectory } from "../../../lib/repScope";
 import { getForecastStageProbabilities } from "../../../lib/forecastStageProbabilities";
 import { computeSalesVsVerdictForecastSummary } from "../../../lib/forecastSummary";
 import { ForecastPeriodFiltersClient } from "./ForecastPeriodFiltersClient";
+import { GapDrivingDealsClient } from "../../analytics/meddpicc-tb/gap-driving-deals/ui/GapDrivingDealsClient";
 
 type QuotaPeriodOption = {
   id: string; // bigint as text
@@ -31,6 +33,8 @@ type ProductWonByRepRow = {
   avg_order_value: number;
   avg_health_score: number | null;
 };
+
+type RepOption = { public_id: string; name: string };
 
 function ordinalQuarterLabel(q: number) {
   if (q === 1) return "1st Quarter";
@@ -217,6 +221,35 @@ export async function QuarterSalesForecastSummary(props: {
     : { rows: [] as any[] };
 
   const repIdsToUse = Array.from(new Set((repRows || []).map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0)));
+
+  const scope = await getScopedRepDirectory({
+    orgId: props.orgId,
+    userId: props.user.id,
+    role:
+      role === "ADMIN" || role === "EXEC_MANAGER" || role === "MANAGER" || role === "REP"
+        ? (role as "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP")
+        : ("REP" as const),
+  }).catch(() => null);
+  const allowedRepIds = scope?.allowedRepIds ?? [];
+  const useScoped = scope?.allowedRepIds !== null;
+
+  const repsForGapReport: RepOption[] = await pool
+    .query<RepOption>(
+      `
+      SELECT
+        public_id::text AS public_id,
+        COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), NULLIF(btrim(crm_owner_name), ''), '(Unnamed)') AS name
+      FROM reps
+      WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
+        AND (active IS TRUE OR active IS NULL)
+        AND role = 'REP'
+        AND (NOT $2::boolean OR id = ANY($3::bigint[]))
+      ORDER BY name ASC, id ASC
+      `,
+      [props.orgId, useScoped, Array.isArray(allowedRepIds) ? allowedRepIds : []]
+    )
+    .then((r) => (r.rows || []).map((x: any) => ({ public_id: String(x.public_id), name: String(x.name || "").trim() || "(Unnamed)" })))
+    .catch(() => []);
 
   // For REP users, keep a friendly headline; for managers/admins, show a team headline.
   const repNameForHeadline =
@@ -1157,6 +1190,21 @@ export async function QuarterSalesForecastSummary(props: {
           </div>
         </div>
       </div>
+
+      <GapDrivingDealsClient
+        basePath={props.currentPath}
+        periods={periods.map((p) => ({
+          id: String(p.id),
+          fiscal_year: fiscalYearKey(p),
+          fiscal_quarter: String(p.fiscal_quarter),
+          period_name: String(p.period_name || "").trim() || periodLabel(p),
+          period_start: String(p.period_start),
+          period_end: String(p.period_end),
+        }))}
+        reps={repsForGapReport}
+        initialQuotaPeriodId={qpId}
+        hideQuotaPeriodSelect={true}
+      />
 
       {role !== "REP" && repRollups.length ? (
         <details className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">

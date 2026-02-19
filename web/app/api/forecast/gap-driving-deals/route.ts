@@ -326,6 +326,22 @@ export async function GET(req: Request) {
       .catch(undefined)
       .parse(String(url.searchParams.get("stage") || "").trim() || undefined);
 
+    const bucketCommitParam = url.searchParams.get("bucket_commit");
+    const bucketBestCaseParam = url.searchParams.get("bucket_best_case");
+    const bucketPipelineParam = url.searchParams.get("bucket_pipeline");
+    const hasBucketParams = bucketCommitParam != null || bucketBestCaseParam != null || bucketPipelineParam != null;
+    const bucketCommit = hasBucketParams ? parseBool(bucketCommitParam) : null;
+    const bucketBestCase = hasBucketParams ? parseBool(bucketBestCaseParam) : null;
+    const bucketPipeline = hasBucketParams ? parseBool(bucketPipelineParam) : null;
+
+    const hiEnabledParam = url.searchParams.get("hi_enabled");
+    const hiEnabled = hiEnabledParam == null ? null : parseBool(hiEnabledParam);
+    const hiCommitHealthLt = z.coerce.number().min(0).max(30).optional().catch(undefined).parse(url.searchParams.get("hi_commit_health_lt"));
+    const hiBestCaseSuppressed = parseBool(url.searchParams.get("hi_best_case_suppressed"));
+    const hiEbMax = z.coerce.number().int().min(0).max(3).optional().catch(undefined).parse(url.searchParams.get("hi_eb_max"));
+    const hiBudgetMax = z.coerce.number().int().min(0).max(3).optional().catch(undefined).parse(url.searchParams.get("hi_budget_max"));
+    const hiPaperMax = z.coerce.number().int().min(0).max(3).optional().catch(undefined).parse(url.searchParams.get("hi_paper_max"));
+
     const riskCategory = RiskCategorySchema.optional()
       .catch(undefined)
       .parse(String(url.searchParams.get("risk_category") || url.searchParams.get("riskType") || "").trim() || undefined);
@@ -428,7 +444,33 @@ export async function GET(req: Request) {
     const hsMin = healthMinPct == null ? null : (healthMinPct / 100) * 30;
     const hsMax = healthMaxPct == null ? null : (healthMaxPct / 100) * 30;
 
-    const requestedBucket = stageFilter === "Commit" ? "commit" : stageFilter === "Best Case" ? "best_case" : stageFilter === "Pipeline" ? "pipeline" : null;
+    const requestedBucket =
+      stageFilter === "Commit" ? "commit" : stageFilter === "Best Case" ? "best_case" : stageFilter === "Pipeline" ? "pipeline" : null;
+
+    const bucketList = (() => {
+      // If explicit bucket params exist, use them; otherwise:
+      // - if stageFilter exists, use it
+      // - else default to Commit + Best Case (per report default)
+      const list: Array<"commit" | "best_case" | "pipeline"> = [];
+      if (hasBucketParams) {
+        if (bucketCommit) list.push("commit");
+        if (bucketBestCase) list.push("best_case");
+        if (bucketPipeline) list.push("pipeline");
+        return list;
+      }
+      if (requestedBucket) return [requestedBucket];
+      return ["commit", "best_case"];
+    })();
+
+    const hiDefaultsApplied = hiEnabled == null && hiCommitHealthLt == null && !hiBestCaseSuppressed && hiEbMax == null && hiBudgetMax == null && hiPaperMax == null;
+    const hiOn = hiDefaultsApplied ? true : hiEnabled ?? false;
+    const hiCfg = {
+      commit_health_lt: hiCommitHealthLt ?? (hiDefaultsApplied ? 26 : null),
+      best_case_suppressed: hiBestCaseSuppressed || (hiDefaultsApplied ? true : false),
+      eb_max: hiEbMax ?? (hiDefaultsApplied ? 2 : null),
+      budget_max: hiBudgetMax ?? (hiDefaultsApplied ? 2 : null),
+      paper_max: hiPaperMax ?? (hiDefaultsApplied ? 2 : null),
+    };
 
     // NOTE: risk_category filtering is applied after we compute risk flags (JS-level),
     // because risk is derived from multiple fields + score_definitions.
@@ -516,7 +558,7 @@ export async function GET(req: Request) {
         SELECT *
           FROM classified
          WHERE is_open = TRUE
-           AND ($7::text IS NULL OR crm_bucket = $7::text)
+           AND (COALESCE(array_length($7::text[], 1), 0) = 0 OR crm_bucket = ANY($7::text[]))
            AND ($8::float8 IS NULL OR health_score IS NOT NULL AND health_score >= $8::float8)
            AND ($9::float8 IS NULL OR health_score IS NOT NULL AND health_score <= $9::float8)
       ),
@@ -575,6 +617,34 @@ export async function GET(req: Request) {
         criteria_tip, competition_tip, timing_tip, budget_tip
       FROM modded
       WHERE (NOT $10::boolean OR suppression IS TRUE)
+        AND (
+          NOT $12::boolean
+          OR (
+            (
+              $13::float8 IS NOT NULL
+              AND crm_bucket = 'commit'
+              AND health_score IS NOT NULL
+              AND health_score < $13::float8
+            )
+            OR (
+              $14::boolean IS TRUE
+              AND crm_bucket = 'best_case'
+              AND suppression IS TRUE
+            )
+            OR (
+              $15::int IS NOT NULL
+              AND (eb_score IS NULL OR eb_score <= $15::int)
+            )
+            OR (
+              $16::int IS NOT NULL
+              AND (budget_score IS NULL OR budget_score <= $16::int)
+            )
+            OR (
+              $17::int IS NOT NULL
+              AND (paper_score IS NULL OR paper_score <= $17::int)
+            )
+          )
+        )
       ORDER BY close_date ASC NULLS LAST, amount DESC NULLS LAST, id ASC
       LIMIT $11::int
         `,
@@ -585,11 +655,17 @@ export async function GET(req: Request) {
           allowedRepIds !== null ? allowedRepIds : [], // $4 scoped list (ignored when $3=false)
           repIdFilter, // $5
           repNameLike ? `%${repNameLike}%` : null, // $6
-          requestedBucket, // $7
+          bucketList, // $7
           hsMin == null ? null : Number(hsMin), // $8
           hsMax == null ? null : Number(hsMax), // $9
           suppressedOnly, // $10
           limit, // $11
+          hiOn, // $12
+          hiCfg.commit_health_lt == null ? null : Number(hiCfg.commit_health_lt), // $13
+          !!hiCfg.best_case_suppressed, // $14
+          hiCfg.eb_max == null ? null : Number(hiCfg.eb_max), // $15
+          hiCfg.budget_max == null ? null : Number(hiCfg.budget_max), // $16
+          hiCfg.paper_max == null ? null : Number(hiCfg.paper_max), // $17
         ]
       );
     };
@@ -677,7 +753,7 @@ export async function GET(req: Request) {
           SELECT *
             FROM classified
            WHERE is_open = TRUE
-             AND ($7::text IS NULL OR crm_bucket = $7::text)
+             AND (COALESCE(array_length($7::text[], 1), 0) = 0 OR crm_bucket = ANY($7::text[]))
              AND ($8::float8 IS NULL OR health_score IS NOT NULL AND health_score >= $8::float8)
              AND ($9::float8 IS NULL OR health_score IS NOT NULL AND health_score <= $9::float8)
         )
@@ -706,6 +782,34 @@ export async function GET(req: Request) {
           criteria_tip, competition_tip, timing_tip, budget_tip
         FROM open_only
         WHERE (NOT $10::boolean OR FALSE)
+          AND (
+            NOT $12::boolean
+            OR (
+              (
+                $13::float8 IS NOT NULL
+                AND crm_bucket = 'commit'
+                AND health_score IS NOT NULL
+                AND health_score < $13::float8
+              )
+              OR (
+                $14::boolean IS TRUE
+                AND crm_bucket = 'best_case'
+                AND FALSE
+              )
+              OR (
+                $15::int IS NOT NULL
+                AND (eb_score IS NULL OR eb_score <= $15::int)
+              )
+              OR (
+                $16::int IS NOT NULL
+                AND (budget_score IS NULL OR budget_score <= $16::int)
+              )
+              OR (
+                $17::int IS NOT NULL
+                AND (paper_score IS NULL OR paper_score <= $17::int)
+              )
+            )
+          )
         ORDER BY close_date ASC NULLS LAST, amount DESC NULLS LAST, id ASC
         LIMIT $11::int
         `,
@@ -716,11 +820,17 @@ export async function GET(req: Request) {
           allowedRepIds !== null ? allowedRepIds : [], // $4 scoped list (ignored when $3=false)
           repIdFilter, // $5
           repNameLike ? `%${repNameLike}%` : null, // $6
-          requestedBucket, // $7
+          bucketList, // $7
           hsMin == null ? null : Number(hsMin), // $8
           hsMax == null ? null : Number(hsMax), // $9
           suppressedOnly, // $10
           limit, // $11
+          hiOn, // $12
+          hiCfg.commit_health_lt == null ? null : Number(hiCfg.commit_health_lt), // $13
+          !!hiCfg.best_case_suppressed, // $14
+          hiCfg.eb_max == null ? null : Number(hiCfg.eb_max), // $15
+          hiCfg.budget_max == null ? null : Number(hiCfg.budget_max), // $16
+          hiCfg.paper_max == null ? null : Number(hiCfg.paper_max), // $17
         ]
       );
     };
@@ -965,10 +1075,19 @@ export async function GET(req: Request) {
         rep_public_id: repPublicId ?? null,
         rep_name: repNameLike || null,
         stage: stageFilter ?? null,
+        bucket_commit: bucketList.includes("commit"),
+        bucket_best_case: bucketList.includes("best_case"),
+        bucket_pipeline: bucketList.includes("pipeline"),
         risk_category: riskCategory ?? null,
         suppressed_only: suppressedOnly,
         health_min_pct: healthMinPct ?? null,
         health_max_pct: healthMaxPct ?? null,
+        hi_enabled: hiOn,
+        hi_commit_health_lt: hiCfg.commit_health_lt,
+        hi_best_case_suppressed: !!hiCfg.best_case_suppressed,
+        hi_eb_max: hiCfg.eb_max,
+        hi_budget_max: hiCfg.budget_max,
+        hi_paper_max: hiCfg.paper_max,
       },
       totals,
       rep_context: repContext,
