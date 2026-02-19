@@ -1204,6 +1204,7 @@ export async function QuarterSalesForecastSummary(props: {
         reps={repsForGapReport}
         initialQuotaPeriodId={qpId}
         hideQuotaPeriodSelect={true}
+        defaultRepName={role === "REP" ? (userRepName || String(props.user.display_name || "").trim() || null) : null}
       />
 
       {role !== "REP" && repRollups.length ? (
@@ -1216,35 +1217,35 @@ export async function QuarterSalesForecastSummary(props: {
               <thead>
                 <tr className="text-left text-xs text-[color:var(--sf-text-secondary)]">
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Rep</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
                     <div>CRM</div>
                     <div>Commit</div>
                   </th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
                     <div>CRM</div>
                     <div>Best Case</div>
                   </th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
                     <div>CRM</div>
                     <div>Pipeline</div>
                   </th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
                     <div>CRM</div>
                     <div>Total Pipeline</div>
                   </th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
                     <div>CRM Rep‑Weighted</div>
                     <div>Closing</div>
                   </th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
                     <div>AI‑Weighted</div>
                     <div>Closing</div>
                   </th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
                     <div>GAP</div>
-                    <div>(CRM‑AI)</div>
+                    <div>(AI‑CRM)</div>
                   </th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
                     <div>Current</div>
                     <div>Close Won</div>
                   </th>
@@ -1261,7 +1262,7 @@ export async function QuarterSalesForecastSummary(props: {
                     cAmt * orgProbs.commit * (healthModifiers.commit_modifier || 1) +
                     bcAmt * orgProbs.best_case * (healthModifiers.best_case_modifier || 1) +
                     pAmt * orgProbs.pipeline * (healthModifiers.pipeline_modifier || 1);
-                  const gap = crmClosing - aiClosing; // (CRM - AI)
+                  const gap = aiClosing - crmClosing; // (AI - CRM)
                   const key = `${r.rep_id || "name"}:${r.rep_name}`;
                   return (
                     <tr key={key} className="text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]">

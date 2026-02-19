@@ -247,6 +247,7 @@ export function GapDrivingDealsClient(props: {
   reps: RepOption[];
   initialQuotaPeriodId: string;
   hideQuotaPeriodSelect?: boolean;
+  defaultRepName?: string | null;
 }) {
   const periods = props.periods || [];
   const reps = props.reps || [];
@@ -261,9 +262,12 @@ export function GapDrivingDealsClient(props: {
   const qs = useMemo(() => {
     const next = new URLSearchParams(spKey || "");
     if (!next.get("quota_period_id") && props.initialQuotaPeriodId) next.set("quota_period_id", props.initialQuotaPeriodId);
+    const hasRepFilter = !!String(next.get("rep_public_id") || "").trim() || !!String(next.get("rep_name") || "").trim();
+    const defaultRepName = String(props.defaultRepName || "").trim();
+    if (!hasRepFilter && defaultRepName) next.set("rep_name", defaultRepName);
     return next;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spKey, props.initialQuotaPeriodId]);
+  }, [spKey, props.initialQuotaPeriodId, props.defaultRepName]);
 
   const apiUrl = useMemo(() => {
     const sp = new URLSearchParams(qs);
