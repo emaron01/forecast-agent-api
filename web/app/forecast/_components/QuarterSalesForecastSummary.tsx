@@ -1213,7 +1213,7 @@ export async function QuarterSalesForecastSummary(props: {
             Rep CRM Actual Forecast Stages with Health Scores ({repRollups.length})
           </summary>
           <div className="mt-3 overflow-x-auto">
-            <table className="min-w-[1040px] table-auto border-collapse text-sm">
+            <table className="min-w-[920px] table-auto border-collapse text-sm">
               <thead>
                 <tr className="text-left text-xs text-[color:var(--sf-text-secondary)]">
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Rep</th>
@@ -1234,12 +1234,12 @@ export async function QuarterSalesForecastSummary(props: {
                     <div>Total Pipeline</div>
                   </th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
-                    <div>CRM Rep‑Weighted</div>
-                    <div>Closing</div>
+                    <div>CRM Rep</div>
+                    <div>Weighted Closing</div>
                   </th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
-                    <div>AI‑Weighted</div>
-                    <div>Closing</div>
+                    <div>AI</div>
+                    <div>Weighted Closing</div>
                   </th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
                     <div>GAP</div>
