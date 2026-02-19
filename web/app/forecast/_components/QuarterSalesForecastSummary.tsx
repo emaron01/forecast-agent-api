@@ -1212,24 +1212,21 @@ export async function QuarterSalesForecastSummary(props: {
             Rep CRM Actual Forecast Stages with Health Scores ({repRollups.length})
           </summary>
           <div className="mt-3 overflow-x-auto">
-            <table className="min-w-[860px] table-auto border-collapse text-sm">
+            <table className="min-w-[980px] table-auto border-collapse text-sm">
               <thead>
                 <tr className="text-left text-xs text-[color:var(--sf-text-secondary)]">
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Rep</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">CRM Commit</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">CRM Best Case</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">CRM Pipeline</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">CRM Pipeline Total</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">
-                    <div>Total Pipeline Closing</div>
-                    <div>(Rep‑Weighted)</div>
+                    CRM Total Pipeline
                   </th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Total</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">
-                    <div>Pipeline Closing</div>
+                    <div>AI‑Weighted</div>
                     <div>(AI‑Weighted)</div>
                   </th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">GAP</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">GAP (CRM‑AI)</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Closed Won</th>
                 </tr>
               </thead>
@@ -1250,12 +1247,11 @@ export async function QuarterSalesForecastSummary(props: {
                   const tHealthPct = healthPctFrom30((r as any).total_pipeline_health_score);
                   const wHealthPct = healthPctFrom30((r as any).won_health_score);
                   const crmClosing = cAmt * orgProbs.commit + bcAmt * orgProbs.best_case + pAmt * orgProbs.pipeline;
-                  const totalCrm = (Number(r.won_amount || 0) || 0) + crmClosing;
                   const aiClosing =
                     cAmt * orgProbs.commit * (healthModifiers.commit_modifier || 1) +
                     bcAmt * orgProbs.best_case * (healthModifiers.best_case_modifier || 1) +
                     pAmt * orgProbs.pipeline * (healthModifiers.pipeline_modifier || 1);
-                  const gap = aiClosing - crmClosing;
+                  const gap = crmClosing - aiClosing; // (CRM - AI)
                   const key = `${r.rep_id || "name"}:${r.rep_name}`;
                   return (
                     <tr key={key} className="text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]">
@@ -1298,12 +1294,6 @@ export async function QuarterSalesForecastSummary(props: {
                           <div className="font-mono text-sm font-semibold">{fmtMoney(tAmt)}</div>
                         </div>
                         <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">Open opps {openCnt}</div>
-                      </td>
-                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
-                        <div className="font-mono text-sm font-semibold">{fmtMoney(crmClosing)}</div>
-                      </td>
-                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
-                        <div className="font-mono text-sm font-semibold">{fmtMoney(totalCrm)}</div>
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="font-mono text-sm font-semibold">{fmtMoney(aiClosing)}</div>
