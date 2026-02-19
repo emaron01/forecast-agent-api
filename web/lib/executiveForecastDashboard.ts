@@ -6,6 +6,7 @@ import { getVisibleUsers } from "./db";
 import { getScopedRepDirectory, type RepDirectoryRow } from "./repScope";
 import { getForecastStageProbabilities } from "./forecastStageProbabilities";
 import { computeSalesVsVerdictForecastSummary } from "./forecastSummary";
+import { getQuarterKpisSnapshot, type QuarterKpisSnapshot } from "./quarterKpisSnapshot";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -73,6 +74,7 @@ export type ExecutiveForecastSummary = {
     avg_order_value: number;
     avg_health_score: number | null;
   }>;
+  quarterKpis: QuarterKpisSnapshot | null;
   quota: number;
   crmForecast: {
     commit_amount: number;
@@ -236,6 +238,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
       repRollups: [],
       productsClosedWon: [],
       productsClosedWonByRep: [],
+      quarterKpis: null,
       quota: 0,
       crmForecast: { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0, weighted_forecast: 0 },
       aiForecast: { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, weighted_forecast: 0 },
@@ -826,6 +829,14 @@ export async function getExecutiveForecastDashboardSummary(args: {
   const bestDelta = summary.weighted.verdict.best_case_weighted - summary.weighted.crm.best_case_weighted;
   const pipeDelta = summary.weighted.verdict.pipeline_weighted - summary.weighted.crm.pipeline_weighted;
 
+  const quarterKpis = qpId
+    ? await getQuarterKpisSnapshot({
+        orgId: args.orgId,
+        quotaPeriodId: qpId,
+        repIds: scopedRole === "ADMIN" ? null : scope.allowedRepIds ?? [],
+      }).catch(() => null)
+    : null;
+
   return {
     periods,
     fiscalYearsSorted,
@@ -841,6 +852,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
     repRollups,
     productsClosedWon,
     productsClosedWonByRep,
+    quarterKpis,
     quota,
     crmForecast: {
       commit_amount: Number(totals.commit_amount || 0) || 0,

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ExecRepOption } from "../../../lib/executiveForecastDashboard";
 import type { RepDirectoryRow } from "../../../lib/repScope";
+import type { QuarterKpisSnapshot } from "../../../lib/quarterKpisSnapshot";
 import { DealsDrivingGapHeatmap, type HeatmapDealRow } from "./DealsDrivingGapHeatmap";
 import { KpiCardsRow } from "./KpiCardsRow";
 import { RiskRadarPlot, type RadarDeal } from "./RiskRadarPlot";
@@ -137,6 +138,12 @@ function fmtMoney(n: any) {
   return v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
+function fmtNum(n: any) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "—";
+  return v.toLocaleString();
+}
+
 function healthPctFrom30(score: any) {
   const n = Number(score);
   if (!Number.isFinite(n) || n <= 0) return null;
@@ -149,6 +156,15 @@ function healthColorClass(pct: number | null) {
   if (pct >= 80) return "text-[#2ECC71]";
   if (pct >= 50) return "text-[#F1C40F]";
   return "text-[#E74C3C]";
+}
+
+function Chip(props: { label: string; value: ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-2 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-[11px] text-[color:var(--sf-text-secondary)]">
+      <span className="font-semibold">{props.label}</span>
+      <span className="font-mono text-[11px] font-semibold text-[color:var(--sf-text-primary)]">{props.value}</span>
+    </span>
+  );
 }
 
 function rankRole(r: RepDirectoryRow) {
@@ -282,9 +298,11 @@ export function ExecutiveGapInsightsClient(props: {
     avg_order_value: number;
     avg_health_score: number | null;
   }>;
+  quarterKpis: QuarterKpisSnapshot | null;
   quota: number;
   aiForecast: number;
   crmForecast: number;
+  crmForecastBuckets?: { commit_amount: number; best_case_amount: number; pipeline_amount: number; won_amount: number };
   gap: number;
   bucketDeltas: { commit: number; best_case: number; pipeline: number };
   aiPctToGoal: number | null;
@@ -298,6 +316,7 @@ export function ExecutiveGapInsightsClient(props: {
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [topN, setTopN] = useState(Math.max(1, props.defaultTopN || 15));
   const [stageView, setStageView] = useState<"commit" | "best_case" | "pipeline" | "all">("commit");
+  const [createdPipelineOpen, setCreatedPipelineOpen] = useState(false);
 
   const quotaPeriodId = String(sp.get("quota_period_id") || props.quotaPeriodId || "").trim();
   const repPublicId = String(sp.get("rep_public_id") || "").trim();
@@ -680,6 +699,47 @@ export function ExecutiveGapInsightsClient(props: {
                   });
                 })()}
               </div>
+
+              {(() => {
+                const b = props.crmForecastBuckets;
+                if (!b) return null;
+                const c = Number(b.commit_amount || 0) || 0;
+                const bc = Number(b.best_case_amount || 0) || 0;
+                const p = Number(b.pipeline_amount || 0) || 0;
+                const den = c + bc + p;
+                if (!(den > 0)) return null;
+                const mixC = c / den;
+                const mixB = bc / den;
+                const mixP = p / den;
+
+                const Seg = (seg: { label: string; pct: number; bg: string; border: string }) => (
+                  <div
+                    className="flex min-w-[90px] flex-1 items-center justify-center gap-2 rounded-md border px-2 py-1 text-[11px] font-semibold"
+                    style={{
+                      background: seg.bg,
+                      borderColor: seg.border,
+                      color: "var(--sf-text-primary)",
+                    }}
+                  >
+                    <span className="text-[color:var(--sf-text-secondary)]">{seg.label}</span>
+                    <span className="font-mono">{fmtPct01(seg.pct)}</span>
+                  </div>
+                );
+
+                return (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                    <Seg label="Commit" pct={mixC} bg="color-mix(in srgb, #2ECC71 14%, var(--sf-surface))" border="color-mix(in srgb, #2ECC71 42%, var(--sf-border))" />
+                    <Seg
+                      label="Best Case"
+                      pct={mixB}
+                      bg="color-mix(in srgb, #F1C40F 16%, var(--sf-surface))"
+                      border="color-mix(in srgb, #F1C40F 45%, var(--sf-border))"
+                    />
+                    <Seg label="Pipeline" pct={mixP} bg="color-mix(in srgb, #E74C3C 14%, var(--sf-surface))" border="color-mix(in srgb, #E74C3C 42%, var(--sf-border))" />
+                  </div>
+                );
+              })()}
+
               {(() => {
                 const c = confidenceFromPct(props.aiPctToGoal);
                 const cls =
@@ -730,8 +790,30 @@ export function ExecutiveGapInsightsClient(props: {
         dealsAtRisk={dealsAtRisk}
       />
 
-      <div className="w-full">
-        <RiskRadarPlot deals={radarDeals} size={680} />
+      <div className="grid w-full gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(240px,320px)]">
+        <RiskRadarPlot deals={radarDeals} size={720} />
+
+        <section className="self-start rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Accounts</div>
+          <div className="mt-3 grid grid-cols-1 gap-x-3 gap-y-2 text-sm text-[color:var(--sf-text-primary)] sm:grid-cols-2 lg:grid-cols-1">
+            {radarDeals.length ? (
+              radarDeals.map((d) => (
+                <div key={d.id} className="flex min-w-0 items-center gap-2">
+                  <span
+                    className="h-2.5 w-2.5 rounded-full border border-[color:var(--sf-border)]"
+                    style={{ background: d.color }}
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0 truncate" title={String(d.legendLabel || d.label)}>
+                    {String(d.legendLabel || d.label)}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
+            )}
+          </div>
+        </section>
       </div>
 
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
@@ -1076,6 +1158,215 @@ export function ExecutiveGapInsightsClient(props: {
             </div>
           ))}
         </div>
+
+        {props.quarterKpis ? (
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+            <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+              <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Deal Cards</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Chip label="Win Rate" value={fmtPct01(props.quarterKpis.winRate)} />
+                <Chip label="Win/Loss Count" value={`${fmtNum(props.quarterKpis.wonCount)} / ${fmtNum(props.quarterKpis.lostCount)}`} />
+                <Chip label="Average Order Value" value={props.quarterKpis.aov == null ? "—" : fmtMoney(props.quarterKpis.aov)} />
+                <Chip
+                  label="Avg Health Closed Won"
+                  value={
+                    <span className={healthColorClass(props.quarterKpis.avgHealthWonPct)}>
+                      {props.quarterKpis.avgHealthWonPct == null ? "—" : `${props.quarterKpis.avgHealthWonPct}%`}
+                    </span>
+                  }
+                />
+                <Chip
+                  label="Avg Health Closed Loss"
+                  value={
+                    <span className={healthColorClass(props.quarterKpis.avgHealthLostPct)}>
+                      {props.quarterKpis.avgHealthLostPct == null ? "—" : `${props.quarterKpis.avgHealthLostPct}%`}
+                    </span>
+                  }
+                />
+                <Chip label="Opp→Win Conversion" value={fmtPct01(props.quarterKpis.oppToWin)} />
+                <Chip
+                  label="Aging (avg days)"
+                  value={props.quarterKpis.agingAvgDays == null ? "—" : String(Math.round(props.quarterKpis.agingAvgDays))}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+              <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Direct vs Partner</div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Chip
+                  label="Direct vs. Partner (closed won)"
+                  value={`${fmtMoney(props.quarterKpis.directVsPartner.directWonAmount)} / ${fmtMoney(props.quarterKpis.directVsPartner.partnerWonAmount)}`}
+                />
+                <Chip label="# Direct Deals" value={fmtNum(props.quarterKpis.directVsPartner.directClosedDeals)} />
+                <Chip label="Direct AOV" value={props.quarterKpis.directVsPartner.directAov == null ? "—" : fmtMoney(props.quarterKpis.directVsPartner.directAov)} />
+                <Chip
+                  label="Direct Average Age"
+                  value={
+                    props.quarterKpis.directVsPartner.directAvgAgeDays == null ? "—" : String(Math.round(props.quarterKpis.directVsPartner.directAvgAgeDays))
+                  }
+                />
+                <Chip label="Partner Contribution %" value={fmtPct01(props.quarterKpis.directVsPartner.partnerContributionPct)} />
+                <Chip label="# Partner Deals" value={fmtNum(props.quarterKpis.directVsPartner.partnerClosedDeals)} />
+                <Chip label="Partner AOV" value={props.quarterKpis.directVsPartner.partnerAov == null ? "—" : fmtMoney(props.quarterKpis.directVsPartner.partnerAov)} />
+                <Chip
+                  label="Partner Average Age"
+                  value={
+                    props.quarterKpis.directVsPartner.partnerAvgAgeDays == null ? "—" : String(Math.round(props.quarterKpis.directVsPartner.partnerAvgAgeDays))
+                  }
+                />
+                <Chip label="Partner Win Rate" value={fmtPct01(props.quarterKpis.directVsPartner.partnerWinRate)} />
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+              <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Pipeline created in quarter</div>
+              <div className="mt-3">
+                <div className="text-[11px] font-semibold text-[color:var(--sf-text-primary)]">Forecast Mix</div>
+                <div className="mt-2 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
+                  {(() => {
+                    const box =
+                      "min-w-0 overflow-hidden rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-2";
+                    const Card = (p: { label: string; amount: number; count: number; health: number | null }) => (
+                      <div className={box}>
+                        <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">{p.label}</div>
+                        <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
+                          {fmtMoney(p.amount)}
+                        </div>
+                        <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
+                          <div># Opps: {fmtNum(p.count)}</div>
+                          <div>
+                            Health: <span className={healthColorClass(p.health)}>{p.health == null ? "—" : `${p.health}%`}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+
+                    const cp = props.quarterKpis!.createdPipeline;
+                    return (
+                      <>
+                        <Card
+                          label={`Commit (${fmtPct01(cp.mixCommit)})`}
+                          amount={cp.commitAmount}
+                          count={cp.commitCount}
+                          health={cp.commitHealthPct}
+                        />
+                        <Card label={`Best Case (${fmtPct01(cp.mixBest)})`} amount={cp.bestAmount} count={cp.bestCount} health={cp.bestHealthPct} />
+                        <Card
+                          label={`Pipeline (${fmtPct01(cp.mixPipeline)})`}
+                          amount={cp.pipelineAmount}
+                          count={cp.pipelineCount}
+                          health={cp.pipelineHealthPct}
+                        />
+                        <Card label="Total Pipeline" amount={cp.totalAmount} count={cp.totalCount} health={cp.totalHealthPct} />
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {props.quarterKpis ? (
+          <details
+            className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm"
+            open={createdPipelineOpen}
+            onToggle={(e) => setCreatedPipelineOpen((e.currentTarget as HTMLDetailsElement).open)}
+          >
+            <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">
+              New Pipeline Created In Quarter (show / hide)
+            </summary>
+            {createdPipelineOpen ? (
+              <div className="mt-3 overflow-x-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                {props.quarterKpis.createdPipelineByManager.length ? (
+                  <table className="min-w-[980px] w-full table-auto border-collapse text-[11px]">
+                    <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
+                      <tr>
+                        <th className="px-3 py-2 text-left w-[260px]">manager</th>
+                        <th className="px-3 py-2 text-right">commit</th>
+                        <th className="px-3 py-2 text-right">best</th>
+                        <th className="px-3 py-2 text-right">pipeline</th>
+                        <th className="px-3 py-2 text-right">total</th>
+                        <th className="px-3 py-2 text-right">won</th>
+                        <th className="px-3 py-2 text-right">lost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {props.quarterKpis.createdPipelineByManager.map((m) => {
+                        const sumMoney = (k: "commitAmount" | "bestAmount" | "pipelineAmount" | "wonAmount" | "lostAmount") =>
+                          m.reps.reduce((acc, r) => acc + (Number((r as any)[k] || 0) || 0), 0);
+                        const sumCount = (k: "commitCount" | "bestCount" | "pipelineCount" | "wonCount" | "lostCount") =>
+                          m.reps.reduce((acc, r) => acc + (Number((r as any)[k] || 0) || 0), 0);
+
+                        const cAmt = sumMoney("commitAmount");
+                        const bAmt = sumMoney("bestAmount");
+                        const pAmt = sumMoney("pipelineAmount");
+                        const tAmt = cAmt + bAmt + pAmt;
+                        const cCnt = sumCount("commitCount");
+                        const bCnt = sumCount("bestCount");
+                        const pCnt = sumCount("pipelineCount");
+                        const tCnt = cCnt + bCnt + pCnt;
+                        const wAmt = sumMoney("wonAmount");
+                        const wCnt = sumCount("wonCount");
+                        const lAmt = sumMoney("lostAmount");
+                        const lCnt = sumCount("lostCount");
+
+                        const Cell = (amt: number, cnt: number) => (
+                          <span className="whitespace-nowrap font-mono text-[11px] text-[color:var(--sf-text-primary)]">
+                            {fmtMoney(amt)} <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(cnt)})</span>
+                          </span>
+                        );
+
+                        return (
+                          <Fragment key={m.managerId}>
+                            <tr
+                              key={`${m.managerId}:m`}
+                              className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]/50 text-[color:var(--sf-text-primary)]"
+                            >
+                              <td className="px-3 py-2 font-semibold">{m.managerName}</td>
+                              <td className="px-3 py-2 text-right">{Cell(cAmt, cCnt)}</td>
+                              <td className="px-3 py-2 text-right">{Cell(bAmt, bCnt)}</td>
+                              <td className="px-3 py-2 text-right">{Cell(pAmt, pCnt)}</td>
+                              <td className="px-3 py-2 text-right">{Cell(tAmt, tCnt)}</td>
+                              <td className="px-3 py-2 text-right">{Cell(wAmt, wCnt)}</td>
+                              <td className="px-3 py-2 text-right">{Cell(lAmt, lCnt)}</td>
+                            </tr>
+                            {m.reps.map((r) => {
+                              const rc = Number(r.commitCount || 0) || 0;
+                              const rb = Number(r.bestCount || 0) || 0;
+                              const rp = Number(r.pipelineCount || 0) || 0;
+                              const rt = rc + rb + rp;
+                              return (
+                                <tr
+                                  key={`${m.managerId}:${r.repId}`}
+                                  className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]"
+                                >
+                                  <td className="px-3 py-2">
+                                    <span className="text-[color:var(--sf-text-secondary)]">↳</span>{" "}
+                                    <span className="font-medium">{r.repName}</span>
+                                  </td>
+                                  <td className="px-3 py-2 text-right">{Cell(r.commitAmount, rc)}</td>
+                                  <td className="px-3 py-2 text-right">{Cell(r.bestAmount, rb)}</td>
+                                  <td className="px-3 py-2 text-right">{Cell(r.pipelineAmount, rp)}</td>
+                                  <td className="px-3 py-2 text-right">{Cell(r.commitAmount + r.bestAmount + r.pipelineAmount, rt)}</td>
+                                  <td className="px-3 py-2 text-right">{Cell(r.wonAmount, r.wonCount)}</td>
+                                  <td className="px-3 py-2 text-right">{Cell(r.lostAmount, r.lostCount)}</td>
+                                </tr>
+                              );
+                            })}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">No created-pipeline rows found for this quarter.</div>
+                )}
+              </div>
+            ) : null}
+          </details>
+        ) : null}
 
         <details className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
           <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">

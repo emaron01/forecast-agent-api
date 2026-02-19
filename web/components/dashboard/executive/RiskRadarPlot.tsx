@@ -65,7 +65,7 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
   const size = Math.max(320, Math.min(760, Number(props.size || 520)));
   const cx = size / 2;
   const cy = size / 2;
-  const outerR = size * 0.34;
+  const outerR = size * 0.38;
   const r1 = outerR * 0.36;
   const r2 = outerR * 0.66;
   const r3 = outerR * 0.96;
@@ -212,7 +212,7 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
   }, [cx, cy, labelR]);
 
   return (
-    <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+    <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
       <div className="flex items-end justify-between gap-3">
         <div>
           <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">AI Risk Radar</div>
@@ -223,9 +223,8 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(220px,280px)]">
-        <div className="flex items-center justify-center">
-          <div className="aspect-square" style={{ width: size, maxWidth: "100%" }}>
+      <div className="mt-3 flex items-center justify-center">
+        <div className="aspect-square w-full" style={{ maxWidth: size }}>
             <svg className="h-full w-full" viewBox={`0 0 ${size} ${size}`} role="img" aria-label="MEDDPICC+TB radar">
               <defs>
                 <style>{`
@@ -280,25 +279,6 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
               </g>
             ))}
             </svg>
-          </div>
-        </div>
-
-        <div className="self-start rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Accounts</div>
-          <div className="mt-3 grid grid-cols-1 gap-x-3 gap-y-2 text-sm text-[color:var(--sf-text-primary)] sm:grid-cols-2">
-            {props.deals.length ? (
-              props.deals.map((d) => (
-                <div key={d.id} className="flex min-w-0 items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full border border-[color:var(--sf-border)]" style={{ background: d.color }} aria-hidden="true" />
-                  <span className="min-w-0 truncate" title={String(d.legendLabel || d.label)}>
-                    {String(d.legendLabel || d.label)}
-                  </span>
-                </div>
-              ))
-            ) : (
-              <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
-            )}
-          </div>
         </div>
       </div>
     </section>

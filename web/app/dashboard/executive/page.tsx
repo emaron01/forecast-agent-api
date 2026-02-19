@@ -73,9 +73,16 @@ export default async function ExecutiveDashboardPage({
             repRollups={summary.repRollups}
             productsClosedWon={summary.productsClosedWon}
             productsClosedWonByRep={summary.productsClosedWonByRep}
+            quarterKpis={summary.quarterKpis}
             quota={summary.quota}
             aiForecast={summary.aiForecast.weighted_forecast}
             crmForecast={summary.crmForecast.weighted_forecast}
+            crmForecastBuckets={{
+              commit_amount: summary.crmForecast.commit_amount,
+              best_case_amount: summary.crmForecast.best_case_amount,
+              pipeline_amount: summary.crmForecast.pipeline_amount,
+              won_amount: summary.crmForecast.won_amount,
+            }}
             gap={summary.forecastGap}
             bucketDeltas={{
               commit: summary.bucketDeltas.commit,
