@@ -159,6 +159,13 @@ function rankRole(r: RepDirectoryRow) {
   return 9;
 }
 
+function managerColorForId(id: number) {
+  const base = palette.chartSeries;
+  const h = hash01(`mgr|${id}`);
+  const idx = Math.floor(h * base.length) % base.length;
+  return base[idx] || palette.accentSecondary;
+}
+
 function fmtPct01(n: number | null) {
   if (n == null || !Number.isFinite(n)) return "—";
   return `${Math.round(n * 100)}%`;
@@ -521,6 +528,26 @@ export function ExecutiveGapInsightsClient(props: {
     return qs ? `/analytics/meddpicc-tb/gap-driving-deals?${qs}` : "/analytics/meddpicc-tb/gap-driving-deals";
   }, [sp, quotaPeriodId]);
 
+  const dataDetailsGapHref = useMemo(() => {
+    const params = new URLSearchParams(sp.toString());
+    setParam(params, "quota_period_id", quotaPeriodId);
+
+    const buckets =
+      stageView === "commit"
+        ? { c: "1", b: "0", p: "0" }
+        : stageView === "best_case"
+          ? { c: "0", b: "1", p: "0" }
+          : stageView === "pipeline"
+            ? { c: "0", b: "0", p: "1" }
+            : { c: "1", b: "1", p: "1" };
+    params.set("bucket_commit", buckets.c);
+    params.set("bucket_best_case", buckets.b);
+    params.set("bucket_pipeline", buckets.p);
+
+    const qs = params.toString();
+    return (qs ? `/dashboard?${qs}` : "/dashboard") + "#gap-driving-deals";
+  }, [sp, quotaPeriodId, stageView]);
+
   const quarterAnalytics = useMemo(() => {
     const repRows = Array.isArray(props.repRollups) ? props.repRollups : [];
     const dir = Array.isArray(props.repDirectory) ? props.repDirectory : [];
@@ -602,6 +629,14 @@ export function ExecutiveGapInsightsClient(props: {
     };
   }, [props.repRollups, props.repDirectory, props.myRepId]);
 
+  const productViz = useMemo(() => {
+    const rows = Array.isArray(props.productsClosedWon) ? props.productsClosedWon : [];
+    const totalWon = rows.reduce((acc, r) => acc + (Number((r as any).won_amount || 0) || 0), 0);
+    const totalOrders = rows.reduce((acc, r) => acc + (Number((r as any).won_count || 0) || 0), 0);
+    const maxWon = rows.reduce((m, r) => Math.max(m, Number((r as any).won_amount || 0) || 0), 0);
+    return { totalWon, totalOrders, maxWon: Math.max(1, maxWon) };
+  }, [props.productsClosedWon]);
+
   function updateUrl(mut: (p: URLSearchParams) => void) {
     const params = new URLSearchParams(sp.toString());
     mut(params);
@@ -613,53 +648,32 @@ export function ExecutiveGapInsightsClient(props: {
       <section className="w-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-6 shadow-sm">
         <div className="grid gap-4 lg:grid-cols-12">
           <div className="lg:col-span-7">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <div className="text-5xl font-extrabold tracking-tight text-[color:var(--sf-text-primary)]">{fmtPct01(props.aiPctToGoal)}</div>
-                <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
-                  Quarter End Outlook
-                </div>
+            <div className="flex items-center justify-center gap-4">
+              <div className="relative h-[44px] w-[240px] shrink-0 sm:h-[52px] sm:w-[280px]">
+                <Image src="/brand/salesforecast-logo.svg" alt="SalesForecast.io" fill sizes="280px" className="object-contain" priority={false} />
               </div>
-              <div className="text-sm text-[color:var(--sf-text-secondary)]">
-                AI Forecast <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(props.aiForecast)}</span> · Quota{" "}
-                <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(props.quota)}</span> · Left To Go{" "}
-                <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(props.leftToGo)}</span>
-              </div>
+              <div className="text-4xl font-extrabold tracking-tight text-[color:var(--sf-text-primary)] sm:text-5xl">OUTLOOK</div>
             </div>
 
             <div className="mt-4">
-              <div className="flex items-center justify-between text-xs text-[color:var(--sf-text-secondary)]">
-                <span className="font-semibold uppercase tracking-wide">Quarter End Outlook</span>
-                <span>
-                  {props.leftToGo > 0 ? "Gap to Goal" : props.leftToGo < 0 ? "Ahead of Goal" : "Gap to Goal"}:{" "}
-                  {fmtMoney(Math.abs(props.leftToGo))}
-                </span>
-              </div>
-              <div className="mt-2 relative flex items-center gap-[2px]">
-                {/* Branding: center logo over the bar segments */}
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <div className="flex flex-col items-center">
-                    <div className="w-[min(560px,86%)] opacity-[0.32]">
-                      <Image src="/brand/salesforecast-logo.svg" alt="" width={1120} height={260} priority={false} />
-                    </div>
-                    <div className="mt-0.5 text-[12px] font-extrabold tracking-[0.35em] text-[color:var(--sf-accent-secondary)] opacity-[0.75]">
-                      OUTLOOK
-                    </div>
-                  </div>
-                </div>
+              <div className="mt-2 flex items-end gap-[2px]">
                 {(() => {
                   const segments = 52;
                   const pct = props.aiPctToGoal == null ? 0 : clamp01(props.aiPctToGoal);
                   const filled = Math.round(pct * segments);
+                  const minH = 10;
+                  const maxH = 34;
+                  const exp = 3.6; // "hockey stick" height progression
                   return Array.from({ length: segments }).map((_, i) => {
                     const t = segments <= 1 ? 1 : i / (segments - 1);
                     const fillColor = gradientColorAt(t);
                     const bg = i < filled ? fillColor : "var(--sf-surface-alt)";
+                    const h = minH + (maxH - minH) * Math.pow(t, exp);
                     return (
                       <div
                         key={i}
-                        className="h-[22px] w-[12px] rounded-[3px] border border-[color:var(--sf-border)]"
-                        style={{ background: bg }}
+                        className="w-[12px] rounded-[3px] border border-[color:var(--sf-border)]"
+                        style={{ background: bg, height: `${Math.round(h)}px` }}
                         aria-hidden="true"
                       />
                     );
@@ -719,129 +733,6 @@ export function ExecutiveGapInsightsClient(props: {
       <div className="w-full">
         <RiskRadarPlot deals={radarDeals} size={680} />
       </div>
-
-      {props.repRollups.length ? (
-        <details className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-          <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">
-            Rep CRM Actual Forecast Stages with Health Scores ({props.repRollups.length})
-          </summary>
-          <div className="mt-3 overflow-x-auto">
-            <table className="min-w-[920px] table-auto border-collapse text-sm">
-              <thead>
-                <tr className="text-left text-xs text-[color:var(--sf-text-secondary)]">
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Rep</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
-                    <div>CRM</div>
-                    <div>Commit</div>
-                  </th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
-                    <div>CRM</div>
-                    <div>Best Case</div>
-                  </th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
-                    <div>CRM</div>
-                    <div>Pipeline</div>
-                  </th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
-                    <div>CRM</div>
-                    <div>Total Pipeline</div>
-                  </th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
-                    <div>CRM Rep</div>
-                    <div>Weighted Closing</div>
-                  </th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
-                    <div>AI</div>
-                    <div>Weighted Closing</div>
-                  </th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
-                    <div>GAP</div>
-                    <div>(AI‑CRM)</div>
-                  </th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
-                    <div>Current</div>
-                    <div>Close Won</div>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {props.repRollups.map((r) => {
-                  const cAmt = Number(r.commit_amount || 0) || 0;
-                  const bcAmt = Number(r.best_case_amount || 0) || 0;
-                  const pAmt = Number(r.pipeline_amount || 0) || 0;
-                  const tAmt = cAmt + bcAmt + pAmt;
-                  const crmClosing =
-                    cAmt * (props.stageProbabilities.commit || 0) +
-                    bcAmt * (props.stageProbabilities.best_case || 0) +
-                    pAmt * (props.stageProbabilities.pipeline || 0);
-                  const aiClosing =
-                    cAmt * (props.stageProbabilities.commit || 0) * (props.healthModifiers.commit_modifier || 1) +
-                    bcAmt * (props.stageProbabilities.best_case || 0) * (props.healthModifiers.best_case_modifier || 1) +
-                    pAmt * (props.stageProbabilities.pipeline || 0) * (props.healthModifiers.pipeline_modifier || 1);
-                  const gap = aiClosing - crmClosing; // (AI - CRM)
-                  const key = `${r.rep_id || "name"}:${r.rep_name}`;
-                  return (
-                    <tr key={key} className="text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]">
-                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
-                        <div className="font-medium">{r.rep_name}</div>
-                      </td>
-                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-sm font-semibold">{fmtMoney(cAmt)}</td>
-                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-sm font-semibold">{fmtMoney(bcAmt)}</td>
-                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-sm font-semibold">{fmtMoney(pAmt)}</td>
-                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-sm font-semibold">{fmtMoney(tAmt)}</td>
-                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-sm font-semibold">{fmtMoney(crmClosing)}</td>
-                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-sm font-semibold">{fmtMoney(aiClosing)}</td>
-                      <td className={`border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-sm font-semibold ${deltaTextClass(gap)}`}>{fmtMoney(gap)}</td>
-                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-sm font-semibold">
-                        {fmtMoney(Number(r.won_amount || 0) || 0)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
-            CRM Forecast Rep‑Weighted Probabilities: Commit {Math.round((props.stageProbabilities.commit || 0) * 100)}% · Best Case{" "}
-            {Math.round((props.stageProbabilities.best_case || 0) * 100)}% · Pipeline {Math.round((props.stageProbabilities.pipeline || 0) * 100)}%
-          </div>
-        </details>
-      ) : null}
-
-      {props.productsClosedWon.length ? (
-        <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Team revenue by product (Closed Won)</div>
-          <div className="mt-3 overflow-x-auto">
-            <table className="min-w-[760px] table-auto border-collapse text-sm">
-              <thead>
-                <tr className="text-left text-xs text-[color:var(--sf-text-secondary)]">
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Product</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Closed Won</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right"># Orders</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Avg / Order</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Avg Health</th>
-                </tr>
-              </thead>
-              <tbody>
-                {props.productsClosedWon.map((p) => {
-                  const hp = healthPctFrom30(p.avg_health_score);
-                  return (
-                    <tr key={p.product} className="text-[color:var(--sf-text-primary)]">
-                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">{p.product}</td>
-                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-xs">{fmtMoney(p.won_amount)}</td>
-                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">{Number(p.won_count || 0) || 0}</td>
-                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-xs">{fmtMoney(p.avg_order_value)}</td>
-                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-xs">
-                        <span className={healthColorClass(hp)}>{hp == null ? "—" : `${hp}%`}</span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
 
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -1033,6 +924,7 @@ export function ExecutiveGapInsightsClient(props: {
             <DealsDrivingGapHeatmap
               rows={heatmapRows}
               viewFullHref={viewFullHref}
+              rowHref={() => dataDetailsGapHref}
               title={stageLabel}
               subtitle={
                 totals
@@ -1043,6 +935,83 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
         );
       })()}
+
+      {props.productsClosedWon.length ? (
+        <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Team revenue by product (Closed Won)</div>
+              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Quick view of what’s closing this quarter.</div>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-[color:var(--sf-text-secondary)]">
+              <span className="rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1">
+                Total: <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(productViz.totalWon)}</span>
+              </span>
+              <span className="rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1">
+                Orders: <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{productViz.totalOrders}</span>
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-3 overflow-x-auto rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+            <table className="min-w-[860px] w-full table-auto border-collapse text-sm">
+              <thead className="bg-[color:var(--sf-surface)] text-xs text-[color:var(--sf-text-secondary)]">
+                <tr className="text-left">
+                  <th className="border-b border-[color:var(--sf-border)] px-3 py-2">Product</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right">Closed Won</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right"># Orders</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right">Avg / Order</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right">Avg Health</th>
+                </tr>
+              </thead>
+              <tbody>
+                {props.productsClosedWon.map((p, idx) => {
+                  const hp = healthPctFrom30(p.avg_health_score);
+                  const barPct = Math.round(((Number(p.won_amount || 0) || 0) / productViz.maxWon) * 100);
+                  const badge =
+                    hp == null
+                      ? "border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)]"
+                      : hp >= 80
+                        ? "border-[#2ECC71]/40 bg-[#2ECC71]/10 text-[#2ECC71]"
+                        : hp >= 50
+                          ? "border-[#F1C40F]/50 bg-[#F1C40F]/10 text-[#F1C40F]"
+                          : "border-[#E74C3C]/50 bg-[#E74C3C]/10 text-[#E74C3C]";
+
+                  return (
+                    <tr
+                      key={p.product}
+                      className={[
+                        "text-[color:var(--sf-text-primary)]",
+                        idx % 2 === 0 ? "bg-transparent" : "bg-[color:var(--sf-surface)]/20",
+                        "hover:bg-[color:var(--sf-surface)]/35",
+                      ].join(" ")}
+                    >
+                      <td className="border-b border-[color:var(--sf-border)] px-3 py-2 font-semibold">{p.product}</td>
+                      <td className="border-b border-[color:var(--sf-border)] px-3 py-2">
+                        <div className="relative flex items-center justify-end">
+                          <div
+                            className="absolute left-0 top-1/2 h-[10px] -translate-y-1/2 rounded-full bg-[color:var(--sf-accent-primary)]/20"
+                            style={{ width: `${Math.max(6, barPct)}%` }}
+                            aria-hidden="true"
+                          />
+                          <span className="relative font-mono text-xs font-semibold">{fmtMoney(p.won_amount)}</span>
+                        </div>
+                      </td>
+                      <td className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right">{Number(p.won_count || 0) || 0}</td>
+                      <td className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right font-mono text-xs">{fmtMoney(p.avg_order_value)}</td>
+                      <td className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right">
+                        <span className={["inline-flex min-w-[52px] justify-center rounded-full border px-2 py-0.5 font-mono text-xs", badge].join(" ")}>
+                          {hp == null ? "—" : `${hp}%`}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       {props.productsClosedWonByRep.length ? (
         <details className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
@@ -1092,32 +1061,36 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
-          <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-            <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Closed Won Revenue</div>
-            <div className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(quarterAnalytics.total.wonAmount)}</div>
-          </div>
-          <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-            <div className="text-[11px] text-[color:var(--sf-text-secondary)]"># Closed Won</div>
-            <div className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{quarterAnalytics.total.wonCount}</div>
-          </div>
-          <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-            <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Average Order Value</div>
-            <div className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
-              {quarterAnalytics.total.aov == null ? "—" : fmtMoney(quarterAnalytics.total.aov)}
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          {[
+            { k: "rev", label: "Closed Won Revenue", v: fmtMoney(quarterAnalytics.total.wonAmount) },
+            { k: "cnt", label: "# Closed Won", v: String(quarterAnalytics.total.wonCount) },
+            { k: "aov", label: "Average Order Value", v: quarterAnalytics.total.aov == null ? "—" : fmtMoney(quarterAnalytics.total.aov) },
+          ].map((c) => (
+            <div
+              key={c.k}
+              className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm"
+            >
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">{c.label}</div>
+              <div className="mt-2 font-mono text-lg font-extrabold text-[color:var(--sf-text-primary)]">{c.v}</div>
             </div>
-          </div>
+          ))}
         </div>
 
-        <div className="mt-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Direct reports</div>
-          <div className="mt-2 grid gap-2">
+        <details className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+          <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">
+            Team AOV Breakdown
+            <span className="ml-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">({quarterAnalytics.directReports.length})</span>
+          </summary>
+
+          <div className="mt-3 grid gap-2">
             {quarterAnalytics.directReports.length ? (
               quarterAnalytics.directReports.map((dr) => {
                 const drRole = String(dr.role || "").trim().toUpperCase();
                 const repIds = quarterAnalytics.descendantRepIds(Number(dr.id));
                 const st = quarterAnalytics.statsForRepIds(repIds);
                 const isManager = drRole === "MANAGER" || drRole === "EXEC_MANAGER";
+                const mgrColor = isManager ? managerColorForId(Number(dr.id)) : null;
                 const childReps = (quarterAnalytics.children.get(Number(dr.id)) || []).filter(
                   (c) => String(c.role || "").trim().toUpperCase() === "REP"
                 );
@@ -1125,9 +1098,12 @@ export function ExecutiveGapInsightsClient(props: {
                 const header = (
                   <div className="flex min-w-0 items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-[color:var(--sf-text-primary)]">
-                        {dr.name}
-                        {isManager ? <span className="ml-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">(Manager)</span> : null}
+                      <div className="flex min-w-0 items-center gap-2">
+                        {isManager ? <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: mgrColor || palette.accentSecondary }} /> : null}
+                        <div className="truncate text-sm font-semibold text-[color:var(--sf-text-primary)]">
+                          {dr.name}
+                          {isManager ? <span className="ml-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">(Manager)</span> : null}
+                        </div>
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-4 font-mono text-xs text-[color:var(--sf-text-primary)]">
@@ -1138,21 +1114,35 @@ export function ExecutiveGapInsightsClient(props: {
                   </div>
                 );
 
+                const baseRowClass = [
+                  "rounded-lg border bg-[color:var(--sf-surface)] px-3 py-2",
+                  isManager ? "border-[color:var(--sf-border)]" : "border-[color:var(--sf-border)]",
+                ].join(" ");
+
                 if (!isManager) {
                   return (
-                    <div key={dr.id} className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
+                    <div key={dr.id} className={baseRowClass}>
                       {header}
                     </div>
                   );
                 }
 
                 return (
-                  <details key={dr.id} className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
+                  <details
+                    key={dr.id}
+                    className={baseRowClass}
+                    style={{
+                      borderLeftWidth: 4,
+                      borderLeftStyle: "solid",
+                      borderLeftColor: mgrColor || palette.accentSecondary,
+                      background: `color-mix(in srgb, ${mgrColor || palette.accentSecondary} 10%, var(--sf-surface))`,
+                    }}
+                  >
                     <summary className="cursor-pointer list-none">{header}</summary>
-                    <div className="mt-3 overflow-x-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                    <div className="mt-3 overflow-x-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
                       {childReps.length ? (
                         <table className="min-w-[720px] w-full table-auto border-collapse text-sm">
-                          <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
+                          <thead className="bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)]">
                             <tr>
                               <th className="px-3 py-2 text-left">Rep</th>
                               <th className="px-3 py-2 text-right">Closed Won</th>
@@ -1183,15 +1173,14 @@ export function ExecutiveGapInsightsClient(props: {
                 );
               })
             ) : (
-              <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-secondary)]">
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-secondary)]">
                 No direct reports found in the rep directory for this user.
               </div>
             )}
           </div>
-          <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
-            Displayed as: Closed Won revenue · # Closed Won · Avg / Order
-          </div>
-        </div>
+
+          <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">Displayed as: Closed Won revenue · # Closed Won · Avg / Order</div>
+        </details>
       </section>
     </div>
   );

@@ -1250,21 +1250,23 @@ export async function QuarterSalesForecastSummary(props: {
         </div>
       </div>
 
-      <GapDrivingDealsClient
-        basePath={props.currentPath}
-        periods={periods.map((p) => ({
-          id: String(p.id),
-          fiscal_year: fiscalYearKey(p),
-          fiscal_quarter: String(p.fiscal_quarter),
-          period_name: String(p.period_name || "").trim() || periodLabel(p),
-          period_start: String(p.period_start),
-          period_end: String(p.period_end),
-        }))}
-        reps={repsForGapReport}
-        initialQuotaPeriodId={qpId}
-        hideQuotaPeriodSelect={true}
-        defaultRepName={role === "REP" ? (userRepName || String(props.user.display_name || "").trim() || null) : null}
-      />
+      <div id="gap-driving-deals" className="scroll-mt-24">
+        <GapDrivingDealsClient
+          basePath={props.currentPath}
+          periods={periods.map((p) => ({
+            id: String(p.id),
+            fiscal_year: fiscalYearKey(p),
+            fiscal_quarter: String(p.fiscal_quarter),
+            period_name: String(p.period_name || "").trim() || periodLabel(p),
+            period_start: String(p.period_start),
+            period_end: String(p.period_end),
+          }))}
+          reps={repsForGapReport}
+          initialQuotaPeriodId={qpId}
+          hideQuotaPeriodSelect={true}
+          defaultRepName={role === "REP" ? (userRepName || String(props.user.display_name || "").trim() || null) : null}
+        />
+      </div>
 
       {role !== "REP" && repRollups.length ? (
         <details className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">

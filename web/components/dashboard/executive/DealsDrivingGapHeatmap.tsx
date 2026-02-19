@@ -43,6 +43,7 @@ function healthTextClass(pct: number | null) {
 export function DealsDrivingGapHeatmap(props: {
   rows: HeatmapDealRow[];
   viewFullHref: string;
+  rowHref?: (row: HeatmapDealRow) => string;
   title?: string;
   subtitle?: string;
 }) {
@@ -80,7 +81,7 @@ export function DealsDrivingGapHeatmap(props: {
             props.rows.map((r) => (
               <Link
                 key={r.id}
-                href={`/opportunities/${encodeURIComponent(r.id)}/deal-review`}
+                href={props.rowHref ? props.rowHref(r) : `/opportunities/${encodeURIComponent(r.id)}/deal-review`}
                 className="grid grid-cols-[120px_1.6fr_140px_140px_120px_110px_140px_40px] items-center border-t border-[color:var(--sf-border)] text-sm text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
               >
                 <div className="px-3 py-2">

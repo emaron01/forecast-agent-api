@@ -217,12 +217,13 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
         <div>
           <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">AI Risk Radar</div>
           <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-            Dots show where each displayed deal has a 0–2 score in MEDDPICC+TB (inner→outer rings = score 2/1/0).
+            <div>Opportunities with MEDDPICC+TB risk are represented on the radar. Outer ring = lowest score / highest category risk.</div>
+            <div>AI Risk Radar coloring: center ring green · middle ring yellow · outer ring red.</div>
           </div>
         </div>
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(220px,280px)]">
         <div className="flex items-center justify-center">
           <div className="aspect-square" style={{ width: size, maxWidth: "100%" }}>
             <svg className="h-full w-full" viewBox={`0 0 ${size} ${size}`} role="img" aria-label="MEDDPICC+TB radar">
@@ -243,9 +244,9 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
               </defs>
 
             <circle cx={cx} cy={cy} r={outerR} fill={palette.surfaceAlt} stroke={palette.border} strokeWidth={2} />
-            <circle cx={cx} cy={cy} r={r1} fill="none" stroke={palette.border} strokeWidth={1} opacity={0.8} />
-            <circle cx={cx} cy={cy} r={r2} fill="none" stroke={palette.border} strokeWidth={1} opacity={0.8} />
-            <circle cx={cx} cy={cy} r={r3} fill="none" stroke={palette.border} strokeWidth={1.2} opacity={0.9} />
+            <circle cx={cx} cy={cy} r={r1} fill="none" stroke="#2ECC71" strokeWidth={1.15} opacity={0.95} />
+            <circle cx={cx} cy={cy} r={r2} fill="none" stroke="#F1C40F" strokeWidth={1.15} opacity={0.92} />
+            <circle cx={cx} cy={cy} r={r3} fill="none" stroke="#E74C3C" strokeWidth={1.35} opacity={0.95} />
 
             {/* Aesthetic "radar" pulse overlay (center → out). */}
             <circle cx={cx} cy={cy} r={r1} fill="none" stroke={palette.accentSecondary} strokeWidth={1.8} opacity={0} className="radarPulse1" />
@@ -282,9 +283,9 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
           </div>
         </div>
 
-        <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+        <div className="self-start rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Accounts</div>
-          <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm text-[color:var(--sf-text-primary)]">
+          <div className="mt-3 grid grid-cols-1 gap-x-3 gap-y-2 text-sm text-[color:var(--sf-text-primary)] sm:grid-cols-2">
             {props.deals.length ? (
               props.deals.map((d) => (
                 <div key={d.id} className="flex min-w-0 items-center gap-2">
