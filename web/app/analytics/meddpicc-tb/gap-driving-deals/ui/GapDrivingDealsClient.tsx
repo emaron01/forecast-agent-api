@@ -274,9 +274,14 @@ export function GapDrivingDealsClient(props: {
   const suppressedOnly = String(qs.get("suppressed_only") || "") === "1";
   const healthPreset = healthPresetFromParams(qs);
 
+  const mode = (String(qs.get("mode") || "").trim() === "risk" ? "risk" : "drivers") as "drivers" | "risk";
+
   const driverMode = String(qs.get("driver_mode") || "") !== "0";
   const driverMinAbsGap = Number(qs.get("driver_min_abs_gap") || 0) || 0;
   const driverRequireScoreEffect = String(qs.get("driver_require_score_effect") || "") !== "0";
+
+  const riskMinDownside = Number(qs.get("risk_min_downside") || 0) || 0;
+  const riskRequireScoreEffect = String(qs.get("risk_require_score_effect") || "") !== "0";
 
   const bucketAnyParam = qs.has("bucket_commit") || qs.has("bucket_best_case") || qs.has("bucket_pipeline");
   const bucketCommit = bucketAnyParam ? boolParam(qs, "bucket_commit") !== false : true;
@@ -291,7 +296,7 @@ export function GapDrivingDealsClient(props: {
     window.location.href = buildHref(props.basePath, sp);
   };
 
-  const resetToDefaultRiskDrivers = () => {
+  const resetToGapDriversDefaults = () => {
     const sp = new URLSearchParams(qs);
 
     // Always keep quarter selection.
@@ -315,23 +320,76 @@ export function GapDrivingDealsClient(props: {
       "bucket_commit",
       "bucket_best_case",
       "bucket_pipeline",
+      "mode",
       "driver_mode",
       "driver_take_per_bucket",
       "driver_min_abs_gap",
       "driver_require_score_effect",
+      "risk_take_per_bucket",
+      "risk_min_downside",
+      "risk_require_score_effect",
     ].forEach((k) => sp.delete(k));
 
     if (qp) sp.set("quota_period_id", qp);
 
-    // Default Risk (gap drivers) defaults.
+    // Gap Drivers defaults.
     sp.set("bucket_commit", "1");
     sp.set("bucket_best_case", "1");
     sp.set("bucket_pipeline", "0");
 
+    sp.set("mode", "drivers");
     sp.set("driver_mode", "1");
     sp.set("driver_take_per_bucket", "50");
     sp.set("driver_min_abs_gap", "0");
     sp.set("driver_require_score_effect", "1");
+
+    window.location.href = buildHref(props.basePath, sp);
+  };
+
+  const resetToAllAtRiskDefaults = () => {
+    const sp = new URLSearchParams(qs);
+
+    // Always keep quarter selection.
+    const qp = String(sp.get("quota_period_id") || props.initialQuotaPeriodId || "").trim();
+    sp.forEach((_v, k) => {
+      // no-op (can't mutate during forEach reliably)
+    });
+
+    [
+      "rep_public_id",
+      "repPublicId",
+      "rep_name",
+      "stage",
+      "health_min_pct",
+      "health_max_pct",
+      "risk_category",
+      "riskType",
+      "suppressed_only",
+      "suppressedOnly",
+      "bucket_commit",
+      "bucket_best_case",
+      "bucket_pipeline",
+      "mode",
+      "driver_mode",
+      "driver_take_per_bucket",
+      "driver_min_abs_gap",
+      "driver_require_score_effect",
+      "risk_take_per_bucket",
+      "risk_min_downside",
+      "risk_require_score_effect",
+    ].forEach((k) => sp.delete(k));
+
+    if (qp) sp.set("quota_period_id", qp);
+
+    // All At Risk defaults (Commit + Best Case).
+    sp.set("bucket_commit", "1");
+    sp.set("bucket_best_case", "1");
+    sp.set("bucket_pipeline", "0");
+
+    sp.set("mode", "risk");
+    sp.set("risk_take_per_bucket", "2000");
+    sp.set("risk_min_downside", "0");
+    sp.set("risk_require_score_effect", "1");
 
     window.location.href = buildHref(props.basePath, sp);
   };
@@ -365,6 +423,11 @@ export function GapDrivingDealsClient(props: {
               CRM Outlook {fmtMoney(headerTotals.crm_outlook_weighted)} · AI Outlook {fmtMoney(headerTotals.ai_outlook_weighted)} ·{" "}
               <span className={deltaClass(headerTotals.gap)}>Gap {fmtMoney(headerTotals.gap)}</span>
             </div>
+            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+              {mode === "drivers"
+                ? "Gap Drivers: top score-driven deals explaining the AI vs CRM delta."
+                : "All At Risk: every deal where AI outlook is lower than CRM (sorted by downside)."}
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {!props.hideQuotaPeriodSelect ? (
@@ -388,10 +451,17 @@ export function GapDrivingDealsClient(props: {
             ) : null}
 
             <button
-              onClick={resetToDefaultRiskDrivers}
+              onClick={resetToGapDriversDefaults}
               className="h-[36px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 text-sm font-medium hover:bg-[color:var(--sf-surface-alt)]"
             >
-              Default Risk
+              Gap Drivers
+            </button>
+
+            <button
+              onClick={resetToAllAtRiskDefaults}
+              className="h-[36px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 text-sm font-medium hover:bg-[color:var(--sf-surface-alt)]"
+            >
+              All At Risk
             </button>
           </div>
         </div>
@@ -553,62 +623,117 @@ export function GapDrivingDealsClient(props: {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Driver selection</span>
-            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
-              <input
-                type="checkbox"
-                checked={driverMode}
-                onChange={(e) =>
-                  setParamAndGo((sp) => {
-                    sp.set("driver_mode", e.target.checked ? "1" : "0");
-                  })
-                }
-              />
-              Gap drivers only
-            </label>
+            <span className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">{mode === "drivers" ? "Drivers" : "At-risk filter"}</span>
 
-            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
-              <input
-                type="checkbox"
-                checked={driverRequireScoreEffect}
-                onChange={(e) =>
-                  setParamAndGo((sp) => {
-                    sp.set("driver_require_score_effect", e.target.checked ? "1" : "0");
-                  })
-                }
-              />
-              Score-driven only
-            </label>
+            {mode === "drivers" ? (
+              <>
+                <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+                  <input
+                    type="checkbox"
+                    checked={driverMode}
+                    onChange={(e) =>
+                      setParamAndGo((sp) => {
+                        sp.set("mode", "drivers");
+                        sp.set("driver_mode", e.target.checked ? "1" : "0");
+                      })
+                    }
+                  />
+                  Top drivers only
+                </label>
 
-            <details className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
-              <summary className="cursor-pointer select-none">
-                Min gap {driverMinAbsGap > 0 ? `$${driverMinAbsGap.toLocaleString()}` : "(Any)"}
-              </summary>
-              <div className="mt-2 flex flex-wrap gap-2 pb-2">
-                {[0, 1000, 2500, 5000, 10000].map((n) => (
-                  <label
-                    key={n}
-                    className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={driverMinAbsGap === n}
-                      onChange={(e) =>
-                        setParamAndGo((sp) => {
-                          if (!e.target.checked) {
-                            sp.delete("driver_min_abs_gap");
-                            return;
+                <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+                  <input
+                    type="checkbox"
+                    checked={driverRequireScoreEffect}
+                    onChange={(e) =>
+                      setParamAndGo((sp) => {
+                        sp.set("mode", "drivers");
+                        sp.set("driver_require_score_effect", e.target.checked ? "1" : "0");
+                      })
+                    }
+                  />
+                  Score-driven only
+                </label>
+
+                <details className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+                  <summary className="cursor-pointer select-none">
+                    Min gap {driverMinAbsGap > 0 ? `$${driverMinAbsGap.toLocaleString()}` : "(Any)"}
+                  </summary>
+                  <div className="mt-2 flex flex-wrap gap-2 pb-2">
+                    {[0, 1000, 2500, 5000, 10000].map((n) => (
+                      <label
+                        key={n}
+                        className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={driverMinAbsGap === n}
+                          onChange={(e) =>
+                            setParamAndGo((sp) => {
+                              sp.set("mode", "drivers");
+                              if (!e.target.checked) {
+                                sp.delete("driver_min_abs_gap");
+                                return;
+                              }
+                              if (n <= 0) sp.delete("driver_min_abs_gap");
+                              else sp.set("driver_min_abs_gap", String(n));
+                            })
                           }
-                          if (n <= 0) sp.delete("driver_min_abs_gap");
-                          else sp.set("driver_min_abs_gap", String(n));
-                        })
-                      }
-                    />
-                    {n <= 0 ? "Any" : `$${n.toLocaleString()}`}
-                  </label>
-                ))}
-              </div>
-            </details>
+                        />
+                        {n <= 0 ? "Any" : `$${n.toLocaleString()}`}
+                      </label>
+                    ))}
+                  </div>
+                </details>
+              </>
+            ) : (
+              <>
+                <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+                  <input
+                    type="checkbox"
+                    checked={riskRequireScoreEffect}
+                    onChange={(e) =>
+                      setParamAndGo((sp) => {
+                        sp.set("mode", "risk");
+                        sp.set("risk_require_score_effect", e.target.checked ? "1" : "0");
+                      })
+                    }
+                  />
+                  Score-driven only
+                </label>
+
+                <details className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+                  <summary className="cursor-pointer select-none">
+                    Min downside {riskMinDownside > 0 ? `$${riskMinDownside.toLocaleString()}` : "(Any)"}
+                  </summary>
+                  <div className="mt-2 flex flex-wrap gap-2 pb-2">
+                    {[0, 1000, 2500, 5000, 10000].map((n) => (
+                      <label
+                        key={n}
+                        className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={riskMinDownside === n}
+                          onChange={(e) =>
+                            setParamAndGo((sp) => {
+                              sp.set("mode", "risk");
+                              if (!e.target.checked) {
+                                sp.delete("risk_min_downside");
+                                return;
+                              }
+                              if (n <= 0) sp.delete("risk_min_downside");
+                              else sp.set("risk_min_downside", String(n));
+                            })
+                          }
+                        />
+                        {n <= 0 ? "Any" : `$${n.toLocaleString()}`}
+                      </label>
+                    ))}
+                  </div>
+                </details>
+              </>
+            )}
 
             <details className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
               <summary className="cursor-pointer select-none">Health filter (optional)</summary>
