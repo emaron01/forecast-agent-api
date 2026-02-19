@@ -44,6 +44,7 @@ export function DealsDrivingGapHeatmap(props: {
   rows: HeatmapDealRow[];
   viewFullHref: string;
   rowHref?: (row: HeatmapDealRow) => string;
+  onRowClick?: (row: HeatmapDealRow) => void;
   title?: string;
   subtitle?: string;
 }) {
@@ -79,11 +80,39 @@ export function DealsDrivingGapHeatmap(props: {
 
           {props.rows.length ? (
             props.rows.map((r) => (
-              <Link
-                key={r.id}
-                href={props.rowHref ? props.rowHref(r) : `/opportunities/${encodeURIComponent(r.id)}/deal-review`}
-                className="grid grid-cols-[120px_1.6fr_140px_140px_120px_110px_140px_40px] items-center border-t border-[color:var(--sf-border)] text-sm text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
-              >
+              props.onRowClick ? (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => props.onRowClick?.(r)}
+                  className="grid w-full grid-cols-[120px_1.6fr_140px_140px_120px_110px_140px_40px] items-center border-t border-[color:var(--sf-border)] text-left text-sm text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
+                >
+                  <div className="px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      {r.dealColor ? (
+                        <span
+                          className="h-2.5 w-2.5 rounded-full border border-[color:var(--sf-border)]"
+                          style={{ background: r.dealColor }}
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${riskPillClass(r.riskTone)}`}>{r.riskLabel}</span>
+                    </div>
+                  </div>
+                  <div className="px-3 py-2 font-medium">{r.dealName}</div>
+                  <div className="px-3 py-2 text-xs text-[color:var(--sf-text-secondary)]">{r.repName}</div>
+                  <div className="px-3 py-2 text-xs text-[color:var(--sf-text-secondary)]">{r.bucketLabel}</div>
+                  <div className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(r.amount)}</div>
+                  <div className={`px-3 py-2 text-right font-mono text-xs ${healthTextClass(r.healthPct)}`}>{r.healthPct == null ? "—" : `${r.healthPct}%`}</div>
+                  <div className={`px-3 py-2 text-right font-mono text-xs ${deltaTextClass(r.gap)}`}>{fmtMoney(r.gap)}</div>
+                  <div className="px-3 py-2 text-right text-[color:var(--sf-text-secondary)]">›</div>
+                </button>
+              ) : (
+                <Link
+                  key={r.id}
+                  href={props.rowHref ? props.rowHref(r) : `/opportunities/${encodeURIComponent(r.id)}/deal-review`}
+                  className="grid grid-cols-[120px_1.6fr_140px_140px_120px_110px_140px_40px] items-center border-t border-[color:var(--sf-border)] text-sm text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
+                >
                 <div className="px-3 py-2">
                   <div className="flex items-center gap-2">
                     {r.dealColor ? (
@@ -103,7 +132,8 @@ export function DealsDrivingGapHeatmap(props: {
                 <div className={`px-3 py-2 text-right font-mono text-xs ${healthTextClass(r.healthPct)}`}>{r.healthPct == null ? "—" : `${r.healthPct}%`}</div>
                 <div className={`px-3 py-2 text-right font-mono text-xs ${deltaTextClass(r.gap)}`}>{fmtMoney(r.gap)}</div>
                 <div className="px-3 py-2 text-right text-[color:var(--sf-text-secondary)]">›</div>
-              </Link>
+                </Link>
+              )
             ))
           ) : (
             <div className="border-t border-[color:var(--sf-border)] p-5 text-sm text-[color:var(--sf-text-secondary)]">No deals found for the current filters.</div>

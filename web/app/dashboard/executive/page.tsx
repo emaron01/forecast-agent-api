@@ -62,6 +62,7 @@ export default async function ExecutiveDashboardPage({
         <div className="mt-4 grid gap-4">
           <ExecutiveGapInsightsClient
             basePath="/dashboard/executive"
+            periods={summary.periods}
             quotaPeriodId={summary.selectedQuotaPeriodId}
             reps={summary.reps}
             fiscalYear={String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "—"}
@@ -77,12 +78,6 @@ export default async function ExecutiveDashboardPage({
             quota={summary.quota}
             aiForecast={summary.aiForecast.weighted_forecast}
             crmForecast={summary.crmForecast.weighted_forecast}
-            crmForecastBuckets={{
-              commit_amount: summary.crmForecast.commit_amount,
-              best_case_amount: summary.crmForecast.best_case_amount,
-              pipeline_amount: summary.crmForecast.pipeline_amount,
-              won_amount: summary.crmForecast.won_amount,
-            }}
             gap={summary.forecastGap}
             bucketDeltas={{
               commit: summary.bucketDeltas.commit,

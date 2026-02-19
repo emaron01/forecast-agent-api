@@ -10,6 +10,7 @@ import { DealsDrivingGapHeatmap, type HeatmapDealRow } from "./DealsDrivingGapHe
 import { KpiCardsRow } from "./KpiCardsRow";
 import { RiskRadarPlot, type RadarDeal } from "./RiskRadarPlot";
 import { palette } from "../../../lib/palette";
+import { GapDrivingDealsClient } from "../../../app/analytics/meddpicc-tb/gap-driving-deals/ui/GapDrivingDealsClient";
 
 type RiskCategoryKey =
   | "pain"
@@ -266,6 +267,7 @@ function colorForDealId(id: string) {
 
 export function ExecutiveGapInsightsClient(props: {
   basePath: string;
+  periods: Array<{ id: string; fiscal_year: string; fiscal_quarter: string; period_name: string; period_start: string; period_end: string }>;
   quotaPeriodId: string;
   reps: ExecRepOption[];
   fiscalYear: string;
@@ -302,7 +304,6 @@ export function ExecutiveGapInsightsClient(props: {
   quota: number;
   aiForecast: number;
   crmForecast: number;
-  crmForecastBuckets?: { commit_amount: number; best_case_amount: number; pipeline_amount: number; won_amount: number };
   gap: number;
   bucketDeltas: { commit: number; best_case: number; pipeline: number };
   aiPctToGoal: number | null;
@@ -323,6 +324,12 @@ export function ExecutiveGapInsightsClient(props: {
   const riskCategory = String(sp.get("risk_category") || "").trim();
   const mode = String(sp.get("mode") || "drivers").trim() === "risk" ? "risk" : "drivers";
   const scoreDrivenOnly = String(sp.get("driver_require_score_effect") || sp.get("risk_require_score_effect") || "1").trim() !== "0";
+  const gapDrawerOpen = String(sp.get("gap_drawer") || "").trim() === "1";
+  const [gapDrawerMounted, setGapDrawerMounted] = useState(false);
+
+  useEffect(() => {
+    if (gapDrawerOpen) setGapDrawerMounted(true);
+  }, [gapDrawerOpen]);
 
   const apiUrl = useMemo(() => {
     const params = new URLSearchParams(sp.toString());
@@ -547,25 +554,15 @@ export function ExecutiveGapInsightsClient(props: {
     return qs ? `/analytics/meddpicc-tb/gap-driving-deals?${qs}` : "/analytics/meddpicc-tb/gap-driving-deals";
   }, [sp, quotaPeriodId]);
 
-  const dataDetailsGapHref = useMemo(() => {
-    const params = new URLSearchParams(sp.toString());
-    setParam(params, "quota_period_id", quotaPeriodId);
-
-    const buckets =
-      stageView === "commit"
-        ? { c: "1", b: "0", p: "0" }
-        : stageView === "best_case"
-          ? { c: "0", b: "1", p: "0" }
-          : stageView === "pipeline"
-            ? { c: "0", b: "0", p: "1" }
-            : { c: "1", b: "1", p: "1" };
-    params.set("bucket_commit", buckets.c);
-    params.set("bucket_best_case", buckets.b);
-    params.set("bucket_pipeline", buckets.p);
-
-    const qs = params.toString();
-    return (qs ? `/dashboard?${qs}` : "/dashboard") + "#gap-driving-deals";
-  }, [sp, quotaPeriodId, stageView]);
+  const bucketParamsForStageView = useMemo(() => {
+    return stageView === "commit"
+      ? { c: "1", b: "0", p: "0" }
+      : stageView === "best_case"
+        ? { c: "0", b: "1", p: "0" }
+        : stageView === "pipeline"
+          ? { c: "0", b: "0", p: "1" }
+          : { c: "1", b: "1", p: "1" };
+  }, [stageView]);
 
   const quarterAnalytics = useMemo(() => {
     const repRows = Array.isArray(props.repRollups) ? props.repRollups : [];
@@ -667,14 +664,27 @@ export function ExecutiveGapInsightsClient(props: {
       <section className="w-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-6 shadow-sm">
         <div className="grid gap-4 lg:grid-cols-12">
           <div className="lg:col-span-7">
-            <div className="flex items-center justify-center gap-4">
-              <div className="relative h-[44px] w-[240px] shrink-0 sm:h-[52px] sm:w-[280px]">
-                <Image src="/brand/salesforecast-logo.svg" alt="SalesForecast.io" fill sizes="280px" className="object-contain" priority={false} />
+            <div className="flex items-center justify-center">
+              <div className="relative h-[28px] w-[190px] shrink-0 sm:h-[34px] sm:w-[230px]">
+                <Image
+                  src="/brand/logooutlook.png"
+                  alt="SalesForecast.io Outlook"
+                  fill
+                  sizes="230px"
+                  className="object-contain"
+                  priority={false}
+                />
               </div>
-              <div className="text-4xl font-extrabold tracking-tight text-[color:var(--sf-text-primary)] sm:text-5xl">OUTLOOK</div>
             </div>
 
             <div className="mt-4">
+              <div className="text-center">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Projected % to Goal</div>
+                <div className="mt-1 font-mono text-5xl font-extrabold tracking-tight text-[color:var(--sf-text-primary)] sm:text-6xl">
+                  {props.aiPctToGoal == null || !Number.isFinite(props.aiPctToGoal) ? "—" : `${Math.round(props.aiPctToGoal * 100)}%`}
+                </div>
+              </div>
+
               <div className="mt-2 flex items-end gap-[2px]">
                 {(() => {
                   const segments = 52;
@@ -701,46 +711,6 @@ export function ExecutiveGapInsightsClient(props: {
               </div>
 
               {(() => {
-                const b = props.crmForecastBuckets;
-                if (!b) return null;
-                const c = Number(b.commit_amount || 0) || 0;
-                const bc = Number(b.best_case_amount || 0) || 0;
-                const p = Number(b.pipeline_amount || 0) || 0;
-                const den = c + bc + p;
-                if (!(den > 0)) return null;
-                const mixC = c / den;
-                const mixB = bc / den;
-                const mixP = p / den;
-
-                const Seg = (seg: { label: string; pct: number; bg: string; border: string }) => (
-                  <div
-                    className="flex min-w-[90px] flex-1 items-center justify-center gap-2 rounded-md border px-2 py-1 text-[11px] font-semibold"
-                    style={{
-                      background: seg.bg,
-                      borderColor: seg.border,
-                      color: "var(--sf-text-primary)",
-                    }}
-                  >
-                    <span className="text-[color:var(--sf-text-secondary)]">{seg.label}</span>
-                    <span className="font-mono">{fmtPct01(seg.pct)}</span>
-                  </div>
-                );
-
-                return (
-                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                    <Seg label="Commit" pct={mixC} bg="color-mix(in srgb, #2ECC71 14%, var(--sf-surface))" border="color-mix(in srgb, #2ECC71 42%, var(--sf-border))" />
-                    <Seg
-                      label="Best Case"
-                      pct={mixB}
-                      bg="color-mix(in srgb, #F1C40F 16%, var(--sf-surface))"
-                      border="color-mix(in srgb, #F1C40F 45%, var(--sf-border))"
-                    />
-                    <Seg label="Pipeline" pct={mixP} bg="color-mix(in srgb, #E74C3C 14%, var(--sf-surface))" border="color-mix(in srgb, #E74C3C 42%, var(--sf-border))" />
-                  </div>
-                );
-              })()}
-
-              {(() => {
                 const c = confidenceFromPct(props.aiPctToGoal);
                 const cls =
                   c.tone === "good"
@@ -750,7 +720,7 @@ export function ExecutiveGapInsightsClient(props: {
                       : c.tone === "bad"
                         ? "text-[#E74C3C]"
                         : "text-[color:var(--sf-text-secondary)]";
-                return <div className={`mt-2 text-sm font-semibold ${cls}`}>{c.label}</div>;
+                return <div className={`mt-4 text-sm font-semibold ${cls}`}>{c.label}</div>;
               })()}
             </div>
           </div>
@@ -1006,7 +976,15 @@ export function ExecutiveGapInsightsClient(props: {
             <DealsDrivingGapHeatmap
               rows={heatmapRows}
               viewFullHref={viewFullHref}
-              rowHref={() => dataDetailsGapHref}
+              onRowClick={() => {
+                updateUrl((p) => {
+                  setParam(p, "quota_period_id", quotaPeriodId);
+                  p.set("bucket_commit", bucketParamsForStageView.c);
+                  p.set("bucket_best_case", bucketParamsForStageView.b);
+                  p.set("bucket_pipeline", bucketParamsForStageView.p);
+                  p.set("gap_drawer", "1");
+                });
+              }}
               title={stageLabel}
               subtitle={
                 totals
@@ -1473,6 +1451,68 @@ export function ExecutiveGapInsightsClient(props: {
           <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">Displayed as: Closed Won revenue · # Closed Won · Avg / Order</div>
         </details>
       </section>
+
+      {gapDrawerMounted ? (
+        <div className="fixed inset-0 z-50">
+          <button
+            type="button"
+            aria-label="Close deals driving the gap panel"
+            className={[
+              "absolute inset-0 bg-black/40 transition-opacity duration-300 ease-out motion-reduce:transition-none",
+              gapDrawerOpen ? "opacity-100" : "opacity-0 pointer-events-none",
+            ].join(" ")}
+            onClick={() =>
+              updateUrl((p) => {
+                p.delete("gap_drawer");
+              })
+            }
+          />
+
+          <aside
+            className={[
+              "absolute right-0 top-0 h-full w-full max-w-[980px] border-l border-[color:var(--sf-border)] bg-[color:var(--sf-background)] shadow-2xl",
+              "transition-transform duration-300 ease-out motion-reduce:transition-none",
+              gapDrawerOpen ? "translate-x-0" : "translate-x-full",
+            ].join(" ")}
+            onTransitionEnd={() => {
+              if (!gapDrawerOpen) setGapDrawerMounted(false);
+            }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Deals driving the gap"
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-[color:var(--sf-text-primary)]">Deals driving the gap</div>
+                <div className="mt-0.5 truncate text-xs text-[color:var(--sf-text-secondary)]">
+                  Slide-out detail panel · keeps your place on the executive dashboard
+                </div>
+              </div>
+              <button
+                type="button"
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
+                onClick={() =>
+                  updateUrl((p) => {
+                    p.delete("gap_drawer");
+                  })
+                }
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="h-[calc(100%-52px)] overflow-auto p-4">
+              <GapDrivingDealsClient
+                basePath={props.basePath}
+                periods={props.periods as any}
+                reps={props.reps as any}
+                initialQuotaPeriodId={quotaPeriodId}
+                hideQuotaPeriodSelect={true}
+              />
+            </div>
+          </aside>
+        </div>
+      ) : null}
     </div>
   );
 }

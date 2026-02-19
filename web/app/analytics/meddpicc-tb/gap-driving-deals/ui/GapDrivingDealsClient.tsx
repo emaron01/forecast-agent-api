@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { MEDDPICC_CANONICAL } from "../../../../../lib/meddpiccCanonical";
 
@@ -265,6 +265,7 @@ export function GapDrivingDealsClient(props: {
   const [refreshNonce, setRefreshNonce] = useState(0);
 
   const sp = useSearchParams();
+  const router = useRouter();
   const spKey = sp?.toString() || "";
   const qs = useMemo(() => {
     const next = new URLSearchParams(spKey || "");
@@ -337,7 +338,7 @@ export function GapDrivingDealsClient(props: {
   const setParamAndGo = (mutate: (sp: URLSearchParams) => void) => {
     const sp = new URLSearchParams(qs);
     mutate(sp);
-    window.location.href = buildHref(props.basePath, sp);
+    router.replace(buildHref(props.basePath, sp));
   };
 
   const resetToGapDriversDefaults = () => {
@@ -388,7 +389,7 @@ export function GapDrivingDealsClient(props: {
     sp.set("driver_min_abs_gap", "0");
     sp.set("driver_require_score_effect", "1");
 
-    window.location.href = buildHref(props.basePath, sp);
+    router.replace(buildHref(props.basePath, sp));
   };
 
   const resetToAllAtRiskDefaults = () => {
@@ -437,7 +438,7 @@ export function GapDrivingDealsClient(props: {
     sp.set("risk_min_downside", "0");
     sp.set("risk_require_score_effect", "1");
 
-    window.location.href = buildHref(props.basePath, sp);
+    router.replace(buildHref(props.basePath, sp));
   };
 
   const headerTotals =
