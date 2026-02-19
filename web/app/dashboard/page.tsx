@@ -110,6 +110,7 @@ export default async function DashboardPage({
           </section>
 
           <section className="mt-6 grid gap-4 md:grid-cols-3">
+            <ActionCard href="/dashboard/executive" title="Executive Dashboard (new)" desc="Fast 5-second truth view (A/B)."/>
             <ActionCard href="/analytics" title="Analytics" desc="KPIs, comparisons, quotas, and reporting." />
             <ActionCard href="/analytics/quotas/manager" title="Team Quotas" desc="Assign quotas to direct reports + team rollups." />
             <ActionCard href="/forecast" title="Sales Opportunities" desc="Primary rep opportunities dashboard." />
@@ -142,6 +143,7 @@ export default async function DashboardPage({
           </div>
 
           <section className="mt-6 grid gap-4 md:grid-cols-3">
+            <ActionCard href="/dashboard/executive" title="Executive Dashboard (new)" desc="Fast 5-second truth view (A/B)."/>
             <ActionCard href="/analytics" title="Analytics" desc="KPIs, comparisons, quotas, and reporting." />
             <ActionCard href="/forecast" title="Sales Opportunities" desc="Primary rep opportunities dashboard." />
             <ActionCard href="/dashboard/excel-upload" title="Upload Opportunities" desc="Upload an Excel file of opportunities." />
