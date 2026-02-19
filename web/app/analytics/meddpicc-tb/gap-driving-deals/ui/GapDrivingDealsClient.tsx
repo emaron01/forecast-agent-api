@@ -83,6 +83,7 @@ type ApiResponse =
       filters: Record<string, any>;
       totals: { crm_outlook_weighted: number; ai_outlook_weighted: number; gap: number };
       shown_totals?: { crm_outlook_weighted: number; ai_outlook_weighted: number; gap: number };
+      debug?: any;
       rep_context: null | {
         rep_public_id: string;
         rep_name: string | null;
@@ -508,8 +509,30 @@ export function GapDrivingDealsClient(props: {
             >
               Refresh data
             </button>
+
+            <button
+              onClick={() =>
+                setParamAndGo((sp) => {
+                  const on = String(sp.get("debug") || "").trim() === "1";
+                  if (on) sp.delete("debug");
+                  else sp.set("debug", "1");
+                })
+              }
+              className="h-[36px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+            >
+              Debug
+            </button>
           </div>
         </div>
+
+        {asOk(data)?.debug ? (
+          <details className="mt-3 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+            <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">Debug output</summary>
+            <pre className="mt-2 max-h-[360px] overflow-auto rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+              {JSON.stringify(asOk(data)?.debug ?? null, null, 2)}
+            </pre>
+          </details>
+        ) : null}
 
         <div className="mt-3 grid gap-2">
           <div className="flex flex-wrap items-center gap-2">

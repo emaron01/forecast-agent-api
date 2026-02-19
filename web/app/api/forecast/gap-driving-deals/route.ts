@@ -328,6 +328,7 @@ export async function GET(req: Request) {
     if (auth.kind !== "user") return jsonError(403, "Forbidden");
 
     const url = new URL(req.url);
+    const debug = parseBool(url.searchParams.get("debug"));
     const quotaPeriodIdRaw = String(url.searchParams.get("quota_period_id") || "").trim();
 
     const repPublicId = zPublicId.optional().catch(undefined).parse(
@@ -468,6 +469,21 @@ export async function GET(req: Request) {
           best_case: { deals: [], totals: { crm_weighted: 0, ai_weighted: 0, gap: 0 }, shown_totals: { crm_weighted: 0, ai_weighted: 0, gap: 0 } },
           pipeline: { deals: [], totals: { crm_weighted: 0, ai_weighted: 0, gap: 0 }, shown_totals: { crm_weighted: 0, ai_weighted: 0, gap: 0 } },
         },
+        debug: debug
+          ? {
+              reason: "scope_empty",
+              scopedRole,
+              org_id: auth.user.org_id,
+              visible_rep_users: visibleRepUsers.length,
+              visible_rep_user_ids: visibleRepUserIds.slice(0, 25),
+              visible_rep_name_keys: visibleRepNameKeys.slice(0, 25),
+              rep_ids_to_use: repIdsToUse.slice(0, 25),
+              rep_public_id: repPublicId ?? null,
+              rep_name: repNameLike || null,
+              quota_period_id_raw: quotaPeriodIdRaw || null,
+              mode: effectiveMode,
+            }
+          : undefined,
       });
     }
     const allowedRepNameKeysUniq = visibleRepNameKeys;
@@ -961,6 +977,7 @@ export async function GET(req: Request) {
     };
 
     let deals: DealRow[] = [];
+    let usedRules = true;
     try {
       const { rows } = await queryWithRules();
       deals = (rows || []) as DealRow[];
@@ -970,6 +987,7 @@ export async function GET(req: Request) {
       if (code === "42P01") {
         const { rows } = await queryWithoutRules();
         deals = (rows || []) as DealRow[];
+        usedRules = false;
       } else {
         throw e;
       }
@@ -1162,6 +1180,61 @@ export async function GET(req: Request) {
       gap: shownCommitTotals.gap + shownBestTotals.gap + shownPipeTotals.gap,
     };
 
+    const debugOut = debug
+      ? {
+          scopedRole,
+          org_id: auth.user.org_id,
+          quota_period_id: String(quotaPeriodId),
+          quota_period: qp,
+          use_scoped_rep_ids: useScopedRepIds,
+          visible_rep_users: visibleRepUsers.length,
+          visible_rep_user_ids: visibleRepUserIds.slice(0, 25),
+          visible_rep_name_keys: visibleRepNameKeys.slice(0, 25),
+          rep_ids_to_use: repIdsToUse.slice(0, 25),
+          rep_public_id: repPublicId ?? null,
+          rep_name: repNameLike || null,
+          rep_id_filter: repIdFilter,
+          mode: effectiveMode,
+          used_health_score_rules: usedRules,
+          bucket_list: bucketList,
+          suppressed_only: suppressedOnly,
+          risk_category: riskCategory ?? null,
+          health_min_pct: healthMinPct ?? null,
+          health_max_pct: healthMaxPct ?? null,
+          counts: {
+            sql_rows: deals.length,
+            enriched: enriched.length,
+            filtered_by_risk: filteredByRisk.length,
+            universe: {
+              commit: universeCommit.length,
+              best_case: universeBest.length,
+              pipeline: universePipe.length,
+            },
+            shown: {
+              commit: commitDeals.length,
+              best_case: bestDeals.length,
+              pipeline: pipeDeals.length,
+            },
+          },
+          totals,
+          shown_totals,
+          sample_deals: enriched.slice(0, 8).map((d) => ({
+            id: d.id,
+            rep_name: d.rep.rep_name,
+            rep_id: d.rep.rep_id,
+            close_date: d.close_date,
+            bucket: d.crm_stage.bucket,
+            amount: d.amount,
+            health_score: d.health.health_score,
+            suppression: d.health.suppression,
+            health_modifier: d.health.health_modifier,
+            crm_weighted: d.weighted.crm_weighted,
+            ai_weighted: d.weighted.ai_weighted,
+            gap: d.weighted.gap,
+          })),
+        }
+      : undefined;
+
     // Rep context panel (only when a single rep is explicitly selected).
     const repContext = repPublicId
       ? await (async () => {
@@ -1302,6 +1375,7 @@ export async function GET(req: Request) {
       },
       totals,
       shown_totals,
+      debug: debugOut,
       rep_context: repContext,
       groups: {
         commit: { label: "Commit deals driving the gap", deals: commitDeals, totals: universeCommitTotals, shown_totals: shownCommitTotals },
