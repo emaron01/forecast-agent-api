@@ -36,6 +36,14 @@ function healthPctFromScore30(score: any) {
   return clamp(Math.round((n / 30) * 100), 0, 100);
 }
 
+function computeAiFromHealthScore(healthScore: any): "Commit" | "Best Case" | "Pipeline" | null {
+  const n = Number(healthScore);
+  if (!Number.isFinite(n)) return null;
+  if (n >= 24) return "Commit";
+  if (n >= 18) return "Best Case";
+  return "Pipeline";
+}
+
 type ScoreLabelMap = Record<string, Record<number, string>>;
 
 async function loadScoreLabelMap(orgId: number): Promise<ScoreLabelMap> {
@@ -946,6 +954,7 @@ export async function GET(req: Request) {
       deal_name: { account_name: string | null; opportunity_name: string | null };
       close_date: string | null;
       crm_stage: { forecast_stage: string | null; bucket: "commit" | "best_case" | "pipeline" | null; label: string };
+      ai_verdict_stage: "Commit" | "Best Case" | "Pipeline" | null;
       amount: number;
       health: {
         health_score: number | null;
@@ -997,6 +1006,7 @@ export async function GET(req: Request) {
           bucket: d.crm_bucket,
           label: bucketLabel(d.crm_bucket),
         },
+        ai_verdict_stage: computeAiFromHealthScore(d.health_score),
         amount,
         health: {
           health_score: d.health_score,

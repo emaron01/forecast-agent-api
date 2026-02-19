@@ -34,6 +34,7 @@ type DealOut = {
   deal_name: { account_name: string | null; opportunity_name: string | null };
   close_date: string | null;
   crm_stage: { forecast_stage: string | null; bucket: "commit" | "best_case" | "pipeline" | null; label: string };
+  ai_verdict_stage: "Commit" | "Best Case" | "Pipeline" | null;
   amount: number;
   health: {
     health_score: number | null;
@@ -193,6 +194,23 @@ function chipLabel(key: string) {
 function isGreenScore(score: number | null) {
   const s = Number(score == null ? 0 : score);
   return Number.isFinite(s) && s >= 3;
+}
+
+function stageOrder(s: string | null | undefined) {
+  const v = String(s || "").trim().toLowerCase();
+  if (v === "commit") return 2;
+  if (v === "best case" || v === "best_case" || v === "best") return 1;
+  if (v === "pipeline") return 0;
+  return null;
+}
+
+function stageDeltaClass(crm: string, ai: string) {
+  const crmO = stageOrder(crm);
+  const aiO = stageOrder(ai);
+  if (crmO == null || aiO == null) return "text-[color:var(--sf-text-primary)]";
+  if (aiO < crmO) return "text-[#E74C3C]"; // downgraded
+  if (aiO > crmO) return "text-[#2ECC71]"; // upgraded
+  return "text-[color:var(--sf-text-primary)]"; // matched
 }
 
 function buildHref(basePath: string, params: URLSearchParams) {
@@ -852,13 +870,17 @@ export function GapDrivingDealsClient(props: {
                       const activeCat = d.meddpicc_tb.find((c) => c.key === (activeKey as any)) || null;
                       const activeTitle = activeCat ? canonicalTitle(activeCat.key) : "";
                       const activeMeaning = activeCat ? canonicalMeaning(activeCat.key) : "";
+                      const crmStageLabel = String(d.crm_stage.label || "").trim() || "—";
+                      const aiStageLabel = String(d.ai_verdict_stage || "").trim() || "—";
                       return (
                         <div key={d.id} className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
                               <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">{title}</div>
                               <div className="mt-1 text-base text-[color:var(--sf-text-secondary)]">
-                                Close {fmtDateMmddyyyy(d.close_date)} · Stage <span className="font-semibold text-[color:var(--sf-text-primary)]">{d.crm_stage.label}</span>
+                                Close {fmtDateMmddyyyy(d.close_date)} · CRM Forecast Stage{" "}
+                                <span className="font-semibold text-[color:var(--sf-text-primary)]">{crmStageLabel}</span> · AI Verdict Stage{" "}
+                                <span className={["font-semibold", stageDeltaClass(crmStageLabel, aiStageLabel)].join(" ")}>{aiStageLabel}</span>
                                 {d.health.suppression ? " · Suppressed" : ""}
                               </div>
                               <div className="mt-2">
