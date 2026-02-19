@@ -58,7 +58,7 @@ export function KpiCardsRow(props: {
       </div>
 
       <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm lg:col-span-4">
-        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Attribution (AI − CRM)</div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Forecast Stage Gap Attribution</div>
         <div className="mt-3 grid gap-2 text-xs text-[color:var(--sf-text-primary)]">
           {[
             { label: "Commit impact", v: props.bucketDeltas.commit },

@@ -316,11 +316,13 @@ export function ExecutiveGapInsightsClient(props: {
   const [loading, setLoading] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [topN, setTopN] = useState(Math.max(1, props.defaultTopN || 15));
-  const [stageView, setStageView] = useState<"commit" | "best_case" | "pipeline" | "all">("commit");
+  const [stageView, setStageView] = useState<"commit" | "best_case" | "pipeline" | "all">("all");
   const [createdPipelineOpen, setCreatedPipelineOpen] = useState(false);
 
   const quotaPeriodId = String(sp.get("quota_period_id") || props.quotaPeriodId || "").trim();
-  const repPublicId = String(sp.get("rep_public_id") || "").trim();
+  const teamRepIdRaw = String(sp.get("team_rep_id") || "").trim();
+  const teamRepId = Number(teamRepIdRaw);
+  const teamRepIdValue = Number.isFinite(teamRepId) && teamRepId > 0 ? String(teamRepId) : "";
   const riskCategory = String(sp.get("risk_category") || "").trim();
   const mode = String(sp.get("mode") || "drivers").trim() === "risk" ? "risk" : "drivers";
   const scoreDrivenOnly = String(sp.get("driver_require_score_effect") || sp.get("risk_require_score_effect") || "1").trim() !== "0";
@@ -335,6 +337,14 @@ export function ExecutiveGapInsightsClient(props: {
     const params = new URLSearchParams(sp.toString());
     // Ensure quarter selection is always honored.
     setParam(params, "quota_period_id", quotaPeriodId);
+    // CRO/VP default: include ALL stages unless user explicitly filters buckets.
+    const hasAnyBucket =
+      params.has("bucket_commit") || params.has("bucket_best_case") || params.has("bucket_pipeline");
+    if (!hasAnyBucket) {
+      params.set("bucket_commit", "1");
+      params.set("bucket_best_case", "1");
+      params.set("bucket_pipeline", "1");
+    }
     return `/api/forecast/gap-driving-deals?${params.toString()}`;
   }, [sp, quotaPeriodId]);
 

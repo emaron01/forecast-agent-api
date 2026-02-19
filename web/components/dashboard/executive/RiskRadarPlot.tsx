@@ -70,6 +70,7 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
   const r2 = outerR * 0.66;
   const r3 = outerR * 0.96;
   const labelR = outerR + 26;
+  const pad = Math.max(40, Math.min(72, Math.round(size * 0.1)));
 
   const dots = useMemo(() => {
     const sliceCount = slices.length;
@@ -225,7 +226,12 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
 
       <div className="mt-3 flex items-center justify-center">
         <div className="aspect-square w-full" style={{ maxWidth: size }}>
-            <svg className="h-full w-full" viewBox={`0 0 ${size} ${size}`} role="img" aria-label="MEDDPICC+TB radar">
+          <svg
+            className="h-full w-full"
+            viewBox={`${-pad} ${-pad} ${size + pad * 2} ${size + pad * 2}`}
+            role="img"
+            aria-label="MEDDPICC+TB radar"
+          >
               <defs>
                 <style>{`
                   @keyframes radarPulse {
@@ -278,7 +284,7 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
                 <circle cx={d.x} cy={d.y} r={4.2} fill={d.color} opacity={d.opacity} stroke={palette.surface} strokeWidth={1} />
               </g>
             ))}
-            </svg>
+          </svg>
         </div>
       </div>
     </section>
