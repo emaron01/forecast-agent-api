@@ -517,27 +517,24 @@ export function GapDrivingDealsClient(props: {
                             <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
                               <div className="text-xs text-[color:var(--sf-text-secondary)]">Amount</div>
                               <div className="mt-0.5 font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(d.amount)}</div>
-                              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-                                Health{" "}
-                                <span className={`font-semibold ${healthPctClass(d.health.health_pct)}`}>
+                              <div className="mt-2">
+                                <div className="text-xs text-[color:var(--sf-text-secondary)]">Health</div>
+                                <div className={`mt-0.5 text-lg font-extrabold leading-none ${healthPctClass(d.health.health_pct)}`}>
                                   {d.health.health_pct == null ? "—" : `${d.health.health_pct}%`}
-                                </span>
+                                </div>
                               </div>
                             </div>
                             <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
                               <div className="text-xs text-[color:var(--sf-text-secondary)]">CRM weighted</div>
                               <div className="mt-0.5 font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(d.weighted.crm_weighted)}</div>
-                              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Stage prob {(d.weighted.stage_probability * 100).toFixed(1)}%</div>
                             </div>
                             <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
                               <div className="text-xs text-[color:var(--sf-text-secondary)]">AI weighted</div>
                               <div className="mt-0.5 font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(d.weighted.ai_weighted)}</div>
-                              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Modifier × {Number(d.health.health_modifier || 1).toFixed(2)}</div>
                             </div>
                             <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
                               <div className="text-xs text-[color:var(--sf-text-secondary)]">Gap</div>
                               <div className={`mt-0.5 font-mono text-sm font-semibold ${deltaClass(d.weighted.gap)}`}>{fmtMoney(d.weighted.gap)}</div>
-                              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">AI − CRM</div>
                             </div>
                           </div>
 
