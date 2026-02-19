@@ -379,6 +379,37 @@ export async function GET(req: Request) {
       role: scopedRole,
     });
     const allowedRepIds = scope.allowedRepIds; // null => admin
+    const allowedRepNameKeys: string[] =
+      allowedRepIds !== null && allowedRepIds.length
+        ? await pool
+            .query<{ k: string }>(
+              `
+              WITH keys AS (
+                SELECT lower(regexp_replace(btrim(COALESCE(crm_owner_name, '')), '\\s+', ' ', 'g')) AS k
+                  FROM reps
+                 WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
+                   AND id = ANY($2::bigint[])
+                UNION ALL
+                SELECT lower(regexp_replace(btrim(COALESCE(rep_name, '')), '\\s+', ' ', 'g')) AS k
+                  FROM reps
+                 WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
+                   AND id = ANY($2::bigint[])
+                UNION ALL
+                SELECT lower(regexp_replace(btrim(COALESCE(display_name, '')), '\\s+', ' ', 'g')) AS k
+                  FROM reps
+                 WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
+                   AND id = ANY($2::bigint[])
+              )
+              SELECT DISTINCT k
+                FROM keys
+               WHERE k IS NOT NULL
+                 AND k <> ''
+              `,
+              [auth.user.org_id, allowedRepIds]
+            )
+            .then((r) => (r.rows || []).map((x) => String(x.k || "").trim()).filter(Boolean))
+            .catch(() => [])
+        : [];
 
     // Fail-closed if we can't resolve a scope for a non-admin.
     if (allowedRepIds !== null && (!allowedRepIds.length || !Number.isFinite(allowedRepIds[0] as any))) {
@@ -536,7 +567,16 @@ export async function GET(req: Request) {
           AND o.close_date IS NOT NULL
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
-          AND (NOT $3::boolean OR (o.rep_id IS NOT NULL AND o.rep_id = ANY($4::bigint[])))
+          AND (
+            NOT $3::boolean
+            OR (
+              (o.rep_id IS NOT NULL AND o.rep_id = ANY($4::bigint[]))
+              OR (
+                COALESCE(array_length($19::text[], 1), 0) > 0
+                AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($19::text[])
+              )
+            )
+          )
           AND ($5::bigint IS NULL OR o.rep_id = $5::bigint)
           AND ($6::text IS NULL OR btrim(COALESCE(o.rep_name, '')) ILIKE $6::text)
       ),
@@ -685,6 +725,7 @@ export async function GET(req: Request) {
           hiCfg.budget_max == null ? null : Number(hiCfg.budget_max), // $16
           hiCfg.paper_max == null ? null : Number(hiCfg.paper_max), // $17
           driverMode, // $18
+          allowedRepNameKeys, // $19
         ]
       );
     };
@@ -736,7 +777,16 @@ export async function GET(req: Request) {
             AND o.close_date IS NOT NULL
             AND o.close_date >= qp.period_start
             AND o.close_date <= qp.period_end
-            AND (NOT $3::boolean OR (o.rep_id IS NOT NULL AND o.rep_id = ANY($4::bigint[])))
+            AND (
+              NOT $3::boolean
+              OR (
+                (o.rep_id IS NOT NULL AND o.rep_id = ANY($4::bigint[]))
+                OR (
+                  COALESCE(array_length($19::text[], 1), 0) > 0
+                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($19::text[])
+                )
+              )
+            )
             AND ($5::bigint IS NULL OR o.rep_id = $5::bigint)
             AND ($6::text IS NULL OR btrim(COALESCE(o.rep_name, '')) ILIKE $6::text)
         ),
@@ -855,6 +905,7 @@ export async function GET(req: Request) {
           hiCfg.budget_max == null ? null : Number(hiCfg.budget_max), // $16
           hiCfg.paper_max == null ? null : Number(hiCfg.paper_max), // $17
           driverMode, // $18
+          allowedRepNameKeys, // $19
         ]
       );
     };
