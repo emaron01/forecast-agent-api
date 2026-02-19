@@ -335,6 +335,7 @@ export async function GET(req: Request) {
       String(url.searchParams.get("rep_public_id") || url.searchParams.get("repPublicId") || "").trim() || undefined
     );
     const repNameLike = String(url.searchParams.get("rep_name") || "").trim();
+    const teamRepId = z.coerce.number().int().min(1).optional().catch(undefined).parse(url.searchParams.get("team_rep_id"));
 
     const stageFilter = z
       .enum(["Commit", "Best Case", "Pipeline"])
@@ -544,9 +545,54 @@ export async function GET(req: Request) {
     const requestedRepId = repPublicId ? await resolvePublicId("reps", repPublicId).catch(() => 0) : 0;
     const repIdFilter = requestedRepId > 0 ? requestedRepId : null;
 
+    const teamRepIdsRaw: number[] = teamRepId
+      ? await pool
+          .query<{ id: number }>(
+            `
+            WITH RECURSIVE tree AS (
+              SELECT id
+                FROM reps
+               WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
+                 AND id = $2::bigint
+
+              UNION ALL
+
+              SELECT r.id
+                FROM reps r
+                JOIN tree t
+                  ON r.manager_rep_id = t.id
+               WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+                 AND (r.active IS TRUE OR r.active IS NULL)
+            )
+            SELECT DISTINCT id
+              FROM tree
+            `,
+            [auth.user.org_id, teamRepId]
+          )
+          .then((r) => (r.rows || []).map((x) => Number(x.id)).filter((n) => Number.isFinite(n) && n > 0))
+          .catch(() => [])
+      : [];
+
+    // If teamRepId is set, restrict to the visible reps in that subtree.
+    const teamRepIdsFilter = teamRepId
+      ? (useScopedRepIds ? teamRepIdsRaw.filter((id) => repIdsToUse.includes(id)) : teamRepIdsRaw)
+      : [];
+    const useTeamFilter = !!teamRepId && teamRepIdsFilter.length > 0;
+
     // Enforce visibility scope for rep_public_id selection.
     if (repIdFilter && useScopedRepIds && repIdsToUse.length && !repIdsToUse.includes(repIdFilter)) {
       // Return empty (avoid leaking existence).
+      return NextResponse.json({
+        ok: true,
+        quota_period: qp,
+        totals: { crm_outlook_weighted: 0, ai_outlook_weighted: 0, gap: 0 },
+        rep_context: null,
+        groups: { commit: { deals: [], totals: { crm_weighted: 0, ai_weighted: 0, gap: 0 } }, best_case: { deals: [], totals: { crm_weighted: 0, ai_weighted: 0, gap: 0 } }, pipeline: { deals: [], totals: { crm_weighted: 0, ai_weighted: 0, gap: 0 } } },
+      });
+    }
+
+    // Enforce visibility scope for team selection.
+    if (teamRepId && useScopedRepIds && teamRepIdsFilter.length === 0) {
       return NextResponse.json({
         ok: true,
         quota_period: qp,
@@ -650,6 +696,7 @@ export async function GET(req: Request) {
           )
           AND ($5::bigint IS NULL OR o.rep_id = $5::bigint)
           AND ($6::text IS NULL OR btrim(COALESCE(o.rep_name, '')) ILIKE $6::text)
+          AND (NOT $20::boolean OR (o.rep_id IS NOT NULL AND o.rep_id = ANY($21::bigint[])))
       ),
       classified AS (
         SELECT
@@ -797,6 +844,8 @@ export async function GET(req: Request) {
           hiCfg.paper_max == null ? null : Number(hiCfg.paper_max), // $17
           effectiveMode === "drivers" || effectiveMode === "risk", // $18
           allowedRepNameKeysUniq, // $19
+          useTeamFilter, // $20
+          teamRepIdsFilter, // $21
         ]
       );
     };
@@ -860,6 +909,7 @@ export async function GET(req: Request) {
             )
             AND ($5::bigint IS NULL OR o.rep_id = $5::bigint)
             AND ($6::text IS NULL OR btrim(COALESCE(o.rep_name, '')) ILIKE $6::text)
+          AND (NOT $20::boolean OR (o.rep_id IS NOT NULL AND o.rep_id = ANY($21::bigint[])))
         ),
         classified AS (
           SELECT
@@ -977,6 +1027,8 @@ export async function GET(req: Request) {
           hiCfg.paper_max == null ? null : Number(hiCfg.paper_max), // $17
           effectiveMode === "drivers" || effectiveMode === "risk", // $18
           allowedRepNameKeysUniq, // $19
+          useTeamFilter, // $20
+          teamRepIdsFilter, // $21
         ]
       );
     };

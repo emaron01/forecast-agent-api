@@ -688,8 +688,8 @@ export function ExecutiveGapInsightsClient(props: {
             </div>
 
             <div className="mt-4">
-              <div className="text-center">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Projected % to Goal</div>
+              <div className="text-left">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quarter End Outlook</div>
                 <div className="mt-1 font-mono text-5xl font-extrabold tracking-tight text-[color:var(--sf-text-primary)] sm:text-6xl">
                   {props.aiPctToGoal == null || !Number.isFinite(props.aiPctToGoal) ? "—" : `${Math.round(props.aiPctToGoal * 100)}%`}
                 </div>
@@ -722,15 +722,19 @@ export function ExecutiveGapInsightsClient(props: {
 
               {(() => {
                 const c = confidenceFromPct(props.aiPctToGoal);
-                const cls =
+                const pill =
                   c.tone === "good"
-                    ? "text-[#2ECC71]"
+                    ? "border-[#2ECC71]/40 bg-[#2ECC71]/12 text-[#2ECC71]"
                     : c.tone === "warn"
-                      ? "text-[#F1C40F]"
+                      ? "border-[#F1C40F]/50 bg-[#F1C40F]/12 text-[#F1C40F]"
                       : c.tone === "bad"
-                        ? "text-[#E74C3C]"
-                        : "text-[color:var(--sf-text-secondary)]";
-                return <div className={`mt-4 text-sm font-semibold ${cls}`}>{c.label}</div>;
+                        ? "border-[#E74C3C]/45 bg-[#E74C3C]/12 text-[#E74C3C]"
+                        : "border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]";
+                return (
+                  <div className="mt-5">
+                    <span className={`inline-flex rounded-full border px-3 py-1 text-sm font-semibold ${pill}`}>{c.label}</span>
+                  </div>
+                );
               })()}
             </div>
           </div>
@@ -815,24 +819,96 @@ export function ExecutiveGapInsightsClient(props: {
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <div className="grid gap-1">
-            <label className="text-xs text-[color:var(--sf-text-secondary)]">Sales Rep</label>
+            <label className="text-xs text-[color:var(--sf-text-secondary)]">Sales Team</label>
             <select
-              value={repPublicId}
+              value={teamRepIdValue}
               onChange={(e) =>
                 updateUrl((p) => {
                   const v = String(e.target.value || "").trim();
-                  setParam(p, "rep_public_id", v);
+                  setParam(p, "team_rep_id", v);
+                  // Legacy rep filters (rep_public_id / rep_name) are cleared when using the team picker.
                   p.delete("rep_name");
+                  p.delete("rep_public_id");
                 })
               }
               className="h-[40px] min-w-[220px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
             >
-              <option value="">All Sales Reps</option>
-              {props.reps.map((r) => (
-                <option key={r.public_id} value={r.public_id}>
-                  {r.name}
-                </option>
-              ))}
+              <option value="">All Sales Team</option>
+              {(() => {
+                const dir = Array.isArray(props.repDirectory) ? props.repDirectory : [];
+                const byId = new Map<number, RepDirectoryRow>();
+                for (const r of dir) byId.set(Number(r.id), r);
+
+                const children = new Map<number, RepDirectoryRow[]>();
+                for (const r of dir) {
+                  const mid = r.manager_rep_id;
+                  if (mid == null || !Number.isFinite(mid)) continue;
+                  const arr = children.get(mid) || [];
+                  arr.push(r);
+                  children.set(mid, arr);
+                }
+                for (const [mid, arr] of children.entries()) {
+                  arr.sort((a, b) => {
+                    const ra = rankRole(a);
+                    const rb = rankRole(b);
+                    if (ra !== rb) return ra - rb;
+                    const dn = String(a.name || "").localeCompare(String(b.name || ""));
+                    if (dn !== 0) return dn;
+                    return Number(a.id) - Number(b.id);
+                  });
+                  children.set(mid, arr);
+                }
+
+                const rootId = props.myRepId != null && Number.isFinite(props.myRepId) ? Number(props.myRepId) : null;
+                const roots: RepDirectoryRow[] =
+                  rootId != null
+                    ? (children.get(rootId) || []).filter((r) => String(r.role || "").trim().toUpperCase() !== "REP")
+                    : dir.filter((r) => r.manager_rep_id == null);
+
+                const out: Array<{ id: number; label: string }> = [];
+                const seen = new Set<number>();
+                const pushTree = (node: RepDirectoryRow, depth: number) => {
+                  const id = Number(node.id);
+                  if (!Number.isFinite(id) || id <= 0) return;
+                  if (seen.has(id)) return;
+                  seen.add(id);
+                  const role = String(node.role || "").trim().toUpperCase();
+                  const isMgr = role === "MANAGER" || role === "EXEC_MANAGER";
+                  const prefix = depth > 0 ? `${" ".repeat(Math.min(8, depth * 2))}↳ ` : "";
+                  const tag = isMgr ? "[Manager] " : "";
+                  out.push({ id, label: `${prefix}${tag}${node.name}` });
+                  for (const c of children.get(id) || []) {
+                    pushTree(c, depth + 1);
+                  }
+                };
+
+                if (rootId != null && byId.has(rootId)) {
+                  // Show the manager themself first (so selection rolls up their whole team), then their tree.
+                  pushTree(byId.get(rootId)!, 0);
+                }
+                for (const r of roots) pushTree(r, 0);
+
+                // Fallback: if tree logic produced nothing, list all managers then reps.
+                const fallback = out.length
+                  ? out
+                  : dir
+                      .slice()
+                      .sort((a, b) => {
+                        const ra = rankRole(a) - rankRole(b);
+                        if (ra !== 0) return ra;
+                        return String(a.name || "").localeCompare(String(b.name || ""));
+                      })
+                      .map((r) => ({
+                        id: Number(r.id),
+                        label: `${(String(r.role || "").toUpperCase() === "MANAGER" || String(r.role || "").toUpperCase() === "EXEC_MANAGER") ? "[Manager] " : ""}${r.name}`,
+                      }));
+
+                return fallback.map((o) => (
+                  <option key={o.id} value={String(o.id)}>
+                    {o.label}
+                  </option>
+                ));
+              })()}
             </select>
           </div>
 
@@ -887,6 +963,34 @@ export function ExecutiveGapInsightsClient(props: {
               <option value="drivers">AI Top Drivers</option>
               <option value="risk">At-risk deals</option>
             </select>
+          </div>
+
+          <div className="grid gap-1">
+            <label className="text-xs text-[color:var(--sf-text-secondary)]">Stages</label>
+            <div className="flex flex-wrap items-center gap-2">
+              {(
+                [
+                  { k: "commit", label: "Commit" },
+                  { k: "best_case", label: "Best Case" },
+                  { k: "pipeline", label: "Pipeline" },
+                  { k: "all", label: "All" },
+                ] as const
+              ).map((t) => (
+                <button
+                  key={t.k}
+                  type="button"
+                  onClick={() => setStageView(t.k)}
+                  className={[
+                    "h-[40px] rounded-md border px-3 text-sm",
+                    t.k === stageView
+                      ? "border-[color:var(--sf-accent-secondary)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
+                      : "border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface-alt)]",
+                  ].join(" ")}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <label className="mt-5 inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]">
@@ -956,33 +1060,6 @@ export function ExecutiveGapInsightsClient(props: {
 
         return (
           <div className="grid gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                {(
-                  [
-                    { k: "commit", label: "Commit" },
-                    { k: "best_case", label: "Best Case" },
-                    { k: "pipeline", label: "Pipeline" },
-                    { k: "all", label: "All" },
-                  ] as const
-                ).map((t) => (
-                  <button
-                    key={t.k}
-                    type="button"
-                    onClick={() => setStageView(t.k)}
-                    className={[
-                      "h-[34px] rounded-md border px-3 text-sm",
-                      t.k === stageView
-                        ? "border-[color:var(--sf-accent-secondary)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
-                        : "border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface-alt)]",
-                    ].join(" ")}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             <DealsDrivingGapHeatmap
               rows={heatmapRows}
               viewFullHref={viewFullHref}
