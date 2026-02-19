@@ -19,6 +19,13 @@ function parseBool(raw: string | null) {
   return s === "1" || s === "true" || s === "yes" || s === "on";
 }
 
+function normalizeNameKey(s: any) {
+  return String(s || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
 function n0(v: any) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -402,37 +409,90 @@ export async function GET(req: Request) {
       role: scopedRole,
     });
     const allowedRepIds = scope.allowedRepIds; // null => admin
-    const allowedRepNameKeys: string[] =
-      allowedRepIds !== null && allowedRepIds.length
-        ? await pool
-            .query<{ k: string }>(
-              `
-              WITH keys AS (
-                SELECT lower(regexp_replace(btrim(COALESCE(crm_owner_name, '')), '\\s+', ' ', 'g')) AS k
-                  FROM reps
-                 WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
-                   AND id = ANY($2::bigint[])
-                UNION ALL
-                SELECT lower(regexp_replace(btrim(COALESCE(rep_name, '')), '\\s+', ' ', 'g')) AS k
-                  FROM reps
-                 WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
-                   AND id = ANY($2::bigint[])
-                UNION ALL
-                SELECT lower(regexp_replace(btrim(COALESCE(display_name, '')), '\\s+', ' ', 'g')) AS k
-                  FROM reps
-                 WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
-                   AND id = ANY($2::bigint[])
-              )
-              SELECT DISTINCT k
-                FROM keys
-               WHERE k IS NOT NULL
-                 AND k <> ''
-              `,
-              [auth.user.org_id, allowedRepIds]
+    const allowedRepNameKeys: string[] = [];
+    if (allowedRepIds !== null && allowedRepIds.length) {
+      const repKeys = await pool
+        .query<{ k: string }>(
+          `
+          WITH keys AS (
+            SELECT lower(regexp_replace(btrim(COALESCE(crm_owner_name, '')), '\\s+', ' ', 'g')) AS k
+              FROM reps
+             WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
+               AND id = ANY($2::bigint[])
+            UNION ALL
+            SELECT lower(regexp_replace(btrim(COALESCE(rep_name, '')), '\\s+', ' ', 'g')) AS k
+              FROM reps
+             WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
+               AND id = ANY($2::bigint[])
+            UNION ALL
+            SELECT lower(regexp_replace(btrim(COALESCE(display_name, '')), '\\s+', ' ', 'g')) AS k
+              FROM reps
+             WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
+               AND id = ANY($2::bigint[])
+          )
+          SELECT DISTINCT k
+            FROM keys
+           WHERE k IS NOT NULL
+             AND k <> ''
+          `,
+          [auth.user.org_id, allowedRepIds]
+        )
+        .then((r) => (r.rows || []).map((x) => String(x.k || "").trim()).filter(Boolean))
+        .catch(() => []);
+      allowedRepNameKeys.push(...repKeys);
+
+      // Also include user display/account-owner/email keys for those reps (matches Forecast summary logic).
+      try {
+        const userKeys = await pool
+          .query<{ k: string }>(
+            `
+            WITH rep_users AS (
+              SELECT DISTINCT r.user_id
+                FROM reps r
+               WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+                 AND r.id = ANY($2::bigint[])
+                 AND r.user_id IS NOT NULL
+            ),
+            keys AS (
+              SELECT lower(regexp_replace(btrim(COALESCE(u.account_owner_name, '')), '\\s+', ' ', 'g')) AS k
+                FROM users u
+                JOIN rep_users ru ON ru.user_id = u.id
+              UNION ALL
+              SELECT lower(regexp_replace(btrim(COALESCE(u.display_name, '')), '\\s+', ' ', 'g')) AS k
+                FROM users u
+                JOIN rep_users ru ON ru.user_id = u.id
+              UNION ALL
+              SELECT lower(regexp_replace(btrim(COALESCE(u.email, '')), '\\s+', ' ', 'g')) AS k
+                FROM users u
+                JOIN rep_users ru ON ru.user_id = u.id
             )
-            .then((r) => (r.rows || []).map((x) => String(x.k || "").trim()).filter(Boolean))
-            .catch(() => [])
-        : [];
+            SELECT DISTINCT k
+              FROM keys
+             WHERE k IS NOT NULL
+               AND k <> ''
+            `,
+            [auth.user.org_id, allowedRepIds]
+          )
+          .then((r) => (r.rows || []).map((x) => String(x.k || "").trim()).filter(Boolean));
+        allowedRepNameKeys.push(...userKeys);
+      } catch (e: any) {
+        const code = String(e?.code || "");
+        // undefined_column / undefined_table: ignore
+        if (code !== "42703" && code !== "42P01") throw e;
+      }
+    }
+
+    // For REP users, also include their own identity fields (helps when rep_id is missing in opps).
+    if (scopedRole === "REP") {
+      allowedRepNameKeys.push(
+        normalizeNameKey((auth.user as any).account_owner_name),
+        normalizeNameKey((auth.user as any).display_name),
+        normalizeNameKey((auth.user as any).email)
+      );
+    }
+
+    // De-dupe.
+    const allowedRepNameKeysUniq = Array.from(new Set(allowedRepNameKeys.map((s) => String(s || "").trim()).filter(Boolean)));
 
     // Fail-closed if we can't resolve a scope for a non-admin.
     if (allowedRepIds !== null && (!allowedRepIds.length || !Number.isFinite(allowedRepIds[0] as any))) {
@@ -748,7 +808,7 @@ export async function GET(req: Request) {
           hiCfg.budget_max == null ? null : Number(hiCfg.budget_max), // $16
           hiCfg.paper_max == null ? null : Number(hiCfg.paper_max), // $17
           effectiveMode === "drivers" || effectiveMode === "risk", // $18
-          allowedRepNameKeys, // $19
+          allowedRepNameKeysUniq, // $19
         ]
       );
     };
@@ -928,7 +988,7 @@ export async function GET(req: Request) {
           hiCfg.budget_max == null ? null : Number(hiCfg.budget_max), // $16
           hiCfg.paper_max == null ? null : Number(hiCfg.paper_max), // $17
           effectiveMode === "drivers" || effectiveMode === "risk", // $18
-          allowedRepNameKeys, // $19
+          allowedRepNameKeysUniq, // $19
         ]
       );
     };

@@ -902,13 +902,14 @@ export function GapDrivingDealsClient(props: {
                       const activeMeaning = activeCat ? canonicalMeaning(activeCat.key) : "";
                       const crmStageLabel = String(d.crm_stage.label || "").trim() || "—";
                       const aiStageLabel = String(d.ai_verdict_stage || "").trim() || "—";
+                      const repLabel = String(d.rep?.rep_name || "").trim() || "—";
                       return (
                         <div key={d.id} className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
                               <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">{title}</div>
                               <div className="mt-1 text-base text-[color:var(--sf-text-secondary)]">
-                                Close {fmtDateMmddyyyy(d.close_date)} · CRM Forecast Stage{" "}
+                                Sales Rep {repLabel} · Close {fmtDateMmddyyyy(d.close_date)} · CRM Forecast Stage{" "}
                                 <span className="font-semibold text-[color:var(--sf-text-primary)]">{crmStageLabel}</span> · AI Verdict Stage{" "}
                                 <span className={["font-semibold", stageDeltaClass(crmStageLabel, aiStageLabel)].join(" ")}>{aiStageLabel}</span>
                                 {d.health.suppression ? " · Suppressed" : ""}
