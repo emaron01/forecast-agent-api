@@ -199,6 +199,12 @@ function isGreenScore(score: number | null) {
   return Number.isFinite(s) && s >= 3;
 }
 
+function equalsName(a: any, b: any) {
+  const x = String(a || "").trim().toLowerCase();
+  const y = String(b || "").trim().toLowerCase();
+  return !!x && !!y && x === y;
+}
+
 function stageOrder(s: string | null | undefined) {
   const v = String(s || "").trim().toLowerCase();
   if (v === "commit") return 2;
@@ -265,7 +271,11 @@ export function GapDrivingDealsClient(props: {
     if (!next.get("quota_period_id") && props.initialQuotaPeriodId) next.set("quota_period_id", props.initialQuotaPeriodId);
     const hasRepFilter = !!String(next.get("rep_public_id") || "").trim() || !!String(next.get("rep_name") || "").trim();
     const defaultRepName = String(props.defaultRepName || "").trim();
-    if (!hasRepFilter && defaultRepName) next.set("rep_name", defaultRepName);
+    if (!hasRepFilter && defaultRepName) {
+      const match = reps.find((r) => equalsName(r?.name, defaultRepName)) || null;
+      if (match?.public_id) next.set("rep_public_id", String(match.public_id));
+      else next.set("rep_name", defaultRepName);
+    }
     // Guard: stale `health_min_pct=0&health_max_pct=0` can break results; treat as "no health filter".
     if (next.get("health_min_pct") === "0" && next.get("health_max_pct") === "0") {
       next.delete("health_min_pct");
@@ -303,6 +313,7 @@ export function GapDrivingDealsClient(props: {
   }, [apiUrl, refreshNonce]);
 
   const repPublicId = String(qs.get("rep_public_id") || "");
+  const repName = String(qs.get("rep_name") || "");
   const riskCategory = String(qs.get("risk_category") || "");
   const suppressedOnly = String(qs.get("suppressed_only") || "") === "1";
   const healthPreset = healthPresetFromParams(qs);
@@ -321,7 +332,7 @@ export function GapDrivingDealsClient(props: {
   const bucketBestCase = bucketAnyParam ? boolParam(qs, "bucket_best_case") !== false : true;
   const bucketPipeline = bucketAnyParam ? boolParam(qs, "bucket_pipeline") === true : false;
 
-  const repFilterOn = !!repPublicId;
+  const repSelectValue = repPublicId || (repName ? `__rep_name__:${repName}` : "");
 
   const setParamAndGo = (mutate: (sp: URLSearchParams) => void) => {
     const sp = new URLSearchParams(qs);
@@ -449,7 +460,7 @@ export function GapDrivingDealsClient(props: {
     { key: "budget", label: "Budget" },
     { key: "pain", label: "Pain" },
     { key: "metrics", label: "Metrics" },
-    { key: "suppressed", label: "Suppressed" },
+    { key: "suppressed", label: "Suppressed Best Case (low score)" },
   ];
 
   return (
@@ -541,7 +552,7 @@ export function GapDrivingDealsClient(props: {
 
         <div className="mt-3 grid gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Buckets</span>
+            <span className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Forecast Stage</span>
             <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
               <input
                 type="checkbox"
@@ -579,86 +590,63 @@ export function GapDrivingDealsClient(props: {
               Pipeline
             </label>
 
-            <span className="ml-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Rep</span>
-            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
-              <input
-                type="checkbox"
-                checked={!repFilterOn}
-                onChange={(e) => {
-                  if (!e.target.checked) return;
-                  setParamAndGo((sp) => {
+            <span className="ml-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Sales Rep</span>
+            <select
+              value={repSelectValue}
+              onChange={(e) =>
+                setParamAndGo((sp) => {
+                  const next = String(e.target.value || "").trim();
+                  if (!next) {
                     sp.delete("rep_public_id");
                     sp.delete("repPublicId");
                     sp.delete("rep_name");
-                  });
-                }}
-              />
-              All reps
-            </label>
-            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
-              <input
-                type="checkbox"
-                checked={repFilterOn}
-                onChange={(e) => {
-                  if (e.target.checked) {
-                    // Pick first rep if none selected yet.
-                    const first = reps?.[0]?.public_id ? String(reps[0].public_id) : "";
-                    setParamAndGo((sp) => {
-                      if (first) sp.set("rep_public_id", first);
-                    });
-                  } else {
-                    setParamAndGo((sp) => {
-                      sp.delete("rep_public_id");
-                      sp.delete("repPublicId");
-                      sp.delete("rep_name");
-                    });
+                    return;
                   }
-                }}
-              />
-              Filter rep
-            </label>
-            {repFilterOn ? (
-              <select
-                value={repPublicId}
-                onChange={(e) =>
-                  setParamAndGo((sp) => {
-                    const next = String(e.target.value || "").trim();
-                    if (next) sp.set("rep_public_id", next);
-                    else sp.delete("rep_public_id");
-                  })
-                }
-                className="h-[30px] max-w-[280px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
-              >
-                {reps.map((r) => (
-                  <option key={r.public_id} value={r.public_id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-            ) : null}
+                  if (next.startsWith("__rep_name__:")) {
+                    // Keep existing rep_name filter; this option is only shown when we already have it.
+                    sp.delete("rep_public_id");
+                    sp.delete("repPublicId");
+                    if (repName) sp.set("rep_name", repName);
+                    return;
+                  }
+                  sp.delete("rep_name");
+                  sp.set("rep_public_id", next);
+                })
+              }
+              className="h-[30px] max-w-[320px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
+            >
+              <option value="">All Sales Reps</option>
+              {repName && !repPublicId ? <option value={`__rep_name__:${repName}`}>{repName}</option> : null}
+              {reps.map((r) => (
+                <option key={r.public_id} value={r.public_id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Risk type</span>
-            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
-              <input
-                type="checkbox"
-                checked={!riskCategory}
-                onChange={(e) => {
-                  if (!e.target.checked) return;
-                  setParamAndGo((sp) => {
-                    sp.delete("risk_category");
-                    sp.delete("riskType");
-                  });
-                }}
-              />
-              All risks
-            </label>
+            <span className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">MEDDPIC+TB Risk Category</span>
             <details className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
               <summary className="cursor-pointer select-none">
-                Choose risk {riskCategory ? `(${riskOptions.find((x) => x.key === riskCategory)?.label || riskCategory})` : "(All)"}
+                Select Categories {riskCategory ? `(${riskOptions.find((x) => x.key === riskCategory)?.label || riskCategory})` : "(All Categories)"}
               </summary>
               <div className="mt-2 flex flex-wrap gap-2 pb-2">
+                <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+                  <input
+                    type="checkbox"
+                    checked={!riskCategory}
+                    onChange={(e) =>
+                      setParamAndGo((sp) => {
+                        if (e.target.checked) {
+                          sp.delete("risk_category");
+                          sp.delete("riskType");
+                        }
+                      })
+                    }
+                  />
+                  All Categories
+                </label>
                 {riskOptions.map((opt) => (
                   <label
                     key={opt.key}
@@ -691,12 +679,12 @@ export function GapDrivingDealsClient(props: {
                   })
                 }
               />
-              Suppressed only
+              Suppressed Best Case (low score)
             </label>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">{mode === "drivers" ? "Drivers" : "At-risk filter"}</span>
+            <span className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">{mode === "drivers" ? "AI Drivers" : "At-risk filter"}</span>
 
             {mode === "drivers" ? (
               <>
@@ -711,7 +699,7 @@ export function GapDrivingDealsClient(props: {
                       })
                     }
                   />
-                  Top drivers only
+                  AI Top Drivers
                 </label>
 
                 <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
@@ -725,12 +713,12 @@ export function GapDrivingDealsClient(props: {
                       })
                     }
                   />
-                  Score-driven only
+                  AI Score Drivers Only
                 </label>
 
                 <details className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
                   <summary className="cursor-pointer select-none">
-                    Min gap {driverMinAbsGap > 0 ? `$${driverMinAbsGap.toLocaleString()}` : "(Any)"}
+                    Set Min Revenue to Ignore {driverMinAbsGap > 0 ? `$${driverMinAbsGap.toLocaleString()}` : "(Any)"}
                   </summary>
                   <div className="mt-2 flex flex-wrap gap-2 pb-2">
                     {[0, 1000, 2500, 5000, 10000].map((n) => (
@@ -772,12 +760,12 @@ export function GapDrivingDealsClient(props: {
                       })
                     }
                   />
-                  Score-driven only
+                  AI Score Drivers Only
                 </label>
 
                 <details className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
                   <summary className="cursor-pointer select-none">
-                    Min downside {riskMinDownside > 0 ? `$${riskMinDownside.toLocaleString()}` : "(Any)"}
+                    Set Min Revenue to Ignore {riskMinDownside > 0 ? `$${riskMinDownside.toLocaleString()}` : "(Any)"}
                   </summary>
                   <div className="mt-2 flex flex-wrap gap-2 pb-2">
                     {[0, 1000, 2500, 5000, 10000].map((n) => (
@@ -809,7 +797,7 @@ export function GapDrivingDealsClient(props: {
             )}
 
             <details className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
-              <summary className="cursor-pointer select-none">Health filter (optional)</summary>
+              <summary className="cursor-pointer select-none">Health Scores</summary>
               <div className="mt-2 flex flex-wrap gap-2 pb-2">
                 {(["all", "green", "yellow", "red"] as const).map((p) => (
                   <label
@@ -841,7 +829,7 @@ export function GapDrivingDealsClient(props: {
                         })
                       }
                     />
-                    {p === "all" ? "All" : p}
+                    {p === "all" ? "All" : p === "green" ? "High" : p === "yellow" ? "Medium" : "Low"}
                   </label>
                 ))}
               </div>
@@ -851,10 +839,10 @@ export function GapDrivingDealsClient(props: {
 
         {asOk(data)?.rep_context ? (
           <div className="mt-4 overflow-auto rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
-            <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Rep Summary</div>
+            <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Sales Rep Summary</div>
             <div className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-primary)] md:grid-cols-4">
               <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
-                <div className="text-xs text-[color:var(--sf-text-secondary)]">Rep</div>
+                <div className="text-xs text-[color:var(--sf-text-secondary)]">Sales Rep</div>
                 <div className="mt-0.5 font-medium">{asOk(data)?.rep_context?.rep_name || "—"}</div>
               </div>
               <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
@@ -944,7 +932,7 @@ export function GapDrivingDealsClient(props: {
                                 Sales Rep {repLabel} · Close {fmtDateMmddyyyy(d.close_date)} · CRM Forecast Stage{" "}
                                 <span className="font-semibold text-[color:var(--sf-text-primary)]">{crmStageLabel}</span> · AI Verdict Stage{" "}
                                 <span className={["font-semibold", stageDeltaClass(crmStageLabel, aiStageLabel)].join(" ")}>{aiStageLabel}</span>
-                                {d.health.suppression ? " · Suppressed" : ""}
+                                {d.health.suppression ? " · Suppressed Best Case (low score)" : ""}
                               </div>
                               <div className="mt-2">
                                 <Link
