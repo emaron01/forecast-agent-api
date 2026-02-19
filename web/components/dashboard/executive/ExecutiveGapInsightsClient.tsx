@@ -11,6 +11,8 @@ import { KpiCardsRow } from "./KpiCardsRow";
 import { RiskRadarPlot, type RadarDeal } from "./RiskRadarPlot";
 import { palette } from "../../../lib/palette";
 import { GapDrivingDealsClient } from "../../../app/analytics/meddpicc-tb/gap-driving-deals/ui/GapDrivingDealsClient";
+import { ExecutiveProductPerformance } from "./ExecutiveProductPerformance";
+import type { ExecutiveProductPerformanceData } from "../../../lib/executiveProductInsights";
 
 type RiskCategoryKey =
   | "pain"
@@ -655,12 +657,20 @@ export function ExecutiveGapInsightsClient(props: {
     };
   }, [props.repRollups, props.repDirectory, props.myRepId]);
 
-  const productViz = useMemo(() => {
+  const productViz = useMemo<ExecutiveProductPerformanceData>(() => {
     const rows = Array.isArray(props.productsClosedWon) ? props.productsClosedWon : [];
-    const totalWon = rows.reduce((acc, r) => acc + (Number((r as any).won_amount || 0) || 0), 0);
+    const totalRevenue = rows.reduce((acc, r) => acc + (Number((r as any).won_amount || 0) || 0), 0);
     const totalOrders = rows.reduce((acc, r) => acc + (Number((r as any).won_count || 0) || 0), 0);
-    const maxWon = rows.reduce((m, r) => Math.max(m, Number((r as any).won_amount || 0) || 0), 0);
-    return { totalWon, totalOrders, maxWon: Math.max(1, maxWon) };
+    const blendedAcv = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+    return {
+      summary: { total_revenue: totalRevenue, total_orders: totalOrders, blended_acv: blendedAcv },
+      products: rows.map((r) => ({
+        name: String((r as any).product || "").trim() || "(Unspecified)",
+        revenue: Number((r as any).won_amount || 0) || 0,
+        orders: Number((r as any).won_count || 0) || 0,
+        health_score: healthPctFrom30((r as any).avg_health_score),
+      })),
+    };
   }, [props.productsClosedWon]);
 
   function updateUrl(mut: (p: URLSearchParams) => void) {
@@ -1083,82 +1093,7 @@ export function ExecutiveGapInsightsClient(props: {
         );
       })()}
 
-      {props.productsClosedWon.length ? (
-        <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Team revenue by product (Closed Won)</div>
-              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Quick view of what’s closing this quarter.</div>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-[color:var(--sf-text-secondary)]">
-              <span className="rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1">
-                Total: <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(productViz.totalWon)}</span>
-              </span>
-              <span className="rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1">
-                Orders: <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{productViz.totalOrders}</span>
-              </span>
-            </div>
-          </div>
-
-          <div className="mt-3 overflow-x-auto rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
-            <table className="min-w-[860px] w-full table-auto border-collapse text-sm">
-              <thead className="bg-[color:var(--sf-surface)] text-xs text-[color:var(--sf-text-secondary)]">
-                <tr className="text-left">
-                  <th className="border-b border-[color:var(--sf-border)] px-3 py-2">Product</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right">Closed Won</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right"># Orders</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right">Avg / Order</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right">Avg Health</th>
-                </tr>
-              </thead>
-              <tbody>
-                {props.productsClosedWon.map((p, idx) => {
-                  const hp = healthPctFrom30(p.avg_health_score);
-                  const barPct = Math.round(((Number(p.won_amount || 0) || 0) / productViz.maxWon) * 100);
-                  const badge =
-                    hp == null
-                      ? "border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)]"
-                      : hp >= 80
-                        ? "border-[#2ECC71]/40 bg-[#2ECC71]/10 text-[#2ECC71]"
-                        : hp >= 50
-                          ? "border-[#F1C40F]/50 bg-[#F1C40F]/10 text-[#F1C40F]"
-                          : "border-[#E74C3C]/50 bg-[#E74C3C]/10 text-[#E74C3C]";
-
-                  return (
-                    <tr
-                      key={p.product}
-                      className={[
-                        "text-[color:var(--sf-text-primary)]",
-                        idx % 2 === 0 ? "bg-transparent" : "bg-[color:var(--sf-surface)]/20",
-                        "hover:bg-[color:var(--sf-surface)]/35",
-                      ].join(" ")}
-                    >
-                      <td className="border-b border-[color:var(--sf-border)] px-3 py-2 font-semibold">{p.product}</td>
-                      <td className="border-b border-[color:var(--sf-border)] px-3 py-2">
-                        <div className="relative flex items-center justify-end">
-                          <div
-                            className="absolute left-0 top-1/2 h-[10px] -translate-y-1/2 rounded-full bg-[color:var(--sf-accent-primary)]/20"
-                            style={{ width: `${Math.max(6, barPct)}%` }}
-                            aria-hidden="true"
-                          />
-                          <span className="relative font-mono text-xs font-semibold">{fmtMoney(p.won_amount)}</span>
-                        </div>
-                      </td>
-                      <td className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right">{Number(p.won_count || 0) || 0}</td>
-                      <td className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right font-mono text-xs">{fmtMoney(p.avg_order_value)}</td>
-                      <td className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right">
-                        <span className={["inline-flex min-w-[52px] justify-center rounded-full border px-2 py-0.5 font-mono text-xs", badge].join(" ")}>
-                          {hp == null ? "—" : `${hp}%`}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
+      {props.productsClosedWon.length ? <ExecutiveProductPerformance data={productViz} /> : null}
 
       {props.productsClosedWonByRep.length ? (
         <details className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
