@@ -19,7 +19,7 @@ export default function SignupPage({
         <header className="pt-10 text-center">
           <div className="mx-auto inline-flex items-center justify-center rounded-2xl bg-[color:color-mix(in_srgb,var(--sf-surface)_60%,transparent)] p-2 shadow-sm ring-1 ring-[color:var(--sf-border)] backdrop-blur">
             <Image
-              src="/brand/salesforecast-logo.png"
+              src="/brand/salesforecast-logo.svg"
               alt="SalesForecast.io"
               width={520}
               height={120}

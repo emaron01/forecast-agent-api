@@ -6,6 +6,7 @@ export type HeatmapDealRow = {
   id: string;
   riskTone: "high" | "medium" | "low" | "muted";
   riskLabel: string;
+  dealColor?: string | null;
   dealName: string;
   repName: string;
   bucketLabel: string;
@@ -83,7 +84,16 @@ export function DealsDrivingGapHeatmap(props: {
                 className="grid grid-cols-[120px_1.6fr_140px_140px_120px_110px_140px_40px] items-center border-t border-[color:var(--sf-border)] text-sm text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
               >
                 <div className="px-3 py-2">
-                  <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${riskPillClass(r.riskTone)}`}>{r.riskLabel}</span>
+                  <div className="flex items-center gap-2">
+                    {r.dealColor ? (
+                      <span
+                        className="h-2.5 w-2.5 rounded-full border border-[color:var(--sf-border)]"
+                        style={{ background: r.dealColor }}
+                        aria-hidden="true"
+                      />
+                    ) : null}
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${riskPillClass(r.riskTone)}`}>{r.riskLabel}</span>
+                  </div>
                 </div>
                 <div className="px-3 py-2 font-medium">{r.dealName}</div>
                 <div className="px-3 py-2 text-xs text-[color:var(--sf-text-secondary)]">{r.repName}</div>

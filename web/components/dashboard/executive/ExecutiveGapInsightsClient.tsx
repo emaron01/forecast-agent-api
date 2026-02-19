@@ -4,10 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ExecRepOption } from "../../../lib/executiveForecastDashboard";
 import { DealsDrivingGapHeatmap, type HeatmapDealRow } from "./DealsDrivingGapHeatmap";
-import { MeddpiccRiskDistribution, type RiskDistributionRow } from "./MeddpiccRiskDistribution";
-import { RiskRadar, type RiskDriverItem } from "./RiskRadar";
 import { KpiCardsRow } from "./KpiCardsRow";
 import { ForecastDeltaCard } from "./ForecastDeltaCard";
+import { RiskRadarPlot, type RadarDeal } from "./RiskRadarPlot";
+import { palette } from "../../../lib/palette";
 
 type RiskCategoryKey =
   | "pain"
@@ -30,6 +30,7 @@ type DealOut = {
   amount: number;
   health: { health_pct: number | null; suppression: boolean; health_modifier: number };
   weighted: { gap: number; crm_weighted: number; ai_weighted: number };
+  meddpicc_tb: Array<{ key: string; score: number | null }>;
   risk_flags: Array<{ key: RiskCategoryKey; label: string }>;
 };
 
@@ -38,9 +39,9 @@ type ApiOk = {
   totals: { crm_outlook_weighted: number; ai_outlook_weighted: number; gap: number };
   shown_totals?: { crm_outlook_weighted: number; ai_outlook_weighted: number; gap: number };
   groups: {
-    commit: { deals: DealOut[] };
-    best_case: { deals: DealOut[] };
-    pipeline: { deals: DealOut[] };
+    commit: { label: string; deals: DealOut[]; totals: { crm_weighted: number; ai_weighted: number; gap: number }; shown_totals?: { crm_weighted: number; ai_weighted: number; gap: number } };
+    best_case: { label: string; deals: DealOut[]; totals: { crm_weighted: number; ai_weighted: number; gap: number }; shown_totals?: { crm_weighted: number; ai_weighted: number; gap: number } };
+    pipeline: { label: string; deals: DealOut[]; totals: { crm_weighted: number; ai_weighted: number; gap: number }; shown_totals?: { crm_weighted: number; ai_weighted: number; gap: number } };
   };
 };
 
@@ -73,15 +74,6 @@ function riskLabelForKey(k: RiskCategoryKey) {
   return "Suppressed Best Case (low score)";
 }
 
-function toneForCount(count: number, totalDeals: number): RiskDriverItem["tone"] {
-  if (!totalDeals) return "muted";
-  const frac = count / totalDeals;
-  if (frac >= 0.4) return "bad";
-  if (frac >= 0.2) return "warn";
-  if (frac > 0) return "good";
-  return "muted";
-}
-
 function dealTitle(d: DealOut) {
   const a = String(d.deal_name?.account_name || "").trim();
   const o = String(d.deal_name?.opportunity_name || "").trim();
@@ -91,6 +83,28 @@ function dealTitle(d: DealOut) {
 
 function dealRep(d: DealOut) {
   return String(d.rep?.rep_name || "").trim() || "—";
+}
+
+function bucketLabel(k: any) {
+  const s = String(k || "").trim();
+  if (s === "commit") return "Commit";
+  if (s === "best_case") return "Best Case";
+  if (s === "pipeline") return "Pipeline";
+  return "Pipeline";
+}
+
+function topRiskKeys(d: DealOut, max: number) {
+  const keys = (d.risk_flags || [])
+    .map((x) => String(x.key || "").trim())
+    .filter(Boolean)
+    .filter((k, i, arr) => arr.indexOf(k) === i);
+  return keys.slice(0, Math.max(0, max));
+}
+
+function fmt2(n: any) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "—";
+  return v.toFixed(2);
 }
 
 function riskToneForDeal(d: DealOut): HeatmapDealRow["riskTone"] {
@@ -179,6 +193,27 @@ function gradientColorAt(p: number) {
   return rgbToCss(stops[stops.length - 1].c);
 }
 
+function hash01(s: string) {
+  // Deterministic pseudo-random 0..1 for stable colors/jitter.
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const u = h >>> 0;
+  return (u % 10000) / 9999;
+}
+
+function colorForDealId(id: string) {
+  const base = palette.chartSeries;
+  const h = hash01(id);
+  const idx = Math.floor(h * base.length) % base.length;
+  const tweak = (hash01(id + "|t") - 0.5) * 0.22;
+  // Return a CSS color-mix string so we stay within design tokens.
+  const mixPct = Math.round(clamp01(0.68 + tweak) * 100);
+  return `color-mix(in srgb, ${base[idx]} ${mixPct}%, white)`;
+}
+
 export function ExecutiveGapInsightsClient(props: {
   basePath: string;
   quotaPeriodId: string;
@@ -200,6 +235,7 @@ export function ExecutiveGapInsightsClient(props: {
   const [loading, setLoading] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [topN, setTopN] = useState(Math.max(1, props.defaultTopN || 5));
+  const [stageView, setStageView] = useState<"commit" | "best_case" | "pipeline" | "all">("commit");
 
   const quotaPeriodId = String(sp.get("quota_period_id") || props.quotaPeriodId || "").trim();
   const repPublicId = String(sp.get("rep_public_id") || "").trim();
@@ -236,6 +272,14 @@ export function ExecutiveGapInsightsClient(props: {
   const ok = asOk(data);
   const err = asErr(data);
 
+  const stageDeals = useMemo(() => {
+    if (!ok) return [] as DealOut[];
+    if (stageView === "commit") return ok.groups.commit.deals || [];
+    if (stageView === "best_case") return ok.groups.best_case.deals || [];
+    if (stageView === "pipeline") return ok.groups.pipeline.deals || [];
+    return [...(ok.groups.commit.deals || []), ...(ok.groups.best_case.deals || []), ...(ok.groups.pipeline.deals || [])];
+  }, [ok, stageView]);
+
   const flattenedDeals = useMemo(() => {
     const d = ok;
     if (!d) return [] as DealOut[];
@@ -245,16 +289,18 @@ export function ExecutiveGapInsightsClient(props: {
   const sortedDeals = useMemo(() => {
     const overallGap = ok?.totals?.gap ?? 0;
     const dir = overallGap < 0 ? -1 : overallGap > 0 ? 1 : -1;
-    return flattenedDeals.slice().sort((a, b) => (dir < 0 ? a.weighted.gap - b.weighted.gap : b.weighted.gap - a.weighted.gap));
-  }, [flattenedDeals, ok]);
+    return stageDeals.slice().sort((a, b) => (dir < 0 ? a.weighted.gap - b.weighted.gap : b.weighted.gap - a.weighted.gap));
+  }, [stageDeals, ok]);
 
   const heatmapRows: HeatmapDealRow[] = useMemo(() => {
     return sortedDeals.slice(0, topN).map((d) => {
       const tone = riskToneForDeal(d);
+      const id = String(d.id);
       return {
-        id: String(d.id),
+        id,
         riskTone: tone,
         riskLabel: riskLabelForTone(tone),
+        dealColor: Number(d.weighted?.gap || 0) < 0 ? colorForDealId(id) : null,
         dealName: dealTitle(d),
         repName: dealRep(d),
         bucketLabel: String(d.crm_stage?.label || "").trim() || "—",
@@ -274,71 +320,27 @@ export function ExecutiveGapInsightsClient(props: {
     return counts;
   }, [flattenedDeals]);
 
-  const radarItems: RiskDriverItem[] = useMemo(() => {
-    const totalDeals = flattenedDeals.length;
-    const items: RiskDriverItem[] = [];
-
-    // Synthetic executive-friendly signal: commit deals with negative gap.
-    const commitSoft = flattenedDeals.filter((d) => d.crm_stage?.bucket === "commit" && Number(d.weighted?.gap || 0) < 0).length;
-    if (commitSoft > 0) {
-      items.push({
-        key: "commit_softening",
-        label: "Commit Deals Softening",
-        count: commitSoft,
-        tone: toneForCount(commitSoft, totalDeals),
-      });
-    }
-
-    const keys: RiskCategoryKey[] = [
-      "economic_buyer",
-      "paper",
-      "process",
-      "champion",
-      "criteria",
-      "competition",
-      "budget",
-      "timing",
-      "pain",
-      "metrics",
-      "suppressed",
-    ];
-    for (const k of keys) {
-      const c = dealRiskCounts.get(k) || 0;
-      if (!c) continue;
-      items.push({
-        key: k,
-        label: riskLabelForKey(k),
-        count: c,
-        tone: toneForCount(c, totalDeals),
-      });
-    }
-
-    // Keep it tight.
-    items.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-    return items.slice(0, 4);
-  }, [dealRiskCounts, flattenedDeals]);
-
-  const distributionRows: RiskDistributionRow[] = useMemo(() => {
-    const out: RiskDistributionRow[] = [];
-    for (const [k, c] of dealRiskCounts.entries()) {
-      const key = String(k) as RiskCategoryKey;
-      // Skip suppression in the distribution unless it's dominating (it can drown signal).
-      if (key === "suppressed" && c < 2) continue;
-      out.push({ key, label: riskLabelForKey(key), count: c });
-    }
-    out.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-    return out.slice(0, 8);
-  }, [dealRiskCounts]);
-
   const dealsAtRisk = useMemo(() => {
     return flattenedDeals.filter((d) => Number(d.weighted?.gap || 0) < 0).length;
   }, [flattenedDeals]);
+
+  const radarDeals: RadarDeal[] = useMemo(() => {
+    // Tie radar to the exact deals shown in the list (topN).
+    const shown = sortedDeals.slice(0, topN).filter((d) => Number(d.weighted?.gap || 0) < 0);
+    return shown.map((d) => ({
+      id: String(d.id),
+      label: dealTitle(d),
+      color: colorForDealId(String(d.id)),
+      meddpicc_tb: (d.meddpicc_tb || []).map((c) => ({ key: String(c.key || ""), score: c.score == null ? null : (Number(c.score) as any) })),
+    }));
+  }, [sortedDeals, topN]);
 
   const quarterDrivers = useMemo(() => {
     const deals = flattenedDeals;
     const byBucket = new Map<string, number>();
     const byRep = new Map<string, number>();
     const riskCounts = new Map<string, number>();
+    const modAgg = new Map<string, { n: number; sum: number; suppressed: number }>();
     let worst: DealOut | null = null;
     let best: DealOut | null = null;
 
@@ -349,6 +351,15 @@ export function ExecutiveGapInsightsClient(props: {
 
       const rep = dealRep(d);
       byRep.set(rep, (byRep.get(rep) || 0) + gap);
+
+      const hm = Number(d.health?.health_modifier);
+      if (Number.isFinite(hm)) {
+        const a = modAgg.get(b) || { n: 0, sum: 0, suppressed: 0 };
+        a.n += 1;
+        a.sum += hm;
+        if (d.health?.suppression) a.suppressed += 1;
+        modAgg.set(b, a);
+      }
 
       const uniq = new Set<string>((d.risk_flags || []).map((x) => String(x.key)));
       for (const k of uniq) riskCounts.set(k, (riskCounts.get(k) || 0) + 1);
@@ -381,6 +392,17 @@ export function ExecutiveGapInsightsClient(props: {
       bullets.push(`${topBucketLabel} is driving the largest AI adjustment vs CRM (${fmtMoney(topBucket.v)}).`);
     }
 
+    if (topBucket) {
+      const a = modAgg.get(topBucket.k) || null;
+      const avg = a && a.n ? a.sum / a.n : null;
+      if (avg != null && Number.isFinite(avg)) {
+        const pctDisc = Math.round((1 - avg) * 100);
+        const sup = a?.suppressed || 0;
+        if (pctDisc > 0) bullets.push(`${topBucketLabel} is discounted ~${pctDisc}% by health-score rules (suppressed: ${sup}).`);
+        else if (pctDisc < 0) bullets.push(`${topBucketLabel} is uplifted ~${Math.abs(pctDisc)}% by health-score rules (suppressed: ${sup}).`);
+      }
+    }
+
     if (topRisks.length) {
       const a = topRisks[0];
       const b = topRisks[1];
@@ -393,6 +415,25 @@ export function ExecutiveGapInsightsClient(props: {
       bullets.push(`${topRep.rep} accounts for ${fmtMoney(topRep.v)} of the AI vs CRM adjustment across the displayed deals.`);
     }
 
+    const drags = deals
+      .filter((d) => Number(d.weighted?.gap || 0) < 0)
+      .slice()
+      .sort((a, b) => (Number(a.weighted?.gap || 0) || 0) - (Number(b.weighted?.gap || 0) || 0))
+      .slice(0, 2);
+
+    if (drags.length) {
+      for (const d of drags) {
+        const hm = Number(d.health?.health_modifier);
+        const hmText = Number.isFinite(hm) ? `${fmt2(1)}→${fmt2(hm)}` : "—";
+        const stage = bucketLabel(d.crm_stage?.bucket);
+        const gap = Number(d.weighted?.gap || 0) || 0;
+        const risks = topRiskKeys(d, 3).map((k) => riskLabelForKey(k as any));
+        const riskText = risks.length ? `; risks: ${risks.join(", ")}` : "";
+        const suppressionNote = d.health?.suppression ? " (suppressed)" : "";
+        bullets.push(`Drag deal: ${dealTitle(d)} — ${stage}${suppressionNote}, gap ${fmtMoney(gap)}, modifier ${hmText}${riskText}.`);
+      }
+    }
+
     const highlight =
       props.gap < 0
         ? worst && Number(worst.weighted?.gap || 0) < 0
@@ -402,6 +443,16 @@ export function ExecutiveGapInsightsClient(props: {
           ? `Largest upside deal: ${dealTitle(best)} (${fmtMoney(Number(best.weighted?.gap || 0) || 0)}).`
           : "";
     if (highlight) bullets.push(highlight);
+
+    if (props.leftToGo > 0) {
+      bullets.push(
+        "Early-quarter outlooks typically improve as deals progress. Fastest reversal levers: focus on the top drag deals, close their highest-impact MEDDPICC gaps, and lift/unsuppress their health modifiers in the current bucket."
+      );
+    } else if (props.leftToGo <= 0) {
+      bullets.push(
+        "As the quarter progresses, outlook typically firms up. Protect the number by watching the top drag deals and preventing new MEDDPICC gaps from emerging in Commit."
+      );
+    }
 
     return { bullets: bullets.filter(Boolean).slice(0, 4) };
   }, [flattenedDeals, props.leftToGo, props.gap]);
@@ -430,8 +481,13 @@ export function ExecutiveGapInsightsClient(props: {
                 FY{props.fiscalYear} Q{props.fiscalQuarter} Forecast
               </div>
               <div className="inline-flex items-center gap-2 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                <span className="inline-flex h-5 w-5 items-center justify-center rounded-md bg-[color:var(--sf-accent-primary)] text-[color:var(--sf-button-primary-text)]">
-                  SF
+                <span className="inline-flex h-5 w-5 items-center justify-center">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" stroke="#00C2D1" strokeWidth="2.6" />
+                    <path d="M7.5 14.3 L10.6 11.2 L13 13.6 L17 9.4" stroke="#2ECC71" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M17 9.4 L17 12.2" stroke="#2ECC71" strokeWidth="2.6" strokeLinecap="round" />
+                    <path d="M17 9.4 L14.3 9.4" stroke="#2ECC71" strokeWidth="2.6" strokeLinecap="round" />
+                  </svg>
                 </span>
                 OUTLOOK
               </div>
@@ -441,7 +497,7 @@ export function ExecutiveGapInsightsClient(props: {
               <div>
                 <div className="text-5xl font-extrabold tracking-tight text-[color:var(--sf-text-primary)]">{fmtPct01(props.aiPctToGoal)}</div>
                 <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
-                  Projected to Quota
+                  Quarter End Outlook
                 </div>
               </div>
               <div className="text-sm text-[color:var(--sf-text-secondary)]">
@@ -471,7 +527,7 @@ export function ExecutiveGapInsightsClient(props: {
                     return (
                       <div
                         key={i}
-                        className="h-[18px] w-[10px] rounded-[3px] border border-[color:var(--sf-border)]"
+                        className="h-[22px] w-[12px] rounded-[3px] border border-[color:var(--sf-border)]"
                         style={{ background: bg }}
                         aria-hidden="true"
                       />
@@ -524,14 +580,12 @@ export function ExecutiveGapInsightsClient(props: {
 
       <div className="grid gap-4 lg:grid-cols-12">
         <div className="lg:col-span-7">
-          <RiskRadar items={radarItems} subtitle={`Based on ${flattenedDeals.length} deal(s) in the current view.`} />
+          <RiskRadarPlot deals={radarDeals} />
         </div>
         <div className="lg:col-span-5">
           <ForecastDeltaCard crmOutlook={props.crmForecast} aiOutlook={props.aiForecast} gap={props.gap} bucketDeltas={props.bucketDeltas} />
         </div>
       </div>
-
-      <MeddpiccRiskDistribution rows={distributionRows} />
 
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -661,7 +715,78 @@ export function ExecutiveGapInsightsClient(props: {
         {err ? <div className="mt-3 text-sm text-[#E74C3C]">{err.error}</div> : null}
       </section>
 
-      <DealsDrivingGapHeatmap rows={heatmapRows} viewFullHref={viewFullHref} />
+      {(() => {
+        const stageLabel = stageView === "commit" ? "Commit deals driving the gap" : stageView === "best_case" ? "Best Case deals driving the gap" : stageView === "pipeline" ? "Pipeline deals driving the gap" : "Deals driving the gap";
+        const totals =
+          stageView === "commit"
+            ? ok?.groups.commit.totals
+            : stageView === "best_case"
+              ? ok?.groups.best_case.totals
+              : stageView === "pipeline"
+                ? ok?.groups.pipeline.totals
+                : ok?.totals
+                  ? { crm_weighted: ok.totals.crm_outlook_weighted, ai_weighted: ok.totals.ai_outlook_weighted, gap: ok.totals.gap }
+                  : null;
+        const shown =
+          stageView === "commit"
+            ? ok?.groups.commit.shown_totals
+            : stageView === "best_case"
+              ? ok?.groups.best_case.shown_totals
+              : stageView === "pipeline"
+                ? ok?.groups.pipeline.shown_totals
+                : ok?.shown_totals
+                  ? { crm_weighted: ok.shown_totals.crm_outlook_weighted, ai_weighted: ok.shown_totals.ai_outlook_weighted, gap: ok.shown_totals.gap }
+                  : null;
+        const dealCount = stageDeals.length;
+        const showingNote =
+          shown && Number.isFinite(Number(shown.gap))
+            ? ` · showing ${fmtMoney(Number(shown.gap || 0) || 0)} gap from displayed`
+            : "";
+        const listCount = Math.min(topN, dealCount);
+        const listNote = dealCount > listCount ? ` · displaying top ${listCount}` : "";
+
+        return (
+          <div className="grid gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {(
+                  [
+                    { k: "commit", label: "Commit" },
+                    { k: "best_case", label: "Best Case" },
+                    { k: "pipeline", label: "Pipeline" },
+                    { k: "all", label: "All" },
+                  ] as const
+                ).map((t) => (
+                  <button
+                    key={t.k}
+                    type="button"
+                    onClick={() => setStageView(t.k)}
+                    className={[
+                      "h-[34px] rounded-md border px-3 text-sm",
+                      t.k === stageView
+                        ? "border-[color:var(--sf-accent-secondary)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
+                        : "border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface-alt)]",
+                    ].join(" ")}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <DealsDrivingGapHeatmap
+              rows={heatmapRows}
+              viewFullHref={viewFullHref}
+              title={stageLabel}
+              subtitle={
+                totals
+                  ? `CRM ${fmtMoney((totals as any).crm_weighted)} · AI ${fmtMoney((totals as any).ai_weighted)} · Gap ${fmtMoney((totals as any).gap)} · ${dealCount} deal(s)${showingNote}${listNote}`
+                  : undefined
+              }
+            />
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -1,0 +1,290 @@
+"use client";
+
+import { useMemo } from "react";
+import { palette } from "../../../lib/palette";
+
+export type RadarDeal = {
+  id: string;
+  label: string;
+  color: string;
+  meddpicc_tb: Array<{ key: string; score: number | null }>;
+};
+
+type SliceKey =
+  | "pain"
+  | "metrics"
+  | "champion"
+  | "economic_buyer"
+  | "criteria"
+  | "process"
+  | "paper"
+  | "competition"
+  | "timing_budget";
+
+const slices: Array<{ key: SliceKey; label: string; subkeys?: string[] }> = [
+  { key: "pain", label: "Pain" },
+  { key: "metrics", label: "Metrics" },
+  { key: "champion", label: "Champion" },
+  { key: "economic_buyer", label: "Economic Buyer" },
+  { key: "criteria", label: "Criteria" },
+  { key: "process", label: "Decision Process" },
+  { key: "paper", label: "Paper Process" },
+  { key: "competition", label: "Competition" },
+  { key: "timing_budget", label: "Timing/Budget", subkeys: ["timing", "budget"] },
+];
+
+function clamp01(n: number) {
+  if (n < 0) return 0;
+  if (n > 1) return 1;
+  return n;
+}
+
+function hash01(s: string) {
+  // Deterministic pseudo-random 0..1 for stable jitter.
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  // unsigned
+  const u = h >>> 0;
+  return (u % 10000) / 9999;
+}
+
+function textAnchorForAngle(rad: number) {
+  const c = Math.cos(rad);
+  if (c > 0.35) return "start";
+  if (c < -0.35) return "end";
+  return "middle";
+}
+
+export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
+  const size = Math.max(260, Math.min(520, Number(props.size || 360)));
+  const cx = size / 2;
+  const cy = size / 2;
+  const outerR = size * 0.34;
+  const r1 = outerR * 0.36;
+  const r2 = outerR * 0.66;
+  const r3 = outerR * 0.96;
+  const labelR = outerR + 22;
+
+  const dots = useMemo(() => {
+    const sliceCount = slices.length;
+    const sliceSpan = (Math.PI * 2) / sliceCount;
+    const start = -Math.PI / 2; // 12 o'clock
+    const margin = sliceSpan * 0.12;
+    const halfGap = sliceSpan * 0.04;
+
+    const keyToSlice = new Map<string, { key: SliceKey; idx: number; subIdx: number | null }>();
+    slices.forEach((s, idx) => {
+      if (s.key !== "timing_budget") keyToSlice.set(s.key, { key: s.key, idx, subIdx: null });
+      if (s.subkeys) s.subkeys.forEach((k, subIdx) => keyToSlice.set(k, { key: s.key, idx, subIdx }));
+    });
+
+    type Entry = {
+      sliceIdx: number;
+      subSlot: "" | "timing" | "budget";
+      ringScore: 0 | 1 | 2; // inner best -> outer worst
+      dealId: string;
+      dealLabel: string;
+      color: string;
+      keyLabel: string;
+      opacity: number;
+    };
+
+    const entries: Entry[] = [];
+
+    for (const d of props.deals) {
+      for (const c of d.meddpicc_tb || []) {
+        const key = String(c.key || "").trim();
+        const map = keyToSlice.get(key);
+        if (!map) continue;
+
+        const scoreRaw = c.score == null ? null : Math.max(0, Math.min(3, Math.trunc(Number(c.score))));
+        if (scoreRaw != null && scoreRaw > 2) continue; // only 0-2 (risk) + unscored
+
+        const subSlot: Entry["subSlot"] =
+          map.key === "timing_budget" && map.subIdx != null ? (map.subIdx === 0 ? "timing" : "budget") : "";
+
+        // Ring semantics:
+        // - inner = best of the plotted set
+        // - outer = worst
+        // For risk plotting (0-2):
+        // - score 2 => inner ring
+        // - score 1 => middle ring
+        // - score 0/unscored => outer ring
+        const ringScore: Entry["ringScore"] =
+          scoreRaw == null ? 0 : scoreRaw === 2 ? 2 : scoreRaw === 1 ? 1 : 0;
+
+        entries.push({
+          sliceIdx: map.idx,
+          subSlot,
+          ringScore,
+          dealId: d.id,
+          dealLabel: d.label,
+          color: d.color,
+          keyLabel: key,
+          opacity: scoreRaw == null ? 0.42 : 0.95,
+        });
+      }
+    }
+
+    // Group entries by slice+subSlot+ring, then distribute evenly inside ring band.
+    const groups = new Map<string, Entry[]>();
+    for (const e of entries) {
+      const k = `${e.sliceIdx}|${e.subSlot}|${e.ringScore}`;
+      const arr = groups.get(k) || [];
+      arr.push(e);
+      groups.set(k, arr);
+    }
+
+    const out: Array<{ x: number; y: number; color: string; opacity: number; title: string }> = [];
+
+    const ringBounds = (ringScore: 0 | 1 | 2) => {
+      // r1/r2/r3 are guide circles; use midpoints as band separators.
+      const b12 = (r1 + r2) / 2;
+      const b23 = (r2 + r3) / 2;
+      if (ringScore === 2) return { min: Math.max(outerR * 0.12, 8), max: Math.max(outerR * 0.12, b12 - 3) };
+      if (ringScore === 1) return { min: b12 + 3, max: b23 - 3 };
+      return { min: b23 + 3, max: outerR - 3 };
+    };
+
+    const angleWindow = (sliceIdx: number, subSlot: "" | "timing" | "budget") => {
+      const base0 = start + sliceIdx * sliceSpan;
+      const base1 = base0 + sliceSpan;
+      if (subSlot === "timing") return { a0: base0 + margin, a1: base0 + sliceSpan / 2 - halfGap };
+      if (subSlot === "budget") return { a0: base0 + sliceSpan / 2 + halfGap, a1: base1 - margin };
+      return { a0: base0 + margin, a1: base1 - margin };
+    };
+
+    for (const [k, arr] of groups.entries()) {
+      // Stable order within group for consistent positioning
+      arr.sort((a, b) => (a.dealId + "|" + a.keyLabel).localeCompare(b.dealId + "|" + b.keyLabel));
+
+      const [sliceIdxRaw, subSlotRaw, ringScoreRaw] = k.split("|");
+      const sliceIdx = Number(sliceIdxRaw) || 0;
+      const subSlot = (subSlotRaw as any) as "" | "timing" | "budget";
+      const ringScore = (Number(ringScoreRaw) as any) as 0 | 1 | 2;
+
+      const { a0, a1 } = angleWindow(sliceIdx, subSlot);
+      const { min: rMin, max: rMax } = ringBounds(ringScore);
+      const n = arr.length;
+
+      for (let i = 0; i < n; i++) {
+        const e = arr[i];
+        const t = (i + 1) / (n + 1);
+        const ang = a0 + (a1 - a0) * t;
+
+        const jr = (hash01(`${e.dealId}|${e.keyLabel}|r`) - 0.5) * 0.6; // +/- 30% within band
+        const rr = rMin + (rMax - rMin) * clamp01(0.5 + jr);
+
+        out.push({
+          x: cx + Math.cos(ang) * rr,
+          y: cy + Math.sin(ang) * rr,
+          color: e.color,
+          opacity: e.opacity,
+          title: `${e.dealLabel} · ${e.keyLabel} · ${e.opacity < 0.8 ? "unscored" : `score ${e.ringScore}`}`,
+        });
+      }
+    }
+
+    return out;
+  }, [props.deals, cx, cy, outerR, r1, r2, r3]);
+
+  const sliceLines = useMemo(() => {
+    const out: Array<{ x2: number; y2: number }> = [];
+    const sliceCount = slices.length;
+    const sliceSpan = (Math.PI * 2) / sliceCount;
+    const start = -Math.PI / 2;
+    for (let i = 0; i < sliceCount; i++) {
+      const a = start + i * sliceSpan;
+      out.push({ x2: cx + Math.cos(a) * outerR, y2: cy + Math.sin(a) * outerR });
+    }
+    return out;
+  }, [cx, cy, outerR]);
+
+  const labels = useMemo(() => {
+    const out: Array<{ x: number; y: number; text: string; anchor: "start" | "middle" | "end" }> = [];
+    const sliceCount = slices.length;
+    const sliceSpan = (Math.PI * 2) / sliceCount;
+    const start = -Math.PI / 2;
+    for (let i = 0; i < sliceCount; i++) {
+      const mid = start + (i + 0.5) * sliceSpan;
+      out.push({
+        x: cx + Math.cos(mid) * labelR,
+        y: cy + Math.sin(mid) * labelR,
+        text: slices[i].label,
+        anchor: textAnchorForAngle(mid) as any,
+      });
+    }
+    return out;
+  }, [cx, cy, labelR]);
+
+  return (
+    <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">AI Risk Radar</div>
+          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+            Dots show where each displayed deal has a 0–2 score in MEDDPICC+TB (inner→outer rings = score 2/1/0).
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-[auto_1fr]">
+        <div className="flex items-center justify-center">
+          <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="MEDDPICC+TB radar">
+            <circle cx={cx} cy={cy} r={outerR} fill={palette.surfaceAlt} stroke={palette.border} strokeWidth={2} />
+            <circle cx={cx} cy={cy} r={r1} fill="none" stroke={palette.border} strokeWidth={1} opacity={0.8} />
+            <circle cx={cx} cy={cy} r={r2} fill="none" stroke={palette.border} strokeWidth={1} opacity={0.8} />
+            <circle cx={cx} cy={cy} r={r3} fill="none" stroke={palette.border} strokeWidth={1.2} opacity={0.9} />
+
+            {sliceLines.map((l, idx) => (
+              <line key={idx} x1={cx} y1={cy} x2={l.x2} y2={l.y2} stroke={palette.border} strokeWidth={1} opacity={0.7} />
+            ))}
+
+            {labels.map((t) => (
+              <text
+                key={t.text}
+                x={t.x}
+                y={t.y}
+                textAnchor={t.anchor}
+                dominantBaseline="middle"
+                fontSize="11"
+                fill={palette.textSecondary}
+              >
+                {t.text}
+              </text>
+            ))}
+
+            {dots.map((d, idx) => (
+              <g key={idx}>
+                <title>{d.title}</title>
+                <circle cx={d.x} cy={d.y} r={4.2} fill={d.color} opacity={d.opacity} stroke={palette.surface} strokeWidth={1} />
+              </g>
+            ))}
+          </svg>
+        </div>
+
+        <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Deal legend</div>
+          <div className="mt-3 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
+            {props.deals.length ? (
+              props.deals.map((d) => (
+                <div key={d.id} className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full border border-[color:var(--sf-border)]" style={{ background: d.color }} aria-hidden="true" />
+                  <span className="truncate" title={d.label}>
+                    {d.label}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+

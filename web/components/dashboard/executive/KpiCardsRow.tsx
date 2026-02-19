@@ -26,15 +26,15 @@ export function KpiCardsRow(props: {
       </div>
 
       <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">AI Forecast</div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">AI Forecast Outlook</div>
         <div className="mt-2 font-mono text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(props.aiForecast)}</div>
-        <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">SalesForecast.IO (AI‑weighted)</div>
+        <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">SalesForecast.io AI‑weighted</div>
       </div>
 
       <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CRM Forecast</div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CRM Forecast Outlook</div>
         <div className="mt-2 font-mono text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(props.crmForecast)}</div>
-        <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Rep‑weighted</div>
+        <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Your organization’s probabilities</div>
       </div>
 
       <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">

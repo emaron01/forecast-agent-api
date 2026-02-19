@@ -22,7 +22,7 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
           <Link href="/dashboard" aria-label="SalesForecast home" className="shrink-0">
             <div className="h-[65px] w-[min(260px,40vw)] overflow-hidden">
               <Image
-                src="/brand/salesforecast-logo.png"
+                src="/brand/salesforecast-logo.svg"
                 alt="SalesForecast.io"
                 width={520}
                 height={120}
