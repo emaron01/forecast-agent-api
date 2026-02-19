@@ -62,15 +62,19 @@ function textAnchorForAngle(rad: number) {
 }
 
 export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
-  const size = Math.max(320, Math.min(760, Number(props.size || 520)));
+  // Allow the radar to fill modern executive dashboard layouts.
+  const size = Math.max(360, Math.min(960, Number(props.size || 640)));
   const cx = size / 2;
   const cy = size / 2;
-  const outerR = size * 0.38;
+  // Larger outer radius to reduce empty space while keeping label padding safe.
+  const outerR = size * 0.42;
   const r1 = outerR * 0.36;
   const r2 = outerR * 0.66;
   const r3 = outerR * 0.96;
-  const labelR = outerR + 26;
-  const pad = Math.max(40, Math.min(72, Math.round(size * 0.1)));
+  const labelR = outerR + 30;
+  // Extra padding to avoid cutting off longer slice labels like "Economic Buyer".
+  const pad = Math.max(48, Math.min(96, Math.round(size * 0.12)));
+  const labelFont = Math.max(12, Math.min(14, Math.round(size * 0.017)));
 
   const dots = useMemo(() => {
     const sliceCount = slices.length;
@@ -269,7 +273,7 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
                 y={t.y}
                 textAnchor={t.anchor}
                 dominantBaseline="middle"
-                fontSize="12"
+                fontSize={labelFont}
                 fontWeight="600"
                 fill={palette.textPrimary}
                 opacity={0.95}
@@ -281,7 +285,7 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
             {dots.map((d, idx) => (
               <g key={idx}>
                 <title>{d.title}</title>
-                <circle cx={d.x} cy={d.y} r={4.2} fill={d.color} opacity={d.opacity} stroke={palette.surface} strokeWidth={1} />
+                <circle cx={d.x} cy={d.y} r={5.4} fill={d.color} opacity={d.opacity} stroke={palette.surface} strokeWidth={1.15} />
               </g>
             ))}
           </svg>

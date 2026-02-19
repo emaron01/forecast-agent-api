@@ -13,6 +13,8 @@ import { palette } from "../../../lib/palette";
 import { GapDrivingDealsClient } from "../../../app/analytics/meddpicc-tb/gap-driving-deals/ui/GapDrivingDealsClient";
 import { ExecutiveProductPerformance } from "./ExecutiveProductPerformance";
 import type { ExecutiveProductPerformanceData } from "../../../lib/executiveProductInsights";
+import { PipelineMomentumEngine } from "./PipelineMomentumEngine";
+import type { PipelineMomentumData } from "../../../lib/pipelineMomentum";
 
 type RiskCategoryKey =
   | "pain"
@@ -303,6 +305,7 @@ export function ExecutiveGapInsightsClient(props: {
     avg_health_score: number | null;
   }>;
   quarterKpis: QuarterKpisSnapshot | null;
+  pipelineMomentum: PipelineMomentumData | null;
   quota: number;
   aiForecast: number;
   crmForecast: number;
@@ -580,6 +583,13 @@ export function ExecutiveGapInsightsClient(props: {
     const repRows = Array.isArray(props.repRollups) ? props.repRollups : [];
     const dir = Array.isArray(props.repDirectory) ? props.repDirectory : [];
 
+    const byId = new Map<number, RepDirectoryRow>();
+    for (const r of dir) {
+      const id = Number(r.id);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      byId.set(id, r);
+    }
+
     const wonById = new Map<number, { wonAmount: number; wonCount: number }>();
     for (const r of repRows) {
       const id = Number((r as any).rep_id);
@@ -639,7 +649,7 @@ export function ExecutiveGapInsightsClient(props: {
         seen.add(cur);
         const kids = children.get(cur) || [];
         for (const k of kids) stack.push(Number(k.id));
-        const node = dir.find((x) => Number(x.id) === cur) || null;
+        const node = byId.get(cur) || null;
         if (node && String(node.role || "").trim().toUpperCase() === "REP") out.push(cur);
       }
       return out;
@@ -652,10 +662,97 @@ export function ExecutiveGapInsightsClient(props: {
       total: statsForRepIds(uniqueRepIds),
       directReports,
       children,
+      byId,
       descendantRepIds,
       statsForRepIds,
     };
   }, [props.repRollups, props.repDirectory, props.myRepId]);
+
+  const createdPipelineTree = useMemo(() => {
+    const q = props.quarterKpis;
+    const dir = Array.isArray(props.repDirectory) ? props.repDirectory : [];
+    const byId = quarterAnalytics.byId as Map<number, RepDirectoryRow>;
+    const children = quarterAnalytics.children as Map<number, RepDirectoryRow[]>;
+
+    type RepMetrics = {
+      commitAmount: number;
+      commitCount: number;
+      bestAmount: number;
+      bestCount: number;
+      pipelineAmount: number;
+      pipelineCount: number;
+      wonAmount: number;
+      wonCount: number;
+      lostAmount: number;
+      lostCount: number;
+    };
+
+    const byRepId = new Map<number, RepMetrics>();
+    for (const m of q?.createdPipelineByManager || []) {
+      for (const r of (m as any).reps || []) {
+        const id = Number((r as any).repId);
+        if (!Number.isFinite(id) || id <= 0) continue;
+        byRepId.set(id, {
+          commitAmount: Number((r as any).commitAmount || 0) || 0,
+          commitCount: Number((r as any).commitCount || 0) || 0,
+          bestAmount: Number((r as any).bestAmount || 0) || 0,
+          bestCount: Number((r as any).bestCount || 0) || 0,
+          pipelineAmount: Number((r as any).pipelineAmount || 0) || 0,
+          pipelineCount: Number((r as any).pipelineCount || 0) || 0,
+          wonAmount: Number((r as any).wonAmount || 0) || 0,
+          wonCount: Number((r as any).wonCount || 0) || 0,
+          lostAmount: Number((r as any).lostAmount || 0) || 0,
+          lostCount: Number((r as any).lostCount || 0) || 0,
+        });
+      }
+    }
+
+    function statsForRepIds(repIds: number[]) {
+      const out: RepMetrics = {
+        commitAmount: 0,
+        commitCount: 0,
+        bestAmount: 0,
+        bestCount: 0,
+        pipelineAmount: 0,
+        pipelineCount: 0,
+        wonAmount: 0,
+        wonCount: 0,
+        lostAmount: 0,
+        lostCount: 0,
+      };
+      for (const id of repIds) {
+        const v = byRepId.get(id);
+        if (!v) continue;
+        out.commitAmount += v.commitAmount;
+        out.commitCount += v.commitCount;
+        out.bestAmount += v.bestAmount;
+        out.bestCount += v.bestCount;
+        out.pipelineAmount += v.pipelineAmount;
+        out.pipelineCount += v.pipelineCount;
+        out.wonAmount += v.wonAmount;
+        out.wonCount += v.wonCount;
+        out.lostAmount += v.lostAmount;
+        out.lostCount += v.lostCount;
+      }
+      return out;
+    }
+
+    const myId = props.myRepId != null && Number.isFinite(props.myRepId) ? Number(props.myRepId) : null;
+    const myRole = myId != null ? String(byId.get(myId)?.role || "").trim().toUpperCase() : "";
+
+    const roots = dir.filter((r) => {
+      const role = String(r.role || "").trim().toUpperCase();
+      if (role === "REP") return false;
+      const mid = r.manager_rep_id;
+      return mid == null || !byId.has(Number(mid));
+    });
+
+    const direct = myId != null ? (children.get(myId) || []).filter((r) => String(r.role || "").trim().toUpperCase() !== "REP") : [];
+
+    const leaders = myRole === "EXEC_MANAGER" ? (direct.length ? direct : roots) : myRole === "MANAGER" && myId != null ? (children.get(myId) || []) : roots;
+
+    return { byRepId, statsForRepIds, leaders, myRole, byId, children };
+  }, [props.quarterKpis, props.repDirectory, props.myRepId, quarterAnalytics]);
 
   const productViz = useMemo<ExecutiveProductPerformanceData>(() => {
     const rows = Array.isArray(props.productsClosedWon) ? props.productsClosedWon : [];
@@ -685,14 +782,14 @@ export function ExecutiveGapInsightsClient(props: {
         <div className="grid gap-4 lg:grid-cols-12">
           <div className="lg:col-span-7">
             <div className="flex items-center justify-center">
-              <div className="relative h-[28px] w-[190px] shrink-0 sm:h-[34px] sm:w-[230px]">
+              <div className="relative h-[44px] w-[280px] shrink-0 sm:h-[56px] sm:w-[360px]">
                 <Image
                   src="/brand/logooutlook.png"
                   alt="SalesForecast.io Outlook"
                   fill
-                  sizes="230px"
+                  sizes="(min-width: 640px) 360px, 280px"
                   className="object-contain"
-                  priority={false}
+                  priority={true}
                 />
               </div>
             </div>
@@ -784,8 +881,8 @@ export function ExecutiveGapInsightsClient(props: {
         dealsAtRisk={dealsAtRisk}
       />
 
-      <div className="grid w-full gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(240px,320px)]">
-        <RiskRadarPlot deals={radarDeals} size={720} />
+      <div className="grid w-full gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)]">
+        <RiskRadarPlot deals={radarDeals} size={920} />
 
         <section className="self-start rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
           <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Accounts</div>
@@ -824,10 +921,24 @@ export function ExecutiveGapInsightsClient(props: {
             >
               Refresh
             </button>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-[color:var(--sf-text-secondary)]">Show</span>
+              <select
+                value={topN}
+                onChange={(e) => setTopN(Math.max(1, Number(e.target.value) || 15))}
+                className="h-[40px] w-[92px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+              >
+                {[5, 10, 15, 20].map((n) => (
+                  <option key={n} value={n}>
+                    Top {n}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <div className="grid gap-1">
             <label className="text-xs text-[color:var(--sf-text-secondary)]">Sales Team</label>
             <select
@@ -1018,24 +1129,11 @@ export function ExecutiveGapInsightsClient(props: {
             AI Score Drivers Only
           </label>
 
-          <div className="ml-auto flex items-center gap-2">
-            <label className="text-xs text-[color:var(--sf-text-secondary)]">Show</label>
-            <select
-              value={topN}
-              onChange={(e) => setTopN(Math.max(1, Number(e.target.value) || 15))}
-              className="h-[40px] w-[92px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-            >
-              {[5, 10, 15, 20].map((n) => (
-                <option key={n} value={n}>
-                  Top {n}
-                </option>
-              ))}
-            </select>
-          </div>
+          <div className="ml-auto" />
         </div>
 
-        {loading ? <div className="mt-3 text-sm text-[color:var(--sf-text-secondary)]">Loading…</div> : null}
-        {err ? <div className="mt-3 text-sm text-[#E74C3C]">{err.error}</div> : null}
+        {loading ? <div className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">Loading…</div> : null}
+        {err ? <div className="mt-2 text-sm text-[#E74C3C]">{err.error}</div> : null}
       </section>
 
       {(() => {
@@ -1268,6 +1366,8 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
         ) : null}
 
+        <PipelineMomentumEngine data={props.pipelineMomentum} />
+
         {props.quarterKpis ? (
           <details
             className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm"
@@ -1278,91 +1378,187 @@ export function ExecutiveGapInsightsClient(props: {
               New Pipeline Created In Quarter (show / hide)
             </summary>
             {createdPipelineOpen ? (
-              <div className="mt-3 overflow-x-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-                {props.quarterKpis.createdPipelineByManager.length ? (
-                  <table className="min-w-[980px] w-full table-auto border-collapse text-[11px]">
-                    <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
-                      <tr>
-                        <th className="px-3 py-2 text-left w-[260px]">manager</th>
-                        <th className="px-3 py-2 text-right">commit</th>
-                        <th className="px-3 py-2 text-right">best</th>
-                        <th className="px-3 py-2 text-right">pipeline</th>
-                        <th className="px-3 py-2 text-right">total</th>
-                        <th className="px-3 py-2 text-right">won</th>
-                        <th className="px-3 py-2 text-right">lost</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {props.quarterKpis.createdPipelineByManager.map((m) => {
-                        const sumMoney = (k: "commitAmount" | "bestAmount" | "pipelineAmount" | "wonAmount" | "lostAmount") =>
-                          m.reps.reduce((acc, r) => acc + (Number((r as any)[k] || 0) || 0), 0);
-                        const sumCount = (k: "commitCount" | "bestCount" | "pipelineCount" | "wonCount" | "lostCount") =>
-                          m.reps.reduce((acc, r) => acc + (Number((r as any)[k] || 0) || 0), 0);
+              <div className="mt-3 grid gap-2">
+                {(() => {
+                  const tree = createdPipelineTree;
+                  const leaders = tree.leaders || [];
 
-                        const cAmt = sumMoney("commitAmount");
-                        const bAmt = sumMoney("bestAmount");
-                        const pAmt = sumMoney("pipelineAmount");
-                        const tAmt = cAmt + bAmt + pAmt;
-                        const cCnt = sumCount("commitCount");
-                        const bCnt = sumCount("bestCount");
-                        const pCnt = sumCount("pipelineCount");
-                        const tCnt = cCnt + bCnt + pCnt;
-                        const wAmt = sumMoney("wonAmount");
-                        const wCnt = sumCount("wonCount");
-                        const lAmt = sumMoney("lostAmount");
-                        const lCnt = sumCount("lostCount");
+                  const Cell = (amt: number, cnt: number) => (
+                    <span className="whitespace-nowrap font-mono text-[11px] text-[color:var(--sf-text-primary)]">
+                      {fmtMoney(amt)} <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(cnt)})</span>
+                    </span>
+                  );
 
-                        const Cell = (amt: number, cnt: number) => (
-                          <span className="whitespace-nowrap font-mono text-[11px] text-[color:var(--sf-text-primary)]">
-                            {fmtMoney(amt)} <span className="text-[color:var(--sf-text-secondary)]">({fmtNum(cnt)})</span>
-                          </span>
-                        );
+                  const Node = (node: RepDirectoryRow, depth: number, seen: Set<number>): ReactNode => {
+                    const id = Number(node.id);
+                    if (!Number.isFinite(id) || id <= 0) return null;
+                    if (seen.has(id)) return null;
+                    seen.add(id);
 
-                        return (
-                          <Fragment key={m.managerId}>
-                            <tr
-                              key={`${m.managerId}:m`}
-                              className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]/50 text-[color:var(--sf-text-primary)]"
-                            >
-                              <td className="px-3 py-2 font-semibold">{m.managerName}</td>
-                              <td className="px-3 py-2 text-right">{Cell(cAmt, cCnt)}</td>
-                              <td className="px-3 py-2 text-right">{Cell(bAmt, bCnt)}</td>
-                              <td className="px-3 py-2 text-right">{Cell(pAmt, pCnt)}</td>
-                              <td className="px-3 py-2 text-right">{Cell(tAmt, tCnt)}</td>
-                              <td className="px-3 py-2 text-right">{Cell(wAmt, wCnt)}</td>
-                              <td className="px-3 py-2 text-right">{Cell(lAmt, lCnt)}</td>
+                    const repIds = quarterAnalytics.descendantRepIds(id);
+                    const st = tree.statsForRepIds(repIds);
+                    const tAmt = st.commitAmount + st.bestAmount + st.pipelineAmount;
+                    const tCnt = st.commitCount + st.bestCount + st.pipelineCount;
+
+                    const kids = (tree.children.get(id) || []).filter((c) => String(c.role || "").trim().toUpperCase() !== "REP");
+                    const leafReps = (tree.children.get(id) || []).filter((c) => String(c.role || "").trim().toUpperCase() === "REP");
+
+                    const hasChildren = kids.length > 0 || leafReps.length > 0;
+                    const labelRole = String(node.role || "").trim().toUpperCase();
+                    const isMgr = labelRole === "MANAGER" || labelRole === "EXEC_MANAGER";
+                    const indent = depth > 0 ? `${" ".repeat(Math.min(10, depth * 2))}↳ ` : "";
+
+                    const header = (
+                      <div className="flex min-w-0 items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-[color:var(--sf-text-primary)]" title={node.name}>
+                            <span className="text-[color:var(--sf-text-secondary)]">{indent}</span>
+                            {node.name}
+                            {isMgr ? <span className="ml-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">(roll-up)</span> : null}
+                          </div>
+                          <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">
+                            {repIds.length.toLocaleString()} rep(s) · totals across full descendant team
+                          </div>
+                        </div>
+                        <div className="hidden shrink-0 items-center gap-4 text-right sm:flex">
+                          <span>{Cell(st.commitAmount, st.commitCount)}</span>
+                          <span>{Cell(st.bestAmount, st.bestCount)}</span>
+                          <span>{Cell(st.pipelineAmount, st.pipelineCount)}</span>
+                          <span>{Cell(tAmt, tCnt)}</span>
+                          <span>{Cell(st.wonAmount, st.wonCount)}</span>
+                          <span>{Cell(st.lostAmount, st.lostCount)}</span>
+                        </div>
+                      </div>
+                    );
+
+                    const box = "rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2";
+
+                    if (!hasChildren) return <div key={id} className={box}>{header}</div>;
+
+                    return (
+                      <details key={id} className={box}>
+                        <summary className="cursor-pointer list-none">{header}</summary>
+                        <div className="mt-3 overflow-x-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                          <table className="min-w-[980px] w-full table-auto border-collapse text-[11px]">
+                            <thead className="bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)]">
+                              <tr>
+                                <th className="px-3 py-2 text-left w-[260px]">direct report</th>
+                                <th className="px-3 py-2 text-right">commit</th>
+                                <th className="px-3 py-2 text-right">best</th>
+                                <th className="px-3 py-2 text-right">pipeline</th>
+                                <th className="px-3 py-2 text-right">total</th>
+                                <th className="px-3 py-2 text-right">won</th>
+                                <th className="px-3 py-2 text-right">lost</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {kids
+                                .slice()
+                                .sort((a, b) => a.name.localeCompare(b.name))
+                                .map((c) => {
+                                  const repIds2 = quarterAnalytics.descendantRepIds(Number(c.id));
+                                  const s2 = tree.statsForRepIds(repIds2);
+                                  const t2 = s2.commitAmount + s2.bestAmount + s2.pipelineAmount;
+                                  const c2 = s2.commitCount + s2.bestCount + s2.pipelineCount;
+                                  return (
+                                    <tr key={`mgr:${c.id}`} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
+                                      <td className="px-3 py-2 font-semibold">
+                                        <span className="text-[color:var(--sf-text-secondary)]">↳</span> {c.name}{" "}
+                                        <span className="text-[color:var(--sf-text-secondary)]">(roll-up)</span>
+                                      </td>
+                                      <td className="px-3 py-2 text-right">{Cell(s2.commitAmount, s2.commitCount)}</td>
+                                      <td className="px-3 py-2 text-right">{Cell(s2.bestAmount, s2.bestCount)}</td>
+                                      <td className="px-3 py-2 text-right">{Cell(s2.pipelineAmount, s2.pipelineCount)}</td>
+                                      <td className="px-3 py-2 text-right">{Cell(t2, c2)}</td>
+                                      <td className="px-3 py-2 text-right">{Cell(s2.wonAmount, s2.wonCount)}</td>
+                                      <td className="px-3 py-2 text-right">{Cell(s2.lostAmount, s2.lostCount)}</td>
+                                    </tr>
+                                  );
+                                })}
+                              {leafReps
+                                .slice()
+                                .sort((a, b) => a.name.localeCompare(b.name))
+                                .map((r) => {
+                                  const id2 = Number(r.id);
+                                  const s2 = tree.statsForRepIds([id2]);
+                                  const t2 = s2.commitAmount + s2.bestAmount + s2.pipelineAmount;
+                                  const c2 = s2.commitCount + s2.bestCount + s2.pipelineCount;
+                                  return (
+                                    <tr key={`rep:${id2}`} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
+                                      <td className="px-3 py-2">
+                                        <span className="text-[color:var(--sf-text-secondary)]">↳</span> {r.name}
+                                      </td>
+                                      <td className="px-3 py-2 text-right">{Cell(s2.commitAmount, s2.commitCount)}</td>
+                                      <td className="px-3 py-2 text-right">{Cell(s2.bestAmount, s2.bestCount)}</td>
+                                      <td className="px-3 py-2 text-right">{Cell(s2.pipelineAmount, s2.pipelineCount)}</td>
+                                      <td className="px-3 py-2 text-right">{Cell(t2, c2)}</td>
+                                      <td className="px-3 py-2 text-right">{Cell(s2.wonAmount, s2.wonCount)}</td>
+                                      <td className="px-3 py-2 text-right">{Cell(s2.lostAmount, s2.lostCount)}</td>
+                                    </tr>
+                                  );
+                                })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <div className="mt-2 grid gap-2">
+                          {kids.map((k) => Node(k, depth + 1, new Set(seen)))}
+                        </div>
+                      </details>
+                    );
+                  };
+
+                  if (!props.quarterKpis?.createdPipelineByManager?.length && !tree.byRepId.size) {
+                    return <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">No created-pipeline rows found for this quarter.</div>;
+                  }
+
+                  return (
+                    <div className="grid gap-2">
+                      <div className="hidden overflow-x-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] sm:block">
+                        <table className="min-w-[980px] w-full table-auto border-collapse text-[11px]">
+                          <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
+                            <tr>
+                              <th className="px-3 py-2 text-left w-[260px]">leader (roll-up)</th>
+                              <th className="px-3 py-2 text-right">commit</th>
+                              <th className="px-3 py-2 text-right">best</th>
+                              <th className="px-3 py-2 text-right">pipeline</th>
+                              <th className="px-3 py-2 text-right">total</th>
+                              <th className="px-3 py-2 text-right">won</th>
+                              <th className="px-3 py-2 text-right">lost</th>
                             </tr>
-                            {m.reps.map((r) => {
-                              const rc = Number(r.commitCount || 0) || 0;
-                              const rb = Number(r.bestCount || 0) || 0;
-                              const rp = Number(r.pipelineCount || 0) || 0;
-                              const rt = rc + rb + rp;
-                              return (
-                                <tr
-                                  key={`${m.managerId}:${r.repId}`}
-                                  className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]"
-                                >
-                                  <td className="px-3 py-2">
-                                    <span className="text-[color:var(--sf-text-secondary)]">↳</span>{" "}
-                                    <span className="font-medium">{r.repName}</span>
-                                  </td>
-                                  <td className="px-3 py-2 text-right">{Cell(r.commitAmount, rc)}</td>
-                                  <td className="px-3 py-2 text-right">{Cell(r.bestAmount, rb)}</td>
-                                  <td className="px-3 py-2 text-right">{Cell(r.pipelineAmount, rp)}</td>
-                                  <td className="px-3 py-2 text-right">{Cell(r.commitAmount + r.bestAmount + r.pipelineAmount, rt)}</td>
-                                  <td className="px-3 py-2 text-right">{Cell(r.wonAmount, r.wonCount)}</td>
-                                  <td className="px-3 py-2 text-right">{Cell(r.lostAmount, r.lostCount)}</td>
-                                </tr>
-                              );
-                            })}
-                          </Fragment>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className="px-3 py-3 text-xs text-[color:var(--sf-text-secondary)]">No created-pipeline rows found for this quarter.</div>
-                )}
+                          </thead>
+                          <tbody>
+                            {leaders
+                              .filter((l) => String(l.role || "").trim().toUpperCase() !== "REP")
+                              .slice()
+                              .sort((a, b) => a.name.localeCompare(b.name))
+                              .map((l) => {
+                                const repIds = quarterAnalytics.descendantRepIds(Number(l.id));
+                                const st = tree.statsForRepIds(repIds);
+                                const tAmt = st.commitAmount + st.bestAmount + st.pipelineAmount;
+                                const tCnt = st.commitCount + st.bestCount + st.pipelineCount;
+                                return (
+                                  <tr key={`top:${l.id}`} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
+                                    <td className="px-3 py-2 font-semibold">{l.name}</td>
+                                    <td className="px-3 py-2 text-right">{Cell(st.commitAmount, st.commitCount)}</td>
+                                    <td className="px-3 py-2 text-right">{Cell(st.bestAmount, st.bestCount)}</td>
+                                    <td className="px-3 py-2 text-right">{Cell(st.pipelineAmount, st.pipelineCount)}</td>
+                                    <td className="px-3 py-2 text-right">{Cell(tAmt, tCnt)}</td>
+                                    <td className="px-3 py-2 text-right">{Cell(st.wonAmount, st.wonCount)}</td>
+                                    <td className="px-3 py-2 text-right">{Cell(st.lostAmount, st.lostCount)}</td>
+                                  </tr>
+                                );
+                              })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="grid gap-2">
+                        {leaders.map((l) => Node(l, 0, new Set<number>()))}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             ) : null}
           </details>

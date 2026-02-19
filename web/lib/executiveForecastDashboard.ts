@@ -7,6 +7,7 @@ import { getScopedRepDirectory, type RepDirectoryRow } from "./repScope";
 import { getForecastStageProbabilities } from "./forecastStageProbabilities";
 import { computeSalesVsVerdictForecastSummary } from "./forecastSummary";
 import { getQuarterKpisSnapshot, type QuarterKpisSnapshot } from "./quarterKpisSnapshot";
+import type { PipelineMomentumData } from "./pipelineMomentum";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -25,6 +26,41 @@ function normalizeNameKey(s: any) {
     .trim()
     .replace(/\s+/g, " ")
     .toLowerCase();
+}
+
+async function listActiveRepsForOrg(orgId: number): Promise<RepDirectoryRow[]> {
+  const { rows } = await pool.query(
+    `
+    SELECT
+      id,
+      COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), '(Unnamed)') AS name,
+      role,
+      manager_rep_id,
+      user_id,
+      active
+    FROM reps
+    WHERE organization_id = $1::bigint
+      AND (active IS TRUE OR active IS NULL)
+    ORDER BY
+      CASE
+        WHEN role = 'EXEC_MANAGER' THEN 0
+        WHEN role = 'MANAGER' THEN 1
+        WHEN role = 'REP' THEN 2
+        ELSE 9
+      END,
+      name ASC,
+      id ASC
+    `,
+    [orgId]
+  );
+  return (rows || []).map((r: any) => ({
+    id: Number(r.id),
+    name: String(r.name || "").trim() || "(Unnamed)",
+    role: r.role == null ? null : String(r.role),
+    manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
+    user_id: r.user_id == null ? null : Number(r.user_id),
+    active: r.active == null ? null : !!r.active,
+  }));
 }
 
 export type ExecQuotaPeriodLite = {
@@ -75,6 +111,7 @@ export type ExecutiveForecastSummary = {
     avg_health_score: number | null;
   }>;
   quarterKpis: QuarterKpisSnapshot | null;
+  pipelineMomentum: PipelineMomentumData | null;
   quota: number;
   crmForecast: {
     commit_amount: number;
@@ -94,6 +131,116 @@ export type ExecutiveForecastSummary = {
   leftToGo: number; // quota - AI weighted
   bucketDeltas: { commit: number; best_case: number; pipeline: number; total: number }; // (AI - CRM) per bucket + total
 };
+
+type OpenPipelineSnapshot = {
+  commit_amount: number;
+  commit_count: number;
+  best_case_amount: number;
+  best_case_count: number;
+  pipeline_amount: number;
+  pipeline_count: number;
+  total_amount: number;
+  total_count: number;
+};
+
+async function getOpenPipelineSnapshot(args: {
+  orgId: number;
+  quotaPeriodId: string;
+  useRepFilter: boolean;
+  repIds: number[];
+  repNameKeys: string[];
+}): Promise<OpenPipelineSnapshot> {
+  const empty: OpenPipelineSnapshot = {
+    commit_amount: 0,
+    commit_count: 0,
+    best_case_amount: 0,
+    best_case_count: 0,
+    pipeline_amount: 0,
+    pipeline_count: 0,
+    total_amount: 0,
+    total_count: 0,
+  };
+
+  const qpId = String(args.quotaPeriodId || "").trim();
+  if (!qpId) return empty;
+
+  const repIds = Array.isArray(args.repIds) ? args.repIds : [];
+  const repNameKeys = Array.isArray(args.repNameKeys) ? args.repNameKeys : [];
+
+  const { rows } = await pool
+    .query<OpenPipelineSnapshot>(
+      `
+      WITH qp AS (
+        SELECT period_start::date AS period_start, period_end::date AS period_end
+          FROM quota_periods
+         WHERE org_id = $1::bigint
+           AND id = $2::bigint
+         LIMIT 1
+      ),
+      deals AS (
+        SELECT
+          COALESCE(o.amount, 0)::float8 AS amount,
+          lower(
+            regexp_replace(
+              COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+              '[^a-zA-Z]+',
+              ' ',
+              'g'
+            )
+          ) AS fs,
+          CASE
+            WHEN o.close_date IS NULL THEN NULL
+            WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+            WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+              to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+            ELSE NULL
+          END AS close_d
+        FROM opportunities o
+        WHERE o.org_id = $1
+          AND (
+            NOT $5::boolean
+            OR (
+              (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
+              OR (
+                COALESCE(array_length($4::text[], 1), 0) > 0
+                AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+              )
+            )
+          )
+      ),
+      deals_in_qtr AS (
+        SELECT d.*
+          FROM deals d
+          JOIN qp ON TRUE
+         WHERE d.close_d IS NOT NULL
+           AND d.close_d >= qp.period_start
+           AND d.close_d <= qp.period_end
+      ),
+      open_deals AS (
+        SELECT *
+          FROM deals_in_qtr d
+         WHERE NOT ((' ' || d.fs || ' ') LIKE '% won %')
+           AND NOT ((' ' || d.fs || ' ') LIKE '% lost %')
+           AND NOT ((' ' || d.fs || ' ') LIKE '% closed %')
+      )
+      SELECT
+        COALESCE(SUM(CASE WHEN fs LIKE '%commit%' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
+        COALESCE(SUM(CASE WHEN fs LIKE '%commit%' THEN 1 ELSE 0 END), 0)::int AS commit_count,
+        COALESCE(SUM(CASE WHEN fs LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
+        COALESCE(SUM(CASE WHEN fs LIKE '%best%' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
+        COALESCE(SUM(CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+        COALESCE(SUM(CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
+        COALESCE(SUM(amount), 0)::float8 AS total_amount,
+        COUNT(*)::int AS total_count
+      FROM open_deals
+      `,
+      [args.orgId, qpId, repIds, repNameKeys, args.useRepFilter]
+    )
+    .then((r) => r.rows || [])
+    .catch(() => []);
+
+  return (rows?.[0] as any) || empty;
+}
 
 export async function getExecutiveForecastDashboardSummary(args: {
   orgId: number;
@@ -189,11 +336,18 @@ export async function getExecutiveForecastDashboardSummary(args: {
           .catch(() => [] as number[])
       : ([] as number[]);
 
-  const scope = await getScopedRepDirectory({ orgId: args.orgId, userId: args.user.id, role: scopedRole }).catch(() => ({
+  let scope = await getScopedRepDirectory({ orgId: args.orgId, userId: args.user.id, role: scopedRole }).catch(() => ({
     repDirectory: [],
     allowedRepIds: scopedRole === "ADMIN" ? (null as number[] | null) : ([0] as number[]),
     myRepId: null as number | null,
   }));
+
+  const seeAllVisibility = !!(args.user as any)?.see_all_visibility;
+  if (scopedRole === "EXEC_MANAGER" && seeAllVisibility) {
+    const all = await listActiveRepsForOrg(args.orgId).catch(() => []);
+    // Treat execs with global visibility as "company-wide" scope for rollups + dropdowns.
+    scope = { repDirectory: all, allowedRepIds: null, myRepId: scope.myRepId ?? null };
+  }
 
   const scopeLabel = scope.allowedRepIds ? "Team" : "Company";
 
@@ -239,6 +393,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
       productsClosedWon: [],
       productsClosedWonByRep: [],
       quarterKpis: null,
+      pipelineMomentum: null,
       quota: 0,
       crmForecast: { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0, weighted_forecast: 0 },
       aiForecast: { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, weighted_forecast: 0 },
@@ -785,9 +940,11 @@ export async function getExecutiveForecastDashboardSummary(args: {
     pipeline_modifier: verdictAgg.pipeline_crm > 0 ? verdictAgg.pipeline_verdict / verdictAgg.pipeline_crm : 1,
   };
 
-  const quota =
-    repIdsToUse.length && qpId
-      ? await pool
+  const quota = qpId
+    ? await (async () => {
+        const repFilter = scope.allowedRepIds;
+        const useFilter = Array.isArray(repFilter) && repFilter.length > 0;
+        return pool
           .query<{ quota_amount: number }>(
             `
             SELECT COALESCE(SUM(quota_amount), 0)::float8 AS quota_amount
@@ -795,13 +952,14 @@ export async function getExecutiveForecastDashboardSummary(args: {
              WHERE org_id = $1::bigint
                AND role_level = 3
                AND quota_period_id = $2::bigint
-               AND rep_id = ANY($3::bigint[])
+               AND (NOT $4::boolean OR rep_id = ANY($3::bigint[]))
             `,
-            [args.orgId, qpId, repIdsToUse]
+            [args.orgId, qpId, repFilter || [], useFilter]
           )
           .then((r) => Number(r.rows?.[0]?.quota_amount || 0) || 0)
-          .catch(() => 0)
-      : 0;
+          .catch(() => 0);
+      })()
+    : 0;
 
   const summary = computeSalesVsVerdictForecastSummary({
     crm_totals: {
@@ -833,9 +991,69 @@ export async function getExecutiveForecastDashboardSummary(args: {
     ? await getQuarterKpisSnapshot({
         orgId: args.orgId,
         quotaPeriodId: qpId,
-        repIds: scopedRole === "ADMIN" ? null : scope.allowedRepIds ?? [],
+        repIds: scope.allowedRepIds === null ? null : scope.allowedRepIds ?? [],
       }).catch(() => null)
     : null;
+
+  const periodIdx = periods.findIndex((p) => String(p.id) === String(qpId));
+  const prevPeriod = periodIdx >= 0 ? periods[periodIdx + 1] || null : null;
+  const prevQpId = String(prevPeriod?.id || "").trim();
+  const useRepFilterForMomentum = scope.allowedRepIds !== null;
+
+  const curSnap = qpId
+    ? await getOpenPipelineSnapshot({
+        orgId: args.orgId,
+        quotaPeriodId: qpId,
+        useRepFilter: useRepFilterForMomentum,
+        repIds: repIdsToUse,
+        repNameKeys: visibleRepNameKeys,
+      }).catch(() => null)
+    : null;
+  const prevSnap = prevQpId
+    ? await getOpenPipelineSnapshot({
+        orgId: args.orgId,
+        quotaPeriodId: prevQpId,
+        useRepFilter: useRepFilterForMomentum,
+        repIds: repIdsToUse,
+        repNameKeys: visibleRepNameKeys,
+      }).catch(() => null)
+    : null;
+
+  const qoqPct = (cur: number, prev: number) => {
+    if (!Number.isFinite(cur) || !Number.isFinite(prev) || prev <= 0) return null;
+    return ((cur - prev) / prev) * 100;
+  };
+
+  const pipelineMomentum: PipelineMomentumData | null =
+    curSnap && Number.isFinite(Number(curSnap.total_amount))
+      ? {
+          quota_target: quota,
+          current_quarter: {
+            total_pipeline: Number(curSnap.total_amount || 0) || 0,
+            total_opps: Number(curSnap.total_count || 0) || 0,
+            mix: {
+              commit: {
+                value: Number(curSnap.commit_amount || 0) || 0,
+                opps: Number(curSnap.commit_count || 0) || 0,
+                qoq_change_pct: prevSnap ? qoqPct(Number(curSnap.commit_amount || 0) || 0, Number(prevSnap.commit_amount || 0) || 0) : null,
+              },
+              best_case: {
+                value: Number(curSnap.best_case_amount || 0) || 0,
+                opps: Number(curSnap.best_case_count || 0) || 0,
+                qoq_change_pct: prevSnap ? qoqPct(Number(curSnap.best_case_amount || 0) || 0, Number(prevSnap.best_case_amount || 0) || 0) : null,
+              },
+              pipeline: {
+                value: Number(curSnap.pipeline_amount || 0) || 0,
+                opps: Number(curSnap.pipeline_count || 0) || 0,
+                qoq_change_pct: prevSnap ? qoqPct(Number(curSnap.pipeline_amount || 0) || 0, Number(prevSnap.pipeline_amount || 0) || 0) : null,
+              },
+            },
+          },
+          previous_quarter: {
+            total_pipeline: prevSnap ? (Number(prevSnap.total_amount || 0) || 0) : null,
+          },
+        }
+      : null;
 
   return {
     periods,
@@ -853,6 +1071,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
     productsClosedWon,
     productsClosedWonByRep,
     quarterKpis,
+    pipelineMomentum,
     quota,
     crmForecast: {
       commit_amount: Number(totals.commit_amount || 0) || 0,
