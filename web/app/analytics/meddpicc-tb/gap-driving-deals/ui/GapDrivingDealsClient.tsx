@@ -119,6 +119,32 @@ function deltaClass(n: number) {
   return n > 0 ? "text-[#2ECC71]" : "text-[#E74C3C]";
 }
 
+function fmtDateMmddyyyy(raw: string | null | undefined) {
+  const s = String(raw || "").trim();
+  if (!s) return "—";
+  // ISO date or timestamp starting with YYYY-MM-DD
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    const [, yyyy, mm, dd] = iso;
+    return `${mm}-${dd}-${yyyy}`;
+  }
+  // US-style M/D/YYYY or MM/DD/YYYY
+  const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (us) {
+    const mm = String(us[1]).padStart(2, "0");
+    const dd = String(us[2]).padStart(2, "0");
+    const yyyy = us[3];
+    return `${mm}-${dd}-${yyyy}`;
+  }
+  // Fall back: try Date parse, but keep deterministic output.
+  const d = new Date(s);
+  if (!Number.isFinite(d.getTime())) return s;
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const yyyy = String(d.getFullYear());
+  return `${mm}-${dd}-${yyyy}`;
+}
+
 function scoreBadgeClass(score: number | null) {
   const s = Number(score == null ? 0 : score);
   // Spec:
@@ -162,6 +188,11 @@ function chipLabel(key: string) {
   if (k === "metrics") return "Metrics";
   if (k === "pain") return "Pain";
   return canonicalTitle(k);
+}
+
+function isGreenScore(score: number | null) {
+  const s = Number(score == null ? 0 : score);
+  return Number.isFinite(s) && s >= 3;
 }
 
 function buildHref(basePath: string, params: URLSearchParams) {
@@ -468,7 +499,7 @@ export function GapDrivingDealsClient(props: {
                             <div>
                               <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">{title}</div>
                               <div className="mt-1 text-base text-[color:var(--sf-text-secondary)]">
-                                Close {d.close_date || "—"} · Stage {d.crm_stage.label}
+                                Close {fmtDateMmddyyyy(d.close_date)} · Stage <span className="font-semibold text-[color:var(--sf-text-primary)]">{d.crm_stage.label}</span>
                                 {d.health.suppression ? " · Suppressed" : ""}
                               </div>
                               <div className="mt-2">
@@ -515,7 +546,9 @@ export function GapDrivingDealsClient(props: {
                               <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">MEDDPICC+TB</div>
                             </div>
                             <div className="mt-2 flex flex-wrap gap-2">
-                              {d.meddpicc_tb.map((c) => {
+                              {d.meddpicc_tb
+                                .filter((c) => !isGreenScore(c.score))
+                                .map((c) => {
                                 const s = Number(c.score == null ? 0 : c.score);
                                 const active = activeKey === c.key;
                                 const label = chipLabel(c.key);
