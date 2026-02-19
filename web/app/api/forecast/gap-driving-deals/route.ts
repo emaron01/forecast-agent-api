@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuth } from "../../../../lib/auth";
 import { pool } from "../../../../lib/pool";
-import { getScopedRepDirectory } from "../../../../lib/repScope";
+import { getVisibleUsers } from "../../../../lib/db";
 import { resolvePublicId, zPublicId } from "../../../../lib/publicId";
 import { getForecastStageProbabilities } from "../../../../lib/forecastStageProbabilities";
 
@@ -403,161 +403,60 @@ export async function GET(req: Request) {
         ? (roleRaw as "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP")
         : ("REP" as const);
 
-    const scope = await getScopedRepDirectory({
+    // IMPORTANT: Forecast summary uses getVisibleUsers() to determine visibility. To avoid mismatches
+    // (missing reps, totals not lining up), this report uses the same scoping model.
+    const visibleUsers = await getVisibleUsers({
+      currentUserId: auth.user.id,
       orgId: auth.user.org_id,
-      userId: auth.user.id,
       role: scopedRole,
-    });
-    let allowedRepIds = scope.allowedRepIds; // null => admin
+      hierarchy_level: (auth.user as any).hierarchy_level,
+      see_all_visibility: (auth.user as any).see_all_visibility,
+    }).catch(() => []);
 
-    // Some test/prod environments have REP users whose `reps.user_id` linkage is missing, causing
-    // getScopedRepDirectory() to return an empty scope even though opps have rep_id set.
-    // For REP users only, recover by resolving their rep id directly from reps.user_id.
-    if (scopedRole === "REP" && Array.isArray(allowedRepIds) && allowedRepIds.length === 0) {
-      const repIdFromUser = await pool
-        .query<{ id: number }>(
-          `
-          SELECT id
-            FROM reps
-           WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
-             AND user_id = $2::bigint
-           ORDER BY id ASC
-           LIMIT 1
-          `,
-          [auth.user.org_id, auth.user.id]
-        )
-        .then((r) => Number(r.rows?.[0]?.id || 0) || 0)
-        .catch(() => 0);
-      if (repIdFromUser > 0) allowedRepIds = [repIdFromUser];
-    }
+    const visibleRepUsers = (visibleUsers || []).filter((u: any) => u && u.role === "REP" && u.active);
+    const visibleRepUserIds = Array.from(
+      new Set(visibleRepUsers.map((u: any) => Number(u.id)).filter((n: number) => Number.isFinite(n) && n > 0))
+    );
 
-    // If reps.user_id isn’t wired, fall back to matching REP identity to reps names.
-    if (scopedRole === "REP" && Array.isArray(allowedRepIds) && allowedRepIds.length === 0) {
-      const keys = [
-        normalizeNameKey((auth.user as any).account_owner_name),
-        normalizeNameKey((auth.user as any).display_name),
-        normalizeNameKey((auth.user as any).email),
-      ].filter(Boolean);
+    const visibleRepNameKeys = Array.from(
+      new Set(
+        visibleRepUsers
+          .flatMap((u: any) => [normalizeNameKey(u.account_owner_name || ""), normalizeNameKey(u.display_name || ""), normalizeNameKey(u.email || "")])
+          .filter(Boolean)
+      )
+    );
 
-      if (keys.length) {
-        const repIdsFromKeys = await pool
-          .query<{ id: number }>(
-            `
-            WITH r AS (
-              SELECT id,
-                     lower(regexp_replace(btrim(COALESCE(crm_owner_name, '')), '\\s+', ' ', 'g')) AS crm_k,
-                     lower(regexp_replace(btrim(COALESCE(rep_name, '')), '\\s+', ' ', 'g')) AS rep_k,
-                     lower(regexp_replace(btrim(COALESCE(display_name, '')), '\\s+', ' ', 'g')) AS disp_k
-                FROM reps
-               WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
-            )
-            SELECT DISTINCT id
-              FROM r
-             WHERE (crm_k <> '' AND crm_k = ANY($2::text[]))
-                OR (rep_k <> '' AND rep_k = ANY($2::text[]))
-                OR (disp_k <> '' AND disp_k = ANY($2::text[]))
-             ORDER BY id ASC
-             LIMIT 25
-            `,
-            [auth.user.org_id, keys]
-          )
-          .then((r) => (r.rows || []).map((x) => Number(x.id)).filter((n) => Number.isFinite(n) && n > 0))
-          .catch(() => []);
-        if (repIdsFromKeys.length) allowedRepIds = repIdsFromKeys;
-      }
-    }
-    const allowedRepNameKeys: string[] = [];
-    if (allowedRepIds !== null && allowedRepIds.length) {
-      const repKeys = await pool
-        .query<{ k: string }>(
-          `
-          WITH keys AS (
-            SELECT lower(regexp_replace(btrim(COALESCE(crm_owner_name, '')), '\\s+', ' ', 'g')) AS k
-              FROM reps
-             WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
-               AND id = ANY($2::bigint[])
-            UNION ALL
-            SELECT lower(regexp_replace(btrim(COALESCE(rep_name, '')), '\\s+', ' ', 'g')) AS k
-              FROM reps
-             WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
-               AND id = ANY($2::bigint[])
-            UNION ALL
-            SELECT lower(regexp_replace(btrim(COALESCE(display_name, '')), '\\s+', ' ', 'g')) AS k
-              FROM reps
-             WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
-               AND id = ANY($2::bigint[])
-          )
-          SELECT DISTINCT k
-            FROM keys
-           WHERE k IS NOT NULL
-             AND k <> ''
-          `,
-          [auth.user.org_id, allowedRepIds]
-        )
-        .then((r) => (r.rows || []).map((x) => String(x.k || "").trim()).filter(Boolean))
-        .catch(() => []);
-      allowedRepNameKeys.push(...repKeys);
-
-      // Also include user display/account-owner/email keys for those reps (matches Forecast summary logic).
-      try {
-        const userKeys = await pool
-          .query<{ k: string }>(
-            `
-            WITH rep_users AS (
-              SELECT DISTINCT r.user_id
+    // Map visible REP users -> rep ids when possible (opportunities.rep_id is reps.id).
+    const repIdsToUse =
+      visibleRepUserIds.length || visibleRepNameKeys.length
+        ? await pool
+            .query<{ id: number }>(
+              `
+              SELECT DISTINCT r.id
                 FROM reps r
                WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
-                 AND r.id = ANY($2::bigint[])
-                 AND r.user_id IS NOT NULL
-            ),
-            keys AS (
-              SELECT lower(regexp_replace(btrim(COALESCE(u.account_owner_name, '')), '\\s+', ' ', 'g')) AS k
-                FROM users u
-                JOIN rep_users ru ON ru.user_id = u.id
-              UNION ALL
-              SELECT lower(regexp_replace(btrim(COALESCE(u.display_name, '')), '\\s+', ' ', 'g')) AS k
-                FROM users u
-                JOIN rep_users ru ON ru.user_id = u.id
-              UNION ALL
-              SELECT lower(regexp_replace(btrim(COALESCE(u.email, '')), '\\s+', ' ', 'g')) AS k
-                FROM users u
-                JOIN rep_users ru ON ru.user_id = u.id
+                 AND (
+                   (COALESCE(array_length($2::int[], 1), 0) > 0 AND r.user_id = ANY($2::int[]))
+                   OR (
+                     COALESCE(array_length($3::text[], 1), 0) > 0
+                     AND (
+                       lower(regexp_replace(btrim(COALESCE(r.crm_owner_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
+                       OR lower(regexp_replace(btrim(COALESCE(r.rep_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
+                       OR lower(regexp_replace(btrim(COALESCE(r.display_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
+                     )
+                   )
+                 )
+              `,
+              [auth.user.org_id, visibleRepUserIds, visibleRepNameKeys]
             )
-            SELECT DISTINCT k
-              FROM keys
-             WHERE k IS NOT NULL
-               AND k <> ''
-            `,
-            [auth.user.org_id, allowedRepIds]
-          )
-          .then((r) => (r.rows || []).map((x) => String(x.k || "").trim()).filter(Boolean));
-        allowedRepNameKeys.push(...userKeys);
-      } catch (e: any) {
-        const code = String(e?.code || "");
-        // undefined_column / undefined_table: ignore
-        if (code !== "42703" && code !== "42P01") throw e;
-      }
-    }
+            .then((r) => (r.rows || []).map((x) => Number(x.id)).filter((n) => Number.isFinite(n) && n > 0))
+            .catch(() => [] as number[])
+        : ([] as number[]);
 
-    // For REP users, also include their own identity fields (helps when rep_id is missing in opps).
-    if (scopedRole === "REP") {
-      allowedRepNameKeys.push(
-        normalizeNameKey((auth.user as any).account_owner_name),
-        normalizeNameKey((auth.user as any).display_name),
-        normalizeNameKey((auth.user as any).email)
-      );
-    }
+    const useScopedRepIds = scopedRole !== "ADMIN";
 
-    // De-dupe.
-    const allowedRepNameKeysUniq = Array.from(new Set(allowedRepNameKeys.map((s) => String(s || "").trim()).filter(Boolean)));
-
-    // Fail-closed if we can't resolve a scope for a non-admin AND we don't have any safe fallback.
-    // IMPORTANT: REP users may have opportunities missing rep_id, so we allow name/email-key fallback scoping.
-    if (
-      allowedRepIds !== null &&
-      (!allowedRepIds.length || !Number.isFinite(allowedRepIds[0] as any)) &&
-      scopedRole !== "REP"
-    ) {
+    // Fail-closed if we can't resolve a scope for a non-admin (align with Forecast: REP sees themselves; managers see their visible reps).
+    if (useScopedRepIds && repIdsToUse.length === 0 && visibleRepNameKeys.length === 0) {
       return NextResponse.json({
         ok: true,
         quota_period: null,
@@ -571,6 +470,7 @@ export async function GET(req: Request) {
         },
       });
     }
+    const allowedRepNameKeysUniq = visibleRepNameKeys;
 
     // Resolve quota period id (fallback to "current" if omitted).
     const periods = await pool
@@ -624,7 +524,7 @@ export async function GET(req: Request) {
     const repIdFilter = requestedRepId > 0 ? requestedRepId : null;
 
     // Enforce visibility scope for rep_public_id selection.
-    if (repIdFilter && allowedRepIds !== null && !allowedRepIds.includes(repIdFilter)) {
+    if (repIdFilter && useScopedRepIds && repIdsToUse.length && !repIdsToUse.includes(repIdFilter)) {
       // Return empty (avoid leaking existence).
       return NextResponse.json({
         ok: true,
@@ -859,8 +759,8 @@ export async function GET(req: Request) {
         [
           auth.user.org_id,
           quotaPeriodId,
-          allowedRepIds !== null, // $3 useScopedRepIds
-          allowedRepIds !== null ? allowedRepIds : [], // $4 scoped list (ignored when $3=false)
+          useScopedRepIds, // $3 useScopedRepIds
+          repIdsToUse, // $4 scoped list (ignored when $3=false)
           repIdFilter, // $5
           repNameLike ? `%${repNameLike}%` : null, // $6
           bucketList, // $7
@@ -1039,8 +939,8 @@ export async function GET(req: Request) {
         [
           auth.user.org_id,
           quotaPeriodId,
-          allowedRepIds !== null, // $3 useScopedRepIds
-          allowedRepIds !== null ? allowedRepIds : [], // $4 scoped list (ignored when $3=false)
+          useScopedRepIds, // $3 useScopedRepIds
+          repIdsToUse, // $4 scoped list (ignored when $3=false)
           repIdFilter, // $5
           repNameLike ? `%${repNameLike}%` : null, // $6
           bucketList, // $7
