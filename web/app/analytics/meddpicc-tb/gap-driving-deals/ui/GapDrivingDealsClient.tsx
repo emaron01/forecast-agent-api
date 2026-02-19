@@ -274,24 +274,14 @@ export function GapDrivingDealsClient(props: {
   const suppressedOnly = String(qs.get("suppressed_only") || "") === "1";
   const healthPreset = healthPresetFromParams(qs);
 
+  const driverMode = String(qs.get("driver_mode") || "") !== "0";
+  const driverMinAbsGap = Number(qs.get("driver_min_abs_gap") || 0) || 0;
+  const driverRequireScoreEffect = String(qs.get("driver_require_score_effect") || "") !== "0";
+
   const bucketAnyParam = qs.has("bucket_commit") || qs.has("bucket_best_case") || qs.has("bucket_pipeline");
   const bucketCommit = bucketAnyParam ? boolParam(qs, "bucket_commit") !== false : true;
   const bucketBestCase = bucketAnyParam ? boolParam(qs, "bucket_best_case") !== false : true;
   const bucketPipeline = bucketAnyParam ? boolParam(qs, "bucket_pipeline") === true : false;
-
-  const hiAnyParam =
-    qs.has("hi_enabled") ||
-    qs.has("hi_commit_health_lt") ||
-    qs.has("hi_best_case_suppressed") ||
-    qs.has("hi_eb_max") ||
-    qs.has("hi_budget_max") ||
-    qs.has("hi_paper_max");
-  const hiEnabled = hiAnyParam ? String(qs.get("hi_enabled") || "") === "1" : true;
-  const hiCommitHealthLt = hiAnyParam ? (String(qs.get("hi_commit_health_lt") || "") ? true : false) : true;
-  const hiBestCaseSuppressed = hiAnyParam ? String(qs.get("hi_best_case_suppressed") || "") === "1" : true;
-  const hiEb = hiAnyParam ? (String(qs.get("hi_eb_max") || "") ? true : false) : true;
-  const hiBudget = hiAnyParam ? (String(qs.get("hi_budget_max") || "") ? true : false) : true;
-  const hiPaper = hiAnyParam ? (String(qs.get("hi_paper_max") || "") ? true : false) : true;
 
   const repFilterOn = !!repPublicId;
 
@@ -301,7 +291,7 @@ export function GapDrivingDealsClient(props: {
     window.location.href = buildHref(props.basePath, sp);
   };
 
-  const resetToHighRiskDefaults = () => {
+  const resetToDefaultRiskDrivers = () => {
     const sp = new URLSearchParams(qs);
 
     // Always keep quarter selection.
@@ -325,27 +315,23 @@ export function GapDrivingDealsClient(props: {
       "bucket_commit",
       "bucket_best_case",
       "bucket_pipeline",
-      "hi_enabled",
-      "hi_commit_health_lt",
-      "hi_best_case_suppressed",
-      "hi_eb_max",
-      "hi_budget_max",
-      "hi_paper_max",
+      "driver_mode",
+      "driver_take_per_bucket",
+      "driver_min_abs_gap",
+      "driver_require_score_effect",
     ].forEach((k) => sp.delete(k));
 
     if (qp) sp.set("quota_period_id", qp);
 
-    // Defaults requested.
+    // Default Risk (gap drivers) defaults.
     sp.set("bucket_commit", "1");
     sp.set("bucket_best_case", "1");
     sp.set("bucket_pipeline", "0");
 
-    sp.set("hi_enabled", "1");
-    sp.set("hi_commit_health_lt", "26");
-    sp.set("hi_best_case_suppressed", "1");
-    sp.set("hi_eb_max", "2");
-    sp.set("hi_budget_max", "2");
-    sp.set("hi_paper_max", "2");
+    sp.set("driver_mode", "1");
+    sp.set("driver_take_per_bucket", "50");
+    sp.set("driver_min_abs_gap", "0");
+    sp.set("driver_require_score_effect", "1");
 
     window.location.href = buildHref(props.basePath, sp);
   };
@@ -402,10 +388,10 @@ export function GapDrivingDealsClient(props: {
             ) : null}
 
             <button
-              onClick={resetToHighRiskDefaults}
+              onClick={resetToDefaultRiskDrivers}
               className="h-[36px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 text-sm font-medium hover:bg-[color:var(--sf-surface-alt)]"
             >
-              View High Risk Report
+              Default Risk
             </button>
           </div>
         </div>
@@ -567,89 +553,62 @@ export function GapDrivingDealsClient(props: {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">High Risk OR rules</span>
+            <span className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Driver selection</span>
             <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
               <input
                 type="checkbox"
-                checked={hiEnabled}
+                checked={driverMode}
                 onChange={(e) =>
                   setParamAndGo((sp) => {
-                    sp.set("hi_enabled", e.target.checked ? "1" : "0");
+                    sp.set("driver_mode", e.target.checked ? "1" : "0");
                   })
                 }
               />
-              Enabled
+              Gap drivers only
             </label>
 
             <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
               <input
                 type="checkbox"
-                checked={hiCommitHealthLt}
+                checked={driverRequireScoreEffect}
                 onChange={(e) =>
                   setParamAndGo((sp) => {
-                    if (e.target.checked) sp.set("hi_commit_health_lt", "26");
-                    else sp.delete("hi_commit_health_lt");
+                    sp.set("driver_require_score_effect", e.target.checked ? "1" : "0");
                   })
                 }
               />
-              Commit &lt; 26
+              Score-driven only
             </label>
 
-            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
-              <input
-                type="checkbox"
-                checked={hiBestCaseSuppressed}
-                onChange={(e) =>
-                  setParamAndGo((sp) => {
-                    if (e.target.checked) sp.set("hi_best_case_suppressed", "1");
-                    else sp.delete("hi_best_case_suppressed");
-                  })
-                }
-              />
-              Suppressed Best Case
-            </label>
-
-            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
-              <input
-                type="checkbox"
-                checked={hiEb}
-                onChange={(e) =>
-                  setParamAndGo((sp) => {
-                    if (e.target.checked) sp.set("hi_eb_max", "2");
-                    else sp.delete("hi_eb_max");
-                  })
-                }
-              />
-              EB 0–2
-            </label>
-
-            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
-              <input
-                type="checkbox"
-                checked={hiBudget}
-                onChange={(e) =>
-                  setParamAndGo((sp) => {
-                    if (e.target.checked) sp.set("hi_budget_max", "2");
-                    else sp.delete("hi_budget_max");
-                  })
-                }
-              />
-              Budget 0–2
-            </label>
-
-            <label className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
-              <input
-                type="checkbox"
-                checked={hiPaper}
-                onChange={(e) =>
-                  setParamAndGo((sp) => {
-                    if (e.target.checked) sp.set("hi_paper_max", "2");
-                    else sp.delete("hi_paper_max");
-                  })
-                }
-              />
-              Paper Process 0–2
-            </label>
+            <details className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
+              <summary className="cursor-pointer select-none">
+                Min gap {driverMinAbsGap > 0 ? `$${driverMinAbsGap.toLocaleString()}` : "(Any)"}
+              </summary>
+              <div className="mt-2 flex flex-wrap gap-2 pb-2">
+                {[0, 1000, 2500, 5000, 10000].map((n) => (
+                  <label
+                    key={n}
+                    className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={driverMinAbsGap === n}
+                      onChange={(e) =>
+                        setParamAndGo((sp) => {
+                          if (!e.target.checked) {
+                            sp.delete("driver_min_abs_gap");
+                            return;
+                          }
+                          if (n <= 0) sp.delete("driver_min_abs_gap");
+                          else sp.set("driver_min_abs_gap", String(n));
+                        })
+                      }
+                    />
+                    {n <= 0 ? "Any" : `$${n.toLocaleString()}`}
+                  </label>
+                ))}
+              </div>
+            </details>
 
             <details className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]">
               <summary className="cursor-pointer select-none">Health filter (optional)</summary>

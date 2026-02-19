@@ -351,7 +351,21 @@ export async function GET(req: Request) {
     const healthMinPct = z.coerce.number().min(0).max(100).optional().catch(undefined).parse(url.searchParams.get("health_min_pct"));
     const healthMaxPct = z.coerce.number().min(0).max(100).optional().catch(undefined).parse(url.searchParams.get("health_max_pct"));
 
-    const limit = z.coerce.number().int().min(1).max(2000).catch(200).parse(url.searchParams.get("limit"));
+    const limitParamPresent = url.searchParams.has("limit");
+    const limitRaw = z.coerce.number().int().min(1).max(2000).catch(200).parse(url.searchParams.get("limit"));
+
+    const driverModeParam = url.searchParams.get("driver_mode");
+    const driverMode = driverModeParam == null ? true : parseBool(driverModeParam);
+    const driverTakePerBucket = z.coerce.number().int().min(1).max(200).catch(50).parse(url.searchParams.get("driver_take_per_bucket"));
+    const driverMinAbsGap = z.coerce.number().min(0).catch(0).parse(url.searchParams.get("driver_min_abs_gap"));
+    const driverRequireScoreEffect = (() => {
+      const raw = url.searchParams.get("driver_require_score_effect");
+      if (raw == null) return true;
+      return parseBool(raw);
+    })();
+
+    // For driver mode, query a larger candidate pool so we don't miss top drivers.
+    const limit = driverMode && !limitParamPresent ? 2000 : limitRaw;
 
     const roleRaw = String(auth.user.role || "").trim();
     const scopedRole =
@@ -462,14 +476,14 @@ export async function GET(req: Request) {
       return ["commit", "best_case"];
     })();
 
-    const hiDefaultsApplied = hiEnabled == null && hiCommitHealthLt == null && !hiBestCaseSuppressed && hiEbMax == null && hiBudgetMax == null && hiPaperMax == null;
-    const hiOn = hiDefaultsApplied ? true : hiEnabled ?? false;
+    // High-risk OR rules (optional). These are no longer the default criteria.
+    const hiOn = hiEnabled ?? false;
     const hiCfg = {
-      commit_health_lt: hiCommitHealthLt ?? (hiDefaultsApplied ? 26 : null),
-      best_case_suppressed: hiBestCaseSuppressed || (hiDefaultsApplied ? true : false),
-      eb_max: hiEbMax ?? (hiDefaultsApplied ? 2 : null),
-      budget_max: hiBudgetMax ?? (hiDefaultsApplied ? 2 : null),
-      paper_max: hiPaperMax ?? (hiDefaultsApplied ? 2 : null),
+      commit_health_lt: hiCommitHealthLt ?? null,
+      best_case_suppressed: hiBestCaseSuppressed || false,
+      eb_max: hiEbMax ?? null,
+      budget_max: hiBudgetMax ?? null,
+      paper_max: hiPaperMax ?? null,
     };
 
     // NOTE: risk_category filtering is applied after we compute risk flags (JS-level),
@@ -645,7 +659,11 @@ export async function GET(req: Request) {
             )
           )
         )
-      ORDER BY close_date ASC NULLS LAST, amount DESC NULLS LAST, id ASC
+      ORDER BY
+        CASE WHEN $18::boolean THEN amount END DESC NULLS LAST,
+        close_date ASC NULLS LAST,
+        amount DESC NULLS LAST,
+        id ASC
       LIMIT $11::int
         `,
         [
@@ -666,6 +684,7 @@ export async function GET(req: Request) {
           hiCfg.eb_max == null ? null : Number(hiCfg.eb_max), // $15
           hiCfg.budget_max == null ? null : Number(hiCfg.budget_max), // $16
           hiCfg.paper_max == null ? null : Number(hiCfg.paper_max), // $17
+          driverMode, // $18
         ]
       );
     };
@@ -810,7 +829,11 @@ export async function GET(req: Request) {
               )
             )
           )
-        ORDER BY close_date ASC NULLS LAST, amount DESC NULLS LAST, id ASC
+        ORDER BY
+          CASE WHEN $18::boolean THEN amount END DESC NULLS LAST,
+          close_date ASC NULLS LAST,
+          amount DESC NULLS LAST,
+          id ASC
         LIMIT $11::int
         `,
         [
@@ -831,6 +854,7 @@ export async function GET(req: Request) {
           hiCfg.eb_max == null ? null : Number(hiCfg.eb_max), // $15
           hiCfg.budget_max == null ? null : Number(hiCfg.budget_max), // $16
           hiCfg.paper_max == null ? null : Number(hiCfg.paper_max), // $17
+          driverMode, // $18
         ]
       );
     };
@@ -935,12 +959,40 @@ export async function GET(req: Request) {
       ? enriched.filter((d) => d.risk_flags.some((rf) => rf.key === riskCategory))
       : enriched;
 
-    const groupFor = (bucket: "commit" | "best_case" | "pipeline") =>
-      filteredByRisk.filter((d) => d.crm_stage.bucket === bucket).sort((a, b) => a.weighted.gap - b.weighted.gap);
+    const groupAllFor = (bucket: "commit" | "best_case" | "pipeline") =>
+      filteredByRisk.filter((d) => d.crm_stage.bucket === bucket);
 
-    const commitDeals = groupFor("commit");
-    const bestDeals = groupFor("best_case");
-    const pipeDeals = groupFor("pipeline");
+    const groupFor = (bucket: "commit" | "best_case" | "pipeline", overallGap: number) => {
+      const xs = groupAllFor(bucket);
+      const sign = overallGap < 0 ? -1 : overallGap > 0 ? 1 : 0;
+      const dir = sign === 0 ? -1 : sign; // default to "most negative" when exactly 0
+
+      const filtered = driverMode
+        ? xs.filter((d) => {
+            if (!Number.isFinite(d.weighted.gap)) return false;
+            if (driverMinAbsGap > 0 && Math.abs(d.weighted.gap) < driverMinAbsGap) return false;
+            if (!driverRequireScoreEffect) return true;
+            const hm = Number(d.health.health_modifier);
+            if (!Number.isFinite(hm)) return false;
+            return Math.abs(hm - 1) >= 0.01;
+          })
+        : xs;
+
+      const sorted = filtered.sort((a, b) => {
+        // If overall gap is negative, surface the most negative gap deals first (ascending).
+        // If overall gap is positive, surface the most positive gap deals first (descending).
+        return dir < 0 ? a.weighted.gap - b.weighted.gap : b.weighted.gap - a.weighted.gap;
+      });
+
+      if (!driverMode) return sorted;
+      return sorted.slice(0, Math.max(1, driverTakePerBucket));
+    };
+
+    const overallGapAll = filteredByRisk.reduce((acc, d) => acc + n0(d.weighted.gap), 0);
+
+    const commitDeals = groupFor("commit", overallGapAll);
+    const bestDeals = groupFor("best_case", overallGapAll);
+    const pipeDeals = groupFor("pipeline", overallGapAll);
 
     const sum = (xs: DealOut[], key: "crm_weighted" | "ai_weighted" | "gap") => xs.reduce((acc, d) => acc + n0(d.weighted[key]), 0);
 
@@ -1082,12 +1134,11 @@ export async function GET(req: Request) {
         suppressed_only: suppressedOnly,
         health_min_pct: healthMinPct ?? null,
         health_max_pct: healthMaxPct ?? null,
+        driver_mode: driverMode,
+        driver_take_per_bucket: driverTakePerBucket,
+        driver_min_abs_gap: driverMinAbsGap,
+        driver_require_score_effect: driverRequireScoreEffect,
         hi_enabled: hiOn,
-        hi_commit_health_lt: hiCfg.commit_health_lt,
-        hi_best_case_suppressed: !!hiCfg.best_case_suppressed,
-        hi_eb_max: hiCfg.eb_max,
-        hi_budget_max: hiCfg.budget_max,
-        hi_paper_max: hiCfg.paper_max,
       },
       totals,
       rep_context: repContext,
