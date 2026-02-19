@@ -77,7 +77,7 @@ export default async function ExecutiveDashboardPage({
             }}
             aiPctToGoal={summary.pctToGoal}
             leftToGo={summary.leftToGo}
-            defaultTopN={5}
+            defaultTopN={15}
           />
         </div>
       </main>

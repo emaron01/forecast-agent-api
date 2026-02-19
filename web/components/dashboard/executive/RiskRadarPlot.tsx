@@ -6,6 +6,7 @@ import { palette } from "../../../lib/palette";
 export type RadarDeal = {
   id: string;
   label: string;
+  legendLabel?: string;
   color: string;
   meddpicc_tb: Array<{ key: string; score: number | null }>;
 };
@@ -19,9 +20,10 @@ type SliceKey =
   | "process"
   | "paper"
   | "competition"
-  | "timing_budget";
+  | "timing"
+  | "budget";
 
-const slices: Array<{ key: SliceKey; label: string; subkeys?: string[] }> = [
+const slices: Array<{ key: SliceKey; label: string }> = [
   { key: "pain", label: "Pain" },
   { key: "metrics", label: "Metrics" },
   { key: "champion", label: "Champion" },
@@ -30,7 +32,8 @@ const slices: Array<{ key: SliceKey; label: string; subkeys?: string[] }> = [
   { key: "process", label: "Decision Process" },
   { key: "paper", label: "Paper Process" },
   { key: "competition", label: "Competition" },
-  { key: "timing_budget", label: "Timing/Budget", subkeys: ["timing", "budget"] },
+  { key: "timing", label: "Timing" },
+  { key: "budget", label: "Budget" },
 ];
 
 function clamp01(n: number) {
@@ -59,7 +62,7 @@ function textAnchorForAngle(rad: number) {
 }
 
 export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
-  const size = Math.max(260, Math.min(520, Number(props.size || 360)));
+  const size = Math.max(300, Math.min(640, Number(props.size || 420)));
   const cx = size / 2;
   const cy = size / 2;
   const outerR = size * 0.34;
@@ -73,17 +76,12 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
     const sliceSpan = (Math.PI * 2) / sliceCount;
     const start = -Math.PI / 2; // 12 o'clock
     const margin = sliceSpan * 0.12;
-    const halfGap = sliceSpan * 0.04;
 
-    const keyToSlice = new Map<string, { key: SliceKey; idx: number; subIdx: number | null }>();
-    slices.forEach((s, idx) => {
-      if (s.key !== "timing_budget") keyToSlice.set(s.key, { key: s.key, idx, subIdx: null });
-      if (s.subkeys) s.subkeys.forEach((k, subIdx) => keyToSlice.set(k, { key: s.key, idx, subIdx }));
-    });
+    const keyToSlice = new Map<string, { idx: number }>();
+    slices.forEach((s, idx) => keyToSlice.set(s.key, { idx }));
 
     type Entry = {
       sliceIdx: number;
-      subSlot: "" | "timing" | "budget";
       ringScore: 0 | 1 | 2; // inner best -> outer worst
       dealId: string;
       dealLabel: string;
@@ -103,9 +101,6 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
         const scoreRaw = c.score == null ? null : Math.max(0, Math.min(3, Math.trunc(Number(c.score))));
         if (scoreRaw != null && scoreRaw > 2) continue; // only 0-2 (risk) + unscored
 
-        const subSlot: Entry["subSlot"] =
-          map.key === "timing_budget" && map.subIdx != null ? (map.subIdx === 0 ? "timing" : "budget") : "";
-
         // Ring semantics:
         // - inner = best of the plotted set
         // - outer = worst
@@ -118,7 +113,6 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
 
         entries.push({
           sliceIdx: map.idx,
-          subSlot,
           ringScore,
           dealId: d.id,
           dealLabel: d.label,
@@ -132,7 +126,7 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
     // Group entries by slice+subSlot+ring, then distribute evenly inside ring band.
     const groups = new Map<string, Entry[]>();
     for (const e of entries) {
-      const k = `${e.sliceIdx}|${e.subSlot}|${e.ringScore}`;
+      const k = `${e.sliceIdx}|${e.ringScore}`;
       const arr = groups.get(k) || [];
       arr.push(e);
       groups.set(k, arr);
@@ -149,11 +143,9 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
       return { min: b23 + 3, max: outerR - 3 };
     };
 
-    const angleWindow = (sliceIdx: number, subSlot: "" | "timing" | "budget") => {
+    const angleWindow = (sliceIdx: number) => {
       const base0 = start + sliceIdx * sliceSpan;
       const base1 = base0 + sliceSpan;
-      if (subSlot === "timing") return { a0: base0 + margin, a1: base0 + sliceSpan / 2 - halfGap };
-      if (subSlot === "budget") return { a0: base0 + sliceSpan / 2 + halfGap, a1: base1 - margin };
       return { a0: base0 + margin, a1: base1 - margin };
     };
 
@@ -161,12 +153,11 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
       // Stable order within group for consistent positioning
       arr.sort((a, b) => (a.dealId + "|" + a.keyLabel).localeCompare(b.dealId + "|" + b.keyLabel));
 
-      const [sliceIdxRaw, subSlotRaw, ringScoreRaw] = k.split("|");
+      const [sliceIdxRaw, ringScoreRaw] = k.split("|");
       const sliceIdx = Number(sliceIdxRaw) || 0;
-      const subSlot = (subSlotRaw as any) as "" | "timing" | "budget";
       const ringScore = (Number(ringScoreRaw) as any) as 0 | 1 | 2;
 
-      const { a0, a1 } = angleWindow(sliceIdx, subSlot);
+      const { a0, a1 } = angleWindow(sliceIdx);
       const { min: rMin, max: rMax } = ringBounds(ringScore);
       const n = arr.length;
 
@@ -231,7 +222,7 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
         </div>
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[auto_1fr]">
+      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="flex items-center justify-center">
           <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="MEDDPICC+TB radar">
             <circle cx={cx} cy={cy} r={outerR} fill={palette.surfaceAlt} stroke={palette.border} strokeWidth={2} />
@@ -267,14 +258,14 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
         </div>
 
         <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Deal legend</div>
-          <div className="mt-3 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
+          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Accounts</div>
+          <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm text-[color:var(--sf-text-primary)]">
             {props.deals.length ? (
               props.deals.map((d) => (
-                <div key={d.id} className="flex items-center gap-2">
+                <div key={d.id} className="flex min-w-0 items-center gap-2">
                   <span className="h-2.5 w-2.5 rounded-full border border-[color:var(--sf-border)]" style={{ background: d.color }} aria-hidden="true" />
-                  <span className="truncate" title={d.label}>
-                    {d.label}
+                  <span className="min-w-0 truncate" title={String(d.legendLabel || d.label)}>
+                    {String(d.legendLabel || d.label)}
                   </span>
                 </div>
               ))

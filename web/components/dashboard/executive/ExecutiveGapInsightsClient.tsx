@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { ExecRepOption } from "../../../lib/executiveForecastDashboard";
 import { DealsDrivingGapHeatmap, type HeatmapDealRow } from "./DealsDrivingGapHeatmap";
 import { KpiCardsRow } from "./KpiCardsRow";
-import { ForecastDeltaCard } from "./ForecastDeltaCard";
 import { RiskRadarPlot, type RadarDeal } from "./RiskRadarPlot";
 import { palette } from "../../../lib/palette";
 
@@ -79,6 +78,10 @@ function dealTitle(d: DealOut) {
   const o = String(d.deal_name?.opportunity_name || "").trim();
   const t = [a, o].filter(Boolean).join(" — ");
   return t || "(Untitled deal)";
+}
+
+function dealAccountLabel(d: DealOut) {
+  return String(d.deal_name?.account_name || "").trim() || "(Unknown account)";
 }
 
 function dealRep(d: DealOut) {
@@ -234,7 +237,7 @@ export function ExecutiveGapInsightsClient(props: {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const [topN, setTopN] = useState(Math.max(1, props.defaultTopN || 5));
+  const [topN, setTopN] = useState(Math.max(1, props.defaultTopN || 15));
   const [stageView, setStageView] = useState<"commit" | "best_case" | "pipeline" | "all">("commit");
 
   const quotaPeriodId = String(sp.get("quota_period_id") || props.quotaPeriodId || "").trim();
@@ -330,6 +333,7 @@ export function ExecutiveGapInsightsClient(props: {
     return shown.map((d) => ({
       id: String(d.id),
       label: dealTitle(d),
+      legendLabel: dealAccountLabel(d),
       color: colorForDealId(String(d.id)),
       meddpicc_tb: (d.meddpicc_tb || []).map((c) => ({ key: String(c.key || ""), score: c.score == null ? null : (Number(c.score) as any) })),
     }));
@@ -576,15 +580,17 @@ export function ExecutiveGapInsightsClient(props: {
         </div>
       </section>
 
-      <KpiCardsRow quota={props.quota} aiForecast={props.aiForecast} crmForecast={props.crmForecast} gap={props.gap} dealsAtRisk={dealsAtRisk} />
+      <KpiCardsRow
+        quota={props.quota}
+        aiForecast={props.aiForecast}
+        crmForecast={props.crmForecast}
+        gap={props.gap}
+        bucketDeltas={props.bucketDeltas}
+        dealsAtRisk={dealsAtRisk}
+      />
 
-      <div className="grid gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-7">
-          <RiskRadarPlot deals={radarDeals} />
-        </div>
-        <div className="lg:col-span-5">
-          <ForecastDeltaCard crmOutlook={props.crmForecast} aiOutlook={props.aiForecast} gap={props.gap} bucketDeltas={props.bucketDeltas} />
-        </div>
+      <div className="w-full">
+        <RiskRadarPlot deals={radarDeals} size={520} />
       </div>
 
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
@@ -699,10 +705,10 @@ export function ExecutiveGapInsightsClient(props: {
             <label className="text-xs text-[color:var(--sf-text-secondary)]">Show</label>
             <select
               value={topN}
-              onChange={(e) => setTopN(Math.max(1, Number(e.target.value) || 5))}
+              onChange={(e) => setTopN(Math.max(1, Number(e.target.value) || 15))}
               className="h-[40px] w-[92px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
             >
-              {[5, 10, 15].map((n) => (
+              {[5, 10, 15, 20].map((n) => (
                 <option key={n} value={n}>
                   Top {n}
                 </option>
