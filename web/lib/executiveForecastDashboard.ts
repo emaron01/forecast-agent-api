@@ -3,7 +3,7 @@ import "server-only";
 import { pool } from "./pool";
 import type { AuthUser } from "./auth";
 import { getVisibleUsers } from "./db";
-import { getScopedRepDirectory } from "./repScope";
+import { getScopedRepDirectory, type RepDirectoryRow } from "./repScope";
 import { getForecastStageProbabilities } from "./forecastStageProbabilities";
 import { computeSalesVsVerdictForecastSummary } from "./forecastSummary";
 
@@ -45,8 +45,34 @@ export type ExecutiveForecastSummary = {
   selectedPeriod: ExecQuotaPeriodLite | null;
   reps: ExecRepOption[];
   scopeLabel: string;
+  repDirectory: RepDirectoryRow[];
+  myRepId: number | null;
   stageProbabilities: { commit: number; best_case: number; pipeline: number };
   healthModifiers: { commit_modifier: number; best_case_modifier: number; pipeline_modifier: number };
+  repRollups: Array<{
+    rep_id: string;
+    rep_name: string;
+    commit_amount: number;
+    best_case_amount: number;
+    pipeline_amount: number;
+    won_amount: number;
+    won_count: number;
+  }>;
+  productsClosedWon: Array<{
+    product: string;
+    won_amount: number;
+    won_count: number;
+    avg_order_value: number;
+    avg_health_score: number | null;
+  }>;
+  productsClosedWonByRep: Array<{
+    rep_name: string;
+    product: string;
+    won_amount: number;
+    won_count: number;
+    avg_order_value: number;
+    avg_health_score: number | null;
+  }>;
   quota: number;
   crmForecast: {
     commit_amount: number;
@@ -203,8 +229,13 @@ export async function getExecutiveForecastDashboardSummary(args: {
       selectedPeriod,
       reps,
       scopeLabel,
+      repDirectory: scope.repDirectory || [],
+      myRepId: scope.myRepId ?? null,
       stageProbabilities: { commit: 0.8, best_case: 0.325, pipeline: 0.1 },
       healthModifiers: { commit_modifier: 1, best_case_modifier: 1, pipeline_modifier: 1 },
+      repRollups: [],
+      productsClosedWon: [],
+      productsClosedWonByRep: [],
       quota: 0,
       crmForecast: { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0, weighted_forecast: 0 },
       aiForecast: { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, weighted_forecast: 0 },
@@ -290,6 +321,310 @@ export async function getExecutiveForecastDashboardSummary(args: {
           .then((r) => (r.rows?.[0] as any) || { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0 })
           .catch(() => ({ commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0 }))
       : { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0 };
+
+  const canCompute = !!qpId && (repIdsToUse.length > 0 || visibleRepNameKeys.length > 0);
+
+  type RepQuarterRollupRow = {
+    rep_id: string; // may be '' when unknown
+    rep_name: string;
+    commit_amount: number;
+    best_case_amount: number;
+    pipeline_amount: number;
+    won_amount: number;
+    won_count: number;
+  };
+
+  const repRollups: RepQuarterRollupRow[] = canCompute
+    ? await pool
+        .query<RepQuarterRollupRow>(
+          `
+          WITH qp AS (
+            SELECT period_start::date AS period_start, period_end::date AS period_end
+              FROM quota_periods
+             WHERE org_id = $1::bigint
+               AND id = $2::bigint
+             LIMIT 1
+          ),
+          deals AS (
+            SELECT
+              COALESCE(o.amount, 0) AS amount,
+              o.rep_id,
+              o.rep_name,
+              lower(
+                regexp_replace(
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                  '[^a-zA-Z]+',
+                  ' ',
+                  'g'
+                )
+              ) AS fs,
+              CASE
+                WHEN o.close_date IS NULL THEN NULL
+                WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+                WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                  to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+                ELSE NULL
+              END AS close_d
+            FROM opportunities o
+            WHERE o.org_id = $1
+              AND (
+                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
+                OR (
+                  COALESCE(array_length($4::text[], 1), 0) > 0
+                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+                )
+              )
+          ),
+          deals_in_qtr AS (
+            SELECT d.*
+              FROM deals d
+              JOIN qp ON TRUE
+             WHERE d.close_d IS NOT NULL
+               AND d.close_d >= qp.period_start
+               AND d.close_d <= qp.period_end
+          )
+          SELECT
+            COALESCE(d.rep_id::text, '') AS rep_id,
+            COALESCE(
+              NULLIF(btrim(r.display_name), ''),
+              NULLIF(btrim(r.rep_name), ''),
+              NULLIF(btrim(r.crm_owner_name), ''),
+              NULLIF(btrim(d.rep_name), ''),
+              '(Unknown rep)'
+            ) AS rep_name,
+            COALESCE(SUM(CASE
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
+                OR ((' ' || d.fs || ' ') LIKE '% lost %')
+                OR ((' ' || d.fs || ' ') LIKE '% closed %')
+              THEN 0
+              WHEN d.fs LIKE '%commit%' THEN d.amount
+              ELSE 0
+            END), 0)::float8 AS commit_amount,
+            COALESCE(SUM(CASE
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
+                OR ((' ' || d.fs || ' ') LIKE '% lost %')
+                OR ((' ' || d.fs || ' ') LIKE '% closed %')
+              THEN 0
+              WHEN d.fs LIKE '%best%' THEN d.amount
+              ELSE 0
+            END), 0)::float8 AS best_case_amount,
+            COALESCE(SUM(CASE
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
+                OR ((' ' || d.fs || ' ') LIKE '% lost %')
+                OR ((' ' || d.fs || ' ') LIKE '% closed %')
+              THEN 0
+              WHEN d.fs LIKE '%commit%' THEN 0
+              WHEN d.fs LIKE '%best%' THEN 0
+              ELSE d.amount
+            END), 0)::float8 AS pipeline_amount,
+            COALESCE(SUM(CASE
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN d.amount
+              ELSE 0
+            END), 0)::float8 AS won_amount
+            ,
+            COALESCE(SUM(CASE
+              WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN 1
+              ELSE 0
+            END), 0)::int AS won_count
+          FROM deals_in_qtr d
+          LEFT JOIN reps r
+            ON r.id = d.rep_id
+           AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+          GROUP BY
+            COALESCE(d.rep_id::text, ''),
+            COALESCE(
+              NULLIF(btrim(r.display_name), ''),
+              NULLIF(btrim(r.rep_name), ''),
+              NULLIF(btrim(r.crm_owner_name), ''),
+              NULLIF(btrim(d.rep_name), ''),
+              '(Unknown rep)'
+            )
+          ORDER BY rep_name ASC, rep_id ASC
+          `,
+          [args.orgId, qpId, repIdsToUse, visibleRepNameKeys]
+        )
+        .then((r) => (r.rows || []) as any[])
+        .catch(() => [])
+    : [];
+
+  type ProductWonRow = {
+    product: string;
+    won_amount: number;
+    won_count: number;
+    avg_order_value: number;
+    avg_health_score: number | null;
+  };
+
+  const productsClosedWon: ProductWonRow[] = canCompute
+    ? await pool
+        .query<ProductWonRow>(
+          `
+          WITH qp AS (
+            SELECT period_start::date AS period_start, period_end::date AS period_end
+              FROM quota_periods
+             WHERE org_id = $1::bigint
+               AND id = $2::bigint
+             LIMIT 1
+          ),
+          deals AS (
+            SELECT
+              COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
+              COALESCE(o.amount, 0) AS amount,
+              o.health_score,
+              lower(
+                regexp_replace(
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                  '[^a-zA-Z]+',
+                  ' ',
+                  'g'
+                )
+              ) AS fs,
+              CASE
+                WHEN o.close_date IS NULL THEN NULL
+                WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+                WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                  to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+                ELSE NULL
+              END AS close_d
+            FROM opportunities o
+            WHERE o.org_id = $1
+              AND (
+                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
+                OR (
+                  COALESCE(array_length($4::text[], 1), 0) > 0
+                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+                )
+              )
+          ),
+          deals_in_qtr AS (
+            SELECT d.*
+              FROM deals d
+              JOIN qp ON TRUE
+             WHERE d.close_d IS NOT NULL
+               AND d.close_d >= qp.period_start
+               AND d.close_d <= qp.period_end
+          ),
+          won_deals AS (
+            SELECT *
+              FROM deals_in_qtr
+             WHERE ((' ' || fs || ' ') LIKE '% won %')
+          )
+          SELECT
+            product,
+            COALESCE(SUM(amount), 0)::float8 AS won_amount,
+            COUNT(*)::int AS won_count,
+            CASE WHEN COUNT(*) > 0 THEN (COALESCE(SUM(amount), 0)::float8 / COUNT(*)::float8) ELSE 0 END AS avg_order_value,
+            AVG(NULLIF(health_score, 0))::float8 AS avg_health_score
+          FROM won_deals
+          GROUP BY product
+          ORDER BY won_amount DESC, product ASC
+          LIMIT 30
+          `,
+          [args.orgId, qpId, repIdsToUse, visibleRepNameKeys]
+        )
+        .then((r) => (r.rows || []) as any[])
+        .catch(() => [])
+    : [];
+
+  type ProductWonByRepRow = {
+    rep_name: string;
+    product: string;
+    won_amount: number;
+    won_count: number;
+    avg_order_value: number;
+    avg_health_score: number | null;
+  };
+
+  const productsClosedWonByRep: ProductWonByRepRow[] = canCompute
+    ? await pool
+        .query<ProductWonByRepRow>(
+          `
+          WITH qp AS (
+            SELECT period_start::date AS period_start, period_end::date AS period_end
+              FROM quota_periods
+             WHERE org_id = $1::bigint
+               AND id = $2::bigint
+             LIMIT 1
+          ),
+          deals AS (
+            SELECT
+              COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
+              COALESCE(o.amount, 0) AS amount,
+              o.health_score,
+              o.rep_id,
+              o.rep_name,
+              lower(
+                regexp_replace(
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                  '[^a-zA-Z]+',
+                  ' ',
+                  'g'
+                )
+              ) AS fs,
+              CASE
+                WHEN o.close_date IS NULL THEN NULL
+                WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+                WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                  to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+                ELSE NULL
+              END AS close_d
+            FROM opportunities o
+            WHERE o.org_id = $1
+              AND (
+                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
+                OR (
+                  COALESCE(array_length($4::text[], 1), 0) > 0
+                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+                )
+              )
+          ),
+          deals_in_qtr AS (
+            SELECT d.*
+              FROM deals d
+              JOIN qp ON TRUE
+             WHERE d.close_d IS NOT NULL
+               AND d.close_d >= qp.period_start
+               AND d.close_d <= qp.period_end
+          ),
+          won_deals AS (
+            SELECT *
+              FROM deals_in_qtr
+             WHERE ((' ' || fs || ' ') LIKE '% won %')
+          )
+          SELECT
+            COALESCE(
+              NULLIF(btrim(r.display_name), ''),
+              NULLIF(btrim(r.rep_name), ''),
+              NULLIF(btrim(r.crm_owner_name), ''),
+              NULLIF(btrim(d.rep_name), ''),
+              '(Unknown rep)'
+            ) AS rep_name,
+            d.product,
+            COALESCE(SUM(d.amount), 0)::float8 AS won_amount,
+            COUNT(*)::int AS won_count,
+            CASE WHEN COUNT(*) > 0 THEN (COALESCE(SUM(d.amount), 0)::float8 / COUNT(*)::float8) ELSE 0 END AS avg_order_value,
+            AVG(NULLIF(d.health_score, 0))::float8 AS avg_health_score
+          FROM won_deals d
+          LEFT JOIN reps r
+            ON r.id = d.rep_id
+           AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+          GROUP BY
+            COALESCE(
+              NULLIF(btrim(r.display_name), ''),
+              NULLIF(btrim(r.rep_name), ''),
+              NULLIF(btrim(r.crm_owner_name), ''),
+              NULLIF(btrim(d.rep_name), ''),
+              '(Unknown rep)'
+            ),
+            d.product
+          ORDER BY won_amount DESC, rep_name ASC, product ASC
+          LIMIT 200
+          `,
+          [args.orgId, qpId, repIdsToUse, visibleRepNameKeys]
+        )
+        .then((r) => (r.rows || []) as any[])
+        .catch(() => [])
+    : [];
 
   const stageProbabilities = await getForecastStageProbabilities({ orgId: args.orgId }).catch(() => ({
     commit: 0.8,
@@ -499,8 +834,13 @@ export async function getExecutiveForecastDashboardSummary(args: {
     selectedPeriod,
     reps: reps,
     scopeLabel,
+    repDirectory: scope.repDirectory || [],
+    myRepId: scope.myRepId ?? null,
     stageProbabilities,
     healthModifiers,
+    repRollups,
+    productsClosedWon,
+    productsClosedWonByRep,
     quota,
     crmForecast: {
       commit_amount: Number(totals.commit_amount || 0) || 0,

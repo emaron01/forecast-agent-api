@@ -43,7 +43,7 @@ export default async function ExecutiveDashboardPage({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/analytics/meddpicc-tb/gap-driving-deals" className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]">
+            <Link href="/dashboard" className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]">
               Data details
             </Link>
           </div>
@@ -66,6 +66,13 @@ export default async function ExecutiveDashboardPage({
             reps={summary.reps}
             fiscalYear={String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "—"}
             fiscalQuarter={String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—"}
+            stageProbabilities={summary.stageProbabilities}
+            healthModifiers={summary.healthModifiers}
+            repDirectory={summary.repDirectory}
+            myRepId={summary.myRepId}
+            repRollups={summary.repRollups}
+            productsClosedWon={summary.productsClosedWon}
+            productsClosedWonByRep={summary.productsClosedWonByRep}
             quota={summary.quota}
             aiForecast={summary.aiForecast.weighted_forecast}
             crmForecast={summary.crmForecast.weighted_forecast}

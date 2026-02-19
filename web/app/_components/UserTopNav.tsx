@@ -15,11 +15,12 @@ function NavLink({ href, label }: { href: string; label: string }) {
 }
 
 export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser }) {
+  const dashHref = user.role === "MANAGER" || user.role === "EXEC_MANAGER" ? "/dashboard/executive" : "/dashboard";
   return (
     <header className="border-b border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
       <div className="flex h-[65px] w-full items-center justify-between px-6">
         <div className="flex items-center gap-2">
-          <Link href="/dashboard" aria-label="SalesForecast home" className="shrink-0">
+          <Link href={dashHref} aria-label="SalesForecast home" className="shrink-0">
             <div className="h-[65px] w-[min(260px,40vw)] overflow-hidden">
               <Image
                 src="/brand/salesforecast-logo.svg"
@@ -32,7 +33,7 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
             </div>
           </Link>
           <nav className="flex flex-wrap items-center gap-1">
-            <NavLink href="/dashboard" label="Dashboard" />
+            <NavLink href={dashHref} label="Dashboard" />
             <NavLink href="/forecast" label="Sales Opportunities" />
             <NavLink href="/analytics" label="Analytics" />
           </nav>

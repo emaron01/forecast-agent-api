@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ExecRepOption } from "../../../lib/executiveForecastDashboard";
+import type { RepDirectoryRow } from "../../../lib/repScope";
 import { DealsDrivingGapHeatmap, type HeatmapDealRow } from "./DealsDrivingGapHeatmap";
 import { KpiCardsRow } from "./KpiCardsRow";
 import { RiskRadarPlot, type RadarDeal } from "./RiskRadarPlot";
@@ -135,6 +137,28 @@ function fmtMoney(n: any) {
   return v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
+function healthPctFrom30(score: any) {
+  const n = Number(score);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const pct = Math.round((n / 30) * 100);
+  return Math.max(0, Math.min(100, pct));
+}
+
+function healthColorClass(pct: number | null) {
+  if (pct == null) return "text-[color:var(--sf-text-disabled)]";
+  if (pct >= 80) return "text-[#2ECC71]";
+  if (pct >= 50) return "text-[#F1C40F]";
+  return "text-[#E74C3C]";
+}
+
+function rankRole(r: RepDirectoryRow) {
+  const role = String(r.role || "").trim().toUpperCase();
+  if (role === "EXEC_MANAGER") return 0;
+  if (role === "MANAGER") return 1;
+  if (role === "REP") return 2;
+  return 9;
+}
+
 function fmtPct01(n: number | null) {
   if (n == null || !Number.isFinite(n)) return "—";
   return `${Math.round(n * 100)}%`;
@@ -223,6 +247,34 @@ export function ExecutiveGapInsightsClient(props: {
   reps: ExecRepOption[];
   fiscalYear: string;
   fiscalQuarter: string;
+  stageProbabilities: { commit: number; best_case: number; pipeline: number };
+  healthModifiers: { commit_modifier: number; best_case_modifier: number; pipeline_modifier: number };
+  repDirectory: RepDirectoryRow[];
+  myRepId: number | null;
+  repRollups: Array<{
+    rep_id: string;
+    rep_name: string;
+    commit_amount: number;
+    best_case_amount: number;
+    pipeline_amount: number;
+    won_amount: number;
+    won_count: number;
+  }>;
+  productsClosedWon: Array<{
+    product: string;
+    won_amount: number;
+    won_count: number;
+    avg_order_value: number;
+    avg_health_score: number | null;
+  }>;
+  productsClosedWonByRep: Array<{
+    rep_name: string;
+    product: string;
+    won_amount: number;
+    won_count: number;
+    avg_order_value: number;
+    avg_health_score: number | null;
+  }>;
   quota: number;
   aiForecast: number;
   crmForecast: number;
@@ -469,6 +521,87 @@ export function ExecutiveGapInsightsClient(props: {
     return qs ? `/analytics/meddpicc-tb/gap-driving-deals?${qs}` : "/analytics/meddpicc-tb/gap-driving-deals";
   }, [sp, quotaPeriodId]);
 
+  const quarterAnalytics = useMemo(() => {
+    const repRows = Array.isArray(props.repRollups) ? props.repRollups : [];
+    const dir = Array.isArray(props.repDirectory) ? props.repDirectory : [];
+
+    const wonById = new Map<number, { wonAmount: number; wonCount: number }>();
+    for (const r of repRows) {
+      const id = Number((r as any).rep_id);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      wonById.set(id, {
+        wonAmount: Number((r as any).won_amount || 0) || 0,
+        wonCount: Number((r as any).won_count || 0) || 0,
+      });
+    }
+
+    const children = new Map<number, RepDirectoryRow[]>();
+    for (const r of dir) {
+      const mid = r.manager_rep_id;
+      if (mid == null || !Number.isFinite(mid)) continue;
+      const arr = children.get(mid) || [];
+      arr.push(r);
+      children.set(mid, arr);
+    }
+    for (const [mid, arr] of children.entries()) {
+      arr.sort((a, b) => {
+        const dr = rankRole(a) - rankRole(b);
+        if (dr !== 0) return dr;
+        const dn = String(a.name || "").localeCompare(String(b.name || ""));
+        if (dn !== 0) return dn;
+        return Number(a.id) - Number(b.id);
+      });
+      children.set(mid, arr);
+    }
+
+    const repIdsInScope = dir
+      .filter((r) => String(r.role || "").trim().toUpperCase() === "REP")
+      .map((r) => Number(r.id))
+      .filter((n) => Number.isFinite(n) && n > 0);
+
+    const uniqueRepIds = Array.from(new Set(repIdsInScope));
+
+    function statsForRepIds(repIds: number[]) {
+      let wonAmount = 0;
+      let wonCount = 0;
+      for (const id of repIds) {
+        const v = wonById.get(id);
+        if (!v) continue;
+        wonAmount += v.wonAmount;
+        wonCount += v.wonCount;
+      }
+      const aov = wonCount > 0 ? wonAmount / wonCount : null;
+      return { wonAmount, wonCount, aov };
+    }
+
+    function descendantRepIds(rootId: number) {
+      const out: number[] = [];
+      const stack: number[] = [rootId];
+      const seen = new Set<number>();
+      while (stack.length) {
+        const cur = stack.pop()!;
+        if (seen.has(cur)) continue;
+        seen.add(cur);
+        const kids = children.get(cur) || [];
+        for (const k of kids) stack.push(Number(k.id));
+        const node = dir.find((x) => Number(x.id) === cur) || null;
+        if (node && String(node.role || "").trim().toUpperCase() === "REP") out.push(cur);
+      }
+      return out;
+    }
+
+    const directReports =
+      props.myRepId != null && Number.isFinite(props.myRepId) ? children.get(Number(props.myRepId)) || [] : [];
+
+    return {
+      total: statsForRepIds(uniqueRepIds),
+      directReports,
+      children,
+      descendantRepIds,
+      statsForRepIds,
+    };
+  }, [props.repRollups, props.repDirectory, props.myRepId]);
+
   function updateUrl(mut: (p: URLSearchParams) => void) {
     const params = new URLSearchParams(sp.toString());
     mut(params);
@@ -480,24 +613,7 @@ export function ExecutiveGapInsightsClient(props: {
       <section className="w-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-6 shadow-sm">
         <div className="grid gap-4 lg:grid-cols-12">
           <div className="lg:col-span-7">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
-                FY{props.fiscalYear} Q{props.fiscalQuarter} Forecast
-              </div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                <span className="inline-flex h-5 w-5 items-center justify-center">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" stroke="#00C2D1" strokeWidth="2.6" />
-                    <path d="M7.5 14.3 L10.6 11.2 L13 13.6 L17 9.4" stroke="#2ECC71" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
-                    <path d="M17 9.4 L17 12.2" stroke="#2ECC71" strokeWidth="2.6" strokeLinecap="round" />
-                    <path d="M17 9.4 L14.3 9.4" stroke="#2ECC71" strokeWidth="2.6" strokeLinecap="round" />
-                  </svg>
-                </span>
-                OUTLOOK
-              </div>
-            </div>
-
-            <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
+            <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
                 <div className="text-5xl font-extrabold tracking-tight text-[color:var(--sf-text-primary)]">{fmtPct01(props.aiPctToGoal)}</div>
                 <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
@@ -519,7 +635,18 @@ export function ExecutiveGapInsightsClient(props: {
                   {fmtMoney(Math.abs(props.leftToGo))}
                 </span>
               </div>
-              <div className="mt-2 flex items-center gap-[2px]">
+              <div className="mt-2 relative flex items-center gap-[2px]">
+                {/* Branding: center logo over the bar segments */}
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="flex flex-col items-center">
+                    <div className="w-[min(560px,86%)] opacity-[0.32]">
+                      <Image src="/brand/salesforecast-logo.svg" alt="" width={1120} height={260} priority={false} />
+                    </div>
+                    <div className="mt-0.5 text-[12px] font-extrabold tracking-[0.35em] text-[color:var(--sf-accent-secondary)] opacity-[0.75]">
+                      OUTLOOK
+                    </div>
+                  </div>
+                </div>
                 {(() => {
                   const segments = 52;
                   const pct = props.aiPctToGoal == null ? 0 : clamp01(props.aiPctToGoal);
@@ -590,8 +717,131 @@ export function ExecutiveGapInsightsClient(props: {
       />
 
       <div className="w-full">
-        <RiskRadarPlot deals={radarDeals} size={520} />
+        <RiskRadarPlot deals={radarDeals} size={680} />
       </div>
+
+      {props.repRollups.length ? (
+        <details className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+          <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">
+            Rep CRM Actual Forecast Stages with Health Scores ({props.repRollups.length})
+          </summary>
+          <div className="mt-3 overflow-x-auto">
+            <table className="min-w-[920px] table-auto border-collapse text-sm">
+              <thead>
+                <tr className="text-left text-xs text-[color:var(--sf-text-secondary)]">
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Rep</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
+                    <div>CRM</div>
+                    <div>Commit</div>
+                  </th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
+                    <div>CRM</div>
+                    <div>Best Case</div>
+                  </th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
+                    <div>CRM</div>
+                    <div>Pipeline</div>
+                  </th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
+                    <div>CRM</div>
+                    <div>Total Pipeline</div>
+                  </th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
+                    <div>CRM Rep</div>
+                    <div>Weighted Closing</div>
+                  </th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
+                    <div>AI</div>
+                    <div>Weighted Closing</div>
+                  </th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
+                    <div>GAP</div>
+                    <div>(AI‑CRM)</div>
+                  </th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
+                    <div>Current</div>
+                    <div>Close Won</div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {props.repRollups.map((r) => {
+                  const cAmt = Number(r.commit_amount || 0) || 0;
+                  const bcAmt = Number(r.best_case_amount || 0) || 0;
+                  const pAmt = Number(r.pipeline_amount || 0) || 0;
+                  const tAmt = cAmt + bcAmt + pAmt;
+                  const crmClosing =
+                    cAmt * (props.stageProbabilities.commit || 0) +
+                    bcAmt * (props.stageProbabilities.best_case || 0) +
+                    pAmt * (props.stageProbabilities.pipeline || 0);
+                  const aiClosing =
+                    cAmt * (props.stageProbabilities.commit || 0) * (props.healthModifiers.commit_modifier || 1) +
+                    bcAmt * (props.stageProbabilities.best_case || 0) * (props.healthModifiers.best_case_modifier || 1) +
+                    pAmt * (props.stageProbabilities.pipeline || 0) * (props.healthModifiers.pipeline_modifier || 1);
+                  const gap = aiClosing - crmClosing; // (AI - CRM)
+                  const key = `${r.rep_id || "name"}:${r.rep_name}`;
+                  return (
+                    <tr key={key} className="text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]">
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                        <div className="font-medium">{r.rep_name}</div>
+                      </td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-sm font-semibold">{fmtMoney(cAmt)}</td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-sm font-semibold">{fmtMoney(bcAmt)}</td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-sm font-semibold">{fmtMoney(pAmt)}</td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-sm font-semibold">{fmtMoney(tAmt)}</td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-sm font-semibold">{fmtMoney(crmClosing)}</td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-sm font-semibold">{fmtMoney(aiClosing)}</td>
+                      <td className={`border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-sm font-semibold ${deltaTextClass(gap)}`}>{fmtMoney(gap)}</td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-sm font-semibold">
+                        {fmtMoney(Number(r.won_amount || 0) || 0)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
+            CRM Forecast Rep‑Weighted Probabilities: Commit {Math.round((props.stageProbabilities.commit || 0) * 100)}% · Best Case{" "}
+            {Math.round((props.stageProbabilities.best_case || 0) * 100)}% · Pipeline {Math.round((props.stageProbabilities.pipeline || 0) * 100)}%
+          </div>
+        </details>
+      ) : null}
+
+      {props.productsClosedWon.length ? (
+        <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Team revenue by product (Closed Won)</div>
+          <div className="mt-3 overflow-x-auto">
+            <table className="min-w-[760px] table-auto border-collapse text-sm">
+              <thead>
+                <tr className="text-left text-xs text-[color:var(--sf-text-secondary)]">
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Product</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Closed Won</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right"># Orders</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Avg / Order</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Avg Health</th>
+                </tr>
+              </thead>
+              <tbody>
+                {props.productsClosedWon.map((p) => {
+                  const hp = healthPctFrom30(p.avg_health_score);
+                  return (
+                    <tr key={p.product} className="text-[color:var(--sf-text-primary)]">
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">{p.product}</td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-xs">{fmtMoney(p.won_amount)}</td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">{Number(p.won_count || 0) || 0}</td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-xs">{fmtMoney(p.avg_order_value)}</td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-xs">
+                        <span className={healthColorClass(hp)}>{hp == null ? "—" : `${hp}%`}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -793,6 +1043,156 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
         );
       })()}
+
+      {props.productsClosedWonByRep.length ? (
+        <details className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+          <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">Rep breakdown (by product)</summary>
+          <div className="mt-3 overflow-x-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+            <table className="min-w-[920px] w-full table-auto border-collapse text-sm">
+              <thead className="bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)]">
+                <tr>
+                  <th className="px-3 py-2">Rep</th>
+                  <th className="px-3 py-2">Product</th>
+                  <th className="px-3 py-2 text-right">Closed Won</th>
+                  <th className="px-3 py-2 text-right"># Orders</th>
+                  <th className="px-3 py-2 text-right">Avg / Order</th>
+                  <th className="px-3 py-2 text-right">Avg Health</th>
+                </tr>
+              </thead>
+              <tbody>
+                {props.productsClosedWonByRep.map((r) => {
+                  const hp = healthPctFrom30(r.avg_health_score);
+                  const key = `${r.rep_name}|${r.product}`;
+                  return (
+                    <tr key={key} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
+                      <td className="px-3 py-2">{r.rep_name}</td>
+                      <td className="px-3 py-2">{r.product}</td>
+                      <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(r.won_amount)}</td>
+                      <td className="px-3 py-2 text-right">{Number(r.won_count || 0) || 0}</td>
+                      <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(r.avg_order_value)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-xs">
+                        <span className={healthColorClass(hp)}>{hp == null ? "—" : `${hp}%`}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      ) : null}
+
+      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Quarter analytics</div>
+            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+              FY{props.fiscalYear} Q{props.fiscalQuarter} · Closed Won rollups
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+          <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
+            <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Closed Won Revenue</div>
+            <div className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(quarterAnalytics.total.wonAmount)}</div>
+          </div>
+          <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
+            <div className="text-[11px] text-[color:var(--sf-text-secondary)]"># Closed Won</div>
+            <div className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{quarterAnalytics.total.wonCount}</div>
+          </div>
+          <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
+            <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Average Order Value</div>
+            <div className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
+              {quarterAnalytics.total.aov == null ? "—" : fmtMoney(quarterAnalytics.total.aov)}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Direct reports</div>
+          <div className="mt-2 grid gap-2">
+            {quarterAnalytics.directReports.length ? (
+              quarterAnalytics.directReports.map((dr) => {
+                const drRole = String(dr.role || "").trim().toUpperCase();
+                const repIds = quarterAnalytics.descendantRepIds(Number(dr.id));
+                const st = quarterAnalytics.statsForRepIds(repIds);
+                const isManager = drRole === "MANAGER" || drRole === "EXEC_MANAGER";
+                const childReps = (quarterAnalytics.children.get(Number(dr.id)) || []).filter(
+                  (c) => String(c.role || "").trim().toUpperCase() === "REP"
+                );
+
+                const header = (
+                  <div className="flex min-w-0 items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-[color:var(--sf-text-primary)]">
+                        {dr.name}
+                        {isManager ? <span className="ml-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">(Manager)</span> : null}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-4 font-mono text-xs text-[color:var(--sf-text-primary)]">
+                      <span>{fmtMoney(st.wonAmount)}</span>
+                      <span>{st.wonCount}</span>
+                      <span>{st.aov == null ? "—" : fmtMoney(st.aov)}</span>
+                    </div>
+                  </div>
+                );
+
+                if (!isManager) {
+                  return (
+                    <div key={dr.id} className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
+                      {header}
+                    </div>
+                  );
+                }
+
+                return (
+                  <details key={dr.id} className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
+                    <summary className="cursor-pointer list-none">{header}</summary>
+                    <div className="mt-3 overflow-x-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                      {childReps.length ? (
+                        <table className="min-w-[720px] w-full table-auto border-collapse text-sm">
+                          <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
+                            <tr>
+                              <th className="px-3 py-2 text-left">Rep</th>
+                              <th className="px-3 py-2 text-right">Closed Won</th>
+                              <th className="px-3 py-2 text-right"># Closed Won</th>
+                              <th className="px-3 py-2 text-right">Avg / Order</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {childReps.map((r) => {
+                              const rid = Number(r.id);
+                              const s = quarterAnalytics.statsForRepIds([rid]);
+                              return (
+                                <tr key={rid} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
+                                  <td className="px-3 py-2">{r.name}</td>
+                                  <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(s.wonAmount)}</td>
+                                  <td className="px-3 py-2 text-right">{s.wonCount}</td>
+                                  <td className="px-3 py-2 text-right font-mono text-xs">{s.aov == null ? "—" : fmtMoney(s.aov)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      ) : (
+                        <div className="px-4 py-6 text-sm text-[color:var(--sf-text-secondary)]">No reps found under this manager.</div>
+                      )}
+                    </div>
+                  </details>
+                );
+              })
+            ) : (
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-secondary)]">
+                No direct reports found in the rep directory for this user.
+              </div>
+            )}
+          </div>
+          <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
+            Displayed as: Closed Won revenue · # Closed Won · Avg / Order
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

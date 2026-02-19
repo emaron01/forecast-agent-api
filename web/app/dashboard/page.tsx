@@ -48,7 +48,7 @@ export default async function DashboardPage({
         <UserTopNav orgName={orgName} user={ctx.user} />
         <main className="mx-auto max-w-6xl p-6">
           <header>
-            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Dashboard</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Data details</h1>
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
               Signed in as {ctx.user.display_name} ({ctx.user.email})
             </p>
@@ -127,7 +127,7 @@ export default async function DashboardPage({
         <UserTopNav orgName={orgName} user={ctx.user} />
         <main className="mx-auto max-w-6xl p-6">
           <header>
-            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Dashboard</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Data details</h1>
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
               Signed in as {ctx.user.display_name} ({ctx.user.email})
             </p>

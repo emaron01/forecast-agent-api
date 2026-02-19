@@ -62,14 +62,14 @@ function textAnchorForAngle(rad: number) {
 }
 
 export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
-  const size = Math.max(300, Math.min(640, Number(props.size || 420)));
+  const size = Math.max(320, Math.min(760, Number(props.size || 520)));
   const cx = size / 2;
   const cy = size / 2;
   const outerR = size * 0.34;
   const r1 = outerR * 0.36;
   const r2 = outerR * 0.66;
   const r3 = outerR * 0.96;
-  const labelR = outerR + 22;
+  const labelR = outerR + 26;
 
   const dots = useMemo(() => {
     const sliceCount = slices.length;
@@ -224,11 +224,33 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="flex items-center justify-center">
-          <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="MEDDPICC+TB radar">
+          <div className="aspect-square" style={{ width: size, maxWidth: "100%" }}>
+            <svg className="h-full w-full" viewBox={`0 0 ${size} ${size}`} role="img" aria-label="MEDDPICC+TB radar">
+              <defs>
+                <style>{`
+                  @keyframes radarPulse {
+                    0%, 100% { opacity: 0; }
+                    6% { opacity: 0.85; }
+                    16% { opacity: 0; }
+                  }
+                  .radarPulse1 { animation: radarPulse 7s ease-in-out infinite; }
+                  .radarPulse2 { animation: radarPulse 7s ease-in-out infinite; animation-delay: 0.55s; }
+                  .radarPulse3 { animation: radarPulse 7s ease-in-out infinite; animation-delay: 1.1s; }
+                  @media (prefers-reduced-motion: reduce) {
+                    .radarPulse1, .radarPulse2, .radarPulse3 { animation: none; opacity: 0; }
+                  }
+                `}</style>
+              </defs>
+
             <circle cx={cx} cy={cy} r={outerR} fill={palette.surfaceAlt} stroke={palette.border} strokeWidth={2} />
             <circle cx={cx} cy={cy} r={r1} fill="none" stroke={palette.border} strokeWidth={1} opacity={0.8} />
             <circle cx={cx} cy={cy} r={r2} fill="none" stroke={palette.border} strokeWidth={1} opacity={0.8} />
             <circle cx={cx} cy={cy} r={r3} fill="none" stroke={palette.border} strokeWidth={1.2} opacity={0.9} />
+
+            {/* Aesthetic "radar" pulse overlay (center → out). */}
+            <circle cx={cx} cy={cy} r={r1} fill="none" stroke={palette.accentSecondary} strokeWidth={1.8} opacity={0} className="radarPulse1" />
+            <circle cx={cx} cy={cy} r={r2} fill="none" stroke={palette.accentSecondary} strokeWidth={1.8} opacity={0} className="radarPulse2" />
+            <circle cx={cx} cy={cy} r={r3} fill="none" stroke={palette.accentSecondary} strokeWidth={2.0} opacity={0} className="radarPulse3" />
 
             {sliceLines.map((l, idx) => (
               <line key={idx} x1={cx} y1={cy} x2={l.x2} y2={l.y2} stroke={palette.border} strokeWidth={1} opacity={0.7} />
@@ -241,8 +263,10 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
                 y={t.y}
                 textAnchor={t.anchor}
                 dominantBaseline="middle"
-                fontSize="11"
-                fill={palette.textSecondary}
+                fontSize="12"
+                fontWeight="600"
+                fill={palette.textPrimary}
+                opacity={0.95}
               >
                 {t.text}
               </text>
@@ -254,7 +278,8 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
                 <circle cx={d.x} cy={d.y} r={4.2} fill={d.color} opacity={d.opacity} stroke={palette.surface} strokeWidth={1} />
               </g>
             ))}
-          </svg>
+            </svg>
+          </div>
         </div>
 
         <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">

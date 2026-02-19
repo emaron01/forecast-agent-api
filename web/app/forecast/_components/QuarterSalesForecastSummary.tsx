@@ -7,6 +7,7 @@ import { getForecastStageProbabilities } from "../../../lib/forecastStageProbabi
 import { computeSalesVsVerdictForecastSummary } from "../../../lib/forecastSummary";
 import { ForecastPeriodFiltersClient } from "./ForecastPeriodFiltersClient";
 import { GapDrivingDealsClient } from "../../analytics/meddpicc-tb/gap-driving-deals/ui/GapDrivingDealsClient";
+import { ExportQuarterlySalesForecastExcelButton, type QuarterlySalesForecastExportData } from "./ExportQuarterlySalesForecastExcelButton";
 
 type QuotaPeriodOption = {
   id: string; // bigint as text
@@ -1006,11 +1007,69 @@ export async function QuarterSalesForecastSummary(props: {
         ? `${repNameForHeadline}'s Team Quarterly Sales Forecast`
         : "Quarterly Sales Forecast";
 
+  const exportData: QuarterlySalesForecastExportData = {
+    filename: `Quarterly Sales Forecast - ${yearToUse || "FY"} Q${String(selected?.fiscal_quarter || "").trim() || String(current?.fiscal_quarter || "").trim() || ""}.xlsx`,
+    periodLabel: selected
+      ? `Period: ${String(selected.period_name || "").trim() || ""} (${String(selected.fiscal_year || "").trim() || ""} ${String(selected.fiscal_quarter || "").trim() || ""}) ${selected.period_start} → ${selected.period_end}`
+      : "Period: —",
+    stageProbabilitiesLine: `CRM Forecast Rep-Weighted Probabilities: Commit ${Math.round(orgProbs.commit * 100)}% · Best Case ${Math.round(
+      orgProbs.best_case * 100
+    )}% · Pipeline ${Math.round(orgProbs.pipeline * 100)}% · Verdict Forecast (AI-Weighted based on Deal Review Scores)`,
+    crmActuals: {
+      commit: commitAmt,
+      bestCase: bestCaseAmt,
+      pipeline: pipelineAmt,
+      totalPipeline: totalAmt,
+      closedWon: summary.crm_totals.won,
+      quota,
+      pctToGoal: quota > 0 ? summary.crm_totals.won / quota : null,
+      leftToGo: quota - summary.crm_totals.won,
+    },
+    weightedOutlook: {
+      crm: {
+        commitClosing: summary.weighted.crm.commit_weighted,
+        bestCaseClosing: summary.weighted.crm.best_case_weighted,
+        pipelineClosing: summary.weighted.crm.pipeline_weighted,
+        totalPipelineClosing: crmWeightedPipelineClosing,
+        closedWon: summary.crm_totals.won,
+        projectedClosedWon: crmProjectedClosedWon,
+        quota,
+        projectedPctToGoal: pctCrmWeighted,
+        leftToGo: leftCrmWeighted,
+      },
+      ai: {
+        commitClosing: summary.weighted.verdict.commit_weighted,
+        bestCaseClosing: summary.weighted.verdict.best_case_weighted,
+        pipelineClosing: summary.weighted.verdict.pipeline_weighted,
+        totalPipelineClosing: verdictWeightedPipelineClosing,
+        closedWon: summary.crm_totals.won,
+        projectedClosedWon: verdictProjectedClosedWon,
+        quota,
+        projectedPctToGoal: pctVerdictWeighted,
+        leftToGo: leftVerdictWeighted,
+      },
+      gap: {
+        commitClosing: summary.weighted.verdict.commit_weighted - summary.weighted.crm.commit_weighted,
+        bestCaseClosing: summary.weighted.verdict.best_case_weighted - summary.weighted.crm.best_case_weighted,
+        pipelineClosing: summary.weighted.verdict.pipeline_weighted - summary.weighted.crm.pipeline_weighted,
+        totalPipelineClosing: verdictWeightedPipelineClosing - crmWeightedPipelineClosing,
+        closedWon: summary.crm_totals.won,
+        projectedClosedWon: summary.forecast_gap,
+        quota,
+        projectedPctToGoal: gapPctToGoal,
+        leftToGo: gapLeftToGo,
+      },
+    },
+  };
+
   return (
     <section className="mx-auto mb-4 w-full max-w-5xl rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
       <div className="grid gap-4">
         <div>
-          <div className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">{headline}</div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">{headline}</div>
+            <ExportQuarterlySalesForecastExcelButton data={exportData} />
+          </div>
           <ForecastPeriodFiltersClient
             basePath={props.currentPath}
             fiscalYears={fiscalYearsSorted}
