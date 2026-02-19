@@ -19,7 +19,7 @@ function resolveBaseUrl() {
 }
 
 const BodySchema = z.object({
-  surface: z.enum(["hero", "radar"]),
+  surface: z.enum(["hero", "radar", "partners_executive", "pipeline_momentum"]),
   payload: z.any(),
 });
 
@@ -38,14 +38,33 @@ export async function POST(req: Request) {
     if (!model) return jsonError(500, "Missing MODEL_API_NAME");
 
     const prompt = await loadAiStrategicTakeawayPrompt();
+
+    const surfaceGuidance =
+      body.surface === "pipeline_momentum"
+        ? [
+            "Focus on: pipeline creation, coverage/velocity, forecast mix, cycle-length mix, product pipeline generation, and partner signals that can shorten cycles.",
+            "If GAP math is not applicable, skip it (do not fabricate quota gaps).",
+            "Make quarter-over-quarter comparisons explicit (what changed vs last quarter and why it matters).",
+            "Conclude with 2-3 concrete CRO actions for the next 7-14 days.",
+          ].join("\n- ")
+        : body.surface === "partners_executive"
+          ? [
+              "Focus on: Direct vs Partner comparisons (close rate, # opps, avg days, AOV, mix %).",
+              "Identify which partners show promise to shorten cycles and where channel is dragging velocity.",
+              "Conclude with coverage + enablement recommendations (MDF/SE support) and a shortlist of partners to invest in.",
+            ].join("\n- ")
+          : [
+              "Use explicit GAP math (call out if 1 deal closes the GAP; else minimum # deals).",
+              "Analyze MEDDPICC+TB gaps and rep/team trends.",
+              "Provide the highest-leverage coaching actions.",
+            ].join("\n- ");
+
     const userText =
       `Surface: ${body.surface}\n` +
       `Org: ${auth.user.org_id}\n\n` +
       `Input data (JSON):\n${JSON.stringify(body.payload, null, 2)}\n\n` +
       "Write a CRO-grade ✨ AI Strategic Takeaway.\n" +
-      "- Use explicit GAP math (call out if 1 deal closes the GAP; else minimum # deals).\n" +
-      "- Analyze MEDDPICC+TB gaps and rep/team trends.\n" +
-      "- Provide the highest-leverage coaching actions.\n" +
+      `- ${surfaceGuidance}\n` +
       "- Keep it concise: 5-10 bullets max.\n";
 
     const resp = await fetch(`${baseUrl}/responses`, {

@@ -28,6 +28,20 @@ function normalizeNameKey(s: any) {
     .toLowerCase();
 }
 
+function pct01Qoq(cur: number | null, prev: number | null) {
+  if (cur == null || prev == null) return null;
+  const c = Number(cur);
+  const p = Number(prev);
+  if (!Number.isFinite(c) || !Number.isFinite(p) || p <= 0) return null;
+  return (c - p) / p;
+}
+
+function healthPctFrom30(score: any) {
+  const n = Number(score);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.max(0, Math.min(100, Math.round((n / 30) * 100)));
+}
+
 async function listActiveRepsForOrg(orgId: number): Promise<RepDirectoryRow[]> {
   const { rows } = await pool.query(
     `
@@ -240,6 +254,331 @@ async function getOpenPipelineSnapshot(args: {
     .catch(() => []);
 
   return (rows?.[0] as any) || empty;
+}
+
+type CreatedPipelineProductRow = {
+  product: string;
+  amount: number;
+  opps: number;
+  avg_health_score: number | null;
+};
+
+async function getCreatedPipelineByProduct(args: {
+  orgId: number;
+  quotaPeriodId: string;
+  useRepFilter: boolean;
+  repIds: number[];
+  repNameKeys: string[];
+  limit: number;
+}): Promise<CreatedPipelineProductRow[]> {
+  const qpId = String(args.quotaPeriodId || "").trim();
+  if (!qpId) return [];
+  const repIds = Array.isArray(args.repIds) ? args.repIds : [];
+  const repNameKeys = Array.isArray(args.repNameKeys) ? args.repNameKeys : [];
+  const limit = Math.max(1, Math.min(200, Number(args.limit || 15) || 15));
+
+  const { rows } = await pool
+    .query<CreatedPipelineProductRow>(
+      `
+      WITH qp AS (
+        SELECT period_start::date AS period_start, period_end::date AS period_end
+          FROM quota_periods
+         WHERE org_id = $1::bigint
+           AND id = $2::bigint
+         LIMIT 1
+      ),
+      base AS (
+        SELECT
+          COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
+          COALESCE(o.amount, 0)::float8 AS amount,
+          o.health_score,
+          o.create_date::timestamptz AS create_ts,
+          CASE
+            WHEN o.close_date IS NULL THEN NULL
+            WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+            WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+              to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+            ELSE NULL
+          END AS close_d
+        FROM opportunities o
+        JOIN qp ON TRUE
+        WHERE o.org_id = $1
+          AND o.create_date IS NOT NULL
+          AND o.create_date::date >= qp.period_start
+          AND o.create_date::date <= qp.period_end
+          AND (
+            NOT $5::boolean
+            OR (
+              (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
+              OR (
+                COALESCE(array_length($4::text[], 1), 0) > 0
+                AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+              )
+            )
+          )
+      ),
+      active_created AS (
+        SELECT *
+          FROM base b
+          JOIN qp ON TRUE
+         WHERE NOT (b.close_d IS NOT NULL AND b.close_d >= qp.period_start AND b.close_d <= qp.period_end)
+      )
+      SELECT
+        product,
+        COALESCE(SUM(amount), 0)::float8 AS amount,
+        COUNT(*)::int AS opps,
+        AVG(NULLIF(health_score, 0))::float8 AS avg_health_score
+      FROM active_created
+      GROUP BY product
+      ORDER BY amount DESC, opps DESC, product ASC
+      LIMIT $6::int
+      `,
+      [args.orgId, qpId, repIds, repNameKeys, args.useRepFilter, limit]
+    )
+    .then((r) => r.rows || [])
+    .catch(() => []);
+  return rows || [];
+}
+
+type CreatedPipelineAgeBandRow = { band: "0-30" | "31-60" | "61+"; opps: number; amount: number; avg_age_days: number | null };
+
+async function getCreatedPipelineAgeMix(args: {
+  orgId: number;
+  quotaPeriodId: string;
+  useRepFilter: boolean;
+  repIds: number[];
+  repNameKeys: string[];
+}): Promise<{ avg_age_days: number | null; bands: Array<{ band: "0-30" | "31-60" | "61+"; opps: number; amount: number }> }> {
+  const qpId = String(args.quotaPeriodId || "").trim();
+  if (!qpId) return { avg_age_days: null, bands: [] };
+  const repIds = Array.isArray(args.repIds) ? args.repIds : [];
+  const repNameKeys = Array.isArray(args.repNameKeys) ? args.repNameKeys : [];
+
+  const rows = await pool
+    .query<CreatedPipelineAgeBandRow>(
+      `
+      WITH qp AS (
+        SELECT period_start::date AS period_start, period_end::date AS period_end, period_end::timestamptz AS period_end_ts
+          FROM quota_periods
+         WHERE org_id = $1::bigint
+           AND id = $2::bigint
+         LIMIT 1
+      ),
+      base AS (
+        SELECT
+          COALESCE(o.amount, 0)::float8 AS amount,
+          o.create_date::timestamptz AS create_ts,
+          CASE
+            WHEN o.close_date IS NULL THEN NULL
+            WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+            WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+              to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+            ELSE NULL
+          END AS close_d
+        FROM opportunities o
+        JOIN qp ON TRUE
+        WHERE o.org_id = $1
+          AND o.create_date IS NOT NULL
+          AND o.create_date::date >= qp.period_start
+          AND o.create_date::date <= qp.period_end
+          AND (
+            NOT $5::boolean
+            OR (
+              (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
+              OR (
+                COALESCE(array_length($4::text[], 1), 0) > 0
+                AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+              )
+            )
+          )
+      ),
+      active_created AS (
+        SELECT
+          b.*,
+          qp.period_start,
+          qp.period_end,
+          LEAST(NOW(), qp.period_end_ts) AS asof_ts
+        FROM base b
+        JOIN qp ON TRUE
+        WHERE NOT (b.close_d IS NOT NULL AND b.close_d >= qp.period_start AND b.close_d <= qp.period_end)
+      ),
+      aged AS (
+        SELECT
+          amount,
+          GREATEST(0, ROUND(EXTRACT(EPOCH FROM (asof_ts - create_ts)) / 86400.0))::int AS age_days
+        FROM active_created
+        WHERE create_ts IS NOT NULL
+      )
+      SELECT
+        CASE
+          WHEN age_days <= 30 THEN '0-30'
+          WHEN age_days <= 60 THEN '31-60'
+          ELSE '61+'
+        END AS band,
+        COUNT(*)::int AS opps,
+        COALESCE(SUM(amount), 0)::float8 AS amount,
+        AVG(age_days)::float8 AS avg_age_days
+      FROM aged
+      GROUP BY band
+      ORDER BY
+        CASE
+          WHEN band = '0-30' THEN 0
+          WHEN band = '31-60' THEN 1
+          ELSE 2
+        END ASC
+      `,
+      [args.orgId, qpId, repIds, repNameKeys, args.useRepFilter]
+    )
+    .then((r) => r.rows || [])
+    .catch(() => []);
+
+  const bands = (rows || []).map((r) => ({
+    band: r.band,
+    opps: Number(r.opps || 0) || 0,
+    amount: Number(r.amount || 0) || 0,
+    avg_age_days: r.avg_age_days == null ? null : Number(r.avg_age_days),
+  }));
+  const avg_age_days = bands.length
+    ? (() => {
+        let sum = 0;
+        let cnt = 0;
+        for (const b of bands) {
+          if (b.avg_age_days != null && Number.isFinite(b.avg_age_days) && b.opps > 0) {
+            sum += b.avg_age_days * b.opps;
+            cnt += b.opps;
+          }
+        }
+        return cnt ? sum / cnt : null;
+      })()
+    : null;
+
+  return {
+    avg_age_days,
+    bands: bands.map((b) => ({ band: b.band, opps: b.opps, amount: b.amount })),
+  };
+}
+
+type PartnerSpeedRow = {
+  motion: "direct" | "partner";
+  partner_name: string | null;
+  closed_opps: number;
+  won_opps: number;
+  win_rate: number | null;
+  avg_days: number | null;
+  won_amount: number;
+  aov: number | null;
+};
+
+async function getPartnerSpeedSignals(args: {
+  orgId: number;
+  quotaPeriodId: string;
+  useRepFilter: boolean;
+  repIds: number[];
+  repNameKeys: string[];
+  limit: number;
+}): Promise<{ direct: PartnerSpeedRow | null; partners: PartnerSpeedRow[] }> {
+  const qpId = String(args.quotaPeriodId || "").trim();
+  if (!qpId) return { direct: null, partners: [] };
+  const repIds = Array.isArray(args.repIds) ? args.repIds : [];
+  const repNameKeys = Array.isArray(args.repNameKeys) ? args.repNameKeys : [];
+  const limit = Math.max(1, Math.min(50, Number(args.limit || 10) || 10));
+
+  const { rows } = await pool
+    .query<PartnerSpeedRow>(
+      `
+      WITH qp AS (
+        SELECT period_start::date AS period_start, period_end::date AS period_end
+          FROM quota_periods
+         WHERE org_id = $1::bigint
+           AND id = $2::bigint
+         LIMIT 1
+      ),
+      base AS (
+        SELECT
+          CASE
+            WHEN o.partner_name IS NOT NULL AND btrim(o.partner_name) <> '' THEN 'partner'
+            ELSE 'direct'
+          END AS motion,
+          NULLIF(btrim(o.partner_name), '') AS partner_name,
+          COALESCE(o.amount, 0)::float8 AS amount,
+          o.create_date::timestamptz AS create_ts,
+          o.close_date::timestamptz AS close_ts,
+          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+        FROM opportunities o
+        JOIN qp ON TRUE
+        WHERE o.org_id = $1
+          AND o.close_date IS NOT NULL
+          AND o.close_date::date >= qp.period_start
+          AND o.close_date::date <= qp.period_end
+          AND (
+            NOT $5::boolean
+            OR (
+              (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
+              OR (
+                COALESCE(array_length($4::text[], 1), 0) > 0
+                AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+              )
+            )
+          )
+          AND (
+            ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
+            OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
+            OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
+          )
+      ),
+      scored AS (
+        SELECT
+          motion,
+          partner_name,
+          amount,
+          CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 1 ELSE 0 END AS is_won,
+          CASE WHEN create_ts IS NOT NULL AND close_ts IS NOT NULL THEN GREATEST(0, ROUND(EXTRACT(EPOCH FROM (close_ts - create_ts)) / 86400.0))::int ELSE NULL END AS age_days
+        FROM base
+      )
+      SELECT
+        motion,
+        CASE WHEN motion = 'partner' THEN partner_name ELSE NULL END AS partner_name,
+        COUNT(*)::int AS closed_opps,
+        SUM(is_won)::int AS won_opps,
+        CASE WHEN COUNT(*) > 0 THEN (SUM(is_won)::float8 / COUNT(*)::float8) ELSE NULL END AS win_rate,
+        AVG(age_days)::float8 AS avg_days,
+        SUM(CASE WHEN is_won = 1 THEN amount ELSE 0 END)::float8 AS won_amount,
+        CASE WHEN SUM(is_won) > 0 THEN (SUM(CASE WHEN is_won = 1 THEN amount ELSE 0 END)::float8 / SUM(is_won)::float8) ELSE NULL END AS aov
+      FROM scored
+      GROUP BY motion, CASE WHEN motion = 'partner' THEN partner_name ELSE NULL END
+      ORDER BY
+        CASE WHEN motion = 'direct' THEN 0 ELSE 1 END ASC,
+        won_amount DESC NULLS LAST,
+        closed_opps DESC,
+        partner_name ASC
+      `,
+      [args.orgId, qpId, repIds, repNameKeys, args.useRepFilter]
+    )
+    .then((r) => r.rows || [])
+    .catch(() => []);
+
+  const direct = (rows || []).find((r) => r.motion === "direct") || null;
+  const partners = (rows || []).filter((r) => r.motion === "partner" && String(r.partner_name || "").trim()).slice(0, 200);
+  // We'll filter/sort further in JS once we know the direct baseline.
+  const directAvg = direct?.avg_days == null ? null : Number(direct.avg_days);
+  const outPartners = partners
+    .map((p) => {
+      const avg = p.avg_days == null ? null : Number(p.avg_days);
+      const delta = directAvg != null && avg != null && Number.isFinite(directAvg) && Number.isFinite(avg) ? avg - directAvg : null;
+      return { ...p, avg_days: avg, win_rate: p.win_rate == null ? null : Number(p.win_rate), aov: p.aov == null ? null : Number(p.aov), delta_days_vs_direct: delta };
+    })
+    .filter((p) => (Number(p.closed_opps || 0) || 0) >= 3)
+    .sort((a, b) => {
+      const ad = a.delta_days_vs_direct;
+      const bd = b.delta_days_vs_direct;
+      if (ad != null && bd != null && ad !== bd) return ad - bd; // more negative = faster than direct
+      const aw = Number(a.won_amount || 0) || 0;
+      const bw = Number(b.won_amount || 0) || 0;
+      return bw - aw;
+    })
+    .slice(0, limit);
+
+  return { direct: direct ? ({ ...direct, avg_days: direct.avg_days == null ? null : Number(direct.avg_days), win_rate: direct.win_rate == null ? null : Number(direct.win_rate), aov: direct.aov == null ? null : Number(direct.aov) } as any) : null, partners: outPartners as any };
 }
 
 export async function getExecutiveForecastDashboardSummary(args: {
@@ -1000,6 +1339,15 @@ export async function getExecutiveForecastDashboardSummary(args: {
   const prevQpId = String(prevPeriod?.id || "").trim();
   const useRepFilterForMomentum = scope.allowedRepIds !== null;
 
+  const prevQuarterKpis =
+    prevQpId && qpId
+      ? await getQuarterKpisSnapshot({
+          orgId: args.orgId,
+          quotaPeriodId: prevQpId,
+          repIds: scope.allowedRepIds === null ? null : scope.allowedRepIds ?? [],
+        }).catch(() => null)
+      : null;
+
   const curSnap = qpId
     ? await getOpenPipelineSnapshot({
         orgId: args.orgId,
@@ -1052,6 +1400,125 @@ export async function getExecutiveForecastDashboardSummary(args: {
           previous_quarter: {
             total_pipeline: prevSnap ? (Number(prevSnap.total_amount || 0) || 0) : null,
           },
+          predictive: await (async () => {
+            const curCreated = quarterKpis?.createdPipeline || null;
+            const prevCreated = prevQuarterKpis?.createdPipeline || null;
+
+            const createdCurrentTotalAmt = curCreated ? Number(curCreated.totalAmount || 0) || 0 : 0;
+            const createdPrevTotalAmt = prevCreated ? Number(prevCreated.totalAmount || 0) || 0 : null;
+            const createdCurrentTotalCnt = curCreated ? Number(curCreated.totalCount || 0) || 0 : 0;
+            const createdPrevTotalCnt = prevCreated ? Number(prevCreated.totalCount || 0) || 0 : null;
+
+            const productsCur = qpId
+              ? await getCreatedPipelineByProduct({
+                  orgId: args.orgId,
+                  quotaPeriodId: qpId,
+                  useRepFilter: useRepFilterForMomentum,
+                  repIds: repIdsToUse,
+                  repNameKeys: visibleRepNameKeys,
+                  limit: 12,
+                }).catch(() => [])
+              : [];
+            const productsPrev = prevQpId
+              ? await getCreatedPipelineByProduct({
+                  orgId: args.orgId,
+                  quotaPeriodId: prevQpId,
+                  useRepFilter: useRepFilterForMomentum,
+                  repIds: repIdsToUse,
+                  repNameKeys: visibleRepNameKeys,
+                  limit: 50,
+                }).catch(() => [])
+              : [];
+            const prevByProduct = new Map<string, number>();
+            for (const r of productsPrev) prevByProduct.set(String(r.product || "").trim(), Number(r.amount || 0) || 0);
+
+            const ageMix = qpId
+              ? await getCreatedPipelineAgeMix({
+                  orgId: args.orgId,
+                  quotaPeriodId: qpId,
+                  useRepFilter: useRepFilterForMomentum,
+                  repIds: repIdsToUse,
+                  repNameKeys: visibleRepNameKeys,
+                }).catch(() => ({ avg_age_days: null, bands: [] as any[] }))
+              : { avg_age_days: null, bands: [] as any[] };
+
+            const speed = qpId
+              ? await getPartnerSpeedSignals({
+                  orgId: args.orgId,
+                  quotaPeriodId: qpId,
+                  useRepFilter: useRepFilterForMomentum,
+                  repIds: repIdsToUse,
+                  repNameKeys: visibleRepNameKeys,
+                  limit: 8,
+                }).catch(() => ({ direct: null, partners: [] as any[] }))
+              : { direct: null, partners: [] as any[] };
+
+            const directBaseline = {
+              avg_days: speed.direct?.avg_days == null ? null : Number(speed.direct.avg_days),
+              win_rate: speed.direct?.win_rate == null ? null : Number(speed.direct.win_rate),
+              aov: speed.direct?.aov == null ? null : Number(speed.direct.aov),
+            };
+
+            const partners = (speed.partners || []).map((p: any) => ({
+              partner_name: String(p.partner_name || "").trim(),
+              closed_opps: Number(p.closed_opps || 0) || 0,
+              win_rate: p.win_rate == null ? null : Number(p.win_rate),
+              avg_days: p.avg_days == null ? null : Number(p.avg_days),
+              aov: p.aov == null ? null : Number(p.aov),
+              won_amount: Number(p.won_amount || 0) || 0,
+              delta_days_vs_direct: p.delta_days_vs_direct == null ? null : Number(p.delta_days_vs_direct),
+            }));
+
+            return {
+              created_pipeline: {
+                current: {
+                  total_amount: createdCurrentTotalAmt,
+                  total_opps: createdCurrentTotalCnt,
+                  mix: {
+                    commit: {
+                      value: curCreated ? Number(curCreated.commitAmount || 0) || 0 : 0,
+                      opps: curCreated ? Number(curCreated.commitCount || 0) || 0 : 0,
+                      health_pct: curCreated?.commitHealthPct ?? null,
+                    },
+                    best_case: {
+                      value: curCreated ? Number(curCreated.bestAmount || 0) || 0 : 0,
+                      opps: curCreated ? Number(curCreated.bestCount || 0) || 0 : 0,
+                      health_pct: curCreated?.bestHealthPct ?? null,
+                    },
+                    pipeline: {
+                      value: curCreated ? Number(curCreated.pipelineAmount || 0) || 0 : 0,
+                      opps: curCreated ? Number(curCreated.pipelineCount || 0) || 0 : 0,
+                      health_pct: curCreated?.pipelineHealthPct ?? null,
+                    },
+                  },
+                },
+                previous: {
+                  total_amount: createdPrevTotalAmt,
+                  total_opps: createdPrevTotalCnt,
+                },
+                qoq_total_amount_pct01: pct01Qoq(createdCurrentTotalAmt, createdPrevTotalAmt),
+                qoq_total_opps_pct01: pct01Qoq(createdCurrentTotalCnt, createdPrevTotalCnt),
+              },
+              products_created_pipeline_top: (productsCur || []).map((r) => {
+                const prod = String(r.product || "").trim() || "(Unspecified)";
+                const amt = Number(r.amount || 0) || 0;
+                const prevAmt = prevByProduct.get(prod);
+                return {
+                  product: prod,
+                  amount: amt,
+                  opps: Number(r.opps || 0) || 0,
+                  avg_health_pct: healthPctFrom30(r.avg_health_score),
+                  qoq_amount_pct01: prevAmt == null ? null : pct01Qoq(amt, prevAmt),
+                };
+              }),
+              cycle_mix_created_pipeline: {
+                avg_age_days: ageMix.avg_age_days == null ? null : Number(ageMix.avg_age_days),
+                bands: (ageMix.bands || []) as any,
+              },
+              partners_showing_promise: partners,
+              direct_baseline: directBaseline,
+            };
+          })(),
         }
       : null;
 

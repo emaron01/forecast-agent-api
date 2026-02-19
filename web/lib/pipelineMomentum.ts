@@ -17,6 +17,42 @@ export type PipelineMomentumData = {
   previous_quarter: {
     total_pipeline: number | null;
   };
+  predictive?: {
+    created_pipeline: {
+      current: {
+        total_amount: number;
+        total_opps: number;
+        mix: Record<ForecastMixKey, { value: number; opps: number; health_pct: number | null }>;
+      };
+      previous: {
+        total_amount: number | null;
+        total_opps: number | null;
+      };
+      qoq_total_amount_pct01: number | null;
+      qoq_total_opps_pct01: number | null;
+    };
+    products_created_pipeline_top: Array<{
+      product: string;
+      amount: number;
+      opps: number;
+      avg_health_pct: number | null;
+      qoq_amount_pct01: number | null;
+    }>;
+    cycle_mix_created_pipeline: {
+      avg_age_days: number | null;
+      bands: Array<{ band: "0-30" | "31-60" | "61+"; opps: number; amount: number }>;
+    };
+    partners_showing_promise: Array<{
+      partner_name: string;
+      closed_opps: number;
+      win_rate: number | null;
+      avg_days: number | null;
+      aov: number | null;
+      won_amount: number;
+      delta_days_vs_direct: number | null;
+    }>;
+    direct_baseline: { avg_days: number | null; win_rate: number | null; aov: number | null };
+  };
 };
 
 export const MOCK_PIPELINE_MOMENTUM_DATA: PipelineMomentumData = {

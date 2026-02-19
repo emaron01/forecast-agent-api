@@ -7,13 +7,13 @@ import {
   fmtMoney,
   fmtSignedPct,
   fmtSignedPct01,
-  generateAiMomentumInsight,
   mixPct01,
   qoqChangePct01,
   trendToneFromPct01,
   type ForecastMixKey,
   type PipelineMomentumData,
 } from "../../../lib/pipelineMomentum";
+import { PipelineMomentumAiTakeawayClient } from "./PipelineMomentumAiTakeawayClient";
 
 function toneClasses(t: "good" | "warn" | "bad" | "muted") {
   if (t === "good") return "text-[#2ECC71]";
@@ -109,6 +109,17 @@ function StatCol(props: { k: ForecastMixKey; pct: number; value: number; opps: n
   );
 }
 
+function fmtDays(n: number | null) {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const v = Math.round(n);
+  return `${v.toLocaleString()} day${v === 1 ? "" : "s"}`;
+}
+
+function fmtPct01Plain(p01: number | null) {
+  if (p01 == null || !Number.isFinite(p01)) return "—";
+  return `${Math.round(p01 * 100)}%`;
+}
+
 export function PipelineMomentumEngine(props: { data: PipelineMomentumData | null; className?: string }) {
   const data = props.data;
   if (!data) {
@@ -130,7 +141,8 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
   const totalQoq = qoqChangePct01(data.current_quarter.total_pipeline, data.previous_quarter.total_pipeline);
   const { cls: velCls, glyph: velGlyph } = trendBadge(totalQoq);
 
-  const aiText = generateAiMomentumInsight(data);
+  const predictive = data.predictive || null;
+  const created = predictive?.created_pipeline || null;
 
   const keys: ForecastMixKey[] = ["commit", "best_case", "pipeline"];
   const pct = {
@@ -151,7 +163,7 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Pipeline Momentum</div>
-          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Fast read on coverage, velocity, and mix (no pie charts).</div>
+          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Pipeline predicts the future: coverage, velocity, mix, and the next-quarter creation engine.</div>
         </div>
       </div>
 
@@ -175,13 +187,14 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
         />
       </div>
 
-      <div className="rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5 shadow-sm">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">AI Momentum Alert</div>
-        <div className="mt-2 text-sm leading-relaxed text-[color:var(--sf-text-primary)]">{aiText}</div>
-        <div className="mt-3">
-          <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${velCls}`}>Velocity {fmtSignedPct01(totalQoq, { digits: 0 })}</span>
-        </div>
-      </div>
+      <PipelineMomentumAiTakeawayClient
+        payload={{
+          quota_target: data.quota_target,
+          open_pipeline: data.current_quarter,
+          open_pipeline_previous: data.previous_quarter,
+          predictive: data.predictive || null,
+        }}
+      />
 
       <div className="rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="flex items-end justify-between gap-3">
@@ -226,6 +239,150 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
           </div>
         </div>
       </div>
+
+      {created ? (
+        <div className="rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Pipeline Created This Quarter (predicts next quarter)</div>
+              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">New opps created in-quarter that are still active (not closed in the quarter).</div>
+            </div>
+            <div className="text-xs text-[color:var(--sf-text-secondary)]">
+              As-of velocity <span className={`ml-2 inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${velCls}`}>QoQ {fmtSignedPct01(created.qoq_total_amount_pct01, { digits: 0 })}</span>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+            <KpiCard
+              label="Created pipeline (value)"
+              value={fmtMoney(created.current.total_amount)}
+              sub={
+                created.previous.total_amount == null
+                  ? "Previous quarter unavailable"
+                  : `Prev ${fmtMoney(created.previous.total_amount)} · QoQ ${fmtSignedPct01(created.qoq_total_amount_pct01, { digits: 0 })}`
+              }
+            />
+            <KpiCard
+              label="Created pipeline (# opps)"
+              value={String(created.current.total_opps || 0)}
+              sub={
+                created.previous.total_opps == null
+                  ? "Previous quarter unavailable"
+                  : `Prev ${String(created.previous.total_opps || 0)} · QoQ ${fmtSignedPct01(created.qoq_total_opps_pct01, { digits: 0 })}`
+              }
+            />
+            <KpiCard
+              label="Avg age of created opps"
+              value={fmtDays(predictive?.cycle_mix_created_pipeline?.avg_age_days ?? null)}
+              sub="Cycle mix is a leading indicator of future close timing."
+            />
+          </div>
+
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+            {(["commit", "best_case", "pipeline"] as const).map((k) => {
+              const m = created.current.mix[k];
+              return (
+                <div key={k} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">{mixLabel(k)}</div>
+                  <div className="mt-1 text-sm text-[color:var(--sf-text-primary)]">
+                    <span className="font-mono font-semibold">{fmtMoney(m.value)}</span>{" "}
+                    <span className="text-[color:var(--sf-text-secondary)]">· {m.opps} opps</span>
+                  </div>
+                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Avg health: {m.health_pct == null ? "—" : `${m.health_pct}%`}</div>
+                </div>
+              );
+            })}
+          </div>
+
+          {predictive?.products_created_pipeline_top?.length ? (
+            <div className="mt-5 overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+              <table className="min-w-[920px] w-full table-auto border-collapse text-sm">
+                <thead className="bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)]">
+                  <tr>
+                    <th className="px-4 py-3 text-left">product</th>
+                    <th className="px-4 py-3 text-right">created pipeline</th>
+                    <th className="px-4 py-3 text-right"># opps</th>
+                    <th className="px-4 py-3 text-right">avg health</th>
+                    <th className="px-4 py-3 text-right">QoQ</th>
+                  </tr>
+                </thead>
+                <tbody className="text-[color:var(--sf-text-primary)]">
+                  {predictive.products_created_pipeline_top.map((r) => (
+                    <tr key={r.product} className="border-t border-[color:var(--sf-border)]">
+                      <td className="px-4 py-3 font-semibold">{r.product}</td>
+                      <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(r.amount)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-xs">{String(r.opps)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-xs">{r.avg_health_pct == null ? "—" : `${r.avg_health_pct}%`}</td>
+                      <td className="px-4 py-3 text-right font-mono text-xs">{fmtSignedPct01(r.qoq_amount_pct01, { digits: 0 })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+
+          {predictive?.cycle_mix_created_pipeline?.bands?.length ? (
+            <div className="mt-4 grid gap-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Cycle-length mix (created opps)</div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {predictive.cycle_mix_created_pipeline.bands.map((b) => (
+                  <div key={b.band} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                    <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{b.band} days</div>
+                    <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                      <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{String(b.opps)}</span> opps ·{" "}
+                      <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(b.amount)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {predictive?.partners_showing_promise?.length ? (
+            <div className="mt-5 grid gap-2">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Partners showing promise to shorten cycles</div>
+                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                    Baseline (Direct): {fmtDays(predictive.direct_baseline.avg_days)} · close rate {fmtPct01Plain(predictive.direct_baseline.win_rate)}
+                  </div>
+                </div>
+              </div>
+              <div className="overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                <table className="min-w-[980px] w-full table-auto border-collapse text-sm">
+                  <thead className="bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)]">
+                    <tr>
+                      <th className="px-4 py-3 text-left">partner</th>
+                      <th className="px-4 py-3 text-right"># closed opps</th>
+                      <th className="px-4 py-3 text-right">close rate</th>
+                      <th className="px-4 py-3 text-right">avg days</th>
+                      <th className="px-4 py-3 text-right">Δ days vs direct</th>
+                      <th className="px-4 py-3 text-right">AOV</th>
+                      <th className="px-4 py-3 text-right">closed-won</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-[color:var(--sf-text-primary)]">
+                    {predictive.partners_showing_promise.map((p) => (
+                      <tr key={p.partner_name} className="border-t border-[color:var(--sf-border)]">
+                        <td className="px-4 py-3 font-semibold">{p.partner_name}</td>
+                        <td className="px-4 py-3 text-right font-mono text-xs">{String(p.closed_opps)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct01Plain(p.win_rate)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-xs">{fmtDays(p.avg_days)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-xs">
+                          {p.delta_days_vs_direct == null ? "—" : `${p.delta_days_vs_direct > 0 ? "+" : ""}${Math.round(p.delta_days_vs_direct)}`
+                          }
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-xs">{p.aov == null ? "—" : fmtMoney(p.aov)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(p.won_amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }

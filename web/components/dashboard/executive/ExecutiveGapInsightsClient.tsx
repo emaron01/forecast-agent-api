@@ -192,6 +192,12 @@ function fmtPct01(n: number | null) {
   return `${Math.round(n * 100)}%`;
 }
 
+function fmtDays(n: number | null) {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const v = Math.round(n);
+  return `${v.toLocaleString()} day${v === 1 ? "" : "s"}`;
+}
+
 function deltaTextClass(v: number) {
   if (!Number.isFinite(v) || v === 0) return "text-[color:var(--sf-text-secondary)]";
   return v > 0 ? "text-[#2ECC71]" : "text-[#E74C3C]";
@@ -984,6 +990,66 @@ export function ExecutiveGapInsightsClient(props: {
       statsForRepIds,
     };
   }, [props.repRollups, props.repDirectory, props.myRepId]);
+
+  const croRecommendation = useMemo(() => {
+    const dvp = props.quarterKpis?.directVsPartner || null;
+    const partnerPct = dvp?.partnerContributionPct ?? null;
+    const directAov = dvp?.directAov ?? null;
+    const partnerAov = dvp?.partnerAov ?? null;
+    const directAge = dvp?.directAvgAgeDays ?? null;
+    const partnerAge = dvp?.partnerAvgAgeDays ?? null;
+    const directDeals = dvp?.directClosedDeals ?? null;
+    const partnerDeals = dvp?.partnerClosedDeals ?? null;
+
+    const partnersLarger =
+      directAov != null && partnerAov != null && Number.isFinite(directAov) && Number.isFinite(partnerAov)
+        ? partnerAov > directAov
+        : null;
+    const partnersSlower =
+      directAge != null && partnerAge != null && Number.isFinite(directAge) && Number.isFinite(partnerAge)
+        ? partnerAge > directAge
+        : null;
+    const directMoreVolume =
+      directDeals != null && partnerDeals != null && Number.isFinite(directDeals) && Number.isFinite(partnerDeals)
+        ? directDeals > partnerDeals
+        : null;
+
+    const story = [
+      {
+        k: "partners",
+        label: "Partners = larger but slower",
+        detail:
+          partnersLarger != null || partnersSlower != null
+            ? `AOV ${partnerAov == null ? "—" : fmtMoney(partnerAov)} vs ${directAov == null ? "—" : fmtMoney(directAov)} · Avg cycle ${partnerAge == null ? "—" : fmtDays(partnerAge)} vs ${directAge == null ? "—" : fmtDays(directAge)}`
+            : null,
+      },
+      {
+        k: "direct",
+        label: "Direct = faster volume engine",
+        detail:
+          directMoreVolume != null || partnersSlower != null
+            ? `Closed-won deals ${directDeals == null ? "—" : String(directDeals)} vs ${partnerDeals == null ? "—" : String(partnerDeals)} · Faster by ${directAge != null && partnerAge != null ? fmtDays(Math.max(0, partnerAge - directAge)) : "—"}`
+            : null,
+      },
+      {
+        k: "channel",
+        label: "Channel = meaningful but not dominant",
+        detail: partnerPct == null ? null : `Partner contribution ${fmtPct01(partnerPct)}`,
+      },
+    ];
+
+    return {
+      hasNumbers: !!dvp,
+      story,
+      partnerPct,
+      directAov,
+      partnerAov,
+      directAge,
+      partnerAge,
+      directDeals,
+      partnerDeals,
+    };
+  }, [props.quarterKpis]);
 
   const createdPipelineTree = useMemo(() => {
     const q = props.quarterKpis;
@@ -2080,6 +2146,131 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
 
           <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">Displayed as: Closed Won revenue · # Closed Won · Avg / Order</div>
+        </details>
+      </section>
+
+      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">My CRO recommendation (based on your numbers)</div>
+            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+              A board-ready narrative from Direct vs Partner performance, plus production-grade scoring models to turn reporting into a decision engine.
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Your data is telling a very clear story:</div>
+          <ul className="mt-3 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
+            {croRecommendation.story.map((s) => (
+              <li key={s.k} className="grid gap-0.5">
+                <div className="flex items-start gap-2">
+                  <span className="text-[color:var(--sf-accent-secondary)]">•</span>
+                  <span className="font-semibold">{s.label}</span>
+                </div>
+                {s.detail ? <div className="pl-5 text-xs text-[color:var(--sf-text-secondary)]">{s.detail}</div> : null}
+              </li>
+            ))}
+          </ul>
+
+          <div className="mt-3 text-sm font-semibold text-[color:var(--sf-text-primary)]">That is exactly the kind of narrative CROs fund.</div>
+          <div className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+            If you want the real mic-drop next, I can add three executive indices that turn this into a coverage and investment engine.
+          </div>
+        </div>
+
+        <details className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+          <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">
+            Show the CRO-grade scoring models (WIC / PQS / CEI)
+          </summary>
+
+          <div className="mt-4 grid gap-4 text-sm text-[color:var(--sf-text-primary)]">
+            <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
+              <div className="font-semibold">🔥 1) Where to Invest Coverage Score (WIC)</div>
+              <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
+                Answers: “Where should we put more reps or partner focus to grow fastest with lowest risk?”
+              </div>
+              <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">Normalize inputs (0–1):</div>
+              <pre className="mt-2 whitespace-pre-wrap rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 text-[12px] text-[color:var(--sf-text-primary)]">
+{`GC = normalize(open_pipeline OR pipeline_value_next_2_qtrs)
+WQ = win_rate * avg_health_score
+VE = 1 - normalize(avg_sales_cycle_days)
+DE = normalize(AOV)
+
+WIC = (GC*0.35) + (WQ*0.30) + (VE*0.20) + (DE*0.15)`}
+              </pre>
+              <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">Output bands:</div>
+              <div className="mt-2 overflow-x-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                <table className="min-w-[640px] w-full table-auto border-collapse text-[12px]">
+                  <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Score</th>
+                      <th className="px-3 py-2 text-left">Label</th>
+                      <th className="px-3 py-2 text-left">Executive meaning</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-[color:var(--sf-text-primary)]">
+                    {[
+                      { a: "80–100", b: "INVEST AGGRESSIVELY", c: "Add capacity" },
+                      { a: "60–79", b: "SCALE SELECTIVELY", c: "Monitor & grow" },
+                      { a: "40–59", b: "MAINTAIN", c: "No change" },
+                      { a: "<40", b: "DEPRIORITIZE", c: "Reduce focus" },
+                    ].map((r) => (
+                      <tr key={r.a} className="border-t border-[color:var(--sf-border)]">
+                        <td className="px-3 py-2 font-mono">{r.a}</td>
+                        <td className="px-3 py-2 font-semibold">{r.b}</td>
+                        <td className="px-3 py-2">{r.c}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
+              <div className="font-semibold">🔥 2) Partner Quality Score (PQS)</div>
+              <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
+                Separates strategic partners vs opportunistic vs dead weight — defensible, simple, and executive-friendly.
+              </div>
+              <pre className="mt-3 whitespace-pre-wrap rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 text-[12px] text-[color:var(--sf-text-primary)]">
+{`WRF = win_rate
+DSF = normalize(partner_AOV)
+VP  = normalize(avg_sales_cycle_days)        // penalty
+CF  = min(1, log(deal_count+1) / log(10))    // consistency
+
+PQS = (WRF*0.40) + (DSF*0.25) + (CF*0.20) - (VP*0.15)
+Clamp to 0–100`}
+              </pre>
+              <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">Executive tiers:</div>
+              <div className="mt-2 grid gap-1 text-[12px] text-[color:var(--sf-text-primary)]">
+                <div><span className="font-mono">80+</span> — <span className="font-semibold">Strategic Partner</span></div>
+                <div><span className="font-mono">60–79</span> — <span className="font-semibold">High Potential</span></div>
+                <div><span className="font-mono">40–59</span> — <span className="font-semibold">Opportunistic</span></div>
+                <div><span className="font-mono">&lt;40</span> — <span className="font-semibold">At Risk</span></div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
+              <div className="font-semibold">🔥 3) Channel Efficiency Index (CEI)</div>
+              <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
+                Boardroom metric: “Is channel actually more efficient than direct?”
+              </div>
+              <pre className="mt-3 whitespace-pre-wrap rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 text-[12px] text-[color:var(--sf-text-primary)]">
+{`RV = total_closed_won / avg_sales_cycle_days
+QM = win_rate * avg_health_score   // if no health, use win_rate
+CEI = RV * QM
+
+Normalize to an index: Direct = 100 baseline`}
+              </pre>
+              <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">Interpretation (vs Direct):</div>
+              <div className="mt-2 grid gap-1 text-[12px] text-[color:var(--sf-text-primary)]">
+                <div><span className="font-mono">&gt;120</span> — <span className="font-semibold">Channel highly efficient</span></div>
+                <div><span className="font-mono">90–120</span> — <span className="font-semibold">Comparable</span></div>
+                <div><span className="font-mono">70–89</span> — <span className="font-semibold">Less efficient</span></div>
+                <div><span className="font-mono">&lt;70</span> — <span className="font-semibold">Drag on business</span></div>
+              </div>
+            </div>
+          </div>
         </details>
       </section>
 
