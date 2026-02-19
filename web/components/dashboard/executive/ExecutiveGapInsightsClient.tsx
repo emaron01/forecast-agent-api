@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ExecRepOption } from "../../../lib/executiveForecastDashboard";
@@ -318,7 +318,13 @@ export function ExecutiveGapInsightsClient(props: {
   const router = useRouter();
   const sp = useSearchParams();
   const [data, setData] = useState<ApiResponse | null>(null);
+  const [analysisData, setAnalysisData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [heroAiText, setHeroAiText] = useState<string>("");
+  const [heroAiLoading, setHeroAiLoading] = useState(false);
+  const [radarAiText, setRadarAiText] = useState<string>("");
+  const [radarAiLoading, setRadarAiLoading] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [topN, setTopN] = useState(Math.max(1, props.defaultTopN || 15));
   const [stageView, setStageView] = useState<"commit" | "best_case" | "pipeline" | "all">("all");
@@ -353,6 +359,27 @@ export function ExecutiveGapInsightsClient(props: {
     return `/api/forecast/gap-driving-deals?${params.toString()}`;
   }, [sp, quotaPeriodId]);
 
+  const analysisApiUrl = useMemo(() => {
+    const params = new URLSearchParams(sp.toString());
+    setParam(params, "quota_period_id", quotaPeriodId);
+
+    const hasAnyBucket =
+      params.has("bucket_commit") || params.has("bucket_best_case") || params.has("bucket_pipeline");
+    if (!hasAnyBucket) {
+      params.set("bucket_commit", "1");
+      params.set("bucket_best_case", "1");
+      params.set("bucket_pipeline", "1");
+    }
+
+    // Force an "at-risk" pull so strategic takeaways reflect the full downside set
+    // (not only the driver subset / topN slice).
+    params.set("mode", "risk");
+    params.set("risk_take_per_bucket", "2000");
+    params.set("limit", "2000");
+
+    return `/api/forecast/gap-driving-deals?${params.toString()}`;
+  }, [sp, quotaPeriodId]);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -372,8 +399,28 @@ export function ExecutiveGapInsightsClient(props: {
     };
   }, [apiUrl, refreshNonce]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setAnalysisLoading(true);
+    fetch(`${analysisApiUrl}${analysisApiUrl.includes("?") ? "&" : "?"}_r=${refreshNonce}`, { method: "GET" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (!cancelled) setAnalysisData(j as ApiResponse);
+      })
+      .catch((e) => {
+        if (!cancelled) setAnalysisData({ ok: false, error: String(e?.message || e) });
+      })
+      .finally(() => {
+        if (!cancelled) setAnalysisLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [analysisApiUrl, refreshNonce]);
+
   const ok = asOk(data);
   const err = asErr(data);
+  const analysisOk = asOk(analysisData);
 
   const stageDeals = useMemo(() => {
     if (!ok) return [] as DealOut[];
@@ -388,6 +435,106 @@ export function ExecutiveGapInsightsClient(props: {
     if (!d) return [] as DealOut[];
     return [...(d.groups.commit.deals || []), ...(d.groups.best_case.deals || []), ...(d.groups.pipeline.deals || [])];
   }, [ok]);
+
+  const analysisFlattenedDeals = useMemo(() => {
+    const d = analysisOk;
+    if (!d) return [] as DealOut[];
+    return [...(d.groups.commit.deals || []), ...(d.groups.best_case.deals || []), ...(d.groups.pipeline.deals || [])];
+  }, [analysisOk]);
+
+  const heroTakeawayPayload = useMemo(() => {
+    const deals = analysisFlattenedDeals.length ? analysisFlattenedDeals : flattenedDeals;
+    const overallGap = Number((analysisOk?.totals?.gap ?? ok?.totals?.gap ?? props.gap) || 0) || 0;
+    const atRisk = deals.filter((d) => Number(d.weighted?.gap || 0) < 0);
+    const gapToClose = overallGap < 0 ? Math.abs(overallGap) : 0;
+    const sorted = atRisk
+      .slice()
+      .map((d) => ({ d, v: Math.abs(Math.min(0, Number(d.weighted?.gap || 0) || 0)) }))
+      .sort((a, b) => b.v - a.v);
+    let cum = 0;
+    let needed = 0;
+    for (const x of sorted) {
+      if (x.v <= 0) continue;
+      needed += 1;
+      cum += x.v;
+      if (cum >= gapToClose && gapToClose > 0) break;
+    }
+    const byBucket = atRisk.reduce(
+      (acc, d) => {
+        const b = String(d.crm_stage?.bucket || "pipeline") as "commit" | "best_case" | "pipeline";
+        acc[b] = (acc[b] || 0) + 1;
+        return acc;
+      },
+      { commit: 0, best_case: 0, pipeline: 0 } as Record<"commit" | "best_case" | "pipeline", number>
+    );
+    const avgAmount =
+      atRisk.length > 0 ? atRisk.reduce((acc, d) => acc + (Number(d.amount || 0) || 0), 0) / atRisk.length : null;
+
+    const topDeals = sorted.slice(0, 25).map(({ d, v }) => ({
+      id: String(d.id),
+      title: dealTitle(d),
+      rep: dealRep(d),
+      bucket: String(d.crm_stage?.label || "").trim() || "—",
+      amount: Number(d.amount || 0) || 0,
+      downside_gap_abs: v,
+      health_modifier: Number(d.health?.health_modifier ?? 1) || 1,
+      top_risks: (d.risk_flags || []).slice(0, 4).map((r) => String(r.label || "")),
+    }));
+
+    return {
+      fiscal_year: props.fiscalYear,
+      fiscal_quarter: props.fiscalQuarter,
+      quota_period_id: quotaPeriodId,
+      overall_gap: overallGap,
+      gap_to_close: gapToClose,
+      at_risk_count: atRisk.length,
+      at_risk_by_bucket: byBucket,
+      at_risk_avg_amount: avgAmount,
+      min_deals_to_close_gap: gapToClose > 0 ? needed : 0,
+      single_deal_can_close_gap: gapToClose > 0 ? (sorted[0]?.v || 0) >= gapToClose : false,
+      top_at_risk_deals: topDeals,
+      left_to_go: props.leftToGo,
+    };
+  }, [analysisFlattenedDeals, flattenedDeals, analysisOk?.totals?.gap, ok?.totals?.gap, props.gap, props.fiscalYear, props.fiscalQuarter, quotaPeriodId, props.leftToGo]);
+
+  const lastHeroAiKey = useRef<string>("");
+  const lastRadarAiKey = useRef<string>("");
+
+  useEffect(() => {
+    if (!heroTakeawayPayload?.quota_period_id) return;
+    // Avoid spam: re-run when the core analysis inputs change.
+    const key = [
+      heroTakeawayPayload.quota_period_id,
+      heroTakeawayPayload.overall_gap,
+      heroTakeawayPayload.at_risk_count,
+      heroTakeawayPayload.min_deals_to_close_gap,
+      refreshNonce,
+    ].join("|");
+    if (key === lastHeroAiKey.current) return;
+    lastHeroAiKey.current = key;
+
+    let cancelled = false;
+    setHeroAiLoading(true);
+    fetch("/api/forecast/ai-strategic-takeaway", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ surface: "hero", payload: heroTakeawayPayload }),
+    })
+      .then((r) => r.json())
+      .then((j) => {
+        const t = String(j?.text || "").trim();
+        if (!cancelled) setHeroAiText(t);
+      })
+      .catch(() => {
+        if (!cancelled) setHeroAiText("");
+      })
+      .finally(() => {
+        if (!cancelled) setHeroAiLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [heroTakeawayPayload, refreshNonce]);
 
   const sortedDeals = useMemo(() => {
     const overallGap = ok?.totals?.gap ?? 0;
@@ -440,7 +587,7 @@ export function ExecutiveGapInsightsClient(props: {
   }, [sortedDeals, topN]);
 
   const quarterDrivers = useMemo(() => {
-    const deals = flattenedDeals;
+    const deals = analysisFlattenedDeals.length ? analysisFlattenedDeals : flattenedDeals;
     const byBucket = new Map<string, number>();
     const byRep = new Map<string, number>();
     const riskCounts = new Map<string, number>();
@@ -489,8 +636,45 @@ export function ExecutiveGapInsightsClient(props: {
     const topRisks = riskList.slice(0, 2);
 
     const bullets: string[] = [];
-    if (props.leftToGo > 0) bullets.push(`Quarter end outlook is ${fmtMoney(props.leftToGo)} short of quota at current AI-weighted projection.`);
-    else if (props.leftToGo < 0) bullets.push(`Quarter end outlook is ${fmtMoney(Math.abs(props.leftToGo))} ahead of quota at current AI-weighted projection.`);
+    const overallGap = Number((analysisOk?.totals?.gap ?? ok?.totals?.gap ?? props.gap) || 0) || 0;
+    const atRiskDeals = deals.filter((d) => Number(d.weighted?.gap || 0) < 0);
+    const atRiskCount = atRiskDeals.length;
+    const atRiskAvgAmount =
+      atRiskCount > 0 ? atRiskDeals.reduce((acc, d) => acc + (Number(d.amount || 0) || 0), 0) / atRiskCount : null;
+    const totalDownsideAbs = atRiskDeals.reduce((acc, d) => acc + Math.abs(Math.min(0, Number(d.weighted?.gap || 0) || 0)), 0);
+
+    if (overallGap < 0 && atRiskCount > 0) {
+      const gapToClose = Math.abs(overallGap);
+      const recapture = atRiskDeals
+        .map((d) => ({ d, v: Math.abs(Math.min(0, Number(d.weighted?.gap || 0) || 0)) }))
+        .sort((a, b) => b.v - a.v);
+      let cum = 0;
+      let needed = 0;
+      const picks: DealOut[] = [];
+      for (const x of recapture) {
+        if (x.v <= 0) continue;
+        needed += 1;
+        cum += x.v;
+        picks.push(x.d);
+        if (cum >= gapToClose) break;
+      }
+      const canCloseWithOne = recapture[0]?.v != null && recapture[0].v >= gapToClose;
+      const exampleDeal = picks[0] ? dealTitle(picks[0]) : "";
+      bullets.push(
+        `AI Adjustment vs CRM is ${fmtMoney(overallGap)}. Downside is distributed across ${atRiskCount} at-risk deal(s) (avg amount ${atRiskAvgAmount == null ? "—" : fmtMoney(atRiskAvgAmount)}), with ${fmtMoney(totalDownsideAbs)} total downside capacity if fully de-risked.`
+      );
+      bullets.push(
+        canCloseWithOne
+          ? `If leadership helps push just 1 at-risk deal across the finish line (e.g., ${exampleDeal}), the entire ${fmtMoney(Math.abs(overallGap))} GAP is covered and forecast returns to CRM expectation.`
+          : needed > 1
+            ? `To close the ${fmtMoney(Math.abs(overallGap))} GAP, focus on the top ${needed} at-risk deal(s) by downside impact; together they cover ~${Math.min(100, Math.round((cum / gapToClose) * 100))}%.`
+            : `To close the ${fmtMoney(Math.abs(overallGap))} GAP, focus on the largest downside deals first; the top deal alone recaptures ${fmtMoney(recapture[0]?.v || 0)}.`
+      );
+    } else if (overallGap > 0) {
+      bullets.push(`AI Adjustment vs CRM is +${fmtMoney(overallGap)} (AI above CRM expectation). Protect the number by preventing new MEDDPICC gaps from emerging in Commit.`);
+    } else {
+      bullets.push("AI Adjustment vs CRM is neutral. Maintain forecast discipline by tightening MEDDPICC evidence on late-stage deals.");
+    }
 
     if (topBucket && Math.abs(topBucket.v) >= 1) {
       bullets.push(`${topBucketLabel} is driving the largest AI adjustment vs CRM (${fmtMoney(topBucket.v)}).`);
@@ -558,8 +742,141 @@ export function ExecutiveGapInsightsClient(props: {
       );
     }
 
-    return { bullets: bullets.filter(Boolean).slice(0, 4) };
-  }, [flattenedDeals, props.leftToGo, props.gap]);
+    return { bullets: bullets.filter(Boolean).slice(0, 4), usingFullRiskSet: analysisFlattenedDeals.length > 0, loading: analysisLoading };
+  }, [analysisFlattenedDeals, flattenedDeals, analysisOk?.totals?.gap, ok?.totals?.gap, props.leftToGo, props.gap, analysisLoading]);
+
+  const radarStrategicTakeaway = useMemo(() => {
+    const shown = sortedDeals.slice(0, topN).filter((d) => Number(d.weighted?.gap || 0) < 0);
+    const isRiskScore = (score: number | null) => {
+      if (score == null) return true;
+      if (!Number.isFinite(score)) return true;
+      return score <= 1;
+    };
+
+    const gapAbs = shown.reduce((acc, d) => acc + Math.abs(Math.min(0, Number(d.weighted?.gap || 0) || 0)), 0);
+
+    const catCounts = new Map<string, { key: string; label: string; count: number; tips: string[] }>();
+    const repGap = new Map<string, number>();
+    const repCat = new Map<string, Map<string, number>>();
+    const dealGapCount = new Map<string, number>();
+
+    for (const d of shown) {
+      const rep = dealRep(d);
+      repGap.set(rep, (repGap.get(rep) || 0) + Math.abs(Math.min(0, Number(d.weighted?.gap || 0) || 0)));
+
+      const rc = repCat.get(rep) || new Map<string, number>();
+      repCat.set(rep, rc);
+
+      let gaps = 0;
+      for (const c of d.meddpicc_tb || []) {
+        const key = String(c.key || "").trim();
+        if (!key) continue;
+        const score = c.score == null ? null : Number(c.score);
+        if (!isRiskScore(score)) continue;
+        gaps += 1;
+        const label = key === "economic_buyer" ? "Economic Buyer" : key === "paper" ? "Paper Process" : key === "process" ? "Decision Process" : key[0].toUpperCase() + key.slice(1).replace(/_/g, " ");
+        const cur = catCounts.get(key) || { key, label, count: 0, tips: [] as string[] };
+        cur.count += 1;
+        const tip = String((c as any).tip || "").trim();
+        if (tip && !cur.tips.includes(tip)) cur.tips.push(tip);
+        catCounts.set(key, cur);
+        rc.set(key, (rc.get(key) || 0) + 1);
+      }
+      dealGapCount.set(String(d.id), gaps);
+    }
+
+    const topCats = Array.from(catCounts.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3);
+
+    const topReps = Array.from(repGap.entries())
+      .filter(([k]) => k !== "—")
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([rep, v]) => ({ rep, v }));
+
+    const repTrends = topReps.map((r) => {
+      const m = repCat.get(r.rep) || new Map<string, number>();
+      const top = Array.from(m.entries()).sort((a, b) => b[1] - a[1])[0] || null;
+      const label = top ? (catCounts.get(top[0])?.label || top[0]) : null;
+      return { rep: r.rep, gapAbs: r.v, topGapKey: top?.[0] || null, topGapLabel: label, topGapCount: top?.[1] || 0 };
+    });
+
+    const quickWins = shown
+      .slice()
+      .map((d) => ({
+        id: String(d.id),
+        title: dealTitle(d),
+        amount: Number(d.amount || 0) || 0,
+        gapAbs: Math.abs(Math.min(0, Number(d.weighted?.gap || 0) || 0)),
+        gapCount: dealGapCount.get(String(d.id)) ?? 0,
+      }))
+      .filter((x) => x.gapCount > 0)
+      .sort((a, b) => a.gapCount - b.gapCount || b.amount - a.amount)
+      .slice(0, 3);
+
+    return { shownCount: shown.length, gapAbs, topCats, repTrends, quickWins };
+  }, [sortedDeals, topN]);
+
+  const radarTakeawayPayload = useMemo(() => {
+    return {
+      fiscal_year: props.fiscalYear,
+      fiscal_quarter: props.fiscalQuarter,
+      quota_period_id: quotaPeriodId,
+      radar_slice: {
+        shown_at_risk_count: radarStrategicTakeaway.shownCount,
+        downside_gap_abs: radarStrategicTakeaway.gapAbs,
+        top_meddpicc_gaps: radarStrategicTakeaway.topCats.map((c) => ({ key: c.key, label: c.label, count: c.count, tip: c.tips?.[0] || null })),
+        rep_trends: radarStrategicTakeaway.repTrends.map((r) => ({
+          rep: r.rep,
+          downside_gap_abs: r.gapAbs,
+          trend_gap: r.topGapLabel ? { label: r.topGapLabel, count: r.topGapCount } : null,
+        })),
+        coaching_targets: radarStrategicTakeaway.quickWins.map((d) => ({
+          title: d.title,
+          amount: d.amount,
+          downside_gap_abs: d.gapAbs,
+          gap_count: d.gapCount,
+        })),
+      },
+    };
+  }, [props.fiscalYear, props.fiscalQuarter, quotaPeriodId, radarStrategicTakeaway]);
+
+  useEffect(() => {
+    if (!radarTakeawayPayload?.quota_period_id) return;
+    const key = [
+      radarTakeawayPayload.quota_period_id,
+      radarTakeawayPayload.radar_slice?.shown_at_risk_count || 0,
+      radarTakeawayPayload.radar_slice?.downside_gap_abs || 0,
+      topN,
+      stageView,
+      refreshNonce,
+    ].join("|");
+    if (key === lastRadarAiKey.current) return;
+    lastRadarAiKey.current = key;
+
+    let cancelled = false;
+    setRadarAiLoading(true);
+    fetch("/api/forecast/ai-strategic-takeaway", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ surface: "radar", payload: radarTakeawayPayload }),
+    })
+      .then((r) => r.json())
+      .then((j) => {
+        const t = String(j?.text || "").trim();
+        if (!cancelled) setRadarAiText(t);
+      })
+      .catch(() => {
+        if (!cancelled) setRadarAiText("");
+      })
+      .finally(() => {
+        if (!cancelled) setRadarAiLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [radarTakeawayPayload, topN, stageView, refreshNonce]);
 
   const viewFullHref = useMemo(() => {
     const params = new URLSearchParams(sp.toString());
@@ -782,12 +1099,12 @@ export function ExecutiveGapInsightsClient(props: {
         <div className="grid gap-4 lg:grid-cols-12">
           <div className="lg:col-span-7">
             <div className="flex items-center justify-center">
-              <div className="relative h-[44px] w-[280px] shrink-0 sm:h-[56px] sm:w-[360px]">
+              <div className="relative w-[320px] max-w-[85vw] shrink-0 aspect-[2048/1365] sm:w-[420px]">
                 <Image
                   src="/brand/logooutlook.png"
                   alt="SalesForecast.io Outlook"
                   fill
-                  sizes="(min-width: 640px) 360px, 280px"
+                  sizes="(min-width: 640px) 420px, 320px"
                   className="object-contain"
                   priority={true}
                 />
@@ -849,7 +1166,7 @@ export function ExecutiveGapInsightsClient(props: {
           <div className="lg:col-span-5">
             <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
               <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
-                This Quarter’s Outlook Driven By:
+                This Quarter’s Outlook Driven By: ✨ AI Strategic Takeaway
               </div>
               <ul className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
                 {quarterDrivers.bullets.length ? (
@@ -863,6 +1180,19 @@ export function ExecutiveGapInsightsClient(props: {
                   <li className="text-[color:var(--sf-text-secondary)]">Loading quarter drivers…</li>
                 )}
               </ul>
+              {heroAiLoading ? (
+                <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating a CRO-grade takeaway…</div>
+              ) : heroAiText ? (
+                <div className="mt-3 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
+                  {heroAiText}
+                </div>
+              ) : null}
+              {quarterDrivers.usingFullRiskSet ? (
+                <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                  Strategic takeaway is calculated from the full at-risk deal set (not only the displayed top {topN}).
+                  {quarterDrivers.loading ? " Refreshing…" : ""}
+                </div>
+              ) : null}
               <div className="mt-3 border-t border-[color:var(--sf-border)] pt-3 text-sm text-[color:var(--sf-text-primary)]">
                 <span className="text-[color:var(--sf-text-primary)]">AI Adjustment vs CRM </span>
                 <span className={`font-mono font-semibold ${deltaTextClass(props.gap)}`}>{fmtMoney(props.gap)}</span>
@@ -902,6 +1232,89 @@ export function ExecutiveGapInsightsClient(props: {
               ))
             ) : (
               <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
+            )}
+          </div>
+
+          <div className="mt-4 border-t border-[color:var(--sf-border)] pt-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">✨ AI Strategic Takeaway</div>
+            {radarStrategicTakeaway.shownCount ? (
+              <div className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                <div>
+                  The radar view highlights <span className="font-mono font-semibold">{radarStrategicTakeaway.shownCount}</span> at-risk deal(s) with{" "}
+                  <span className="font-mono font-semibold">{fmtMoney(radarStrategicTakeaway.gapAbs)}</span> downside impact in this slice.
+                </div>
+                {radarAiLoading ? (
+                  <div className="text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating MEDDPICC+TB coaching guidance…</div>
+                ) : radarAiText ? (
+                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
+                    {radarAiText}
+                  </div>
+                ) : null}
+
+                {radarStrategicTakeaway.topCats.length ? (
+                  <div className="grid gap-1">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">MEDDPICC+TB gaps to coach</div>
+                    <ul className="grid gap-1">
+                      {radarStrategicTakeaway.topCats.map((c) => (
+                        <li key={c.key} className="flex gap-2">
+                          <span className="text-[color:var(--sf-accent-secondary)]">•</span>
+                          <span className="min-w-0">
+                            <span className="font-semibold">{c.label}</span> is a recurring risk in{" "}
+                            <span className="font-mono font-semibold">{c.count}</span> deal(s).
+                            {c.tips?.length ? (
+                              <span className="text-[color:var(--sf-text-secondary)]"> Tip: {c.tips[0]}</span>
+                            ) : null}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {radarStrategicTakeaway.repTrends.length ? (
+                  <div className="grid gap-1">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Rep / team trends</div>
+                    <ul className="grid gap-1">
+                      {radarStrategicTakeaway.repTrends.map((r) => (
+                        <li key={r.rep} className="flex gap-2">
+                          <span className="text-[color:var(--sf-accent-secondary)]">•</span>
+                          <span className="min-w-0">
+                            <span className="font-semibold">{r.rep}</span> carries{" "}
+                            <span className="font-mono font-semibold">{fmtMoney(r.gapAbs)}</span> downside here
+                            {r.topGapLabel ? (
+                              <span className="text-[color:var(--sf-text-secondary)]">
+                                {" "}
+                                — trend: {r.topGapLabel} gaps across {r.topGapCount} deal(s).
+                              </span>
+                            ) : null}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {radarStrategicTakeaway.quickWins.length ? (
+                  <div className="grid gap-1">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">High-leverage coaching targets</div>
+                    <ul className="grid gap-1">
+                      {radarStrategicTakeaway.quickWins.map((d) => (
+                        <li key={d.id} className="flex gap-2">
+                          <span className="text-[color:var(--sf-accent-secondary)]">•</span>
+                          <span className="min-w-0">
+                            <span className="font-semibold">{d.title}</span>{" "}
+                            <span className="text-[color:var(--sf-text-secondary)]">
+                              ({fmtMoney(d.amount)} · {d.gapCount} gap(s) · downside {fmtMoney(d.gapAbs)})
+                            </span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">No at-risk deals in this radar slice.</div>
             )}
           </div>
         </section>
