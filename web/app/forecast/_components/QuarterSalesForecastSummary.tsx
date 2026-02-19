@@ -1209,17 +1209,27 @@ export async function QuarterSalesForecastSummary(props: {
       {role !== "REP" && repRollups.length ? (
         <details className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
           <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">
-            Rep breakdown ({repRollups.length})
+            Rep CRM Actual Forecast Stages with Health Scores ({repRollups.length})
           </summary>
           <div className="mt-3 overflow-x-auto">
             <table className="min-w-[860px] table-auto border-collapse text-sm">
               <thead>
                 <tr className="text-left text-xs text-[color:var(--sf-text-secondary)]">
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Rep</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Commit</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Best Case</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Pipeline</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Total Pipeline</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">CRM Commit</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">CRM Best Case</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">CRM Pipeline</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">CRM Pipeline Total</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                    <div>Total Pipeline Closing</div>
+                    <div>(Rep‑Weighted)</div>
+                  </th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Total</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                    <div>Pipeline Closing</div>
+                    <div>(AI‑Weighted)</div>
+                  </th>
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2">GAP</th>
                   <th className="border-b border-[color:var(--sf-border)] px-2 py-2">Closed Won</th>
                 </tr>
               </thead>
@@ -1239,6 +1249,13 @@ export async function QuarterSalesForecastSummary(props: {
                   const pHealthPct = healthPctFrom30((r as any).pipeline_health_score);
                   const tHealthPct = healthPctFrom30((r as any).total_pipeline_health_score);
                   const wHealthPct = healthPctFrom30((r as any).won_health_score);
+                  const crmClosing = cAmt * orgProbs.commit + bcAmt * orgProbs.best_case + pAmt * orgProbs.pipeline;
+                  const totalCrm = (Number(r.won_amount || 0) || 0) + crmClosing;
+                  const aiClosing =
+                    cAmt * orgProbs.commit * (healthModifiers.commit_modifier || 1) +
+                    bcAmt * orgProbs.best_case * (healthModifiers.best_case_modifier || 1) +
+                    pAmt * orgProbs.pipeline * (healthModifiers.pipeline_modifier || 1);
+                  const gap = aiClosing - crmClosing;
                   const key = `${r.rep_id || "name"}:${r.rep_name}`;
                   return (
                     <tr key={key} className="text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]">
@@ -1248,31 +1265,51 @@ export async function QuarterSalesForecastSummary(props: {
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="flex items-baseline justify-between gap-2">
+                          <div className={`font-mono text-xs ${healthColorClass(cHealthPct)}`}>
+                            Avg. Health {cHealthPct == null ? "—" : `${cHealthPct}%`}
+                          </div>
                           <div className="font-mono text-sm font-semibold">{fmtMoney(cAmt)}</div>
-                          <div className={`font-mono text-xs ${healthColorClass(cHealthPct)}`}>{cHealthPct == null ? "—" : `${cHealthPct}%`}</div>
                         </div>
                         <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">Open opps {cCnt}</div>
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="flex items-baseline justify-between gap-2">
+                          <div className={`font-mono text-xs ${healthColorClass(bHealthPct)}`}>
+                            Avg. Health {bHealthPct == null ? "—" : `${bHealthPct}%`}
+                          </div>
                           <div className="font-mono text-sm font-semibold">{fmtMoney(bcAmt)}</div>
-                          <div className={`font-mono text-xs ${healthColorClass(bHealthPct)}`}>{bHealthPct == null ? "—" : `${bHealthPct}%`}</div>
                         </div>
                         <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">Open opps {bCnt}</div>
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="flex items-baseline justify-between gap-2">
+                          <div className={`font-mono text-xs ${healthColorClass(pHealthPct)}`}>
+                            Avg. Health {pHealthPct == null ? "—" : `${pHealthPct}%`}
+                          </div>
                           <div className="font-mono text-sm font-semibold">{fmtMoney(pAmt)}</div>
-                          <div className={`font-mono text-xs ${healthColorClass(pHealthPct)}`}>{pHealthPct == null ? "—" : `${pHealthPct}%`}</div>
                         </div>
                         <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">Open opps {pCnt}</div>
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="flex items-baseline justify-between gap-2">
+                          <div className={`font-mono text-xs ${healthColorClass(tHealthPct)}`}>
+                            Avg. Health {tHealthPct == null ? "—" : `${tHealthPct}%`}
+                          </div>
                           <div className="font-mono text-sm font-semibold">{fmtMoney(tAmt)}</div>
-                          <div className={`font-mono text-xs ${healthColorClass(tHealthPct)}`}>{tHealthPct == null ? "—" : `${tHealthPct}%`}</div>
                         </div>
                         <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">Open opps {openCnt}</div>
+                      </td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                        <div className="font-mono text-sm font-semibold">{fmtMoney(crmClosing)}</div>
+                      </td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                        <div className="font-mono text-sm font-semibold">{fmtMoney(totalCrm)}</div>
+                      </td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                        <div className="font-mono text-sm font-semibold">{fmtMoney(aiClosing)}</div>
+                      </td>
+                      <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
+                        <div className={`font-mono text-sm font-semibold ${deltaTextClass(gap)}`}>{fmtMoney(gap)}</div>
                       </td>
                       <td className="border-b border-[color:var(--sf-border)] px-2 py-2">
                         <div className="flex items-baseline justify-between gap-2">
