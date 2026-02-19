@@ -494,14 +494,24 @@ export async function GET(req: Request) {
     // De-dupe.
     const allowedRepNameKeysUniq = Array.from(new Set(allowedRepNameKeys.map((s) => String(s || "").trim()).filter(Boolean)));
 
-    // Fail-closed if we can't resolve a scope for a non-admin.
-    if (allowedRepIds !== null && (!allowedRepIds.length || !Number.isFinite(allowedRepIds[0] as any))) {
+    // Fail-closed if we can't resolve a scope for a non-admin AND we don't have any safe fallback.
+    // IMPORTANT: REP users may have opportunities missing rep_id, so we allow name/email-key fallback scoping.
+    if (
+      allowedRepIds !== null &&
+      (!allowedRepIds.length || !Number.isFinite(allowedRepIds[0] as any)) &&
+      scopedRole !== "REP"
+    ) {
       return NextResponse.json({
         ok: true,
         quota_period: null,
         totals: { crm_outlook_weighted: 0, ai_outlook_weighted: 0, gap: 0 },
+        shown_totals: { crm_outlook_weighted: 0, ai_outlook_weighted: 0, gap: 0 },
         rep_context: null,
-        groups: { commit: { deals: [], totals: { crm_weighted: 0, ai_weighted: 0, gap: 0 } }, best_case: { deals: [], totals: { crm_weighted: 0, ai_weighted: 0, gap: 0 } }, pipeline: { deals: [], totals: { crm_weighted: 0, ai_weighted: 0, gap: 0 } } },
+        groups: {
+          commit: { deals: [], totals: { crm_weighted: 0, ai_weighted: 0, gap: 0 }, shown_totals: { crm_weighted: 0, ai_weighted: 0, gap: 0 } },
+          best_case: { deals: [], totals: { crm_weighted: 0, ai_weighted: 0, gap: 0 }, shown_totals: { crm_weighted: 0, ai_weighted: 0, gap: 0 } },
+          pipeline: { deals: [], totals: { crm_weighted: 0, ai_weighted: 0, gap: 0 }, shown_totals: { crm_weighted: 0, ai_weighted: 0, gap: 0 } },
+        },
       });
     }
 
