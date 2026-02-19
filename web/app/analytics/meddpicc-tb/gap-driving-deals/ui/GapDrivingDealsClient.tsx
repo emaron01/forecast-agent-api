@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { MEDDPICC_CANONICAL } from "../../../../../lib/meddpiccCanonical";
 
@@ -252,14 +253,16 @@ export function GapDrivingDealsClient(props: {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, string>>({});
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
-  const currentSearch = typeof window !== "undefined" ? window.location.search : "";
+  const sp = useSearchParams();
+  const spKey = sp?.toString() || "";
   const qs = useMemo(() => {
-    const sp = new URLSearchParams(currentSearch || "");
-    if (!sp.get("quota_period_id") && props.initialQuotaPeriodId) sp.set("quota_period_id", props.initialQuotaPeriodId);
-    return sp;
+    const next = new URLSearchParams(spKey || "");
+    if (!next.get("quota_period_id") && props.initialQuotaPeriodId) next.set("quota_period_id", props.initialQuotaPeriodId);
+    return next;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentSearch, props.initialQuotaPeriodId]);
+  }, [spKey, props.initialQuotaPeriodId]);
 
   const apiUrl = useMemo(() => {
     const sp = new URLSearchParams(qs);
@@ -271,7 +274,8 @@ export function GapDrivingDealsClient(props: {
     let cancelled = false;
     setLoading(true);
     setData(null);
-    fetch(apiUrl, { method: "GET" })
+    const url = `${apiUrl}${apiUrl.includes("?") ? "&" : "?"}_r=${refreshNonce}`;
+    fetch(url, { method: "GET" })
       .then((r) => r.json())
       .then((j) => {
         if (!cancelled) setData(j as ApiResponse);
@@ -285,7 +289,7 @@ export function GapDrivingDealsClient(props: {
     return () => {
       cancelled = true;
     };
-  }, [apiUrl]);
+  }, [apiUrl, refreshNonce]);
 
   const repPublicId = String(qs.get("rep_public_id") || "");
   const riskCategory = String(qs.get("risk_category") || "");
@@ -325,6 +329,7 @@ export function GapDrivingDealsClient(props: {
 
     // Clear report filters.
     [
+      "fiscal_year",
       "rep_public_id",
       "repPublicId",
       "rep_name",
@@ -374,6 +379,7 @@ export function GapDrivingDealsClient(props: {
     });
 
     [
+      "fiscal_year",
       "rep_public_id",
       "repPublicId",
       "rep_name",
@@ -480,6 +486,13 @@ export function GapDrivingDealsClient(props: {
               className="h-[36px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 text-sm font-medium hover:bg-[color:var(--sf-surface-alt)]"
             >
               All At Risk
+            </button>
+
+            <button
+              onClick={() => setRefreshNonce((n) => n + 1)}
+              className="h-[36px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+            >
+              Refresh data
             </button>
           </div>
         </div>
