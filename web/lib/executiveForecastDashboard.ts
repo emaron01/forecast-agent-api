@@ -497,9 +497,9 @@ async function getOpenPipelineSnapshot(args: {
             -- ISO-ish date or timestamp starting with YYYY-M-D (accepts zero-padded too)
             WHEN (o.close_date::text ~ '^\\d{4}-\\d{1,2}-\\d{1,2}') THEN
               substring(o.close_date::text from '^(\\d{4}-\\d{1,2}-\\d{1,2})')::date
-            -- US-style M/D/YYYY (common in Excel/CSV uploads)
+            -- US-style M/D/YYYY (common in Excel/CSV uploads; allow non-zero-padded month/day)
             WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-              to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+              to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
             ELSE NULL
           END AS close_d
         FROM opportunities o
@@ -590,7 +590,7 @@ async function getCreatedPipelineByProduct(args: {
             WHEN o.close_date IS NULL THEN NULL
             WHEN (o.close_date::text ~ '^\\d{4}-\\d{1,2}-\\d{1,2}') THEN substring(o.close_date::text from 1 for 10)::date
             WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-              to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+              to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
             ELSE NULL
           END AS close_d
         FROM opportunities o
@@ -665,7 +665,7 @@ async function getCreatedPipelineAgeMix(args: {
             WHEN o.close_date IS NULL THEN NULL
             WHEN (o.close_date::text ~ '^\\d{4}-\\d{1,2}-\\d{1,2}') THEN substring(o.close_date::text from 1 for 10)::date
             WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-              to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+              to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
             ELSE NULL
           END AS close_d
         FROM opportunities o
@@ -942,7 +942,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
   );
 
   // Map visible REP users -> rep ids when possible (opportunities.rep_id is reps.id).
-  const repIdsToUse =
+  let repIdsToUse =
     visibleRepUserIds.length || visibleRepNameKeys.length
       ? await pool
           .query<{ id: number }>(
@@ -1076,7 +1076,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
                   WHEN o.close_date IS NULL THEN NULL
                   WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
                   WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-                    to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+                    to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
                   ELSE NULL
                 END AS close_d
               FROM opportunities o
@@ -1157,7 +1157,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
                 WHEN o.close_date IS NULL THEN NULL
                 WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
                 WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-                  to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+                  to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
                 ELSE NULL
               END AS close_d
             FROM opportunities o
@@ -1280,7 +1280,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
                 WHEN o.close_date IS NULL THEN NULL
                 WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
                 WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-                  to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+                  to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
                 ELSE NULL
               END AS close_d
             FROM opportunities o
@@ -1377,7 +1377,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
                 WHEN o.close_date IS NULL THEN NULL
                 WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
                 WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-                  to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+                  to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
                 ELSE NULL
               END AS close_d
             FROM opportunities o
@@ -1492,7 +1492,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
                       WHEN o.close_date IS NULL THEN NULL
                       WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
                       WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-                        to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+                        to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
                       ELSE NULL
                     END AS close_d
                   FROM opportunities o
@@ -1653,37 +1653,34 @@ export async function getExecutiveForecastDashboardSummary(args: {
   // Pipeline Momentum must respect user visibility.
   //
   // - `scope.allowedRepIds === null` means company-wide (ADMIN or EXEC with global visibility) → no filter
-  // - otherwise, we are in a scoped/team view. If `allowedRepIds` is empty due to rep-directory gaps,
-  //   fall back to visibility-derived rep ids/name keys (NOT company-wide).
+  // - otherwise, we are in a scoped/team view. If `allowedRepIds` is unexpectedly empty,
+  //   fall back to visibility-derived rep ids or REP ids from the scoped rep directory (NOT company-wide).
   const isCompanyScopeForMomentum = scope.allowedRepIds === null;
 
-  const repIdsForMomentum =
-    !isCompanyScopeForMomentum && Array.isArray(scope.allowedRepIds) && scope.allowedRepIds.length
-      ? scope.allowedRepIds
-      : !isCompanyScopeForMomentum
-        ? repIdsToUse
-        : [];
-
-  const repNameKeysForMomentumCandidate = !isCompanyScopeForMomentum
-    ? Array.from(
-        new Set(
-          [
-            ...(visibleRepNameKeys || []),
-            ...((scope.repDirectory || []).map((r) => normalizeNameKey((r as any)?.name)).filter(Boolean) as string[]),
-          ].filter(Boolean)
+  const repIdsFromDirectory =
+    !isCompanyScopeForMomentum && Array.isArray(scope.repDirectory)
+      ? Array.from(
+          new Set(
+            (scope.repDirectory as any[])
+              .filter((r) => String((r as any)?.role || "").toUpperCase() === "REP")
+              .map((r) => Number((r as any)?.id))
+              .filter((n) => Number.isFinite(n) && n > 0)
+          )
         )
-      )
+      : [];
+
+  const repIdsForMomentum = !isCompanyScopeForMomentum
+    ? (Array.isArray(scope.allowedRepIds) && scope.allowedRepIds.length
+        ? scope.allowedRepIds
+        : repIdsToUse.length
+          ? repIdsToUse
+          : repIdsFromDirectory)
     : [];
 
-  const useRepFilterForMomentum =
-    !isCompanyScopeForMomentum &&
-    ((Array.isArray(repIdsForMomentum) && repIdsForMomentum.length > 0) || repNameKeysForMomentumCandidate.length > 0);
-
-  // IMPORTANT:
-  // Some deployments do not reliably populate `opportunities.rep_id`, but *do* have `opportunities.rep_name`.
-  // When scoping is enabled (non-admin), we must include a rep-name-based filter keyset, or momentum can
-  // incorrectly zero out even when data exists.
-  const repNameKeysForMomentum = useRepFilterForMomentum ? repNameKeysForMomentumCandidate : [];
+  // Only scope by rep_id here. We do NOT rely on rep_name matching because `opportunities.rep_name` can differ
+  // from rep-directory/user names (CSV loads + CRM naming differences).
+  const useRepFilterForMomentum = !isCompanyScopeForMomentum && repIdsForMomentum.length > 0;
+  const repNameKeysForMomentum: string[] = [];
 
   const prevQuarterKpis =
     prevQpId && qpId
