@@ -436,43 +436,49 @@ async function listOpenPipelineByPartnerForExecutive(args: { orgId: number; quot
   return rows || [];
 }
 
-type OpenPipelineSnapshot = {
+type PipelineStageSnapshot = {
   commit_amount: number;
   commit_count: number;
   best_case_amount: number;
   best_case_count: number;
   pipeline_amount: number;
   pipeline_count: number;
-  total_amount: number;
-  total_count: number;
+  total_active_amount: number;
+  total_active_count: number;
+  won_amount: number;
+  won_count: number;
+  lost_amount: number;
+  lost_count: number;
 };
 
-async function getOpenPipelineSnapshot(args: {
+async function getPipelineStageSnapshotForPeriod(args: {
   orgId: number;
   quotaPeriodId: string;
-  useRepFilter: boolean;
-  repIds: number[];
-  repNameKeys: string[];
-}): Promise<OpenPipelineSnapshot> {
-  const empty: OpenPipelineSnapshot = {
+  repIds: number[] | null;
+}): Promise<PipelineStageSnapshot> {
+  const empty: PipelineStageSnapshot = {
     commit_amount: 0,
     commit_count: 0,
     best_case_amount: 0,
     best_case_count: 0,
     pipeline_amount: 0,
     pipeline_count: 0,
-    total_amount: 0,
-    total_count: 0,
+    total_active_amount: 0,
+    total_active_count: 0,
+    won_amount: 0,
+    won_count: 0,
+    lost_amount: 0,
+    lost_count: 0,
   };
 
   const qpId = String(args.quotaPeriodId || "").trim();
   if (!qpId) return empty;
 
-  const repIds = Array.isArray(args.repIds) ? args.repIds : [];
-  const repNameKeys = Array.isArray(args.repNameKeys) ? args.repNameKeys : [];
+  const repIds = args.repIds === null ? [] : Array.isArray(args.repIds) ? args.repIds : [];
+  const useRepFilter = !!(args.repIds && Array.isArray(args.repIds) && args.repIds.length);
 
   const { rows } = await pool
-    .query<OpenPipelineSnapshot>(
+    .query<PipelineStageSnapshot>(
       `
       WITH qp AS (
         SELECT period_start::date AS period_start, period_end::date AS period_end
@@ -481,64 +487,49 @@ async function getOpenPipelineSnapshot(args: {
            AND id = $2::bigint
          LIMIT 1
       ),
-      deals AS (
+      base AS (
         SELECT
           COALESCE(o.amount, 0)::float8 AS amount,
-          lower(
-            regexp_replace(
-              COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
-              '[^a-zA-Z]+',
-              ' ',
-              'g'
-            )
-          ) AS fs,
-          CASE
-            WHEN o.close_date IS NULL THEN NULL
-            WHEN (o.close_date::text ~ '^\\d{4}-\\d{1,2}-\\d{1,2}') THEN substring(o.close_date::text from 1 for 10)::date
-            WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-              to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
-            ELSE NULL
-          END AS close_d
+          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
         FROM opportunities o
+        JOIN qp ON TRUE
         WHERE o.org_id = $1
-          AND (
-            NOT $5::boolean
-            OR (
-              (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-              OR (
-                COALESCE(array_length($4::text[], 1), 0) > 0
-                AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-              )
-            )
-          )
+          AND o.close_date IS NOT NULL
+          AND o.close_date >= qp.period_start
+          AND o.close_date <= qp.period_end
+          AND o.rep_id IS NOT NULL
+          AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
       ),
-      deals_in_qtr AS (
-        SELECT d.*
-          FROM deals d
-          JOIN qp ON TRUE
-         WHERE d.close_d IS NOT NULL
-           AND d.close_d >= qp.period_start
-           AND d.close_d <= qp.period_end
-      ),
-      open_deals AS (
-        SELECT *
-          FROM deals_in_qtr d
-         WHERE NOT ((' ' || d.fs || ' ') LIKE '% won %')
-           AND NOT ((' ' || d.fs || ' ') LIKE '% lost %')
-           AND NOT ((' ' || d.fs || ' ') LIKE '% closed %')
+      classified AS (
+        SELECT
+          *,
+          ((' ' || fs || ' ') LIKE '% won %') AS is_won,
+          (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
+          (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AS is_active,
+          CASE
+            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AND fs LIKE '%commit%' THEN 'commit'
+            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AND fs LIKE '%best%' THEN 'best'
+            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) THEN 'pipeline'
+            ELSE 'other'
+          END AS bucket
+        FROM base
       )
       SELECT
-        COALESCE(SUM(CASE WHEN fs LIKE '%commit%' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
-        COALESCE(SUM(CASE WHEN fs LIKE '%commit%' THEN 1 ELSE 0 END), 0)::int AS commit_count,
-        COALESCE(SUM(CASE WHEN fs LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
-        COALESCE(SUM(CASE WHEN fs LIKE '%best%' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
-        COALESCE(SUM(CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
-        COALESCE(SUM(CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
-        COALESCE(SUM(amount), 0)::float8 AS total_amount,
-        COUNT(*)::int AS total_count
-      FROM open_deals
+        COALESCE(SUM(CASE WHEN is_active AND bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
+        COALESCE(SUM(CASE WHEN is_active AND bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
+        COALESCE(SUM(CASE WHEN is_active AND bucket = 'best' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
+        COALESCE(SUM(CASE WHEN is_active AND bucket = 'best' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
+        COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+        COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
+        COALESCE(SUM(CASE WHEN is_active THEN amount ELSE 0 END), 0)::float8 AS total_active_amount,
+        COALESCE(SUM(CASE WHEN is_active THEN 1 ELSE 0 END), 0)::int AS total_active_count,
+        COALESCE(SUM(CASE WHEN is_won THEN amount ELSE 0 END), 0)::float8 AS won_amount,
+        COALESCE(SUM(CASE WHEN is_won THEN 1 ELSE 0 END), 0)::int AS won_count,
+        COALESCE(SUM(CASE WHEN is_lost THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
+        COALESCE(SUM(CASE WHEN is_lost THEN 1 ELSE 0 END), 0)::int AS lost_count
+      FROM classified
       `,
-      [args.orgId, qpId, repIds, repNameKeys, args.useRepFilter]
+      [args.orgId, qpId, repIds, useRepFilter]
     )
     .then((r) => r.rows || [])
     .catch(() => []);
@@ -1649,8 +1640,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
   // Pipeline Momentum scoping must match the KPI-by-quarter semantics:
   // apply a rep_id filter only when we have a non-empty allowedRepIds list.
   // (Avoid rep_name fallback here; it can silently filter everything to zero.)
-  const repIdsForMomentum = scope.allowedRepIds === null ? [] : (scope.allowedRepIds ?? []);
-  const useRepFilterForMomentum = !!(scope.allowedRepIds && scope.allowedRepIds.length);
+  const repIdsForMomentum: number[] | null = scope.allowedRepIds === null ? null : scope.allowedRepIds ?? [];
 
   const prevQuarterKpis =
     prevQpId && qpId
@@ -1661,22 +1651,18 @@ export async function getExecutiveForecastDashboardSummary(args: {
         }).catch(() => null)
       : null;
 
-  const curSnap = qpId
-    ? await getOpenPipelineSnapshot({
+  const curStage = qpId
+    ? await getPipelineStageSnapshotForPeriod({
         orgId: args.orgId,
         quotaPeriodId: qpId,
-        useRepFilter: useRepFilterForMomentum,
         repIds: repIdsForMomentum,
-        repNameKeys: [],
       }).catch(() => null)
     : null;
-  const prevSnap = prevQpId
-    ? await getOpenPipelineSnapshot({
+  const prevStage = prevQpId
+    ? await getPipelineStageSnapshotForPeriod({
         orgId: args.orgId,
         quotaPeriodId: prevQpId,
-        useRepFilter: useRepFilterForMomentum,
         repIds: repIdsForMomentum,
-        repNameKeys: [],
       }).catch(() => null)
     : null;
 
@@ -1686,34 +1672,34 @@ export async function getExecutiveForecastDashboardSummary(args: {
   };
 
   const pipelineMomentum: PipelineMomentumData | null =
-    curSnap && Number.isFinite(Number(curSnap.total_amount))
+    curStage && Number.isFinite(Number(curStage.total_active_amount))
       ? {
-          quota_target: Math.max(0, quota - (Number(totals.won_amount || 0) || 0)),
+          quota_target: Math.max(0, quota - (Number(curStage.won_amount || 0) || 0)),
           current_quarter: {
-            total_pipeline: Number(curSnap.total_amount || 0) || 0,
-            total_opps: Number(curSnap.total_count || 0) || 0,
+            total_pipeline: Number(curStage.total_active_amount || 0) || 0,
+            total_opps: Number(curStage.total_active_count || 0) || 0,
             mix: {
               commit: {
-                value: Number(curSnap.commit_amount || 0) || 0,
-                opps: Number(curSnap.commit_count || 0) || 0,
-                qoq_change_pct: prevSnap ? qoqPct(Number(curSnap.commit_amount || 0) || 0, Number(prevSnap.commit_amount || 0) || 0) : null,
+                value: Number(curStage.commit_amount || 0) || 0,
+                opps: Number(curStage.commit_count || 0) || 0,
+                qoq_change_pct: prevStage ? qoqPct(Number(curStage.commit_amount || 0) || 0, Number(prevStage.commit_amount || 0) || 0) : null,
               },
               best_case: {
-                value: Number(curSnap.best_case_amount || 0) || 0,
-                opps: Number(curSnap.best_case_count || 0) || 0,
-                qoq_change_pct: prevSnap
-                  ? qoqPct(Number(curSnap.best_case_amount || 0) || 0, Number(prevSnap.best_case_amount || 0) || 0)
+                value: Number(curStage.best_case_amount || 0) || 0,
+                opps: Number(curStage.best_case_count || 0) || 0,
+                qoq_change_pct: prevStage
+                  ? qoqPct(Number(curStage.best_case_amount || 0) || 0, Number(prevStage.best_case_amount || 0) || 0)
                   : null,
               },
               pipeline: {
-                value: Number(curSnap.pipeline_amount || 0) || 0,
-                opps: Number(curSnap.pipeline_count || 0) || 0,
-                qoq_change_pct: prevSnap ? qoqPct(Number(curSnap.pipeline_amount || 0) || 0, Number(prevSnap.pipeline_amount || 0) || 0) : null,
+                value: Number(curStage.pipeline_amount || 0) || 0,
+                opps: Number(curStage.pipeline_count || 0) || 0,
+                qoq_change_pct: prevStage ? qoqPct(Number(curStage.pipeline_amount || 0) || 0, Number(prevStage.pipeline_amount || 0) || 0) : null,
               },
             },
           },
           previous_quarter: {
-            total_pipeline: prevSnap ? (Number(prevSnap.total_amount || 0) || 0) : null,
+            total_pipeline: prevStage ? (Number(prevStage.total_active_amount || 0) || 0) : null,
           },
           predictive: await (async () => {
             const curCreated = quarterKpis?.createdPipeline || null;
@@ -1797,9 +1783,9 @@ export async function getExecutiveForecastDashboardSummary(args: {
               ? await getCreatedPipelineByProduct({
                   orgId: args.orgId,
                   quotaPeriodId: qpId,
-                  useRepFilter: useRepFilterForMomentum,
-                  repIds: repIdsToUse,
-                  repNameKeys: visibleRepNameKeys,
+                  useRepFilter: useRepFilterForCreated,
+                  repIds: repIdsForCreated || [],
+                  repNameKeys: [],
                   limit: 12,
                 }).catch(() => [])
               : [];
@@ -1807,9 +1793,9 @@ export async function getExecutiveForecastDashboardSummary(args: {
               ? await getCreatedPipelineByProduct({
                   orgId: args.orgId,
                   quotaPeriodId: prevQpId,
-                  useRepFilter: useRepFilterForMomentum,
-                  repIds: repIdsToUse,
-                  repNameKeys: visibleRepNameKeys,
+                  useRepFilter: useRepFilterForCreated,
+                  repIds: repIdsForCreated || [],
+                  repNameKeys: [],
                   limit: 50,
                 }).catch(() => [])
               : [];
@@ -1820,9 +1806,9 @@ export async function getExecutiveForecastDashboardSummary(args: {
               ? await getCreatedPipelineAgeMix({
                   orgId: args.orgId,
                   quotaPeriodId: qpId,
-                  useRepFilter: useRepFilterForMomentum,
-                  repIds: repIdsToUse,
-                  repNameKeys: visibleRepNameKeys,
+                  useRepFilter: useRepFilterForCreated,
+                  repIds: repIdsForCreated || [],
+                  repNameKeys: [],
                 }).catch(() => ({ avg_age_days: null, bands: [] as any[] }))
               : { avg_age_days: null, bands: [] as any[] };
 
@@ -1830,9 +1816,9 @@ export async function getExecutiveForecastDashboardSummary(args: {
               ? await getPartnerSpeedSignals({
                   orgId: args.orgId,
                   quotaPeriodId: qpId,
-                  useRepFilter: useRepFilterForMomentum,
-                  repIds: repIdsToUse,
-                  repNameKeys: visibleRepNameKeys,
+                  useRepFilter: useRepFilterForCreated,
+                  repIds: repIdsForCreated || [],
+                  repNameKeys: [],
                   limit: 8,
                 }).catch(() => ({ direct: null, partners: [] as any[] }))
               : { direct: null, partners: [] as any[] };
