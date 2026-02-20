@@ -44,6 +44,9 @@ export default async function AnalyticsPage() {
               desc="Deal heatmap + risk/next steps report (sortable)."
             />
           ) : null}
+          {ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER" ? (
+            <Card href="/analytics/detail-dashboard" title="Detail dashboard (report)" desc="The legacy detail dashboard, now housed in Analytics." />
+          ) : null}
           {ctx.user.role === "ADMIN" ? (
             <Card href="/analytics/quotas/admin" title="Quotas (Admin)" desc="Admin quota management." />
           ) : null}

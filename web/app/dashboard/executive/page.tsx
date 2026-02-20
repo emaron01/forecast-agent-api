@@ -37,14 +37,17 @@ export default async function ExecutiveDashboardPage({
             <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Executive Dashboard</h1>
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
               Fast, high-signal quarter view (scope: {summary.scopeLabel}).{" "}
-              <Link className="text-[color:var(--sf-accent-primary)] hover:underline" href="/dashboard">
-                View detail dashboard
+              <Link className="text-[color:var(--sf-accent-primary)] hover:underline" href="/analytics/detail-dashboard">
+                View detail report
               </Link>
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/dashboard" className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]">
-              Data details
+            <Link
+              href="/analytics/detail-dashboard"
+              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+            >
+              Detail report
             </Link>
           </div>
         </div>

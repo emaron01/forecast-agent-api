@@ -494,8 +494,9 @@ async function getOpenPipelineSnapshot(args: {
           ) AS fs,
           CASE
             WHEN o.close_date IS NULL THEN NULL
-            -- ISO date or timestamp starting with YYYY-MM-DD
-            WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+            -- ISO-ish date or timestamp starting with YYYY-M-D (accepts zero-padded too)
+            WHEN (o.close_date::text ~ '^\\d{4}-\\d{1,2}-\\d{1,2}') THEN
+              substring(o.close_date::text from '^(\\d{4}-\\d{1,2}-\\d{1,2})')::date
             -- US-style M/D/YYYY (common in Excel/CSV uploads)
             WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
               to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
