@@ -1720,38 +1720,48 @@ export async function getExecutiveForecastDashboardSummary(args: {
       }).catch(() => null)
     : null;
 
+  // TEST (per request): drive Momentum/Mix off create_date-in-quarter pipeline.
+  const curCreatedForMomentum = quarterKpis?.createdPipeline || null;
+  const prevCreatedForMomentum = prevQuarterKpis?.createdPipeline || null;
+
   const qoqPct = (cur: number, prev: number) => {
     if (!Number.isFinite(cur) || !Number.isFinite(prev) || prev <= 0) return null;
     return ((cur - prev) / prev) * 100;
   };
 
   const pipelineMomentum: PipelineMomentumData | null =
-    curSnap && Number.isFinite(Number(curSnap.total_amount))
+    curCreatedForMomentum && Number.isFinite(Number(curCreatedForMomentum.totalAmount))
       ? {
           quota_target: Math.max(0, quota - (Number(totals.won_amount || 0) || 0)),
           current_quarter: {
-            total_pipeline: Number(curSnap.total_amount || 0) || 0,
-            total_opps: Number(curSnap.total_count || 0) || 0,
+            total_pipeline: Number(curCreatedForMomentum.totalAmount || 0) || 0,
+            total_opps: Number(curCreatedForMomentum.totalCount || 0) || 0,
             mix: {
               commit: {
-                value: Number(curSnap.commit_amount || 0) || 0,
-                opps: Number(curSnap.commit_count || 0) || 0,
-                qoq_change_pct: prevSnap ? qoqPct(Number(curSnap.commit_amount || 0) || 0, Number(prevSnap.commit_amount || 0) || 0) : null,
+                value: Number(curCreatedForMomentum.commitAmount || 0) || 0,
+                opps: Number(curCreatedForMomentum.commitCount || 0) || 0,
+                qoq_change_pct: prevCreatedForMomentum
+                  ? qoqPct(Number(curCreatedForMomentum.commitAmount || 0) || 0, Number(prevCreatedForMomentum.commitAmount || 0) || 0)
+                  : null,
               },
               best_case: {
-                value: Number(curSnap.best_case_amount || 0) || 0,
-                opps: Number(curSnap.best_case_count || 0) || 0,
-                qoq_change_pct: prevSnap ? qoqPct(Number(curSnap.best_case_amount || 0) || 0, Number(prevSnap.best_case_amount || 0) || 0) : null,
+                value: Number(curCreatedForMomentum.bestAmount || 0) || 0,
+                opps: Number(curCreatedForMomentum.bestCount || 0) || 0,
+                qoq_change_pct: prevCreatedForMomentum
+                  ? qoqPct(Number(curCreatedForMomentum.bestAmount || 0) || 0, Number(prevCreatedForMomentum.bestAmount || 0) || 0)
+                  : null,
               },
               pipeline: {
-                value: Number(curSnap.pipeline_amount || 0) || 0,
-                opps: Number(curSnap.pipeline_count || 0) || 0,
-                qoq_change_pct: prevSnap ? qoqPct(Number(curSnap.pipeline_amount || 0) || 0, Number(prevSnap.pipeline_amount || 0) || 0) : null,
+                value: Number(curCreatedForMomentum.pipelineAmount || 0) || 0,
+                opps: Number(curCreatedForMomentum.pipelineCount || 0) || 0,
+                qoq_change_pct: prevCreatedForMomentum
+                  ? qoqPct(Number(curCreatedForMomentum.pipelineAmount || 0) || 0, Number(prevCreatedForMomentum.pipelineAmount || 0) || 0)
+                  : null,
               },
             },
           },
           previous_quarter: {
-            total_pipeline: prevSnap ? (Number(prevSnap.total_amount || 0) || 0) : null,
+            total_pipeline: prevCreatedForMomentum ? (Number(prevCreatedForMomentum.totalAmount || 0) || 0) : null,
           },
           predictive: await (async () => {
             const curCreated = quarterKpis?.createdPipeline || null;
