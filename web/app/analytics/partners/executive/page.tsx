@@ -638,6 +638,51 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
       }).catch(() => [])
     : [];
 
+  const prevQuotaPeriodId = (() => {
+    if (!selected) return "";
+    const sorted = allPeriods
+      .slice()
+      .sort((a, b) => String(b.period_start || "").localeCompare(String(a.period_start || "")) || Number(b.id) - Number(a.id));
+    const idx = sorted.findIndex((p) => String(p.id) === String(selected.id));
+    const prev = idx >= 0 ? sorted[idx + 1] || null : null;
+    return prev ? String(prev.id) : "";
+  })();
+
+  const prevMotionStats = prevQuotaPeriodId
+    ? await loadMotionStats({
+        orgId: ctx.user.org_id,
+        quotaPeriodId: prevQuotaPeriodId,
+        dateStart: null,
+        dateEnd: null,
+        repIds: scopeRepIds,
+      }).catch(() => [])
+    : [];
+  const prevByMotion = new Map<string, MotionStatsRow>();
+  for (const r of prevMotionStats) prevByMotion.set(String(r.motion), r);
+  const prevDirect = prevByMotion.get("direct") || null;
+  const prevPartner = prevByMotion.get("partner") || null;
+
+  const ceiPrevPartnerIndex = (() => {
+    if (!prevDirect || !prevPartner) return null;
+    const directDays = prevDirect.avg_days == null ? null : Number(prevDirect.avg_days);
+    const partnerDays = prevPartner.avg_days == null ? null : Number(prevPartner.avg_days);
+    const directWon = Number(prevDirect.won_amount || 0) || 0;
+    const partnerWon = Number(prevPartner.won_amount || 0) || 0;
+    const directWin = prevDirect.win_rate == null ? null : Number(prevDirect.win_rate);
+    const partnerWin = prevPartner.win_rate == null ? null : Number(prevPartner.win_rate);
+    const directH = prevDirect.avg_health_score == null ? null : Number(prevDirect.avg_health_score) / 30;
+    const partnerH = prevPartner.avg_health_score == null ? null : Number(prevPartner.avg_health_score) / 30;
+
+    const RV_direct = directDays && directDays > 0 ? directWon / directDays : 0;
+    const RV_partner = partnerDays && partnerDays > 0 ? partnerWon / partnerDays : 0;
+    const QM_direct = directWin == null ? 0 : directH == null ? directWin : directWin * directH;
+    const QM_partner = partnerWin == null ? 0 : partnerH == null ? partnerWin : partnerWin * partnerH;
+    const CEI_raw_direct = RV_direct * QM_direct;
+    const CEI_raw_partner = RV_partner * QM_partner;
+    if (!(CEI_raw_direct > 0)) return null;
+    return (CEI_raw_partner / CEI_raw_direct) * 100;
+  })();
+
   const openByMotion = selected
     ? await loadOpenPipelineByMotion({
         orgId: ctx.user.org_id,
@@ -966,20 +1011,76 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
 
               <div className="mt-4 grid gap-3 lg:grid-cols-3">
                 <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CEI index</div>
-                  <div className="mt-2 grid gap-1 text-sm text-[color:var(--sf-text-primary)]">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-semibold">Direct</span>
-                      <span className="font-mono font-semibold">100</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-semibold">Partner</span>
-                      <span className="font-mono font-semibold">{cei.partner_index == null ? "—" : Math.round(cei.partner_index).toLocaleString()}</span>
-                    </div>
-                  </div>
-                  <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">
-                    CEI = (Revenue/day × Quality), indexed to Direct.
-                  </div>
+                  {(() => {
+                    const ceiCur = cei.partner_index == null ? null : Number(cei.partner_index);
+                    const ceiPrev = ceiPrevPartnerIndex == null ? null : Number(ceiPrevPartnerIndex);
+                    const delta = ceiCur != null && ceiPrev != null ? ceiCur - ceiPrev : null;
+
+                    const status =
+                      ceiCur == null
+                        ? { label: "—", tone: "muted" as const }
+                        : ceiCur >= 120
+                          ? { label: "HIGH", tone: "good" as const }
+                          : ceiCur >= 90
+                            ? { label: "MEDIUM", tone: "warn" as const }
+                            : ceiCur >= 70
+                              ? { label: "LOW", tone: "bad" as const }
+                              : { label: "CRITICAL", tone: "bad" as const };
+
+                    const partnerWon = partnerStats ? Number(partnerStats.won_opps || 0) || 0 : 0;
+                    const sampleFactor = Math.min(1, partnerWon / 12);
+                    const revenueShare = partnerSharePct == null ? 0 : Number(partnerSharePct);
+                    const revenueFactor = Math.min(1, revenueShare / 0.4);
+                    const volatilityFactor = delta != null ? 1 - normalize(Math.abs(delta), 0, 100) : 0.6;
+                    const conf01 = sampleFactor * 0.5 + revenueFactor * 0.3 + volatilityFactor * 0.2;
+                    const conf = clampScore100(conf01 * 100);
+                    const confBand =
+                      conf >= 75 ? "HIGH CONFIDENCE" : conf >= 50 ? "MODERATE CONFIDENCE" : conf >= 30 ? "LOW CONFIDENCE" : "PRELIMINARY";
+
+                    const trend =
+                      delta == null
+                        ? { label: "—", arrow: "→", tone: "muted" as const }
+                        : delta >= 15
+                          ? { label: "Improving", arrow: "↑", tone: "good" as const }
+                          : delta <= -15
+                            ? { label: "Declining", arrow: "↓", tone: "bad" as const }
+                            : { label: "Stable", arrow: "→", tone: "muted" as const };
+
+                    return (
+                      <>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CEI Performance</div>
+                        <div className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-[color:var(--sf-text-secondary)]">CEI Status</span>
+                            <span className={["inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold", pillToneClass(status.tone)].join(" ")}>
+                              {status.label}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-[color:var(--sf-text-secondary)]">Partner CEI</span>
+                            <span className="font-mono font-semibold">{ceiCur == null ? "—" : `${Math.round(ceiCur).toLocaleString()} (Direct = 100)`}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-[color:var(--sf-text-secondary)]">Confidence</span>
+                            <span className="font-mono font-semibold">{confBand}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-[color:var(--sf-text-secondary)]">Trend</span>
+                            <span
+                              className={[
+                                "flex items-center gap-1 font-mono font-semibold",
+                                trend.tone === "good" ? "text-[#16A34A]" : trend.tone === "bad" ? "text-[#E74C3C]" : "text-[color:var(--sf-text-secondary)]",
+                              ].join(" ")}
+                            >
+                              <span aria-hidden="true">{trend.arrow}</span>
+                              <span>{trend.label}</span>
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Based on {partnerWon.toLocaleString()} partner closed-won deal(s).</div>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
 
                 <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 lg:col-span-2">
@@ -1041,7 +1142,12 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
                   partner_mix_pct: partnerSharePct,
                   decision_engine: {
                     executive_narrative: executiveNarrative,
-                    cei_index: cei,
+                    cei_performance: {
+                      cei_partner_index: cei.partner_index,
+                      cei_prev_partner_index: ceiPrevPartnerIndex,
+                      partner_closed_won_count: partnerStats ? Number(partnerStats.won_opps || 0) || 0 : 0,
+                      partner_revenue_share_pct01: partnerSharePct,
+                    },
                     wic: motionScoreRows.map((r) => ({ label: r.label, wic: r.wic, band: r.wic_band.label, open_pipeline: r.open_pipeline })),
                     pqs: motionScoreRows.filter((r) => r.key.startsWith("partner:")).map((r) => ({ label: r.label, pqs: r.pqs })),
                   },

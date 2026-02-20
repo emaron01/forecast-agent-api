@@ -457,6 +457,7 @@ export function ExecutiveGapInsightsClient(props: {
       open_pipeline: number;
     } | null;
     revenue_mix_partner_pct01: number | null;
+    cei_prev_partner_index: number | null;
     top_partners: Array<{
       partner_name: string;
       opps: number;
@@ -499,7 +500,14 @@ export function ExecutiveGapInsightsClient(props: {
   const [radarAiExpanded, setRadarAiExpanded] = useState(false);
   const [radarAiToast, setRadarAiToast] = useState<string>("");
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const [topN, setTopN] = useState(Math.max(1, props.defaultTopN || 15));
+
+  const topXOptions = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50] as const;
+  const clampInt = (v: number, min: number, max: number) => Math.max(min, Math.min(max, Math.trunc(v)));
+
+  // Deals list: keep small by default (space).
+  const [topN, setTopN] = useState(() => clampInt(props.defaultTopN ?? 5, 5, 50));
+  // Radar + account review: default to broader context.
+  const [radarTopN, setRadarTopN] = useState(50);
   const [stageView, setStageView] = useState<"commit" | "best_case" | "pipeline" | "all">("all");
   const [createdPipelineOpen, setCreatedPipelineOpen] = useState(false);
 
@@ -785,8 +793,8 @@ export function ExecutiveGapInsightsClient(props: {
   }, [flattenedDeals]);
 
   const radarDeals: RadarDeal[] = useMemo(() => {
-    // Tie radar to the exact deals shown in the list (topN).
-    const shown = sortedDeals.slice(0, topN).filter((d) => Number(d.weighted?.gap || 0) < 0);
+    // Radar (dots + account list) is a display slice, independent from the deals table Top N.
+    const shown = sortedDeals.slice(0, radarTopN).filter((d) => Number(d.weighted?.gap || 0) < 0);
     return shown.map((d) => ({
       id: String(d.id),
       label: dealTitle(d),
@@ -794,7 +802,7 @@ export function ExecutiveGapInsightsClient(props: {
       color: colorForDealId(String(d.id)),
       meddpicc_tb: (d.meddpicc_tb || []).map((c) => ({ key: String(c.key || ""), score: c.score == null ? null : (Number(c.score) as any) })),
     }));
-  }, [sortedDeals, topN]);
+  }, [sortedDeals, radarTopN]);
 
   const quarterDrivers = useMemo(() => {
     const deals = analysisFlattenedDeals.length ? analysisFlattenedDeals : flattenedDeals;
@@ -956,21 +964,30 @@ export function ExecutiveGapInsightsClient(props: {
   }, [analysisFlattenedDeals, flattenedDeals, analysisOk?.totals?.gap, ok?.totals?.gap, props.leftToGo, props.gap, analysisLoading]);
 
   const radarStrategicTakeaway = useMemo(() => {
-    const shown = sortedDeals.slice(0, topN).filter((d) => Number(d.weighted?.gap || 0) < 0);
+    const sourceDeals = analysisFlattenedDeals.length ? analysisFlattenedDeals : flattenedDeals;
+    const riskSet = sourceDeals.filter((d) => Number(d.weighted?.gap || 0) < 0);
     const isRiskScore = (score: number | null) => {
       if (score == null) return true;
       if (!Number.isFinite(score)) return true;
       return score <= 1;
     };
 
-    const gapAbs = shown.reduce((acc, d) => acc + Math.abs(Math.min(0, Number(d.weighted?.gap || 0) || 0)), 0);
+    const gapAbs = riskSet.reduce((acc, d) => acc + Math.abs(Math.min(0, Number(d.weighted?.gap || 0) || 0)), 0);
+    const byBucket = riskSet.reduce(
+      (acc, d) => {
+        const b = String(d.crm_stage?.bucket || "pipeline") as "commit" | "best_case" | "pipeline";
+        acc[b] = (acc[b] || 0) + 1;
+        return acc;
+      },
+      { commit: 0, best_case: 0, pipeline: 0 } as Record<"commit" | "best_case" | "pipeline", number>
+    );
 
     const catCounts = new Map<string, { key: string; label: string; count: number; tips: string[] }>();
     const repGap = new Map<string, number>();
     const repCat = new Map<string, Map<string, number>>();
     const dealGapCount = new Map<string, number>();
 
-    for (const d of shown) {
+    for (const d of riskSet) {
       const rep = dealRep(d);
       repGap.set(rep, (repGap.get(rep) || 0) + Math.abs(Math.min(0, Number(d.weighted?.gap || 0) || 0)));
 
@@ -1012,7 +1029,7 @@ export function ExecutiveGapInsightsClient(props: {
       return { rep: r.rep, gapAbs: r.v, topGapKey: top?.[0] || null, topGapLabel: label, topGapCount: top?.[1] || 0 };
     });
 
-    const quickWins = shown
+    const quickWins = riskSet
       .slice()
       .map((d) => ({
         id: String(d.id),
@@ -1025,32 +1042,46 @@ export function ExecutiveGapInsightsClient(props: {
       .sort((a, b) => a.gapCount - b.gapCount || b.amount - a.amount)
       .slice(0, 3);
 
-    return { shownCount: shown.length, gapAbs, topCats, repTrends, quickWins };
-  }, [sortedDeals, topN]);
+    return {
+      riskSetCount: riskSet.length,
+      gapAbs,
+      byBucket,
+      topCats,
+      repTrends,
+      quickWins,
+    };
+  }, [analysisFlattenedDeals, flattenedDeals]);
 
   const radarTakeawayPayload = useMemo(() => {
     return {
       fiscal_year: props.fiscalYear,
       fiscal_quarter: props.fiscalQuarter,
       quota_period_id: quotaPeriodId,
-      radar_slice: {
-        shown_at_risk_count: radarStrategicTakeaway.shownCount,
-        downside_gap_abs: radarStrategicTakeaway.gapAbs,
-        top_meddpicc_gaps: radarStrategicTakeaway.topCats.map((c) => ({ key: c.key, label: c.label, count: c.count, tip: c.tips?.[0] || null })),
-        rep_trends: radarStrategicTakeaway.repTrends.map((r) => ({
-          rep: r.rep,
-          downside_gap_abs: r.gapAbs,
-          trend_gap: r.topGapLabel ? { label: r.topGapLabel, count: r.topGapCount } : null,
-        })),
-        coaching_targets: radarStrategicTakeaway.quickWins.map((d) => ({
-          title: d.title,
-          amount: d.amount,
-          downside_gap_abs: d.gapAbs,
-          gap_count: d.gapCount,
-        })),
+      risk_scope: {
+        kind: analysisFlattenedDeals.length ? "full_at_risk_set" : "current_loaded_set",
+        note: "Compute all risk counts/downsides from the full at-risk set; Top N and sorts are display-only.",
+      },
+      radar_risk: {
+        risk_set_total: {
+          at_risk_count: radarStrategicTakeaway.riskSetCount,
+          at_risk_by_bucket: radarStrategicTakeaway.byBucket,
+          downside_gap_abs: radarStrategicTakeaway.gapAbs,
+          top_meddpicc_gaps: radarStrategicTakeaway.topCats.map((c) => ({ key: c.key, label: c.label, count: c.count, tip: c.tips?.[0] || null })),
+          rep_trends: radarStrategicTakeaway.repTrends.map((r) => ({
+            rep: r.rep,
+            downside_gap_abs: r.gapAbs,
+            trend_gap: r.topGapLabel ? { label: r.topGapLabel, count: r.topGapCount } : null,
+          })),
+          coaching_targets: radarStrategicTakeaway.quickWins.map((d) => ({
+            title: d.title,
+            amount: d.amount,
+            downside_gap_abs: d.gapAbs,
+            gap_count: d.gapCount,
+          })),
+        },
       },
     };
-  }, [props.fiscalYear, props.fiscalQuarter, quotaPeriodId, radarStrategicTakeaway]);
+  }, [props.fiscalYear, props.fiscalQuarter, quotaPeriodId, radarStrategicTakeaway, analysisFlattenedDeals.length]);
 
   async function runRadarAi(args: { force: boolean; showNoChangeToast: boolean }) {
     if (!radarTakeawayPayload?.quota_period_id) return;
@@ -1113,16 +1144,15 @@ export function ExecutiveGapInsightsClient(props: {
     if (!radarTakeawayPayload?.quota_period_id) return;
     const key = [
       radarTakeawayPayload.quota_period_id,
-      radarTakeawayPayload.radar_slice?.shown_at_risk_count || 0,
-      radarTakeawayPayload.radar_slice?.downside_gap_abs || 0,
-      topN,
+      radarTakeawayPayload.radar_risk?.risk_set_total?.at_risk_count || 0,
+      radarTakeawayPayload.radar_risk?.risk_set_total?.downside_gap_abs || 0,
       stageView,
       refreshNonce,
     ].join("|");
     if (key === lastRadarAiKey.current) return;
     lastRadarAiKey.current = key;
     void runRadarAi({ force: false, showNoChangeToast: false });
-  }, [radarTakeawayPayload, topN, stageView, refreshNonce]);
+  }, [radarTakeawayPayload, stageView, refreshNonce]);
 
   const viewFullHref = useMemo(() => {
     const params = new URLSearchParams(sp.toString());
@@ -1522,7 +1552,7 @@ export function ExecutiveGapInsightsClient(props: {
       return { direct_index: 100, partner_index };
     })();
 
-    return { narrative, directMix, partnerMix, direct, partner, scored, cei };
+    return { narrative, directMix, partnerMix, direct, partner, scored, cei, cei_prev_partner_index: pe.cei_prev_partner_index ?? null };
   }, [props.partnersExecutive]);
 
   function updateUrl(mut: (p: URLSearchParams) => void) {
@@ -1633,7 +1663,7 @@ export function ExecutiveGapInsightsClient(props: {
                       </div>
                     ) : null}
                     {heroAiExpanded && heroAiExtended ? (
-                      <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
+                    <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-left text-sm leading-relaxed text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
                         {heroAiExtended}
                       </div>
                     ) : null}
@@ -1735,21 +1765,75 @@ export function ExecutiveGapInsightsClient(props: {
         <RiskRadarPlot deals={radarDeals} size={920} />
 
         <section className="self-start rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Accounts</div>
-          <div className="mt-3 grid grid-cols-1 gap-x-3 gap-y-2 text-sm text-[color:var(--sf-text-primary)] sm:grid-cols-2 lg:grid-cols-1">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+              Quick Account Review - Top {radarTopN}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-[color:var(--sf-text-secondary)]">Show</span>
+              <select
+                value={radarTopN}
+                onChange={(e) => setRadarTopN(clampInt(Number(e.target.value) || 50, 5, 50))}
+                className="h-[36px] w-[100px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs text-[color:var(--sf-text-primary)]"
+              >
+                {topXOptions.map((n) => (
+                  <option key={n} value={n}>
+                    Top {n}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="mt-3 text-sm text-[color:var(--sf-text-primary)]">
             {radarDeals.length ? (
-              radarDeals.map((d) => (
-                <div key={d.id} className="flex min-w-0 items-center gap-2">
-                  <span
-                    className="h-2.5 w-2.5 rounded-full border border-[color:var(--sf-border)]"
-                    style={{ background: d.color }}
-                    aria-hidden="true"
-                  />
-                  <span className="min-w-0 truncate" title={String(d.legendLabel || d.label)}>
-                    {String(d.legendLabel || d.label)}
-                  </span>
+              radarDeals.length > 25 ? (
+                <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+                  <div className="grid gap-y-2">
+                    {radarDeals.slice(0, 25).map((d) => (
+                      <div key={d.id} className="flex min-w-0 items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full border border-[color:var(--sf-border)]"
+                          style={{ background: d.color }}
+                          aria-hidden="true"
+                        />
+                        <span className="min-w-0 truncate" title={String(d.legendLabel || d.label)}>
+                          {String(d.legendLabel || d.label)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 grid gap-y-2 sm:mt-0">
+                    {radarDeals.slice(25).map((d) => (
+                      <div key={d.id} className="flex min-w-0 items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full border border-[color:var(--sf-border)]"
+                          style={{ background: d.color }}
+                          aria-hidden="true"
+                        />
+                        <span className="min-w-0 truncate" title={String(d.legendLabel || d.label)}>
+                          {String(d.legendLabel || d.label)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))
+              ) : (
+                <div className="grid grid-cols-1 gap-y-2">
+                  {radarDeals.map((d) => (
+                    <div key={d.id} className="flex min-w-0 items-center gap-2">
+                      <span
+                        className="h-2.5 w-2.5 rounded-full border border-[color:var(--sf-border)]"
+                        style={{ background: d.color }}
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 truncate" title={String(d.legendLabel || d.label)}>
+                        {String(d.legendLabel || d.label)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )
             ) : (
               <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
             )}
@@ -1786,7 +1870,7 @@ export function ExecutiveGapInsightsClient(props: {
                   </div>
                 ) : null}
                 {radarAiExpanded && radarAiExtended ? (
-                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
+                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-left text-sm leading-relaxed text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
                     {radarAiExtended}
                   </div>
                 ) : null}
@@ -1814,10 +1898,10 @@ export function ExecutiveGapInsightsClient(props: {
               <span className="text-xs text-[color:var(--sf-text-secondary)]">Show</span>
               <select
                 value={topN}
-                onChange={(e) => setTopN(Math.max(1, Number(e.target.value) || 15))}
+                onChange={(e) => setTopN(clampInt(Number(e.target.value) || 5, 5, 50))}
                 className="h-[40px] w-[92px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
               >
-                {[5, 10, 15, 20].map((n) => (
+                {topXOptions.map((n) => (
                   <option key={n} value={n}>
                     Top {n}
                   </option>
@@ -2150,20 +2234,76 @@ export function ExecutiveGapInsightsClient(props: {
 
             <div className="mt-4 grid gap-3 lg:grid-cols-3">
               <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CEI index</div>
-                <div className="mt-2 grid gap-1 text-sm text-[color:var(--sf-text-primary)]">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="font-semibold">Direct</span>
-                    <span className="font-mono font-semibold">100</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="font-semibold">Partner</span>
-                    <span className="font-mono font-semibold">
-                      {partnersDecisionEngine.cei.partner_index == null ? "—" : Math.round(partnersDecisionEngine.cei.partner_index).toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">CEI = (Revenue/day × Quality), indexed to Direct.</div>
+                {(() => {
+                  const ceiCur = partnersDecisionEngine.cei.partner_index;
+                  const ceiPrev = partnersDecisionEngine.cei_prev_partner_index;
+                  const ceiCurN = ceiCur == null ? null : Number(ceiCur);
+                  const ceiPrevN = ceiPrev == null ? null : Number(ceiPrev);
+                  const delta = ceiCurN != null && ceiPrevN != null ? ceiCurN - ceiPrevN : null;
+
+                  const status =
+                    ceiCurN == null
+                      ? { label: "—", tone: "muted" as const }
+                      : ceiCurN >= 120
+                        ? { label: "HIGH", tone: "good" as const }
+                        : ceiCurN >= 90
+                          ? { label: "MEDIUM", tone: "warn" as const }
+                          : ceiCurN >= 70
+                            ? { label: "LOW", tone: "bad" as const }
+                            : { label: "CRITICAL", tone: "bad" as const };
+
+                  const partnerWon = Number(partnersDecisionEngine.partner.won_opps || 0) || 0;
+                  const sampleFactor = Math.min(1, partnerWon / 12);
+                  const revenueShare = partnersDecisionEngine.partnerMix == null ? 0 : Number(partnersDecisionEngine.partnerMix);
+                  const revenueFactor = Math.min(1, revenueShare / 0.4);
+                  const volatilityFactor =
+                    delta != null ? 1 - normalize(Math.abs(delta), 0, 100) : 0.6;
+                  const conf01 = sampleFactor * 0.5 + revenueFactor * 0.3 + volatilityFactor * 0.2;
+                  const conf = clampScore100(conf01 * 100);
+                  const confBand =
+                    conf >= 75 ? "HIGH CONFIDENCE" : conf >= 50 ? "MODERATE CONFIDENCE" : conf >= 30 ? "LOW CONFIDENCE" : "PRELIMINARY";
+
+                  const trend =
+                    delta == null
+                      ? { label: "—", arrow: "→", tone: "muted" as const }
+                      : delta >= 15
+                        ? { label: "Improving", arrow: "↑", tone: "good" as const }
+                        : delta <= -15
+                          ? { label: "Declining", arrow: "↓", tone: "bad" as const }
+                          : { label: "Stable", arrow: "→", tone: "muted" as const };
+
+                  return (
+                    <>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CEI Performance</div>
+                      <div className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-[color:var(--sf-text-secondary)]">CEI Status</span>
+                          <span className={["inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold", pillToneClass(status.tone)].join(" ")}>
+                            {status.label}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-[color:var(--sf-text-secondary)]">Partner CEI</span>
+                          <span className="font-mono font-semibold">
+                            {ceiCurN == null ? "—" : `${Math.round(ceiCurN).toLocaleString()} (Direct = 100)`}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-[color:var(--sf-text-secondary)]">Confidence</span>
+                          <span className="font-mono font-semibold">{confBand}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-[color:var(--sf-text-secondary)]">Trend</span>
+                          <span className={["flex items-center gap-1 font-mono font-semibold", trend.tone === "good" ? "text-[#16A34A]" : trend.tone === "bad" ? "text-[#E74C3C]" : "text-[color:var(--sf-text-secondary)]"].join(" ")}>
+                            <span aria-hidden="true">{trend.arrow}</span>
+                            <span>{trend.label}</span>
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Based on {partnerWon.toLocaleString()} partner closed-won deal(s).</div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
 
               <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 lg:col-span-2">

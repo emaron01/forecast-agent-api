@@ -95,6 +95,26 @@ function capSummary(raw: string) {
   return `${s.slice(0, maxChars).trimEnd()}…`;
 }
 
+function firstNonEmptyLine(text: string) {
+  const raw = String(text || "");
+  if (!raw.trim()) return "";
+  for (const line of raw.split("\n")) {
+    const t = String(line || "").trim();
+    if (t) return t;
+  }
+  return "";
+}
+
+function ensureExtendedStartsWithExecutiveLine(summary: string, extended: string) {
+  const exec = firstNonEmptyLine(summary);
+  const ext = String(extended || "").trim();
+  if (!exec || !ext) return ext;
+  const extFirst = firstNonEmptyLine(ext);
+  if (extFirst === exec) return ext;
+  // Keep formatting stable: just prepend the exec one-line if missing.
+  return `${exec}\n\n${ext}`;
+}
+
 export async function POST(req: Request) {
   try {
     const auth = await getAuth();
@@ -173,6 +193,9 @@ export async function POST(req: Request) {
       "OUTPUT FORMAT (STRICT): Return ONLY valid JSON with these fields:\n" +
       `{\n  "no_change": boolean,\n  "summary": string,   // <=4 bullets OR a short paragraph\n  "extended": string   // full analysis; may include bullets\n}\n` +
       "RULES:\n" +
+      "- Always treat UI sorts/Top N as display-only. Use the payload's total risk set numbers for counts/dollars.\n" +
+      "- Include 1–2 short positive callouts (wins) when the data supports it, then focus on the biggest blockers.\n" +
+      "- In extended: repeat the executive one-line first, then include an \"Executive Summary\" section before deeper detail.\n" +
       "- If the new input data does not materially change the conclusions, set no_change=true and return the previous summary/extended verbatim.\n" +
       "- Do NOT add new bullets unless new data changes the story.\n";
 
@@ -211,7 +234,8 @@ export async function POST(req: Request) {
     const fallback = summarizeFallback(text);
     const out = parsed && typeof parsed === "object" ? parsed : null;
     const summary = capSummary(String(out?.summary ?? fallback.summary ?? "").trim());
-    const extended = String(out?.extended ?? fallback.extended ?? "").trim();
+    const extendedRaw = String(out?.extended ?? fallback.extended ?? "").trim();
+    const extended = ensureExtendedStartsWithExecutiveLine(summary, extendedRaw);
     const no_change = !!out?.no_change;
     return NextResponse.json({
       ok: true,
