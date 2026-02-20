@@ -1515,10 +1515,27 @@ export function ExecutiveGapInsightsClient(props: {
         </div>
 
         <div className="mt-4 grid gap-3">
-          <div className="flex justify-end">
-            <div className={[heroCard, "h-auto"].join(" ")}>
-              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Aging (avg days)</div>
-              <div className={heroVal}>{agingAvgDays == null || !Number.isFinite(agingAvgDays) ? "—" : String(Math.round(agingAvgDays))}</div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
+              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Average Aging</div>
+              <div className="mt-1 text-[11px] font-semibold text-[color:var(--sf-text-secondary)]">Won / Current Pipeline</div>
+              <div className="mt-2 font-mono text-lg font-semibold text-[color:var(--sf-text-primary)]">
+                {props.pipelineMomentum
+                  ? `${fmtMoney(Math.max(0, (Number(props.quota || 0) || 0) - (Number(props.pipelineMomentum.quota_target || 0) || 0)))} / ${fmtMoney(Number(props.pipelineMomentum.current_quarter?.total_pipeline || 0) || 0)}`
+                  : "—"}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
+              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Remaining In Q Pipeline</div>
+              <div className={["mt-2 font-mono text-lg font-semibold text-[color:var(--sf-text-primary)]"].join(" ")}>
+                {props.pipelineMomentum
+                  ? fmtMoney(
+                      (Number(props.pipelineMomentum.current_quarter?.total_pipeline || 0) || 0) -
+                        Math.max(0, (Number(props.quota || 0) || 0) - (Number(props.pipelineMomentum.quota_target || 0) || 0))
+                    )
+                  : "—"}
+              </div>
             </div>
           </div>
 
