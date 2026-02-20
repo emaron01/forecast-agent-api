@@ -96,6 +96,47 @@ function fmtPct01(n: number | null) {
   return `${Math.round(n * 100)}%`;
 }
 
+function clamp01(v: number) {
+  if (!Number.isFinite(v)) return 0;
+  if (v <= 0) return 0;
+  if (v >= 1) return 1;
+  return v;
+}
+
+function clampScore100(v: number) {
+  if (!Number.isFinite(v)) return 0;
+  if (v <= 0) return 0;
+  if (v >= 100) return 100;
+  return v;
+}
+
+// Canonical normalization helper (required).
+function normalize(value: number, min: number, max: number) {
+  if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max)) return 0.5;
+  if (max === min) return 0.5;
+  return clamp01((value - min) / (max - min));
+}
+
+function health01FromScore30(rawScore: number | null) {
+  if (rawScore == null || !Number.isFinite(rawScore)) return null;
+  return clamp01(rawScore / 30);
+}
+
+function wicBand(score: number) {
+  if (!Number.isFinite(score)) return { label: "—", tone: "muted" as const };
+  if (score >= 80) return { label: "INVEST AGGRESSIVELY", tone: "good" as const };
+  if (score >= 60) return { label: "SCALE SELECTIVELY", tone: "good" as const };
+  if (score >= 40) return { label: "MAINTAIN", tone: "warn" as const };
+  return { label: "DEPRIORITIZE", tone: "bad" as const };
+}
+
+function pillToneClass(tone: "good" | "warn" | "bad" | "muted") {
+  if (tone === "good") return "border-[#16A34A]/35 bg-[#16A34A]/10 text-[#16A34A]";
+  if (tone === "warn") return "border-[#F1C40F]/50 bg-[#F1C40F]/12 text-[#F1C40F]";
+  if (tone === "bad") return "border-[#E74C3C]/45 bg-[#E74C3C]/12 text-[#E74C3C]";
+  return "border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]";
+}
+
 function daysBetween(createDate: any, closeDate: any) {
   if (!createDate || !closeDate) return null;
   const a = new Date(createDate).getTime();
@@ -113,6 +154,7 @@ type MotionStatsRow = {
   win_rate: number | null;
   aov: number | null;
   avg_days: number | null;
+  avg_health_score: number | null; // raw (0..30)
   won_amount: number;
   lost_amount: number;
 };
@@ -125,6 +167,7 @@ type PartnerRollupRow = {
   win_rate: number | null;
   aov: number | null;
   avg_days: number | null;
+  avg_health_score: number | null; // raw (0..30)
   won_amount: number;
 };
 
@@ -158,6 +201,7 @@ async function loadMotionStats(args: {
         COALESCE(o.amount, 0)::float8 AS amount,
         o.create_date::timestamptz AS create_date,
         o.close_date::date AS close_date,
+        o.health_score::float8 AS health_score,
         lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
       FROM opportunities o
       JOIN qp ON TRUE
@@ -176,6 +220,7 @@ async function loadMotionStats(args: {
       SELECT
         motion,
         amount,
+        health_score,
         CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 1 ELSE 0 END AS is_won,
         CASE WHEN ((' ' || fs || ' ') LIKE '% lost %' OR (' ' || fs || ' ') LIKE '% loss %') THEN 1 ELSE 0 END AS is_lost,
         CASE WHEN create_date IS NOT NULL AND close_date IS NOT NULL THEN GREATEST(0, ROUND(EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0))::int ELSE NULL END AS age_days
@@ -189,6 +234,7 @@ async function loadMotionStats(args: {
       CASE WHEN COUNT(*) > 0 THEN (SUM(is_won)::float8 / COUNT(*)::float8) ELSE NULL END AS win_rate,
       AVG(NULLIF(amount, 0))::float8 AS aov,
       AVG(age_days)::float8 AS avg_days,
+      AVG(NULLIF(health_score, 0))::float8 AS avg_health_score,
       SUM(CASE WHEN is_won = 1 THEN amount ELSE 0 END)::float8 AS won_amount,
       SUM(CASE WHEN is_lost = 1 THEN amount ELSE 0 END)::float8 AS lost_amount
     FROM scored
@@ -228,6 +274,7 @@ async function listPartnerRollup(args: {
         COALESCE(o.amount, 0)::float8 AS amount,
         o.create_date::timestamptz AS create_date,
         o.close_date::date AS close_date,
+        o.health_score::float8 AS health_score,
         lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
       FROM opportunities o
       JOIN qp ON TRUE
@@ -248,6 +295,7 @@ async function listPartnerRollup(args: {
       SELECT
         partner_name,
         amount,
+        health_score,
         CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 1 ELSE 0 END AS is_won,
         CASE WHEN ((' ' || fs || ' ') LIKE '% lost %' OR (' ' || fs || ' ') LIKE '% loss %') THEN 1 ELSE 0 END AS is_lost,
         CASE WHEN create_date IS NOT NULL AND close_date IS NOT NULL THEN GREATEST(0, ROUND(EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0))::int ELSE NULL END AS age_days
@@ -261,10 +309,125 @@ async function listPartnerRollup(args: {
       CASE WHEN COUNT(*) > 0 THEN (SUM(is_won)::float8 / COUNT(*)::float8) ELSE NULL END AS win_rate,
       AVG(NULLIF(amount, 0))::float8 AS aov,
       AVG(age_days)::float8 AS avg_days,
+      AVG(NULLIF(health_score, 0))::float8 AS avg_health_score,
       SUM(CASE WHEN is_won = 1 THEN amount ELSE 0 END)::float8 AS won_amount
     FROM scored
     GROUP BY partner_name
     ORDER BY won_amount DESC NULLS LAST, opps DESC, partner_name ASC
+    LIMIT $7::int
+    `,
+    [args.orgId, args.quotaPeriodId, args.repIds || [], args.dateStart || null, args.dateEnd || null, useRepFilter, args.limit]
+  );
+  return rows || [];
+}
+
+type OpenPipelineMotionRow = { motion: "direct" | "partner"; open_opps: number; open_amount: number };
+type OpenPipelinePartnerRow = { partner_name: string; open_opps: number; open_amount: number };
+
+async function loadOpenPipelineByMotion(args: {
+  orgId: number;
+  quotaPeriodId: string;
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  repIds: number[] | null;
+}): Promise<OpenPipelineMotionRow[]> {
+  const useRepFilter = !!(args.repIds && args.repIds.length);
+  const { rows } = await pool.query<OpenPipelineMotionRow>(
+    `
+    WITH qp AS (
+      SELECT
+        period_start::date AS period_start,
+        period_end::date AS period_end,
+        GREATEST(period_start::date, COALESCE($4::date, period_start::date)) AS range_start,
+        LEAST(period_end::date, COALESCE($5::date, period_end::date)) AS range_end
+      FROM quota_periods
+      WHERE org_id = $1::bigint
+        AND id = $2::bigint
+      LIMIT 1
+    ),
+    base AS (
+      SELECT
+        CASE
+          WHEN o.partner_name IS NOT NULL AND btrim(o.partner_name) <> '' THEN 'partner'
+          ELSE 'direct'
+        END AS motion,
+        COALESCE(o.amount, 0)::float8 AS amount,
+        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+      FROM opportunities o
+      JOIN qp ON TRUE
+      WHERE o.org_id = $1
+        AND (NOT $6::boolean OR o.rep_id = ANY($3::bigint[]))
+        AND o.close_date IS NOT NULL
+        AND o.close_date >= qp.range_start
+        AND o.close_date <= qp.range_end
+        AND NOT (
+          ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
+        )
+    )
+    SELECT
+      motion,
+      COUNT(*)::int AS open_opps,
+      SUM(amount)::float8 AS open_amount
+    FROM base
+    GROUP BY motion
+    ORDER BY motion ASC
+    `,
+    [args.orgId, args.quotaPeriodId, args.repIds || [], args.dateStart || null, args.dateEnd || null, useRepFilter]
+  );
+  return rows || [];
+}
+
+async function listOpenPipelineByPartner(args: {
+  orgId: number;
+  quotaPeriodId: string;
+  limit: number;
+  dateStart?: string | null;
+  dateEnd?: string | null;
+  repIds: number[] | null;
+}): Promise<OpenPipelinePartnerRow[]> {
+  const useRepFilter = !!(args.repIds && args.repIds.length);
+  const { rows } = await pool.query<OpenPipelinePartnerRow>(
+    `
+    WITH qp AS (
+      SELECT
+        period_start::date AS period_start,
+        period_end::date AS period_end,
+        GREATEST(period_start::date, COALESCE($4::date, period_start::date)) AS range_start,
+        LEAST(period_end::date, COALESCE($5::date, period_end::date)) AS range_end
+      FROM quota_periods
+      WHERE org_id = $1::bigint
+        AND id = $2::bigint
+      LIMIT 1
+    ),
+    base AS (
+      SELECT
+        btrim(o.partner_name) AS partner_name,
+        COALESCE(o.amount, 0)::float8 AS amount,
+        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+      FROM opportunities o
+      JOIN qp ON TRUE
+      WHERE o.org_id = $1
+        AND (NOT $6::boolean OR o.rep_id = ANY($3::bigint[]))
+        AND o.partner_name IS NOT NULL
+        AND btrim(o.partner_name) <> ''
+        AND o.close_date IS NOT NULL
+        AND o.close_date >= qp.range_start
+        AND o.close_date <= qp.range_end
+        AND NOT (
+          ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
+        )
+    )
+    SELECT
+      partner_name,
+      COUNT(*)::int AS open_opps,
+      SUM(amount)::float8 AS open_amount
+    FROM base
+    GROUP BY partner_name
+    ORDER BY open_amount DESC NULLS LAST, open_opps DESC, partner_name ASC
     LIMIT $7::int
     `,
     [args.orgId, args.quotaPeriodId, args.repIds || [], args.dateStart || null, args.dateEnd || null, useRepFilter, args.limit]
@@ -467,12 +630,182 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
     ? await listPartnerRollup({
         orgId: ctx.user.org_id,
         quotaPeriodId: String(selected.id),
-        limit: 15,
+        limit: 30,
         dateStart: start_date || null,
         dateEnd: end_date || null,
         repIds: scopeRepIds,
       }).catch(() => [])
     : [];
+
+  const openByMotion = selected
+    ? await loadOpenPipelineByMotion({
+        orgId: ctx.user.org_id,
+        quotaPeriodId: String(selected.id),
+        dateStart: start_date || null,
+        dateEnd: end_date || null,
+        repIds: scopeRepIds,
+      }).catch(() => [])
+    : [];
+  const openMotionMap = new Map<string, OpenPipelineMotionRow>();
+  for (const r of openByMotion) openMotionMap.set(String(r.motion), r);
+
+  const openByPartner = selected
+    ? await listOpenPipelineByPartner({
+        orgId: ctx.user.org_id,
+        quotaPeriodId: String(selected.id),
+        limit: 60,
+        dateStart: start_date || null,
+        dateEnd: end_date || null,
+        repIds: scopeRepIds,
+      }).catch(() => [])
+    : [];
+  const openPartnerMap = new Map<string, OpenPipelinePartnerRow>();
+  for (const r of openByPartner) openPartnerMap.set(String(r.partner_name), r);
+
+  type MotionScoreRow = {
+    key: string;
+    label: string;
+    open_pipeline: number;
+    win_rate: number | null;
+    avg_health_01: number | null;
+    avg_days: number | null;
+    aov: number | null;
+    deal_count: number;
+    wic: number;
+    wic_band: ReturnType<typeof wicBand>;
+    pqs: number | null;
+  };
+
+  const directOpen = openMotionMap.get("direct")?.open_amount ?? 0;
+  const partnerOpenAgg = openMotionMap.get("partner")?.open_amount ?? 0;
+
+  const rowsForWicBase = [
+    {
+      key: "direct",
+      label: "Direct",
+      open_pipeline: Number(directOpen || 0) || 0,
+      win_rate: directStats?.win_rate ?? null,
+      avg_health_01: health01FromScore30(directStats?.avg_health_score ?? null),
+      avg_days: directStats?.avg_days ?? null,
+      aov: directStats?.aov ?? null,
+      deal_count: directStats?.opps ?? 0,
+    },
+    ...topPartners.map((p) => ({
+      key: `partner:${String(p.partner_name)}`,
+      label: String(p.partner_name),
+      open_pipeline: Number(openPartnerMap.get(String(p.partner_name))?.open_amount ?? 0) || 0,
+      win_rate: p.win_rate ?? null,
+      avg_health_01: health01FromScore30(p.avg_health_score ?? null),
+      avg_days: p.avg_days ?? null,
+      aov: p.aov ?? null,
+      deal_count: p.opps ?? 0,
+    })),
+  ];
+
+  const gcVals = rowsForWicBase.map((r) => r.open_pipeline).filter((v) => Number.isFinite(v));
+  const aovValsAll = rowsForWicBase.map((r) => Number(r.aov ?? NaN)).filter((v) => Number.isFinite(v));
+  const daysValsAll = rowsForWicBase.map((r) => Number(r.avg_days ?? NaN)).filter((v) => Number.isFinite(v));
+  const gcMin = gcVals.length ? Math.min(...gcVals) : 0;
+  const gcMax = gcVals.length ? Math.max(...gcVals) : 0;
+  const aovMin = aovValsAll.length ? Math.min(...aovValsAll) : 0;
+  const aovMax = aovValsAll.length ? Math.max(...aovValsAll) : 0;
+  const daysMin = daysValsAll.length ? Math.min(...daysValsAll) : 0;
+  const daysMax = daysValsAll.length ? Math.max(...daysValsAll) : 0;
+
+  // Partner-only ranges (PQS canonical).
+  const partnerOnly = rowsForWicBase.filter((r) => r.key.startsWith("partner:"));
+  const partnerAovVals = partnerOnly.map((r) => Number(r.aov ?? NaN)).filter((v) => Number.isFinite(v));
+  const partnerDaysVals = partnerOnly.map((r) => Number(r.avg_days ?? NaN)).filter((v) => Number.isFinite(v));
+  const pAovMin = partnerAovVals.length ? Math.min(...partnerAovVals) : 0;
+  const pAovMax = partnerAovVals.length ? Math.max(...partnerAovVals) : 0;
+  const pDaysMin = partnerDaysVals.length ? Math.min(...partnerDaysVals) : 0;
+  const pDaysMax = partnerDaysVals.length ? Math.max(...partnerDaysVals) : 0;
+
+  const motionScoreRows: MotionScoreRow[] = rowsForWicBase.map((r) => {
+    // STEP 2 — WIC (canonical).
+    const GC = normalize(r.open_pipeline, gcMin, gcMax);
+    const win = r.win_rate != null && Number.isFinite(r.win_rate) ? clamp01(r.win_rate) : null;
+    const health01 = r.avg_health_01 != null && Number.isFinite(r.avg_health_01) ? clamp01(r.avg_health_01) : null;
+    const WQ = win == null ? 0 : health01 == null ? win : win * health01;
+    const VE = 1 - normalize(Number(r.avg_days ?? 0) || 0, daysMin, daysMax);
+    const DE = normalize(Number(r.aov ?? 0) || 0, aovMin, aovMax);
+    const WIC_raw = GC * 0.35 + WQ * 0.3 + VE * 0.2 + DE * 0.15;
+    const WIC = clampScore100(WIC_raw * 100);
+
+    // STEP 3 — PQS (partner only; canonical).
+    let PQS: number | null = null;
+    if (r.key.startsWith("partner:")) {
+      const WRF = win == null ? 0 : win;
+      const DSF = normalize(Number(r.aov ?? 0) || 0, pAovMin, pAovMax);
+      const VP = normalize(Number(r.avg_days ?? 0) || 0, pDaysMin, pDaysMax);
+      const dc = Math.max(0, Number(r.deal_count || 0) || 0);
+      const CF = Math.min(1, Math.log(dc + 1) / Math.log(10));
+      const PQS_raw = WRF * 0.4 + DSF * 0.25 + CF * 0.2 - VP * 0.15;
+      PQS = clampScore100(PQS_raw * 100);
+    }
+
+    return {
+      ...r,
+      wic: WIC,
+      wic_band: wicBand(WIC),
+      pqs: PQS,
+    };
+  });
+
+  // STEP 4 — CEI (canonical, indexed to Direct=100).
+  const cei = (() => {
+    const directDays = directStats?.avg_days == null ? null : Number(directStats.avg_days);
+    const partnerDays = partnerStats?.avg_days == null ? null : Number(partnerStats.avg_days);
+    const directWon = Number(directStats?.won_amount || 0) || 0;
+    const partnerWon = Number(partnerStats?.won_amount || 0) || 0;
+    const directWin = directStats?.win_rate == null ? null : clamp01(Number(directStats.win_rate));
+    const partnerWin = partnerStats?.win_rate == null ? null : clamp01(Number(partnerStats.win_rate));
+    const directH = health01FromScore30(directStats?.avg_health_score ?? null);
+    const partnerH = health01FromScore30(partnerStats?.avg_health_score ?? null);
+
+    const RV_direct = directDays && directDays > 0 ? directWon / directDays : 0;
+    const RV_partner = partnerDays && partnerDays > 0 ? partnerWon / partnerDays : 0;
+    const QM_direct = directWin == null ? 0 : directH == null ? directWin : directWin * directH;
+    const QM_partner = partnerWin == null ? 0 : partnerH == null ? partnerWin : partnerWin * partnerH;
+    const CEI_raw_direct = RV_direct * QM_direct;
+    const CEI_raw_partner = RV_partner * QM_partner;
+    const CEI_index_partner = CEI_raw_direct > 0 ? (CEI_raw_partner / CEI_raw_direct) * 100 : null;
+    return { direct_index: 100, partner_index: CEI_index_partner == null ? null : Number(CEI_index_partner) };
+  })();
+
+  // STEP 5 — Auto executive narrative (one sentence).
+  const executiveNarrative = (() => {
+    const aovD = directStats?.aov == null ? null : Number(directStats.aov);
+    const aovP = partnerStats?.aov == null ? null : Number(partnerStats.aov);
+    const daysD = directStats?.avg_days == null ? null : Number(directStats.avg_days);
+    const daysP = partnerStats?.avg_days == null ? null : Number(partnerStats.avg_days);
+    const mix = partnerSharePct == null ? null : Math.round(Number(partnerSharePct) * 100);
+    const sizeDeltaPct =
+      aovD != null && aovP != null && aovD > 0 ? Math.round(((aovP - aovD) / aovD) * 100) : null;
+    const velDeltaDays = daysD != null && daysP != null ? Math.round(daysP - daysD) : null;
+
+    const sizePhrase =
+      sizeDeltaPct == null
+        ? "Deal size is mixed across motions"
+        : sizeDeltaPct === 0
+          ? "Partners and Direct are similar in deal size"
+          : sizeDeltaPct > 0
+            ? `Partners run ~${Math.abs(sizeDeltaPct)}% larger than Direct`
+            : `Partners run ~${Math.abs(sizeDeltaPct)}% smaller than Direct`;
+
+    const velPhrase =
+      velDeltaDays == null
+        ? "velocity differs by segment"
+        : velDeltaDays === 0
+          ? "with similar cycle time"
+          : velDeltaDays > 0
+            ? `but are ~${Math.abs(velDeltaDays)} days slower`
+            : `but are ~${Math.abs(velDeltaDays)} days faster`;
+
+    const mixPhrase = mix == null ? "with unclear channel contribution" : `and contribute ~${mix}% of closed-won`;
+
+    return `${sizePhrase} ${velPhrase} ${mixPhrase} in this period.`;
+  })();
 
   const topWonExport = topWon.map((d) => {
     const age = daysBetween(d.create_date, d.close_date);
@@ -573,6 +906,11 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
               </div>
             </div>
 
+            <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Executive narrative</div>
+              <div className="mt-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">{executiveNarrative}</div>
+            </div>
+
             <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
               <table className="min-w-[980px] w-full table-auto border-collapse text-sm">
                 <thead className="bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)]">
@@ -582,6 +920,7 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
                     <th className="px-4 py-3 text-right">won</th>
                     <th className="px-4 py-3 text-right">lost</th>
                     <th className="px-4 py-3 text-right">close rate</th>
+                    <th className="px-4 py-3 text-right">avg health</th>
                     <th className="px-4 py-3 text-right">avg days</th>
                     <th className="px-4 py-3 text-right">AOV</th>
                     <th className="px-4 py-3 text-right">closed-won</th>
@@ -599,6 +938,9 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
                       <td className="px-4 py-3 text-right font-mono text-xs">{row.r ? String(row.r.won_opps) : "—"}</td>
                       <td className="px-4 py-3 text-right font-mono text-xs">{row.r ? String(row.r.lost_opps) : "—"}</td>
                       <td className="px-4 py-3 text-right font-mono text-xs">{row.r ? fmtPct01(row.r.win_rate) : "—"}</td>
+                      <td className="px-4 py-3 text-right font-mono text-xs">
+                        {row.r?.avg_health_score == null ? "—" : `${Math.round((Number(row.r.avg_health_score) / 30) * 100)}%`}
+                      </td>
                       <td className="px-4 py-3 text-right font-mono text-xs">{row.r?.avg_days == null ? "—" : String(Math.round(Number(row.r.avg_days)))}</td>
                       <td className="px-4 py-3 text-right font-mono text-xs">{row.r?.aov == null ? "—" : fmtMoney(row.r.aov)}</td>
                       <td className="px-4 py-3 text-right font-mono text-xs">{row.r ? fmtMoney(row.r.won_amount) : "—"}</td>
@@ -609,6 +951,82 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
               </table>
             </div>
 
+            <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">CRO decision engine (WIC / PQS / CEI)</div>
+                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                    Canonical scoring models (WIC, PQS, CEI) computed from this report’s numbers. Direct is CEI baseline = 100.
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CEI index</div>
+                  <div className="mt-2 grid gap-1 text-sm text-[color:var(--sf-text-primary)]">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-semibold">Direct</span>
+                      <span className="font-mono font-semibold">100</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-semibold">Partner</span>
+                      <span className="font-mono font-semibold">{cei.partner_index == null ? "—" : Math.round(cei.partner_index).toLocaleString()}</span>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                    CEI = (Revenue/day × Quality), indexed to Direct.
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 lg:col-span-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC + PQS (top partners)</div>
+                  <div className="mt-3 overflow-auto rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                    <table className="min-w-[980px] w-full table-auto border-collapse text-sm">
+                      <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                        <tr>
+                          <th className="px-3 py-2 text-left">motion / partner</th>
+                          <th className="px-3 py-2 text-right">open pipeline</th>
+                          <th className="px-3 py-2 text-right">win rate</th>
+                          <th className="px-3 py-2 text-right">avg health</th>
+                          <th className="px-3 py-2 text-right">avg days</th>
+                          <th className="px-3 py-2 text-right">AOV</th>
+                          <th className="px-3 py-2 text-right">WIC</th>
+                          <th className="px-3 py-2 text-left">band</th>
+                          <th className="px-3 py-2 text-right">PQS</th>
+                        </tr>
+                      </thead>
+                      <tbody className="text-[color:var(--sf-text-primary)]">
+                        {motionScoreRows.slice(0, 1 + Math.min(15, topPartners.length)).map((r) => {
+                          const pill = r.wic_band;
+                          return (
+                            <tr key={r.key} className="border-t border-[color:var(--sf-border)]">
+                              <td className="px-3 py-2 font-semibold">{r.label}</td>
+                              <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(r.open_pipeline)}</td>
+                              <td className="px-3 py-2 text-right font-mono text-xs">{fmtPct01(r.win_rate)}</td>
+                              <td className="px-3 py-2 text-right font-mono text-xs">{r.avg_health_01 == null ? "—" : `${Math.round(r.avg_health_01 * 100)}%`}</td>
+                              <td className="px-3 py-2 text-right font-mono text-xs">{r.avg_days == null ? "—" : String(Math.round(Number(r.avg_days)))}</td>
+                              <td className="px-3 py-2 text-right font-mono text-xs">{r.aov == null ? "—" : fmtMoney(r.aov)}</td>
+                              <td className="px-3 py-2 text-right font-mono text-xs">{Math.round(r.wic).toLocaleString()}</td>
+                              <td className="px-3 py-2">
+                                <span className={["inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold", pillToneClass(pill.tone)].join(" ")}>
+                                  {pill.label}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-right font-mono text-xs">{r.pqs == null ? "—" : Math.round(r.pqs).toLocaleString()}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                    WIC computed for Direct + each partner. PQS computed per partner only. Scores are clamped 0–100.
+                  </div>
+                </div>
+              </div>
+            </section>
+
             <div className="mt-4">
               <PartnerAiStrategicTakeawayClient
                 payload={{
@@ -618,6 +1036,12 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
                   direct: directStats,
                   partner: partnerStats,
                   partner_mix_pct: partnerSharePct,
+                  decision_engine: {
+                    executive_narrative: executiveNarrative,
+                    cei_index: cei,
+                    wic: motionScoreRows.map((r) => ({ label: r.label, wic: r.wic, band: r.wic_band.label, open_pipeline: r.open_pipeline })),
+                    pqs: motionScoreRows.filter((r) => r.key.startsWith("partner:")).map((r) => ({ label: r.label, pqs: r.pqs })),
+                  },
                   top_partners: topPartners,
                 }}
               />

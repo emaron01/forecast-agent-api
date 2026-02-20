@@ -1,6 +1,7 @@
 "use client";
 
-import { computeExecutiveProductRows, generateExecutiveProductInsight, type ExecutiveProductPerformanceData } from "../../../lib/executiveProductInsights";
+import { computeExecutiveProductRows, type ExecutiveProductPerformanceData } from "../../../lib/executiveProductInsights";
+import { ExecutiveProductPerformanceAiTakeawayClient } from "./ExecutiveProductPerformanceAiTakeawayClient";
 
 function fmtMoney0(n: number) {
   const v = Number(n || 0);
@@ -20,9 +21,8 @@ function healthTone(pct: number | null) {
   return { label: "Risk", dot: "bg-[#E74C3C]", badge: "border-[#E74C3C]/45 bg-[#E74C3C]/10 text-[#E74C3C]" };
 }
 
-export function ExecutiveProductPerformance(props: { data: ExecutiveProductPerformanceData }) {
+export function ExecutiveProductPerformance(props: { data: ExecutiveProductPerformanceData; quotaPeriodId: string }) {
   const rows = computeExecutiveProductRows(props.data);
-  const insight = generateExecutiveProductInsight(props.data);
 
   const maxRevenue = Math.max(1, ...rows.map((r) => r.revenue));
 
@@ -48,13 +48,7 @@ export function ExecutiveProductPerformance(props: { data: ExecutiveProductPerfo
         ))}
       </div>
 
-      <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">✨ AI Strategic Takeaway</div>
-          <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Generated from mix + ACV + effort gaps</div>
-        </div>
-        <div className="mt-2 text-sm leading-relaxed text-[color:var(--sf-text-primary)]">{insight}</div>
-      </div>
+      <ExecutiveProductPerformanceAiTakeawayClient quotaPeriodId={props.quotaPeriodId} payload={props.data} />
 
       <div className="mt-4 overflow-x-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
         <table className="min-w-[980px] w-full table-auto border-collapse text-sm">

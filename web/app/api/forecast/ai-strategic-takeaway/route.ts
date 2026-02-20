@@ -20,7 +20,7 @@ function resolveBaseUrl() {
 }
 
 const BodySchema = z.object({
-  surface: z.enum(["hero", "radar", "partners_executive", "pipeline_momentum"]),
+  surface: z.enum(["hero", "radar", "partners_executive", "pipeline_momentum", "product_performance"]),
   payload: z.any(),
   force: z.boolean().optional().catch(undefined),
   previous_payload_sha256: z.string().optional().catch(undefined),
@@ -33,13 +33,39 @@ function sha256Text(s: string) {
 }
 
 function safeParseJson(text: string): any | null {
-  const t = String(text || "").trim();
-  if (!t) return null;
-  try {
-    return JSON.parse(t);
-  } catch {
-    return null;
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+
+  const stripFence = (s: string) => {
+    const t = String(s || "").trim();
+    if (!t) return "";
+    // Common model behavior: wrap JSON in ```json ... ``` fences.
+    const m = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    if (m && m[1]) return String(m[1]).trim();
+    return t;
+  };
+
+  const candidates: string[] = [];
+  const fenced = stripFence(raw);
+  if (fenced) candidates.push(fenced);
+  candidates.push(raw);
+
+  // If the output includes extra prose around JSON, try to extract the JSON object.
+  const firstBrace = fenced.indexOf("{");
+  const lastBrace = fenced.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) candidates.push(fenced.slice(firstBrace, lastBrace + 1).trim());
+
+  for (const c of candidates) {
+    const t = String(c || "").trim();
+    if (!t) continue;
+    try {
+      return JSON.parse(t);
+    } catch {
+      // continue
+    }
   }
+
+  return null;
 }
 
 function summarizeFallback(text: string) {
@@ -111,6 +137,12 @@ export async function POST(req: Request) {
             "Make quarter-over-quarter comparisons explicit (what changed vs last quarter and why it matters).",
             "Conclude with 2-3 concrete CRO actions for the next 7-14 days.",
           ].join("\n- ")
+        : body.surface === "product_performance"
+          ? [
+              "Focus on: revenue mix vs volume mix, pricing power vs effort drag, ACV efficiency, and where to push bundling/cross-sell to lift ACV.",
+              "Call out concentration risk (over-reliance on one product line) and where a product is under-penetrated relative to its economics.",
+              "Conclude with 2-3 concrete actions (enablement, packaging, pricing, playbooks) for the next 7-14 days.",
+            ].join("\n- ")
         : body.surface === "partners_executive"
           ? [
               "Focus on: Direct vs Partner comparisons (close rate, # opps, avg days, AOV, mix %).",

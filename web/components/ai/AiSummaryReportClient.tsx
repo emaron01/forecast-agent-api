@@ -13,8 +13,36 @@ function readEntry(entry: Entry): { summary: string; extended: string; updatedAt
     const raw = sessionStorage.getItem(storageKey(entry.surface, entry.quotaPeriodId));
     if (!raw) return null;
     const j = JSON.parse(raw);
-    const summary = String(j?.summary || "").trim();
-    const extended = String(j?.extended || "").trim();
+    const summaryRaw = String(j?.summary || "").trim();
+    const extendedRaw = String(j?.extended || "").trim();
+
+    const stripFence = (s: string) => {
+      const t = String(s || "").trim();
+      if (!t) return "";
+      const m = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+      return String(m?.[1] ?? t).trim();
+    };
+
+    const tryUnwrap = (s: string) => {
+      const t = stripFence(s);
+      if (!t) return null;
+      const first = t.indexOf("{");
+      const last = t.lastIndexOf("}");
+      const candidates = [t, first >= 0 && last > first ? t.slice(first, last + 1) : ""].filter(Boolean);
+      for (const c of candidates) {
+        try {
+          const o = JSON.parse(c);
+          if (o && typeof o === "object" && ("summary" in o || "extended" in o)) return o;
+        } catch {
+          // ignore
+        }
+      }
+      return null;
+    };
+
+    const u = tryUnwrap(summaryRaw) || tryUnwrap(extendedRaw);
+    const summary = String((u as any)?.summary ?? summaryRaw ?? "").trim();
+    const extended = String((u as any)?.extended ?? extendedRaw ?? "").trim();
     const updatedAt = j?.updatedAt != null ? Number(j.updatedAt) : null;
     if (!summary && !extended) return null;
     return { summary, extended, updatedAt: Number.isFinite(updatedAt) ? updatedAt : null };

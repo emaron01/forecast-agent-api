@@ -52,6 +52,7 @@ function renderCategorizedText(text: string) {
       {lines.map((line, idx) => {
         const raw = line.trim();
         if (!raw) return null;
+
         const bullet = raw.replace(/^\s*[-•]\s+/, "");
         const m = bullet.match(/^\*\*(.+?)\*\*:\s*(.+)$/) || bullet.match(/^([A-Za-z][A-Za-z0-9 /&+\-]{2,32}):\s*(.+)$/);
         if (m) {
@@ -66,6 +67,7 @@ function renderCategorizedText(text: string) {
             </div>
           );
         }
+
         return (
           <div key={idx} className="flex gap-2">
             <span className="text-[color:var(--sf-accent-secondary)]">•</span>
@@ -77,32 +79,36 @@ function renderCategorizedText(text: string) {
   );
 }
 
-export function PartnerAiStrategicTakeawayClient(props: { payload: any }) {
+type Props = {
+  quotaPeriodId: string;
+  payload: any;
+};
+
+export function ExecutiveProductPerformanceAiTakeawayClient(props: Props) {
+  const quotaPeriodId = String(props.quotaPeriodId || "").trim();
   const [summary, setSummary] = useState("");
   const [extended, setExtended] = useState("");
-  const [payloadSha, setPayloadSha] = useState<string>("");
+  const [payloadSha, setPayloadSha] = useState("");
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [toast, setToast] = useState<string>("");
+  const [toast, setToast] = useState("");
+
   const lastKey = useRef<string>("");
 
-  const key = useMemo(() => {
-    try {
-      return JSON.stringify(props.payload || {});
-    } catch {
-      return String(Date.now());
-    }
-  }, [props.payload]);
+  const payload = useMemo(() => {
+    return { quota_period_id: quotaPeriodId, ...(props.payload ?? {}) };
+  }, [quotaPeriodId, props.payload]);
 
   async function run(args: { force: boolean; showNoChangeToast: boolean }) {
+    if (!quotaPeriodId) return;
     setLoading(true);
     try {
       const r = await fetch("/api/forecast/ai-strategic-takeaway", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          surface: "partners_executive",
-          payload: props.payload,
+          surface: "product_performance",
+          payload,
           force: args.force,
           previous_payload_sha256: payloadSha || undefined,
           previous_summary: summary || undefined,
@@ -118,10 +124,10 @@ export function PartnerAiStrategicTakeawayClient(props: { payload: any }) {
       const nextSummary = unwrapped.summary;
       const nextExtended = unwrapped.extended;
 
-      if (nextSha) setPayloadSha(nextSha);
       const persistSummary = noChange ? (summary || nextSummary) : (nextSummary || summary);
       const persistExtended = noChange ? (extended || nextExtended) : (nextExtended || extended);
-      const persistSha = nextSha || payloadSha;
+
+      if (nextSha) setPayloadSha(nextSha);
       if (!noChange) {
         if (nextSummary) setSummary(nextSummary);
         if (nextExtended) setExtended(nextExtended);
@@ -130,89 +136,69 @@ export function PartnerAiStrategicTakeawayClient(props: { payload: any }) {
         window.setTimeout(() => setToast(""), 2500);
       }
 
-      // Persist for end-of-page summary.
-      const quotaPeriodId = String(props.payload?.quota_period?.id || props.payload?.quota_period_id || "").trim();
-      if (quotaPeriodId) {
-        try {
-          sessionStorage.setItem(
-            `sf_ai:partners_executive:${quotaPeriodId}`,
-            JSON.stringify({
-              summary: persistSummary,
-              extended: persistExtended,
-              payload_sha256: persistSha,
-              updatedAt: Date.now(),
-            })
-          );
-        } catch {
-          // ignore
-        }
+      try {
+        sessionStorage.setItem(
+          `sf_ai:product_performance:${quotaPeriodId}`,
+          JSON.stringify({
+            summary: persistSummary,
+            extended: persistExtended,
+            payload_sha256: nextSha || payloadSha,
+            updatedAt: Date.now(),
+          })
+        );
+      } catch {
+        // ignore
       }
     } catch {
-      // Keep prior content if fetch fails.
-      if (!args.force && !summary && !extended) {
-        setSummary("");
-        setExtended("");
-      }
+      // ignore
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (!key || key === lastKey.current) return;
+    if (!quotaPeriodId) return;
+    const key = [quotaPeriodId, payload?.summary?.total_revenue, payload?.summary?.total_orders].join("|");
+    if (key === lastKey.current) return;
     lastKey.current = key;
     void run({ force: false, showNoChangeToast: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [quotaPeriodId, JSON.stringify(payload || {})]);
 
   return (
-    <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">✨ AI Strategic Takeaways</div>
-          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-            CRO-grade interpretation of Direct vs Partner performance, with recommendations for coverage and channel investment.
-          </div>
-        </div>
+    <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">✨ AI Strategic Takeaway</div>
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => void run({ force: true, showNoChangeToast: true })}
-            className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
+            className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
           >
             Reanalyze
           </button>
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
-            className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
+            className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
           >
             {expanded ? "Hide extended analysis" : "Extended analysis"}
           </button>
         </div>
       </div>
 
-      {toast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{toast}</div> : null}
-
+      {toast ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{toast}</div> : null}
       {loading ? (
-        <div className="mt-3 text-sm text-[color:var(--sf-text-secondary)]">Generating strategic takeaways…</div>
+        <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating product mix takeaways…</div>
       ) : summary || extended ? (
-        <div className="mt-3 grid gap-3">
-          {summary ? (
-            <div className="whitespace-pre-wrap rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 text-sm text-[color:var(--sf-text-primary)]">
-              {renderCategorizedText(summary) || summary}
-            </div>
-          ) : null}
+        <div className="mt-3 grid gap-3 text-sm text-[color:var(--sf-text-primary)]">
+          {summary ? <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">{renderCategorizedText(summary) || summary}</div> : null}
           {expanded && extended ? (
-            <div className="whitespace-pre-wrap rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 text-sm text-[color:var(--sf-text-primary)]">
-              {extended}
-            </div>
+            <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 whitespace-pre-wrap">{extended}</div>
           ) : null}
         </div>
-      ) : (
-        <div className="mt-3 text-sm text-[color:var(--sf-text-secondary)]">No AI takeaway available.</div>
-      )}
-    </section>
+      ) : null}
+    </div>
   );
 }
 

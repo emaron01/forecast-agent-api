@@ -199,6 +199,81 @@ function fmtDays(n: number | null) {
   return `${v.toLocaleString()} day${v === 1 ? "" : "s"}`;
 }
 
+function stripJsonFence(s: string) {
+  const t = String(s || "").trim();
+  if (!t) return "";
+  const m = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return String(m?.[1] ?? t).trim();
+}
+
+function unwrapIfJsonEnvelope(summary: string, extended: string) {
+  const tryParse = (raw: string) => {
+    const t = stripJsonFence(raw);
+    if (!t) return null;
+    const first = t.indexOf("{");
+    const last = t.lastIndexOf("}");
+    const candidates = [t, first >= 0 && last > first ? t.slice(first, last + 1) : ""].filter(Boolean);
+    for (const c of candidates) {
+      try {
+        return JSON.parse(c);
+      } catch {
+        // ignore
+      }
+    }
+    return null;
+  };
+
+  const sObj = tryParse(summary);
+  if (sObj && typeof sObj === "object" && ("summary" in sObj || "extended" in sObj)) {
+    return {
+      summary: String((sObj as any).summary || "").trim(),
+      extended: String((sObj as any).extended || extended || "").trim(),
+    };
+  }
+  const eObj = tryParse(extended);
+  if (eObj && typeof eObj === "object" && ("summary" in eObj || "extended" in eObj)) {
+    return {
+      summary: String((eObj as any).summary || summary || "").trim(),
+      extended: String((eObj as any).extended || "").trim(),
+    };
+  }
+  return { summary: String(summary || "").trim(), extended: String(extended || "").trim() };
+}
+
+function renderCategorizedText(text: string) {
+  const t = String(text || "").trim();
+  if (!t) return null;
+  const lines = t.split("\n").map((l) => l.trimEnd());
+  return (
+    <div className="grid gap-2">
+      {lines.map((line, idx) => {
+        const raw = line.trim();
+        if (!raw) return null;
+        const bullet = raw.replace(/^\s*[-•]\s+/, "");
+        const m = bullet.match(/^\*\*(.+?)\*\*:\s*(.+)$/) || bullet.match(/^([A-Za-z][A-Za-z0-9 /&+\-]{2,32}):\s*(.+)$/);
+        if (m) {
+          const label = String(m[1]).trim();
+          const rest = String(m[2]).trim();
+          return (
+            <div key={idx} className="flex gap-2">
+              <span className="text-[color:var(--sf-accent-secondary)]">•</span>
+              <span className="min-w-0">
+                <span className="font-semibold">{label}:</span> {rest}
+              </span>
+            </div>
+          );
+        }
+        return (
+          <div key={idx} className="flex gap-2">
+            <span className="text-[color:var(--sf-accent-secondary)]">•</span>
+            <span className="min-w-0 whitespace-pre-wrap">{bullet}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function deltaTextClass(v: number) {
   if (!Number.isFinite(v) || v === 0) return "text-[color:var(--sf-text-secondary)]";
   return v > 0 ? "text-[#2ECC71]" : "text-[#E74C3C]";
@@ -534,9 +609,12 @@ export function ExecutiveGapInsightsClient(props: {
       });
       const j = await r.json();
       const noChange = !!j?.no_change;
-      const nextSummary = String(j?.summary || "").trim();
-      const nextExtended = String(j?.extended || "").trim();
+      const nextSummaryRaw = String(j?.summary || "").trim();
+      const nextExtendedRaw = String(j?.extended || "").trim();
       const nextSha = String(j?.payload_sha256 || "").trim();
+      const unwrapped = unwrapIfJsonEnvelope(nextSummaryRaw, nextExtendedRaw);
+      const nextSummary = unwrapped.summary;
+      const nextExtended = unwrapped.extended;
 
       const persistSummary = noChange ? (heroAiSummary || nextSummary) : (nextSummary || heroAiSummary);
       const persistExtended = noChange ? (heroAiExtended || nextExtended) : (nextExtended || heroAiExtended);
@@ -910,9 +988,12 @@ export function ExecutiveGapInsightsClient(props: {
       });
       const j = await r.json();
       const noChange = !!j?.no_change;
-      const nextSummary = String(j?.summary || "").trim();
-      const nextExtended = String(j?.extended || "").trim();
+      const nextSummaryRaw = String(j?.summary || "").trim();
+      const nextExtendedRaw = String(j?.extended || "").trim();
       const nextSha = String(j?.payload_sha256 || "").trim();
+      const unwrapped = unwrapIfJsonEnvelope(nextSummaryRaw, nextExtendedRaw);
+      const nextSummary = unwrapped.summary;
+      const nextExtended = unwrapped.extended;
 
       const persistSummary = noChange ? (radarAiSummary || nextSummary) : (nextSummary || radarAiSummary);
       const persistExtended = noChange ? (radarAiExtended || nextExtended) : (nextExtended || radarAiExtended);
@@ -1347,8 +1428,8 @@ export function ExecutiveGapInsightsClient(props: {
               ) : heroAiSummary || heroAiExtended ? (
                 <div className="mt-3 grid gap-3">
                   {heroAiSummary ? (
-                    <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
-                      {heroAiSummary}
+                    <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)]">
+                      {renderCategorizedText(heroAiSummary) || <div className="whitespace-pre-wrap">{heroAiSummary}</div>}
                     </div>
                   ) : null}
                   {heroAiExpanded && heroAiExtended ? (
@@ -1438,8 +1519,8 @@ export function ExecutiveGapInsightsClient(props: {
                 ) : radarAiSummary || radarAiExtended ? (
                   <div className="grid gap-3">
                     {radarAiSummary ? (
-                      <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
-                        {radarAiSummary}
+                      <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)]">
+                        {renderCategorizedText(radarAiSummary) || <div className="whitespace-pre-wrap">{radarAiSummary}</div>}
                       </div>
                     ) : null}
                     {radarAiExpanded && radarAiExtended ? (
@@ -1803,7 +1884,7 @@ export function ExecutiveGapInsightsClient(props: {
         );
       })()}
 
-      {props.productsClosedWon.length ? <ExecutiveProductPerformance data={productViz} /> : null}
+      {props.productsClosedWon.length ? <ExecutiveProductPerformance data={productViz} quotaPeriodId={quotaPeriodId} /> : null}
 
       {props.productsClosedWonByRep.length ? (
         <details className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
@@ -2409,8 +2490,9 @@ Normalize to an index: Direct = 100 baseline`}
 
       <AiSummaryReportClient
         entries={[
-          { label: "Executive takeaway (Hero)", surface: "hero", quotaPeriodId },
+          { label: "SalesForecast.io Outlook", surface: "hero", quotaPeriodId },
           { label: "Risk radar takeaway", surface: "radar", quotaPeriodId },
+          { label: "Product performance takeaway", surface: "product_performance", quotaPeriodId },
           { label: "Pipeline momentum takeaway", surface: "pipeline_momentum", quotaPeriodId },
         ]}
       />

@@ -2,6 +2,81 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+function stripJsonFence(s: string) {
+  const t = String(s || "").trim();
+  if (!t) return "";
+  const m = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return String(m?.[1] ?? t).trim();
+}
+
+function unwrapIfJsonEnvelope(summary: string, extended: string) {
+  const tryParse = (raw: string) => {
+    const t = stripJsonFence(raw);
+    if (!t) return null;
+    const first = t.indexOf("{");
+    const last = t.lastIndexOf("}");
+    const candidates = [t, first >= 0 && last > first ? t.slice(first, last + 1) : ""].filter(Boolean);
+    for (const c of candidates) {
+      try {
+        return JSON.parse(c);
+      } catch {
+        // ignore
+      }
+    }
+    return null;
+  };
+
+  const sObj = tryParse(summary);
+  if (sObj && typeof sObj === "object" && ("summary" in sObj || "extended" in sObj)) {
+    return {
+      summary: String((sObj as any).summary || "").trim(),
+      extended: String((sObj as any).extended || extended || "").trim(),
+    };
+  }
+  const eObj = tryParse(extended);
+  if (eObj && typeof eObj === "object" && ("summary" in eObj || "extended" in eObj)) {
+    return {
+      summary: String((eObj as any).summary || summary || "").trim(),
+      extended: String((eObj as any).extended || "").trim(),
+    };
+  }
+  return { summary: String(summary || "").trim(), extended: String(extended || "").trim() };
+}
+
+function renderCategorizedText(text: string) {
+  const t = String(text || "").trim();
+  if (!t) return null;
+  const lines = t.split("\n").map((l) => l.trimEnd());
+  return (
+    <div className="grid gap-2">
+      {lines.map((line, idx) => {
+        const raw = line.trim();
+        if (!raw) return null;
+        const bullet = raw.replace(/^\s*[-•]\s+/, "");
+        const m = bullet.match(/^\*\*(.+?)\*\*:\s*(.+)$/) || bullet.match(/^([A-Za-z][A-Za-z0-9 /&+\-]{2,32}):\s*(.+)$/);
+        if (m) {
+          const label = String(m[1]).trim();
+          const rest = String(m[2]).trim();
+          return (
+            <div key={idx} className="flex gap-2">
+              <span className="text-[color:var(--sf-accent-secondary)]">•</span>
+              <span className="min-w-0">
+                <span className="font-semibold">{label}:</span> {rest}
+              </span>
+            </div>
+          );
+        }
+        return (
+          <div key={idx} className="flex gap-2">
+            <span className="text-[color:var(--sf-accent-secondary)]">•</span>
+            <span className="min-w-0 whitespace-pre-wrap">{bullet}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function PipelineMomentumAiTakeawayClient(props: { payload: any }) {
   const [summary, setSummary] = useState("");
   const [extended, setExtended] = useState("");
@@ -36,9 +111,12 @@ export function PipelineMomentumAiTakeawayClient(props: { payload: any }) {
       });
       const j = await r.json();
       const noChange = !!j?.no_change;
-      const nextSummary = String(j?.summary || "").trim();
-      const nextExtended = String(j?.extended || "").trim();
+      const nextSummaryRaw = String(j?.summary || "").trim();
+      const nextExtendedRaw = String(j?.extended || "").trim();
       const nextSha = String(j?.payload_sha256 || "").trim();
+      const unwrapped = unwrapIfJsonEnvelope(nextSummaryRaw, nextExtendedRaw);
+      const nextSummary = unwrapped.summary;
+      const nextExtended = unwrapped.extended;
 
       if (nextSha) setPayloadSha(nextSha);
       const persistSummary = noChange ? (summary || nextSummary) : (nextSummary || summary);
@@ -113,7 +191,7 @@ export function PipelineMomentumAiTakeawayClient(props: { payload: any }) {
         <div className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">Generating CRO-grade pipeline takeaways…</div>
       ) : summary || extended ? (
         <div className="mt-2 grid gap-3">
-          {summary ? <div className="whitespace-pre-wrap text-sm leading-relaxed text-[color:var(--sf-text-primary)]">{summary}</div> : null}
+          {summary ? <div className="text-sm leading-relaxed text-[color:var(--sf-text-primary)]">{renderCategorizedText(summary) || summary}</div> : null}
           {expanded && extended ? (
             <div className="whitespace-pre-wrap rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)]">
               {extended}
