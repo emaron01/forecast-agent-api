@@ -1679,10 +1679,18 @@ export async function getExecutiveForecastDashboardSummary(args: {
       )
     : [];
 
-  // Only scope by rep_id here. We do NOT rely on rep_name matching because `opportunities.rep_name` can differ
-  // from rep-directory/user names (CSV loads + CRM naming differences).
-  const useRepFilterForMomentum = !isCompanyScopeForMomentum && repIdsForMomentum.length > 0;
-  const repNameKeysForMomentum: string[] = [];
+  // Scoping:
+  // - For company scope: no filter
+  // - For scoped roles: filter by rep_id when available, and *also* allow rep_name matching using the
+  //   CRM owner name stored on the user record (account_owner_name). This avoids relying on first/last display names.
+  //
+  // IMPORTANT: if both rep_ids and rep_name keys are empty for a scoped role, fail closed (return 0s)
+  // rather than widening to company-wide.
+  const visibleCrmOwnerNameKeys = Array.from(
+    new Set((visibleRepUsers || []).map((u: any) => normalizeNameKey(u?.account_owner_name || "")).filter(Boolean))
+  );
+  const repNameKeysForMomentum = !isCompanyScopeForMomentum ? visibleCrmOwnerNameKeys : [];
+  const useRepFilterForMomentum = !isCompanyScopeForMomentum;
 
   const prevQuarterKpis =
     prevQpId && qpId
