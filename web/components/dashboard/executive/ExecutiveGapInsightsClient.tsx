@@ -1162,66 +1162,6 @@ export function ExecutiveGapInsightsClient(props: {
           : { c: "1", b: "1", p: "1" };
   }, [stageView]);
 
-  const croRecommendation = useMemo(() => {
-    const dvp = props.quarterKpis?.directVsPartner || null;
-    const partnerPct = dvp?.partnerContributionPct ?? null;
-    const directAov = dvp?.directAov ?? null;
-    const partnerAov = dvp?.partnerAov ?? null;
-    const directAge = dvp?.directAvgAgeDays ?? null;
-    const partnerAge = dvp?.partnerAvgAgeDays ?? null;
-    const directDeals = dvp?.directClosedDeals ?? null;
-    const partnerDeals = dvp?.partnerClosedDeals ?? null;
-
-    const partnersLarger =
-      directAov != null && partnerAov != null && Number.isFinite(directAov) && Number.isFinite(partnerAov)
-        ? partnerAov > directAov
-        : null;
-    const partnersSlower =
-      directAge != null && partnerAge != null && Number.isFinite(directAge) && Number.isFinite(partnerAge)
-        ? partnerAge > directAge
-        : null;
-    const directMoreVolume =
-      directDeals != null && partnerDeals != null && Number.isFinite(directDeals) && Number.isFinite(partnerDeals)
-        ? directDeals > partnerDeals
-        : null;
-
-    const story = [
-      {
-        k: "partners",
-        label: "Partners = larger but slower",
-        detail:
-          partnersLarger != null || partnersSlower != null
-            ? `AOV ${partnerAov == null ? "—" : fmtMoney(partnerAov)} vs ${directAov == null ? "—" : fmtMoney(directAov)} · Avg cycle ${partnerAge == null ? "—" : fmtDays(partnerAge)} vs ${directAge == null ? "—" : fmtDays(directAge)}`
-            : null,
-      },
-      {
-        k: "direct",
-        label: "Direct = faster volume engine",
-        detail:
-          directMoreVolume != null || partnersSlower != null
-            ? `Closed-won deals ${directDeals == null ? "—" : String(directDeals)} vs ${partnerDeals == null ? "—" : String(partnerDeals)} · Faster by ${directAge != null && partnerAge != null ? fmtDays(Math.max(0, partnerAge - directAge)) : "—"}`
-            : null,
-      },
-      {
-        k: "channel",
-        label: "Channel = meaningful but not dominant",
-        detail: partnerPct == null ? null : `Partner contribution ${fmtPct01(partnerPct)}`,
-      },
-    ];
-
-    return {
-      hasNumbers: !!dvp,
-      story,
-      partnerPct,
-      directAov,
-      partnerAov,
-      directAge,
-      partnerAge,
-      directDeals,
-      partnerDeals,
-    };
-  }, [props.quarterKpis]);
-
   const productViz = useMemo<ExecutiveProductPerformanceData>(() => {
     const rows = Array.isArray(props.productsClosedWon) ? props.productsClosedWon : [];
     const totalRevenue = rows.reduce((acc, r) => acc + (Number((r as any).won_amount || 0) || 0), 0);
