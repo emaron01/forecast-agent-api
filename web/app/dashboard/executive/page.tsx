@@ -73,6 +73,7 @@ export default async function ExecutiveDashboardPage({
             myRepId={summary.myRepId}
             repRollups={summary.repRollups}
             productsClosedWon={summary.productsClosedWon}
+            productsClosedWonPrevSummary={summary.productsClosedWonPrevSummary}
             productsClosedWonByRep={summary.productsClosedWonByRep}
             quarterKpis={summary.quarterKpis}
             pipelineMomentum={summary.pipelineMomentum}

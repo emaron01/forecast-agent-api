@@ -116,6 +116,7 @@ export type ExecutiveForecastSummary = {
     avg_order_value: number;
     avg_health_score: number | null;
   }>;
+  productsClosedWonPrevSummary: { total_revenue: number; total_orders: number; blended_acv: number } | null;
   productsClosedWonByRep: Array<{
     rep_name: string;
     product: string;
@@ -170,6 +171,7 @@ export type ExecutiveForecastSummary = {
       open_pipeline: number;
     } | null;
     revenue_mix_partner_pct01: number | null; // closed-won only
+    cei_prev_partner_index: number | null; // partner CEI index in previous quarter (Direct=100), if available
     top_partners: Array<{
       partner_name: string;
       opps: number;
@@ -1000,6 +1002,9 @@ export async function getExecutiveForecastDashboardSummary(args: {
     .catch(() => []);
 
   const qpId = selectedQuotaPeriodId;
+  const periodIdx = periods.findIndex((p) => String(p.id) === String(qpId));
+  const prevPeriod = periodIdx >= 0 ? periods[periodIdx + 1] || null : null;
+  const prevQpId = String(prevPeriod?.id || "").trim();
 
   // If we can't resolve any scope for a non-admin, fail closed (align with other dashboards).
   const useScopedRepIds = scopedRole !== "ADMIN";
@@ -1018,6 +1023,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
       healthModifiers: { commit_modifier: 1, best_case_modifier: 1, pipeline_modifier: 1 },
       repRollups: [],
       productsClosedWon: [],
+      productsClosedWonPrevSummary: null,
       productsClosedWonByRep: [],
       quarterKpis: null,
       pipelineMomentum: null,
@@ -1241,10 +1247,12 @@ export async function getExecutiveForecastDashboardSummary(args: {
     avg_health_score: number | null;
   };
 
-  const productsClosedWon: ProductWonRow[] = canCompute
-    ? await pool
-        .query<ProductWonRow>(
-          `
+  async function getProductsClosedWonForPeriod(qpIdInput: string): Promise<ProductWonRow[]> {
+    const qpid = String(qpIdInput || "").trim();
+    if (!qpid) return [];
+    return pool
+      .query<ProductWonRow>(
+        `
           WITH qp AS (
             SELECT period_start::date AS period_start, period_end::date AS period_end
               FROM quota_periods
@@ -1305,12 +1313,27 @@ export async function getExecutiveForecastDashboardSummary(args: {
           GROUP BY product
           ORDER BY won_amount DESC, product ASC
           LIMIT 30
-          `,
-          [args.orgId, qpId, repIdsToUse, visibleRepNameKeys]
-        )
-        .then((r) => (r.rows || []) as any[])
-        .catch(() => [])
-    : [];
+        `,
+        [args.orgId, qpid, repIdsToUse, visibleRepNameKeys]
+      )
+      .then((r) => (r.rows || []) as any[])
+      .catch(() => []);
+  }
+
+  const productsClosedWon: ProductWonRow[] = canCompute ? await getProductsClosedWonForPeriod(qpId) : [];
+
+  const prevProductsClosedWonRows: ProductWonRow[] = canCompute && prevQpId ? await getProductsClosedWonForPeriod(prevQpId) : [];
+  const productsClosedWonPrevSummaryFinal =
+    prevQpId && prevProductsClosedWonRows.length
+      ? (() => {
+          const totalRevenue = prevProductsClosedWonRows.reduce((acc, r) => acc + (Number((r as any).won_amount || 0) || 0), 0);
+          const totalOrders = prevProductsClosedWonRows.reduce((acc, r) => acc + (Number((r as any).won_count || 0) || 0), 0);
+          const blendedAcv = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+          return { total_revenue: totalRevenue, total_orders: totalOrders, blended_acv: blendedAcv };
+        })()
+      : prevQpId
+        ? { total_revenue: 0, total_orders: 0, blended_acv: 0 }
+        : null;
 
   type ProductWonByRepRow = {
     rep_name: string;
@@ -1623,9 +1646,6 @@ export async function getExecutiveForecastDashboardSummary(args: {
       }).catch(() => null)
     : null;
 
-  const periodIdx = periods.findIndex((p) => String(p.id) === String(qpId));
-  const prevPeriod = periodIdx >= 0 ? periods[periodIdx + 1] || null : null;
-  const prevQpId = String(prevPeriod?.id || "").trim();
   const useRepFilterForMomentum = scope.allowedRepIds !== null;
 
   const prevQuarterKpis =
@@ -1837,6 +1857,34 @@ export async function getExecutiveForecastDashboardSummary(args: {
           const denom = (direct ? Number(direct.won_amount || 0) || 0 : 0) + (partner ? Number(partner.won_amount || 0) || 0 : 0);
           const revenue_mix_partner_pct01 = denom > 0 && partner ? (Number(partner.won_amount || 0) || 0) / denom : null;
 
+          const ceiPrevPartnerIndex = await (async () => {
+            if (!prevQpId) return null;
+            const prevRows = await loadMotionStatsForPartners({ orgId: args.orgId, quotaPeriodId: prevQpId, repIds: scope.allowedRepIds }).catch(() => []);
+            const prevByMotion = new Map<string, MotionStatsRow>();
+            for (const r of prevRows || []) prevByMotion.set(String(r.motion), r);
+            const d0 = prevByMotion.get("direct") || null;
+            const p0 = prevByMotion.get("partner") || null;
+            if (!d0 || !p0) return null;
+
+            const directDays = d0.avg_days == null ? null : Number(d0.avg_days);
+            const partnerDays = p0.avg_days == null ? null : Number(p0.avg_days);
+            const directWon = Number(d0.won_amount || 0) || 0;
+            const partnerWon = Number(p0.won_amount || 0) || 0;
+            const directWin = d0.win_rate == null ? null : Number(d0.win_rate);
+            const partnerWin = p0.win_rate == null ? null : Number(p0.win_rate);
+            const directH = d0.avg_health_score == null ? null : Number(d0.avg_health_score) / 30;
+            const partnerH = p0.avg_health_score == null ? null : Number(p0.avg_health_score) / 30;
+
+            const RV_direct = directDays && directDays > 0 ? directWon / directDays : 0;
+            const RV_partner = partnerDays && partnerDays > 0 ? partnerWon / partnerDays : 0;
+            const QM_direct = directWin == null ? 0 : directH == null ? directWin : directWin * directH;
+            const QM_partner = partnerWin == null ? 0 : partnerH == null ? partnerWin : partnerWin * partnerH;
+            const CEI_raw_direct = RV_direct * QM_direct;
+            const CEI_raw_partner = RV_partner * QM_partner;
+            if (!(CEI_raw_direct > 0)) return null;
+            return (CEI_raw_partner / CEI_raw_direct) * 100;
+          })();
+
           return {
             direct: direct
               ? {
@@ -1851,6 +1899,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
                 }
               : null,
             revenue_mix_partner_pct01,
+            cei_prev_partner_index: ceiPrevPartnerIndex,
             top_partners: (topPartners || []).map((p) => ({
               ...p,
               open_pipeline: Number(openPartnerMap.get(String(p.partner_name || "").trim()) || 0) || 0,
@@ -1876,6 +1925,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
     healthModifiers,
     repRollups,
     productsClosedWon,
+    productsClosedWonPrevSummary: productsClosedWonPrevSummaryFinal,
     productsClosedWonByRep,
     quarterKpis,
     pipelineMomentum,

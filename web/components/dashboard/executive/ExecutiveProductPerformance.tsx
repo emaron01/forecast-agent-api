@@ -35,19 +35,6 @@ export function ExecutiveProductPerformance(props: { data: ExecutiveProductPerfo
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        {[
-          { k: "rev", label: "Closed Won (QTD)", v: fmtMoney0(props.data.summary.total_revenue) },
-          { k: "orders", label: "Total Orders", v: (Number(props.data.summary.total_orders || 0) || 0).toLocaleString() },
-          { k: "acv", label: "Blended ACV", v: fmtMoney0(props.data.summary.blended_acv) },
-        ].map((c) => (
-          <div key={c.k} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">{c.label}</div>
-            <div className="mt-2 font-mono text-2xl font-extrabold tracking-tight text-[color:var(--sf-text-primary)]">{c.v}</div>
-          </div>
-        ))}
-      </div>
-
       <ExecutiveProductPerformanceAiTakeawayClient quotaPeriodId={props.quotaPeriodId} payload={props.data} />
 
       <div className="mt-4 overflow-x-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">

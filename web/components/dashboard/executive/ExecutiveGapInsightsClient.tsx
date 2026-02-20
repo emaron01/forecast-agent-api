@@ -194,6 +194,13 @@ function fmtPct01(n: number | null) {
   return `${Math.round(n * 100)}%`;
 }
 
+function fmtDeltaCount(n: number) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v === 0) return "0";
+  const s = Math.round(v);
+  return s > 0 ? `+${s.toLocaleString()}` : `${s.toLocaleString()}`;
+}
+
 function fmtDays(n: number | null) {
   if (n == null || !Number.isFinite(n)) return "—";
   const v = Math.round(n);
@@ -413,6 +420,7 @@ export function ExecutiveGapInsightsClient(props: {
     avg_order_value: number;
     avg_health_score: number | null;
   }>;
+  productsClosedWonPrevSummary: { total_revenue: number; total_orders: number; blended_acv: number } | null;
   productsClosedWonByRep: Array<{
     rep_name: string;
     product: string;
@@ -1385,6 +1393,8 @@ export function ExecutiveGapInsightsClient(props: {
     };
   }, [props.productsClosedWon]);
 
+  const productKpiPrev = props.productsClosedWonPrevSummary;
+
   const partnersDecisionEngine = useMemo(() => {
     const pe = props.partnersExecutive;
     if (!pe?.direct || !pe?.partner) return null;
@@ -1588,56 +1598,122 @@ export function ExecutiveGapInsightsClient(props: {
                   </div>
                 );
               })()}
+
+              <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                    This Quarter’s Outlook Driven By: ✨ AI Strategic Takeaway
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void runHeroAi({ force: true, showNoChangeToast: true })}
+                      className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
+                    >
+                      Reanalyze
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHeroAiExpanded((v) => !v)}
+                      className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
+                    >
+                      {heroAiExpanded ? "Hide extended analysis" : "Extended analysis"}
+                    </button>
+                  </div>
+                </div>
+
+                {heroAiToast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroAiToast}</div> : null}
+                {heroAiLoading ? (
+                  <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating a CRO-grade takeaway…</div>
+                ) : heroAiSummary || heroAiExtended ? (
+                  <div className="mt-3 grid gap-3">
+                    {heroAiSummary ? (
+                      <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)]">
+                        {renderCategorizedText(heroAiSummary) || <div className="whitespace-pre-wrap">{heroAiSummary}</div>}
+                      </div>
+                    ) : null}
+                    {heroAiExpanded && heroAiExtended ? (
+                      <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
+                        {heroAiExtended}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
 
           <div className="lg:col-span-5">
-            <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
-              <div className="flex flex-wrap items-end justify-between gap-2">
-                <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
-                  This Quarter’s Outlook Driven By: ✨ AI Strategic Takeaway
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void runHeroAi({ force: true, showNoChangeToast: true })}
-                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
-                  >
-                    Reanalyze
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setHeroAiExpanded((v) => !v)}
-                    className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
-                  >
-                    {heroAiExpanded ? "Hide extended analysis" : "Extended analysis"}
-                  </button>
-                </div>
-              </div>
-              {heroAiToast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroAiToast}</div> : null}
-              {heroAiLoading ? (
-                <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating a CRO-grade takeaway…</div>
-              ) : heroAiSummary || heroAiExtended ? (
-                <div className="mt-3 grid gap-3">
-                  {heroAiSummary ? (
-                    <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)]">
-                      {renderCategorizedText(heroAiSummary) || <div className="whitespace-pre-wrap">{heroAiSummary}</div>}
+            <div className="grid gap-3">
+              {(() => {
+                const cur = productViz.summary;
+                const prev = productKpiPrev;
+                const box = "rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm";
+
+                const Card = (p: { label: string; curText: string; prevText: string; deltaText: string; delta: number | null }) => {
+                  const d = p.delta == null ? null : Number(p.delta);
+                  const up = d != null && d > 0;
+                  const down = d != null && d < 0;
+                  const tone = up ? "text-[#16A34A]" : down ? "text-[#E74C3C]" : "text-[color:var(--sf-text-secondary)]";
+                  const arrow = up ? "↑" : down ? "↓" : "→";
+                  return (
+                    <div className={box}>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">{p.label}</div>
+                      <div className="mt-2 flex items-baseline justify-between gap-3">
+                        <div className="font-mono text-2xl font-extrabold tracking-tight text-[color:var(--sf-text-primary)]">{p.curText}</div>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[color:var(--sf-text-secondary)]">
+                        <div className="min-w-0 truncate">Last Quarter {p.prevText}</div>
+                        <div className={["flex shrink-0 items-center justify-end gap-1 font-mono text-xs font-semibold", tone].join(" ")}>
+                          <span aria-hidden="true">{arrow}</span>
+                          <span>{p.deltaText}</span>
+                        </div>
+                      </div>
                     </div>
-                  ) : null}
-                  {heroAiExpanded && heroAiExtended ? (
-                    <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
-                      {heroAiExtended}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
+                  );
+                };
+
+                const curRev = Number(cur.total_revenue || 0) || 0;
+                const curOrders = Number(cur.total_orders || 0) || 0;
+                const curAcv = Number(cur.blended_acv || 0) || 0;
+                const prevRev = prev ? Number(prev.total_revenue || 0) || 0 : 0;
+                const prevOrders = prev ? Number(prev.total_orders || 0) || 0 : 0;
+                const prevAcv = prev ? Number(prev.blended_acv || 0) || 0 : 0;
+
+                return (
+                  <>
+                    <Card
+                      label="Closed Won (QTD)"
+                      curText={fmtMoney(curRev)}
+                      prevText={prev ? fmtMoney(prevRev) : "—"}
+                      deltaText={prev ? fmtMoney(curRev - prevRev) : "—"}
+                      delta={prev ? curRev - prevRev : null}
+                    />
+                    <Card
+                      label="Total Orders"
+                      curText={curOrders.toLocaleString()}
+                      prevText={prev ? prevOrders.toLocaleString() : "—"}
+                      deltaText={prev ? fmtDeltaCount(curOrders - prevOrders) : "—"}
+                      delta={prev ? curOrders - prevOrders : null}
+                    />
+                    <Card
+                      label="Blended ACV"
+                      curText={fmtMoney(curAcv)}
+                      prevText={prev ? fmtMoney(prevAcv) : "—"}
+                      deltaText={prev ? fmtMoney(curAcv - prevAcv) : "—"}
+                      delta={prev ? curAcv - prevAcv : null}
+                    />
+                  </>
+                );
+              })()}
+
               {quarterDrivers.usingFullRiskSet ? (
-                <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 text-[11px] text-[color:var(--sf-text-secondary)]">
                   Strategic takeaway is calculated from the full at-risk deal set (not only the displayed top {topN}).
                   {quarterDrivers.loading ? " Refreshing…" : ""}
                 </div>
               ) : null}
-              <div className="mt-3 border-t border-[color:var(--sf-border)] pt-3 text-sm text-[color:var(--sf-text-primary)]">
+              <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 text-sm text-[color:var(--sf-text-primary)]">
                 <span className="text-[color:var(--sf-text-primary)]">AI Adjustment vs CRM </span>
                 <span className={`font-mono font-semibold ${deltaTextClass(props.gap)}`}>{fmtMoney(props.gap)}</span>
               </div>
