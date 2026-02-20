@@ -10,12 +10,6 @@ function fmtMoney(n: any) {
   return v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
-function fmtCoverageRatio(r: number | null, opts?: { digits?: number }) {
-  if (r == null || !Number.isFinite(r)) return "—";
-  const d = Math.max(0, Math.min(2, opts?.digits ?? 1));
-  return `${r.toFixed(d)}x`;
-}
-
 function fmtNum(n: any) {
   const v = Number(n);
   if (!Number.isFinite(v)) return "—";
@@ -48,19 +42,6 @@ function healthColorClass(pct: number | null) {
   if (pct >= 80) return "text-[#2ECC71]";
   if (pct >= 50) return "text-[#F1C40F]";
   return "text-[#E74C3C]";
-}
-
-function coverageStatus(r: number | null) {
-  if (r == null || !Number.isFinite(r)) {
-    return { label: "—", cls: "border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]" };
-  }
-  // Interpreting your intent as:
-  // - < 3.0x: RED (danger low coverage)
-  // - 3.0x–3.59x: YELLOW (fair coverage)
-  // - >= 3.6x: GREEN (quota coverage)
-  if (r >= 3.6) return { label: "QUOTA COVERAGE", cls: "border-[#2ECC71]/40 bg-[#2ECC71]/10 text-[#2ECC71]" };
-  if (r >= 3.0) return { label: "FAIR COVERAGE", cls: "border-[#F1C40F]/50 bg-[#F1C40F]/10 text-[#F1C40F]" };
-  return { label: "DANGER LOW COVERAGE", cls: "border-[#E74C3C]/50 bg-[#E74C3C]/10 text-[#E74C3C]" };
 }
 
 export function ExecutiveQuarterKpisModule(props: {
@@ -99,10 +80,6 @@ export function ExecutiveQuarterKpisModule(props: {
 
   const quota = Number(props.quota || 0) || 0;
   const pctToGoal = quota > 0 ? closedWonAmt / quota : null;
-  const remainingQuota = quota > 0 ? Math.max(0, quota - (Number(closedWonAmt || 0) || 0)) : null;
-  const activePipeline = Number(totalPipelineAmt || 0) || 0; // open pipeline (excludes won/lost)
-  const coverage = remainingQuota != null && remainingQuota > 0 ? activePipeline / remainingQuota : null;
-  const covStatus = coverageStatus(coverage);
 
   const Chip = (p: { label: string; value: ReactNode }) => (
     <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
@@ -163,21 +140,6 @@ export function ExecutiveQuarterKpisModule(props: {
               <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">% To Goal</div>
               <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">{fmtPct(pctToGoal)}</div>
               <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">&nbsp;</div>
-            </div>
-
-            <div className={boxClass}>
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Pipeline Coverage</div>
-                <span className={["inline-flex shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold", covStatus.cls].join(" ")}>
-                  {covStatus.label}
-                </span>
-              </div>
-              <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
-                Pipeline {fmtCoverageRatio(coverage, { digits: 1 })} Coverage
-              </div>
-              <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
-                (Pipeline {fmtMoney(activePipeline)} ÷ Remaining {remainingQuota == null ? "—" : fmtMoney(remainingQuota)})
-              </div>
             </div>
 
             <div className="col-span-full">
