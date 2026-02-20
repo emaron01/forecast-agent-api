@@ -1338,7 +1338,7 @@ export function ExecutiveGapInsightsClient(props: {
     return `${Math.round(p01 * 100)}%`;
   };
 
-  const heroCard = "rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm";
+  const heroCard = "h-full rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm";
   const heroVal = "mt-2 font-mono text-xl font-semibold text-[color:var(--sf-text-primary)]";
 
   const productDelta = (cur: number, prev: number) => {
@@ -1421,8 +1421,8 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
 
           <div className="min-w-0 lg:pt-1">
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,320px)]">
-              <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="contents">
                 {(() => {
                   const rev = productDelta(curRev, prevRev);
                   const ord = productDelta(curOrders, prevOrders);
@@ -1483,7 +1483,7 @@ export function ExecutiveGapInsightsClient(props: {
                 })()}
               </div>
 
-              <div className="grid gap-3 grid-cols-2">
+              <div className="contents">
                 <div className={heroCard}>
                   <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Avg Health Closed Won</div>
                   <div className={heroVal}>
@@ -1500,6 +1500,7 @@ export function ExecutiveGapInsightsClient(props: {
                   <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
                   <div className={heroVal}>{fmtPct(oppToWin)}</div>
                 </div>
+                <div className="hidden sm:block" aria-hidden="true" />
                 <div className={heroCard}>
                   <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Aging (avg days)</div>
                   <div className={heroVal}>{agingAvgDays == null || !Number.isFinite(agingAvgDays) ? "—" : String(Math.round(agingAvgDays))}</div>
