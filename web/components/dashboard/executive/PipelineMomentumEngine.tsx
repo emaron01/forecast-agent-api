@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import {
   coverageRatio,
   coverageTone,
@@ -32,8 +33,21 @@ function trendBadge(p01: number | null) {
         : t === "flat"
           ? "border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]"
           : "border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]";
-  const glyph = t === "up" ? "▲" : t === "down" ? "▼" : "•";
+  const glyph = t === "up" ? "↑" : t === "down" ? "↓" : "•";
   return { cls, glyph };
+}
+
+function deltaInline(p01: number | null) {
+  const { cls, glyph } = trendBadge(p01);
+  const txt = fmtSignedPct01(p01, { digits: 0 });
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-xs font-semibold ${cls}`}>
+      <span className="text-sm leading-none" aria-hidden="true">
+        {glyph}
+      </span>
+      <span>{txt}</span>
+    </span>
+  );
 }
 
 function mixColor(k: ForecastMixKey) {
@@ -56,7 +70,7 @@ function mixTrendTone(deltaPct: number | null) {
   return "muted" as const;
 }
 
-function KpiCard(props: { label: string; value: string; sub?: string; rightPill?: { text: string; tone: "good" | "warn" | "bad" | "muted" } }) {
+function KpiCard(props: { label: string; value: string; sub?: ReactNode; rightPill?: { text: string; tone: "good" | "warn" | "bad" | "muted" } }) {
   const pill =
     props.rightPill?.tone === "good"
       ? "border-[#2ECC71]/40 bg-[#2ECC71]/10 text-[#2ECC71]"
@@ -71,7 +85,7 @@ function KpiCard(props: { label: string; value: string; sub?: string; rightPill?
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">{props.label}</div>
-          <div className="mt-2 truncate font-mono text-3xl font-extrabold tracking-tight text-[color:var(--sf-text-primary)] sm:text-4xl">{props.value}</div>
+          <div className="mt-2 truncate font-mono text-2xl font-extrabold tracking-tight text-[color:var(--sf-text-primary)] sm:text-3xl">{props.value}</div>
           {props.sub ? <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">{props.sub}</div> : null}
         </div>
         {props.rightPill ? <span className={`shrink-0 rounded-full border px-3 py-1 text-xs font-semibold ${pill}`}>{props.rightPill.text}</span> : null}
@@ -120,6 +134,28 @@ function fmtPct01Plain(p01: number | null) {
   return `${Math.round(p01 * 100)}%`;
 }
 
+function healthTone(pct: number | null) {
+  const p = pct == null ? null : Number(pct);
+  if (p == null || !Number.isFinite(p)) return "muted" as const;
+  if (p >= 75) return "good" as const;
+  if (p >= 50) return "warn" as const;
+  return "bad" as const;
+}
+
+function healthPill(pct: number | null) {
+  const tone = healthTone(pct);
+  const cls =
+    tone === "good"
+      ? "border-[#2ECC71]/40 bg-[#2ECC71]/10 text-[#2ECC71]"
+      : tone === "warn"
+        ? "border-[#F1C40F]/50 bg-[#F1C40F]/10 text-[#F1C40F]"
+        : tone === "bad"
+          ? "border-[#E74C3C]/50 bg-[#E74C3C]/10 text-[#E74C3C]"
+          : "border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)]";
+  const text = pct == null || !Number.isFinite(Number(pct)) ? "Health —" : `Health ${Math.round(Number(pct))}%`;
+  return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${cls}`}>{text}</span>;
+}
+
 export function PipelineMomentumEngine(props: { data: PipelineMomentumData | null; quotaPeriodId?: string; className?: string }) {
   const data = props.data;
   if (!data) {
@@ -139,7 +175,7 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
   const covText = fmtCoverageRatio(cov, { digits: 1 });
 
   const totalQoq = qoqChangePct01(data.current_quarter.total_pipeline, data.previous_quarter.total_pipeline);
-  const { cls: velCls, glyph: velGlyph } = trendBadge(totalQoq);
+  const { glyph: velGlyph } = trendBadge(totalQoq);
 
   const predictive = data.predictive || null;
   const created = predictive?.created_pipeline || null;
@@ -176,7 +212,7 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
           rightPill={covPill || undefined}
         />
         <KpiCard
-          label="QoQ Velocity"
+          label="Previous Quarter velocity"
           value={fmtSignedPct01(totalQoq, { digits: 0 })}
           sub={
             data.previous_quarter.total_pipeline == null
@@ -186,16 +222,6 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
           rightPill={{ text: `${velGlyph} momentum`, tone: totalQoq != null && totalQoq < 0 ? "bad" : totalQoq != null && totalQoq > 0 ? "good" : "muted" }}
         />
       </div>
-
-      <PipelineMomentumAiTakeawayClient
-        payload={{
-          quota_period_id: props.quotaPeriodId || null,
-          quota_target: data.quota_target,
-          open_pipeline: data.current_quarter,
-          open_pipeline_previous: data.previous_quarter,
-          predictive: data.predictive || null,
-        }}
-      />
 
       <div className="rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="flex items-end justify-between gap-3">
@@ -249,7 +275,8 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
               <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">New opps created in-quarter that are still active (not closed in the quarter).</div>
             </div>
             <div className="text-xs text-[color:var(--sf-text-secondary)]">
-              As-of velocity <span className={`ml-2 inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${velCls}`}>QoQ {fmtSignedPct01(created.qoq_total_amount_pct01, { digits: 0 })}</span>
+              As-of velocity vs <span className="font-semibold text-[color:var(--sf-text-primary)]">Previous Quarter</span>{" "}
+              <span className="ml-2">{deltaInline(created.qoq_total_amount_pct01)}</span>
             </div>
           </div>
 
@@ -260,7 +287,14 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
               sub={
                 created.previous.total_amount == null
                   ? "Previous quarter unavailable"
-                  : `Prev ${fmtMoney(created.previous.total_amount)} · QoQ ${fmtSignedPct01(created.qoq_total_amount_pct01, { digits: 0 })}`
+                  : (
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span>Prev {fmtMoney(created.previous.total_amount)}</span>
+                        <span className="text-[color:var(--sf-text-secondary)]">·</span>
+                        <span className="font-semibold text-[color:var(--sf-text-secondary)]">Previous Quarter</span>
+                        {deltaInline(created.qoq_total_amount_pct01)}
+                      </span>
+                    )
               }
             />
             <KpiCard
@@ -269,7 +303,14 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
               sub={
                 created.previous.total_opps == null
                   ? "Previous quarter unavailable"
-                  : `Prev ${String(created.previous.total_opps || 0)} · QoQ ${fmtSignedPct01(created.qoq_total_opps_pct01, { digits: 0 })}`
+                  : (
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span>Prev {String(created.previous.total_opps || 0)}</span>
+                        <span className="text-[color:var(--sf-text-secondary)]">·</span>
+                        <span className="font-semibold text-[color:var(--sf-text-secondary)]">Previous Quarter</span>
+                        {deltaInline(created.qoq_total_opps_pct01)}
+                      </span>
+                    )
               }
             />
             <KpiCard
@@ -289,7 +330,12 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
                     <span className="font-mono font-semibold">{fmtMoney(m.value)}</span>{" "}
                     <span className="text-[color:var(--sf-text-secondary)]">· {m.opps} opps</span>
                   </div>
-                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Avg health: {m.health_pct == null ? "—" : `${m.health_pct}%`}</div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {healthPill(m.health_pct)}
+                    <span className="text-xs text-[color:var(--sf-text-secondary)]">
+                      Avg health: {m.health_pct == null ? "—" : `${Math.round(m.health_pct)}%`}
+                    </span>
+                  </div>
                 </div>
               );
             })}
@@ -304,7 +350,7 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
                     <th className="px-4 py-3 text-right">created pipeline</th>
                     <th className="px-4 py-3 text-right"># opps</th>
                     <th className="px-4 py-3 text-right">avg health</th>
-                    <th className="px-4 py-3 text-right">QoQ</th>
+                    <th className="px-4 py-3 text-right">Previous Quarter</th>
                   </tr>
                 </thead>
                 <tbody className="text-[color:var(--sf-text-primary)]">
@@ -314,7 +360,7 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
                       <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(r.amount)}</td>
                       <td className="px-4 py-3 text-right font-mono text-xs">{String(r.opps)}</td>
                       <td className="px-4 py-3 text-right font-mono text-xs">{r.avg_health_pct == null ? "—" : `${r.avg_health_pct}%`}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{fmtSignedPct01(r.qoq_amount_pct01, { digits: 0 })}</td>
+                      <td className="px-4 py-3 text-right">{deltaInline(r.qoq_amount_pct01)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -384,6 +430,16 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
           ) : null}
         </div>
       ) : null}
+
+      <PipelineMomentumAiTakeawayClient
+        payload={{
+          quota_period_id: props.quotaPeriodId || null,
+          quota_target: data.quota_target,
+          open_pipeline: data.current_quarter,
+          open_pipeline_previous: data.previous_quarter,
+          predictive: data.predictive || null,
+        }}
+      />
     </section>
   );
 }

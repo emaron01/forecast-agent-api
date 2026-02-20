@@ -119,13 +119,14 @@ export function PartnerAiStrategicTakeawayClient(props: { payload: any }) {
       const nextExtended = unwrapped.extended;
 
       if (nextSha) setPayloadSha(nextSha);
-      const persistSummary = noChange ? (summary || nextSummary) : (nextSummary || summary);
-      const persistExtended = noChange ? (extended || nextExtended) : (nextExtended || extended);
+      // Even when `no_change=true`, still apply formatting hardening so we never "stick" on an empty/raw envelope.
+      if (nextSummary && nextSummary !== summary) setSummary(nextSummary);
+      if (nextExtended && nextExtended !== extended) setExtended(nextExtended);
+
+      const persistSummary = noChange ? (nextSummary || summary) : (nextSummary || summary);
+      const persistExtended = noChange ? (nextExtended || extended) : (nextExtended || extended);
       const persistSha = nextSha || payloadSha;
-      if (!noChange) {
-        if (nextSummary) setSummary(nextSummary);
-        if (nextExtended) setExtended(nextExtended);
-      } else if (args.showNoChangeToast) {
+      if (noChange && args.showNoChangeToast && (persistSummary || persistExtended)) {
         setToast("No material change in the underlying data.");
         window.setTimeout(() => setToast(""), 2500);
       }

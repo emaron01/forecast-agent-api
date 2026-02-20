@@ -28,6 +28,7 @@ export function KpiCardsRow(props: {
   usingFullRiskSet: boolean;
   productKpis: { total_revenue: number; total_orders: number; blended_acv: number } | null;
   productKpisPrev: { total_revenue: number; total_orders: number; blended_acv: number } | null;
+  variant?: "full" | "product_only" | "forecast_only";
 }) {
   const absMax = Math.max(Math.abs(props.bucketDeltas.commit), Math.abs(props.bucketDeltas.best_case), Math.abs(props.bucketDeltas.pipeline), 1);
   const bar = (v: number) => `${Math.round(clamp01(Math.abs(v) / absMax) * 100)}%`;
@@ -81,6 +82,93 @@ export function KpiCardsRow(props: {
   const prevOrders = prev ? Number(prev.total_orders || 0) || 0 : 0;
   const prevAcv = prev ? Number(prev.blended_acv || 0) || 0 : 0;
 
+  const variant = props.variant || "full";
+
+  const ForecastStageGapAttributionCard = (
+    <div className={card}>
+      <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Forecast Stage Gap Attribution</div>
+      <div className="mt-3 grid gap-2 text-xs text-[color:var(--sf-text-primary)]">
+        {[
+          { label: "Commit impact", v: props.bucketDeltas.commit },
+          { label: "Best Case", v: props.bucketDeltas.best_case },
+          { label: "Pipeline", v: props.bucketDeltas.pipeline },
+        ].map((x) => (
+          <div key={x.label} className="grid grid-cols-[110px_1fr_84px] items-center gap-3">
+            <div className="text-[color:var(--sf-text-secondary)]">{x.label}</div>
+            <div className="h-2 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+              <div className={`h-full rounded-full ${x.v >= 0 ? "bg-[#2ECC71]" : "bg-[#E74C3C]"}`} style={{ width: bar(x.v) }} aria-hidden="true" />
+            </div>
+            <div className={`text-right font-mono ${deltaTextClass(x.v)}`}>{fmtMoney(x.v)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  if (variant === "product_only") {
+    return (
+      <section className="grid gap-3">
+        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+          <ProductTile
+            label="Closed Won (QTD)"
+            curText={fmtMoney(curRev)}
+            prevText={prev ? fmtMoney(prevRev) : "—"}
+            deltaText={prev ? fmtMoney(curRev - prevRev) : "—"}
+            delta={prev ? curRev - prevRev : null}
+          />
+          <ProductTile
+            label="Total Orders"
+            curText={curOrders.toLocaleString()}
+            prevText={prev ? prevOrders.toLocaleString() : "—"}
+            deltaText={prev ? fmtSignedInt(curOrders - prevOrders) : "—"}
+            delta={prev ? curOrders - prevOrders : null}
+          />
+          <ProductTile
+            label="Blended ACV"
+            curText={fmtMoney(curAcv)}
+            prevText={prev ? fmtMoney(prevAcv) : "—"}
+            deltaText={prev ? fmtMoney(curAcv - prevAcv) : "—"}
+            delta={prev ? curAcv - prevAcv : null}
+          />
+        </div>
+      </section>
+    );
+  }
+
+  if (variant === "forecast_only") {
+    return (
+      <section className="grid gap-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className={card}>
+            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quota</div>
+            <div className={val}>{fmtMoney(props.quota)}</div>
+          </div>
+
+          <div className={card}>
+            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">AI Forecast Outlook</div>
+            <div className={val}>{fmtMoney(props.aiForecast)}</div>
+            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">SalesForecast.io AI‑weighted</div>
+          </div>
+
+          <div className={card}>
+            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CRM Forecast Outlook</div>
+            <div className={val}>{fmtMoney(props.crmForecast)}</div>
+            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Your organization’s probabilities</div>
+          </div>
+
+          <div className={card}>
+            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">AI Adjustment vs CRM</div>
+            <div className={`mt-2 font-mono text-xl font-semibold ${deltaTextClass(props.gap)}`}>{fmtMoney(props.gap)}</div>
+            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Outlook delta (AI − CRM)</div>
+            {props.dealsAtRisk != null ? <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Deals at risk: {props.dealsAtRisk}</div> : null}
+          </div>
+        </div>
+
+        {ForecastStageGapAttributionCard}
+      </section>
+    );
+  }
+
   return (
     <section className="grid gap-3">
       <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
@@ -104,13 +192,7 @@ export function KpiCardsRow(props: {
         <div className={card}>
           <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">AI Adjustment vs CRM</div>
           <div className={`mt-2 font-mono text-xl font-semibold ${deltaTextClass(props.gap)}`}>{fmtMoney(props.gap)}</div>
-          {props.usingFullRiskSet ? (
-            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-              Strategic takeaway is calculated from the full at-risk deal set (not only the displayed top {props.topN}).
-            </div>
-          ) : (
-            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Outlook delta (AI − CRM)</div>
-          )}
+          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Outlook delta (AI − CRM)</div>
           {props.dealsAtRisk != null ? (
             <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Deals at risk: {props.dealsAtRisk}</div>
           ) : null}
@@ -139,24 +221,7 @@ export function KpiCardsRow(props: {
         />
       </div>
 
-      <div className={card}>
-        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Forecast Stage Gap Attribution</div>
-        <div className="mt-3 grid gap-2 text-xs text-[color:var(--sf-text-primary)]">
-          {[
-            { label: "Commit impact", v: props.bucketDeltas.commit },
-            { label: "Best Case", v: props.bucketDeltas.best_case },
-            { label: "Pipeline", v: props.bucketDeltas.pipeline },
-          ].map((x) => (
-            <div key={x.label} className="grid grid-cols-[110px_1fr_84px] items-center gap-3">
-              <div className="text-[color:var(--sf-text-secondary)]">{x.label}</div>
-              <div className="h-2 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
-                <div className={`h-full rounded-full ${x.v >= 0 ? "bg-[#2ECC71]" : "bg-[#E74C3C]"}`} style={{ width: bar(x.v) }} aria-hidden="true" />
-              </div>
-              <div className={`text-right font-mono ${deltaTextClass(x.v)}`}>{fmtMoney(x.v)}</div>
-            </div>
-          ))}
-        </div>
-      </div>
+      {ForecastStageGapAttributionCard}
     </section>
   );
 }

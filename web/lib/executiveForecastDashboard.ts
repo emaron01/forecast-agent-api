@@ -492,6 +492,7 @@ async function getOpenPipelineSnapshot(args: {
               'g'
             )
           ) AS fs,
+          o.create_date::date AS create_d,
           CASE
             WHEN o.close_date IS NULL THEN NULL
             WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
@@ -516,9 +517,10 @@ async function getOpenPipelineSnapshot(args: {
         SELECT d.*
           FROM deals d
           JOIN qp ON TRUE
-         WHERE d.close_d IS NOT NULL
-           AND d.close_d >= qp.period_start
-           AND d.close_d <= qp.period_end
+         WHERE (
+           (d.close_d IS NOT NULL AND d.close_d >= qp.period_start AND d.close_d <= qp.period_end)
+           OR (d.close_d IS NULL AND d.create_d IS NOT NULL AND d.create_d >= qp.period_start AND d.create_d <= qp.period_end)
+         )
       ),
       open_deals AS (
         SELECT *

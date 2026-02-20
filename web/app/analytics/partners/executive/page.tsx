@@ -1085,44 +1085,61 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
 
                 <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 lg:col-span-2">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC + PQS (top partners)</div>
-                  <div className="mt-3 overflow-auto rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-                    <table className="min-w-[980px] w-full table-auto border-collapse text-sm">
-                      <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
-                        <tr>
-                          <th className="px-3 py-2 text-left">motion / partner</th>
-                          <th className="px-3 py-2 text-right">open pipeline</th>
-                          <th className="px-3 py-2 text-right">win rate</th>
-                          <th className="px-3 py-2 text-right">avg health</th>
-                          <th className="px-3 py-2 text-right">avg days</th>
-                          <th className="px-3 py-2 text-right">AOV</th>
-                          <th className="px-3 py-2 text-right">WIC</th>
-                          <th className="px-3 py-2 text-left">band</th>
-                          <th className="px-3 py-2 text-right">PQS</th>
-                        </tr>
-                      </thead>
-                      <tbody className="text-[color:var(--sf-text-primary)]">
-                        {motionScoreRows.slice(0, 1 + Math.min(15, topPartners.length)).map((r) => {
-                          const pill = r.wic_band;
-                          return (
-                            <tr key={r.key} className="border-t border-[color:var(--sf-border)]">
-                              <td className="px-3 py-2 font-semibold">{r.label}</td>
-                              <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(r.open_pipeline)}</td>
-                              <td className="px-3 py-2 text-right font-mono text-xs">{fmtPct01(r.win_rate)}</td>
-                              <td className="px-3 py-2 text-right font-mono text-xs">{r.avg_health_01 == null ? "—" : `${Math.round(r.avg_health_01 * 100)}%`}</td>
-                              <td className="px-3 py-2 text-right font-mono text-xs">{r.avg_days == null ? "—" : String(Math.round(Number(r.avg_days)))}</td>
-                              <td className="px-3 py-2 text-right font-mono text-xs">{r.aov == null ? "—" : fmtMoney(r.aov)}</td>
-                              <td className="px-3 py-2 text-right font-mono text-xs">{Math.round(r.wic).toLocaleString()}</td>
-                              <td className="px-3 py-2">
-                                <span className={["inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold", pillToneClass(pill.tone)].join(" ")}>
-                                  {pill.label}
+                  <div className="mt-3 grid gap-2">
+                    {motionScoreRows.slice(0, 1 + Math.min(15, topPartners.length)).map((r) => {
+                      const pill = r.wic_band;
+                      return (
+                        <div key={r.key} className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-[color:var(--sf-text-primary)]">{r.label}</div>
+                              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[color:var(--sf-text-secondary)]">
+                                <span>
+                                  Open <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(r.open_pipeline)}</span>
                                 </span>
-                              </td>
-                              <td className="px-3 py-2 text-right font-mono text-xs">{r.pqs == null ? "—" : Math.round(r.pqs).toLocaleString()}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                                <span>
+                                  Win <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtPct01(r.win_rate)}</span>
+                                </span>
+                                <span>
+                                  Health{" "}
+                                  <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
+                                    {r.avg_health_01 == null ? "—" : `${Math.round(r.avg_health_01 * 100)}%`}
+                                  </span>
+                                </span>
+                                <span>
+                                  Days{" "}
+                                  <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
+                                    {r.avg_days == null ? "—" : String(Math.round(Number(r.avg_days)))}
+                                  </span>
+                                </span>
+                                <span>
+                                  AOV{" "}
+                                  <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
+                                    {r.aov == null ? "—" : fmtMoney(r.aov)}
+                                  </span>
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              <div className="grid justify-items-end">
+                                <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC</div>
+                                <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{Math.round(r.wic).toLocaleString()}</div>
+                              </div>
+                              <span className={["inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold", pillToneClass(pill.tone)].join(" ")}>
+                                {pill.label}
+                              </span>
+                              <div className="grid justify-items-end">
+                                <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">PQS</div>
+                                <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">
+                                  {r.pqs == null ? "—" : Math.round(r.pqs).toLocaleString()}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                   <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">
                     WIC computed for Direct + each partner. PQS computed per partner only. Scores are clamped 0–100.

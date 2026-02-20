@@ -136,12 +136,15 @@ export async function POST(req: Request) {
 
     // Hard guarantee: do not update analysis if payload is identical.
     // This prevents the model from "churning" copy with the same data (even if the user hits Reanalyze).
-    if (body.previous_payload_sha256 && body.previous_payload_sha256 === payloadSha) {
+    const prevSummary = String(body.previous_summary || "").trim();
+    const prevExtended = String(body.previous_extended || "").trim();
+    // IMPORTANT: If prior text is empty, do NOT short-circuit. We must generate content so the UI doesn't get stuck empty.
+    if (body.previous_payload_sha256 && body.previous_payload_sha256 === payloadSha && (prevSummary || prevExtended)) {
       return NextResponse.json({
         ok: true,
         no_change: true,
-        summary: String(body.previous_summary || "").trim(),
-        extended: String(body.previous_extended || "").trim(),
+        summary: prevSummary,
+        extended: prevExtended,
         payload_sha256: payloadSha,
         prompt_sha256: prompt.sha256,
         prompt_source_path: prompt.sourcePath,

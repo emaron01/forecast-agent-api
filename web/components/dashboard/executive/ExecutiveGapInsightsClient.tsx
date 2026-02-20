@@ -700,10 +700,11 @@ export function ExecutiveGapInsightsClient(props: {
       const persistExtended = noChange ? (heroAiExtended || nextExtended) : (nextExtended || heroAiExtended);
 
       if (nextSha) setHeroAiPayloadSha(nextSha);
-      if (!noChange) {
-        if (nextSummary) setHeroAiSummary(nextSummary);
-        if (nextExtended) setHeroAiExtended(nextExtended);
-      } else if (args.showNoChangeToast) {
+      // Even when `no_change=true`, still apply formatting hardening so we never "stick" on an empty/raw envelope.
+      if (nextSummary && nextSummary !== heroAiSummary) setHeroAiSummary(nextSummary);
+      if (nextExtended && nextExtended !== heroAiExtended) setHeroAiExtended(nextExtended);
+
+      if (noChange && args.showNoChangeToast && (persistSummary || persistExtended)) {
         setHeroAiToast("No material change in the underlying data.");
         window.setTimeout(() => setHeroAiToast(""), 2500);
       }
@@ -1102,10 +1103,11 @@ export function ExecutiveGapInsightsClient(props: {
       const persistExtended = noChange ? (radarAiExtended || nextExtended) : (nextExtended || radarAiExtended);
 
       if (nextSha) setRadarAiPayloadSha(nextSha);
-      if (!noChange) {
-        if (nextSummary) setRadarAiSummary(nextSummary);
-        if (nextExtended) setRadarAiExtended(nextExtended);
-      } else if (args.showNoChangeToast) {
+      // Even when `no_change=true`, still apply formatting hardening so we never "stick" on an empty/raw envelope.
+      if (nextSummary && nextSummary !== radarAiSummary) setRadarAiSummary(nextSummary);
+      if (nextExtended && nextExtended !== radarAiExtended) setRadarAiExtended(nextExtended);
+
+      if (noChange && args.showNoChangeToast && (persistSummary || persistExtended)) {
         setRadarAiToast("No material change in the underlying data.");
         window.setTimeout(() => setRadarAiToast(""), 2500);
       }
@@ -1316,11 +1318,43 @@ export function ExecutiveGapInsightsClient(props: {
     router.replace(`${props.basePath}?${params.toString()}`);
   }
 
+  const kpis = props.quarterKpis;
+  const avgHealthWon = kpis?.avgHealthWonPct ?? null;
+  const avgHealthLost = kpis?.avgHealthLostPct ?? null;
+  const oppToWin = kpis?.oppToWin ?? null; // 0..1
+  const agingAvgDays = kpis?.agingAvgDays ?? null;
+
+  const curProd = productViz.summary;
+  const prevProd = productKpiPrev;
+  const curRev = curProd ? Number(curProd.total_revenue || 0) || 0 : 0;
+  const curOrders = curProd ? Number(curProd.total_orders || 0) || 0 : 0;
+  const curAcv = curProd ? Number(curProd.blended_acv || 0) || 0 : 0;
+  const prevRev = prevProd ? Number(prevProd.total_revenue || 0) || 0 : 0;
+  const prevOrders = prevProd ? Number(prevProd.total_orders || 0) || 0 : 0;
+  const prevAcv = prevProd ? Number(prevProd.blended_acv || 0) || 0 : 0;
+
+  const fmtPct = (p01: number | null) => {
+    if (p01 == null || !Number.isFinite(p01)) return "—";
+    return `${Math.round(p01 * 100)}%`;
+  };
+
+  const heroCard = "rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm";
+  const heroVal = "mt-2 font-mono text-xl font-semibold text-[color:var(--sf-text-primary)]";
+
+  const productDelta = (cur: number, prev: number) => {
+    const d = cur - prev;
+    const up = d > 0;
+    const down = d < 0;
+    const tone = up ? "text-[#16A34A]" : down ? "text-[#E74C3C]" : "text-[color:var(--sf-text-secondary)]";
+    const arrow = up ? "↑" : down ? "↓" : "→";
+    return { d, tone, arrow };
+  };
+
   return (
     <div className="grid gap-4">
       <section className="w-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-6 shadow-sm">
-        <div className="grid gap-4">
-          <div>
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(360px,620px)] lg:items-start">
+          <div className="min-w-0">
             <div className="flex items-center justify-center">
               <div className="relative w-[320px] max-w-[85vw] shrink-0 aspect-[1024/272] sm:w-[420px]">
                 <Image
@@ -1385,21 +1419,94 @@ export function ExecutiveGapInsightsClient(props: {
               })()}
             </div>
           </div>
-        </div>
 
-        <div className="mt-5">
-          <KpiCardsRow
-            quota={props.quota}
-            aiForecast={props.aiForecast}
-            crmForecast={props.crmForecast}
-            gap={props.gap}
-            bucketDeltas={props.bucketDeltas}
-            dealsAtRisk={dealsAtRisk}
-            topN={topN}
-            usingFullRiskSet={quarterDrivers.usingFullRiskSet}
-            productKpis={productViz.summary}
-            productKpisPrev={productKpiPrev}
-          />
+          <div className="min-w-0 lg:pt-1">
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,320px)]">
+              <div className="grid gap-3 sm:grid-cols-3">
+                {(() => {
+                  const rev = productDelta(curRev, prevRev);
+                  const ord = productDelta(curOrders, prevOrders);
+                  const acv = productDelta(curAcv, prevAcv);
+                  const fmtSignedInt = (n: number) => {
+                    const v = Number(n || 0);
+                    if (!Number.isFinite(v)) return "—";
+                    if (v === 0) return "0";
+                    const abs = Math.abs(Math.trunc(v));
+                    return `${v > 0 ? "+" : "-"}${abs.toLocaleString()}`;
+                  };
+
+                  return (
+                    <>
+                      <div className={heroCard}>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Closed Won (QTD)</div>
+                        <div className={heroVal}>{fmtMoney(curRev)}</div>
+                        <div className="mt-1 grid grid-cols-[1fr_auto] items-start gap-3 text-xs text-[color:var(--sf-text-secondary)]">
+                          <div className="min-w-0 truncate">Last Quarter {prevProd ? fmtMoney(prevRev) : "—"}</div>
+                          <div className={["grid justify-items-end font-mono text-xs font-semibold leading-none", rev.tone].join(" ")}>
+                            <div aria-hidden="true" className="text-sm leading-none">
+                              {rev.arrow}
+                            </div>
+                            <div>{prevProd ? fmtMoney(rev.d) : "—"}</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className={heroCard}>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Total Orders</div>
+                        <div className={heroVal}>{curOrders.toLocaleString()}</div>
+                        <div className="mt-1 grid grid-cols-[1fr_auto] items-start gap-3 text-xs text-[color:var(--sf-text-secondary)]">
+                          <div className="min-w-0 truncate">Last Quarter {prevProd ? prevOrders.toLocaleString() : "—"}</div>
+                          <div className={["grid justify-items-end font-mono text-xs font-semibold leading-none", ord.tone].join(" ")}>
+                            <div aria-hidden="true" className="text-sm leading-none">
+                              {ord.arrow}
+                            </div>
+                            <div>{prevProd ? fmtSignedInt(ord.d) : "—"}</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className={heroCard}>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Blended ACV</div>
+                        <div className={heroVal}>{fmtMoney(curAcv)}</div>
+                        <div className="mt-1 grid grid-cols-[1fr_auto] items-start gap-3 text-xs text-[color:var(--sf-text-secondary)]">
+                          <div className="min-w-0 truncate">Last Quarter {prevProd ? fmtMoney(prevAcv) : "—"}</div>
+                          <div className={["grid justify-items-end font-mono text-xs font-semibold leading-none", acv.tone].join(" ")}>
+                            <div aria-hidden="true" className="text-sm leading-none">
+                              {acv.arrow}
+                            </div>
+                            <div>{prevProd ? fmtMoney(acv.d) : "—"}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
+              <div className="grid gap-3 grid-cols-2">
+                <div className={heroCard}>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Avg Health Closed Won</div>
+                  <div className={heroVal}>
+                    <span className={healthColorClass(avgHealthWon)}>{avgHealthWon == null ? "—" : `${avgHealthWon}%`}</span>
+                  </div>
+                </div>
+                <div className={heroCard}>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Avg Health Closed Loss</div>
+                  <div className={heroVal}>
+                    <span className={healthColorClass(avgHealthLost)}>{avgHealthLost == null ? "—" : `${avgHealthLost}%`}</span>
+                  </div>
+                </div>
+                <div className={heroCard}>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
+                  <div className={heroVal}>{fmtPct(oppToWin)}</div>
+                </div>
+                <div className={heroCard}>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Aging (avg days)</div>
+                  <div className={heroVal}>{agingAvgDays == null || !Number.isFinite(agingAvgDays) ? "—" : String(Math.round(agingAvgDays))}</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
@@ -1442,6 +1549,22 @@ export function ExecutiveGapInsightsClient(props: {
               ) : null}
             </div>
           ) : null}
+        </div>
+
+        <div className="mt-5">
+          <KpiCardsRow
+            quota={props.quota}
+            aiForecast={props.aiForecast}
+            crmForecast={props.crmForecast}
+            gap={props.gap}
+            bucketDeltas={props.bucketDeltas}
+            dealsAtRisk={dealsAtRisk}
+            topN={topN}
+            usingFullRiskSet={quarterDrivers.usingFullRiskSet}
+            productKpis={productViz.summary}
+            productKpisPrev={productKpiPrev}
+            variant="forecast_only"
+          />
         </div>
       </section>
 
@@ -1991,44 +2114,66 @@ export function ExecutiveGapInsightsClient(props: {
 
               <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 lg:col-span-2">
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC + PQS (top partners)</div>
-                <div className="mt-3 overflow-auto rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-                  <table className="min-w-[980px] w-full table-auto border-collapse text-sm">
-                    <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
-                      <tr>
-                        <th className="px-3 py-2 text-left">motion / partner</th>
-                        <th className="px-3 py-2 text-right">open pipeline</th>
-                        <th className="px-3 py-2 text-right">win rate</th>
-                        <th className="px-3 py-2 text-right">avg health</th>
-                        <th className="px-3 py-2 text-right">avg days</th>
-                        <th className="px-3 py-2 text-right">AOV</th>
-                        <th className="px-3 py-2 text-right">WIC</th>
-                        <th className="px-3 py-2 text-left">band</th>
-                        <th className="px-3 py-2 text-right">PQS</th>
-                      </tr>
-                    </thead>
-                    <tbody className="text-[color:var(--sf-text-primary)]">
-                      {partnersDecisionEngine.scored.slice(0, 1 + Math.min(15, Math.max(0, partnersDecisionEngine.scored.length - 1))).map((r) => {
-                        const pill = r.wic_band;
-                        return (
-                          <tr key={r.key} className="border-t border-[color:var(--sf-border)]">
-                            <td className="px-3 py-2 font-semibold">{r.label}</td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(r.open_pipeline)}</td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">{fmtPct01(r.win_rate)}</td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">{r.avg_health_01 == null ? "—" : `${Math.round(r.avg_health_01 * 100)}%`}</td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">{r.avg_days == null ? "—" : String(Math.round(Number(r.avg_days)))}</td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">{r.aov == null ? "—" : fmtMoney(r.aov)}</td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">{Math.round(r.wic).toLocaleString()}</td>
-                            <td className="px-3 py-2">
+                <div className="mt-3 grid gap-2">
+                  {partnersDecisionEngine.scored
+                    .slice(0, 1 + Math.min(15, Math.max(0, partnersDecisionEngine.scored.length - 1)))
+                    .map((r) => {
+                      const pill = r.wic_band;
+                      return (
+                        <div
+                          key={r.key}
+                          className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-[color:var(--sf-text-primary)]">{r.label}</div>
+                              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[color:var(--sf-text-secondary)]">
+                                <span>
+                                  Open <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(r.open_pipeline)}</span>
+                                </span>
+                                <span>
+                                  Win <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtPct01(r.win_rate)}</span>
+                                </span>
+                                <span>
+                                  Health{" "}
+                                  <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
+                                    {r.avg_health_01 == null ? "—" : `${Math.round(r.avg_health_01 * 100)}%`}
+                                  </span>
+                                </span>
+                                <span>
+                                  Days{" "}
+                                  <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
+                                    {r.avg_days == null ? "—" : String(Math.round(Number(r.avg_days)))}
+                                  </span>
+                                </span>
+                                <span>
+                                  AOV{" "}
+                                  <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
+                                    {r.aov == null ? "—" : fmtMoney(r.aov)}
+                                  </span>
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              <div className="grid justify-items-end">
+                                <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC</div>
+                                <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{Math.round(r.wic).toLocaleString()}</div>
+                              </div>
                               <span className={["inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold", pillToneClass(pill.tone)].join(" ")}>
                                 {pill.label}
                               </span>
-                            </td>
-                            <td className="px-3 py-2 text-right font-mono text-xs">{r.pqs == null ? "—" : Math.round(r.pqs).toLocaleString()}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                              <div className="grid justify-items-end">
+                                <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">PQS</div>
+                                <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">
+                                  {r.pqs == null ? "—" : Math.round(r.pqs).toLocaleString()}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                 </div>
                 <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">
                   WIC computed for Direct + each partner. PQS computed per partner only. Scores are clamped 0–100.

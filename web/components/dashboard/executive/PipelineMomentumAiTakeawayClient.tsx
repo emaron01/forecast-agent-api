@@ -11,11 +11,29 @@ function stripJsonFence(s: string) {
 
 function unwrapIfJsonEnvelope(summary: string, extended: string) {
   const tryParse = (raw: string) => {
-    const t = stripJsonFence(raw);
+    const t0 = stripJsonFence(raw);
+    const normalizeBulletJson = (input: string) => {
+      const t = String(input || "").trim();
+      if (!t) return "";
+      const lines = t.split("\n");
+      const cleaned = lines
+        .map((l) => String(l || "").replace(/\s+$/g, ""))
+        .filter((l) => {
+          const tt = l.trim();
+          return tt !== "•" && tt !== "-" && tt !== "–" && tt !== "—";
+        })
+        .map((l) => l.replace(/^\s*[•]\s+/, "").replace(/^\s*[-–—]\s+/, ""));
+      return cleaned.join("\n").trim();
+    };
+
+    const t = normalizeBulletJson(t0);
     if (!t) return null;
     const first = t.indexOf("{");
     const last = t.lastIndexOf("}");
-    const candidates = [t, first >= 0 && last > first ? t.slice(first, last + 1) : ""].filter(Boolean);
+    const candidates = [t, first >= 0 && last > first ? t.slice(first, last + 1) : "", normalizeBulletJson(raw)]
+      .filter(Boolean)
+      .map((c) => String(c).trim())
+      .filter(Boolean);
     for (const c of candidates) {
       try {
         return JSON.parse(c);
@@ -119,13 +137,15 @@ export function PipelineMomentumAiTakeawayClient(props: { payload: any }) {
       const nextExtended = unwrapped.extended;
 
       if (nextSha) setPayloadSha(nextSha);
-      const persistSummary = noChange ? (summary || nextSummary) : (nextSummary || summary);
-      const persistExtended = noChange ? (extended || nextExtended) : (nextExtended || extended);
+      // Even when `no_change=true`, we still want to apply formatting hardening (unwrap JSON envelopes)
+      // so the UI never gets "stuck" showing a raw JSON blob.
+      if (nextSummary && nextSummary !== summary) setSummary(nextSummary);
+      if (nextExtended && nextExtended !== extended) setExtended(nextExtended);
+
+      const persistSummary = noChange ? (nextSummary || summary) : (nextSummary || summary);
+      const persistExtended = noChange ? (nextExtended || extended) : (nextExtended || extended);
       const persistSha = nextSha || payloadSha;
-      if (!noChange) {
-        if (nextSummary) setSummary(nextSummary);
-        if (nextExtended) setExtended(nextExtended);
-      } else if (args.showNoChangeToast) {
+      if (noChange && args.showNoChangeToast) {
         setToast("No material change in the underlying data.");
         window.setTimeout(() => setToast(""), 2500);
       }
