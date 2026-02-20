@@ -6,11 +6,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { ExecRepOption } from "../../../lib/executiveForecastDashboard";
 import type { RepDirectoryRow } from "../../../lib/repScope";
 import type { QuarterKpisSnapshot } from "../../../lib/quarterKpisSnapshot";
-import { DealsDrivingGapHeatmap, type HeatmapDealRow } from "./DealsDrivingGapHeatmap";
+import { ExecutiveDealsDrivingGapModule, type ExecutiveGapDeal } from "./ExecutiveDealsDrivingGapModule";
 import { KpiCardsRow } from "./KpiCardsRow";
 import { RiskRadarPlot, type RadarDeal } from "./RiskRadarPlot";
 import { palette } from "../../../lib/palette";
-import { GapDrivingDealsClient } from "../../../app/analytics/meddpicc-tb/gap-driving-deals/ui/GapDrivingDealsClient";
 import { ExecutiveProductPerformance } from "./ExecutiveProductPerformance";
 import type { ExecutiveProductPerformanceData } from "../../../lib/executiveProductInsights";
 import { PipelineMomentumEngine } from "./PipelineMomentumEngine";
@@ -31,17 +30,7 @@ type RiskCategoryKey =
   | "paper"
   | "suppressed";
 
-type DealOut = {
-  id: string;
-  rep: { rep_public_id: string | null; rep_name: string | null };
-  deal_name: { account_name: string | null; opportunity_name: string | null };
-  crm_stage: { bucket: "commit" | "best_case" | "pipeline" | null; label: string };
-  amount: number;
-  health: { health_pct: number | null; suppression: boolean; health_modifier: number };
-  weighted: { gap: number; crm_weighted: number; ai_weighted: number };
-  meddpicc_tb: Array<{ key: string; score: number | null }>;
-  risk_flags: Array<{ key: RiskCategoryKey; label: string }>;
-};
+type DealOut = ExecutiveGapDeal;
 
 type ApiOk = {
   ok: true;
@@ -118,25 +107,6 @@ function fmt2(n: any) {
   const v = Number(n);
   if (!Number.isFinite(v)) return "—";
   return v.toFixed(2);
-}
-
-function riskToneForDeal(d: DealOut): HeatmapDealRow["riskTone"] {
-  if (d.health?.suppression) return "high";
-  const hp = d.health?.health_pct;
-  const rf = Array.isArray(d.risk_flags) ? d.risk_flags.length : 0;
-  if (hp != null && hp < 50) return "high";
-  if (rf >= 3) return "high";
-  if (hp != null && hp < 80) return "medium";
-  if (rf >= 2) return "medium";
-  if (rf >= 1) return "low";
-  return "muted";
-}
-
-function riskLabelForTone(t: HeatmapDealRow["riskTone"]) {
-  if (t === "high") return "High";
-  if (t === "medium") return "Medium";
-  if (t === "low") return "Low";
-  return "—";
 }
 
 function fmtMoney(n: any) {
@@ -508,12 +478,6 @@ export function ExecutiveGapInsightsClient(props: {
   const riskCategory = String(sp.get("risk_category") || "").trim();
   const mode = String(sp.get("mode") || "drivers").trim() === "risk" ? "risk" : "drivers";
   const scoreDrivenOnly = String(sp.get("driver_require_score_effect") || sp.get("risk_require_score_effect") || "1").trim() !== "0";
-  const gapDrawerOpen = String(sp.get("gap_drawer") || "").trim() === "1";
-  const [gapDrawerMounted, setGapDrawerMounted] = useState(false);
-
-  useEffect(() => {
-    if (gapDrawerOpen) setGapDrawerMounted(true);
-  }, [gapDrawerOpen]);
 
   const apiUrl = useMemo(() => {
     const params = new URLSearchParams(sp.toString());
@@ -750,25 +714,6 @@ export function ExecutiveGapInsightsClient(props: {
     const dir = overallGap < 0 ? -1 : overallGap > 0 ? 1 : -1;
     return stageDeals.slice().sort((a, b) => (dir < 0 ? a.weighted.gap - b.weighted.gap : b.weighted.gap - a.weighted.gap));
   }, [stageDeals, ok]);
-
-  const heatmapRows: HeatmapDealRow[] = useMemo(() => {
-    return sortedDeals.slice(0, topN).map((d) => {
-      const tone = riskToneForDeal(d);
-      const id = String(d.id);
-      return {
-        id,
-        riskTone: tone,
-        riskLabel: riskLabelForTone(tone),
-        dealColor: Number(d.weighted?.gap || 0) < 0 ? colorForDealId(id) : null,
-        dealName: dealTitle(d),
-        repName: dealRep(d),
-        bucketLabel: String(d.crm_stage?.label || "").trim() || "—",
-        amount: Number(d.amount || 0) || 0,
-        healthPct: d.health?.health_pct ?? null,
-        gap: Number(d.weighted?.gap || 0) || 0,
-      };
-    });
-  }, [sortedDeals, topN]);
 
   const dealRiskCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -1145,24 +1090,6 @@ export function ExecutiveGapInsightsClient(props: {
     lastRadarAiKey.current = key;
     void runRadarAi({ force: false, showNoChangeToast: false });
   }, [radarTakeawayPayload, stageView, refreshNonce]);
-
-  const viewFullHref = useMemo(() => {
-    const params = new URLSearchParams(sp.toString());
-    // Ensure we can deep-link the same filters into the existing report.
-    setParam(params, "quota_period_id", quotaPeriodId);
-    const qs = params.toString();
-    return qs ? `/analytics/meddpicc-tb/gap-driving-deals?${qs}` : "/analytics/meddpicc-tb/gap-driving-deals";
-  }, [sp, quotaPeriodId]);
-
-  const bucketParamsForStageView = useMemo(() => {
-    return stageView === "commit"
-      ? { c: "1", b: "0", p: "0" }
-      : stageView === "best_case"
-        ? { c: "0", b: "1", p: "0" }
-        : stageView === "pipeline"
-          ? { c: "0", b: "0", p: "1" }
-          : { c: "1", b: "1", p: "1" };
-  }, [stageView]);
 
   const productViz = useMemo<ExecutiveProductPerformanceData>(() => {
     const rows = Array.isArray(props.productsClosedWon) ? props.productsClosedWon : [];
@@ -1971,24 +1898,14 @@ export function ExecutiveGapInsightsClient(props: {
 
         return (
           <div className="grid gap-3">
-            <DealsDrivingGapHeatmap
-              rows={heatmapRows}
-              viewFullHref={viewFullHref}
-              onRowClick={() => {
-                updateUrl((p) => {
-                  setParam(p, "quota_period_id", quotaPeriodId);
-                  p.set("bucket_commit", bucketParamsForStageView.c);
-                  p.set("bucket_best_case", bucketParamsForStageView.b);
-                  p.set("bucket_pipeline", bucketParamsForStageView.p);
-                  p.set("gap_drawer", "1");
-                });
-              }}
+            <ExecutiveDealsDrivingGapModule
               title={stageLabel}
               subtitle={
                 totals
                   ? `CRM ${fmtMoney((totals as any).crm_weighted)} · AI ${fmtMoney((totals as any).ai_weighted)} · Gap ${fmtMoney((totals as any).gap)} · ${dealCount} deal(s)${showingNote}${listNote}`
                   : undefined
               }
+              deals={sortedDeals.slice(0, topN)}
             />
           </div>
         );
@@ -2742,68 +2659,6 @@ export function ExecutiveGapInsightsClient(props: {
           { label: "Pipeline momentum takeaway", surface: "pipeline_momentum", quotaPeriodId },
         ]}
       />
-
-      {gapDrawerMounted ? (
-        <div className="fixed inset-0 z-50">
-          <button
-            type="button"
-            aria-label="Close deals driving the gap panel"
-            className={[
-              "absolute inset-0 bg-black/40 transition-opacity duration-300 ease-out motion-reduce:transition-none",
-              gapDrawerOpen ? "opacity-100" : "opacity-0 pointer-events-none",
-            ].join(" ")}
-            onClick={() =>
-              updateUrl((p) => {
-                p.delete("gap_drawer");
-              })
-            }
-          />
-
-          <aside
-            className={[
-              "absolute right-0 top-0 h-full w-full max-w-[980px] border-l border-[color:var(--sf-border)] bg-[color:var(--sf-background)] shadow-2xl",
-              "transition-transform duration-300 ease-out motion-reduce:transition-none",
-              gapDrawerOpen ? "translate-x-0" : "translate-x-full",
-            ].join(" ")}
-            onTransitionEnd={() => {
-              if (!gapDrawerOpen) setGapDrawerMounted(false);
-            }}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Deals driving the gap"
-          >
-            <div className="flex items-center justify-between gap-3 border-b border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-[color:var(--sf-text-primary)]">Deals driving the gap</div>
-                <div className="mt-0.5 truncate text-xs text-[color:var(--sf-text-secondary)]">
-                  Slide-out detail panel · keeps your place on the executive dashboard
-                </div>
-              </div>
-              <button
-                type="button"
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
-                onClick={() =>
-                  updateUrl((p) => {
-                    p.delete("gap_drawer");
-                  })
-                }
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="h-[calc(100%-52px)] overflow-auto p-4">
-              <GapDrivingDealsClient
-                basePath={props.basePath}
-                periods={props.periods as any}
-                reps={props.reps as any}
-                initialQuotaPeriodId={quotaPeriodId}
-                hideQuotaPeriodSelect={true}
-              />
-            </div>
-          </aside>
-        </div>
-      ) : null}
     </div>
   );
 }
