@@ -1551,22 +1551,23 @@ export function ExecutiveGapInsightsClient(props: {
           ) : null}
         </div>
 
-        <div className="mt-5">
-          <KpiCardsRow
-            quota={props.quota}
-            aiForecast={props.aiForecast}
-            crmForecast={props.crmForecast}
-            gap={props.gap}
-            bucketDeltas={props.bucketDeltas}
-            dealsAtRisk={dealsAtRisk}
-            topN={topN}
-            usingFullRiskSet={quarterDrivers.usingFullRiskSet}
-            productKpis={productViz.summary}
-            productKpisPrev={productKpiPrev}
-            variant="forecast_only"
-          />
-        </div>
       </section>
+
+      <div className="mt-5">
+        <KpiCardsRow
+          quota={props.quota}
+          aiForecast={props.aiForecast}
+          crmForecast={props.crmForecast}
+          gap={props.gap}
+          bucketDeltas={props.bucketDeltas}
+          dealsAtRisk={dealsAtRisk}
+          topN={topN}
+          usingFullRiskSet={quarterDrivers.usingFullRiskSet}
+          productKpis={productViz.summary}
+          productKpisPrev={productKpiPrev}
+          variant="forecast_only"
+        />
+      </div>
 
       <div className="grid w-full gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)]">
         <RiskRadarPlot deals={radarDeals} size={920} />
