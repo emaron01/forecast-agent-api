@@ -26,14 +26,20 @@ export type PipelineMomentumData = {
         created_won_opps?: number;
         created_lost_amount?: number;
         created_lost_opps?: number;
+        total_amount_all?: number; // active + won + lost (created + closed in-quarter)
+        total_opps_all?: number; // active + won + lost (created + closed in-quarter)
         mix: Record<ForecastMixKey, { value: number; opps: number; health_pct: number | null }>;
       };
       previous: {
         total_amount: number | null;
         total_opps: number | null;
+        total_amount_all?: number | null;
+        total_opps_all?: number | null;
       };
       qoq_total_amount_pct01: number | null;
       qoq_total_opps_pct01: number | null;
+      qoq_total_amount_all_pct01?: number | null;
+      qoq_total_opps_all_pct01?: number | null;
     };
     products_created_pipeline_top: Array<{
       product: string;

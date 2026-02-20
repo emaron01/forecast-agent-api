@@ -1765,54 +1765,95 @@ export async function getExecutiveForecastDashboardSummary(args: {
             const createdCurrentTotalCnt = curCreated ? Number(curCreated.totalCount || 0) || 0 : 0;
             const createdPrevTotalCnt = prevCreated ? Number(prevCreated.totalCount || 0) || 0 : null;
 
-            const createdOutcomes = qpId
-              ? await pool
-                  .query<{
-                    created_won_amount: number;
-                    created_won_opps: number;
-                    created_lost_amount: number;
-                    created_lost_opps: number;
-                  }>(
-                    `
-                    WITH qp AS (
-                      SELECT period_start::date AS period_start, period_end::date AS period_end
-                        FROM quota_periods
-                       WHERE org_id = $1::bigint
-                         AND id = $2::bigint
-                       LIMIT 1
-                    ),
-                    base AS (
-                      SELECT
-                        COALESCE(o.amount, 0)::float8 AS amount,
-                        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
-                      FROM opportunities o
-                      JOIN qp ON TRUE
-                      WHERE o.org_id = $1
-                        AND o.create_date IS NOT NULL
-                        AND o.create_date::date >= qp.period_start
-                        AND o.create_date::date <= qp.period_end
-                        AND o.close_date IS NOT NULL
-                        AND o.close_date::date >= qp.period_start
-                        AND o.close_date::date <= qp.period_end
-                        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
-                    )
+            const loadCreatedClosedOutcomesInQuarter = async (quotaPeriodId: string) => {
+              const qpid = String(quotaPeriodId || "").trim();
+              if (!qpid) return null;
+              return await pool
+                .query<{
+                  created_won_amount: number;
+                  created_won_opps: number;
+                  created_lost_amount: number;
+                  created_lost_opps: number;
+                }>(
+                  `
+                  WITH qp AS (
+                    SELECT period_start::date AS period_start, period_end::date AS period_end
+                      FROM quota_periods
+                     WHERE org_id = $1::bigint
+                       AND id = $2::bigint
+                     LIMIT 1
+                  ),
+                  base AS (
                     SELECT
-                      COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN amount ELSE 0 END), 0)::float8 AS created_won_amount,
-                      COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 1 ELSE 0 END), 0)::int AS created_won_opps,
-                      COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %') THEN amount ELSE 0 END), 0)::float8 AS created_lost_amount,
-                      COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %') THEN 1 ELSE 0 END), 0)::int AS created_lost_opps
-                    FROM base
-                    `,
-                    [
-                      args.orgId,
-                      qpId,
-                      scope.allowedRepIds === null ? [] : (scope.allowedRepIds ?? []),
-                      !!(scope.allowedRepIds && scope.allowedRepIds.length),
-                    ]
+                      COALESCE(o.amount, 0)::float8 AS amount,
+                      lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
+                      o.create_date::date AS create_d,
+                      CASE
+                        WHEN o.close_date IS NULL THEN NULL
+                        WHEN (o.close_date::text ~ '^\\d{4}-\\d{1,2}-\\d{1,2}') THEN substring(o.close_date::text from 1 for 10)::date
+                        WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                          to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
+                        ELSE NULL
+                      END AS close_d
+                    FROM opportunities o
+                    JOIN qp ON TRUE
+                    WHERE o.org_id = $1
+                      AND o.create_date IS NOT NULL
+                      AND o.create_date::date >= qp.period_start
+                      AND o.create_date::date <= qp.period_end
+                      AND (
+                        NOT $5::boolean
+                        OR (
+                          (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
+                          OR (
+                            COALESCE(array_length($4::text[], 1), 0) > 0
+                            AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+                          )
+                        )
+                      )
+                  ),
+                  closed_in_q AS (
+                    SELECT *
+                      FROM base b
+                      JOIN qp ON TRUE
+                     WHERE b.close_d IS NOT NULL
+                       AND b.close_d >= qp.period_start
+                       AND b.close_d <= qp.period_end
                   )
-                  .then((r) => r.rows?.[0] || null)
-                  .catch(() => null)
-              : null;
+                  SELECT
+                    COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN amount ELSE 0 END), 0)::float8 AS created_won_amount,
+                    COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 1 ELSE 0 END), 0)::int AS created_won_opps,
+                    COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %') THEN amount ELSE 0 END), 0)::float8 AS created_lost_amount,
+                    COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %') THEN 1 ELSE 0 END), 0)::int AS created_lost_opps
+                  FROM closed_in_q
+                  `,
+                  [args.orgId, qpid, repIdsToUse, visibleRepNameKeys, useRepFilterForMomentum]
+                )
+                .then((r) => r.rows?.[0] || null)
+                .catch(() => null);
+            };
+
+            const [createdOutcomes, createdOutcomesPrev] = await Promise.all([
+              qpId ? loadCreatedClosedOutcomesInQuarter(qpId) : Promise.resolve(null),
+              prevQpId ? loadCreatedClosedOutcomesInQuarter(prevQpId) : Promise.resolve(null),
+            ]);
+
+            const createdCurWonAmt = createdOutcomes ? Number(createdOutcomes.created_won_amount || 0) || 0 : 0;
+            const createdCurWonCnt = createdOutcomes ? Number(createdOutcomes.created_won_opps || 0) || 0 : 0;
+            const createdCurLostAmt = createdOutcomes ? Number(createdOutcomes.created_lost_amount || 0) || 0 : 0;
+            const createdCurLostCnt = createdOutcomes ? Number(createdOutcomes.created_lost_opps || 0) || 0 : 0;
+
+            const createdPrevWonAmt = createdOutcomesPrev ? Number(createdOutcomesPrev.created_won_amount || 0) || 0 : 0;
+            const createdPrevWonCnt = createdOutcomesPrev ? Number(createdOutcomesPrev.created_won_opps || 0) || 0 : 0;
+            const createdPrevLostAmt = createdOutcomesPrev ? Number(createdOutcomesPrev.created_lost_amount || 0) || 0 : 0;
+            const createdPrevLostCnt = createdOutcomesPrev ? Number(createdOutcomesPrev.created_lost_opps || 0) || 0 : 0;
+
+            const createdCurrentAllAmt = createdCurrentTotalAmt + createdCurWonAmt + createdCurLostAmt;
+            const createdCurrentAllCnt = createdCurrentTotalCnt + createdCurWonCnt + createdCurLostCnt;
+            const createdPrevAllAmt =
+              createdPrevTotalAmt == null ? null : (Number(createdPrevTotalAmt || 0) || 0) + createdPrevWonAmt + createdPrevLostAmt;
+            const createdPrevAllCnt =
+              createdPrevTotalCnt == null ? null : (Number(createdPrevTotalCnt || 0) || 0) + createdPrevWonCnt + createdPrevLostCnt;
 
             const productsCur = qpId
               ? await getCreatedPipelineByProduct({
@@ -1879,10 +1920,12 @@ export async function getExecutiveForecastDashboardSummary(args: {
                 current: {
                   total_amount: createdCurrentTotalAmt,
                   total_opps: createdCurrentTotalCnt,
-                  created_won_amount: createdOutcomes ? Number(createdOutcomes.created_won_amount || 0) || 0 : 0,
-                  created_won_opps: createdOutcomes ? Number(createdOutcomes.created_won_opps || 0) || 0 : 0,
-                  created_lost_amount: createdOutcomes ? Number(createdOutcomes.created_lost_amount || 0) || 0 : 0,
-                  created_lost_opps: createdOutcomes ? Number(createdOutcomes.created_lost_opps || 0) || 0 : 0,
+                  created_won_amount: createdCurWonAmt,
+                  created_won_opps: createdCurWonCnt,
+                  created_lost_amount: createdCurLostAmt,
+                  created_lost_opps: createdCurLostCnt,
+                  total_amount_all: createdCurrentAllAmt,
+                  total_opps_all: createdCurrentAllCnt,
                   mix: {
                     commit: {
                       value: curCreated ? Number(curCreated.commitAmount || 0) || 0 : 0,
@@ -1904,9 +1947,13 @@ export async function getExecutiveForecastDashboardSummary(args: {
                 previous: {
                   total_amount: createdPrevTotalAmt,
                   total_opps: createdPrevTotalCnt,
+                  total_amount_all: createdPrevAllAmt,
+                  total_opps_all: createdPrevAllCnt,
                 },
                 qoq_total_amount_pct01: pct01Qoq(createdCurrentTotalAmt, createdPrevTotalAmt),
                 qoq_total_opps_pct01: pct01Qoq(createdCurrentTotalCnt, createdPrevTotalCnt),
+                qoq_total_amount_all_pct01: pct01Qoq(createdCurrentAllAmt, createdPrevAllAmt),
+                qoq_total_opps_all_pct01: pct01Qoq(createdCurrentAllCnt, createdPrevAllCnt),
               },
               products_created_pipeline_top: (productsCur || []).map((r) => {
                 const prod = String(r.product || "").trim() || "(Unspecified)";

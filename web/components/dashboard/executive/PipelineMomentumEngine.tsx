@@ -329,7 +329,7 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
             </div>
             <div className="text-xs text-[color:var(--sf-text-secondary)]">
               As-of velocity vs <span className="font-semibold text-[color:var(--sf-text-primary)]">Previous Quarter</span>{" "}
-              <span className="ml-2">{deltaInline(created.qoq_total_amount_pct01)}</span>
+              <span className="ml-2">{deltaInline(created.qoq_total_amount_all_pct01 ?? created.qoq_total_amount_pct01)}</span>
             </div>
           </div>
 
@@ -352,15 +352,20 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
             />
             <KpiCard
               label="Previous Quarter velocity"
-              value={fmtSignedPct01(created.qoq_total_amount_pct01, { digits: 0 })}
+              value={fmtSignedPct01(created.qoq_total_amount_all_pct01 ?? created.qoq_total_amount_pct01, { digits: 0 })}
               sub={
-                created.previous.total_amount == null
+                (created.previous.total_amount_all ?? created.previous.total_amount) == null
                   ? "Previous quarter unavailable"
-                  : `Created pipeline (${fmtMoney(created.previous.total_amount)} → ${fmtMoney(created.current.total_amount)})`
+                  : `Created pipeline (${fmtMoney(created.previous.total_amount_all ?? created.previous.total_amount)} → ${fmtMoney(created.current.total_amount_all ?? created.current.total_amount)})`
               }
               rightPill={{
-                text: `${created.qoq_total_amount_pct01 != null && created.qoq_total_amount_pct01 < 0 ? "↓" : created.qoq_total_amount_pct01 != null && created.qoq_total_amount_pct01 > 0 ? "↑" : "•"} momentum`,
-                tone: created.qoq_total_amount_pct01 != null && created.qoq_total_amount_pct01 < 0 ? "bad" : created.qoq_total_amount_pct01 != null && created.qoq_total_amount_pct01 > 0 ? "good" : "muted",
+                text: `${(created.qoq_total_amount_all_pct01 ?? created.qoq_total_amount_pct01) != null && (created.qoq_total_amount_all_pct01 ?? created.qoq_total_amount_pct01)! < 0 ? "↓" : (created.qoq_total_amount_all_pct01 ?? created.qoq_total_amount_pct01) != null && (created.qoq_total_amount_all_pct01 ?? created.qoq_total_amount_pct01)! > 0 ? "↑" : "•"} momentum`,
+                tone:
+                  (created.qoq_total_amount_all_pct01 ?? created.qoq_total_amount_pct01) != null && (created.qoq_total_amount_all_pct01 ?? created.qoq_total_amount_pct01)! < 0
+                    ? "bad"
+                    : (created.qoq_total_amount_all_pct01 ?? created.qoq_total_amount_pct01) != null && (created.qoq_total_amount_all_pct01 ?? created.qoq_total_amount_pct01)! > 0
+                      ? "good"
+                      : "muted",
               }}
             />
             <KpiCard
