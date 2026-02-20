@@ -1509,56 +1509,60 @@ export function ExecutiveGapInsightsClient(props: {
                   <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
                   <div className={heroVal}>{fmtPct(oppToWin)}</div>
                 </div>
-                <div className="hidden sm:block" aria-hidden="true" />
-                <div className={heroCard}>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Aging (avg days)</div>
-                  <div className={heroVal}>{agingAvgDays == null || !Number.isFinite(agingAvgDays) ? "—" : String(Math.round(agingAvgDays))}</div>
-                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="mt-4 ml-auto w-full max-w-[560px] rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
-              This Quarter’s Outlook Driven By: ✨ AI Strategic Takeaway
+        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,560px)]">
+          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                This Quarter’s Outlook Driven By: ✨ AI Strategic Takeaway
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void runHeroAi({ force: true, showNoChangeToast: true })}
+                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
+                >
+                  Reanalyze
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHeroAiExpanded((v) => !v)}
+                  className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
+                >
+                  {heroAiExpanded ? "Hide extended analysis" : "Extended analysis"}
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void runHeroAi({ force: true, showNoChangeToast: true })}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
-              >
-                Reanalyze
-              </button>
-              <button
-                type="button"
-                onClick={() => setHeroAiExpanded((v) => !v)}
-                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
-              >
-                {heroAiExpanded ? "Hide extended analysis" : "Extended analysis"}
-              </button>
-            </div>
+
+            {heroAiToast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroAiToast}</div> : null}
+            {heroAiLoading ? (
+              <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating a CRO-grade takeaway…</div>
+            ) : heroAiSummary || heroAiExtended ? (
+              <div className="mt-3 grid gap-3">
+                {heroAiSummary ? (
+                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)]">
+                    {renderCategorizedText(heroAiSummary) || <div className="whitespace-pre-wrap">{heroAiSummary}</div>}
+                  </div>
+                ) : null}
+                {heroAiExpanded && heroAiExtended ? (
+                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-left text-sm leading-relaxed text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
+                    {heroAiExtended}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
-          {heroAiToast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroAiToast}</div> : null}
-          {heroAiLoading ? (
-            <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating a CRO-grade takeaway…</div>
-          ) : heroAiSummary || heroAiExtended ? (
-            <div className="mt-3 grid gap-3">
-              {heroAiSummary ? (
-                <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)]">
-                  {renderCategorizedText(heroAiSummary) || <div className="whitespace-pre-wrap">{heroAiSummary}</div>}
-                </div>
-              ) : null}
-              {heroAiExpanded && heroAiExtended ? (
-                <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-left text-sm leading-relaxed text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
-                  {heroAiExtended}
-                </div>
-              ) : null}
+          <div className="lg:justify-self-end">
+            <div className={heroCard}>
+              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Aging (avg days)</div>
+              <div className={heroVal}>{agingAvgDays == null || !Number.isFinite(agingAvgDays) ? "—" : String(Math.round(agingAvgDays))}</div>
             </div>
-          ) : null}
+          </div>
         </div>
 
       </section>
