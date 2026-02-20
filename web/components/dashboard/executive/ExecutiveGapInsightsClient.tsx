@@ -165,15 +165,6 @@ function healthColorClass(pct: number | null) {
   return "text-[#E74C3C]";
 }
 
-function Chip(props: { label: string; value: ReactNode }) {
-  return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-[11px] text-[color:var(--sf-text-secondary)]">
-      <span className="font-semibold">{props.label}</span>
-      <span className="font-mono text-[11px] font-semibold text-[color:var(--sf-text-primary)]">{props.value}</span>
-    </span>
-  );
-}
-
 function rankRole(r: RepDirectoryRow) {
   const role = String(r.role || "").trim().toUpperCase();
   if (role === "EXEC_MANAGER") return 0;
@@ -509,7 +500,6 @@ export function ExecutiveGapInsightsClient(props: {
   // Radar + account review: default to broader context.
   const [radarTopN, setRadarTopN] = useState(50);
   const [stageView, setStageView] = useState<"commit" | "best_case" | "pipeline" | "all">("all");
-  const [createdPipelineOpen, setCreatedPipelineOpen] = useState(false);
 
   const quotaPeriodId = String(sp.get("quota_period_id") || props.quotaPeriodId || "").trim();
   const teamRepIdRaw = String(sp.get("team_rep_id") || "").trim();
@@ -1172,95 +1162,6 @@ export function ExecutiveGapInsightsClient(props: {
           : { c: "1", b: "1", p: "1" };
   }, [stageView]);
 
-  const quarterAnalytics = useMemo(() => {
-    const repRows = Array.isArray(props.repRollups) ? props.repRollups : [];
-    const dir = Array.isArray(props.repDirectory) ? props.repDirectory : [];
-
-    const byId = new Map<number, RepDirectoryRow>();
-    for (const r of dir) {
-      const id = Number(r.id);
-      if (!Number.isFinite(id) || id <= 0) continue;
-      byId.set(id, r);
-    }
-
-    const wonById = new Map<number, { wonAmount: number; wonCount: number }>();
-    for (const r of repRows) {
-      const id = Number((r as any).rep_id);
-      if (!Number.isFinite(id) || id <= 0) continue;
-      wonById.set(id, {
-        wonAmount: Number((r as any).won_amount || 0) || 0,
-        wonCount: Number((r as any).won_count || 0) || 0,
-      });
-    }
-
-    const children = new Map<number, RepDirectoryRow[]>();
-    for (const r of dir) {
-      const mid = r.manager_rep_id;
-      if (mid == null || !Number.isFinite(mid)) continue;
-      const arr = children.get(mid) || [];
-      arr.push(r);
-      children.set(mid, arr);
-    }
-    for (const [mid, arr] of children.entries()) {
-      arr.sort((a, b) => {
-        const dr = rankRole(a) - rankRole(b);
-        if (dr !== 0) return dr;
-        const dn = String(a.name || "").localeCompare(String(b.name || ""));
-        if (dn !== 0) return dn;
-        return Number(a.id) - Number(b.id);
-      });
-      children.set(mid, arr);
-    }
-
-    const repIdsInScope = dir
-      .filter((r) => String(r.role || "").trim().toUpperCase() === "REP")
-      .map((r) => Number(r.id))
-      .filter((n) => Number.isFinite(n) && n > 0);
-
-    const uniqueRepIds = Array.from(new Set(repIdsInScope));
-
-    function statsForRepIds(repIds: number[]) {
-      let wonAmount = 0;
-      let wonCount = 0;
-      for (const id of repIds) {
-        const v = wonById.get(id);
-        if (!v) continue;
-        wonAmount += v.wonAmount;
-        wonCount += v.wonCount;
-      }
-      const aov = wonCount > 0 ? wonAmount / wonCount : null;
-      return { wonAmount, wonCount, aov };
-    }
-
-    function descendantRepIds(rootId: number) {
-      const out: number[] = [];
-      const stack: number[] = [rootId];
-      const seen = new Set<number>();
-      while (stack.length) {
-        const cur = stack.pop()!;
-        if (seen.has(cur)) continue;
-        seen.add(cur);
-        const kids = children.get(cur) || [];
-        for (const k of kids) stack.push(Number(k.id));
-        const node = byId.get(cur) || null;
-        if (node && String(node.role || "").trim().toUpperCase() === "REP") out.push(cur);
-      }
-      return out;
-    }
-
-    const directReports =
-      props.myRepId != null && Number.isFinite(props.myRepId) ? children.get(Number(props.myRepId)) || [] : [];
-
-    return {
-      total: statsForRepIds(uniqueRepIds),
-      directReports,
-      children,
-      byId,
-      descendantRepIds,
-      statsForRepIds,
-    };
-  }, [props.repRollups, props.repDirectory, props.myRepId]);
-
   const croRecommendation = useMemo(() => {
     const dvp = props.quarterKpis?.directVsPartner || null;
     const partnerPct = dvp?.partnerContributionPct ?? null;
@@ -1320,92 +1221,6 @@ export function ExecutiveGapInsightsClient(props: {
       partnerDeals,
     };
   }, [props.quarterKpis]);
-
-  const createdPipelineTree = useMemo(() => {
-    const q = props.quarterKpis;
-    const dir = Array.isArray(props.repDirectory) ? props.repDirectory : [];
-    const byId = quarterAnalytics.byId as Map<number, RepDirectoryRow>;
-    const children = quarterAnalytics.children as Map<number, RepDirectoryRow[]>;
-
-    type RepMetrics = {
-      commitAmount: number;
-      commitCount: number;
-      bestAmount: number;
-      bestCount: number;
-      pipelineAmount: number;
-      pipelineCount: number;
-      wonAmount: number;
-      wonCount: number;
-      lostAmount: number;
-      lostCount: number;
-    };
-
-    const byRepId = new Map<number, RepMetrics>();
-    for (const m of q?.createdPipelineByManager || []) {
-      for (const r of (m as any).reps || []) {
-        const id = Number((r as any).repId);
-        if (!Number.isFinite(id) || id <= 0) continue;
-        byRepId.set(id, {
-          commitAmount: Number((r as any).commitAmount || 0) || 0,
-          commitCount: Number((r as any).commitCount || 0) || 0,
-          bestAmount: Number((r as any).bestAmount || 0) || 0,
-          bestCount: Number((r as any).bestCount || 0) || 0,
-          pipelineAmount: Number((r as any).pipelineAmount || 0) || 0,
-          pipelineCount: Number((r as any).pipelineCount || 0) || 0,
-          wonAmount: Number((r as any).wonAmount || 0) || 0,
-          wonCount: Number((r as any).wonCount || 0) || 0,
-          lostAmount: Number((r as any).lostAmount || 0) || 0,
-          lostCount: Number((r as any).lostCount || 0) || 0,
-        });
-      }
-    }
-
-    function statsForRepIds(repIds: number[]) {
-      const out: RepMetrics = {
-        commitAmount: 0,
-        commitCount: 0,
-        bestAmount: 0,
-        bestCount: 0,
-        pipelineAmount: 0,
-        pipelineCount: 0,
-        wonAmount: 0,
-        wonCount: 0,
-        lostAmount: 0,
-        lostCount: 0,
-      };
-      for (const id of repIds) {
-        const v = byRepId.get(id);
-        if (!v) continue;
-        out.commitAmount += v.commitAmount;
-        out.commitCount += v.commitCount;
-        out.bestAmount += v.bestAmount;
-        out.bestCount += v.bestCount;
-        out.pipelineAmount += v.pipelineAmount;
-        out.pipelineCount += v.pipelineCount;
-        out.wonAmount += v.wonAmount;
-        out.wonCount += v.wonCount;
-        out.lostAmount += v.lostAmount;
-        out.lostCount += v.lostCount;
-      }
-      return out;
-    }
-
-    const myId = props.myRepId != null && Number.isFinite(props.myRepId) ? Number(props.myRepId) : null;
-    const myRole = myId != null ? String(byId.get(myId)?.role || "").trim().toUpperCase() : "";
-
-    const roots = dir.filter((r) => {
-      const role = String(r.role || "").trim().toUpperCase();
-      if (role === "REP") return false;
-      const mid = r.manager_rep_id;
-      return mid == null || !byId.has(Number(mid));
-    });
-
-    const direct = myId != null ? (children.get(myId) || []).filter((r) => String(r.role || "").trim().toUpperCase() !== "REP") : [];
-
-    const leaders = myRole === "EXEC_MANAGER" ? (direct.length ? direct : roots) : myRole === "MANAGER" && myId != null ? (children.get(myId) || []) : roots;
-
-    return { byRepId, statsForRepIds, leaders, myRole, byId, children };
-  }, [props.quarterKpis, props.repDirectory, props.myRepId, quarterAnalytics]);
 
   const productViz = useMemo<ExecutiveProductPerformanceData>(() => {
     const rows = Array.isArray(props.productsClosedWon) ? props.productsClosedWon : [];
@@ -2037,7 +1852,6 @@ export function ExecutiveGapInsightsClient(props: {
         {loading ? <div className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">Loading…</div> : null}
         {err ? <div className="mt-2 text-sm text-[#E74C3C]">{err.error}</div> : null}
       </section>
-
       {(() => {
         const stageLabel = stageView === "commit" ? "Commit deals driving the gap" : stageView === "best_case" ? "Best Case deals driving the gap" : stageView === "pipeline" ? "Pipeline deals driving the gap" : "Deals driving the gap";
         const totals =
@@ -2345,6 +2159,8 @@ export function ExecutiveGapInsightsClient(props: {
         </details>
       ) : null}
 
+      {/* Removed from Executive Dashboard (redundant with KPI tiles + focused sections). */}
+      {/*
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -2804,6 +2620,9 @@ export function ExecutiveGapInsightsClient(props: {
           <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">Displayed as: Closed Won revenue · # Closed Won · Avg / Order</div>
         </details>
       </section>
+      */}
+
+      <PipelineMomentumEngine data={props.pipelineMomentum} quotaPeriodId={quotaPeriodId} />
 
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
