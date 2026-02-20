@@ -1493,7 +1493,7 @@ export function ExecutiveGapInsightsClient(props: {
               </div>
 
               <div className="contents">
-                <div className={heroCard}>
+                <div className={[heroCard, "h-auto"].join(" ")}>
                   <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Avg Health Closed Won</div>
                   <div className={heroVal}>
                     <span className={healthColorClass(avgHealthWon)}>{avgHealthWon == null ? "—" : `${avgHealthWon}%`}</span>
@@ -1514,7 +1514,14 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,560px)]">
+        <div className="mt-4 grid gap-3">
+          <div className="flex justify-end">
+            <div className={[heroCard, "h-auto"].join(" ")}>
+              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Aging (avg days)</div>
+              <div className={heroVal}>{agingAvgDays == null || !Number.isFinite(agingAvgDays) ? "—" : String(Math.round(agingAvgDays))}</div>
+            </div>
+          </div>
+
           <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
@@ -1555,13 +1562,6 @@ export function ExecutiveGapInsightsClient(props: {
                 ) : null}
               </div>
             ) : null}
-          </div>
-
-          <div className="lg:justify-self-end">
-            <div className={heroCard}>
-              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Aging (avg days)</div>
-              <div className={heroVal}>{agingAvgDays == null || !Number.isFinite(agingAvgDays) ? "—" : String(Math.round(agingAvgDays))}</div>
-            </div>
           </div>
         </div>
 
