@@ -168,7 +168,17 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
   useEffect(() => {
     try {
       const sp = new URLSearchParams(window.location.search);
-      setShowDebug(sp.get("debug") === "1");
+      const raw = String(sp.get("debug") || "").trim().toLowerCase();
+      // Be tolerant: links sometimes include trailing punctuation (e.g. "debug=1)"),
+      // and some callers use boolean-ish forms.
+      const normalized = raw.replace(/[^a-z0-9]+$/g, "");
+      setShowDebug(
+        normalized === "1" ||
+          normalized === "true" ||
+          normalized === "yes" ||
+          normalized === "on" ||
+          (normalized !== "" && normalized !== "0" && normalized !== "false")
+      );
     } catch {
       setShowDebug(false);
     }
