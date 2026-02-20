@@ -22,6 +22,7 @@ export type QuarterKpisSnapshot = {
   avgHealthWonPct: number | null;
   avgHealthLostPct: number | null;
   oppToWin: number | null; // 0..1
+  wonAvgDays: number | null; // avg days to close (won only)
   agingAvgDays: number | null;
   directVsPartner: {
     directWonAmount: number;
@@ -91,6 +92,7 @@ type RepPeriodKpisRow = {
   partner_closed_days_count: number;
   direct_closed_days_sum: number;
   direct_closed_days_count: number;
+  avg_days_won: number | null;
   avg_days_active: number | null;
 };
 
@@ -184,6 +186,13 @@ async function getRepKpisByPeriods(args: { orgId: number; periodIds: string[]; r
           ELSE 0
         END
       ), 0)::int AS direct_closed_days_count,
+      AVG(
+        CASE
+          WHEN is_won AND create_date IS NOT NULL AND close_date IS NOT NULL
+          THEN EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0
+          ELSE NULL
+        END
+      )::float8 AS avg_days_won,
       AVG(
         CASE
           WHEN is_active AND create_date IS NOT NULL
@@ -412,6 +421,7 @@ export async function getQuarterKpisSnapshot(args: { orgId: number; quotaPeriodI
       avgHealthWonPct: null,
       avgHealthLostPct: null,
       oppToWin: null,
+      wonAvgDays: null,
       agingAvgDays: null,
       directVsPartner: {
         directWonAmount: 0,
@@ -481,6 +491,19 @@ export async function getQuarterKpisSnapshot(args: { orgId: number; quotaPeriodI
     }
   }
   const agingAvgDays = agingCnt ? agingDaysSum / agingCnt : null;
+
+  // Avg days (Closed Won): weighted avg of rep won-cycle by won deal count.
+  let wonDaysSum = 0;
+  let wonCnt = 0;
+  for (const r of repRows) {
+    const avg = r.avg_days_won;
+    const c = Number(r.won_count || 0) || 0;
+    if (avg != null && Number.isFinite(avg) && c > 0) {
+      wonDaysSum += avg * c;
+      wonCnt += c;
+    }
+  }
+  const wonAvgDays = wonCnt ? wonDaysSum / wonCnt : null;
 
   const winRate = safeDiv(wonCountTotal, wonCountTotal + lostCountTotal);
   const oppToWin = safeDiv(wonCountTotal, totalCountTotal);
@@ -567,6 +590,7 @@ export async function getQuarterKpisSnapshot(args: { orgId: number; quotaPeriodI
     avgHealthWonPct,
     avgHealthLostPct,
     oppToWin,
+    wonAvgDays,
     agingAvgDays,
     directVsPartner: {
       directWonAmount,

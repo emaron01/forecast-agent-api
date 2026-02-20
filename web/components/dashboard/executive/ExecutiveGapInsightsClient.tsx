@@ -1517,24 +1517,16 @@ export function ExecutiveGapInsightsClient(props: {
         <div className="mt-4 grid gap-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
-              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Average Aging</div>
-              <div className="mt-1 text-[11px] font-semibold text-[color:var(--sf-text-secondary)]">Won / Current Pipeline</div>
-              <div className="mt-2 font-mono text-lg font-semibold text-[color:var(--sf-text-primary)]">
-                {props.pipelineMomentum
-                  ? `${fmtMoney(Math.max(0, (Number(props.quota || 0) || 0) - (Number(props.pipelineMomentum.quota_target || 0) || 0)))} / ${fmtMoney(Number(props.pipelineMomentum.current_quarter?.total_pipeline || 0) || 0)}`
-                  : "—"}
-              </div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
+              <div className="mt-1 text-[11px] font-semibold text-[color:var(--sf-text-secondary)]">Closed Won</div>
+              <div className="mt-2 font-mono text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtDays(props.quarterKpis?.wonAvgDays ?? null)}</div>
             </div>
 
             <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
-              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Remaining In Q Pipeline</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
+              <div className="mt-1 text-[11px] font-semibold text-[color:var(--sf-text-secondary)]">Remaining Pipeline</div>
               <div className={["mt-2 font-mono text-lg font-semibold text-[color:var(--sf-text-primary)]"].join(" ")}>
-                {props.pipelineMomentum
-                  ? fmtMoney(
-                      (Number(props.pipelineMomentum.current_quarter?.total_pipeline || 0) || 0) -
-                        Math.max(0, (Number(props.quota || 0) || 0) - (Number(props.pipelineMomentum.quota_target || 0) || 0))
-                    )
-                  : "—"}
+                {fmtDays(props.quarterKpis?.agingAvgDays ?? null)}
               </div>
             </div>
           </div>
