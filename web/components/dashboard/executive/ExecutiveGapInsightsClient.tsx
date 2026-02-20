@@ -1500,14 +1500,14 @@ export function ExecutiveGapInsightsClient(props: {
                   </div>
                 </div>
                 <div className={heroCard}>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
+                  <div className={heroVal}>{fmtPct(oppToWin)}</div>
+                </div>
+                <div className={heroCard}>
                   <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Avg Health Closed Loss</div>
                   <div className={heroVal}>
                     <span className={healthColorClass(avgHealthLost)}>{avgHealthLost == null ? "—" : `${avgHealthLost}%`}</span>
                   </div>
-                </div>
-                <div className={heroCard}>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
-                  <div className={heroVal}>{fmtPct(oppToWin)}</div>
                 </div>
               </div>
             </div>
