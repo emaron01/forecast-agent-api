@@ -495,7 +495,7 @@ async function getOpenPipelineSnapshot(args: {
           o.create_date::date AS create_d,
           CASE
             WHEN o.close_date IS NULL THEN NULL
-            WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+            WHEN (o.close_date::text ~ '^\\d{4}-\\d{1,2}-\\d{1,2}') THEN substring(o.close_date::text from 1 for 10)::date
             WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
               to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
             ELSE NULL
@@ -519,7 +519,7 @@ async function getOpenPipelineSnapshot(args: {
           JOIN qp ON TRUE
          WHERE (
            (d.close_d IS NOT NULL AND d.close_d >= qp.period_start AND d.close_d <= qp.period_end)
-           OR (d.close_d IS NULL AND d.create_d IS NOT NULL AND d.create_d >= qp.period_start AND d.create_d <= qp.period_end)
+           OR (d.close_d IS NULL AND d.create_d IS NOT NULL AND d.create_d <= qp.period_end)
          )
       ),
       open_deals AS (
@@ -587,7 +587,7 @@ async function getCreatedPipelineByProduct(args: {
           o.create_date::timestamptz AS create_ts,
           CASE
             WHEN o.close_date IS NULL THEN NULL
-            WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+            WHEN (o.close_date::text ~ '^\\d{4}-\\d{1,2}-\\d{1,2}') THEN substring(o.close_date::text from 1 for 10)::date
             WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
               to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
             ELSE NULL
@@ -662,7 +662,7 @@ async function getCreatedPipelineAgeMix(args: {
           o.create_date::timestamptz AS create_ts,
           CASE
             WHEN o.close_date IS NULL THEN NULL
-            WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+            WHEN (o.close_date::text ~ '^\\d{4}-\\d{1,2}-\\d{1,2}') THEN substring(o.close_date::text from 1 for 10)::date
             WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
               to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
             ELSE NULL
