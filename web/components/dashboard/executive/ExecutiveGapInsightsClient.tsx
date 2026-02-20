@@ -12,7 +12,7 @@ import { RiskRadarPlot, type RadarDeal } from "./RiskRadarPlot";
 import { palette } from "../../../lib/palette";
 import { ExecutiveProductPerformance } from "./ExecutiveProductPerformance";
 import type { ExecutiveProductPerformanceData } from "../../../lib/executiveProductInsights";
-import { PipelineMomentumEngine } from "./PipelineMomentumEngine";
+import { ExecutiveQuarterKpisModule } from "./ExecutiveQuarterKpisModule";
 import type { PipelineMomentumData } from "../../../lib/pipelineMomentum";
 import { AiSummaryReportClient } from "../../ai/AiSummaryReportClient";
 import { PartnersExecutiveAiTakeawayClient } from "../../ai/PartnersExecutiveAiTakeawayClient";
@@ -493,6 +493,12 @@ export function ExecutiveGapInsightsClient(props: {
     }
     return `/api/forecast/gap-driving-deals?${params.toString()}`;
   }, [sp, quotaPeriodId]);
+
+  const activePeriod = useMemo(() => {
+    const id = String(quotaPeriodId || "").trim();
+    if (!id) return null;
+    return (props.periods || []).find((p) => String(p.id) === id) || null;
+  }, [props.periods, quotaPeriodId]);
 
   const analysisApiUrl = useMemo(() => {
     const params = new URLSearchParams(sp.toString());
@@ -2343,7 +2349,14 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
         ) : null}
 
-        <PipelineMomentumEngine data={props.pipelineMomentum} quotaPeriodId={quotaPeriodId} />
+        <ExecutiveQuarterKpisModule
+          period={activePeriod}
+          quota={props.quota}
+          pipelineMomentum={props.pipelineMomentum}
+          quarterKpis={props.quarterKpis}
+          repRollups={props.repRollups as any}
+          productsClosedWon={props.productsClosedWon as any}
+        />
 
         {props.quarterKpis ? (
           <details
@@ -2648,15 +2661,12 @@ export function ExecutiveGapInsightsClient(props: {
       </section>
       */}
 
-      <PipelineMomentumEngine data={props.pipelineMomentum} quotaPeriodId={quotaPeriodId} />
-
       <AiSummaryReportClient
         entries={[
           { label: "SalesForecast.io Outlook", surface: "hero", quotaPeriodId },
           { label: "Risk radar takeaway", surface: "radar", quotaPeriodId },
           { label: "Partner executive takeaways", surface: "partners_executive", quotaPeriodId },
           { label: "Product performance takeaway", surface: "product_performance", quotaPeriodId },
-          { label: "Pipeline momentum takeaway", surface: "pipeline_momentum", quotaPeriodId },
         ]}
       />
     </div>
