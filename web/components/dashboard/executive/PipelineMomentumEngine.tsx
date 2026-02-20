@@ -223,7 +223,6 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
   const covText = fmtCoverageRatio(cov, { digits: 1 });
 
   const totalQoq = qoqChangePct01(data.current_quarter.total_pipeline, data.previous_quarter.total_pipeline);
-  const { glyph: velGlyph } = trendBadge(totalQoq);
 
   const predictive = data.predictive || null;
   const created = predictive?.created_pipeline || null;
@@ -267,23 +266,13 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
         ) : null}
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-3">
+      <div className="grid gap-3 lg:grid-cols-2">
         <KpiCard label="Total Pipeline" value={fmtMoney(totalPipeline)} sub={`${totalOpps} opps · current quarter`} />
         <KpiCard
           label="Coverage Ratio"
           value={covText}
           sub={`Quota Target To GO: ${fmtMoney(data.quota_target)} · (Quota − Closed Won)`}
           rightPill={covPill || undefined}
-        />
-        <KpiCard
-          label="Previous Quarter velocity"
-          value={fmtSignedPct01(totalQoq, { digits: 0 })}
-          sub={
-            data.previous_quarter.total_pipeline == null
-              ? "Previous quarter unavailable"
-              : `Pipeline (${fmtMoney(data.previous_quarter.total_pipeline)} → ${fmtMoney(data.current_quarter.total_pipeline)})`
-          }
-          rightPill={{ text: `${velGlyph} momentum`, tone: totalQoq != null && totalQoq < 0 ? "bad" : totalQoq != null && totalQoq > 0 ? "good" : "muted" }}
         />
       </div>
 
@@ -344,22 +333,35 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
             </div>
           </div>
 
-          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+          <div className="mt-4 grid gap-3 lg:grid-cols-4">
             <KpiCard
-              label="Created pipeline (value)"
+              label="Created pipeline (Active)"
               value={fmtMoney(created.current.total_amount)}
               sub={
                 created.previous.total_amount == null
                   ? "Previous quarter unavailable"
                   : (
                       <span className="flex flex-wrap items-center gap-2">
-                        <span>Prev {fmtMoney(created.previous.total_amount)}</span>
+                        <span>Prev (carried into current) {fmtMoney(created.previous.total_amount)}</span>
                         <span className="text-[color:var(--sf-text-secondary)]">·</span>
                         <span className="font-semibold text-[color:var(--sf-text-secondary)]">Previous Quarter</span>
                         {deltaInline(created.qoq_total_amount_pct01)}
                       </span>
                     )
               }
+            />
+            <KpiCard
+              label="Previous Quarter velocity"
+              value={fmtSignedPct01(created.qoq_total_amount_pct01, { digits: 0 })}
+              sub={
+                created.previous.total_amount == null
+                  ? "Previous quarter unavailable"
+                  : `Created pipeline (${fmtMoney(created.previous.total_amount)} → ${fmtMoney(created.current.total_amount)})`
+              }
+              rightPill={{
+                text: `${created.qoq_total_amount_pct01 != null && created.qoq_total_amount_pct01 < 0 ? "↓" : created.qoq_total_amount_pct01 != null && created.qoq_total_amount_pct01 > 0 ? "↑" : "•"} momentum`,
+                tone: created.qoq_total_amount_pct01 != null && created.qoq_total_amount_pct01 < 0 ? "bad" : created.qoq_total_amount_pct01 != null && created.qoq_total_amount_pct01 > 0 ? "good" : "muted",
+              }}
             />
             <KpiCard
               label="Created pipeline (# opps)"
@@ -381,6 +383,31 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
               label="Avg age of created opps"
               value={fmtDays(predictive?.cycle_mix_created_pipeline?.avg_age_days ?? null)}
               sub="Cycle mix is a leading indicator of future close timing."
+            />
+          </div>
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            <KpiCard
+              label="Created In Quarter Won"
+              value={fmtMoney(created.current.created_won_amount ?? 0)}
+              sub={
+                <span className="flex flex-wrap items-center gap-2">
+                  <span>{String(created.current.created_won_opps ?? 0)} opps</span>
+                  <span className="text-[color:var(--sf-text-secondary)]">·</span>
+                  <span>Avg health —</span>
+                </span>
+              }
+            />
+            <KpiCard
+              label="Created In Quarter Lost"
+              value={fmtMoney(created.current.created_lost_amount ?? 0)}
+              sub={
+                <span className="flex flex-wrap items-center gap-2">
+                  <span>{String(created.current.created_lost_opps ?? 0)} opps</span>
+                  <span className="text-[color:var(--sf-text-secondary)]">·</span>
+                  <span>Avg health —</span>
+                </span>
+              }
             />
           </div>
 

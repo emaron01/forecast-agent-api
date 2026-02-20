@@ -1765,6 +1765,55 @@ export async function getExecutiveForecastDashboardSummary(args: {
             const createdCurrentTotalCnt = curCreated ? Number(curCreated.totalCount || 0) || 0 : 0;
             const createdPrevTotalCnt = prevCreated ? Number(prevCreated.totalCount || 0) || 0 : null;
 
+            const createdOutcomes = qpId
+              ? await pool
+                  .query<{
+                    created_won_amount: number;
+                    created_won_opps: number;
+                    created_lost_amount: number;
+                    created_lost_opps: number;
+                  }>(
+                    `
+                    WITH qp AS (
+                      SELECT period_start::date AS period_start, period_end::date AS period_end
+                        FROM quota_periods
+                       WHERE org_id = $1::bigint
+                         AND id = $2::bigint
+                       LIMIT 1
+                    ),
+                    base AS (
+                      SELECT
+                        COALESCE(o.amount, 0)::float8 AS amount,
+                        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+                      FROM opportunities o
+                      JOIN qp ON TRUE
+                      WHERE o.org_id = $1
+                        AND o.create_date IS NOT NULL
+                        AND o.create_date::date >= qp.period_start
+                        AND o.create_date::date <= qp.period_end
+                        AND o.close_date IS NOT NULL
+                        AND o.close_date::date >= qp.period_start
+                        AND o.close_date::date <= qp.period_end
+                        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+                    )
+                    SELECT
+                      COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN amount ELSE 0 END), 0)::float8 AS created_won_amount,
+                      COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 1 ELSE 0 END), 0)::int AS created_won_opps,
+                      COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %') THEN amount ELSE 0 END), 0)::float8 AS created_lost_amount,
+                      COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %') THEN 1 ELSE 0 END), 0)::int AS created_lost_opps
+                    FROM base
+                    `,
+                    [
+                      args.orgId,
+                      qpId,
+                      scope.allowedRepIds === null ? [] : (scope.allowedRepIds ?? []),
+                      !!(scope.allowedRepIds && scope.allowedRepIds.length),
+                    ]
+                  )
+                  .then((r) => r.rows?.[0] || null)
+                  .catch(() => null)
+              : null;
+
             const productsCur = qpId
               ? await getCreatedPipelineByProduct({
                   orgId: args.orgId,
@@ -1830,6 +1879,10 @@ export async function getExecutiveForecastDashboardSummary(args: {
                 current: {
                   total_amount: createdCurrentTotalAmt,
                   total_opps: createdCurrentTotalCnt,
+                  created_won_amount: createdOutcomes ? Number(createdOutcomes.created_won_amount || 0) || 0 : 0,
+                  created_won_opps: createdOutcomes ? Number(createdOutcomes.created_won_opps || 0) || 0 : 0,
+                  created_lost_amount: createdOutcomes ? Number(createdOutcomes.created_lost_amount || 0) || 0 : 0,
+                  created_lost_opps: createdOutcomes ? Number(createdOutcomes.created_lost_opps || 0) || 0 : 0,
                   mix: {
                     commit: {
                       value: curCreated ? Number(curCreated.commitAmount || 0) || 0 : 0,

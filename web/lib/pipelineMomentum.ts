@@ -22,6 +22,10 @@ export type PipelineMomentumData = {
       current: {
         total_amount: number;
         total_opps: number;
+        created_won_amount?: number;
+        created_won_opps?: number;
+        created_lost_amount?: number;
+        created_lost_opps?: number;
         mix: Record<ForecastMixKey, { value: number; opps: number; health_pct: number | null }>;
       };
       previous: {
