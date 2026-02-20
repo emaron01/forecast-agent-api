@@ -144,7 +144,295 @@ export type ExecutiveForecastSummary = {
   pctToGoal: number | null; // AI weighted / quota
   leftToGo: number; // quota - AI weighted
   bucketDeltas: { commit: number; best_case: number; pipeline: number; total: number }; // (AI - CRM) per bucket + total
+  partnersExecutive: {
+    direct: {
+      opps: number;
+      won_opps: number;
+      lost_opps: number;
+      win_rate: number | null;
+      aov: number | null;
+      avg_days: number | null;
+      avg_health_score: number | null; // raw 0..30
+      won_amount: number;
+      lost_amount: number;
+      open_pipeline: number;
+    } | null;
+    partner: {
+      opps: number;
+      won_opps: number;
+      lost_opps: number;
+      win_rate: number | null;
+      aov: number | null;
+      avg_days: number | null;
+      avg_health_score: number | null; // raw 0..30
+      won_amount: number;
+      lost_amount: number;
+      open_pipeline: number;
+    } | null;
+    revenue_mix_partner_pct01: number | null; // closed-won only
+    top_partners: Array<{
+      partner_name: string;
+      opps: number;
+      won_opps: number;
+      lost_opps: number;
+      win_rate: number | null;
+      aov: number | null;
+      avg_days: number | null;
+      avg_health_score: number | null; // raw 0..30
+      won_amount: number;
+      open_pipeline: number;
+    }>;
+  } | null;
 };
+
+type MotionStatsRow = {
+  motion: "direct" | "partner";
+  opps: number;
+  won_opps: number;
+  lost_opps: number;
+  win_rate: number | null;
+  aov: number | null;
+  avg_days: number | null;
+  avg_health_score: number | null; // raw 0..30
+  won_amount: number;
+  lost_amount: number;
+};
+
+type PartnerRollupRow = {
+  partner_name: string;
+  opps: number;
+  won_opps: number;
+  lost_opps: number;
+  win_rate: number | null;
+  aov: number | null;
+  avg_days: number | null;
+  avg_health_score: number | null; // raw 0..30
+  won_amount: number;
+};
+
+type OpenPipelineMotionRow = { motion: "direct" | "partner"; open_opps: number; open_amount: number };
+type OpenPipelinePartnerRow = { partner_name: string; open_opps: number; open_amount: number };
+
+async function loadMotionStatsForPartners(args: { orgId: number; quotaPeriodId: string; repIds: number[] | null }): Promise<MotionStatsRow[]> {
+  const useRepFilter = !!(args.repIds && args.repIds.length);
+  const { rows } = await pool.query<MotionStatsRow>(
+    `
+    WITH qp AS (
+      SELECT period_start::date AS period_start, period_end::date AS period_end
+      FROM quota_periods
+      WHERE org_id = $1::bigint
+        AND id = $2::bigint
+      LIMIT 1
+    ),
+    base AS (
+      SELECT
+        CASE
+          WHEN o.partner_name IS NOT NULL AND btrim(o.partner_name) <> '' THEN 'partner'
+          ELSE 'direct'
+        END AS motion,
+        COALESCE(o.amount, 0)::float8 AS amount,
+        o.health_score::float8 AS health_score,
+        o.create_date::timestamptz AS create_date,
+        o.close_date::date AS close_date,
+        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+      FROM opportunities o
+      JOIN qp ON TRUE
+      WHERE o.org_id = $1
+        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+        AND o.close_date IS NOT NULL
+        AND o.close_date >= qp.period_start
+        AND o.close_date <= qp.period_end
+        AND (
+          ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
+        )
+    ),
+    scored AS (
+      SELECT
+        motion,
+        amount,
+        health_score,
+        CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 1 ELSE 0 END AS is_won,
+        CASE WHEN ((' ' || fs || ' ') LIKE '% lost %' OR (' ' || fs || ' ') LIKE '% loss %') THEN 1 ELSE 0 END AS is_lost,
+        CASE WHEN create_date IS NOT NULL AND close_date IS NOT NULL THEN GREATEST(0, ROUND(EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0))::int ELSE NULL END AS age_days
+      FROM base
+    )
+    SELECT
+      motion,
+      COUNT(*)::int AS opps,
+      SUM(is_won)::int AS won_opps,
+      SUM(is_lost)::int AS lost_opps,
+      CASE WHEN COUNT(*) > 0 THEN (SUM(is_won)::float8 / COUNT(*)::float8) ELSE NULL END AS win_rate,
+      AVG(NULLIF(amount, 0))::float8 AS aov,
+      AVG(age_days)::float8 AS avg_days,
+      AVG(NULLIF(health_score, 0))::float8 AS avg_health_score,
+      SUM(CASE WHEN is_won = 1 THEN amount ELSE 0 END)::float8 AS won_amount,
+      SUM(CASE WHEN is_lost = 1 THEN amount ELSE 0 END)::float8 AS lost_amount
+    FROM scored
+    GROUP BY motion
+    ORDER BY motion ASC
+    `,
+    [args.orgId, args.quotaPeriodId, args.repIds || [], useRepFilter]
+  );
+  return rows || [];
+}
+
+async function listPartnerRollupForExecutive(args: { orgId: number; quotaPeriodId: string; repIds: number[] | null; limit: number }): Promise<PartnerRollupRow[]> {
+  const useRepFilter = !!(args.repIds && args.repIds.length);
+  const limit = Math.max(1, Math.min(200, Number(args.limit || 30) || 30));
+  const { rows } = await pool.query<PartnerRollupRow>(
+    `
+    WITH qp AS (
+      SELECT period_start::date AS period_start, period_end::date AS period_end
+      FROM quota_periods
+      WHERE org_id = $1::bigint
+        AND id = $2::bigint
+      LIMIT 1
+    ),
+    base AS (
+      SELECT
+        btrim(o.partner_name) AS partner_name,
+        COALESCE(o.amount, 0)::float8 AS amount,
+        o.health_score::float8 AS health_score,
+        o.create_date::timestamptz AS create_date,
+        o.close_date::date AS close_date,
+        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+      FROM opportunities o
+      JOIN qp ON TRUE
+      WHERE o.org_id = $1
+        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+        AND o.partner_name IS NOT NULL
+        AND btrim(o.partner_name) <> ''
+        AND o.close_date IS NOT NULL
+        AND o.close_date >= qp.period_start
+        AND o.close_date <= qp.period_end
+        AND (
+          ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
+        )
+    ),
+    scored AS (
+      SELECT
+        partner_name,
+        amount,
+        health_score,
+        CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 1 ELSE 0 END AS is_won,
+        CASE WHEN ((' ' || fs || ' ') LIKE '% lost %' OR (' ' || fs || ' ') LIKE '% loss %') THEN 1 ELSE 0 END AS is_lost,
+        CASE WHEN create_date IS NOT NULL AND close_date IS NOT NULL THEN GREATEST(0, ROUND(EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0))::int ELSE NULL END AS age_days
+      FROM base
+    )
+    SELECT
+      partner_name,
+      COUNT(*)::int AS opps,
+      SUM(is_won)::int AS won_opps,
+      SUM(is_lost)::int AS lost_opps,
+      CASE WHEN COUNT(*) > 0 THEN (SUM(is_won)::float8 / COUNT(*)::float8) ELSE NULL END AS win_rate,
+      AVG(NULLIF(amount, 0))::float8 AS aov,
+      AVG(age_days)::float8 AS avg_days,
+      AVG(NULLIF(health_score, 0))::float8 AS avg_health_score,
+      SUM(CASE WHEN is_won = 1 THEN amount ELSE 0 END)::float8 AS won_amount
+    FROM scored
+    GROUP BY partner_name
+    ORDER BY won_amount DESC NULLS LAST, opps DESC, partner_name ASC
+    LIMIT $5::int
+    `,
+    [args.orgId, args.quotaPeriodId, args.repIds || [], useRepFilter, limit]
+  );
+  return rows || [];
+}
+
+async function loadOpenPipelineByMotionForExecutive(args: { orgId: number; quotaPeriodId: string; repIds: number[] | null }): Promise<OpenPipelineMotionRow[]> {
+  const useRepFilter = !!(args.repIds && args.repIds.length);
+  const { rows } = await pool.query<OpenPipelineMotionRow>(
+    `
+    WITH qp AS (
+      SELECT period_start::date AS period_start, period_end::date AS period_end
+      FROM quota_periods
+      WHERE org_id = $1::bigint
+        AND id = $2::bigint
+      LIMIT 1
+    ),
+    base AS (
+      SELECT
+        CASE
+          WHEN o.partner_name IS NOT NULL AND btrim(o.partner_name) <> '' THEN 'partner'
+          ELSE 'direct'
+        END AS motion,
+        COALESCE(o.amount, 0)::float8 AS amount,
+        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+      FROM opportunities o
+      JOIN qp ON TRUE
+      WHERE o.org_id = $1
+        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+        AND o.close_date IS NOT NULL
+        AND o.close_date >= qp.period_start
+        AND o.close_date <= qp.period_end
+        AND NOT (
+          ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
+        )
+    )
+    SELECT
+      motion,
+      COUNT(*)::int AS open_opps,
+      SUM(amount)::float8 AS open_amount
+    FROM base
+    GROUP BY motion
+    ORDER BY motion ASC
+    `,
+    [args.orgId, args.quotaPeriodId, args.repIds || [], useRepFilter]
+  );
+  return rows || [];
+}
+
+async function listOpenPipelineByPartnerForExecutive(args: { orgId: number; quotaPeriodId: string; repIds: number[] | null; limit: number }): Promise<OpenPipelinePartnerRow[]> {
+  const useRepFilter = !!(args.repIds && args.repIds.length);
+  const limit = Math.max(1, Math.min(500, Number(args.limit || 100) || 100));
+  const { rows } = await pool.query<OpenPipelinePartnerRow>(
+    `
+    WITH qp AS (
+      SELECT period_start::date AS period_start, period_end::date AS period_end
+      FROM quota_periods
+      WHERE org_id = $1::bigint
+        AND id = $2::bigint
+      LIMIT 1
+    ),
+    base AS (
+      SELECT
+        btrim(o.partner_name) AS partner_name,
+        COALESCE(o.amount, 0)::float8 AS amount,
+        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+      FROM opportunities o
+      JOIN qp ON TRUE
+      WHERE o.org_id = $1
+        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+        AND o.partner_name IS NOT NULL
+        AND btrim(o.partner_name) <> ''
+        AND o.close_date IS NOT NULL
+        AND o.close_date >= qp.period_start
+        AND o.close_date <= qp.period_end
+        AND NOT (
+          ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
+        )
+    )
+    SELECT
+      partner_name,
+      COUNT(*)::int AS open_opps,
+      SUM(amount)::float8 AS open_amount
+    FROM base
+    GROUP BY partner_name
+    ORDER BY open_amount DESC NULLS LAST, open_opps DESC, partner_name ASC
+    LIMIT $5::int
+    `,
+    [args.orgId, args.quotaPeriodId, args.repIds || [], useRepFilter, limit]
+  );
+  return rows || [];
+}
 
 type OpenPipelineSnapshot = {
   commit_amount: number;
@@ -740,6 +1028,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
       pctToGoal: null,
       leftToGo: 0,
       bucketDeltas: { commit: 0, best_case: 0, pipeline: 0, total: 0 },
+      partnersExecutive: null,
     };
   }
 
@@ -1522,6 +1811,57 @@ export async function getExecutiveForecastDashboardSummary(args: {
         }
       : null;
 
+  const partnersExecutive: ExecutiveForecastSummary["partnersExecutive"] = qpId
+    ? await (async () => {
+        try {
+          const [motionStats, topPartners, openByMotion, openByPartner] = await Promise.all([
+            loadMotionStatsForPartners({ orgId: args.orgId, quotaPeriodId: qpId, repIds: scope.allowedRepIds }),
+            listPartnerRollupForExecutive({ orgId: args.orgId, quotaPeriodId: qpId, repIds: scope.allowedRepIds, limit: 30 }),
+            loadOpenPipelineByMotionForExecutive({ orgId: args.orgId, quotaPeriodId: qpId, repIds: scope.allowedRepIds }),
+            listOpenPipelineByPartnerForExecutive({ orgId: args.orgId, quotaPeriodId: qpId, repIds: scope.allowedRepIds, limit: 120 }),
+          ]);
+
+          const statsByMotion = new Map<string, MotionStatsRow>();
+          for (const r of motionStats || []) statsByMotion.set(String(r.motion), r);
+          const direct = statsByMotion.get("direct") || null;
+          const partner = statsByMotion.get("partner") || null;
+
+          const openByMotionMap = new Map<string, OpenPipelineMotionRow>();
+          for (const r of openByMotion || []) openByMotionMap.set(String(r.motion), r);
+          const directOpen = Number(openByMotionMap.get("direct")?.open_amount || 0) || 0;
+          const partnerOpen = Number(openByMotionMap.get("partner")?.open_amount || 0) || 0;
+
+          const openPartnerMap = new Map<string, number>();
+          for (const r of openByPartner || []) openPartnerMap.set(String(r.partner_name || "").trim(), Number(r.open_amount || 0) || 0);
+
+          const denom = (direct ? Number(direct.won_amount || 0) || 0 : 0) + (partner ? Number(partner.won_amount || 0) || 0 : 0);
+          const revenue_mix_partner_pct01 = denom > 0 && partner ? (Number(partner.won_amount || 0) || 0) / denom : null;
+
+          return {
+            direct: direct
+              ? {
+                  ...direct,
+                  open_pipeline: directOpen,
+                }
+              : null,
+            partner: partner
+              ? {
+                  ...partner,
+                  open_pipeline: partnerOpen,
+                }
+              : null,
+            revenue_mix_partner_pct01,
+            top_partners: (topPartners || []).map((p) => ({
+              ...p,
+              open_pipeline: Number(openPartnerMap.get(String(p.partner_name || "").trim()) || 0) || 0,
+            })),
+          };
+        } catch {
+          return null;
+        }
+      })()
+    : null;
+
   return {
     periods,
     fiscalYearsSorted,
@@ -1562,6 +1902,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
       pipeline: pipeDelta,
       total: forecastGap,
     },
+    partnersExecutive,
   };
 }
 

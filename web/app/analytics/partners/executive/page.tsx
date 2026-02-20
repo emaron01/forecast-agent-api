@@ -625,6 +625,7 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
           return Number(partnerStats.won_amount || 0) / denom;
         })()
       : null;
+  const directSharePct = partnerSharePct == null ? null : Math.max(0, Math.min(1, 1 - partnerSharePct));
 
   const topPartners = selected
     ? await listPartnerRollup({
@@ -924,7 +925,7 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
                     <th className="px-4 py-3 text-right">avg days</th>
                     <th className="px-4 py-3 text-right">AOV</th>
                     <th className="px-4 py-3 text-right">closed-won</th>
-                    <th className="px-4 py-3 text-right">partner mix</th>
+                    <th className="px-4 py-3 text-right">revenue mix</th>
                   </tr>
                 </thead>
                 <tbody className="text-[color:var(--sf-text-primary)]">
@@ -944,7 +945,9 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
                       <td className="px-4 py-3 text-right font-mono text-xs">{row.r?.avg_days == null ? "—" : String(Math.round(Number(row.r.avg_days)))}</td>
                       <td className="px-4 py-3 text-right font-mono text-xs">{row.r?.aov == null ? "—" : fmtMoney(row.r.aov)}</td>
                       <td className="px-4 py-3 text-right font-mono text-xs">{row.r ? fmtMoney(row.r.won_amount) : "—"}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{row.k === "Partner" ? fmtPct01(partnerSharePct) : "—"}</td>
+                      <td className="px-4 py-3 text-right font-mono text-xs">
+                        {row.k === "Direct" ? fmtPct01(directSharePct) : row.k === "Partner" ? fmtPct01(partnerSharePct) : "—"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

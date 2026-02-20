@@ -61,21 +61,34 @@ export function AiSummaryReportClient(props: { entries: Entry[] }) {
     return () => window.clearInterval(t);
   }, []);
 
-  const report = useMemo(() => {
-    const parts: string[] = [];
+  const { reportPreview, reportForCopy } = useMemo(() => {
+    const previewParts: string[] = [];
+    const copyParts: string[] = [];
     for (const e of props.entries || []) {
       const v = readEntry(e);
       if (!v) continue;
-      const body = v.summary || v.extended;
-      if (!body) continue;
-      parts.push(`${e.label}\n${body}`.trim());
+      const summary = String(v.summary || "").trim();
+      const extended = String(v.extended || "").trim();
+      const body = summary || extended;
+      if (body) previewParts.push(`${e.label}\n${body}`.trim());
+
+      if (summary && extended && summary !== extended) {
+        copyParts.push(`${e.label}\nSummary:\n${summary}\n\nExtended analysis:\n${extended}`.trim());
+      } else if (summary) {
+        copyParts.push(`${e.label}\n${summary}`.trim());
+      } else if (extended) {
+        copyParts.push(`${e.label}\n${extended}`.trim());
+      }
     }
-    return parts.join("\n\n").trim();
+    return {
+      reportPreview: previewParts.join("\n\n").trim(),
+      reportForCopy: copyParts.join("\n\n").trim(),
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nonce, JSON.stringify(props.entries || [])]);
 
   async function copy() {
-    const text = report;
+    const text = reportForCopy || reportPreview;
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
@@ -99,8 +112,8 @@ export function AiSummaryReportClient(props: { entries: Entry[] }) {
           type="button"
           onClick={() => void copy()}
           className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
-          disabled={!report}
-          title={report ? "Copy summary" : "No summary to copy yet"}
+          disabled={!reportPreview && !reportForCopy}
+          title={reportPreview || reportForCopy ? "Copy summary + extended" : "No summary to copy yet"}
         >
           <span aria-hidden="true">⧉</span>
           Copy
@@ -109,9 +122,9 @@ export function AiSummaryReportClient(props: { entries: Entry[] }) {
 
       {copied ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
 
-      {report ? (
+      {reportPreview ? (
         <div className="mt-3 whitespace-pre-wrap rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 text-sm text-[color:var(--sf-text-primary)]">
-          {report}
+          {reportPreview}
         </div>
       ) : (
         <div className="mt-3 text-sm text-[color:var(--sf-text-secondary)]">No AI summaries available yet for this view.</div>

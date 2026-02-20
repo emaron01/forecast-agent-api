@@ -16,6 +16,7 @@ import type { ExecutiveProductPerformanceData } from "../../../lib/executiveProd
 import { PipelineMomentumEngine } from "./PipelineMomentumEngine";
 import type { PipelineMomentumData } from "../../../lib/pipelineMomentum";
 import { AiSummaryReportClient } from "../../ai/AiSummaryReportClient";
+import { PartnersExecutiveAiTakeawayClient } from "../../ai/PartnersExecutiveAiTakeawayClient";
 
 type RiskCategoryKey =
   | "pain"
@@ -285,6 +286,40 @@ function clamp01(v: number) {
   return v;
 }
 
+function clampScore100(v: number) {
+  if (!Number.isFinite(v)) return 0;
+  if (v <= 0) return 0;
+  if (v >= 100) return 100;
+  return v;
+}
+
+// Canonical normalization helper.
+function normalize(value: number, min: number, max: number) {
+  if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max)) return 0.5;
+  if (max === min) return 0.5;
+  return clamp01((value - min) / (max - min));
+}
+
+function health01FromScore30(rawScore: number | null) {
+  if (rawScore == null || !Number.isFinite(rawScore)) return null;
+  return clamp01(rawScore / 30);
+}
+
+function wicBand(score: number) {
+  if (!Number.isFinite(score)) return { label: "—", tone: "muted" as const };
+  if (score >= 80) return { label: "INVEST AGGRESSIVELY", tone: "good" as const };
+  if (score >= 60) return { label: "SCALE SELECTIVELY", tone: "good" as const };
+  if (score >= 40) return { label: "MAINTAIN", tone: "warn" as const };
+  return { label: "DEPRIORITIZE", tone: "bad" as const };
+}
+
+function pillToneClass(tone: "good" | "warn" | "bad" | "muted") {
+  if (tone === "good") return "border-[#16A34A]/35 bg-[#16A34A]/10 text-[#16A34A]";
+  if (tone === "warn") return "border-[#F1C40F]/50 bg-[#F1C40F]/12 text-[#F1C40F]";
+  if (tone === "bad") return "border-[#E74C3C]/45 bg-[#E74C3C]/12 text-[#E74C3C]";
+  return "border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]";
+}
+
 function confidenceFromPct(p: number | null) {
   if (p == null || !Number.isFinite(p)) return { label: "Confidence: —", tone: "muted" as const };
   if (p >= 1.0) return { label: "Confidence: High", tone: "good" as const };
@@ -388,6 +423,45 @@ export function ExecutiveGapInsightsClient(props: {
   }>;
   quarterKpis: QuarterKpisSnapshot | null;
   pipelineMomentum: PipelineMomentumData | null;
+  partnersExecutive: {
+    direct: {
+      opps: number;
+      won_opps: number;
+      lost_opps: number;
+      win_rate: number | null;
+      aov: number | null;
+      avg_days: number | null;
+      avg_health_score: number | null;
+      won_amount: number;
+      lost_amount: number;
+      open_pipeline: number;
+    } | null;
+    partner: {
+      opps: number;
+      won_opps: number;
+      lost_opps: number;
+      win_rate: number | null;
+      aov: number | null;
+      avg_days: number | null;
+      avg_health_score: number | null;
+      won_amount: number;
+      lost_amount: number;
+      open_pipeline: number;
+    } | null;
+    revenue_mix_partner_pct01: number | null;
+    top_partners: Array<{
+      partner_name: string;
+      opps: number;
+      won_opps: number;
+      lost_opps: number;
+      win_rate: number | null;
+      aov: number | null;
+      avg_days: number | null;
+      avg_health_score: number | null;
+      won_amount: number;
+      open_pipeline: number;
+    }>;
+  } | null;
   quota: number;
   aiForecast: number;
   crmForecast: number;
@@ -1311,6 +1385,136 @@ export function ExecutiveGapInsightsClient(props: {
     };
   }, [props.productsClosedWon]);
 
+  const partnersDecisionEngine = useMemo(() => {
+    const pe = props.partnersExecutive;
+    if (!pe?.direct || !pe?.partner) return null;
+
+    const direct = pe.direct;
+    const partner = pe.partner;
+
+    const denom = Number(direct.won_amount || 0) + Number(partner.won_amount || 0);
+    const partnerMix = denom > 0 ? Number(partner.won_amount || 0) / denom : null;
+    const directMix = partnerMix == null ? null : Math.max(0, Math.min(1, 1 - partnerMix));
+
+    const narrative = (() => {
+      const aovD = direct.aov == null ? null : Number(direct.aov);
+      const aovP = partner.aov == null ? null : Number(partner.aov);
+      const daysD = direct.avg_days == null ? null : Number(direct.avg_days);
+      const daysP = partner.avg_days == null ? null : Number(partner.avg_days);
+      const mix = partnerMix == null ? null : Math.round(partnerMix * 100);
+      const sizeDeltaPct = aovD != null && aovP != null && aovD > 0 ? Math.round(((aovP - aovD) / aovD) * 100) : null;
+      const velDeltaDays = daysD != null && daysP != null ? Math.round(daysP - daysD) : null;
+
+      const sizePhrase =
+        sizeDeltaPct == null
+          ? "Deal size is mixed across motions"
+          : sizeDeltaPct === 0
+            ? "Partners and Direct are similar in deal size"
+            : sizeDeltaPct > 0
+              ? `Partners run ~${Math.abs(sizeDeltaPct)}% larger than Direct`
+              : `Partners run ~${Math.abs(sizeDeltaPct)}% smaller than Direct`;
+
+      const velPhrase =
+        velDeltaDays == null
+          ? "velocity differs by segment"
+          : velDeltaDays === 0
+            ? "with similar cycle time"
+            : velDeltaDays > 0
+              ? `but are ~${Math.abs(velDeltaDays)} days slower`
+              : `but are ~${Math.abs(velDeltaDays)} days faster`;
+
+      const mixPhrase = mix == null ? "with unclear channel contribution" : `and contribute ~${mix}% of closed-won`;
+      return `${sizePhrase} ${velPhrase} ${mixPhrase} in this period.`;
+    })();
+
+    const baseRows = [
+      {
+        key: "direct",
+        label: "Direct",
+        open_pipeline: Number(direct.open_pipeline || 0) || 0,
+        win_rate: direct.win_rate,
+        avg_health_01: health01FromScore30(direct.avg_health_score),
+        avg_days: direct.avg_days,
+        aov: direct.aov,
+        deal_count: direct.opps,
+      },
+      ...(pe.top_partners || []).map((p) => ({
+        key: `partner:${String(p.partner_name)}`,
+        label: String(p.partner_name),
+        open_pipeline: Number(p.open_pipeline || 0) || 0,
+        win_rate: p.win_rate,
+        avg_health_01: health01FromScore30(p.avg_health_score),
+        avg_days: p.avg_days,
+        aov: p.aov,
+        deal_count: p.opps,
+      })),
+    ];
+
+    const gcVals = baseRows.map((r) => r.open_pipeline).filter((v) => Number.isFinite(v));
+    const aovValsAll = baseRows.map((r) => Number(r.aov ?? NaN)).filter((v) => Number.isFinite(v));
+    const daysValsAll = baseRows.map((r) => Number(r.avg_days ?? NaN)).filter((v) => Number.isFinite(v));
+    const gcMin = gcVals.length ? Math.min(...gcVals) : 0;
+    const gcMax = gcVals.length ? Math.max(...gcVals) : 0;
+    const aovMin = aovValsAll.length ? Math.min(...aovValsAll) : 0;
+    const aovMax = aovValsAll.length ? Math.max(...aovValsAll) : 0;
+    const daysMin = daysValsAll.length ? Math.min(...daysValsAll) : 0;
+    const daysMax = daysValsAll.length ? Math.max(...daysValsAll) : 0;
+
+    const partnerOnly = baseRows.filter((r) => r.key.startsWith("partner:"));
+    const pAovVals = partnerOnly.map((r) => Number(r.aov ?? NaN)).filter((v) => Number.isFinite(v));
+    const pDaysVals = partnerOnly.map((r) => Number(r.avg_days ?? NaN)).filter((v) => Number.isFinite(v));
+    const pAovMin = pAovVals.length ? Math.min(...pAovVals) : 0;
+    const pAovMax = pAovVals.length ? Math.max(...pAovVals) : 0;
+    const pDaysMin = pDaysVals.length ? Math.min(...pDaysVals) : 0;
+    const pDaysMax = pDaysVals.length ? Math.max(...pDaysVals) : 0;
+
+    const scored = baseRows.map((r) => {
+      const GC = normalize(r.open_pipeline, gcMin, gcMax);
+      const win = r.win_rate != null && Number.isFinite(r.win_rate) ? clamp01(Number(r.win_rate)) : null;
+      const health01 = r.avg_health_01 != null && Number.isFinite(r.avg_health_01) ? clamp01(Number(r.avg_health_01)) : null;
+      const WQ = win == null ? 0 : health01 == null ? win : win * health01;
+      const VE = 1 - normalize(Number(r.avg_days ?? 0) || 0, daysMin, daysMax);
+      const DE = normalize(Number(r.aov ?? 0) || 0, aovMin, aovMax);
+      const WIC_raw = GC * 0.35 + WQ * 0.3 + VE * 0.2 + DE * 0.15;
+      const WIC = clampScore100(WIC_raw * 100);
+
+      let PQS: number | null = null;
+      if (r.key.startsWith("partner:")) {
+        const WRF = win == null ? 0 : win;
+        const DSF = normalize(Number(r.aov ?? 0) || 0, pAovMin, pAovMax);
+        const VP = normalize(Number(r.avg_days ?? 0) || 0, pDaysMin, pDaysMax);
+        const dc = Math.max(0, Number(r.deal_count || 0) || 0);
+        const CF = Math.min(1, Math.log(dc + 1) / Math.log(10));
+        const PQS_raw = WRF * 0.4 + DSF * 0.25 + CF * 0.2 - VP * 0.15;
+        PQS = clampScore100(PQS_raw * 100);
+      }
+
+      return { ...r, wic: WIC, wic_band: wicBand(WIC), pqs: PQS };
+    });
+
+    const cei = (() => {
+      const directDays = direct.avg_days == null ? null : Number(direct.avg_days);
+      const partnerDays = partner.avg_days == null ? null : Number(partner.avg_days);
+      const directWon = Number(direct.won_amount || 0) || 0;
+      const partnerWon = Number(partner.won_amount || 0) || 0;
+      const directWin = direct.win_rate == null ? null : clamp01(Number(direct.win_rate));
+      const partnerWin = partner.win_rate == null ? null : clamp01(Number(partner.win_rate));
+      const directH = health01FromScore30(direct.avg_health_score);
+      const partnerH = health01FromScore30(partner.avg_health_score);
+
+      const RV_direct = directDays && directDays > 0 ? directWon / directDays : 0;
+      const RV_partner = partnerDays && partnerDays > 0 ? partnerWon / partnerDays : 0;
+      const QM_direct = directWin == null ? 0 : directH == null ? directWin : directWin * directH;
+      const QM_partner = partnerWin == null ? 0 : partnerH == null ? partnerWin : partnerWin * partnerH;
+      const CEI_raw_direct = RV_direct * QM_direct;
+      const CEI_raw_partner = RV_partner * QM_partner;
+      const partner_index = CEI_raw_direct > 0 ? (CEI_raw_partner / CEI_raw_direct) * 100 : null;
+      return { direct_index: 100, partner_index };
+    })();
+
+    return { narrative, directMix, partnerMix, direct, partner, scored, cei };
+  }, [props.partnersExecutive]);
+
   function updateUrl(mut: (p: URLSearchParams) => void) {
     const params = new URLSearchParams(sp.toString());
     mut(params);
@@ -1410,18 +1614,6 @@ export function ExecutiveGapInsightsClient(props: {
                   </button>
                 </div>
               </div>
-              <ul className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
-                {quarterDrivers.bullets.length ? (
-                  quarterDrivers.bullets.map((b, idx) => (
-                    <li key={idx} className="flex gap-2">
-                      <span className="text-[color:var(--sf-accent-secondary)]">•</span>
-                      <span>{b}</span>
-                    </li>
-                  ))
-                ) : (
-                  <li className="text-[color:var(--sf-text-secondary)]">Loading quarter drivers…</li>
-                )}
-              </ul>
               {heroAiToast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroAiToast}</div> : null}
               {heroAiLoading ? (
                 <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating a CRO-grade takeaway…</div>
@@ -1507,95 +1699,23 @@ export function ExecutiveGapInsightsClient(props: {
                 </button>
               </div>
             </div>
-            {radarStrategicTakeaway.shownCount ? (
-              <div className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
-                <div>
-                  The radar view highlights <span className="font-mono font-semibold">{radarStrategicTakeaway.shownCount}</span> at-risk deal(s) with{" "}
-                  <span className="font-mono font-semibold">{fmtMoney(radarStrategicTakeaway.gapAbs)}</span> downside impact in this slice.
-                </div>
-                {radarAiToast ? <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">{radarAiToast}</div> : null}
-                {radarAiLoading ? (
-                  <div className="text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating MEDDPICC+TB coaching guidance…</div>
-                ) : radarAiSummary || radarAiExtended ? (
-                  <div className="grid gap-3">
-                    {radarAiSummary ? (
-                      <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)]">
-                        {renderCategorizedText(radarAiSummary) || <div className="whitespace-pre-wrap">{radarAiSummary}</div>}
-                      </div>
-                    ) : null}
-                    {radarAiExpanded && radarAiExtended ? (
-                      <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
-                        {radarAiExtended}
-                      </div>
-                    ) : null}
+            {radarAiToast ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{radarAiToast}</div> : null}
+            {radarAiLoading ? (
+              <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating MEDDPICC+TB coaching guidance…</div>
+            ) : radarAiSummary || radarAiExtended ? (
+              <div className="mt-2 grid gap-3">
+                {radarAiSummary ? (
+                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)]">
+                    {renderCategorizedText(radarAiSummary) || <div className="whitespace-pre-wrap">{radarAiSummary}</div>}
                   </div>
                 ) : null}
-
-                {radarStrategicTakeaway.topCats.length ? (
-                  <div className="grid gap-1">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">MEDDPICC+TB gaps to coach</div>
-                    <ul className="grid gap-1">
-                      {radarStrategicTakeaway.topCats.map((c) => (
-                        <li key={c.key} className="flex gap-2">
-                          <span className="text-[color:var(--sf-accent-secondary)]">•</span>
-                          <span className="min-w-0">
-                            <span className="font-semibold">{c.label}</span> is a recurring risk in{" "}
-                            <span className="font-mono font-semibold">{c.count}</span> deal(s).
-                            {c.tips?.length ? (
-                              <span className="text-[color:var(--sf-text-secondary)]"> Tip: {c.tips[0]}</span>
-                            ) : null}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-
-                {radarStrategicTakeaway.repTrends.length ? (
-                  <div className="grid gap-1">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Rep / team trends</div>
-                    <ul className="grid gap-1">
-                      {radarStrategicTakeaway.repTrends.map((r) => (
-                        <li key={r.rep} className="flex gap-2">
-                          <span className="text-[color:var(--sf-accent-secondary)]">•</span>
-                          <span className="min-w-0">
-                            <span className="font-semibold">{r.rep}</span> carries{" "}
-                            <span className="font-mono font-semibold">{fmtMoney(r.gapAbs)}</span> downside here
-                            {r.topGapLabel ? (
-                              <span className="text-[color:var(--sf-text-secondary)]">
-                                {" "}
-                                — trend: {r.topGapLabel} gaps across {r.topGapCount} deal(s).
-                              </span>
-                            ) : null}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-
-                {radarStrategicTakeaway.quickWins.length ? (
-                  <div className="grid gap-1">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">High-leverage coaching targets</div>
-                    <ul className="grid gap-1">
-                      {radarStrategicTakeaway.quickWins.map((d) => (
-                        <li key={d.id} className="flex gap-2">
-                          <span className="text-[color:var(--sf-accent-secondary)]">•</span>
-                          <span className="min-w-0">
-                            <span className="font-semibold">{d.title}</span>{" "}
-                            <span className="text-[color:var(--sf-text-secondary)]">
-                              ({fmtMoney(d.amount)} · {d.gapCount} gap(s) · downside {fmtMoney(d.gapAbs)})
-                            </span>
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
+                {radarAiExpanded && radarAiExtended ? (
+                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
+                    {radarAiExtended}
                   </div>
                 ) : null}
               </div>
-            ) : (
-              <div className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">No at-risk deals in this radar slice.</div>
-            )}
+            ) : null}
           </div>
         </section>
       </div>
@@ -1886,6 +2006,162 @@ export function ExecutiveGapInsightsClient(props: {
 
       {props.productsClosedWon.length ? <ExecutiveProductPerformance data={productViz} quotaPeriodId={quotaPeriodId} /> : null}
 
+      {partnersDecisionEngine ? (
+        <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">Direct vs Partner performance (this quarter)</div>
+              <div className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+                Compares closed outcomes in the selected quarter scope. Use this to validate channel efficiency and coverage decisions.
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Executive narrative</div>
+            <div className="mt-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">{partnersDecisionEngine.narrative}</div>
+          </div>
+
+          <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+            <table className="min-w-[980px] w-full table-auto border-collapse text-sm">
+              <thead className="bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)]">
+                <tr>
+                  <th className="px-4 py-3 text-left">motion</th>
+                  <th className="px-4 py-3 text-right"># opps</th>
+                  <th className="px-4 py-3 text-right">won</th>
+                  <th className="px-4 py-3 text-right">lost</th>
+                  <th className="px-4 py-3 text-right">close rate</th>
+                  <th className="px-4 py-3 text-right">avg health</th>
+                  <th className="px-4 py-3 text-right">avg days</th>
+                  <th className="px-4 py-3 text-right">AOV</th>
+                  <th className="px-4 py-3 text-right">closed-won</th>
+                  <th className="px-4 py-3 text-right">revenue mix</th>
+                </tr>
+              </thead>
+              <tbody className="text-[color:var(--sf-text-primary)]">
+                {[
+                  { k: "Direct", r: partnersDecisionEngine.direct, mix: partnersDecisionEngine.directMix },
+                  { k: "Partner", r: partnersDecisionEngine.partner, mix: partnersDecisionEngine.partnerMix },
+                ].map((row) => (
+                  <tr key={row.k} className="border-t border-[color:var(--sf-border)]">
+                    <td className="px-4 py-3 font-semibold">{row.k}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{String(row.r.opps)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{String(row.r.won_opps)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{String(row.r.lost_opps)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct01(row.r.win_rate)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">
+                      {row.r.avg_health_score == null ? "—" : `${Math.round((Number(row.r.avg_health_score) / 30) * 100)}%`}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{row.r.avg_days == null ? "—" : String(Math.round(Number(row.r.avg_days)))}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{row.r.aov == null ? "—" : fmtMoney(row.r.aov)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(row.r.won_amount)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct01(row.mix)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">CRO decision engine (WIC / PQS / CEI)</div>
+                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                  Canonical scoring models (WIC, PQS, CEI) computed from this dashboard’s numbers. Direct is CEI baseline = 100.
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-3">
+              <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CEI index</div>
+                <div className="mt-2 grid gap-1 text-sm text-[color:var(--sf-text-primary)]">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-semibold">Direct</span>
+                    <span className="font-mono font-semibold">100</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-semibold">Partner</span>
+                    <span className="font-mono font-semibold">
+                      {partnersDecisionEngine.cei.partner_index == null ? "—" : Math.round(partnersDecisionEngine.cei.partner_index).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">CEI = (Revenue/day × Quality), indexed to Direct.</div>
+              </div>
+
+              <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 lg:col-span-2">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC + PQS (top partners)</div>
+                <div className="mt-3 overflow-auto rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                  <table className="min-w-[980px] w-full table-auto border-collapse text-sm">
+                    <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                      <tr>
+                        <th className="px-3 py-2 text-left">motion / partner</th>
+                        <th className="px-3 py-2 text-right">open pipeline</th>
+                        <th className="px-3 py-2 text-right">win rate</th>
+                        <th className="px-3 py-2 text-right">avg health</th>
+                        <th className="px-3 py-2 text-right">avg days</th>
+                        <th className="px-3 py-2 text-right">AOV</th>
+                        <th className="px-3 py-2 text-right">WIC</th>
+                        <th className="px-3 py-2 text-left">band</th>
+                        <th className="px-3 py-2 text-right">PQS</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-[color:var(--sf-text-primary)]">
+                      {partnersDecisionEngine.scored.slice(0, 1 + Math.min(15, Math.max(0, partnersDecisionEngine.scored.length - 1))).map((r) => {
+                        const pill = r.wic_band;
+                        return (
+                          <tr key={r.key} className="border-t border-[color:var(--sf-border)]">
+                            <td className="px-3 py-2 font-semibold">{r.label}</td>
+                            <td className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(r.open_pipeline)}</td>
+                            <td className="px-3 py-2 text-right font-mono text-xs">{fmtPct01(r.win_rate)}</td>
+                            <td className="px-3 py-2 text-right font-mono text-xs">{r.avg_health_01 == null ? "—" : `${Math.round(r.avg_health_01 * 100)}%`}</td>
+                            <td className="px-3 py-2 text-right font-mono text-xs">{r.avg_days == null ? "—" : String(Math.round(Number(r.avg_days)))}</td>
+                            <td className="px-3 py-2 text-right font-mono text-xs">{r.aov == null ? "—" : fmtMoney(r.aov)}</td>
+                            <td className="px-3 py-2 text-right font-mono text-xs">{Math.round(r.wic).toLocaleString()}</td>
+                            <td className="px-3 py-2">
+                              <span className={["inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold", pillToneClass(pill.tone)].join(" ")}>
+                                {pill.label}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono text-xs">{r.pqs == null ? "—" : Math.round(r.pqs).toLocaleString()}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                  WIC computed for Direct + each partner. PQS computed per partner only. Scores are clamped 0–100.
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div className="mt-4">
+            <PartnersExecutiveAiTakeawayClient
+              quotaPeriodId={quotaPeriodId}
+              payload={{
+                page: "dashboard/executive",
+                quota_period_id: quotaPeriodId,
+                fiscal_year: props.fiscalYear,
+                fiscal_quarter: props.fiscalQuarter,
+                direct: partnersDecisionEngine.direct,
+                partner: partnersDecisionEngine.partner,
+                revenue_mix_partner_pct: partnersDecisionEngine.partnerMix,
+                decision_engine: {
+                  executive_narrative: partnersDecisionEngine.narrative,
+                  cei_index: partnersDecisionEngine.cei,
+                  wic: partnersDecisionEngine.scored.map((r) => ({ label: r.label, wic: r.wic, band: r.wic_band.label, open_pipeline: r.open_pipeline })),
+                  pqs: partnersDecisionEngine.scored.filter((r) => String(r.key).startsWith("partner:")).map((r) => ({ label: r.label, pqs: r.pqs })),
+                },
+                top_partners: (props.partnersExecutive?.top_partners || []).slice(0, 20),
+              }}
+            />
+          </div>
+        </section>
+      ) : null}
+
       {props.productsClosedWonByRep.length ? (
         <details className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
           <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">Rep breakdown (by product)</summary>
@@ -1997,7 +2273,28 @@ export function ExecutiveGapInsightsClient(props: {
                     props.quarterKpis.directVsPartner.directAvgAgeDays == null ? "—" : String(Math.round(props.quarterKpis.directVsPartner.directAvgAgeDays))
                   }
                 />
-                <Chip label="Partner Contribution %" value={fmtPct01(props.quarterKpis.directVsPartner.partnerContributionPct)} />
+                <Chip
+                  label="Revenue Mix (Direct)"
+                  value={
+                    (() => {
+                      const d = Number(props.quarterKpis.directVsPartner.directWonAmount || 0) || 0;
+                      const p = Number(props.quarterKpis.directVsPartner.partnerWonAmount || 0) || 0;
+                      const denom = d + p;
+                      return denom > 0 ? fmtPct01(d / denom) : "—";
+                    })()
+                  }
+                />
+                <Chip
+                  label="Revenue Mix (Partner)"
+                  value={
+                    (() => {
+                      const d = Number(props.quarterKpis.directVsPartner.directWonAmount || 0) || 0;
+                      const p = Number(props.quarterKpis.directVsPartner.partnerWonAmount || 0) || 0;
+                      const denom = d + p;
+                      return denom > 0 ? fmtPct01(p / denom) : "—";
+                    })()
+                  }
+                />
                 <Chip label="# Partner Deals" value={fmtNum(props.quarterKpis.directVsPartner.partnerClosedDeals)} />
                 <Chip label="Partner AOV" value={props.quarterKpis.directVsPartner.partnerAov == null ? "—" : fmtMoney(props.quarterKpis.directVsPartner.partnerAov)} />
                 <Chip
@@ -2492,6 +2789,7 @@ Normalize to an index: Direct = 100 baseline`}
         entries={[
           { label: "SalesForecast.io Outlook", surface: "hero", quotaPeriodId },
           { label: "Risk radar takeaway", surface: "radar", quotaPeriodId },
+          { label: "Partner executive takeaways", surface: "partners_executive", quotaPeriodId },
           { label: "Product performance takeaway", surface: "product_performance", quotaPeriodId },
           { label: "Pipeline momentum takeaway", surface: "pipeline_momentum", quotaPeriodId },
         ]}

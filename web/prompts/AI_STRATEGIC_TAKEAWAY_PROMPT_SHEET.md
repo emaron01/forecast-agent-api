@@ -69,6 +69,22 @@ Explain:
 
 ## Formatting rules (for display blocks)
 
+- **Start every analysis with a single executive one-line.** This must be the **first line** of the output.
+  - Under **25 words**
+  - **Quantify count** (e.g., # at-risk deals, # partners, # products, # opps)
+  - **Quantify dollar impact** (e.g., downside \$, closed-won \$, pipeline \$, created pipeline \$)
+  - Identify the **primary driver** (one short phrase: the biggest cause of the outcome)
+  - Use decisive executive tone (no hedging)
+
+Preferred template (use when applicable):
+
+> "This view shows {risk_count} at-risk deal(s) representing ${downside} in potential downside, driven primarily by {top_driver}."
+
+If the surface is not “risk deals”, adapt the placeholders but keep the structure:
+- `{risk_count}` → the most relevant count for the view
+- `${downside}` → the most relevant dollar magnitude for the view
+- `{top_driver}` → the single biggest driver you can defend from the data
+
 - Use short paragraphs or bullet points.
 - Lead with numbers (gap dollars, # deals, stage distribution).
 - Be explicit about “1 deal closes the GAP” when true.

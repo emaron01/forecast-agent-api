@@ -76,6 +76,7 @@ export default async function ExecutiveDashboardPage({
             productsClosedWonByRep={summary.productsClosedWonByRep}
             quarterKpis={summary.quarterKpis}
             pipelineMomentum={summary.pipelineMomentum}
+            partnersExecutive={summary.partnersExecutive}
             quota={summary.quota}
             aiForecast={summary.aiForecast.weighted_forecast}
             crmForecast={summary.crmForecast.weighted_forecast}
@@ -87,7 +88,7 @@ export default async function ExecutiveDashboardPage({
             }}
             aiPctToGoal={summary.pctToGoal}
             leftToGo={summary.leftToGo}
-            defaultTopN={15}
+            defaultTopN={5}
           />
         </div>
       </main>
