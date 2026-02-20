@@ -1519,7 +1519,7 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
         </div>
 
-        <div className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
+        <div className="mt-4 ml-auto w-full max-w-[560px] rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
               This Quarter’s Outlook Driven By: ✨ AI Strategic Takeaway
