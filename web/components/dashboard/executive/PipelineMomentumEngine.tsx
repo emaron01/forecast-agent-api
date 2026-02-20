@@ -120,7 +120,7 @@ function fmtPct01Plain(p01: number | null) {
   return `${Math.round(p01 * 100)}%`;
 }
 
-export function PipelineMomentumEngine(props: { data: PipelineMomentumData | null; className?: string }) {
+export function PipelineMomentumEngine(props: { data: PipelineMomentumData | null; quotaPeriodId?: string; className?: string }) {
   const data = props.data;
   if (!data) {
     return (
@@ -189,6 +189,7 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
 
       <PipelineMomentumAiTakeawayClient
         payload={{
+          quota_period_id: props.quotaPeriodId || null,
           quota_target: data.quota_target,
           open_pipeline: data.current_quarter,
           open_pipeline_previous: data.previous_quarter,

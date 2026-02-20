@@ -12,6 +12,7 @@ import { getHealthAveragesByPeriods } from "../../../../lib/analyticsHealth";
 import { AverageHealthScorePanel } from "../../../_components/AverageHealthScorePanel";
 import { getScopedRepDirectory } from "../../../../lib/repScope";
 import { PartnerAiStrategicTakeawayClient } from "./ui/PartnerAiStrategicTakeawayClient";
+import { AiSummaryReportClient } from "../../../../components/ai/AiSummaryReportClient";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -816,6 +817,16 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
               <ExportToExcelButton fileName={`Top Partners Closed Loss - ${selected.period_name}`} sheets={[{ name: "Top Closed Loss", rows: topLostExport }]} />
             </div>
           </section>
+        ) : null}
+
+        {selected ? (
+          <div className="mt-5">
+            <AiSummaryReportClient
+              entries={[
+                { label: "Partner executive takeaways", surface: "partners_executive", quotaPeriodId: String(selected.id) },
+              ]}
+            />
+          </div>
         ) : null}
       </main>
     </div>

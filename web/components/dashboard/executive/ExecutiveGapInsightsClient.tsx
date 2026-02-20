@@ -15,6 +15,7 @@ import { ExecutiveProductPerformance } from "./ExecutiveProductPerformance";
 import type { ExecutiveProductPerformanceData } from "../../../lib/executiveProductInsights";
 import { PipelineMomentumEngine } from "./PipelineMomentumEngine";
 import type { PipelineMomentumData } from "../../../lib/pipelineMomentum";
+import { AiSummaryReportClient } from "../../ai/AiSummaryReportClient";
 
 type RiskCategoryKey =
   | "pain"
@@ -327,10 +328,19 @@ export function ExecutiveGapInsightsClient(props: {
   const [analysisData, setAnalysisData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [analysisLoading, setAnalysisLoading] = useState(false);
-  const [heroAiText, setHeroAiText] = useState<string>("");
+  const [heroAiSummary, setHeroAiSummary] = useState<string>("");
+  const [heroAiExtended, setHeroAiExtended] = useState<string>("");
+  const [heroAiPayloadSha, setHeroAiPayloadSha] = useState<string>("");
   const [heroAiLoading, setHeroAiLoading] = useState(false);
-  const [radarAiText, setRadarAiText] = useState<string>("");
+  const [heroAiExpanded, setHeroAiExpanded] = useState(false);
+  const [heroAiToast, setHeroAiToast] = useState<string>("");
+
+  const [radarAiSummary, setRadarAiSummary] = useState<string>("");
+  const [radarAiExtended, setRadarAiExtended] = useState<string>("");
+  const [radarAiPayloadSha, setRadarAiPayloadSha] = useState<string>("");
   const [radarAiLoading, setRadarAiLoading] = useState(false);
+  const [radarAiExpanded, setRadarAiExpanded] = useState(false);
+  const [radarAiToast, setRadarAiToast] = useState<string>("");
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [topN, setTopN] = useState(Math.max(1, props.defaultTopN || 15));
   const [stageView, setStageView] = useState<"commit" | "best_case" | "pipeline" | "all">("all");
@@ -506,6 +516,61 @@ export function ExecutiveGapInsightsClient(props: {
   const lastHeroAiKey = useRef<string>("");
   const lastRadarAiKey = useRef<string>("");
 
+  async function runHeroAi(args: { force: boolean; showNoChangeToast: boolean }) {
+    if (!heroTakeawayPayload?.quota_period_id) return;
+    setHeroAiLoading(true);
+    try {
+      const r = await fetch("/api/forecast/ai-strategic-takeaway", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          surface: "hero",
+          payload: heroTakeawayPayload,
+          force: args.force,
+          previous_payload_sha256: heroAiPayloadSha || undefined,
+          previous_summary: heroAiSummary || undefined,
+          previous_extended: heroAiExtended || undefined,
+        }),
+      });
+      const j = await r.json();
+      const noChange = !!j?.no_change;
+      const nextSummary = String(j?.summary || "").trim();
+      const nextExtended = String(j?.extended || "").trim();
+      const nextSha = String(j?.payload_sha256 || "").trim();
+
+      const persistSummary = noChange ? (heroAiSummary || nextSummary) : (nextSummary || heroAiSummary);
+      const persistExtended = noChange ? (heroAiExtended || nextExtended) : (nextExtended || heroAiExtended);
+
+      if (nextSha) setHeroAiPayloadSha(nextSha);
+      if (!noChange) {
+        if (nextSummary) setHeroAiSummary(nextSummary);
+        if (nextExtended) setHeroAiExtended(nextExtended);
+      } else if (args.showNoChangeToast) {
+        setHeroAiToast("No material change in the underlying data.");
+        window.setTimeout(() => setHeroAiToast(""), 2500);
+      }
+
+      // Persist for end-of-page summary.
+      try {
+        sessionStorage.setItem(
+          `sf_ai:hero:${String(heroTakeawayPayload.quota_period_id)}`,
+          JSON.stringify({
+            summary: persistSummary,
+            extended: persistExtended,
+            payload_sha256: nextSha || heroAiPayloadSha,
+            updatedAt: Date.now(),
+          })
+        );
+      } catch {
+        // ignore
+      }
+    } catch {
+      // Keep prior content on failure.
+    } finally {
+      setHeroAiLoading(false);
+    };
+  }
+
   useEffect(() => {
     if (!heroTakeawayPayload?.quota_period_id) return;
     // Avoid spam: re-run when the core analysis inputs change.
@@ -518,28 +583,7 @@ export function ExecutiveGapInsightsClient(props: {
     ].join("|");
     if (key === lastHeroAiKey.current) return;
     lastHeroAiKey.current = key;
-
-    let cancelled = false;
-    setHeroAiLoading(true);
-    fetch("/api/forecast/ai-strategic-takeaway", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ surface: "hero", payload: heroTakeawayPayload }),
-    })
-      .then((r) => r.json())
-      .then((j) => {
-        const t = String(j?.text || "").trim();
-        if (!cancelled) setHeroAiText(t);
-      })
-      .catch(() => {
-        if (!cancelled) setHeroAiText("");
-      })
-      .finally(() => {
-        if (!cancelled) setHeroAiLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    void runHeroAi({ force: false, showNoChangeToast: false });
   }, [heroTakeawayPayload, refreshNonce]);
 
   const sortedDeals = useMemo(() => {
@@ -848,6 +892,60 @@ export function ExecutiveGapInsightsClient(props: {
     };
   }, [props.fiscalYear, props.fiscalQuarter, quotaPeriodId, radarStrategicTakeaway]);
 
+  async function runRadarAi(args: { force: boolean; showNoChangeToast: boolean }) {
+    if (!radarTakeawayPayload?.quota_period_id) return;
+    setRadarAiLoading(true);
+    try {
+      const r = await fetch("/api/forecast/ai-strategic-takeaway", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          surface: "radar",
+          payload: radarTakeawayPayload,
+          force: args.force,
+          previous_payload_sha256: radarAiPayloadSha || undefined,
+          previous_summary: radarAiSummary || undefined,
+          previous_extended: radarAiExtended || undefined,
+        }),
+      });
+      const j = await r.json();
+      const noChange = !!j?.no_change;
+      const nextSummary = String(j?.summary || "").trim();
+      const nextExtended = String(j?.extended || "").trim();
+      const nextSha = String(j?.payload_sha256 || "").trim();
+
+      const persistSummary = noChange ? (radarAiSummary || nextSummary) : (nextSummary || radarAiSummary);
+      const persistExtended = noChange ? (radarAiExtended || nextExtended) : (nextExtended || radarAiExtended);
+
+      if (nextSha) setRadarAiPayloadSha(nextSha);
+      if (!noChange) {
+        if (nextSummary) setRadarAiSummary(nextSummary);
+        if (nextExtended) setRadarAiExtended(nextExtended);
+      } else if (args.showNoChangeToast) {
+        setRadarAiToast("No material change in the underlying data.");
+        window.setTimeout(() => setRadarAiToast(""), 2500);
+      }
+
+      try {
+        sessionStorage.setItem(
+          `sf_ai:radar:${String(radarTakeawayPayload.quota_period_id)}`,
+          JSON.stringify({
+            summary: persistSummary,
+            extended: persistExtended,
+            payload_sha256: nextSha || radarAiPayloadSha,
+            updatedAt: Date.now(),
+          })
+        );
+      } catch {
+        // ignore
+      }
+    } catch {
+      // keep prior
+    } finally {
+      setRadarAiLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (!radarTakeawayPayload?.quota_period_id) return;
     const key = [
@@ -860,28 +958,7 @@ export function ExecutiveGapInsightsClient(props: {
     ].join("|");
     if (key === lastRadarAiKey.current) return;
     lastRadarAiKey.current = key;
-
-    let cancelled = false;
-    setRadarAiLoading(true);
-    fetch("/api/forecast/ai-strategic-takeaway", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ surface: "radar", payload: radarTakeawayPayload }),
-    })
-      .then((r) => r.json())
-      .then((j) => {
-        const t = String(j?.text || "").trim();
-        if (!cancelled) setRadarAiText(t);
-      })
-      .catch(() => {
-        if (!cancelled) setRadarAiText("");
-      })
-      .finally(() => {
-        if (!cancelled) setRadarAiLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    void runRadarAi({ force: false, showNoChangeToast: false });
   }, [radarTakeawayPayload, topN, stageView, refreshNonce]);
 
   const viewFullHref = useMemo(() => {
@@ -1165,7 +1242,7 @@ export function ExecutiveGapInsightsClient(props: {
         <div className="grid gap-4 lg:grid-cols-12">
           <div className="lg:col-span-7">
             <div className="flex items-center justify-center">
-              <div className="relative w-[320px] max-w-[85vw] shrink-0 aspect-[2048/1365] sm:w-[420px]">
+              <div className="relative w-[320px] max-w-[85vw] shrink-0 aspect-[1024/272] sm:w-[420px]">
                 <Image
                   src="/brand/logooutlook.png"
                   alt="SalesForecast.io Outlook"
@@ -1231,8 +1308,26 @@ export function ExecutiveGapInsightsClient(props: {
 
           <div className="lg:col-span-5">
             <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
-              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
-                This Quarter’s Outlook Driven By: ✨ AI Strategic Takeaway
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                  This Quarter’s Outlook Driven By: ✨ AI Strategic Takeaway
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void runHeroAi({ force: true, showNoChangeToast: true })}
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
+                  >
+                    Reanalyze
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHeroAiExpanded((v) => !v)}
+                    className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
+                  >
+                    {heroAiExpanded ? "Hide extended analysis" : "Extended analysis"}
+                  </button>
+                </div>
               </div>
               <ul className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
                 {quarterDrivers.bullets.length ? (
@@ -1246,11 +1341,21 @@ export function ExecutiveGapInsightsClient(props: {
                   <li className="text-[color:var(--sf-text-secondary)]">Loading quarter drivers…</li>
                 )}
               </ul>
+              {heroAiToast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroAiToast}</div> : null}
               {heroAiLoading ? (
                 <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating a CRO-grade takeaway…</div>
-              ) : heroAiText ? (
-                <div className="mt-3 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
-                  {heroAiText}
+              ) : heroAiSummary || heroAiExtended ? (
+                <div className="mt-3 grid gap-3">
+                  {heroAiSummary ? (
+                    <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
+                      {heroAiSummary}
+                    </div>
+                  ) : null}
+                  {heroAiExpanded && heroAiExtended ? (
+                    <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
+                      {heroAiExtended}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               {quarterDrivers.usingFullRiskSet ? (
@@ -1302,18 +1407,46 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
 
           <div className="mt-4 border-t border-[color:var(--sf-border)] pt-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">✨ AI Strategic Takeaway</div>
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">✨ AI Strategic Takeaway</div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void runRadarAi({ force: true, showNoChangeToast: true })}
+                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
+                >
+                  Reanalyze
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRadarAiExpanded((v) => !v)}
+                  className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
+                >
+                  {radarAiExpanded ? "Hide extended analysis" : "Extended analysis"}
+                </button>
+              </div>
+            </div>
             {radarStrategicTakeaway.shownCount ? (
               <div className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
                 <div>
                   The radar view highlights <span className="font-mono font-semibold">{radarStrategicTakeaway.shownCount}</span> at-risk deal(s) with{" "}
                   <span className="font-mono font-semibold">{fmtMoney(radarStrategicTakeaway.gapAbs)}</span> downside impact in this slice.
                 </div>
+                {radarAiToast ? <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">{radarAiToast}</div> : null}
                 {radarAiLoading ? (
                   <div className="text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating MEDDPICC+TB coaching guidance…</div>
-                ) : radarAiText ? (
-                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
-                    {radarAiText}
+                ) : radarAiSummary || radarAiExtended ? (
+                  <div className="grid gap-3">
+                    {radarAiSummary ? (
+                      <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
+                        {radarAiSummary}
+                      </div>
+                    ) : null}
+                    {radarAiExpanded && radarAiExtended ? (
+                      <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
+                        {radarAiExtended}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -1845,7 +1978,7 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
         ) : null}
 
-        <PipelineMomentumEngine data={props.pipelineMomentum} />
+        <PipelineMomentumEngine data={props.pipelineMomentum} quotaPeriodId={quotaPeriodId} />
 
         {props.quarterKpis ? (
           <details
@@ -2273,6 +2406,14 @@ Normalize to an index: Direct = 100 baseline`}
           </div>
         </details>
       </section>
+
+      <AiSummaryReportClient
+        entries={[
+          { label: "Executive takeaway (Hero)", surface: "hero", quotaPeriodId },
+          { label: "Risk radar takeaway", surface: "radar", quotaPeriodId },
+          { label: "Pipeline momentum takeaway", surface: "pipeline_momentum", quotaPeriodId },
+        ]}
+      />
 
       {gapDrawerMounted ? (
         <div className="fixed inset-0 z-50">
