@@ -84,8 +84,9 @@ export function KpiCardsRow(props: {
 
   const variant = props.variant || "full";
 
+  const attributionCardClass = [card, variant === "forecast_only" ? "sm:col-span-2 lg:col-span-3" : ""].join(" ");
   const ForecastStageGapAttributionCard = (
-    <div className={card}>
+    <div className={attributionCardClass}>
       <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Forecast Stage Gap Attribution</div>
       <div className="mt-3 grid gap-2 text-xs text-[color:var(--sf-text-primary)]">
         {[
@@ -138,7 +139,7 @@ export function KpiCardsRow(props: {
   if (variant === "forecast_only") {
     return (
       <section className="grid gap-3">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
           <div className={card}>
             <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quota</div>
             <div className={val}>{fmtMoney(props.quota)}</div>
@@ -162,9 +163,9 @@ export function KpiCardsRow(props: {
             <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Outlook delta (AI − CRM)</div>
             {props.dealsAtRisk != null ? <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Deals at risk: {props.dealsAtRisk}</div> : null}
           </div>
-        </div>
 
-        {ForecastStageGapAttributionCard}
+          {ForecastStageGapAttributionCard}
+        </div>
       </section>
     );
   }
