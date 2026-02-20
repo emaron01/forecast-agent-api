@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 import {
   coverageRatio,
   coverageTone,
@@ -158,6 +159,43 @@ function healthPill(pct: number | null) {
 
 export function PipelineMomentumEngine(props: { data: PipelineMomentumData | null; quotaPeriodId?: string; className?: string }) {
   const data = props.data;
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugLoading, setDebugLoading] = useState(false);
+  const [debugJson, setDebugJson] = useState<any>(null);
+  const [debugError, setDebugError] = useState<string>("");
+
+  useEffect(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      setShowDebug(sp.get("debug") === "1");
+    } catch {
+      setShowDebug(false);
+    }
+  }, []);
+
+  async function loadDebug() {
+    const qp = String(props.quotaPeriodId || "").trim();
+    if (!qp) return;
+    setDebugLoading(true);
+    setDebugError("");
+    try {
+      const r = await fetch(`/api/debug/pipeline-momentum?quota_period_id=${encodeURIComponent(qp)}`);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.ok) {
+        setDebugJson(j || null);
+        setDebugError(String(j?.error || `Request failed (${r.status})`));
+      } else {
+        setDebugJson(j);
+      }
+    } catch (e: any) {
+      setDebugError(String(e?.message || e));
+      setDebugJson(null);
+    } finally {
+      setDebugLoading(false);
+    }
+  }
+
   if (!data) {
     return (
       <section className={["rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm", props.className || ""].join(" ")}>
@@ -203,6 +241,20 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
           <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Pipeline Momentum</div>
           <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Pipeline predicts the future: coverage, velocity, mix, and the next-quarter creation engine.</div>
         </div>
+        {showDebug && props.quotaPeriodId ? (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setDebugOpen(true);
+                void loadDebug();
+              }}
+              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
+            >
+              Debug data
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div className="grid gap-3 lg:grid-cols-3">
@@ -442,6 +494,43 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
           predictive: data.predictive || null,
         }}
       />
+
+      {debugOpen ? (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-black/60 p-4">
+          <div className="w-full max-w-4xl rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-xl">
+            <div className="flex items-center justify-between gap-3 border-b border-[color:var(--sf-border)] px-4 py-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-[color:var(--sf-text-primary)]">Pipeline Momentum Debug</div>
+                <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">quota_period_id: {String(props.quotaPeriodId || "—")}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void loadDebug()}
+                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
+                >
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDebugOpen(false)}
+                  className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="px-4 py-3">
+              {debugLoading ? <div className="text-sm text-[color:var(--sf-text-secondary)]">Loading…</div> : null}
+              {debugError ? <div className="mt-2 text-sm font-semibold text-[#E74C3C]">{debugError}</div> : null}
+              <pre className="mt-3 max-h-[70vh] overflow-auto rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 text-xs text-[color:var(--sf-text-primary)]">
+                {debugJson ? JSON.stringify(debugJson, null, 2) : "{}"}
+              </pre>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

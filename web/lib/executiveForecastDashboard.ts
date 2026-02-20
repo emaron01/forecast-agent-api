@@ -492,7 +492,15 @@ async function getOpenPipelineSnapshot(args: {
               'g'
             )
           ) AS fs,
-          o.close_date::date AS close_d
+          CASE
+            WHEN o.close_date IS NULL THEN NULL
+            -- ISO date or timestamp starting with YYYY-MM-DD
+            WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+            -- US-style M/D/YYYY (common in Excel/CSV uploads)
+            WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+              to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+            ELSE NULL
+          END AS close_d
         FROM opportunities o
         WHERE o.org_id = $1
           AND (
@@ -1640,8 +1648,32 @@ export async function getExecutiveForecastDashboardSummary(args: {
       }).catch(() => null)
     : null;
 
-  const useRepFilterForMomentum = scope.allowedRepIds !== null;
-  const repIdsForMomentum = useRepFilterForMomentum ? (scope.allowedRepIds ?? []) : [];
+  // IMPORTANT:
+  // `scope.allowedRepIds` is sometimes an empty array due to upstream visibility / rep-directory gaps.
+  // Many other executive dashboard queries treat "empty array" as "no filter" (company-wide),
+  // but the pipeline momentum snapshot previously treated it as "filter to none" (all zeros).
+  //
+  // To keep behavior consistent and prevent false-zeros, only enable rep-id scoping when we have
+  // a non-empty rep-id set. Otherwise, fall back to visibility-derived repIdsToUse.
+  const repIdsForMomentum =
+    Array.isArray(scope.allowedRepIds) && scope.allowedRepIds.length
+      ? scope.allowedRepIds
+      : repIdsToUse;
+  const useRepFilterForMomentum = Array.isArray(repIdsForMomentum) && repIdsForMomentum.length > 0;
+  // IMPORTANT:
+  // Some deployments do not reliably populate `opportunities.rep_id`, but *do* have `opportunities.rep_name`.
+  // When scoping is enabled (non-admin), we must include a rep-name-based filter keyset, or momentum can
+  // incorrectly zero out even when data exists.
+  const repNameKeysForMomentum = useRepFilterForMomentum
+    ? Array.from(
+        new Set(
+          [
+            ...(visibleRepNameKeys || []),
+            ...((scope.repDirectory || []).map((r) => normalizeNameKey((r as any)?.name)).filter(Boolean) as string[]),
+          ].filter(Boolean)
+        )
+      )
+    : [];
 
   const prevQuarterKpis =
     prevQpId && qpId
@@ -1658,7 +1690,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
         quotaPeriodId: qpId,
         useRepFilter: useRepFilterForMomentum,
         repIds: repIdsForMomentum,
-        repNameKeys: [],
+        repNameKeys: repNameKeysForMomentum,
       }).catch(() => null)
     : null;
   const prevSnap = prevQpId
@@ -1667,7 +1699,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
         quotaPeriodId: prevQpId,
         useRepFilter: useRepFilterForMomentum,
         repIds: repIdsForMomentum,
-        repNameKeys: [],
+        repNameKeys: repNameKeysForMomentum,
       }).catch(() => null)
     : null;
 
