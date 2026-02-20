@@ -188,11 +188,13 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
   };
 
   const covPill =
-    covTone === "warn"
-      ? { text: "Watch (below 3.0x)", tone: "warn" as const }
-      : covTone === "bad"
-        ? { text: "Risk (below 3.0x)", tone: "bad" as const }
-        : null;
+    covTone === "bad"
+      ? { text: "Danger (below 3x)", tone: "bad" as const }
+      : covTone === "warn"
+        ? { text: "Covered (3–3.4)", tone: "warn" as const }
+        : covTone === "good"
+          ? { text: "Solid (≥ 3.5)", tone: "good" as const }
+          : null;
 
   return (
     <section className={["grid gap-4", props.className || ""].join(" ")}>
@@ -208,7 +210,7 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
         <KpiCard
           label="Coverage Ratio"
           value={covText}
-          sub={`Quota target: ${fmtMoney(data.quota_target)} · safe zone ≥ 3.0x`}
+          sub={`Quota Target To GO: ${fmtMoney(data.quota_target)} · (Quota − Closed Won)`}
           rightPill={covPill || undefined}
         />
         <KpiCard

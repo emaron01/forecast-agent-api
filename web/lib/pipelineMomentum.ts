@@ -111,8 +111,8 @@ export type CoverageTone = "good" | "warn" | "bad" | "muted";
 
 export function coverageTone(r: number | null): CoverageTone {
   if (r == null || !Number.isFinite(r)) return "muted";
-  if (r < 2.75) return "bad";
-  if (r < 3.0) return "warn";
+  if (r < 3.0) return "bad";
+  if (r < 3.5) return "warn";
   return "good";
 }
 

@@ -492,14 +492,7 @@ async function getOpenPipelineSnapshot(args: {
               'g'
             )
           ) AS fs,
-          o.create_date::date AS create_d,
-          CASE
-            WHEN o.close_date IS NULL THEN NULL
-            WHEN (o.close_date::text ~ '^\\d{4}-\\d{1,2}-\\d{1,2}') THEN substring(o.close_date::text from 1 for 10)::date
-            WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-              to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
-            ELSE NULL
-          END AS close_d
+          o.close_date::date AS close_d
         FROM opportunities o
         WHERE o.org_id = $1
           AND (
@@ -517,10 +510,9 @@ async function getOpenPipelineSnapshot(args: {
         SELECT d.*
           FROM deals d
           JOIN qp ON TRUE
-         WHERE (
-           (d.close_d IS NOT NULL AND d.close_d >= qp.period_start AND d.close_d <= qp.period_end)
-           OR (d.close_d IS NULL AND d.create_d IS NOT NULL AND d.create_d <= qp.period_end)
-         )
+         WHERE d.close_d IS NOT NULL
+           AND d.close_d >= qp.period_start
+           AND d.close_d <= qp.period_end
       ),
       open_deals AS (
         SELECT *
@@ -1649,6 +1641,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
     : null;
 
   const useRepFilterForMomentum = scope.allowedRepIds !== null;
+  const repIdsForMomentum = useRepFilterForMomentum ? (scope.allowedRepIds ?? []) : [];
 
   const prevQuarterKpis =
     prevQpId && qpId
@@ -1664,8 +1657,8 @@ export async function getExecutiveForecastDashboardSummary(args: {
         orgId: args.orgId,
         quotaPeriodId: qpId,
         useRepFilter: useRepFilterForMomentum,
-        repIds: repIdsToUse,
-        repNameKeys: visibleRepNameKeys,
+        repIds: repIdsForMomentum,
+        repNameKeys: [],
       }).catch(() => null)
     : null;
   const prevSnap = prevQpId
@@ -1673,8 +1666,8 @@ export async function getExecutiveForecastDashboardSummary(args: {
         orgId: args.orgId,
         quotaPeriodId: prevQpId,
         useRepFilter: useRepFilterForMomentum,
-        repIds: repIdsToUse,
-        repNameKeys: visibleRepNameKeys,
+        repIds: repIdsForMomentum,
+        repNameKeys: [],
       }).catch(() => null)
     : null;
 
@@ -1686,7 +1679,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
   const pipelineMomentum: PipelineMomentumData | null =
     curSnap && Number.isFinite(Number(curSnap.total_amount))
       ? {
-          quota_target: quota,
+          quota_target: Math.max(0, quota - (Number(totals.won_amount || 0) || 0)),
           current_quarter: {
             total_pipeline: Number(curSnap.total_amount || 0) || 0,
             total_opps: Number(curSnap.total_count || 0) || 0,
