@@ -1650,22 +1650,21 @@ export async function getExecutiveForecastDashboardSummary(args: {
     : null;
 
   // IMPORTANT:
-  // `scope.allowedRepIds` is sometimes an empty array due to upstream visibility / rep-directory gaps.
-  // Many other executive dashboard queries treat "empty array" as "no filter" (company-wide),
-  // but the pipeline momentum snapshot previously treated it as "filter to none" (all zeros).
+  // Pipeline Momentum must respect user visibility.
   //
-  // To keep behavior consistent and prevent false-zeros, only enable rep-id scoping when we have
-  // a non-empty rep-id set. Otherwise, fall back to visibility-derived repIdsToUse.
+  // - `scope.allowedRepIds === null` means company-wide (ADMIN or EXEC with global visibility) → no filter
+  // - otherwise, we are in a scoped/team view. If `allowedRepIds` is empty due to rep-directory gaps,
+  //   fall back to visibility-derived rep ids/name keys (NOT company-wide).
+  const isCompanyScopeForMomentum = scope.allowedRepIds === null;
+
   const repIdsForMomentum =
-    Array.isArray(scope.allowedRepIds) && scope.allowedRepIds.length
+    !isCompanyScopeForMomentum && Array.isArray(scope.allowedRepIds) && scope.allowedRepIds.length
       ? scope.allowedRepIds
-      : repIdsToUse;
-  const useRepFilterForMomentum = Array.isArray(repIdsForMomentum) && repIdsForMomentum.length > 0;
-  // IMPORTANT:
-  // Some deployments do not reliably populate `opportunities.rep_id`, but *do* have `opportunities.rep_name`.
-  // When scoping is enabled (non-admin), we must include a rep-name-based filter keyset, or momentum can
-  // incorrectly zero out even when data exists.
-  const repNameKeysForMomentum = useRepFilterForMomentum
+      : !isCompanyScopeForMomentum
+        ? repIdsToUse
+        : [];
+
+  const repNameKeysForMomentumCandidate = !isCompanyScopeForMomentum
     ? Array.from(
         new Set(
           [
@@ -1675,6 +1674,16 @@ export async function getExecutiveForecastDashboardSummary(args: {
         )
       )
     : [];
+
+  const useRepFilterForMomentum =
+    !isCompanyScopeForMomentum &&
+    ((Array.isArray(repIdsForMomentum) && repIdsForMomentum.length > 0) || repNameKeysForMomentumCandidate.length > 0);
+
+  // IMPORTANT:
+  // Some deployments do not reliably populate `opportunities.rep_id`, but *do* have `opportunities.rep_name`.
+  // When scoping is enabled (non-admin), we must include a rep-name-based filter keyset, or momentum can
+  // incorrectly zero out even when data exists.
+  const repNameKeysForMomentum = useRepFilterForMomentum ? repNameKeysForMomentumCandidate : [];
 
   const prevQuarterKpis =
     prevQpId && qpId
