@@ -535,7 +535,17 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
               {debugLoading ? <div className="text-sm text-[color:var(--sf-text-secondary)]">Loading…</div> : null}
               {debugError ? <div className="mt-2 text-sm font-semibold text-[#E74C3C]">{debugError}</div> : null}
               <pre className="mt-3 max-h-[70vh] overflow-auto rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 text-xs text-[color:var(--sf-text-primary)]">
-                {debugJson ? JSON.stringify(debugJson, null, 2) : "{}"}
+                {JSON.stringify(
+                  {
+                    quota_period_id: props.quotaPeriodId || null,
+                    // What the dashboard *render* is using:
+                    pipelineMomentum_prop: data,
+                    // What the debug endpoint returns (raw rows + recomputed snapshot):
+                    pipelineMomentum_debug_api: debugJson,
+                  },
+                  null,
+                  2
+                )}
               </pre>
             </div>
           </div>
