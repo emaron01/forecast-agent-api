@@ -1646,58 +1646,11 @@ export async function getExecutiveForecastDashboardSummary(args: {
       }).catch(() => null)
     : null;
 
-  // IMPORTANT:
-  // Pipeline Momentum must respect user visibility.
-  //
-  // - `scope.allowedRepIds === null` means company-wide (ADMIN or EXEC with global visibility) → no filter
-  // - otherwise, we are in a scoped/team view. If `allowedRepIds` is unexpectedly empty,
-  //   fall back to visibility-derived rep ids or REP ids from the scoped rep directory (NOT company-wide).
-  const isCompanyScopeForMomentum = scope.allowedRepIds === null;
-
-  const repIdsFromDirectory =
-    !isCompanyScopeForMomentum && Array.isArray(scope.repDirectory)
-      ? Array.from(
-          new Set(
-            (scope.repDirectory as any[])
-              .filter((r) => String((r as any)?.role || "").toUpperCase() === "REP")
-              .map((r) => Number((r as any)?.id))
-              .filter((n) => Number.isFinite(n) && n > 0)
-          )
-        )
-      : [];
-
-  // Build a robust in-scope rep_id set.
-  // We intentionally union multiple sources because some environments have partial hierarchy wiring:
-  // - `scope.allowedRepIds` from repScope (hierarchy)
-  // - `repIdsToUse` from user-visibility resolution
-  // - `repIdsFromDirectory` from the scoped rep directory
-  const repIdsForMomentum = !isCompanyScopeForMomentum
-    ? Array.from(
-        new Set(
-          [
-            ...((Array.isArray(scope.allowedRepIds) ? scope.allowedRepIds : []) as number[]),
-            ...(Array.isArray(repIdsToUse) ? repIdsToUse : []),
-            ...(Array.isArray(repIdsFromDirectory) ? repIdsFromDirectory : []),
-          ]
-            .map((n) => Number(n))
-            .filter((n) => Number.isFinite(n) && n > 0)
-        )
-      )
-    : [];
-
-  // Scoping:
-  // - For company scope: no filter
-  // - For scoped roles: filter by rep_id when available, and *also* allow rep_name matching using the
-  //   CRM owner name stored on the user record (account_owner_name). This avoids relying on first/last display names.
-  //
-  // IMPORTANT: if both rep_ids and rep_name keys are empty for a scoped role, fail closed (return 0s)
-  // rather than widening to company-wide.
-  const visibleCrmOwnerNameKeys = Array.from(
-    new Set((visibleRepUsers || []).map((u: any) => normalizeNameKey(u?.account_owner_name || "")).filter(Boolean))
-  );
-  const repNameKeysForMomentum = !isCompanyScopeForMomentum ? visibleCrmOwnerNameKeys : [];
-  const useRepFilterForMomentum =
-    !isCompanyScopeForMomentum && (repIdsForMomentum.length > 0 || repNameKeysForMomentum.length > 0);
+  // Pipeline Momentum scoping must match the KPI-by-quarter semantics:
+  // apply a rep_id filter only when we have a non-empty allowedRepIds list.
+  // (Avoid rep_name fallback here; it can silently filter everything to zero.)
+  const repIdsForMomentum = scope.allowedRepIds === null ? [] : (scope.allowedRepIds ?? []);
+  const useRepFilterForMomentum = !!(scope.allowedRepIds && scope.allowedRepIds.length);
 
   const prevQuarterKpis =
     prevQpId && qpId
@@ -1714,7 +1667,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
         quotaPeriodId: qpId,
         useRepFilter: useRepFilterForMomentum,
         repIds: repIdsForMomentum,
-        repNameKeys: repNameKeysForMomentum,
+        repNameKeys: [],
       }).catch(() => null)
     : null;
   const prevSnap = prevQpId
@@ -1723,7 +1676,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
         quotaPeriodId: prevQpId,
         useRepFilter: useRepFilterForMomentum,
         repIds: repIdsForMomentum,
-        repNameKeys: repNameKeysForMomentum,
+        repNameKeys: [],
       }).catch(() => null)
     : null;
 
