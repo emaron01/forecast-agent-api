@@ -1765,7 +1765,10 @@ export async function getExecutiveForecastDashboardSummary(args: {
             const createdCurrentTotalCnt = curCreated ? Number(curCreated.totalCount || 0) || 0 : 0;
             const createdPrevTotalCnt = prevCreated ? Number(prevCreated.totalCount || 0) || 0 : null;
 
-            const loadCreatedClosedOutcomesInQuarter = async (quotaPeriodId: string) => {
+            const repIdsForCreated = scope.allowedRepIds === null ? null : scope.allowedRepIds ?? [];
+            const useRepFilterForCreated = !!(repIdsForCreated && repIdsForCreated.length);
+
+            const loadCreatedOutcomeTotalsByCreateInQuarter = async (quotaPeriodId: string) => {
               const qpid = String(quotaPeriodId || "").trim();
               if (!qpid) return null;
               return await pool
@@ -1786,56 +1789,32 @@ export async function getExecutiveForecastDashboardSummary(args: {
                   base AS (
                     SELECT
                       COALESCE(o.amount, 0)::float8 AS amount,
-                      lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
-                      o.create_date::date AS create_d,
-                      CASE
-                        WHEN o.close_date IS NULL THEN NULL
-                        WHEN (o.close_date::text ~ '^\\d{4}-\\d{1,2}-\\d{1,2}') THEN substring(o.close_date::text from 1 for 10)::date
-                        WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-                          to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
-                        ELSE NULL
-                      END AS close_d
+                      lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
                     FROM opportunities o
                     JOIN qp ON TRUE
                     WHERE o.org_id = $1
+                      AND o.rep_id IS NOT NULL
                       AND o.create_date IS NOT NULL
                       AND o.create_date::date >= qp.period_start
                       AND o.create_date::date <= qp.period_end
-                      AND (
-                        NOT $5::boolean
-                        OR (
-                          (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-                          OR (
-                            COALESCE(array_length($4::text[], 1), 0) > 0
-                            AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-                          )
-                        )
-                      )
-                  ),
-                  closed_in_q AS (
-                    SELECT *
-                      FROM base b
-                      JOIN qp ON TRUE
-                     WHERE b.close_d IS NOT NULL
-                       AND b.close_d >= qp.period_start
-                       AND b.close_d <= qp.period_end
+                      AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
                   )
                   SELECT
                     COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN amount ELSE 0 END), 0)::float8 AS created_won_amount,
                     COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 1 ELSE 0 END), 0)::int AS created_won_opps,
                     COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %') THEN amount ELSE 0 END), 0)::float8 AS created_lost_amount,
                     COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %') THEN 1 ELSE 0 END), 0)::int AS created_lost_opps
-                  FROM closed_in_q
+                  FROM base
                   `,
-                  [args.orgId, qpid, repIdsToUse, visibleRepNameKeys, useRepFilterForMomentum]
+                  [args.orgId, qpid, repIdsForCreated || [], useRepFilterForCreated]
                 )
                 .then((r) => r.rows?.[0] || null)
                 .catch(() => null);
             };
 
             const [createdOutcomes, createdOutcomesPrev] = await Promise.all([
-              qpId ? loadCreatedClosedOutcomesInQuarter(qpId) : Promise.resolve(null),
-              prevQpId ? loadCreatedClosedOutcomesInQuarter(prevQpId) : Promise.resolve(null),
+              qpId ? loadCreatedOutcomeTotalsByCreateInQuarter(qpId) : Promise.resolve(null),
+              prevQpId ? loadCreatedOutcomeTotalsByCreateInQuarter(prevQpId) : Promise.resolve(null),
             ]);
 
             const createdCurWonAmt = createdOutcomes ? Number(createdOutcomes.created_won_amount || 0) || 0 : 0;
