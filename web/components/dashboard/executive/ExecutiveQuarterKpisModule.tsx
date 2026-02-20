@@ -21,6 +21,22 @@ function fmtPct(p01: number | null) {
   return `${Math.round(p01 * 100)}%`;
 }
 
+function fmtSignedPct(p01: number | null, opts?: { digits?: number }) {
+  if (p01 == null || !Number.isFinite(p01)) return "—";
+  const pct = p01 * 100;
+  const d = Math.max(0, Math.min(2, opts?.digits ?? 0));
+  const abs = Math.abs(pct);
+  const absText = d ? abs.toFixed(d) : String(Math.round(abs));
+  const sign = pct > 0 ? "+" : pct < 0 ? "-" : "";
+  return `${sign}${absText}%`;
+}
+
+function fmtDays(n: number | null) {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const v = Math.round(n);
+  return `${v.toLocaleString()} day${v === 1 ? "" : "s"}`;
+}
+
 function healthColorClass(pct: number | null) {
   if (pct == null) return "text-[color:var(--sf-text-disabled)]";
   if (pct >= 80) return "text-[#2ECC71]";
@@ -86,6 +102,10 @@ export function ExecutiveQuarterKpisModule(props: {
     : "Quarter KPIs (Current)";
   const dateRange = period ? `${String(period.period_start)} \u2192 ${String(period.period_end)}` : "";
 
+  const created = km?.predictive?.created_pipeline || null;
+  const createdMix = created?.current?.mix || null;
+  const createdQoq = created?.qoq_total_amount_all_pct01 ?? created?.qoq_total_amount_pct01 ?? null;
+
   return (
     <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -142,6 +162,75 @@ export function ExecutiveQuarterKpisModule(props: {
           </div>
         </div>
       </div>
+
+      {created ? (
+        <div className="mt-3 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Pipeline Created This Quarter (predicts next quarter)</div>
+              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                Previous Quarter velocity: <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtSignedPct(createdQoq, { digits: 0 })}</span>
+              </div>
+            </div>
+            <div className="text-xs text-[color:var(--sf-text-secondary)]">
+              Created pipeline (Active):{" "}
+              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(created.current?.total_amount)}</span>
+              {created.previous?.total_amount == null ? null : (
+                <>
+                  {" "}
+                  · Prev{" "}
+                  <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(created.previous.total_amount)}</span>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
+              <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Created pipeline (# opps)</div>
+              <div className="mt-0.5 font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtNum(created.current?.total_opps ?? null)}</div>
+              <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">Prev Qtr: {created.previous?.total_opps == null ? "—" : fmtNum(created.previous.total_opps)}</div>
+            </div>
+            <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
+              <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Created in-quarter Won</div>
+              <div className="mt-0.5 font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(created.current?.created_won_amount ?? 0)}</div>
+              <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]"># opps: {fmtNum(created.current?.created_won_opps ?? 0)}</div>
+            </div>
+            <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
+              <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Avg age of created opps</div>
+              <div className="mt-0.5 font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtDays(km?.predictive?.cycle_mix_created_pipeline?.avg_age_days ?? null)}</div>
+              <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">Leading indicator of close timing</div>
+            </div>
+          </div>
+
+          {createdMix ? (
+            <div className="mt-3">
+              <div className="text-[11px] font-semibold text-[color:var(--sf-text-primary)]">Forecast Mix (created opps)</div>
+              <div className="mt-2 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
+                {(["commit", "best_case", "pipeline"] as const).map((k) => {
+                  const m = (createdMix as any)?.[k] || null;
+                  const amt = Number(m?.value || 0) || 0;
+                  const cnt = Number(m?.opps || 0) || 0;
+                  const hp = m?.health_pct == null ? null : Number(m.health_pct);
+                  const label = k === "commit" ? "Commit" : k === "best_case" ? "Best Case" : "Pipeline";
+                  return (
+                    <div key={k} className="min-w-0 overflow-hidden rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-2">
+                      <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">{label}</div>
+                      <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">{fmtMoney(amt)}</div>
+                      <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
+                        <div># Opps: {fmtNum(cnt)}</div>
+                        <div>
+                          Health: <span className={healthColorClass(hp == null ? null : Math.round(hp))}>{hp == null ? "—" : `${Math.round(hp)}%`}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }

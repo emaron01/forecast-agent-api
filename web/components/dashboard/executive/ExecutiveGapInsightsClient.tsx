@@ -1525,6 +1525,17 @@ export function ExecutiveGapInsightsClient(props: {
         />
       </div>
 
+      <div className="mt-4">
+        <ExecutiveQuarterKpisModule
+          period={activePeriod}
+          quota={props.quota}
+          pipelineMomentum={props.pipelineMomentum}
+          quarterKpis={props.quarterKpis}
+          repRollups={props.repRollups as any}
+          productsClosedWon={props.productsClosedWon as any}
+        />
+      </div>
+
       <div className="grid w-full gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)]">
         <RiskRadarPlot deals={radarDeals} size={920} />
 
@@ -2348,15 +2359,6 @@ export function ExecutiveGapInsightsClient(props: {
             </div>
           </div>
         ) : null}
-
-        <ExecutiveQuarterKpisModule
-          period={activePeriod}
-          quota={props.quota}
-          pipelineMomentum={props.pipelineMomentum}
-          quarterKpis={props.quarterKpis}
-          repRollups={props.repRollups as any}
-          productsClosedWon={props.productsClosedWon as any}
-        />
 
         {props.quarterKpis ? (
           <details
