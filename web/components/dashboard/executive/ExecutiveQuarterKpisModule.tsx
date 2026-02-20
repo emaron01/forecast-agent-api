@@ -102,6 +102,7 @@ export function ExecutiveQuarterKpisModule(props: {
     : "Quarter KPIs (Current)";
   const dateRange = period ? `${String(period.period_start)} \u2192 ${String(period.period_end)}` : "";
 
+  const createdFromKpis = kpis?.createdPipeline || null;
   const created = km?.predictive?.created_pipeline || null;
   const createdMix = created?.current?.mix || null;
   const createdQoq = created?.qoq_total_amount_all_pct01 ?? created?.qoq_total_amount_pct01 ?? null;
@@ -162,6 +163,60 @@ export function ExecutiveQuarterKpisModule(props: {
           </div>
         </div>
       </div>
+
+      {createdFromKpis ? (
+        <div className="mt-3 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Forecast Mix</div>
+              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                Pipeline created in quarter
+                {createdQoq != null ? (
+                  <>
+                    {" "}
+                    · compared to last quarter:{" "}
+                    <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtSignedPct(createdQoq, { digits: 0 })}</span>
+                  </>
+                ) : null}
+              </div>
+            </div>
+            <div className="text-xs text-[color:var(--sf-text-secondary)]">
+              Total{" "}
+              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(createdFromKpis.totalAmount)}</span> ·{" "}
+              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtNum(createdFromKpis.totalCount)}</span> opps
+            </div>
+          </div>
+
+          <div className="mt-3 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
+            {(() => {
+              const cp = createdFromKpis;
+              const Card = (p: { label: string; mix: number | null; amount: number; count: number; health: number | null }) => (
+                <div className={boxClass}>
+                  <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
+                    {p.label} {p.mix == null ? "" : `(${fmtPct(p.mix)})`}
+                  </div>
+                  <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">{fmtMoney(p.amount)}</div>
+                  <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
+                    <div># Opps: {fmtNum(p.count)}</div>
+                    <div>
+                      Health: <span className={healthColorClass(p.health)}>{p.health == null ? "—" : `${p.health}%`}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+
+              return (
+                <>
+                  <Card label="Commit" mix={cp.mixCommit} amount={cp.commitAmount} count={cp.commitCount} health={cp.commitHealthPct} />
+                  <Card label="Best Case" mix={cp.mixBest} amount={cp.bestAmount} count={cp.bestCount} health={cp.bestHealthPct} />
+                  <Card label="Pipeline" mix={cp.mixPipeline} amount={cp.pipelineAmount} count={cp.pipelineCount} health={cp.pipelineHealthPct} />
+                  <Card label="Total Pipeline" mix={null} amount={cp.totalAmount} count={cp.totalCount} health={cp.totalHealthPct} />
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      ) : null}
 
       {created ? (
         <div className="mt-3 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
