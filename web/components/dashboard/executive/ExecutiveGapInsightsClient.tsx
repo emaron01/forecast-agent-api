@@ -1421,7 +1421,7 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
 
           <div className="min-w-0 lg:pt-1">
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="ml-auto grid max-w-[560px] gap-3 sm:grid-cols-2">
               <div className="contents">
                 {(() => {
                   const rev = productDelta(curRev, prevRev);
@@ -1440,13 +1440,16 @@ export function ExecutiveGapInsightsClient(props: {
                       <div className={heroCard}>
                         <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Closed Won (QTD)</div>
                         <div className={heroVal}>{fmtMoney(curRev)}</div>
-                        <div className="mt-1 grid grid-cols-[1fr_auto] items-start gap-3 text-xs text-[color:var(--sf-text-secondary)]">
-                          <div className="min-w-0 truncate">Last Quarter {prevProd ? fmtMoney(prevRev) : "—"}</div>
-                          <div className={["grid justify-items-end font-mono text-xs font-semibold leading-none", rev.tone].join(" ")}>
-                            <div aria-hidden="true" className="text-sm leading-none">
+                        <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
+                          <div className={["flex items-center gap-2 font-mono text-sm font-semibold leading-none", rev.tone].join(" ")}>
+                            <div>{prevProd ? fmtMoney(rev.d) : "—"}</div>
+                            <div aria-hidden="true" className="text-base leading-none">
                               {rev.arrow}
                             </div>
-                            <div>{prevProd ? fmtMoney(rev.d) : "—"}</div>
+                          </div>
+                          <div className="min-w-0 truncate text-right text-sm font-semibold text-[color:var(--sf-text-secondary)]">
+                            Last Quarter{" "}
+                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{prevProd ? fmtMoney(prevRev) : "—"}</span>
                           </div>
                         </div>
                       </div>
@@ -1454,13 +1457,16 @@ export function ExecutiveGapInsightsClient(props: {
                       <div className={heroCard}>
                         <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Total Orders</div>
                         <div className={heroVal}>{curOrders.toLocaleString()}</div>
-                        <div className="mt-1 grid grid-cols-[1fr_auto] items-start gap-3 text-xs text-[color:var(--sf-text-secondary)]">
-                          <div className="min-w-0 truncate">Last Quarter {prevProd ? prevOrders.toLocaleString() : "—"}</div>
-                          <div className={["grid justify-items-end font-mono text-xs font-semibold leading-none", ord.tone].join(" ")}>
-                            <div aria-hidden="true" className="text-sm leading-none">
+                        <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
+                          <div className={["flex items-center gap-2 font-mono text-sm font-semibold leading-none", ord.tone].join(" ")}>
+                            <div>{prevProd ? fmtSignedInt(ord.d) : "—"}</div>
+                            <div aria-hidden="true" className="text-base leading-none">
                               {ord.arrow}
                             </div>
-                            <div>{prevProd ? fmtSignedInt(ord.d) : "—"}</div>
+                          </div>
+                          <div className="min-w-0 truncate text-right text-sm font-semibold text-[color:var(--sf-text-secondary)]">
+                            Last Quarter{" "}
+                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{prevProd ? prevOrders.toLocaleString() : "—"}</span>
                           </div>
                         </div>
                       </div>
@@ -1468,13 +1474,16 @@ export function ExecutiveGapInsightsClient(props: {
                       <div className={heroCard}>
                         <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Blended ACV</div>
                         <div className={heroVal}>{fmtMoney(curAcv)}</div>
-                        <div className="mt-1 grid grid-cols-[1fr_auto] items-start gap-3 text-xs text-[color:var(--sf-text-secondary)]">
-                          <div className="min-w-0 truncate">Last Quarter {prevProd ? fmtMoney(prevAcv) : "—"}</div>
-                          <div className={["grid justify-items-end font-mono text-xs font-semibold leading-none", acv.tone].join(" ")}>
-                            <div aria-hidden="true" className="text-sm leading-none">
+                        <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
+                          <div className={["flex items-center gap-2 font-mono text-sm font-semibold leading-none", acv.tone].join(" ")}>
+                            <div>{prevProd ? fmtMoney(acv.d) : "—"}</div>
+                            <div aria-hidden="true" className="text-base leading-none">
                               {acv.arrow}
                             </div>
-                            <div>{prevProd ? fmtMoney(acv.d) : "—"}</div>
+                          </div>
+                          <div className="min-w-0 truncate text-right text-sm font-semibold text-[color:var(--sf-text-secondary)]">
+                            Last Quarter{" "}
+                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{prevProd ? fmtMoney(prevAcv) : "—"}</span>
                           </div>
                         </div>
                       </div>
