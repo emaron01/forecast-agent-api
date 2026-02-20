@@ -24,40 +24,122 @@ export function KpiCardsRow(props: {
   gap: number;
   bucketDeltas: { commit: number; best_case: number; pipeline: number };
   dealsAtRisk?: number | null;
+  topN: number;
+  usingFullRiskSet: boolean;
+  productKpis: { total_revenue: number; total_orders: number; blended_acv: number } | null;
+  productKpisPrev: { total_revenue: number; total_orders: number; blended_acv: number } | null;
 }) {
   const absMax = Math.max(Math.abs(props.bucketDeltas.commit), Math.abs(props.bucketDeltas.best_case), Math.abs(props.bucketDeltas.pipeline), 1);
   const bar = (v: number) => `${Math.round(clamp01(Math.abs(v) / absMax) * 100)}%`;
 
+  const card = "rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm";
+  const val = "mt-2 font-mono text-xl font-semibold text-[color:var(--sf-text-primary)]";
+
+  const fmtSignedInt = (n: number) => {
+    const v = Number(n || 0);
+    if (!Number.isFinite(v)) return "—";
+    if (v === 0) return "0";
+    const abs = Math.abs(Math.trunc(v));
+    return `${v > 0 ? "+" : "-"}${abs.toLocaleString()}`;
+  };
+
+  const ProductTile = (p: {
+    label: string;
+    curText: string;
+    prevText: string;
+    deltaText: string;
+    delta: number | null;
+  }) => {
+    const d = p.delta == null ? null : Number(p.delta);
+    const up = d != null && d > 0;
+    const down = d != null && d < 0;
+    const tone = up ? "text-[#16A34A]" : down ? "text-[#E74C3C]" : "text-[color:var(--sf-text-secondary)]";
+    const arrow = up ? "↑" : down ? "↓" : "→";
+    return (
+      <div className={card}>
+        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">{p.label}</div>
+        <div className={val}>{p.curText}</div>
+        <div className="mt-1 grid grid-cols-[1fr_auto] items-start gap-3 text-xs text-[color:var(--sf-text-secondary)]">
+          <div className="min-w-0 truncate">Last Quarter {p.prevText}</div>
+          <div className={["grid justify-items-end font-mono text-xs font-semibold leading-none", tone].join(" ")}>
+            <div aria-hidden="true" className="text-sm leading-none">
+              {arrow}
+            </div>
+            <div>{p.deltaText}</div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const cur = props.productKpis;
+  const prev = props.productKpisPrev;
+  const curRev = cur ? Number(cur.total_revenue || 0) || 0 : 0;
+  const curOrders = cur ? Number(cur.total_orders || 0) || 0 : 0;
+  const curAcv = cur ? Number(cur.blended_acv || 0) || 0 : 0;
+  const prevRev = prev ? Number(prev.total_revenue || 0) || 0 : 0;
+  const prevOrders = prev ? Number(prev.total_orders || 0) || 0 : 0;
+  const prevAcv = prev ? Number(prev.blended_acv || 0) || 0 : 0;
+
   return (
-    <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-12">
-      <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm lg:col-span-2">
-        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quota</div>
-        <div className="mt-2 font-mono text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(props.quota)}</div>
+    <section className="grid gap-3">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+        <div className={card}>
+          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quota</div>
+          <div className={val}>{fmtMoney(props.quota)}</div>
+        </div>
+
+        <div className={card}>
+          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">AI Forecast Outlook</div>
+          <div className={val}>{fmtMoney(props.aiForecast)}</div>
+          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">SalesForecast.io AI‑weighted</div>
+        </div>
+
+        <div className={card}>
+          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CRM Forecast Outlook</div>
+          <div className={val}>{fmtMoney(props.crmForecast)}</div>
+          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Your organization’s probabilities</div>
+        </div>
+
+        <div className={card}>
+          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">AI Adjustment vs CRM</div>
+          <div className={`mt-2 font-mono text-xl font-semibold ${deltaTextClass(props.gap)}`}>{fmtMoney(props.gap)}</div>
+          {props.usingFullRiskSet ? (
+            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+              Strategic takeaway is calculated from the full at-risk deal set (not only the displayed top {props.topN}).
+            </div>
+          ) : (
+            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Outlook delta (AI − CRM)</div>
+          )}
+          {props.dealsAtRisk != null ? (
+            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Deals at risk: {props.dealsAtRisk}</div>
+          ) : null}
+        </div>
+
+        <ProductTile
+          label="Closed Won (QTD)"
+          curText={fmtMoney(curRev)}
+          prevText={prev ? fmtMoney(prevRev) : "—"}
+          deltaText={prev ? fmtMoney(curRev - prevRev) : "—"}
+          delta={prev ? curRev - prevRev : null}
+        />
+        <ProductTile
+          label="Total Orders"
+          curText={curOrders.toLocaleString()}
+          prevText={prev ? prevOrders.toLocaleString() : "—"}
+          deltaText={prev ? fmtSignedInt(curOrders - prevOrders) : "—"}
+          delta={prev ? curOrders - prevOrders : null}
+        />
+        <ProductTile
+          label="Blended ACV"
+          curText={fmtMoney(curAcv)}
+          prevText={prev ? fmtMoney(prevAcv) : "—"}
+          deltaText={prev ? fmtMoney(curAcv - prevAcv) : "—"}
+          delta={prev ? curAcv - prevAcv : null}
+        />
       </div>
 
-      <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm lg:col-span-2">
-        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">AI Forecast Outlook</div>
-        <div className="mt-2 font-mono text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(props.aiForecast)}</div>
-        <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">SalesForecast.io AI‑weighted</div>
-      </div>
-
-      <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm lg:col-span-2">
-        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CRM Forecast Outlook</div>
-        <div className="mt-2 font-mono text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(props.crmForecast)}</div>
-        <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Your organization’s probabilities</div>
-      </div>
-
-      <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm lg:col-span-2">
-        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">AI vs CRM Gap</div>
-        <div className={`mt-2 font-mono text-lg font-semibold ${deltaTextClass(props.gap)}`}>{fmtMoney(props.gap)}</div>
-        {props.dealsAtRisk != null ? (
-          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Deals at risk: {props.dealsAtRisk}</div>
-        ) : (
-          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Outlook delta (AI − CRM)</div>
-        )}
-      </div>
-
-      <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm lg:col-span-4">
+      <div className={card}>
         <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Forecast Stage Gap Attribution</div>
         <div className="mt-3 grid gap-2 text-xs text-[color:var(--sf-text-primary)]">
           {[
