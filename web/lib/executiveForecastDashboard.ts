@@ -469,6 +469,7 @@ async function getOpenPipelineSnapshot(args: {
   if (!qpId) return empty;
 
   const repIds = Array.isArray(args.repIds) ? args.repIds : [];
+  const repNameKeys = Array.isArray(args.repNameKeys) ? args.repNameKeys : [];
 
   const { rows } = await pool
     .query<OpenPipelineSnapshot>(
@@ -495,8 +496,14 @@ async function getOpenPipelineSnapshot(args: {
         FROM opportunities o
         WHERE o.org_id = $1
           AND (
-            NOT $4::boolean
-            OR (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
+            NOT $5::boolean
+            OR (
+              (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
+              OR (
+                COALESCE(array_length($4::text[], 1), 0) > 0
+                AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+              )
+            )
           )
       ),
       deals_in_qtr AS (
@@ -525,7 +532,7 @@ async function getOpenPipelineSnapshot(args: {
         COUNT(*)::int AS total_count
       FROM open_deals
       `,
-      [args.orgId, qpId, repIds, args.useRepFilter]
+      [args.orgId, qpId, repIds, repNameKeys, args.useRepFilter]
     )
     .then((r) => r.rows || [])
     .catch(() => []);
@@ -1683,7 +1690,8 @@ export async function getExecutiveForecastDashboardSummary(args: {
     new Set((visibleRepUsers || []).map((u: any) => normalizeNameKey(u?.account_owner_name || "")).filter(Boolean))
   );
   const repNameKeysForMomentum = !isCompanyScopeForMomentum ? visibleCrmOwnerNameKeys : [];
-  const useRepFilterForMomentum = !isCompanyScopeForMomentum;
+  const useRepFilterForMomentum =
+    !isCompanyScopeForMomentum && (repIdsForMomentum.length > 0 || repNameKeysForMomentum.length > 0);
 
   const prevQuarterKpis =
     prevQpId && qpId
