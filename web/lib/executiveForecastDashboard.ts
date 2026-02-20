@@ -1660,12 +1660,23 @@ export async function getExecutiveForecastDashboardSummary(args: {
         )
       : [];
 
+  // Build a robust in-scope rep_id set.
+  // We intentionally union multiple sources because some environments have partial hierarchy wiring:
+  // - `scope.allowedRepIds` from repScope (hierarchy)
+  // - `repIdsToUse` from user-visibility resolution
+  // - `repIdsFromDirectory` from the scoped rep directory
   const repIdsForMomentum = !isCompanyScopeForMomentum
-    ? (Array.isArray(scope.allowedRepIds) && scope.allowedRepIds.length
-        ? scope.allowedRepIds
-        : repIdsToUse.length
-          ? repIdsToUse
-          : repIdsFromDirectory)
+    ? Array.from(
+        new Set(
+          [
+            ...((Array.isArray(scope.allowedRepIds) ? scope.allowedRepIds : []) as number[]),
+            ...(Array.isArray(repIdsToUse) ? repIdsToUse : []),
+            ...(Array.isArray(repIdsFromDirectory) ? repIdsFromDirectory : []),
+          ]
+            .map((n) => Number(n))
+            .filter((n) => Number.isFinite(n) && n > 0)
+        )
+      )
     : [];
 
   // Only scope by rep_id here. We do NOT rely on rep_name matching because `opportunities.rep_name` can differ
