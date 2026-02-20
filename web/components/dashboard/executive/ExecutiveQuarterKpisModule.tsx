@@ -106,6 +106,7 @@ export function ExecutiveQuarterKpisModule(props: {
   const created = km?.predictive?.created_pipeline || null;
   const createdMix = created?.current?.mix || null;
   const createdQoq = created?.qoq_total_amount_all_pct01 ?? created?.qoq_total_amount_pct01 ?? null;
+  const createdActiveQoq = created?.qoq_total_amount_pct01 ?? null;
 
   return (
     <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
@@ -223,34 +224,54 @@ export function ExecutiveQuarterKpisModule(props: {
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Pipeline Created This Quarter (predicts next quarter)</div>
-              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-                Previous Quarter velocity: <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtSignedPct(createdQoq, { digits: 0 })}</span>
-              </div>
-            </div>
-            <div className="text-xs text-[color:var(--sf-text-secondary)]">
-              Created pipeline (Active):{" "}
-              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(created.current?.total_amount)}</span>
-              {created.previous?.total_amount == null ? null : (
-                <>
-                  {" "}
-                  · Prev{" "}
-                  <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(created.previous.total_amount)}</span>
-                </>
-              )}
+              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Create date in-quarter. Active excludes won/lost.</div>
             </div>
           </div>
 
-          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <div className="mt-3 grid gap-2 lg:grid-cols-3">
+            <div className="rounded-md border border-[color:var(--sf-text-secondary)]/20 bg-[color:var(--sf-surface-alt)] px-3 py-2">
+              <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Created pipeline (value)</div>
+              <div className="mt-0.5 font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(created.current?.total_amount)}</div>
+              <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">Created pipeline (Active)</div>
+              <div className="mt-2 grid grid-cols-[auto_1fr] items-center gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                <div>Prev (carried into current)</div>
+                <div className="text-right font-mono font-semibold text-[color:var(--sf-text-primary)]">
+                  {created.previous?.total_amount == null ? "—" : fmtMoney(created.previous.total_amount)}
+                </div>
+                <div>Previous Quarter</div>
+                <div className="text-right font-mono font-semibold text-[color:var(--sf-text-primary)]">
+                  {createdActiveQoq == null ? "—" : `${createdActiveQoq < 0 ? "↓" : createdActiveQoq > 0 ? "↑" : "•"} ${fmtSignedPct(createdActiveQoq, { digits: 0 })}`}
+                </div>
+              </div>
+              <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">Excludes won and lost</div>
+            </div>
+
+            <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
+              <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Previous Quarter velocity</div>
+              <div className="mt-0.5 font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtSignedPct(createdQoq, { digits: 0 })}</div>
+              <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">
+                Created pipeline ({fmtMoney(created.previous?.total_amount_all ?? created.previous?.total_amount)} → {fmtMoney(created.current?.total_amount_all ?? created.current?.total_amount)})
+              </div>
+            </div>
+
             <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
               <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Created pipeline (# opps)</div>
               <div className="mt-0.5 font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtNum(created.current?.total_opps ?? null)}</div>
               <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">Prev Qtr: {created.previous?.total_opps == null ? "—" : fmtNum(created.previous.total_opps)}</div>
             </div>
+
             <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-              <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Created in-quarter Won</div>
+              <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Created In Quarter Won</div>
               <div className="mt-0.5 font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(created.current?.created_won_amount ?? 0)}</div>
-              <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]"># opps: {fmtNum(created.current?.created_won_opps ?? 0)}</div>
+              <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]"># opps: {fmtNum(created.current?.created_won_opps ?? 0)} · Avg health: —</div>
             </div>
+
+            <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
+              <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Created In Quarter Lost</div>
+              <div className="mt-0.5 font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(created.current?.created_lost_amount ?? 0)}</div>
+              <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]"># opps: {fmtNum(created.current?.created_lost_opps ?? 0)} · Avg health: —</div>
+            </div>
+
             <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
               <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Avg age of created opps</div>
               <div className="mt-0.5 font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtDays(km?.predictive?.cycle_mix_created_pipeline?.avg_age_days ?? null)}</div>
