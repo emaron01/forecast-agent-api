@@ -90,10 +90,8 @@ export function ExecutiveQuarterKpisModule(props: {
     (commitCount != null && bestCount != null && pipeCount != null ? commitCount + bestCount + pipeCount : null);
 
   const closedWonAmt = Number(props.crmTotals?.won_amount ?? NaN);
-  const closedWonCount = kpis?.wonCount ?? null;
 
   const quota = Number(props.quota || 0) || 0;
-  const pctToGoal = quota > 0 && Number.isFinite(closedWonAmt) ? closedWonAmt / quota : null;
   const remainingQuota = quota > 0 && Number.isFinite(closedWonAmt) ? Math.max(0, quota - closedWonAmt) : null;
   const coverage =
     remainingQuota != null && remainingQuota > 0 && totalPipelineAmt != null && totalPipelineAmt > 0 ? totalPipelineAmt / remainingQuota : null;
@@ -105,7 +103,6 @@ export function ExecutiveQuarterKpisModule(props: {
     { key: "best", label: "Best Case", amount: bestAmt, count: bestCount },
     { key: "pipe", label: "Pipeline", amount: pipeAmt, count: pipeCount },
     { key: "total", label: "Total Pipeline", amount: totalPipelineAmt, count: totalPipelineCount },
-    { key: "won", label: "Closed Won", amount: closedWonAmt, count: closedWonCount },
   ];
 
   const titleLeft = period
@@ -140,18 +137,6 @@ export function ExecutiveQuarterKpisModule(props: {
                 <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]"># Opps: {c.count == null ? "—" : fmtNum(c.count)}</div>
               </div>
             ))}
-
-            <div className={boxClass}>
-              <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Quarterly Quota</div>
-              <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">{fmtMoney(quota)}</div>
-              <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">&nbsp;</div>
-            </div>
-
-            <div className={boxClass}>
-              <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">% To Goal</div>
-              <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">{fmtPct(pctToGoal)}</div>
-              <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">&nbsp;</div>
-            </div>
 
             <div className={boxClass}>
               <div className="flex items-center justify-between gap-2">
