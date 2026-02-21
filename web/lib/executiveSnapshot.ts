@@ -403,7 +403,6 @@ const STOPWORDS = new Set(
     "our",
     "you",
     "your",
-    "<num>",
   ].filter(Boolean)
 );
 

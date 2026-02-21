@@ -25,7 +25,7 @@ const InsightSchema = z.object({
 
 const BodySchema = z.object({
   orgId: z.coerce.number().int().positive(),
-  quotaPeriodId: z.string().min(1).max(50),
+  quotaPeriodId: z.string().regex(/^\d+$/).max(50),
   insights: z.array(InsightSchema),
 });
 
@@ -84,11 +84,27 @@ export async function POST(req: Request) {
         ok: true,
         snapshot: {
           headline: "Signal is weak: not enough dashboard insights to generate an Executive Snapshot.",
-          strengths: ["Insufficient insight coverage across dashboards to draw board-level conclusions."],
-          risks: ["Insufficient insight coverage across dashboards to draw board-level conclusions."],
-          opportunities: ["Add/enable dashboard AI summaries across executive/partner/product surfaces for a usable snapshot."],
-          actions_30_days: ["Instrument and persist dashboard-level AI summaries, then regenerate the snapshot."],
-          supporting_notes: ["Provide at least 3–5 recent dashboard insights for synthesis."],
+          strengths: [
+            "Insufficient dashboard insight coverage to identify consistent strengths.",
+            "Recent insight volume is too low for board-level synthesis.",
+            "Inputs appear incomplete across key dashboard surfaces.",
+          ],
+          risks: [
+            "Low signal: conclusions would be speculative without additional dashboard insights.",
+            "Potential blind spots across executive/partner/product surfaces.",
+            "Snapshot may under-represent emerging issues due to missing inputs.",
+          ],
+          opportunities: [
+            "Persist dashboard AI summaries for each surface and widget to enable reliable synthesis.",
+            "Standardize widget summaries to include a 1-line headline + 3–6 bullets.",
+            "Increase coverage across executive + partner dashboards for a usable snapshot.",
+          ],
+          actions_30_days: [
+            "Instrument and persist dashboard-level AI summaries for each key widget/surface.",
+            "Collect at least 5–10 recent dashboard insights per org/period before generating the snapshot.",
+            "Regenerate the Executive Snapshot once inputs are available and deduplicated.",
+          ],
+          supporting_notes: ["Provide at least 3–5 recent dashboard insights (per org + quota period) for synthesis."],
         },
         cacheHit: false,
         inputCountUsed,
