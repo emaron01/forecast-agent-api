@@ -55,9 +55,9 @@ function coverageStatus(r: number | null) {
   if (r == null || !Number.isFinite(r)) {
     return { label: "—", cls: "border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]" };
   }
-  if (r >= 3.6) return { label: "QUOTA COVERAGE", cls: "border-[#2ECC71]/40 bg-[#2ECC71]/10 text-[#2ECC71]" };
-  if (r >= 3.0) return { label: "FAIR COVERAGE", cls: "border-[#F1C40F]/50 bg-[#F1C40F]/10 text-[#F1C40F]" };
-  return { label: "DANGER LOW COVERAGE", cls: "border-[#E74C3C]/50 bg-[#E74C3C]/10 text-[#E74C3C]" };
+  if (r < 3.31) return { label: "HIGH RISK", cls: "border-[#E74C3C]/50 bg-[#E74C3C]/10 text-[#E74C3C]" };
+  if (r < 3.5) return { label: "MEDIUM RISK", cls: "border-[#F1C40F]/50 bg-[#F1C40F]/10 text-[#F1C40F]" };
+  return { label: "PIPELINE COVERED", cls: "border-[#2ECC71]/40 bg-[#2ECC71]/10 text-[#2ECC71]" };
 }
 
 export function ExecutiveRemainingQuarterlyForecastBlock(props: {
@@ -158,7 +158,7 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
           <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Pipeline Coverage</div>
           <div className={heroVal}>{fmtCoverageRatio(coverage, { digits: 1 })}</div>
           <div className="mt-2">
-            <span className={["inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold", covStatus.cls].join(" ")}>RISK PILL</span>
+            <span className={["inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold", covStatus.cls].join(" ")}>{covStatus.label}</span>
           </div>
         </div>
       </div>
