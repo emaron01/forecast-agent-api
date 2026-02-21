@@ -51,6 +51,13 @@ function healthColorClass(pct: number | null) {
   return "text-[#E74C3C]";
 }
 
+function deltaColorClass(p01: number | null) {
+  if (p01 == null || !Number.isFinite(p01)) return "text-[color:var(--sf-text-disabled)]";
+  if (p01 > 0.0001) return "text-[#2ECC71]";
+  if (p01 < -0.0001) return "text-[#E74C3C]";
+  return "text-[#F1C40F]";
+}
+
 function coverageStatus(r: number | null) {
   if (r == null || !Number.isFinite(r)) {
     return { label: "—", cls: "border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]" };
@@ -257,7 +264,7 @@ export function ExecutiveQuarterKpisModule(props: {
           <div className="mt-3 grid items-start gap-2 lg:grid-cols-3">
             <div className="rounded-md border border-[color:var(--sf-text-secondary)]/20 bg-[color:var(--sf-surface-alt)] px-3 py-2">
               <div className="text-tableLabel">Created pipeline (value)</div>
-              <div className="mt-0.5 text-tableValue text-[color:var(--sf-text-primary)]">{fmtMoney(created.current?.total_amount)}</div>
+              <div className={["mt-0.5 text-tableValue", deltaColorClass(createdActiveQoq)].join(" ")}>{fmtMoney(created.current?.total_amount)}</div>
               <div className="mt-1 text-tableLabel">Created pipeline (Active)</div>
               <div className="mt-2 grid grid-cols-[auto_1fr] items-center gap-2 text-meta">
                 <div>Prev (carried into current)</div>
@@ -265,7 +272,7 @@ export function ExecutiveQuarterKpisModule(props: {
                   {created.previous?.total_amount == null ? "—" : fmtMoney(created.previous.total_amount)}
                 </div>
                 <div>Previous Quarter</div>
-                <div className="text-right num-tabular font-[500] text-[color:var(--sf-text-primary)]">
+                <div className={["text-right num-tabular font-[700]", deltaColorClass(createdActiveQoq)].join(" ")}>
                   {createdActiveQoq == null ? "—" : `${createdActiveQoq < 0 ? "↓" : createdActiveQoq > 0 ? "↑" : "•"} ${fmtSignedPct(createdActiveQoq, { digits: 0 })}`}
                 </div>
               </div>
@@ -274,7 +281,7 @@ export function ExecutiveQuarterKpisModule(props: {
 
             <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
               <div className="text-tableLabel">Previous Quarter velocity</div>
-              <div className="mt-0.5 text-tableValue text-[color:var(--sf-text-primary)]">{fmtSignedPct(createdQoq, { digits: 0 })}</div>
+              <div className={["mt-0.5 text-tableValue", deltaColorClass(createdQoq)].join(" ")}>{fmtSignedPct(createdQoq, { digits: 0 })}</div>
               <div className="mt-1 text-meta">
                 Created pipeline ({fmtMoney(created.previous?.total_amount_all ?? created.previous?.total_amount)} → {fmtMoney(created.current?.total_amount_all ?? created.current?.total_amount)})
               </div>
@@ -296,12 +303,6 @@ export function ExecutiveQuarterKpisModule(props: {
               <div className="text-tableLabel">Created In Quarter Lost</div>
               <div className="mt-0.5 text-tableValue text-[color:var(--sf-text-primary)]">{fmtMoney(created.current?.created_lost_amount ?? 0)}</div>
               <div className="mt-1 text-meta"># opps: {fmtNum(created.current?.created_lost_opps ?? 0)} · Avg health: —</div>
-            </div>
-
-            <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-              <div className="text-tableLabel">Avg age of created opps</div>
-              <div className="mt-0.5 text-tableValue text-[color:var(--sf-text-primary)]">{fmtDays(km?.predictive?.cycle_mix_created_pipeline?.avg_age_days ?? null)}</div>
-              <div className="mt-1 text-meta">Leading indicator of close timing</div>
             </div>
           </div>
 
