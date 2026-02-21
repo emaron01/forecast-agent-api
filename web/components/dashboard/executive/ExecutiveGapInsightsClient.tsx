@@ -1296,7 +1296,7 @@ export function ExecutiveGapInsightsClient(props: {
                   alt="SalesForecast.io Outlook"
                   fill
                   sizes="(min-width: 640px) 420px, 320px"
-                  className="object-contain"
+                  className="origin-center scale-90 object-contain"
                   priority={true}
                 />
               </div>
