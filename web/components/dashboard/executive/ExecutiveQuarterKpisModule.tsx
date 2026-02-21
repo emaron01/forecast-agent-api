@@ -101,7 +101,7 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
   const heroVal = "mt-2 font-mono text-xl font-semibold text-[color:var(--sf-text-primary)]";
   const mixBar = (
     <div
-      className="h-[10px] w-[180px] overflow-hidden rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]"
+      className="h-[10px] w-full overflow-hidden rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]"
       aria-label={`Forecast mix: Commit ${fmtMixPct(mixCommitPct01)}, Best Case ${fmtMixPct(mixBestPct01)}, Pipeline ${fmtMixPct(mixPipePct01)}`}
       title={`Commit ${fmtMixPct(mixCommitPct01)} · Best Case ${fmtMixPct(mixBestPct01)} · Pipeline ${fmtMixPct(mixPipePct01)}`}
     >
@@ -131,10 +131,8 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-3">
-        <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Remaining Quarterly Forecast</div>
-        {mixTotal ? mixBar : null}
-      </div>
+      <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Remaining Quarterly Forecast</div>
+      {mixTotal ? <div className="mt-2">{mixBar}</div> : null}
 
       <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {cards.map((c) => (
