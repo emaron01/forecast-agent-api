@@ -12,7 +12,7 @@ import { RiskRadarPlot, type RadarDeal } from "./RiskRadarPlot";
 import { palette } from "../../../lib/palette";
 import { ExecutiveProductPerformance } from "./ExecutiveProductPerformance";
 import type { ExecutiveProductPerformanceData } from "../../../lib/executiveProductInsights";
-import { ExecutiveQuarterKpisModule } from "./ExecutiveQuarterKpisModule";
+import { ExecutiveQuarterKpisModule, ExecutiveRemainingQuarterlyForecastBlock } from "./ExecutiveQuarterKpisModule";
 import type { PipelineMomentumData } from "../../../lib/pipelineMomentum";
 import { AiSummaryReportClient } from "../../ai/AiSummaryReportClient";
 import { PartnersExecutiveAiTakeawayClient } from "../../ai/PartnersExecutiveAiTakeawayClient";
@@ -1464,6 +1464,8 @@ export function ExecutiveGapInsightsClient(props: {
               </div>
             </div>
           </div>
+
+          <ExecutiveRemainingQuarterlyForecastBlock crmTotals={props.crmTotals} quota={props.quota} pipelineMomentum={props.pipelineMomentum} />
 
           <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">

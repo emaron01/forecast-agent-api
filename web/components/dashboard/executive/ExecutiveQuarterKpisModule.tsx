@@ -1,6 +1,5 @@
 "use client";
 
-import type { ReactNode } from "react";
 import type { PipelineMomentumData } from "../../../lib/pipelineMomentum";
 import type { QuarterKpisSnapshot } from "../../../lib/quarterKpisSnapshot";
 
@@ -61,22 +60,13 @@ function coverageStatus(r: number | null) {
   return { label: "DANGER LOW COVERAGE", cls: "border-[#E74C3C]/50 bg-[#E74C3C]/10 text-[#E74C3C]" };
 }
 
-export function ExecutiveQuarterKpisModule(props: {
-  period: { id: string; fiscal_year: string; fiscal_quarter: string; period_name: string; period_start: string; period_end: string } | null;
+export function ExecutiveRemainingQuarterlyForecastBlock(props: {
+  crmTotals: { commit_amount: number; best_case_amount: number; pipeline_amount: number; won_amount: number };
   quota: number;
   pipelineMomentum: PipelineMomentumData | null;
-  crmTotals: { commit_amount: number; best_case_amount: number; pipeline_amount: number; won_amount: number };
-  quarterKpis: QuarterKpisSnapshot | null;
-  repRollups?: Array<{ commit_amount: number; best_case_amount: number; pipeline_amount: number; won_amount: number; won_count: number }> | null;
-  productsClosedWon?: Array<{ won_amount: number; won_count: number }> | null;
 }) {
-  const period = props.period;
   const km = props.pipelineMomentum;
-  const kpis = props.quarterKpis;
 
-  // Use the same source of truth as the KPI page “Sales Forecast” block:
-  // - amounts from quarter-scoped CRM totals (open stages + won)
-  // - counts from the quarter stage snapshot (already computed server-side into pipelineMomentum)
   const commitAmt = Number(props.crmTotals?.commit_amount ?? NaN);
   const bestAmt = Number(props.crmTotals?.best_case_amount ?? NaN);
   const pipeAmt = Number(props.crmTotals?.pipeline_amount ?? NaN);
@@ -95,7 +85,6 @@ export function ExecutiveQuarterKpisModule(props: {
   const totalHealthPct = km?.current_quarter?.avg_health_pct ?? null;
 
   const closedWonAmt = Number(props.crmTotals?.won_amount ?? NaN);
-
   const quota = Number(props.quota || 0) || 0;
   const remainingQuota = quota > 0 && Number.isFinite(closedWonAmt) ? Math.max(0, quota - closedWonAmt) : null;
   const coverage =
@@ -110,6 +99,52 @@ export function ExecutiveQuarterKpisModule(props: {
     { key: "total", label: "Total Pipeline", amount: totalPipelineAmt, count: totalPipelineCount, healthPct: totalHealthPct },
   ];
 
+  return (
+    <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+      <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Remaining Quarterly Forecast</div>
+
+      <div className="mt-2 grid w-full max-w-full gap-2 text-sm [grid-template-columns:repeat(auto-fit,minmax(140px,1fr))]">
+        {cards.map((c) => (
+          <div key={c.key} className={boxClass}>
+            <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">{c.label}</div>
+            <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">{fmtMoney(c.amount)}</div>
+            <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]"># Opps: {c.count == null ? "—" : fmtNum(c.count)}</div>
+            <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
+              Avg Health:{" "}
+              <span className={healthColorClass(c.healthPct)}>
+                {c.healthPct == null ? "—" : `${Math.max(0, Math.min(100, Math.round(Number(c.healthPct) || 0)))}%`}
+              </span>
+            </div>
+          </div>
+        ))}
+
+        <div className={boxClass}>
+          <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Pipeline Coverage</div>
+          <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
+            {fmtCoverageRatio(coverage, { digits: 1 })}
+          </div>
+          <div className="mt-1">
+            <span className={["inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold", covStatus.cls].join(" ")}>RISK PILL</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function ExecutiveQuarterKpisModule(props: {
+  period: { id: string; fiscal_year: string; fiscal_quarter: string; period_name: string; period_start: string; period_end: string } | null;
+  quota: number;
+  pipelineMomentum: PipelineMomentumData | null;
+  crmTotals: { commit_amount: number; best_case_amount: number; pipeline_amount: number; won_amount: number };
+  quarterKpis: QuarterKpisSnapshot | null;
+  repRollups?: Array<{ commit_amount: number; best_case_amount: number; pipeline_amount: number; won_amount: number; won_count: number }> | null;
+  productsClosedWon?: Array<{ won_amount: number; won_count: number }> | null;
+}) {
+  const period = props.period;
+  const km = props.pipelineMomentum;
+  const kpis = props.quarterKpis;
+
   const titleLeft = period
     ? `${String(period.period_name || "").trim() || "Quarter"} (FY${period.fiscal_year} Q${period.fiscal_quarter}) Current`
     : "Quarter KPIs (Current)";
@@ -120,6 +155,7 @@ export function ExecutiveQuarterKpisModule(props: {
   const createdMix = created?.current?.mix || null;
   const createdQoq = created?.qoq_total_amount_all_pct01 ?? created?.qoq_total_amount_pct01 ?? null;
   const createdActiveQoq = created?.qoq_total_amount_pct01 ?? null;
+  const boxClass = "min-w-0 overflow-hidden rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-2";
 
   return (
     <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
@@ -131,37 +167,6 @@ export function ExecutiveQuarterKpisModule(props: {
       </div>
 
       <div className="mt-4 grid gap-3">
-        <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
-          <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Remaining Quarterly Forecast</div>
-
-          <div className="mt-2 grid w-full max-w-full gap-2 text-sm [grid-template-columns:repeat(auto-fit,minmax(140px,1fr))]">
-            {cards.map((c) => (
-              <div key={c.key} className={boxClass}>
-                <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">{c.label}</div>
-                <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">{fmtMoney(c.amount)}</div>
-                <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]"># Opps: {c.count == null ? "—" : fmtNum(c.count)}</div>
-                <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
-                  Avg Health:{" "}
-                  <span className={healthColorClass(c.healthPct)}>
-                    {c.healthPct == null ? "—" : `${Math.max(0, Math.min(100, Math.round(Number(c.healthPct) || 0)))}%`}
-                  </span>
-                </div>
-              </div>
-            ))}
-
-            <div className={boxClass}>
-              <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Pipeline Coverage</div>
-              <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
-                {fmtCoverageRatio(coverage, { digits: 1 })}
-              </div>
-              <div className="mt-1">
-                <span className={["inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold", covStatus.cls].join(" ")}>
-                  RISK PILL
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
       {createdFromKpis ? (
