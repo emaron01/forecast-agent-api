@@ -112,13 +112,13 @@ function fmt2(n: any) {
 function fmtMoney(n: any) {
   const v = Number(n || 0);
   if (!Number.isFinite(v)) return "—";
-  return v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  return v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
 function fmtNum(n: any) {
   const v = Number(n);
   if (!Number.isFinite(v)) return "—";
-  return v.toLocaleString();
+  return v.toLocaleString("en-US");
 }
 
 function healthPctFrom30(score: any) {
@@ -159,13 +159,13 @@ function fmtDeltaCount(n: number) {
   const v = Number(n);
   if (!Number.isFinite(v) || v === 0) return "0";
   const s = Math.round(v);
-  return s > 0 ? `+${s.toLocaleString()}` : `${s.toLocaleString()}`;
+  return s > 0 ? `+${s.toLocaleString("en-US")}` : `${s.toLocaleString("en-US")}`;
 }
 
 function fmtDays(n: number | null) {
   if (n == null || !Number.isFinite(n)) return "—";
   const v = Math.round(n);
-  return `${v.toLocaleString()} day${v === 1 ? "" : "s"}`;
+  return `${v.toLocaleString("en-US")} day${v === 1 ? "" : "s"}`;
 }
 
 function stripJsonFence(s: string) {
@@ -1366,7 +1366,7 @@ export function ExecutiveGapInsightsClient(props: {
                     if (!Number.isFinite(v)) return "—";
                     if (v === 0) return "0";
                     const abs = Math.abs(Math.trunc(v));
-                    return `${v > 0 ? "+" : "-"}${abs.toLocaleString()}`;
+                    return `${v > 0 ? "+" : "-"}${abs.toLocaleString("en-US")}`;
                   };
 
                   return (
@@ -1390,7 +1390,7 @@ export function ExecutiveGapInsightsClient(props: {
 
                       <div className={heroCard}>
                         <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Total Orders</div>
-                        <div className={heroVal}>{curOrders.toLocaleString()}</div>
+                        <div className={heroVal}>{curOrders.toLocaleString("en-US")}</div>
                         <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
                           <div className={["flex items-center gap-2 font-mono text-sm font-semibold leading-none", ord.tone].join(" ")}>
                             <div>{prevProd ? fmtSignedInt(ord.d) : "—"}</div>
@@ -1400,7 +1400,7 @@ export function ExecutiveGapInsightsClient(props: {
                           </div>
                           <div className="min-w-0 truncate text-right text-sm font-semibold text-[color:var(--sf-text-secondary)]">
                             Last Quarter{" "}
-                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{prevProd ? prevOrders.toLocaleString() : "—"}</span>
+                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{prevProd ? prevOrders.toLocaleString("en-US") : "—"}</span>
                           </div>
                         </div>
                       </div>
@@ -2043,7 +2043,7 @@ export function ExecutiveGapInsightsClient(props: {
                         <div className="flex items-center justify-between gap-3">
                           <span className="text-[color:var(--sf-text-secondary)]">Partner CEI</span>
                           <span className="font-mono font-semibold">
-                            {ceiCurN == null ? "—" : `${Math.round(ceiCurN).toLocaleString()} (Direct = 100)`}
+                            {ceiCurN == null ? "—" : `${Math.round(ceiCurN).toLocaleString("en-US")} (Direct = 100)`}
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-3">
@@ -2057,7 +2057,9 @@ export function ExecutiveGapInsightsClient(props: {
                             <span>{trend.label}</span>
                           </span>
                         </div>
-                        <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Based on {partnerWon.toLocaleString()} partner closed-won deal(s).</div>
+                        <div className="text-[11px] text-[color:var(--sf-text-secondary)]">
+                          Based on {partnerWon.toLocaleString("en-US")} partner closed-won deal(s).
+                        </div>
                       </div>
                     </>
                   );
@@ -2110,7 +2112,7 @@ export function ExecutiveGapInsightsClient(props: {
                             <div className="flex flex-wrap items-center justify-end gap-2">
                               <div className="grid justify-items-end">
                                 <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC</div>
-                                <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{Math.round(r.wic).toLocaleString()}</div>
+                                <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{Math.round(r.wic).toLocaleString("en-US")}</div>
                               </div>
                               <span className={["inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold", pillToneClass(pill.tone)].join(" ")}>
                                 {pill.label}
@@ -2118,7 +2120,7 @@ export function ExecutiveGapInsightsClient(props: {
                               <div className="grid justify-items-end">
                                 <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">PQS</div>
                                 <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">
-                                  {r.pqs == null ? "—" : Math.round(r.pqs).toLocaleString()}
+                                  {r.pqs == null ? "—" : Math.round(r.pqs).toLocaleString("en-US")}
                                 </div>
                               </div>
                             </div>
@@ -2219,7 +2221,7 @@ export function ExecutiveGapInsightsClient(props: {
                       </div>
                       <div className="flex items-center justify-between gap-3">
                         <span className="text-[color:var(--sf-text-secondary)]">Partner CEI</span>
-                        <span className="font-mono font-semibold">{ceiCurN == null ? "—" : `${Math.round(ceiCurN).toLocaleString()} (Direct = 100)`}</span>
+                        <span className="font-mono font-semibold">{ceiCurN == null ? "—" : `${Math.round(ceiCurN).toLocaleString("en-US")} (Direct = 100)`}</span>
                       </div>
                       <div className="flex items-center justify-between gap-3">
                         <span className="text-[color:var(--sf-text-secondary)]">Confidence</span>
@@ -2237,7 +2239,9 @@ export function ExecutiveGapInsightsClient(props: {
                           <span>{trend.label}</span>
                         </span>
                       </div>
-                      <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Based on {partnerWon.toLocaleString()} partner closed-won deal(s).</div>
+                      <div className="text-[11px] text-[color:var(--sf-text-secondary)]">
+                        Based on {partnerWon.toLocaleString("en-US")} partner closed-won deal(s).
+                      </div>
                     </div>
                   </>
                 );
@@ -2251,48 +2255,28 @@ export function ExecutiveGapInsightsClient(props: {
                   .slice(0, 1 + Math.min(15, Math.max(0, partnersDecisionEngine.scored.length - 1)))
                   .map((r) => {
                     const pill = r.wic_band;
+                    const trendArrow = pill.tone === "bad" ? "↓" : "→";
                     return (
                       <div key={r.key} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-                        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{r.label}</div>
-
-                        <div className="mt-2 grid gap-1 text-[11px] text-[color:var(--sf-text-secondary)]">
-                          <div>
-                            Open <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(r.open_pipeline)}</span>
-                          </div>
-                          <div>
-                            Win <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtPct01(r.win_rate)}</span>
-                          </div>
-                          <div>
-                            Health{" "}
-                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
-                              {r.avg_health_01 == null ? "—" : `${Math.round(r.avg_health_01 * 100)}%`}
-                            </span>
-                          </div>
-                          <div>
-                            Days{" "}
-                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
-                              {r.avg_days == null ? "—" : String(Math.round(Number(r.avg_days)))}
-                            </span>
-                          </div>
-                          <div>
-                            AOV <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{r.aov == null ? "—" : fmtMoney(r.aov)}</span>
-                          </div>
+                        <div className="min-w-0 truncate text-sm font-semibold text-[color:var(--sf-text-primary)]">
+                          {r.label} — {pill.label}
                         </div>
 
-                        <div className="mt-3 flex flex-wrap items-end justify-between gap-2">
-                          <div className="grid gap-1">
-                            <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC</div>
-                            <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{Math.round(r.wic).toLocaleString()}</div>
-                          </div>
-                          <span className={["inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold", pillToneClass(pill.tone)].join(" ")}>
-                            {pill.label}
-                          </span>
-                          <div className="grid justify-items-end gap-1">
-                            <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">PQS</div>
-                            <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">
-                              {r.pqs == null ? "—" : Math.round(r.pqs).toLocaleString()}
-                            </div>
-                          </div>
+                        <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
+                          <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">WIC:</span>{" "}
+                          <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{Math.round(r.wic).toLocaleString("en-US")}</span>{" "}
+                          <span className="text-[color:var(--sf-text-secondary)]">|</span>{" "}
+                          <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">PQS:</span>{" "}
+                          <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
+                            {r.pqs == null ? "—" : Math.round(r.pqs).toLocaleString("en-US")}
+                          </span>{" "}
+                          <span className="text-[color:var(--sf-text-secondary)]">|</span>{" "}
+                          <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">Trend:</span>{" "}
+                          <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{trendArrow}</span>
+                        </div>
+
+                        <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                          Pipeline <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(r.open_pipeline)}</span>
                         </div>
                       </div>
                     );
@@ -2552,7 +2536,7 @@ export function ExecutiveGapInsightsClient(props: {
                             {isMgr ? <span className="ml-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">(roll-up)</span> : null}
                           </div>
                           <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">
-                            {repIds.length.toLocaleString()} rep(s) · totals across full descendant team
+                            {repIds.length.toLocaleString("en-US")} rep(s) · totals across full descendant team
                           </div>
                         </div>
                         <div className="hidden shrink-0 items-center gap-4 text-right sm:flex">

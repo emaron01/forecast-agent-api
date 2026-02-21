@@ -7,7 +7,7 @@ function fmtMoney(n: any) {
   if (n == null) return "—";
   const v = Number(n);
   if (!Number.isFinite(v)) return "—";
-  return v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  return v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
 function fmtCoverageRatio(r: number | null, opts?: { digits?: number }) {

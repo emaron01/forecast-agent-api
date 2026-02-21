@@ -6,7 +6,7 @@ import { ExecutiveProductPerformanceAiTakeawayClient } from "./ExecutiveProductP
 function fmtMoney0(n: number) {
   const v = Number(n || 0);
   if (!Number.isFinite(v)) return "—";
-  return v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  return v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
 function fmtPct01(p: number | null) {

@@ -1,0 +1,12 @@
+---
+description: Preserve global header logo; only size changes by request
+alwaysApply: true
+---
+
+# Global header logo is immutable
+
+- Do **not** refactor, replace, rename, or restyle the global header logo (Top Nav / header) across the app.
+- Do **not** change the logo asset path, component structure, or object-fit behavior.
+- The **only** permitted change to the global header logo is a **size adjustment**, and only when the user explicitly asks for it.
+- If a task appears to require altering the header logo beyond sizing, stop and ask for explicit approval.
+
