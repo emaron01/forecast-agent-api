@@ -122,7 +122,7 @@ export function AiSummaryReportClient(props: { entries: Entry[] }) {
       {copied ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
 
       {reportPreview ? (
-        <div className="mt-3 whitespace-pre-wrap rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 text-sm text-[color:var(--sf-text-primary)]">
+        <div className="mt-3 whitespace-pre-wrap rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
           {reportPreview}
         </div>
       ) : (

@@ -235,9 +235,13 @@ export function PipelineMomentumAiTakeawayClient(props: { payload: any }) {
         <div className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">Generating CRO-grade pipeline takeaways…</div>
       ) : summary || extended ? (
         <div className="mt-2 grid gap-3">
-          {summary ? <div className="text-sm leading-relaxed text-[color:var(--sf-text-primary)]">{renderCategorizedText(summary) || summary}</div> : null}
+          {summary ? (
+            <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm leading-relaxed text-black">
+              {renderCategorizedText(summary) || summary}
+            </div>
+          ) : null}
           {expanded && extended ? (
-            <div className="whitespace-pre-wrap rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-left text-sm leading-relaxed text-[color:var(--sf-text-primary)]">
+            <div className="whitespace-pre-wrap rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black">
               {extended}
             </div>
           ) : null}

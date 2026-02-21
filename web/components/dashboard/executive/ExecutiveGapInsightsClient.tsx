@@ -1533,12 +1533,12 @@ export function ExecutiveGapInsightsClient(props: {
             ) : heroAiSummary || heroAiExtended ? (
               <div className="mt-3 grid gap-3">
                 {heroAiSummary ? (
-                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)]">
+                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
                     {renderCategorizedText(heroAiSummary) || <div className="whitespace-pre-wrap">{heroAiSummary}</div>}
                   </div>
                 ) : null}
                 {heroAiExpanded && heroAiExtended ? (
-                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-left text-sm leading-relaxed text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
+                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black whitespace-pre-wrap">
                     {heroAiExtended}
                   </div>
                 ) : null}
@@ -1692,12 +1692,12 @@ export function ExecutiveGapInsightsClient(props: {
             ) : radarAiSummary || radarAiExtended ? (
               <div className="mt-2 grid gap-3">
                 {radarAiSummary ? (
-                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-sm text-[color:var(--sf-text-primary)]">
+                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
                     {renderCategorizedText(radarAiSummary) || <div className="whitespace-pre-wrap">{radarAiSummary}</div>}
                   </div>
                 ) : null}
                 {radarAiExpanded && radarAiExtended ? (
-                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 text-left text-sm leading-relaxed text-[color:var(--sf-text-primary)] whitespace-pre-wrap">
+                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black whitespace-pre-wrap">
                     {radarAiExtended}
                   </div>
                 ) : null}

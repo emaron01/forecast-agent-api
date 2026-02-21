@@ -224,12 +224,12 @@ export function PartnerAiStrategicTakeawayClient(props: { payload: any }) {
       ) : summary || extended ? (
         <div className="mt-3 grid gap-3">
           {summary ? (
-            <div className="whitespace-pre-wrap rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 text-sm text-[color:var(--sf-text-primary)]">
+            <div className="whitespace-pre-wrap rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
               {renderCategorizedText(summary) || summary}
             </div>
           ) : null}
           {expanded && extended ? (
-            <div className="whitespace-pre-wrap rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 text-left text-sm leading-relaxed text-[color:var(--sf-text-primary)]">
+            <div className="whitespace-pre-wrap rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black">
               {extended}
             </div>
           ) : null}
