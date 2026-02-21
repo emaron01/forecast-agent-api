@@ -1921,11 +1921,7 @@ export function ExecutiveGapInsightsClient(props: {
           <div className="grid gap-3">
             <ExecutiveDealsDrivingGapModule
               title={stageLabel}
-              subtitle={
-                totals
-                  ? `CRM ${fmtMoney((totals as any).crm_weighted)} · AI ${fmtMoney((totals as any).ai_weighted)} · Gap ${fmtMoney((totals as any).gap)} · ${dealCount} deal(s)${showingNote}${listNote}`
-                  : undefined
-              }
+              subtitle={undefined}
               deals={sortedDeals.slice(0, topN)}
             />
           </div>
@@ -1938,10 +1934,7 @@ export function ExecutiveGapInsightsClient(props: {
         <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">Direct vs Partner performance (this quarter)</div>
-              <div className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-                Compares closed outcomes in the selected quarter scope. Use this to validate channel efficiency and coverage decisions.
-              </div>
+              <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">Direct vs. Indirect Performance</div>
             </div>
           </div>
 
@@ -1993,10 +1986,7 @@ export function ExecutiveGapInsightsClient(props: {
           <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">CRO decision engine (WIC / PQS / CEI)</div>
-                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-                  Canonical scoring models (WIC, PQS, CEI) computed from this dashboard’s numbers. Direct is CEI baseline = 100.
-                </div>
+                <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Canonical Scoring Engine (WIC / PQS / CEI)</div>
               </div>
             </div>
 

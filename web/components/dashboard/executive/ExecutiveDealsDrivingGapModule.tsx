@@ -222,7 +222,7 @@ export function ExecutiveDealsDrivingGapModule(props: {
                     <div className="bg-[color:var(--sf-surface-alt)] px-4 py-4">
                       <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">MEDDPICC+TB Risk Factors</div>
+                          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">MEDDPICC+TB Risk Factors (click Category for Details)</div>
                           <div className="text-xs text-[color:var(--sf-text-secondary)]">Click a factor to expand Tip + Evidence</div>
                         </div>
 

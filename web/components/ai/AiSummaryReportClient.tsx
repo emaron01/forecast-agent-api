@@ -105,8 +105,7 @@ export function AiSummaryReportClient(props: { entries: Entry[] }) {
     <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">AI Summary Report</div>
-          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Combined snapshot across AI analytics blocks.</div>
+          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">SalesForecast.io Executive Snap Shot</div>
         </div>
         <button
           type="button"

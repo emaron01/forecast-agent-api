@@ -30,8 +30,7 @@ export function ExecutiveProductPerformance(props: { data: ExecutiveProductPerfo
     <section className="w-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Product performance (Closed Won)</div>
-          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Revenue mix, ACV efficiency, and CRO-grade “so what”.</div>
+          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Product Revenue Mix</div>
         </div>
       </div>
 
