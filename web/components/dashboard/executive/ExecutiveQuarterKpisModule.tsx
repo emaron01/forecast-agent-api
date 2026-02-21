@@ -101,22 +101,22 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
   const heroVal = "mt-2 font-mono text-xl font-semibold text-[color:var(--sf-text-primary)]";
   const mixBar = (
     <div
-      className="h-[72px] w-[10px] overflow-hidden rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]"
+      className="h-[10px] w-[180px] overflow-hidden rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]"
       aria-label={`Forecast mix: Commit ${fmtMixPct(mixCommitPct01)}, Best Case ${fmtMixPct(mixBestPct01)}, Pipeline ${fmtMixPct(mixPipePct01)}`}
       title={`Commit ${fmtMixPct(mixCommitPct01)} · Best Case ${fmtMixPct(mixBestPct01)} · Pipeline ${fmtMixPct(mixPipePct01)}`}
     >
-      <div className="flex h-full w-full flex-col">
+      <div className="flex h-full w-full flex-row">
         <div
-          className="w-full bg-[#2ECC71]"
-          style={{ height: mixCommitPct01 == null ? "0%" : `${Math.max(0, Math.min(100, mixCommitPct01 * 100))}%` }}
+          className="h-full bg-[#2ECC71]"
+          style={{ width: mixCommitPct01 == null ? "0%" : `${Math.max(0, Math.min(100, mixCommitPct01 * 100))}%` }}
         />
         <div
-          className="w-full bg-[color:var(--sf-accent-primary)]"
-          style={{ height: mixBestPct01 == null ? "0%" : `${Math.max(0, Math.min(100, mixBestPct01 * 100))}%` }}
+          className="h-full bg-[color:var(--sf-accent-primary)]"
+          style={{ width: mixBestPct01 == null ? "0%" : `${Math.max(0, Math.min(100, mixBestPct01 * 100))}%` }}
         />
         <div
-          className="w-full bg-[#E74C3C]/80"
-          style={{ height: mixPipePct01 == null ? "0%" : `${Math.max(0, Math.min(100, mixPipePct01 * 100))}%` }}
+          className="h-full bg-[#E74C3C]/80"
+          style={{ width: mixPipePct01 == null ? "0%" : `${Math.max(0, Math.min(100, mixPipePct01 * 100))}%` }}
         />
       </div>
     </div>
