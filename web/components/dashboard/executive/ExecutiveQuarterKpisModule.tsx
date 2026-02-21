@@ -71,6 +71,11 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
   const bestAmt = Number(props.crmTotals?.best_case_amount ?? NaN);
   const pipeAmt = Number(props.crmTotals?.pipeline_amount ?? NaN);
   const totalPipelineAmt = Number.isFinite(commitAmt) && Number.isFinite(bestAmt) && Number.isFinite(pipeAmt) ? commitAmt + bestAmt + pipeAmt : null;
+  const mixTotal = totalPipelineAmt != null && Number.isFinite(totalPipelineAmt) && totalPipelineAmt > 0 ? totalPipelineAmt : null;
+  const mixCommitPct01 = mixTotal ? Math.max(0, Math.min(1, commitAmt / mixTotal)) : null;
+  const mixBestPct01 = mixTotal ? Math.max(0, Math.min(1, bestAmt / mixTotal)) : null;
+  const mixPipePct01 = mixTotal ? Math.max(0, Math.min(1, pipeAmt / mixTotal)) : null;
+  const fmtMixPct = (p01: number | null) => (p01 == null || !Number.isFinite(p01) ? "—" : `${Math.round(p01 * 100)}%`);
 
   const commitCount = km?.current_quarter?.mix?.commit?.opps ?? null;
   const bestCount = km?.current_quarter?.mix?.best_case?.opps ?? null;
@@ -94,6 +99,28 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
   // Match HERO card styling (ex: "Blended ACV")
   const heroCard = "h-full min-h-[124px] rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm";
   const heroVal = "mt-2 font-mono text-xl font-semibold text-[color:var(--sf-text-primary)]";
+  const mixBar = (
+    <div
+      className="h-[72px] w-[10px] overflow-hidden rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]"
+      aria-label={`Forecast mix: Commit ${fmtMixPct(mixCommitPct01)}, Best Case ${fmtMixPct(mixBestPct01)}, Pipeline ${fmtMixPct(mixPipePct01)}`}
+      title={`Commit ${fmtMixPct(mixCommitPct01)} · Best Case ${fmtMixPct(mixBestPct01)} · Pipeline ${fmtMixPct(mixPipePct01)}`}
+    >
+      <div className="flex h-full w-full flex-col">
+        <div
+          className="w-full bg-[#2ECC71]"
+          style={{ height: mixCommitPct01 == null ? "0%" : `${Math.max(0, Math.min(100, mixCommitPct01 * 100))}%` }}
+        />
+        <div
+          className="w-full bg-[color:var(--sf-accent-primary)]"
+          style={{ height: mixBestPct01 == null ? "0%" : `${Math.max(0, Math.min(100, mixBestPct01 * 100))}%` }}
+        />
+        <div
+          className="w-full bg-[#E74C3C]/80"
+          style={{ height: mixPipePct01 == null ? "0%" : `${Math.max(0, Math.min(100, mixPipePct01 * 100))}%` }}
+        />
+      </div>
+    </div>
+  );
 
   const cards = [
     { key: "commit", label: "Commit", amount: commitAmt, count: commitCount, healthPct: commitHealthPct },
@@ -104,12 +131,20 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
 
   return (
     <div>
-      <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Remaining Quarterly Forecast</div>
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Remaining Quarterly Forecast</div>
+        {mixTotal ? mixBar : null}
+      </div>
 
       <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {cards.map((c) => (
           <div key={c.key} className={heroCard}>
-            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">{c.label}</div>
+            <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+              {c.key === "commit" ? <span className="h-2 w-2 rounded-full bg-[#2ECC71]" aria-hidden="true" /> : null}
+              {c.key === "best" ? <span className="h-2 w-2 rounded-full bg-[color:var(--sf-accent-primary)]" aria-hidden="true" /> : null}
+              {c.key === "pipe" ? <span className="h-2 w-2 rounded-full bg-[#E74C3C]/80" aria-hidden="true" /> : null}
+              <span>{c.label}</span>
+            </div>
             <div className={heroVal}>{fmtMoney(c.amount)}</div>
             <div className="mt-2 text-[11px] font-semibold text-[color:var(--sf-text-secondary)]"># Opps: {c.count == null ? "—" : fmtNum(c.count)}</div>
             <div className="mt-1 text-[11px] font-semibold text-[color:var(--sf-text-secondary)]">
