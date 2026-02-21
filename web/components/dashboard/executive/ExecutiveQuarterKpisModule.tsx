@@ -99,13 +99,6 @@ export function ExecutiveQuarterKpisModule(props: {
     remainingQuota != null && remainingQuota > 0 && totalPipelineAmt != null && totalPipelineAmt > 0 ? totalPipelineAmt / remainingQuota : null;
   const covStatus = coverageStatus(coverage);
 
-  const Chip = (p: { label: string; value: ReactNode }) => (
-    <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-      <div className="text-[color:var(--sf-text-secondary)]">{p.label}</div>
-      <div className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{p.value}</div>
-    </div>
-  );
-
   const boxClass = "min-w-0 overflow-hidden rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-2";
   const cards = [
     { key: "commit", label: "Commit", amount: commitAmt, count: commitCount },
@@ -172,26 +165,6 @@ export function ExecutiveQuarterKpisModule(props: {
               </div>
               <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
                 (Pipeline {fmtMoney(totalPipelineAmt)} ÷ Remaining {fmtMoney(remainingQuota)})
-              </div>
-            </div>
-
-            <div className="col-span-full">
-              <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                <Chip label="Win Rate" value={fmtPct(kpis?.winRate ?? null)} />
-                <Chip label="Win/Loss Count" value={`${fmtNum(kpis?.wonCount ?? "—")} / ${fmtNum(kpis?.lostCount ?? "—")}`} />
-                <Chip label="Average Order Value" value={kpis?.aov == null ? "—" : fmtMoney(kpis.aov)} />
-                <Chip
-                  label="Avg Health Closed Won"
-                  value={<span className={healthColorClass(kpis?.avgHealthWonPct ?? null)}>{kpis?.avgHealthWonPct == null ? "—" : `${kpis.avgHealthWonPct}%`}</span>}
-                />
-                <Chip
-                  label="Avg Health Closed Loss"
-                  value={
-                    <span className={healthColorClass(kpis?.avgHealthLostPct ?? null)}>{kpis?.avgHealthLostPct == null ? "—" : `${kpis.avgHealthLostPct}%`}</span>
-                  }
-                />
-                <Chip label="Opp→Win Conversion" value={fmtPct(kpis?.oppToWin ?? null)} />
-                <Chip label="Aging (avg days)" value={kpis?.agingAvgDays == null ? "—" : String(Math.round(kpis.agingAvgDays))} />
               </div>
             </div>
           </div>
