@@ -225,7 +225,7 @@ function renderCategorizedText(text: string) {
           const rest = String(m[2]).trim();
           return (
             <div key={idx} className="flex gap-2">
-              <span className="text-[color:var(--sf-accent-secondary)]">•</span>
+              <span className="text-[color:var(--sf-accent-primary)]">•</span>
               <span className="min-w-0">
                 <span className="font-semibold">{label}:</span> {rest}
               </span>
@@ -234,7 +234,7 @@ function renderCategorizedText(text: string) {
         }
         return (
           <div key={idx} className="flex gap-2">
-            <span className="text-[color:var(--sf-accent-secondary)]">•</span>
+            <span className="text-[color:var(--sf-accent-primary)]">•</span>
             <span className="min-w-0 whitespace-pre-wrap">{bullet}</span>
           </div>
         );
@@ -454,6 +454,7 @@ export function ExecutiveGapInsightsClient(props: {
   const [heroAiLoading, setHeroAiLoading] = useState(false);
   const [heroAiExpanded, setHeroAiExpanded] = useState(false);
   const [heroAiToast, setHeroAiToast] = useState<string>("");
+  const [heroAiCopied, setHeroAiCopied] = useState(false);
 
   const [radarAiSummary, setRadarAiSummary] = useState<string>("");
   const [radarAiExtended, setRadarAiExtended] = useState<string>("");
@@ -461,6 +462,7 @@ export function ExecutiveGapInsightsClient(props: {
   const [radarAiLoading, setRadarAiLoading] = useState(false);
   const [radarAiExpanded, setRadarAiExpanded] = useState(false);
   const [radarAiToast, setRadarAiToast] = useState<string>("");
+  const [radarAiCopied, setRadarAiCopied] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
 
   const topXOptions = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50] as const;
@@ -701,6 +703,18 @@ export function ExecutiveGapInsightsClient(props: {
     };
   }
 
+  async function copyHeroAi() {
+    const text = [heroAiSummary ? `Summary:\n${heroAiSummary}` : "", heroAiExtended ? `Extended analysis:\n${heroAiExtended}` : ""].filter(Boolean).join("\n\n").trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setHeroAiCopied(true);
+      window.setTimeout(() => setHeroAiCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  }
+
   useEffect(() => {
     if (!heroTakeawayPayload?.quota_period_id) return;
     // Avoid spam: re-run when the core analysis inputs change.
@@ -715,6 +729,18 @@ export function ExecutiveGapInsightsClient(props: {
     lastHeroAiKey.current = key;
     void runHeroAi({ force: false, showNoChangeToast: false });
   }, [heroTakeawayPayload, refreshNonce]);
+
+  async function copyRadarAi() {
+    const text = [radarAiSummary ? `Summary:\n${radarAiSummary}` : "", radarAiExtended ? `Extended analysis:\n${radarAiExtended}` : ""].filter(Boolean).join("\n\n").trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setRadarAiCopied(true);
+      window.setTimeout(() => setRadarAiCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  }
 
   const sortedDeals = useMemo(() => {
     const overallGap = ok?.totals?.gap ?? 0;
@@ -1482,6 +1508,16 @@ export function ExecutiveGapInsightsClient(props: {
                 </button>
                 <button
                   type="button"
+                  onClick={() => void copyHeroAi()}
+                  className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
+                  disabled={!heroAiSummary && !heroAiExtended}
+                  title={heroAiSummary || heroAiExtended ? "Copy summary + extended" : "No summary to copy yet"}
+                >
+                  <span aria-hidden="true">⧉</span>
+                  Copy
+                </button>
+                <button
+                  type="button"
                   onClick={() => setHeroAiExpanded((v) => !v)}
                   className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
                 >
@@ -1491,6 +1527,7 @@ export function ExecutiveGapInsightsClient(props: {
             </div>
 
             {heroAiToast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroAiToast}</div> : null}
+            {heroAiCopied ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
             {heroAiLoading ? (
               <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating a CRO-grade takeaway…</div>
             ) : heroAiSummary || heroAiExtended ? (
@@ -1631,6 +1668,16 @@ export function ExecutiveGapInsightsClient(props: {
                 </button>
                 <button
                   type="button"
+                  onClick={() => void copyRadarAi()}
+                  className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
+                  disabled={!radarAiSummary && !radarAiExtended}
+                  title={radarAiSummary || radarAiExtended ? "Copy summary + extended" : "No summary to copy yet"}
+                >
+                  <span aria-hidden="true">⧉</span>
+                  Copy
+                </button>
+                <button
+                  type="button"
                   onClick={() => setRadarAiExpanded((v) => !v)}
                   className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
                 >
@@ -1639,6 +1686,7 @@ export function ExecutiveGapInsightsClient(props: {
               </div>
             </div>
             {radarAiToast ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{radarAiToast}</div> : null}
+            {radarAiCopied ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
             {radarAiLoading ? (
               <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating MEDDPICC+TB coaching guidance…</div>
             ) : radarAiSummary || radarAiExtended ? (

@@ -60,7 +60,7 @@ function renderCategorizedText(text: string) {
           const rest = String(m[2]).trim();
           return (
             <div key={idx} className="flex gap-2">
-              <span className="text-[color:var(--sf-accent-secondary)]">•</span>
+              <span className="text-[color:var(--sf-accent-primary)]">•</span>
               <span className="min-w-0">
                 <span className="font-semibold">{label}:</span> {rest}
               </span>
@@ -70,7 +70,7 @@ function renderCategorizedText(text: string) {
 
         return (
           <div key={idx} className="flex gap-2">
-            <span className="text-[color:var(--sf-accent-secondary)]">•</span>
+            <span className="text-[color:var(--sf-accent-primary)]">•</span>
             <span className="min-w-0 whitespace-pre-wrap">{bullet}</span>
           </div>
         );
@@ -92,6 +92,7 @@ export function ExecutiveProductPerformanceAiTakeawayClient(props: Props) {
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [toast, setToast] = useState("");
+  const [copied, setCopied] = useState(false);
 
   const lastKey = useRef<string>("");
 
@@ -166,6 +167,18 @@ export function ExecutiveProductPerformanceAiTakeawayClient(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quotaPeriodId, JSON.stringify(payload || {})]);
 
+  async function copy() {
+    const text = [summary ? `Summary:\n${summary}` : "", extended ? `Extended analysis:\n${extended}` : ""].filter(Boolean).join("\n\n").trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  }
+
   return (
     <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
       <div className="flex items-center justify-between gap-3">
@@ -180,6 +193,16 @@ export function ExecutiveProductPerformanceAiTakeawayClient(props: Props) {
           </button>
           <button
             type="button"
+            onClick={() => void copy()}
+            className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
+            disabled={!summary && !extended}
+            title={summary || extended ? "Copy summary + extended" : "No summary to copy yet"}
+          >
+            <span aria-hidden="true">⧉</span>
+            Copy
+          </button>
+          <button
+            type="button"
             onClick={() => setExpanded((v) => !v)}
             className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
           >
@@ -189,6 +212,7 @@ export function ExecutiveProductPerformanceAiTakeawayClient(props: Props) {
       </div>
 
       {toast ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{toast}</div> : null}
+      {copied ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
       {loading ? (
         <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating product mix takeaways…</div>
       ) : summary || extended ? (
