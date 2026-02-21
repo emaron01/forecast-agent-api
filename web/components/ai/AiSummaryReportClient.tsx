@@ -51,8 +51,43 @@ function readEntry(entry: Entry): { summary: string; extended: string; updatedAt
   }
 }
 
+function renderCategorizedText(text: string) {
+  const t = String(text || "").trim();
+  if (!t) return null;
+  const lines = t.split("\n").map((l) => l.trimEnd());
+  return (
+    <div className="grid gap-2">
+      {lines.map((line, idx) => {
+        const raw = String(line || "").trim();
+        if (!raw) return <div key={idx} className="h-2" />;
+        const bullet = raw.replace(/^\s*[-•]\s+/, "");
+        const m = bullet.match(/^\*\*(.+?)\*\*:\s*(.+)$/) || bullet.match(/^([A-Za-z][A-Za-z0-9 /&+\-]{2,32}):\s*(.+)$/);
+        if (m) {
+          const label = String(m[1]).trim();
+          const rest = String(m[2]).trim();
+          return (
+            <div key={idx} className="flex gap-2">
+              <span className="text-[color:var(--sf-accent-primary)]">•</span>
+              <span className="min-w-0">
+                <span className="font-semibold">{label}:</span> {rest}
+              </span>
+            </div>
+          );
+        }
+        return (
+          <div key={idx} className="flex gap-2">
+            <span className="text-[color:var(--sf-accent-primary)]">•</span>
+            <span className="min-w-0 whitespace-pre-wrap">{bullet}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AiSummaryReportClient(props: { entries: Entry[] }) {
   const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [nonce, setNonce] = useState(0);
 
   // Re-read periodically (AI blocks can update later).
@@ -107,23 +142,34 @@ export function AiSummaryReportClient(props: { entries: Entry[] }) {
         <div>
           <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">SalesForecast.io Executive Snap Shot</div>
         </div>
-        <button
-          type="button"
-          onClick={() => void copy()}
-          className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
-          disabled={!reportPreview && !reportForCopy}
-          title={reportPreview || reportForCopy ? "Copy summary + extended" : "No summary to copy yet"}
-        >
-          <span aria-hidden="true">⧉</span>
-          Copy
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
+            disabled={!reportPreview && !reportForCopy}
+            title={reportPreview || reportForCopy ? (expanded ? "Collapse" : "Expand") : "No summary to expand yet"}
+          >
+            {expanded ? "Collapse" : "Expand"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void copy()}
+            className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
+            disabled={!reportPreview && !reportForCopy}
+            title={reportPreview || reportForCopy ? "Copy summary + extended" : "No summary to copy yet"}
+          >
+            <span aria-hidden="true">⧉</span>
+            Copy
+          </button>
+        </div>
       </div>
 
       {copied ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
 
       {reportPreview ? (
         <div className="mt-3 whitespace-pre-wrap rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
-          {reportPreview}
+          {expanded ? (renderCategorizedText(reportForCopy || reportPreview) || (reportForCopy || reportPreview)) : reportPreview}
         </div>
       ) : (
         <div className="mt-3 text-sm text-[color:var(--sf-text-secondary)]">No AI summaries available yet for this view.</div>

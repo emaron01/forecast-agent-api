@@ -242,7 +242,7 @@ export function PipelineMomentumAiTakeawayClient(props: { payload: any }) {
           ) : null}
           {expanded && extended ? (
             <div className="whitespace-pre-wrap rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black">
-              {extended}
+              {renderCategorizedText(extended) || extended}
             </div>
           ) : null}
         </div>

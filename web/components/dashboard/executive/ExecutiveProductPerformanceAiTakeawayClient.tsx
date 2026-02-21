@@ -219,7 +219,9 @@ export function ExecutiveProductPerformanceAiTakeawayClient(props: Props) {
         <div className="mt-3 grid gap-3 text-sm text-[color:var(--sf-text-primary)]">
           {summary ? <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-black">{renderCategorizedText(summary) || summary}</div> : null}
           {expanded && extended ? (
-            <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left leading-relaxed whitespace-pre-wrap text-black">{extended}</div>
+            <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left leading-relaxed whitespace-pre-wrap text-black">
+              {renderCategorizedText(extended) || <div className="whitespace-pre-wrap">{extended}</div>}
+            </div>
           ) : null}
         </div>
       ) : null}

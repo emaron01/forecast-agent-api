@@ -1614,7 +1614,7 @@ export function ExecutiveGapInsightsClient(props: {
                 ) : null}
                 {heroAiExpanded && heroAiExtended ? (
                   <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black whitespace-pre-wrap">
-                    {heroAiExtended}
+                    {renderCategorizedText(heroAiExtended) || <div className="whitespace-pre-wrap">{heroAiExtended}</div>}
                   </div>
                 ) : null}
               </div>
@@ -1773,7 +1773,7 @@ export function ExecutiveGapInsightsClient(props: {
                 ) : null}
                 {radarAiExpanded && radarAiExtended ? (
                   <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black whitespace-pre-wrap">
-                    {radarAiExtended}
+                    {renderCategorizedText(radarAiExtended) || <div className="whitespace-pre-wrap">{radarAiExtended}</div>}
                   </div>
                 ) : null}
               </div>
