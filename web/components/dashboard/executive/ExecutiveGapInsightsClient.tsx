@@ -392,6 +392,20 @@ export function ExecutiveGapInsightsClient(props: {
   }>;
   quarterKpis: QuarterKpisSnapshot | null;
   pipelineMomentum: PipelineMomentumData | null;
+  pipelineStageSnapshot: null | {
+    commit_amount: number;
+    commit_count: number;
+    best_case_amount: number;
+    best_case_count: number;
+    pipeline_amount: number;
+    pipeline_count: number;
+    total_active_amount: number;
+    total_active_count: number;
+    won_amount: number;
+    won_count: number;
+    lost_amount: number;
+    lost_count: number;
+  };
   partnersExecutive: {
     direct: {
       opps: number;
@@ -1530,6 +1544,7 @@ export function ExecutiveGapInsightsClient(props: {
           period={activePeriod}
           quota={props.quota}
           pipelineMomentum={props.pipelineMomentum}
+      pipelineStageSnapshot={props.pipelineStageSnapshot}
           quarterKpis={props.quarterKpis}
           repRollups={props.repRollups as any}
           productsClosedWon={props.productsClosedWon as any}

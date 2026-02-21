@@ -127,6 +127,7 @@ export type ExecutiveForecastSummary = {
   }>;
   quarterKpis: QuarterKpisSnapshot | null;
   pipelineMomentum: PipelineMomentumData | null;
+  pipelineStageSnapshot: ExecPipelineStageSnapshot | null;
   quota: number;
   crmForecast: {
     commit_amount: number;
@@ -436,7 +437,7 @@ async function listOpenPipelineByPartnerForExecutive(args: { orgId: number; quot
   return rows || [];
 }
 
-type PipelineStageSnapshot = {
+export type ExecPipelineStageSnapshot = {
   commit_amount: number;
   commit_count: number;
   best_case_amount: number;
@@ -455,8 +456,8 @@ async function getPipelineStageSnapshotForPeriod(args: {
   orgId: number;
   quotaPeriodId: string;
   repIds: number[] | null;
-}): Promise<PipelineStageSnapshot> {
-  const empty: PipelineStageSnapshot = {
+}): Promise<ExecPipelineStageSnapshot> {
+  const empty: ExecPipelineStageSnapshot = {
     commit_amount: 0,
     commit_count: 0,
     best_case_amount: 0,
@@ -478,7 +479,7 @@ async function getPipelineStageSnapshotForPeriod(args: {
   const useRepFilter = !!(args.repIds && Array.isArray(args.repIds) && args.repIds.length);
 
   const { rows } = await pool
-    .query<PipelineStageSnapshot>(
+    .query<ExecPipelineStageSnapshot>(
       `
       WITH qp AS (
         SELECT period_start::date AS period_start, period_end::date AS period_end
@@ -530,6 +531,100 @@ async function getPipelineStageSnapshotForPeriod(args: {
       FROM classified
       `,
       [args.orgId, qpId, repIds, useRepFilter]
+    )
+    .then((r) => r.rows || [])
+    .catch(() => []);
+
+  return (rows?.[0] as any) || empty;
+}
+
+async function getPipelineStageSnapshotForPeriodWithNameFallback(args: {
+  orgId: number;
+  quotaPeriodId: string;
+  repIds: number[];
+  repNameKeys: string[];
+}): Promise<ExecPipelineStageSnapshot> {
+  const empty: ExecPipelineStageSnapshot = {
+    commit_amount: 0,
+    commit_count: 0,
+    best_case_amount: 0,
+    best_case_count: 0,
+    pipeline_amount: 0,
+    pipeline_count: 0,
+    total_active_amount: 0,
+    total_active_count: 0,
+    won_amount: 0,
+    won_count: 0,
+    lost_amount: 0,
+    lost_count: 0,
+  };
+
+  const qpId = String(args.quotaPeriodId || "").trim();
+  if (!qpId) return empty;
+
+  const repIds = Array.isArray(args.repIds) ? args.repIds : [];
+  const repNameKeys = Array.isArray(args.repNameKeys) ? args.repNameKeys : [];
+  const useRepFilter = repIds.length > 0 || repNameKeys.length > 0;
+  if (!useRepFilter) return empty;
+
+  const { rows } = await pool
+    .query<ExecPipelineStageSnapshot>(
+      `
+      WITH qp AS (
+        SELECT period_start::date AS period_start, period_end::date AS period_end
+          FROM quota_periods
+         WHERE org_id = $1::bigint
+           AND id = $2::bigint
+         LIMIT 1
+      ),
+      base AS (
+        SELECT
+          COALESCE(o.amount, 0)::float8 AS amount,
+          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+        FROM opportunities o
+        JOIN qp ON TRUE
+        WHERE o.org_id = $1
+          AND o.close_date IS NOT NULL
+          AND o.close_date >= qp.period_start
+          AND o.close_date <= qp.period_end
+          AND (
+            (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
+            OR (
+              COALESCE(array_length($4::text[], 1), 0) > 0
+              AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+            )
+          )
+      ),
+      classified AS (
+        SELECT
+          *,
+          ((' ' || fs || ' ') LIKE '% won %') AS is_won,
+          (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
+          (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AS is_active,
+          CASE
+            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AND fs LIKE '%commit%' THEN 'commit'
+            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AND fs LIKE '%best%' THEN 'best'
+            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) THEN 'pipeline'
+            ELSE 'other'
+          END AS bucket
+        FROM base
+      )
+      SELECT
+        COALESCE(SUM(CASE WHEN is_active AND bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
+        COALESCE(SUM(CASE WHEN is_active AND bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
+        COALESCE(SUM(CASE WHEN is_active AND bucket = 'best' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
+        COALESCE(SUM(CASE WHEN is_active AND bucket = 'best' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
+        COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+        COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
+        COALESCE(SUM(CASE WHEN is_active THEN amount ELSE 0 END), 0)::float8 AS total_active_amount,
+        COALESCE(SUM(CASE WHEN is_active THEN 1 ELSE 0 END), 0)::int AS total_active_count,
+        COALESCE(SUM(CASE WHEN is_won THEN amount ELSE 0 END), 0)::float8 AS won_amount,
+        COALESCE(SUM(CASE WHEN is_won THEN 1 ELSE 0 END), 0)::int AS won_count,
+        COALESCE(SUM(CASE WHEN is_lost THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
+        COALESCE(SUM(CASE WHEN is_lost THEN 1 ELSE 0 END), 0)::int AS lost_count
+      FROM classified
+      `,
+      [args.orgId, qpId, repIds, repNameKeys]
     )
     .then((r) => r.rows || [])
     .catch(() => []);
@@ -1018,6 +1113,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
       productsClosedWonByRep: [],
       quarterKpis: null,
       pipelineMomentum: null,
+      pipelineStageSnapshot: null,
       quota: 0,
       crmForecast: { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0, weighted_forecast: 0 },
       aiForecast: { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, weighted_forecast: 0 },
@@ -1982,6 +2078,16 @@ export async function getExecutiveForecastDashboardSummary(args: {
       })()
     : null;
 
+  const pipelineStageSnapshot: ExecPipelineStageSnapshot | null =
+    qpId && (repIdsToUse.length || visibleRepNameKeys.length)
+      ? await getPipelineStageSnapshotForPeriodWithNameFallback({
+          orgId: args.orgId,
+          quotaPeriodId: qpId,
+          repIds: repIdsToUse,
+          repNameKeys: visibleRepNameKeys,
+        }).catch(() => null)
+      : null;
+
   return {
     periods,
     fiscalYearsSorted,
@@ -2000,6 +2106,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
     productsClosedWonByRep,
     quarterKpis,
     pipelineMomentum,
+    pipelineStageSnapshot,
     quota,
     crmForecast: {
       commit_amount: Number(totals.commit_amount || 0) || 0,

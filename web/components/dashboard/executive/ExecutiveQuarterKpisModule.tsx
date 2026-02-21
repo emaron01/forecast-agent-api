@@ -5,12 +5,20 @@ import type { PipelineMomentumData } from "../../../lib/pipelineMomentum";
 import type { QuarterKpisSnapshot } from "../../../lib/quarterKpisSnapshot";
 
 function fmtMoney(n: any) {
-  const v = Number(n || 0);
+  if (n == null) return "—";
+  const v = Number(n);
   if (!Number.isFinite(v)) return "—";
   return v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
+function fmtCoverageRatio(r: number | null, opts?: { digits?: number }) {
+  if (r == null || !Number.isFinite(r)) return "—";
+  const d = Math.max(0, Math.min(2, opts?.digits ?? 1));
+  return `${r.toFixed(d)}x`;
+}
+
 function fmtNum(n: any) {
+  if (n == null) return "—";
   const v = Number(n);
   if (!Number.isFinite(v)) return "—";
   return Math.round(v).toLocaleString();
@@ -44,42 +52,63 @@ function healthColorClass(pct: number | null) {
   return "text-[#E74C3C]";
 }
 
+function coverageStatus(r: number | null) {
+  if (r == null || !Number.isFinite(r)) {
+    return { label: "—", cls: "border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]" };
+  }
+  if (r >= 3.6) return { label: "QUOTA COVERAGE", cls: "border-[#2ECC71]/40 bg-[#2ECC71]/10 text-[#2ECC71]" };
+  if (r >= 3.0) return { label: "FAIR COVERAGE", cls: "border-[#F1C40F]/50 bg-[#F1C40F]/10 text-[#F1C40F]" };
+  return { label: "DANGER LOW COVERAGE", cls: "border-[#E74C3C]/50 bg-[#E74C3C]/10 text-[#E74C3C]" };
+}
+
 export function ExecutiveQuarterKpisModule(props: {
   period: { id: string; fiscal_year: string; fiscal_quarter: string; period_name: string; period_start: string; period_end: string } | null;
   quota: number;
   pipelineMomentum: PipelineMomentumData | null;
+  pipelineStageSnapshot: null | {
+    commit_amount: number;
+    commit_count: number;
+    best_case_amount: number;
+    best_case_count: number;
+    pipeline_amount: number;
+    pipeline_count: number;
+    total_active_amount: number;
+    total_active_count: number;
+    won_amount: number;
+    won_count: number;
+    lost_amount: number;
+    lost_count: number;
+  };
   quarterKpis: QuarterKpisSnapshot | null;
   repRollups?: Array<{ commit_amount: number; best_case_amount: number; pipeline_amount: number; won_amount: number; won_count: number }> | null;
   productsClosedWon?: Array<{ won_amount: number; won_count: number }> | null;
 }) {
   const period = props.period;
   const km = props.pipelineMomentum;
+  const stage = props.pipelineStageSnapshot;
   const kpis = props.quarterKpis;
 
-  const repRollups = Array.isArray(props.repRollups) ? props.repRollups : [];
-  const products = Array.isArray(props.productsClosedWon) ? props.productsClosedWon : [];
+  // Sales Forecast values should match the KPI page semantics:
+  // stage + outcome totals scoped by rep_id OR normalized rep_name.
+  const commitAmt = stage?.commit_amount ?? null;
+  const bestAmt = stage?.best_case_amount ?? null;
+  const pipeAmt = stage?.pipeline_amount ?? null;
+  const totalPipelineAmt = stage?.total_active_amount ?? null;
 
-  const commitAmtFallback = repRollups.reduce((acc, r) => acc + (Number(r.commit_amount || 0) || 0), 0);
-  const bestAmtFallback = repRollups.reduce((acc, r) => acc + (Number(r.best_case_amount || 0) || 0), 0);
-  const pipeAmtFallback = repRollups.reduce((acc, r) => acc + (Number(r.pipeline_amount || 0) || 0), 0);
+  const commitCount = stage?.commit_count ?? null;
+  const bestCount = stage?.best_case_count ?? null;
+  const pipeCount = stage?.pipeline_count ?? null;
+  const totalPipelineCount = stage?.total_active_count ?? null;
 
-  const commitAmt = km?.current_quarter?.mix?.commit?.value ?? commitAmtFallback;
-  const bestAmt = km?.current_quarter?.mix?.best_case?.value ?? bestAmtFallback;
-  const pipeAmt = km?.current_quarter?.mix?.pipeline?.value ?? pipeAmtFallback;
-  const totalPipelineAmt = km?.current_quarter?.total_pipeline ?? commitAmt + bestAmt + pipeAmt;
-
-  const commitCount = km?.current_quarter?.mix?.commit?.opps ?? null;
-  const bestCount = km?.current_quarter?.mix?.best_case?.opps ?? null;
-  const pipeCount = km?.current_quarter?.mix?.pipeline?.opps ?? null;
-  const totalPipelineCount = km?.current_quarter?.total_opps ?? (commitCount != null && bestCount != null && pipeCount != null ? commitCount + bestCount + pipeCount : null);
-
-  const closedWonAmt =
-    products.length > 0 ? products.reduce((acc, r) => acc + (Number(r.won_amount || 0) || 0), 0) : repRollups.reduce((acc, r) => acc + (Number(r.won_amount || 0) || 0), 0);
-  const closedWonCount =
-    kpis?.wonCount ?? (products.length > 0 ? products.reduce((acc, r) => acc + (Number(r.won_count || 0) || 0), 0) : repRollups.reduce((acc, r) => acc + (Number(r.won_count || 0) || 0), 0));
+  const closedWonAmt = stage?.won_amount ?? null;
+  const closedWonCount = stage?.won_count ?? null;
 
   const quota = Number(props.quota || 0) || 0;
-  const pctToGoal = quota > 0 ? closedWonAmt / quota : null;
+  const pctToGoal = quota > 0 && closedWonAmt != null ? closedWonAmt / quota : null;
+  const remainingQuota = quota > 0 && closedWonAmt != null ? Math.max(0, quota - closedWonAmt) : null;
+  const coverage =
+    remainingQuota != null && remainingQuota > 0 && totalPipelineAmt != null && totalPipelineAmt > 0 ? totalPipelineAmt / remainingQuota : null;
+  const covStatus = coverageStatus(coverage);
 
   const Chip = (p: { label: string; value: ReactNode }) => (
     <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
@@ -140,6 +169,21 @@ export function ExecutiveQuarterKpisModule(props: {
               <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">% To Goal</div>
               <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">{fmtPct(pctToGoal)}</div>
               <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">&nbsp;</div>
+            </div>
+
+            <div className={boxClass}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Pipeline Coverage</div>
+                <span className={["inline-flex shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold", covStatus.cls].join(" ")}>
+                  {covStatus.label}
+                </span>
+              </div>
+              <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
+                Pipeline {fmtCoverageRatio(coverage, { digits: 1 })} Coverage
+              </div>
+              <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
+                (Pipeline {fmtMoney(totalPipelineAmt)} ÷ Remaining {fmtMoney(remainingQuota)})
+              </div>
             </div>
 
             <div className="col-span-full">
