@@ -1938,50 +1938,101 @@ export function ExecutiveGapInsightsClient(props: {
             </div>
           </div>
 
-          <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Executive narrative</div>
-            <div className="mt-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">{partnersDecisionEngine.narrative}</div>
-          </div>
+          {(() => {
+            const direct = partnersDecisionEngine.direct;
+            const partner = partnersDecisionEngine.partner;
 
-          <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
-            <table className="min-w-[980px] w-full table-auto border-collapse text-sm">
-              <thead className="bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)]">
-                <tr>
-                  <th className="px-4 py-3 text-left">motion</th>
-                  <th className="px-4 py-3 text-right"># opps</th>
-                  <th className="px-4 py-3 text-right">won</th>
-                  <th className="px-4 py-3 text-right">lost</th>
-                  <th className="px-4 py-3 text-right">close rate</th>
-                  <th className="px-4 py-3 text-right">avg health</th>
-                  <th className="px-4 py-3 text-right">avg days</th>
-                  <th className="px-4 py-3 text-right">AOV</th>
-                  <th className="px-4 py-3 text-right">closed-won</th>
-                  <th className="px-4 py-3 text-right">revenue mix</th>
-                </tr>
-              </thead>
-              <tbody className="text-[color:var(--sf-text-primary)]">
-                {[
-                  { k: "Direct", r: partnersDecisionEngine.direct, mix: partnersDecisionEngine.directMix },
-                  { k: "Partner", r: partnersDecisionEngine.partner, mix: partnersDecisionEngine.partnerMix },
-                ].map((row) => (
-                  <tr key={row.k} className="border-t border-[color:var(--sf-border)]">
-                    <td className="px-4 py-3 font-semibold">{row.k}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">{String(row.r.opps)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">{String(row.r.won_opps)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">{String(row.r.lost_opps)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct01(row.r.win_rate)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">
-                      {row.r.avg_health_score == null ? "—" : `${Math.round((Number(row.r.avg_health_score) / 30) * 100)}%`}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">{row.r.avg_days == null ? "—" : String(Math.round(Number(row.r.avg_days)))}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">{row.r.aov == null ? "—" : fmtMoney(row.r.aov)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoney(row.r.won_amount)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtPct01(row.mix)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+            const directWin = direct.win_rate == null ? null : Number(direct.win_rate);
+            const partnerWin = partner.win_rate == null ? null : Number(partner.win_rate);
+
+            const directHealth01 = direct.avg_health_score == null ? null : Number(direct.avg_health_score) / 30;
+            const partnerHealth01 = partner.avg_health_score == null ? null : Number(partner.avg_health_score) / 30;
+
+            const directRev = direct.won_amount == null ? null : Number(direct.won_amount);
+            const partnerRev = partner.won_amount == null ? null : Number(partner.won_amount);
+
+            const directMix = partnersDecisionEngine.directMix == null ? null : Number(partnersDecisionEngine.directMix);
+            const partnerMix = partnersDecisionEngine.partnerMix == null ? null : Number(partnersDecisionEngine.partnerMix);
+
+            function fmtMoneyK(n: any) {
+              const v = Number(n || 0);
+              if (!Number.isFinite(v)) return "—";
+              const k = Math.round(v / 1000);
+              return `$${k.toLocaleString("en-US")}K`;
+            }
+
+            function highlightClass(value: number | null, a: number | null, b: number | null) {
+              if (value == null || a == null || b == null) return "";
+              const aa = Number(a);
+              const bb = Number(b);
+              if (!Number.isFinite(aa) || !Number.isFinite(bb)) return "";
+              const denom = Math.max(Math.abs(aa), Math.abs(bb));
+              if (denom <= 0) return "";
+              const relDiffPct = (Math.abs(aa - bb) / denom) * 100;
+              if (relDiffPct <= 5) return "";
+              if (aa === bb) return "";
+              const max = Math.max(aa, bb);
+              const min = Math.min(aa, bb);
+              if (value === max) return "text-[#16A34A]";
+              if (value === min) return "text-[#E74C3C]";
+              return "";
+            }
+
+            const rows = [
+              {
+                k: "Direct",
+                win: directWin,
+                health: directHealth01,
+                rev: directRev,
+                mix: directMix,
+              },
+              {
+                k: "Partner",
+                win: partnerWin,
+                health: partnerHealth01,
+                rev: partnerRev,
+                mix: partnerMix,
+              },
+            ] as const;
+
+            return (
+              <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Motion Performance Snapshot</div>
+                <div className="mt-3 overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                  <table className="min-w-[640px] w-full table-auto border-collapse text-sm">
+                    <thead className="bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)]">
+                      <tr>
+                        <th className="px-4 py-3 text-left">Motion</th>
+                        <th className="px-4 py-3 text-right">Win Rate</th>
+                        <th className="px-4 py-3 text-right">Avg Health</th>
+                        <th className="px-4 py-3 text-right">Revenue</th>
+                        <th className="px-4 py-3 text-right">Mix</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-[color:var(--sf-text-primary)]">
+                      {rows.map((row) => (
+                        <tr key={row.k} className="border-t border-[color:var(--sf-border)]">
+                          <td className="px-4 py-3 font-semibold">{row.k}</td>
+                          <td className={["px-4 py-3 text-right font-mono text-xs", highlightClass(row.win, directWin, partnerWin)].join(" ")}>
+                            {row.win == null ? "—" : fmtPct01(row.win)}
+                          </td>
+                          <td className={["px-4 py-3 text-right font-mono text-xs", highlightClass(row.health, directHealth01, partnerHealth01)].join(" ")}>
+                            {row.health == null ? "—" : `${Math.round(row.health * 100)}%`}
+                          </td>
+                          <td className={["px-4 py-3 text-right font-mono text-xs", highlightClass(row.rev, directRev, partnerRev)].join(" ")}>
+                            {row.rev == null ? "—" : fmtMoneyK(row.rev)}
+                          </td>
+                          <td className={["px-4 py-3 text-right font-mono text-xs", highlightClass(row.mix, directMix, partnerMix)].join(" ")}>
+                            {row.mix == null ? "—" : fmtPct01(row.mix)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
 
           <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-3">
@@ -2073,7 +2124,7 @@ export function ExecutiveGapInsightsClient(props: {
 
               <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 lg:col-span-2">
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC + PQS (top partners)</div>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="mt-3 flex flex-wrap gap-3">
                   {partnersDecisionEngine.scored
                     .slice(0, 1 + Math.min(15, Math.max(0, partnersDecisionEngine.scored.length - 1)))
                     .map((r) => {
@@ -2088,7 +2139,7 @@ export function ExecutiveGapInsightsClient(props: {
                       return (
                         <div
                           key={r.key}
-                          className="flex aspect-square flex-col justify-between rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm"
+                          className="flex w-full flex-col justify-between rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm sm:w-[240px] sm:aspect-square"
                         >
                           <div className="flex min-w-0 items-start justify-between gap-3">
                             <div className="min-w-0 truncate text-sm font-semibold text-[color:var(--sf-text-primary)]">{r.label}</div>
