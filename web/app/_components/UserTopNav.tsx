@@ -19,7 +19,7 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
   return (
     <header className="border-b border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
       <div className="flex h-[65px] w-full items-center justify-between px-6">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4">
           <Link href={dashHref} aria-label="SalesForecast home" className="shrink-0">
             <div className="h-[65px] w-[min(260px,40vw)] overflow-hidden">
               <Image
@@ -32,7 +32,7 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
               />
             </div>
           </Link>
-          <nav className="flex flex-wrap items-center gap-1">
+          <nav className="ml-3 flex flex-wrap items-center gap-1">
             <NavLink href={dashHref} label="Dashboard" />
             <NavLink href="/forecast" label="Sales Opportunities" />
             <NavLink href="/analytics" label="Analytics" />
