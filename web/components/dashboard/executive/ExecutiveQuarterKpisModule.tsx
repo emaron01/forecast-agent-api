@@ -150,14 +150,14 @@ export function ExecutiveQuarterKpisModule(props: {
             ))}
 
             <div className={boxClass}>
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Pipeline Coverage</div>
-                <span className={["inline-flex shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold", covStatus.cls].join(" ")}>
-                  RISK PILL
-                </span>
-              </div>
+              <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">Pipeline Coverage</div>
               <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">
                 {fmtCoverageRatio(coverage, { digits: 1 })}
+              </div>
+              <div className="mt-1">
+                <span className={["inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold", covStatus.cls].join(" ")}>
+                  RISK PILL
+                </span>
               </div>
             </div>
           </div>
