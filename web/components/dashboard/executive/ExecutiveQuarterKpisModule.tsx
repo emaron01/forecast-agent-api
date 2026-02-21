@@ -89,6 +89,11 @@ export function ExecutiveQuarterKpisModule(props: {
     km?.current_quarter?.total_opps ??
     (commitCount != null && bestCount != null && pipeCount != null ? commitCount + bestCount + pipeCount : null);
 
+  const commitHealthPct = km?.current_quarter?.mix?.commit?.health_pct ?? null;
+  const bestHealthPct = km?.current_quarter?.mix?.best_case?.health_pct ?? null;
+  const pipeHealthPct = km?.current_quarter?.mix?.pipeline?.health_pct ?? null;
+  const totalHealthPct = km?.current_quarter?.avg_health_pct ?? null;
+
   const closedWonAmt = Number(props.crmTotals?.won_amount ?? NaN);
 
   const quota = Number(props.quota || 0) || 0;
@@ -99,10 +104,10 @@ export function ExecutiveQuarterKpisModule(props: {
 
   const boxClass = "min-w-0 overflow-hidden rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-2";
   const cards = [
-    { key: "commit", label: "Commit", amount: commitAmt, count: commitCount },
-    { key: "best", label: "Best Case", amount: bestAmt, count: bestCount },
-    { key: "pipe", label: "Pipeline", amount: pipeAmt, count: pipeCount },
-    { key: "total", label: "Total Pipeline", amount: totalPipelineAmt, count: totalPipelineCount },
+    { key: "commit", label: "Commit", amount: commitAmt, count: commitCount, healthPct: commitHealthPct },
+    { key: "best", label: "Best Case", amount: bestAmt, count: bestCount, healthPct: bestHealthPct },
+    { key: "pipe", label: "Pipeline", amount: pipeAmt, count: pipeCount, healthPct: pipeHealthPct },
+    { key: "total", label: "Total Pipeline", amount: totalPipelineAmt, count: totalPipelineCount, healthPct: totalHealthPct },
   ];
 
   const titleLeft = period
@@ -135,6 +140,12 @@ export function ExecutiveQuarterKpisModule(props: {
                 <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">{c.label}</div>
                 <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">{fmtMoney(c.amount)}</div>
                 <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]"># Opps: {c.count == null ? "—" : fmtNum(c.count)}</div>
+                <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
+                  Avg Health:{" "}
+                  <span className={healthColorClass(c.healthPct)}>
+                    {c.healthPct == null ? "—" : `${Math.max(0, Math.min(100, Math.round(Number(c.healthPct) || 0)))}%`}
+                  </span>
+                </div>
               </div>
             ))}
 

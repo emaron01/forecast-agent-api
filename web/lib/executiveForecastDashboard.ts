@@ -439,12 +439,16 @@ async function listOpenPipelineByPartnerForExecutive(args: { orgId: number; quot
 export type ExecPipelineStageSnapshot = {
   commit_amount: number;
   commit_count: number;
+  commit_avg_health_score: number | null;
   best_case_amount: number;
   best_case_count: number;
+  best_case_avg_health_score: number | null;
   pipeline_amount: number;
   pipeline_count: number;
+  pipeline_avg_health_score: number | null;
   total_active_amount: number;
   total_active_count: number;
+  total_active_avg_health_score: number | null;
   won_amount: number;
   won_count: number;
   lost_amount: number;
@@ -459,12 +463,16 @@ async function getPipelineStageSnapshotForPeriod(args: {
   const empty: ExecPipelineStageSnapshot = {
     commit_amount: 0,
     commit_count: 0,
+    commit_avg_health_score: null,
     best_case_amount: 0,
     best_case_count: 0,
+    best_case_avg_health_score: null,
     pipeline_amount: 0,
     pipeline_count: 0,
+    pipeline_avg_health_score: null,
     total_active_amount: 0,
     total_active_count: 0,
+    total_active_avg_health_score: null,
     won_amount: 0,
     won_count: 0,
     lost_amount: 0,
@@ -490,14 +498,46 @@ async function getPipelineStageSnapshotForPeriod(args: {
       base AS (
         SELECT
           COALESCE(o.amount, 0)::float8 AS amount,
-          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+          o.health_score::float8 AS health_score,
+          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
+          CASE
+            WHEN o.close_date IS NULL THEN NULL
+            WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+            WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+              to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
+            ELSE NULL
+          END AS close_d
         FROM opportunities o
         JOIN qp ON TRUE
         WHERE o.org_id = $1
           AND o.close_date IS NOT NULL
-          AND o.close_date >= qp.period_start
-          AND o.close_date <= qp.period_end
-          AND o.rep_id IS NOT NULL
+          AND (
+            CASE
+              WHEN o.close_date IS NULL THEN NULL
+              WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+              WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
+              ELSE NULL
+            END
+          ) IS NOT NULL
+          AND (
+            CASE
+              WHEN o.close_date IS NULL THEN NULL
+              WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+              WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
+              ELSE NULL
+            END
+          ) >= qp.period_start
+          AND (
+            CASE
+              WHEN o.close_date IS NULL THEN NULL
+              WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+              WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
+              ELSE NULL
+            END
+          ) <= qp.period_end
           AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
       ),
       classified AS (
@@ -517,12 +557,16 @@ async function getPipelineStageSnapshotForPeriod(args: {
       SELECT
         COALESCE(SUM(CASE WHEN is_active AND bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
         COALESCE(SUM(CASE WHEN is_active AND bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
+        AVG(CASE WHEN is_active AND bucket = 'commit' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS commit_avg_health_score,
         COALESCE(SUM(CASE WHEN is_active AND bucket = 'best' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
         COALESCE(SUM(CASE WHEN is_active AND bucket = 'best' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
+        AVG(CASE WHEN is_active AND bucket = 'best' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS best_case_avg_health_score,
         COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
         COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
+        AVG(CASE WHEN is_active AND bucket = 'pipeline' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS pipeline_avg_health_score,
         COALESCE(SUM(CASE WHEN is_active THEN amount ELSE 0 END), 0)::float8 AS total_active_amount,
         COALESCE(SUM(CASE WHEN is_active THEN 1 ELSE 0 END), 0)::int AS total_active_count,
+        AVG(CASE WHEN is_active THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS total_active_avg_health_score,
         COALESCE(SUM(CASE WHEN is_won THEN amount ELSE 0 END), 0)::float8 AS won_amount,
         COALESCE(SUM(CASE WHEN is_won THEN 1 ELSE 0 END), 0)::int AS won_count,
         COALESCE(SUM(CASE WHEN is_lost THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
@@ -546,12 +590,16 @@ async function getPipelineStageSnapshotForPeriodWithNameFallback(args: {
   const empty: ExecPipelineStageSnapshot = {
     commit_amount: 0,
     commit_count: 0,
+    commit_avg_health_score: null,
     best_case_amount: 0,
     best_case_count: 0,
+    best_case_avg_health_score: null,
     pipeline_amount: 0,
     pipeline_count: 0,
+    pipeline_avg_health_score: null,
     total_active_amount: 0,
     total_active_count: 0,
+    total_active_avg_health_score: null,
     won_amount: 0,
     won_count: 0,
     lost_amount: 0,
@@ -1693,11 +1741,13 @@ export async function getExecutiveForecastDashboardSummary(args: {
           current_quarter: {
             total_pipeline: Number(curStage.total_active_amount || 0) || 0,
             total_opps: Number(curStage.total_active_count || 0) || 0,
+            avg_health_pct: healthPctFrom30((curStage as any).total_active_avg_health_score),
             mix: {
               commit: {
                 value: Number(curStage.commit_amount || 0) || 0,
                 opps: Number(curStage.commit_count || 0) || 0,
                 qoq_change_pct: prevStage ? qoqPct(Number(curStage.commit_amount || 0) || 0, Number(prevStage.commit_amount || 0) || 0) : null,
+                health_pct: healthPctFrom30((curStage as any).commit_avg_health_score),
               },
               best_case: {
                 value: Number(curStage.best_case_amount || 0) || 0,
@@ -1705,11 +1755,13 @@ export async function getExecutiveForecastDashboardSummary(args: {
                 qoq_change_pct: prevStage
                   ? qoqPct(Number(curStage.best_case_amount || 0) || 0, Number(prevStage.best_case_amount || 0) || 0)
                   : null,
+                health_pct: healthPctFrom30((curStage as any).best_case_avg_health_score),
               },
               pipeline: {
                 value: Number(curStage.pipeline_amount || 0) || 0,
                 opps: Number(curStage.pipeline_count || 0) || 0,
                 qoq_change_pct: prevStage ? qoqPct(Number(curStage.pipeline_amount || 0) || 0, Number(prevStage.pipeline_amount || 0) || 0) : null,
+                health_pct: healthPctFrom30((curStage as any).pipeline_avg_health_score),
               },
             },
           },

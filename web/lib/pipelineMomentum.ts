@@ -5,12 +5,14 @@ export type PipelineMomentumData = {
   current_quarter: {
     total_pipeline: number;
     total_opps: number;
+    avg_health_pct?: number | null;
     mix: Record<
       ForecastMixKey,
       {
         value: number;
         opps: number;
         qoq_change_pct: number | null; // -8 => -8% QoQ, null => unknown
+        health_pct?: number | null;
       }
     >;
   };
