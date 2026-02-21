@@ -127,7 +127,6 @@ export type ExecutiveForecastSummary = {
   }>;
   quarterKpis: QuarterKpisSnapshot | null;
   pipelineMomentum: PipelineMomentumData | null;
-  pipelineStageSnapshot: ExecPipelineStageSnapshot | null;
   quota: number;
   crmForecast: {
     commit_amount: number;
@@ -1113,7 +1112,6 @@ export async function getExecutiveForecastDashboardSummary(args: {
       productsClosedWonByRep: [],
       quarterKpis: null,
       pipelineMomentum: null,
-      pipelineStageSnapshot: null,
       quota: 0,
       crmForecast: { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0, weighted_forecast: 0 },
       aiForecast: { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, weighted_forecast: 0 },
@@ -2078,16 +2076,6 @@ export async function getExecutiveForecastDashboardSummary(args: {
       })()
     : null;
 
-  const pipelineStageSnapshot: ExecPipelineStageSnapshot | null =
-    qpId && (repIdsToUse.length || visibleRepNameKeys.length)
-      ? await getPipelineStageSnapshotForPeriodWithNameFallback({
-          orgId: args.orgId,
-          quotaPeriodId: qpId,
-          repIds: repIdsToUse,
-          repNameKeys: visibleRepNameKeys,
-        }).catch(() => null)
-      : null;
-
   return {
     periods,
     fiscalYearsSorted,
@@ -2106,7 +2094,6 @@ export async function getExecutiveForecastDashboardSummary(args: {
     productsClosedWonByRep,
     quarterKpis,
     pipelineMomentum,
-    pipelineStageSnapshot,
     quota,
     crmForecast: {
       commit_amount: Number(totals.commit_amount || 0) || 0,

@@ -65,47 +65,36 @@ export function ExecutiveQuarterKpisModule(props: {
   period: { id: string; fiscal_year: string; fiscal_quarter: string; period_name: string; period_start: string; period_end: string } | null;
   quota: number;
   pipelineMomentum: PipelineMomentumData | null;
-  pipelineStageSnapshot: null | {
-    commit_amount: number;
-    commit_count: number;
-    best_case_amount: number;
-    best_case_count: number;
-    pipeline_amount: number;
-    pipeline_count: number;
-    total_active_amount: number;
-    total_active_count: number;
-    won_amount: number;
-    won_count: number;
-    lost_amount: number;
-    lost_count: number;
-  };
+  crmTotals: { commit_amount: number; best_case_amount: number; pipeline_amount: number; won_amount: number };
   quarterKpis: QuarterKpisSnapshot | null;
   repRollups?: Array<{ commit_amount: number; best_case_amount: number; pipeline_amount: number; won_amount: number; won_count: number }> | null;
   productsClosedWon?: Array<{ won_amount: number; won_count: number }> | null;
 }) {
   const period = props.period;
   const km = props.pipelineMomentum;
-  const stage = props.pipelineStageSnapshot;
   const kpis = props.quarterKpis;
 
-  // Sales Forecast values should match the KPI page semantics:
-  // stage + outcome totals scoped by rep_id OR normalized rep_name.
-  const commitAmt = stage?.commit_amount ?? null;
-  const bestAmt = stage?.best_case_amount ?? null;
-  const pipeAmt = stage?.pipeline_amount ?? null;
-  const totalPipelineAmt = stage?.total_active_amount ?? null;
+  // Use the same source of truth as the KPI page “Sales Forecast” block:
+  // - amounts from quarter-scoped CRM totals (open stages + won)
+  // - counts from the quarter stage snapshot (already computed server-side into pipelineMomentum)
+  const commitAmt = Number(props.crmTotals?.commit_amount ?? NaN);
+  const bestAmt = Number(props.crmTotals?.best_case_amount ?? NaN);
+  const pipeAmt = Number(props.crmTotals?.pipeline_amount ?? NaN);
+  const totalPipelineAmt = Number.isFinite(commitAmt) && Number.isFinite(bestAmt) && Number.isFinite(pipeAmt) ? commitAmt + bestAmt + pipeAmt : null;
 
-  const commitCount = stage?.commit_count ?? null;
-  const bestCount = stage?.best_case_count ?? null;
-  const pipeCount = stage?.pipeline_count ?? null;
-  const totalPipelineCount = stage?.total_active_count ?? null;
+  const commitCount = km?.current_quarter?.mix?.commit?.opps ?? null;
+  const bestCount = km?.current_quarter?.mix?.best_case?.opps ?? null;
+  const pipeCount = km?.current_quarter?.mix?.pipeline?.opps ?? null;
+  const totalPipelineCount =
+    km?.current_quarter?.total_opps ??
+    (commitCount != null && bestCount != null && pipeCount != null ? commitCount + bestCount + pipeCount : null);
 
-  const closedWonAmt = stage?.won_amount ?? null;
-  const closedWonCount = stage?.won_count ?? null;
+  const closedWonAmt = Number(props.crmTotals?.won_amount ?? NaN);
+  const closedWonCount = kpis?.wonCount ?? null;
 
   const quota = Number(props.quota || 0) || 0;
-  const pctToGoal = quota > 0 && closedWonAmt != null ? closedWonAmt / quota : null;
-  const remainingQuota = quota > 0 && closedWonAmt != null ? Math.max(0, quota - closedWonAmt) : null;
+  const pctToGoal = quota > 0 && Number.isFinite(closedWonAmt) ? closedWonAmt / quota : null;
+  const remainingQuota = quota > 0 && Number.isFinite(closedWonAmt) ? Math.max(0, quota - closedWonAmt) : null;
   const coverage =
     remainingQuota != null && remainingQuota > 0 && totalPipelineAmt != null && totalPipelineAmt > 0 ? totalPipelineAmt / remainingQuota : null;
   const covStatus = coverageStatus(coverage);
