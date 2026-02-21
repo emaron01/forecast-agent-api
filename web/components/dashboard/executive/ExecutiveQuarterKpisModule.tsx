@@ -189,7 +189,7 @@ export function ExecutiveQuarterKpisModule(props: {
   const createdMix = created?.current?.mix || null;
   const createdQoq = created?.qoq_total_amount_all_pct01 ?? created?.qoq_total_amount_pct01 ?? null;
   const createdActiveQoq = created?.qoq_total_amount_pct01 ?? null;
-  const boxClass = "min-w-0 overflow-hidden rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-2";
+  const boxClass = "min-w-0 overflow-hidden rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2";
 
   return (
     <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
@@ -208,25 +208,10 @@ export function ExecutiveQuarterKpisModule(props: {
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Forecast Mix</div>
-              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-                Pipeline created in quarter
-                {createdQoq != null ? (
-                  <>
-                    {" "}
-                    · compared to last quarter:{" "}
-                    <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtSignedPct(createdQoq, { digits: 0 })}</span>
-                  </>
-                ) : null}
-              </div>
-            </div>
-            <div className="text-xs text-[color:var(--sf-text-secondary)]">
-              Total{" "}
-              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(createdFromKpis.totalAmount)}</span> ·{" "}
-              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtNum(createdFromKpis.totalCount)}</span> opps
             </div>
           </div>
 
-          <div className="mt-3 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
+          <div className="mt-3 grid items-start gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
             {(() => {
               const cp = createdFromKpis;
               const Card = (p: { label: string; mix: number | null; amount: number; count: number; health: number | null }) => (
@@ -261,12 +246,11 @@ export function ExecutiveQuarterKpisModule(props: {
         <div className="mt-3 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Pipeline Created This Quarter (predicts next quarter)</div>
-              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Create date in-quarter. Active excludes won/lost.</div>
+              <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Pipeline Created This Quarter</div>
             </div>
           </div>
 
-          <div className="mt-3 grid gap-2 lg:grid-cols-3">
+          <div className="mt-3 grid items-start gap-2 lg:grid-cols-3">
             <div className="rounded-md border border-[color:var(--sf-text-secondary)]/20 bg-[color:var(--sf-surface-alt)] px-3 py-2">
               <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Created pipeline (value)</div>
               <div className="mt-0.5 font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(created.current?.total_amount)}</div>
@@ -320,7 +304,7 @@ export function ExecutiveQuarterKpisModule(props: {
           {createdMix ? (
             <div className="mt-3">
               <div className="text-[11px] font-semibold text-[color:var(--sf-text-primary)]">Forecast Mix (created opps)</div>
-              <div className="mt-2 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
+              <div className="mt-2 grid items-start gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
                 {(["commit", "best_case", "pipeline"] as const).map((k) => {
                   const m = (createdMix as any)?.[k] || null;
                   const amt = Number(m?.value || 0) || 0;
