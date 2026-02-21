@@ -184,6 +184,44 @@ export type ExecutiveForecastSummary = {
       won_amount: number;
       open_pipeline: number;
     }>;
+    previous: {
+      direct: {
+        opps: number;
+        won_opps: number;
+        lost_opps: number;
+        win_rate: number | null;
+        aov: number | null;
+        avg_days: number | null;
+        avg_health_score: number | null; // raw 0..30
+        won_amount: number;
+        lost_amount: number;
+        open_pipeline: number;
+      } | null;
+      partner: {
+        opps: number;
+        won_opps: number;
+        lost_opps: number;
+        win_rate: number | null;
+        aov: number | null;
+        avg_days: number | null;
+        avg_health_score: number | null; // raw 0..30
+        won_amount: number;
+        lost_amount: number;
+        open_pipeline: number;
+      } | null;
+      top_partners: Array<{
+        partner_name: string;
+        opps: number;
+        won_opps: number;
+        lost_opps: number;
+        win_rate: number | null;
+        aov: number | null;
+        avg_days: number | null;
+        avg_health_score: number | null; // raw 0..30
+        won_amount: number;
+        open_pipeline: number;
+      }>;
+    } | null;
   } | null;
 };
 
@@ -2023,6 +2061,52 @@ export async function getExecutiveForecastDashboardSummary(args: {
             return (CEI_raw_partner / CEI_raw_direct) * 100;
           })();
 
+          const previous = await (async () => {
+            if (!prevQpId) return null;
+            try {
+              const [motionStats0, topPartners0, openByMotion0, openByPartner0] = await Promise.all([
+                loadMotionStatsForPartners({ orgId: args.orgId, quotaPeriodId: prevQpId, repIds: scope.allowedRepIds }),
+                listPartnerRollupForExecutive({ orgId: args.orgId, quotaPeriodId: prevQpId, repIds: scope.allowedRepIds, limit: 30 }),
+                loadOpenPipelineByMotionForExecutive({ orgId: args.orgId, quotaPeriodId: prevQpId, repIds: scope.allowedRepIds }),
+                listOpenPipelineByPartnerForExecutive({ orgId: args.orgId, quotaPeriodId: prevQpId, repIds: scope.allowedRepIds, limit: 120 }),
+              ]);
+
+              const statsByMotion0 = new Map<string, MotionStatsRow>();
+              for (const r of motionStats0 || []) statsByMotion0.set(String(r.motion), r);
+              const direct0 = statsByMotion0.get("direct") || null;
+              const partner0 = statsByMotion0.get("partner") || null;
+
+              const openByMotionMap0 = new Map<string, OpenPipelineMotionRow>();
+              for (const r of openByMotion0 || []) openByMotionMap0.set(String(r.motion), r);
+              const directOpen0 = Number(openByMotionMap0.get("direct")?.open_amount || 0) || 0;
+              const partnerOpen0 = Number(openByMotionMap0.get("partner")?.open_amount || 0) || 0;
+
+              const openPartnerMap0 = new Map<string, number>();
+              for (const r of openByPartner0 || []) openPartnerMap0.set(String(r.partner_name || "").trim(), Number(r.open_amount || 0) || 0);
+
+              return {
+                direct: direct0
+                  ? {
+                      ...direct0,
+                      open_pipeline: directOpen0,
+                    }
+                  : null,
+                partner: partner0
+                  ? {
+                      ...partner0,
+                      open_pipeline: partnerOpen0,
+                    }
+                  : null,
+                top_partners: (topPartners0 || []).map((p) => ({
+                  ...p,
+                  open_pipeline: Number(openPartnerMap0.get(String(p.partner_name || "").trim()) || 0) || 0,
+                })),
+              };
+            } catch {
+              return null;
+            }
+          })();
+
           return {
             direct: direct
               ? {
@@ -2042,6 +2126,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
               ...p,
               open_pipeline: Number(openPartnerMap.get(String(p.partner_name || "").trim()) || 0) || 0,
             })),
+            previous,
           };
         } catch {
           return null;

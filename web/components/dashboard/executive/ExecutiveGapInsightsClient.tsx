@@ -432,6 +432,44 @@ export function ExecutiveGapInsightsClient(props: {
       won_amount: number;
       open_pipeline: number;
     }>;
+    previous: {
+      direct: {
+        opps: number;
+        won_opps: number;
+        lost_opps: number;
+        win_rate: number | null;
+        aov: number | null;
+        avg_days: number | null;
+        avg_health_score: number | null;
+        won_amount: number;
+        lost_amount: number;
+        open_pipeline: number;
+      } | null;
+      partner: {
+        opps: number;
+        won_opps: number;
+        lost_opps: number;
+        win_rate: number | null;
+        aov: number | null;
+        avg_days: number | null;
+        avg_health_score: number | null;
+        won_amount: number;
+        lost_amount: number;
+        open_pipeline: number;
+      } | null;
+      top_partners: Array<{
+        partner_name: string;
+        opps: number;
+        won_opps: number;
+        lost_opps: number;
+        win_rate: number | null;
+        aov: number | null;
+        avg_days: number | null;
+        avg_health_score: number | null;
+        won_amount: number;
+        open_pipeline: number;
+      }>;
+    } | null;
   } | null;
   quota: number;
   aiForecast: number;
@@ -1148,6 +1186,7 @@ export function ExecutiveGapInsightsClient(props: {
 
     const direct = pe.direct;
     const partner = pe.partner;
+    const prev = pe.previous || null;
 
     const denom = Number(direct.won_amount || 0) + Number(partner.won_amount || 0);
     const partnerMix = denom > 0 ? Number(partner.won_amount || 0) / denom : null;
@@ -1207,9 +1246,36 @@ export function ExecutiveGapInsightsClient(props: {
       })),
     ];
 
-    const gcVals = baseRows.map((r) => r.open_pipeline).filter((v) => Number.isFinite(v));
-    const aovValsAll = baseRows.map((r) => Number(r.aov ?? NaN)).filter((v) => Number.isFinite(v));
-    const daysValsAll = baseRows.map((r) => Number(r.avg_days ?? NaN)).filter((v) => Number.isFinite(v));
+    const prevBaseRows = prev?.direct
+      ? [
+          {
+            key: "direct",
+            label: "Direct",
+            open_pipeline: Number(prev.direct.open_pipeline || 0) || 0,
+            win_rate: prev.direct.win_rate,
+            avg_health_01: health01FromScore30(prev.direct.avg_health_score),
+            avg_days: prev.direct.avg_days,
+            aov: prev.direct.aov,
+            deal_count: prev.direct.opps,
+          },
+          ...(prev.top_partners || []).map((p) => ({
+            key: `partner:${String(p.partner_name)}`,
+            label: String(p.partner_name),
+            open_pipeline: Number(p.open_pipeline || 0) || 0,
+            win_rate: p.win_rate,
+            avg_health_01: health01FromScore30(p.avg_health_score),
+            avg_days: p.avg_days,
+            aov: p.aov,
+            deal_count: p.opps,
+          })),
+        ]
+      : [];
+
+    const boundsRows = prevBaseRows.length ? [...baseRows, ...prevBaseRows] : baseRows;
+
+    const gcVals = boundsRows.map((r) => r.open_pipeline).filter((v) => Number.isFinite(v));
+    const aovValsAll = boundsRows.map((r) => Number(r.aov ?? NaN)).filter((v) => Number.isFinite(v));
+    const daysValsAll = boundsRows.map((r) => Number(r.avg_days ?? NaN)).filter((v) => Number.isFinite(v));
     const gcMin = gcVals.length ? Math.min(...gcVals) : 0;
     const gcMax = gcVals.length ? Math.max(...gcVals) : 0;
     const aovMin = aovValsAll.length ? Math.min(...aovValsAll) : 0;
@@ -1217,7 +1283,7 @@ export function ExecutiveGapInsightsClient(props: {
     const daysMin = daysValsAll.length ? Math.min(...daysValsAll) : 0;
     const daysMax = daysValsAll.length ? Math.max(...daysValsAll) : 0;
 
-    const partnerOnly = baseRows.filter((r) => r.key.startsWith("partner:"));
+    const partnerOnly = boundsRows.filter((r) => r.key.startsWith("partner:"));
     const pAovVals = partnerOnly.map((r) => Number(r.aov ?? NaN)).filter((v) => Number.isFinite(v));
     const pDaysVals = partnerOnly.map((r) => Number(r.avg_days ?? NaN)).filter((v) => Number.isFinite(v));
     const pAovMin = pAovVals.length ? Math.min(...pAovVals) : 0;
@@ -1225,7 +1291,7 @@ export function ExecutiveGapInsightsClient(props: {
     const pDaysMin = pDaysVals.length ? Math.min(...pDaysVals) : 0;
     const pDaysMax = pDaysVals.length ? Math.max(...pDaysVals) : 0;
 
-    const scored = baseRows.map((r) => {
+    const scoreRow = (r: (typeof boundsRows)[number]) => {
       const GC = normalize(r.open_pipeline, gcMin, gcMax);
       const win = r.win_rate != null && Number.isFinite(r.win_rate) ? clamp01(Number(r.win_rate)) : null;
       const health01 = r.avg_health_01 != null && Number.isFinite(r.avg_health_01) ? clamp01(Number(r.avg_health_01)) : null;
@@ -1246,7 +1312,16 @@ export function ExecutiveGapInsightsClient(props: {
         PQS = clampScore100(PQS_raw * 100);
       }
 
-      return { ...r, wic: WIC, wic_band: wicBand(WIC), pqs: PQS };
+      return { wic: WIC, pqs: PQS };
+    };
+
+    const prevByKey = new Map<string, { wic: number; pqs: number | null }>();
+    for (const r of prevBaseRows) prevByKey.set(String(r.key), scoreRow(r));
+
+    const scored = baseRows.map((r) => {
+      const cur = scoreRow(r);
+      const prev0 = prevByKey.get(String(r.key)) || null;
+      return { ...r, wic: cur.wic, wic_prev: prev0?.wic ?? null, wic_band: wicBand(cur.wic), pqs: cur.pqs };
     });
 
     const cei = (() => {
@@ -2184,6 +2259,15 @@ export function ExecutiveGapInsightsClient(props: {
                         if (s.includes("maintain")) return "warn" as const;
                         return pill.tone;
                       })();
+                      const trendArrow = (() => {
+                        const cur = Number(r.wic);
+                        const prev = r.wic_prev == null ? null : Number(r.wic_prev);
+                        if (!Number.isFinite(cur) || prev == null || !Number.isFinite(prev)) return "—";
+                        const d = cur - prev;
+                        if (d >= 5) return "↑";
+                        if (d <= -5) return "↓";
+                        return "→";
+                      })();
                       return (
                         <div
                           key={r.key}
@@ -2201,46 +2285,19 @@ export function ExecutiveGapInsightsClient(props: {
                             </span>
                           </div>
 
-                          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-[color:var(--sf-text-secondary)]">
-                            <span>
-                              Open <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(r.open_pipeline)}</span>
-                            </span>
-                            <span>
-                              Win <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtPct01(r.win_rate)}</span>
-                            </span>
-                            <span>
-                              Health{" "}
-                              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
-                                {r.avg_health_01 == null ? "—" : `${Math.round(r.avg_health_01 * 100)}%`}
-                              </span>
-                            </span>
-                            <span>
-                              Days{" "}
-                              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
-                                {r.avg_days == null ? "—" : String(Math.round(Number(r.avg_days)))}
-                              </span>
-                            </span>
-                            <span className="col-span-2">
-                              AOV{" "}
-                              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
-                                {r.aov == null ? "—" : fmtMoney(r.aov)}
-                              </span>
-                            </span>
-                          </div>
-
-                          <div className="mt-2 flex items-end justify-between gap-4">
-                            <div className="grid">
-                              <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC</div>
-                              <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">
-                                {Math.round(r.wic).toLocaleString("en-US")}
-                              </div>
-                            </div>
-                            <div className="grid justify-items-end">
-                              <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">PQS</div>
-                              <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">
-                                {r.pqs == null ? "—" : Math.round(r.pqs).toLocaleString("en-US")}
-                              </div>
-                            </div>
+                          <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
+                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">WIC:</span>{" "}
+                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
+                              {Math.round(r.wic).toLocaleString("en-US")}
+                            </span>{" "}
+                            <span className="text-[color:var(--sf-text-secondary)]">|</span>{" "}
+                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">PQS:</span>{" "}
+                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
+                              {r.pqs == null ? "—" : Math.round(r.pqs).toLocaleString("en-US")}
+                            </span>{" "}
+                            <span className="text-[color:var(--sf-text-secondary)]">|</span>{" "}
+                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">Trend:</span>{" "}
+                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{trendArrow}</span>
                           </div>
                         </div>
                       );
