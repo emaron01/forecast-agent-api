@@ -13,8 +13,8 @@ function ActionCard({ href, title, desc }: { href: string; title: string; desc: 
       href={href}
       className="flex flex-col items-center justify-center rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 text-center shadow-sm hover:border-[color:var(--sf-accent-secondary)]"
     >
-      <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">{title}</div>
-      <div className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">{desc}</div>
+      <div className="text-sectionTitle text-[color:var(--sf-text-primary)]">{title}</div>
+      <div className="mt-1 text-meta">{desc}</div>
     </Link>
   );
 }
@@ -49,11 +49,11 @@ export default async function AnalyticsDetailDashboardPage({
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
-      <main className="mx-auto max-w-6xl p-6">
+      <main className="mx-auto max-w-6xl p-6 num-tabular">
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Detail dashboard</h1>
-            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+            <h1 className="text-pageTitle text-[color:var(--sf-text-primary)]">Detail dashboard</h1>
+            <p className="mt-1 text-body text-[color:var(--sf-text-secondary)]">
               Under Analytics as a report.{" "}
               <Link className="text-[color:var(--sf-accent-primary)] hover:underline" href="/dashboard/executive">
                 Back to Executive Dashboard
@@ -77,7 +77,7 @@ export default async function AnalyticsDetailDashboardPage({
         {ctx.user.role === "MANAGER" ? (
           <section className="mt-6 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">My reps</h2>
+              <h2 className="text-sectionTitle text-[color:var(--sf-text-primary)]">My reps</h2>
               <Link
                 href="/admin/users"
                 className="text-sm text-[color:var(--sf-accent-primary)] hover:text-[color:var(--sf-accent-secondary)] hover:underline"
@@ -86,8 +86,8 @@ export default async function AnalyticsDetailDashboardPage({
               </Link>
             </div>
             <div className="mt-3 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
+              <table className="w-full text-left">
+                <thead className="bg-[color:var(--sf-surface-alt)] text-tableLabel">
                   <tr>
                     <th className="px-4 py-3">name</th>
                     <th className="px-4 py-3">email</th>
@@ -95,7 +95,7 @@ export default async function AnalyticsDetailDashboardPage({
                     <th className="px-4 py-3 text-right">dashboard</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="text-tableValue text-[color:var(--sf-text-primary)]">
                   {reps.length ? (
                     reps.map((u) => (
                       <tr key={u.public_id} className="border-t border-[color:var(--sf-border)]">

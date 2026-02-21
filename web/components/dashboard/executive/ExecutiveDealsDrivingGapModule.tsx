@@ -151,8 +151,8 @@ export function ExecutiveDealsDrivingGapModule(props: {
     <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{props.title}</div>
-          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+          <div className="text-sectionTitle text-[color:var(--sf-text-primary)]">{props.title}</div>
+          <div className="mt-1 text-meta">
             {props.subtitle || "Top impact deals (click a row to drill into MEDDPICC+TB coaching)."}
           </div>
         </div>
@@ -160,7 +160,7 @@ export function ExecutiveDealsDrivingGapModule(props: {
 
       <div className="mt-4 overflow-auto rounded-lg border border-[color:var(--sf-border)]">
         <div className="min-w-[980px]">
-          <div className="grid grid-cols-[120px_1.6fr_140px_140px_120px_110px_140px_40px] gap-0 bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+          <div className="grid grid-cols-[120px_1.6fr_140px_140px_120px_110px_140px_40px] gap-0 bg-[color:var(--sf-surface-alt)] text-tableLabel">
             <div className="px-3 py-2">Risk</div>
             <div className="px-3 py-2">Deal</div>
             <div className="px-3 py-2">Sales Rep</div>
@@ -188,7 +188,7 @@ export function ExecutiveDealsDrivingGapModule(props: {
                 <div key={id} className="border-t border-[color:var(--sf-border)]">
                   <button
                     type="button"
-                    className="grid w-full grid-cols-[120px_1.6fr_140px_140px_120px_110px_140px_40px] items-center text-left text-sm text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
+                    className="grid w-full grid-cols-[120px_1.6fr_140px_140px_120px_110px_140px_40px] items-center text-left text-tableValue text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
                     aria-expanded={open}
                     aria-controls={detailsId}
                     onClick={() => {
@@ -202,14 +202,14 @@ export function ExecutiveDealsDrivingGapModule(props: {
                       </span>
                     </div>
                     <div className="px-3 py-2 font-medium">{dealTitle(d)}</div>
-                    <div className="px-3 py-2 text-xs text-[color:var(--sf-text-secondary)]">{dealRep(d)}</div>
-                    <div className="px-3 py-2 text-xs text-[color:var(--sf-text-secondary)]">{stage}</div>
-                    <div className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(d.amount)}</div>
-                    <div className={`px-3 py-2 text-right font-mono text-xs ${healthTextClass(d.health?.health_pct ?? null)}`}>
+                    <div className="px-3 py-2 text-meta">{dealRep(d)}</div>
+                    <div className="px-3 py-2 text-meta">{stage}</div>
+                    <div className="px-3 py-2 text-right text-tableValue num-tabular">{fmtMoney(d.amount)}</div>
+                    <div className={`px-3 py-2 text-right text-tableValue num-tabular ${healthTextClass(d.health?.health_pct ?? null)}`}>
                       {d.health?.health_pct == null ? "—" : `${d.health.health_pct}%`}
                     </div>
-                    <div className={`px-3 py-2 text-right font-mono text-xs ${deltaTextClass(Number(d.weighted?.gap || 0) || 0)}`}>{fmtMoney(d.weighted?.gap)}</div>
-                    <div className="px-3 py-2 text-right text-[color:var(--sf-text-secondary)]">{open ? "▾" : "›"}</div>
+                    <div className={`px-3 py-2 text-right text-tableValue num-tabular ${deltaTextClass(Number(d.weighted?.gap || 0) || 0)}`}>{fmtMoney(d.weighted?.gap)}</div>
+                    <div className="px-3 py-2 text-right text-meta">{open ? "▾" : "›"}</div>
                   </button>
 
                   <div

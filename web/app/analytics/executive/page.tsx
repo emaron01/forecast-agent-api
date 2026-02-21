@@ -870,11 +870,11 @@ export default async function ExecutiveAnalyticsKpisPage({
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
-      <main className="mx-auto max-w-7xl p-6">
+      <main className="mx-auto max-w-7xl p-6 num-tabular">
         <div className="flex items-end justify-between gap-4">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Executive KPIs</h1>
-            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+            <h1 className="text-pageTitle text-[color:var(--sf-text-primary)]">Executive KPIs</h1>
+            <p className="mt-1 text-body text-[color:var(--sf-text-secondary)]">
               Quarter KPIs driven by <span className="font-mono text-xs">forecast_stage</span> and quarter scoping via{" "}
               <span className="font-mono text-xs">close_date</span> (new-pipeline uses <span className="font-mono text-xs">create_date</span>) (scope: {scopeLabel}).
             </p>
@@ -887,7 +887,7 @@ export default async function ExecutiveAnalyticsKpisPage({
         </div>
 
         <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Filters</h2>
+          <h2 className="text-sectionTitle text-[color:var(--sf-text-primary)]">Filters</h2>
           <ExecutiveKpisFiltersClient
             periods={periods as any}
             managers={managers as any}
@@ -910,8 +910,8 @@ export default async function ExecutiveAnalyticsKpisPage({
           <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">KPI summary</h2>
-                <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+                <h2 className="text-sectionTitle text-[color:var(--sf-text-primary)]">KPI summary</h2>
+                <p className="mt-1 text-body text-[color:var(--sf-text-secondary)]">
                   Period: <span className="font-mono text-xs">{curr.period_start}</span> → <span className="font-mono text-xs">{curr.period_end}</span>
                   {prev ? (
                     <>
@@ -1062,8 +1062,8 @@ export default async function ExecutiveAnalyticsKpisPage({
           <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Rep comparison</h2>
-                <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+                <h2 className="text-sectionTitle text-[color:var(--sf-text-primary)]">Rep comparison</h2>
+                <p className="mt-1 text-body text-[color:var(--sf-text-secondary)]">
                   Quarter-scoped by <span className="font-mono text-xs">close_date</span> in the selected period. Won/Lost/Open are derived from{" "}
                   <span className="font-mono text-xs">forecast_stage</span> only.
                 </p>

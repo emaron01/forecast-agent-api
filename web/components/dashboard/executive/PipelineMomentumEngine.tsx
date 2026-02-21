@@ -127,7 +127,7 @@ function StatCol(props: { k: ForecastMixKey; pct: number; value: number; opps: n
 function fmtDays(n: number | null) {
   if (n == null || !Number.isFinite(n)) return "—";
   const v = Math.round(n);
-  return `${v.toLocaleString()} day${v === 1 ? "" : "s"}`;
+  return `${v.toLocaleString("en-US")} day${v === 1 ? "" : "s"}`;
 }
 
 function fmtPct01Plain(p01: number | null) {

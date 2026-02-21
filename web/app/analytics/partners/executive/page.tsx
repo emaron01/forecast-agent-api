@@ -905,11 +905,11 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
-      <main className="mx-auto max-w-7xl p-6">
+      <main className="mx-auto max-w-7xl p-6 num-tabular">
         <div className="flex items-end justify-between gap-4">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Top Partners</h1>
-            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+            <h1 className="text-pageTitle text-[color:var(--sf-text-primary)]">Top Partners</h1>
+            <p className="mt-1 text-body text-[color:var(--sf-text-secondary)]">
               Top 10 deals by revenue in the quarter (Won + Closed Loss) with a partner. Health colors match the Opportunity Score Cards view.
             </p>
           </div>
@@ -921,7 +921,7 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
         </div>
 
         <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Filters</h2>
+          <h2 className="text-sectionTitle text-[color:var(--sf-text-primary)]">Filters</h2>
           <TopDealsFiltersClient
             basePath="/analytics/partners/executive"
             fiscalYears={fiscalYearValues}
@@ -945,21 +945,21 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
           <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Direct vs Partner performance (this quarter)</h2>
-                <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+                <h2 className="text-sectionTitle text-[color:var(--sf-text-primary)]">Direct vs Partner performance (this quarter)</h2>
+                <p className="mt-1 text-body text-[color:var(--sf-text-secondary)]">
                   Compares closed outcomes in the selected date range. Use this to validate “channel efficiency” and coverage decisions.
                 </p>
               </div>
             </div>
 
             <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Executive narrative</div>
-              <div className="mt-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">{executiveNarrative}</div>
+              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Executive narrative</div>
+              <div className="mt-2 text-body font-[600] text-[color:var(--sf-text-primary)]">{executiveNarrative}</div>
             </div>
 
             <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
-              <table className="min-w-[980px] w-full table-auto border-collapse text-sm">
-                <thead className="bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)]">
+              <table className="min-w-[980px] w-full table-auto border-collapse">
+                <thead className="bg-[color:var(--sf-surface)] text-tableLabel">
                   <tr>
                     <th className="px-4 py-3 text-left">motion</th>
                     <th className="px-4 py-3 text-right"># opps</th>
@@ -973,24 +973,24 @@ export default async function AnalyticsTopPartnersPage({ searchParams }: { searc
                     <th className="px-4 py-3 text-right">revenue mix</th>
                   </tr>
                 </thead>
-                <tbody className="text-[color:var(--sf-text-primary)]">
+                <tbody className="text-tableValue text-[color:var(--sf-text-primary)]">
                   {[
                     { k: "Direct", r: directStats },
                     { k: "Partner", r: partnerStats },
                   ].map((row) => (
                     <tr key={row.k} className="border-t border-[color:var(--sf-border)]">
                       <td className="px-4 py-3 font-semibold">{row.k}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{row.r ? String(row.r.opps) : "—"}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{row.r ? String(row.r.won_opps) : "—"}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{row.r ? String(row.r.lost_opps) : "—"}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{row.r ? fmtPct01(row.r.win_rate) : "—"}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">
+                      <td className="px-4 py-3 text-right num-tabular">{row.r ? String(row.r.opps) : "—"}</td>
+                      <td className="px-4 py-3 text-right num-tabular">{row.r ? String(row.r.won_opps) : "—"}</td>
+                      <td className="px-4 py-3 text-right num-tabular">{row.r ? String(row.r.lost_opps) : "—"}</td>
+                      <td className="px-4 py-3 text-right num-tabular">{row.r ? fmtPct01(row.r.win_rate) : "—"}</td>
+                      <td className="px-4 py-3 text-right num-tabular">
                         {row.r?.avg_health_score == null ? "—" : `${Math.round((Number(row.r.avg_health_score) / 30) * 100)}%`}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{row.r?.avg_days == null ? "—" : String(Math.round(Number(row.r.avg_days)))}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{row.r?.aov == null ? "—" : fmtMoney(row.r.aov)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{row.r ? fmtMoney(row.r.won_amount) : "—"}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">
+                      <td className="px-4 py-3 text-right num-tabular">{row.r?.avg_days == null ? "—" : String(Math.round(Number(row.r.avg_days)))}</td>
+                      <td className="px-4 py-3 text-right num-tabular">{row.r?.aov == null ? "—" : fmtMoney(row.r.aov)}</td>
+                      <td className="px-4 py-3 text-right num-tabular">{row.r ? fmtMoney(row.r.won_amount) : "—"}</td>
+                      <td className="px-4 py-3 text-right num-tabular">
                         {row.k === "Direct" ? fmtPct01(directSharePct) : row.k === "Partner" ? fmtPct01(partnerSharePct) : "—"}
                       </td>
                     </tr>

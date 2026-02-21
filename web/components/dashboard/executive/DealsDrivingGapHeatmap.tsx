@@ -18,7 +18,7 @@ export type HeatmapDealRow = {
 function fmtMoney(n: any) {
   const v = Number(n || 0);
   if (!Number.isFinite(v)) return "—";
-  return v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  return v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
 function deltaTextClass(n: number) {

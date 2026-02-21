@@ -183,8 +183,8 @@ export function PartnerAiStrategicTakeawayClient(props: { payload: any }) {
     <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">✨ AI Strategic Takeaways</div>
-          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+          <div className="text-sectionTitle text-[color:var(--sf-text-primary)]">✨ AI Strategic Takeaways</div>
+          <div className="mt-1 text-meta">
             CRO-grade interpretation of Direct vs Partner performance, with recommendations for coverage and channel investment.
           </div>
         </div>
@@ -216,11 +216,11 @@ export function PartnerAiStrategicTakeawayClient(props: { payload: any }) {
         </div>
       </div>
 
-      {toast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{toast}</div> : null}
-      {copied ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
+      {toast ? <div className="mt-3 text-meta font-[500]">{toast}</div> : null}
+      {copied ? <div className="mt-3 text-meta font-[500]">Copied.</div> : null}
 
       {loading ? (
-        <div className="mt-3 text-sm text-[color:var(--sf-text-secondary)]">Generating strategic takeaways…</div>
+        <div className="mt-3 text-body text-[color:var(--sf-text-secondary)]">Generating strategic takeaways…</div>
       ) : summary || extended ? (
         <div className="mt-3 grid gap-3">
           {summary ? (
@@ -235,7 +235,7 @@ export function PartnerAiStrategicTakeawayClient(props: { payload: any }) {
           ) : null}
         </div>
       ) : (
-        <div className="mt-3 text-sm text-[color:var(--sf-text-secondary)]">No AI takeaway available.</div>
+        <div className="mt-3 text-body text-[color:var(--sf-text-secondary)]">No AI takeaway available.</div>
       )}
     </section>
   );

@@ -13,6 +13,10 @@ body {
 
 /* SalesForecast.io palette (dark mode defaults) */
 :root {
+  /* Typography */
+  --sf-font-sans: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  --sf-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
   /* Core surfaces */
   --sf-background: #0d1b2a;
   --sf-surface: #1b263b;
@@ -51,4 +55,95 @@ body {
   /* Compatibility aliases (older token names used in some components) */
   --sf-accent: var(--sf-accent-primary);
   --sf-accent-hover: var(--sf-accent-primary-hover);
+}
+
+@layer base {
+  body {
+    font-family: var(--sf-font-sans);
+    font-size: 14px;
+    line-height: 1.45;
+    font-weight: 450;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer components {
+  /* Semantic typography tokens (desktop defaults) */
+  .text-pageTitle {
+    font-size: 24px;
+    line-height: 1.2;
+    font-weight: 650;
+  }
+
+  .text-sectionTitle {
+    font-size: 16px;
+    line-height: 1.3;
+    font-weight: 600;
+  }
+
+  .text-cardLabel {
+    font-size: 12px;
+    line-height: 1.2;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  .text-body {
+    font-size: 14px;
+    line-height: 1.45;
+    font-weight: 450;
+  }
+
+  .text-meta {
+    font-size: 12px;
+    line-height: 1.35;
+    font-weight: 450;
+    color: var(--sf-text-secondary);
+  }
+
+  .text-kpiHero {
+    font-size: 32px;
+    line-height: 1.1;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .text-kpiValue {
+    font-size: 24px;
+    line-height: 1.15;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .text-kpiSupport {
+    font-size: 18px;
+    line-height: 1.2;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .text-tableValue {
+    font-size: 14px;
+    line-height: 1.35;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .text-tableLabel {
+    font-size: 12px;
+    line-height: 1.2;
+    font-weight: 600;
+    color: var(--sf-text-secondary);
+  }
+}
+
+@layer utilities {
+  /* Numeric helper (use alongside other tokens when needed) */
+  .num-tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
 }

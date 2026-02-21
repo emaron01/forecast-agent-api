@@ -1374,7 +1374,7 @@ export function ExecutiveGapInsightsClient(props: {
   };
 
   const heroCard = "h-full rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm";
-  const heroVal = "mt-2 font-mono text-xl font-semibold text-[color:var(--sf-text-primary)]";
+  const heroVal = "mt-2 text-kpiValue text-[color:var(--sf-text-primary)]";
 
   const productDelta = (cur: number, prev: number) => {
     const d = cur - prev;
@@ -1387,7 +1387,7 @@ export function ExecutiveGapInsightsClient(props: {
 
   return (
     <div className="grid gap-4">
-      <section className="w-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-6 shadow-sm">
+      <section className="w-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(360px,620px)] lg:items-start">
           <div className="min-w-0">
             <div className="flex items-center justify-center">
@@ -1405,8 +1405,8 @@ export function ExecutiveGapInsightsClient(props: {
 
             <div className="mt-4">
               <div className="text-left">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quarter End Outlook</div>
-                <div className="mt-1 font-mono text-5xl font-extrabold tracking-tight text-[color:var(--sf-text-primary)] sm:text-6xl">
+                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quarter End Outlook</div>
+                <div className="mt-1 text-kpiHero text-[color:var(--sf-text-primary)]">
                   {props.aiPctToGoal == null || !Number.isFinite(props.aiPctToGoal) ? "—" : `${Math.round(props.aiPctToGoal * 100)}%`}
                 </div>
               </div>
@@ -1448,7 +1448,7 @@ export function ExecutiveGapInsightsClient(props: {
                         : "border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]";
                 return (
                   <div className="mt-5">
-                    <span className={`inline-flex rounded-full border px-3 py-1 text-sm font-semibold ${pill}`}>{c.label}</span>
+                    <span className={`inline-flex rounded-full border px-3 py-1 text-meta font-[500] ${pill}`}>{c.label}</span>
                   </div>
                 );
               })()}
@@ -1473,52 +1473,52 @@ export function ExecutiveGapInsightsClient(props: {
                   return (
                     <>
                       <div className={heroCard}>
-                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Closed Won (QTD)</div>
+                        <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Closed Won (QTD)</div>
                         <div className={heroVal}>{fmtMoney(curRev)}</div>
                         <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
-                          <div className={["flex items-center gap-2 font-mono text-sm font-semibold leading-none", rev.tone].join(" ")}>
+                          <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", rev.tone].join(" ")}>
                             <div>{prevProd ? fmtMoney(rev.d) : "—"}</div>
                             <div aria-hidden="true" className="text-base leading-none">
                               {rev.arrow}
                             </div>
                           </div>
-                          <div className="min-w-0 truncate text-right text-sm font-semibold text-[color:var(--sf-text-secondary)]">
+                          <div className="min-w-0 truncate text-right text-meta">
                             Last Quarter{" "}
-                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{prevProd ? fmtMoney(prevRev) : "—"}</span>
+                            <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? fmtMoney(prevRev) : "—"}</span>
                           </div>
                         </div>
                       </div>
 
                       <div className={heroCard}>
-                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Total Orders</div>
+                        <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Total Orders</div>
                         <div className={heroVal}>{curOrders.toLocaleString("en-US")}</div>
                         <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
-                          <div className={["flex items-center gap-2 font-mono text-sm font-semibold leading-none", ord.tone].join(" ")}>
+                          <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", ord.tone].join(" ")}>
                             <div>{prevProd ? fmtSignedInt(ord.d) : "—"}</div>
                             <div aria-hidden="true" className="text-base leading-none">
                               {ord.arrow}
                             </div>
                           </div>
-                          <div className="min-w-0 truncate text-right text-sm font-semibold text-[color:var(--sf-text-secondary)]">
+                          <div className="min-w-0 truncate text-right text-meta">
                             Last Quarter{" "}
-                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{prevProd ? prevOrders.toLocaleString("en-US") : "—"}</span>
+                            <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? prevOrders.toLocaleString("en-US") : "—"}</span>
                           </div>
                         </div>
                       </div>
 
                       <div className={heroCard}>
-                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Blended ACV</div>
+                        <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Blended ACV</div>
                         <div className={heroVal}>{fmtMoney(curAcv)}</div>
                         <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
-                          <div className={["flex items-center gap-2 font-mono text-sm font-semibold leading-none", acv.tone].join(" ")}>
+                          <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", acv.tone].join(" ")}>
                             <div>{prevProd ? fmtMoney(acv.d) : "—"}</div>
                             <div aria-hidden="true" className="text-base leading-none">
                               {acv.arrow}
                             </div>
                           </div>
-                          <div className="min-w-0 truncate text-right text-sm font-semibold text-[color:var(--sf-text-secondary)]">
+                          <div className="min-w-0 truncate text-right text-meta">
                             Last Quarter{" "}
-                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{prevProd ? fmtMoney(prevAcv) : "—"}</span>
+                            <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? fmtMoney(prevAcv) : "—"}</span>
                           </div>
                         </div>
                       </div>
@@ -1529,19 +1529,19 @@ export function ExecutiveGapInsightsClient(props: {
 
               <div className="contents">
                 <div className={[heroCard, "h-auto"].join(" ")}>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Avg Health Closed Won</div>
-                  <div className={heroVal}>
-                    <span className={healthColorClass(avgHealthWon)}>{avgHealthWon == null ? "—" : `${avgHealthWon}%`}</span>
+                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Health Closed Won</div>
+                  <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
+                    <span className={["num-tabular", healthColorClass(avgHealthWon)].join(" ")}>{avgHealthWon == null ? "—" : `${avgHealthWon}%`}</span>
                   </div>
                 </div>
                 <div className={heroCard}>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
-                  <div className={heroVal}>{fmtPct(oppToWin)}</div>
+                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
+                  <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">{fmtPct(oppToWin)}</div>
                 </div>
                 <div className={heroCard}>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Avg Health Closed Loss</div>
-                  <div className={heroVal}>
-                    <span className={healthColorClass(avgHealthLost)}>{avgHealthLost == null ? "—" : `${avgHealthLost}%`}</span>
+                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Health Closed Loss</div>
+                  <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
+                    <span className={["num-tabular", healthColorClass(avgHealthLost)].join(" ")}>{avgHealthLost == null ? "—" : `${avgHealthLost}%`}</span>
                   </div>
                 </div>
               </div>
@@ -1552,15 +1552,15 @@ export function ExecutiveGapInsightsClient(props: {
         <div className="mt-4 grid gap-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
-              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
-              <div className="mt-1 text-[11px] font-semibold text-[color:var(--sf-text-secondary)]">Closed Won</div>
-              <div className="mt-2 font-mono text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtDays(props.quarterKpis?.wonAvgDays ?? null)}</div>
+              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
+              <div className="mt-1 text-tableLabel">Closed Won</div>
+              <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">{fmtDays(props.quarterKpis?.wonAvgDays ?? null)}</div>
             </div>
 
             <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
-              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
-              <div className="mt-1 text-[11px] font-semibold text-[color:var(--sf-text-secondary)]">Remaining Pipeline</div>
-              <div className={["mt-2 font-mono text-lg font-semibold text-[color:var(--sf-text-primary)]"].join(" ")}>
+              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
+              <div className="mt-1 text-tableLabel">Remaining Pipeline</div>
+              <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
                 {fmtDays(props.quarterKpis?.agingAvgDays ?? null)}
               </div>
             </div>
@@ -1570,7 +1570,7 @@ export function ExecutiveGapInsightsClient(props: {
 
           <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
                 This Quarter’s Outlook Driven By: ✨ AI Strategic Takeaway
               </div>
               <div className="flex items-center gap-2">
@@ -1657,11 +1657,11 @@ export function ExecutiveGapInsightsClient(props: {
 
         <section className="self-start rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
           <div className="flex flex-wrap items-end justify-between gap-3">
-            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
               Quick Account Review - Top {radarTopN}
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs text-[color:var(--sf-text-secondary)]">Show</span>
+              <span className="text-meta">Show</span>
               <select
                 value={radarTopN}
                 onChange={(e) => setRadarTopN(clampInt(Number(e.target.value) || 50, 5, 50))}

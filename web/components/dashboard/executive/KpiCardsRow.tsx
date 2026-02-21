@@ -3,7 +3,7 @@
 function fmtMoney(n: any) {
   const v = Number(n || 0);
   if (!Number.isFinite(v)) return "—";
-  return v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  return v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
 function deltaTextClass(v: number) {
@@ -34,14 +34,14 @@ export function KpiCardsRow(props: {
   const bar = (v: number) => `${Math.round(clamp01(Math.abs(v) / absMax) * 100)}%`;
 
   const card = "rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm";
-  const val = "mt-2 font-mono text-xl font-semibold text-[color:var(--sf-text-primary)]";
+  const val = "mt-2 text-kpiValue text-[color:var(--sf-text-primary)]";
 
   const fmtSignedInt = (n: number) => {
     const v = Number(n || 0);
     if (!Number.isFinite(v)) return "—";
     if (v === 0) return "0";
     const abs = Math.abs(Math.trunc(v));
-    return `${v > 0 ? "+" : "-"}${abs.toLocaleString()}`;
+    return `${v > 0 ? "+" : "-"}${abs.toLocaleString("en-US")}`;
   };
 
   const ProductTile = (p: {
@@ -58,11 +58,11 @@ export function KpiCardsRow(props: {
     const arrow = up ? "↑" : down ? "↓" : "→";
     return (
       <div className={card}>
-        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">{p.label}</div>
+        <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">{p.label}</div>
         <div className={val}>{p.curText}</div>
-        <div className="mt-1 grid grid-cols-[1fr_auto] items-start gap-3 text-xs text-[color:var(--sf-text-secondary)]">
+        <div className="mt-1 grid grid-cols-[1fr_auto] items-start gap-3 text-meta">
           <div className="min-w-0 truncate">Last Quarter {p.prevText}</div>
-          <div className={["grid justify-items-end font-mono text-xs font-semibold leading-none", tone].join(" ")}>
+          <div className={["grid justify-items-end text-meta font-[500] leading-none num-tabular", tone].join(" ")}>
             <div aria-hidden="true" className="text-sm leading-none">
               {arrow}
             </div>
@@ -87,19 +87,19 @@ export function KpiCardsRow(props: {
   const attributionCardClass = [card, variant === "forecast_only" ? "sm:col-span-2 lg:col-span-3" : ""].join(" ");
   const ForecastStageGapAttributionCard = (
     <div className={attributionCardClass}>
-      <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Forecast Stage Gap Attribution</div>
-      <div className="mt-3 grid gap-2 text-xs text-[color:var(--sf-text-primary)]">
+      <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Forecast Stage Gap Attribution</div>
+      <div className="mt-3 grid gap-2 text-tableValue text-[color:var(--sf-text-primary)]">
         {[
           { label: "Commit impact", v: props.bucketDeltas.commit },
           { label: "Best Case", v: props.bucketDeltas.best_case },
           { label: "Pipeline", v: props.bucketDeltas.pipeline },
         ].map((x) => (
           <div key={x.label} className="grid grid-cols-[110px_1fr_84px] items-center gap-3">
-            <div className="text-[color:var(--sf-text-secondary)]">{x.label}</div>
+            <div className="text-tableLabel">{x.label}</div>
             <div className="h-2 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
               <div className={`h-full rounded-full ${x.v >= 0 ? "bg-[#2ECC71]" : "bg-[#E74C3C]"}`} style={{ width: bar(x.v) }} aria-hidden="true" />
             </div>
-            <div className={`text-right font-mono ${deltaTextClass(x.v)}`}>{fmtMoney(x.v)}</div>
+            <div className={`text-right num-tabular ${deltaTextClass(x.v)}`}>{fmtMoney(x.v)}</div>
           </div>
         ))}
       </div>
@@ -119,8 +119,8 @@ export function KpiCardsRow(props: {
           />
           <ProductTile
             label="Total Orders"
-            curText={curOrders.toLocaleString()}
-            prevText={prev ? prevOrders.toLocaleString() : "—"}
+            curText={curOrders.toLocaleString("en-US")}
+            prevText={prev ? prevOrders.toLocaleString("en-US") : "—"}
             deltaText={prev ? fmtSignedInt(curOrders - prevOrders) : "—"}
             delta={prev ? curOrders - prevOrders : null}
           />
@@ -141,27 +141,27 @@ export function KpiCardsRow(props: {
       <section className="grid gap-3">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
           <div className={card}>
-            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quota</div>
+            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quota</div>
             <div className={val}>{fmtMoney(props.quota)}</div>
           </div>
 
           <div className={card}>
-            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">AI Forecast Outlook</div>
+            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">AI Forecast Outlook</div>
             <div className={val}>{fmtMoney(props.aiForecast)}</div>
-            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">SalesForecast.io AI‑weighted</div>
+            <div className="mt-1 text-meta">SalesForecast.io AI‑weighted</div>
           </div>
 
           <div className={card}>
-            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CRM Forecast Outlook</div>
+            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">CRM Forecast Outlook</div>
             <div className={val}>{fmtMoney(props.crmForecast)}</div>
-            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Your organization’s probabilities</div>
+            <div className="mt-1 text-meta">Your organization’s probabilities</div>
           </div>
 
           <div className={card}>
-            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">AI Adjustment vs CRM</div>
-            <div className={`mt-2 font-mono text-xl font-semibold ${deltaTextClass(props.gap)}`}>{fmtMoney(props.gap)}</div>
-            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Outlook delta (AI − CRM)</div>
-            {props.dealsAtRisk != null ? <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Deals at risk: {props.dealsAtRisk}</div> : null}
+            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">AI Adjustment vs CRM</div>
+            <div className={`mt-2 text-kpiValue ${deltaTextClass(props.gap)}`}>{fmtMoney(props.gap)}</div>
+            <div className="mt-1 text-meta">Outlook delta (AI − CRM)</div>
+            {props.dealsAtRisk != null ? <div className="mt-1 text-meta">Deals at risk: {props.dealsAtRisk}</div> : null}
           </div>
 
           {ForecastStageGapAttributionCard}
@@ -174,28 +174,28 @@ export function KpiCardsRow(props: {
     <section className="grid gap-3">
       <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
         <div className={card}>
-          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quota</div>
+          <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quota</div>
           <div className={val}>{fmtMoney(props.quota)}</div>
         </div>
 
         <div className={card}>
-          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">AI Forecast Outlook</div>
+          <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">AI Forecast Outlook</div>
           <div className={val}>{fmtMoney(props.aiForecast)}</div>
-          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">SalesForecast.io AI‑weighted</div>
+          <div className="mt-1 text-meta">SalesForecast.io AI‑weighted</div>
         </div>
 
         <div className={card}>
-          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CRM Forecast Outlook</div>
+          <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">CRM Forecast Outlook</div>
           <div className={val}>{fmtMoney(props.crmForecast)}</div>
-          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Your organization’s probabilities</div>
+          <div className="mt-1 text-meta">Your organization’s probabilities</div>
         </div>
 
         <div className={card}>
-          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">AI Adjustment vs CRM</div>
-          <div className={`mt-2 font-mono text-xl font-semibold ${deltaTextClass(props.gap)}`}>{fmtMoney(props.gap)}</div>
-          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Outlook delta (AI − CRM)</div>
+          <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">AI Adjustment vs CRM</div>
+          <div className={`mt-2 text-kpiValue ${deltaTextClass(props.gap)}`}>{fmtMoney(props.gap)}</div>
+          <div className="mt-1 text-meta">Outlook delta (AI − CRM)</div>
           {props.dealsAtRisk != null ? (
-            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Deals at risk: {props.dealsAtRisk}</div>
+            <div className="mt-1 text-meta">Deals at risk: {props.dealsAtRisk}</div>
           ) : null}
         </div>
 
@@ -208,8 +208,8 @@ export function KpiCardsRow(props: {
         />
         <ProductTile
           label="Total Orders"
-          curText={curOrders.toLocaleString()}
-          prevText={prev ? prevOrders.toLocaleString() : "—"}
+          curText={curOrders.toLocaleString("en-US")}
+          prevText={prev ? prevOrders.toLocaleString("en-US") : "—"}
           deltaText={prev ? fmtSignedInt(curOrders - prevOrders) : "—"}
           delta={prev ? curOrders - prevOrders : null}
         />
