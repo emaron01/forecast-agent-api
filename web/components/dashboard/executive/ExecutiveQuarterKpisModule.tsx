@@ -132,7 +132,7 @@ export function ExecutiveQuarterKpisModule(props: {
 
       <div className="mt-4 grid gap-3">
         <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
-          <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Sales Forecast</div>
+          <div className="text-xs font-semibold text-[color:var(--sf-text-primary)]">Remaining Quarterly Forecast</div>
 
           <div className="mt-2 grid w-full max-w-full gap-2 text-sm [grid-template-columns:repeat(auto-fit,minmax(140px,1fr))]">
             {cards.map((c) => (
