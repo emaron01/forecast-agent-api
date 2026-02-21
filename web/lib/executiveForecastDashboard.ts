@@ -1005,63 +1005,14 @@ export async function getExecutiveForecastDashboardSummary(args: {
       ? (roleRaw as "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP")
       : ("REP" as const);
 
-  const visibleUsers = await getVisibleUsers({
-    currentUserId: args.user.id,
-    orgId: args.orgId,
-    role: scopedRole,
-    hierarchy_level: (args.user as any).hierarchy_level,
-    see_all_visibility: (args.user as any).see_all_visibility,
-  }).catch(() => []);
-
-  const visibleRepUsers = (visibleUsers || []).filter((u: any) => u && u.role === "REP" && u.active);
-  const visibleRepUserIds = Array.from(new Set(visibleRepUsers.map((u: any) => Number(u.id)).filter((n: number) => Number.isFinite(n) && n > 0)));
-  const visibleRepNameKeys = Array.from(
-    new Set(
-      visibleRepUsers
-        .flatMap((u: any) => [normalizeNameKey(u.account_owner_name || ""), normalizeNameKey(u.display_name || ""), normalizeNameKey(u.email || "")])
-        .filter(Boolean)
-    )
-  );
-
-  // Map visible REP users -> rep ids when possible (opportunities.rep_id is reps.id).
-  let repIdsToUse =
-    visibleRepUserIds.length || visibleRepNameKeys.length
-      ? await pool
-          .query<{ id: number }>(
-            `
-            SELECT DISTINCT r.id
-              FROM reps r
-             WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
-               AND (
-                 (COALESCE(array_length($2::int[], 1), 0) > 0 AND r.user_id = ANY($2::int[]))
-                 OR (
-                   COALESCE(array_length($3::text[], 1), 0) > 0
-                   AND (
-                     lower(regexp_replace(btrim(COALESCE(r.crm_owner_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
-                     OR lower(regexp_replace(btrim(COALESCE(r.rep_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
-                     OR lower(regexp_replace(btrim(COALESCE(r.display_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
-                   )
-                 )
-               )
-            `,
-            [args.orgId, visibleRepUserIds, visibleRepNameKeys]
-          )
-          .then((r) => (r.rows || []).map((x) => Number(x.id)).filter((n) => Number.isFinite(n) && n > 0))
-          .catch(() => [] as number[])
-      : ([] as number[]);
-
   let scope = await getScopedRepDirectory({ orgId: args.orgId, userId: args.user.id, role: scopedRole }).catch(() => ({
     repDirectory: [],
     allowedRepIds: scopedRole === "ADMIN" ? (null as number[] | null) : ([0] as number[]),
     myRepId: null as number | null,
   }));
 
-  const seeAllVisibility = !!(args.user as any)?.see_all_visibility;
-  if (scopedRole === "EXEC_MANAGER" && seeAllVisibility) {
-    const all = await listActiveRepsForOrg(args.orgId).catch(() => []);
-    // Treat execs with global visibility as "company-wide" scope for rollups + dropdowns.
-    scope = { repDirectory: all, allowedRepIds: null, myRepId: scope.myRepId ?? null };
-  }
+  // NOTE: Even EXEC_MANAGER users are treated as scoped to their teams.
+  // (No company-wide promotion here; access is defined by getScopedRepDirectory.)
 
   const scopeLabel = scope.allowedRepIds ? "Team" : "Company";
 
@@ -1093,7 +1044,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
 
   // If we can't resolve any scope for a non-admin, fail closed (align with other dashboards).
   const useScopedRepIds = scopedRole !== "ADMIN";
-  if (useScopedRepIds && repIdsToUse.length === 0 && visibleRepNameKeys.length === 0) {
+  if (useScopedRepIds && scope.allowedRepIds !== null && (!Array.isArray(scope.allowedRepIds) || scope.allowedRepIds.length === 0)) {
     return {
       periods,
       fiscalYearsSorted,
@@ -1132,7 +1083,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
   };
 
   const totals: TotalsRow =
-    qpId && (repIdsToUse.length || visibleRepNameKeys.length)
+    qpId
       ? await pool
           .query<TotalsRow>(
             `
@@ -1163,13 +1114,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
                 END AS close_d
               FROM opportunities o
               WHERE o.org_id = $1
-                AND (
-                  (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-                  OR (
-                    COALESCE(array_length($4::text[], 1), 0) > 0
-                    AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-                  )
-                )
+                AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
             ),
             deals_in_qtr AS (
               SELECT d.*
@@ -1193,13 +1138,13 @@ export async function getExecutiveForecastDashboardSummary(args: {
               COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN amount ELSE 0 END), 0)::float8 AS won_amount
             FROM deals_in_qtr
             `,
-            [args.orgId, qpId, repIdsToUse, visibleRepNameKeys]
+            [args.orgId, qpId, allowedRepIds, useScoped]
           )
           .then((r) => (r.rows?.[0] as any) || { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0 })
           .catch(() => ({ commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0 }))
       : { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0 };
 
-  const canCompute = !!qpId && (repIdsToUse.length > 0 || visibleRepNameKeys.length > 0);
+  const canCompute = !!qpId && (!useScoped || (Array.isArray(allowedRepIds) && allowedRepIds.length > 0));
 
   type RepQuarterRollupRow = {
     rep_id: string; // may be '' when unknown
@@ -1244,13 +1189,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
               END AS close_d
             FROM opportunities o
             WHERE o.org_id = $1
-              AND (
-                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-                OR (
-                  COALESCE(array_length($4::text[], 1), 0) > 0
-                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-                )
-              )
+              AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
           ),
           deals_in_qtr AS (
             SELECT d.*
@@ -1318,7 +1257,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
             )
           ORDER BY rep_name ASC, rep_id ASC
           `,
-          [args.orgId, qpId, repIdsToUse, visibleRepNameKeys]
+          [args.orgId, qpId, allowedRepIds, useScoped]
         )
         .then((r) => (r.rows || []) as any[])
         .catch(() => [])
@@ -1367,13 +1306,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
               END AS close_d
             FROM opportunities o
             WHERE o.org_id = $1
-              AND (
-                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-                OR (
-                  COALESCE(array_length($4::text[], 1), 0) > 0
-                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-                )
-              )
+              AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
           ),
           deals_in_qtr AS (
             SELECT d.*
@@ -1399,7 +1332,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
           ORDER BY won_amount DESC, product ASC
           LIMIT 30
         `,
-        [args.orgId, qpid, repIdsToUse, visibleRepNameKeys]
+        [args.orgId, qpid, allowedRepIds, useScoped]
       )
       .then((r) => (r.rows || []) as any[])
       .catch(() => []);
@@ -1464,13 +1397,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
               END AS close_d
             FROM opportunities o
             WHERE o.org_id = $1
-              AND (
-                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-                OR (
-                  COALESCE(array_length($4::text[], 1), 0) > 0
-                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-                )
-              )
+              AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
           ),
           deals_in_qtr AS (
             SELECT d.*
@@ -1514,7 +1441,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
           ORDER BY won_amount DESC, rep_name ASC, product ASC
           LIMIT 200
           `,
-          [args.orgId, qpId, repIdsToUse, visibleRepNameKeys]
+          [args.orgId, qpId, allowedRepIds, useScoped]
         )
         .then((r) => (r.rows || []) as any[])
         .catch(() => [])
@@ -1537,7 +1464,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
   };
 
   const verdictAgg: VerdictAggRow =
-    qpId && (repIdsToUse.length || visibleRepNameKeys.length)
+    qpId
       ? await (async () => {
           const empty: VerdictAggRow = {
             commit_crm: 0,
@@ -1579,13 +1506,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
                     END AS close_d
                   FROM opportunities o
                   WHERE o.org_id = $1
-                    AND (
-                      (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-                      OR (
-                        COALESCE(array_length($4::text[], 1), 0) > 0
-                        AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-                      )
-                    )
+                    AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
                 ),
                 deals_in_qtr AS (
                   SELECT d.*
@@ -1651,7 +1572,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
                   COALESCE(SUM(CASE WHEN crm_bucket = 'pipeline' THEN amount * health_modifier ELSE 0 END), 0)::float8 AS pipeline_verdict
                 FROM with_modifier
                 `,
-                [args.orgId, qpId, repIdsToUse, visibleRepNameKeys]
+                [args.orgId, qpId, allowedRepIds, useScoped]
               )
               .then((r) => r.rows?.[0] || empty);
             return row;
