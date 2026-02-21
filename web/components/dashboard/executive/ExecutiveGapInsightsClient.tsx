@@ -2121,37 +2121,58 @@ export function ExecutiveGapInsightsClient(props: {
             return (
               <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
                 <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Motion Performance Snapshot</div>
-                <div className="mt-3 overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-                  <table className="min-w-[640px] w-full table-auto border-collapse text-sm">
-                    <thead className="bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)]">
-                      <tr>
-                        <th className="px-4 py-3 text-left">Motion</th>
-                        <th className="px-4 py-3 text-right">Win Rate</th>
-                        <th className="px-4 py-3 text-right">Avg Health</th>
-                        <th className="px-4 py-3 text-right">Revenue</th>
-                        <th className="px-4 py-3 text-right">Mix</th>
-                      </tr>
-                    </thead>
-                    <tbody className="text-[color:var(--sf-text-primary)]">
-                      {rows.map((row) => (
-                        <tr key={row.k} className="border-t border-[color:var(--sf-border)]">
-                          <td className="px-4 py-3 font-semibold">{row.k}</td>
-                          <td className={["px-4 py-3 text-right font-mono text-xs", highlightClass(row.win, directWin, partnerWin)].join(" ")}>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {rows.map((row) => (
+                    <div key={row.k} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+                      <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{row.k}</div>
+                      <div className="mt-2 grid gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                        <div className="flex items-center justify-between gap-3">
+                          <span>Win Rate</span>
+                          <span
+                            className={[
+                              "font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]",
+                              highlightClass(row.win, directWin, partnerWin),
+                            ].join(" ")}
+                          >
                             {row.win == null ? "—" : fmtPct01(row.win)}
-                          </td>
-                          <td className={["px-4 py-3 text-right font-mono text-xs", highlightClass(row.health, directHealth01, partnerHealth01)].join(" ")}>
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span>Avg Health</span>
+                          <span
+                            className={[
+                              "font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]",
+                              highlightClass(row.health, directHealth01, partnerHealth01),
+                            ].join(" ")}
+                          >
                             {row.health == null ? "—" : `${Math.round(row.health * 100)}%`}
-                          </td>
-                          <td className={["px-4 py-3 text-right font-mono text-xs", highlightClass(row.rev, directRev, partnerRev)].join(" ")}>
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span>Revenue</span>
+                          <span
+                            className={[
+                              "font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]",
+                              highlightClass(row.rev, directRev, partnerRev),
+                            ].join(" ")}
+                          >
                             {row.rev == null ? "—" : fmtMoneyK(row.rev)}
-                          </td>
-                          <td className={["px-4 py-3 text-right font-mono text-xs", highlightClass(row.mix, directMix, partnerMix)].join(" ")}>
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span>Mix</span>
+                          <span
+                            className={[
+                              "font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]",
+                              highlightClass(row.mix, directMix, partnerMix),
+                            ].join(" ")}
+                          >
                             {row.mix == null ? "—" : fmtPct01(row.mix)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             );
