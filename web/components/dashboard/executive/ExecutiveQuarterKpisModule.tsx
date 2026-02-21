@@ -301,32 +301,6 @@ export function ExecutiveQuarterKpisModule(props: {
             </div>
           </div>
 
-          {createdMix ? (
-            <div className="mt-3">
-              <div className="text-[11px] font-semibold text-[color:var(--sf-text-primary)]">Forecast Mix (created opps)</div>
-              <div className="mt-2 grid items-start gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
-                {(["commit", "best_case", "pipeline"] as const).map((k) => {
-                  const m = (createdMix as any)?.[k] || null;
-                  const amt = Number(m?.value || 0) || 0;
-                  const cnt = Number(m?.opps || 0) || 0;
-                  const hp = m?.health_pct == null ? null : Number(m.health_pct);
-                  const label = k === "commit" ? "Commit" : k === "best_case" ? "Best Case" : "Pipeline";
-                  return (
-                    <div key={k} className="min-w-0 overflow-hidden rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-2">
-                      <div className="text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">{label}</div>
-                      <div className="mt-0.5 truncate font-mono text-xs font-semibold leading-tight text-[color:var(--sf-text-primary)]">{fmtMoney(amt)}</div>
-                      <div className="mt-0.5 text-[11px] leading-tight text-[color:var(--sf-text-secondary)]">
-                        <div># Opps: {fmtNum(cnt)}</div>
-                        <div>
-                          Health: <span className={healthColorClass(hp == null ? null : Math.round(hp))}>{hp == null ? "—" : `${Math.round(hp)}%`}</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
         </div>
       ) : null}
     </section>

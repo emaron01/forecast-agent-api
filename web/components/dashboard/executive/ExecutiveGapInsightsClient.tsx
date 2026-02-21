@@ -2289,10 +2289,17 @@ export function ExecutiveGapInsightsClient(props: {
                         if (d <= -5) return "↓";
                         return "→";
                       })();
+                      const trendTone = trendArrow === "↑" ? "up" : trendArrow === "↓" ? "down" : "flat";
+                      const trendCls =
+                        trendTone === "up"
+                          ? "text-[#16A34A]"
+                          : trendTone === "down"
+                            ? "text-[#E74C3C]"
+                            : "text-[#F1C40F]";
                       return (
                         <div
                           key={r.key}
-                          className="flex w-full flex-col justify-between rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm sm:w-[240px] sm:aspect-square"
+                          className="flex w-full flex-col rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 shadow-sm sm:w-[220px]"
                         >
                           <div className="flex min-w-0 items-start justify-between gap-3">
                             <div className="min-w-0 truncate text-sm font-semibold text-[color:var(--sf-text-primary)]">{r.label}</div>
@@ -2318,7 +2325,7 @@ export function ExecutiveGapInsightsClient(props: {
                             </span>{" "}
                             <span className="text-[color:var(--sf-text-secondary)]">|</span>{" "}
                             <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">Trend:</span>{" "}
-                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{trendArrow}</span>
+                            <span className={["font-mono text-base font-bold leading-none", trendCls].join(" ")}>{trendArrow}</span>
                           </div>
                         </div>
                       );
