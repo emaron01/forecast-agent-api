@@ -2158,6 +2158,155 @@ export function ExecutiveGapInsightsClient(props: {
         </section>
       ) : null}
 
+      {/* Visual test only: single-card layout for CEI + WIC/PQS (does not modify existing blocks above). */}
+      {partnersDecisionEngine ? (
+        <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">TEST — Canonical Scoring Engine (single cards)</div>
+              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Visual layout test only. Existing blocks unchanged.</div>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+            <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+              {(() => {
+                const ceiCur = partnersDecisionEngine.cei.partner_index;
+                const ceiPrev = partnersDecisionEngine.cei_prev_partner_index;
+                const ceiCurN = ceiCur == null ? null : Number(ceiCur);
+                const ceiPrevN = ceiPrev == null ? null : Number(ceiPrev);
+                const delta = ceiCurN != null && ceiPrevN != null ? ceiCurN - ceiPrevN : null;
+
+                const status =
+                  ceiCurN == null
+                    ? { label: "—", tone: "muted" as const }
+                    : ceiCurN >= 120
+                      ? { label: "HIGH", tone: "good" as const }
+                      : ceiCurN >= 90
+                        ? { label: "MEDIUM", tone: "warn" as const }
+                        : ceiCurN >= 70
+                          ? { label: "LOW", tone: "bad" as const }
+                          : { label: "CRITICAL", tone: "bad" as const };
+
+                const partnerWon = Number(partnersDecisionEngine.partner.won_opps || 0) || 0;
+                const sampleFactor = Math.min(1, partnerWon / 12);
+                const revenueShare = partnersDecisionEngine.partnerMix == null ? 0 : Number(partnersDecisionEngine.partnerMix);
+                const revenueFactor = Math.min(1, revenueShare / 0.4);
+                const volatilityFactor = delta != null ? 1 - normalize(Math.abs(delta), 0, 100) : 0.6;
+                const conf01 = sampleFactor * 0.5 + revenueFactor * 0.3 + volatilityFactor * 0.2;
+                const conf = clampScore100(conf01 * 100);
+                const confBand =
+                  conf >= 75 ? "HIGH CONFIDENCE" : conf >= 50 ? "MODERATE CONFIDENCE" : conf >= 30 ? "LOW CONFIDENCE" : "PRELIMINARY";
+
+                const trend =
+                  delta == null
+                    ? { label: "—", arrow: "→", tone: "muted" as const }
+                    : delta >= 15
+                      ? { label: "Improving", arrow: "↑", tone: "good" as const }
+                      : delta <= -15
+                        ? { label: "Declining", arrow: "↓", tone: "bad" as const }
+                        : { label: "Stable", arrow: "→", tone: "muted" as const };
+
+                return (
+                  <>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CEI Performance</div>
+                    <div className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[color:var(--sf-text-secondary)]">CEI Status</span>
+                        <span className={["inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold", pillToneClass(status.tone)].join(" ")}>
+                          {status.label}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[color:var(--sf-text-secondary)]">Partner CEI</span>
+                        <span className="font-mono font-semibold">{ceiCurN == null ? "—" : `${Math.round(ceiCurN).toLocaleString()} (Direct = 100)`}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[color:var(--sf-text-secondary)]">Confidence</span>
+                        <span className="font-mono font-semibold">{confBand}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[color:var(--sf-text-secondary)]">Trend</span>
+                        <span
+                          className={[
+                            "flex items-center gap-1 font-mono font-semibold",
+                            trend.tone === "good" ? "text-[#16A34A]" : trend.tone === "bad" ? "text-[#E74C3C]" : "text-[color:var(--sf-text-secondary)]",
+                          ].join(" ")}
+                        >
+                          <span aria-hidden="true">{trend.arrow}</span>
+                          <span>{trend.label}</span>
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Based on {partnerWon.toLocaleString()} partner closed-won deal(s).</div>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+
+            <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 lg:col-span-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC + PQS (top partners)</div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {partnersDecisionEngine.scored
+                  .slice(0, 1 + Math.min(15, Math.max(0, partnersDecisionEngine.scored.length - 1)))
+                  .map((r) => {
+                    const pill = r.wic_band;
+                    return (
+                      <div key={r.key} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+                        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{r.label}</div>
+
+                        <div className="mt-2 grid gap-1 text-[11px] text-[color:var(--sf-text-secondary)]">
+                          <div>
+                            Open <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(r.open_pipeline)}</span>
+                          </div>
+                          <div>
+                            Win <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtPct01(r.win_rate)}</span>
+                          </div>
+                          <div>
+                            Health{" "}
+                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
+                              {r.avg_health_01 == null ? "—" : `${Math.round(r.avg_health_01 * 100)}%`}
+                            </span>
+                          </div>
+                          <div>
+                            Days{" "}
+                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
+                              {r.avg_days == null ? "—" : String(Math.round(Number(r.avg_days)))}
+                            </span>
+                          </div>
+                          <div>
+                            AOV <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{r.aov == null ? "—" : fmtMoney(r.aov)}</span>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-end justify-between gap-2">
+                          <div className="grid gap-1">
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC</div>
+                            <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{Math.round(r.wic).toLocaleString()}</div>
+                          </div>
+                          <span className={["inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold", pillToneClass(pill.tone)].join(" ")}>
+                            {pill.label}
+                          </span>
+                          <div className="grid justify-items-end gap-1">
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">PQS</div>
+                            <div className="font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">
+                              {r.pqs == null ? "—" : Math.round(r.pqs).toLocaleString()}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+
+              <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                WIC computed for Direct + each partner. PQS computed per partner only. Scores are clamped 0–100.
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       {props.productsClosedWonByRep.length ? (
         <details className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
           <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">Rep breakdown (by product)</summary>
