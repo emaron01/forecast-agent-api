@@ -1568,66 +1568,15 @@ export function ExecutiveGapInsightsClient(props: {
 
           <ExecutiveRemainingQuarterlyForecastBlock crmTotals={props.crmTotals} quota={props.quota} pipelineMomentum={props.pipelineMomentum} />
 
-          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2">
-                <div className="text-tableLabel">Quota</div>
-                <div className="mt-0.5 text-tableValue text-[color:var(--sf-text-primary)]">{fmtMoney(props.quota)}</div>
-              </div>
-
-              <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2">
-                <div className="text-tableLabel">AI Forecast Outlook</div>
-                <div className="mt-0.5 text-tableValue text-[color:var(--sf-text-primary)]">{fmtMoney(props.aiForecast)}</div>
-                <div className="mt-1 text-meta">SalesForecast.io AI‑weighted</div>
-              </div>
-
-              <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2">
-                <div className="text-tableLabel">CRM Forecast Outlook</div>
-                <div className="mt-0.5 text-tableValue text-[color:var(--sf-text-primary)]">{fmtMoney(props.crmForecast)}</div>
-                <div className="mt-1 text-meta">Your organization’s probabilities</div>
-              </div>
-
-              <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2">
-                <div className="text-tableLabel">AI Adjustment vs CRM</div>
-                <div className="mt-0.5 text-tableValue text-[color:var(--sf-text-primary)]">
-                  {(() => {
-                    const d = Number(props.aiForecast) - Number(props.crmForecast);
-                    if (!Number.isFinite(d)) return "—";
-                    const abs = Math.abs(d);
-                    const signed = `${d > 0 ? "+" : d < 0 ? "-" : ""}${fmtMoney(abs)}`;
-                    return signed;
-                  })()}
-                </div>
-                <div className="mt-1 text-meta">Outlook delta (AI − CRM)</div>
-              </div>
-
-              <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2">
-                <div className="text-tableLabel">Deals at risk</div>
-                <div className="mt-0.5 text-tableValue text-[color:var(--sf-text-primary)]">
-                  {(() => {
-                    const v: unknown = dealsAtRisk as unknown;
-                    const n = Array.isArray(v) ? v.length : Number(v as any);
-                    return fmtNum(n);
-                  })()}
-                </div>
-              </div>
-
-              <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2">
-                <div className="text-tableLabel">Forecast Stage Gap Attribution</div>
-                <div className="mt-0.5 text-tableValue text-[color:var(--sf-text-primary)]">—</div>
-              </div>
-            </div>
-          </div>
-
           <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="inline-flex items-center gap-2 text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
                 <Image
                   src="/brand/salesforecast-logo-trim.png"
                   alt="SalesForecast.io"
-                  width={140}
-                  height={28}
-                  className="h-4 w-auto opacity-20"
+                  width={258}
+                  height={47}
+                  className="opacity-20"
                 />
                 <span>✨ Strategic Takeaway</span>
               </div>
