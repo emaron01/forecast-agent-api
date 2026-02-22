@@ -1683,15 +1683,18 @@ export function ExecutiveGapInsightsClient(props: {
             <summary className="cursor-pointer text-meta font-[500]">Accounts</summary>
             <div className="mt-2 text-sm text-[color:var(--sf-text-primary)]">
               {radarDeals.length ? (
-                <div className="grid grid-cols-1 gap-y-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {radarDeals.map((d) => (
-                    <div key={d.id} className="flex min-w-0 items-center gap-2">
+                    <div
+                      key={d.id}
+                      className="inline-flex max-w-full items-center gap-2 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1"
+                    >
                       <span
                         className="h-2.5 w-2.5 rounded-full border border-[color:var(--sf-border)]"
                         style={{ background: d.color }}
                         aria-hidden="true"
                       />
-                      <span className="min-w-0 truncate" title={String(d.legendLabel || d.label)}>
+                      <span className="min-w-0 max-w-[260px] truncate" title={String(d.legendLabel || d.label)}>
                         {String(d.legendLabel || d.label)}
                       </span>
                     </div>
