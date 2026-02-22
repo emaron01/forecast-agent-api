@@ -198,7 +198,7 @@ export function ExecutiveQuarterKpisModule(props: {
   const createdMix = created?.current?.mix || null;
   const createdQoq = created?.qoq_total_amount_all_pct01 ?? created?.qoq_total_amount_pct01 ?? null;
   const createdActiveQoq = created?.qoq_total_amount_pct01 ?? null;
-  const boxClass = "min-w-0 overflow-hidden rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2";
+  const boxClass = "min-w-0 overflow-hidden rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3 shadow-sm";
 
   const commitAmt = Number(props.crmTotals?.commit_amount ?? NaN);
   const bestAmt = Number(props.crmTotals?.best_case_amount ?? NaN);

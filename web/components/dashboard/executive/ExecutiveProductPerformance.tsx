@@ -23,8 +23,6 @@ function healthTone(pct: number | null) {
 
 export function ExecutiveProductPerformance(props: { data: ExecutiveProductPerformanceData; quotaPeriodId: string }) {
   const rows = computeExecutiveProductRows(props.data);
-
-  const maxRevenue = Math.max(1, ...rows.map((r) => r.revenue));
   const dotColors = ["#2ECC71", "var(--sf-accent-primary)", "#E74C3C"] as const;
 
   return (
@@ -74,7 +72,6 @@ export function ExecutiveProductPerformance(props: { data: ExecutiveProductPerfo
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {rows.map((r, idx) => {
-          const barPct = Math.round((r.revenue / maxRevenue) * 100);
           const tone = healthTone(r.health_score);
           const spread = r.spread_pct;
           const spreadBadge =
@@ -111,12 +108,7 @@ export function ExecutiveProductPerformance(props: { data: ExecutiveProductPerfo
 
               <div className="mt-3">
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Revenue (Closed Won)</div>
-                <div className="mt-1 flex items-center justify-between gap-3">
-                  <div className="relative h-[10px] w-full overflow-hidden rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]" aria-hidden="true">
-                    <div className="h-full rounded-full bg-[color:var(--sf-accent-primary)]/25" style={{ width: `${Math.max(6, barPct)}%` }} />
-                  </div>
-                  <div className="shrink-0 font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney0(r.revenue)}</div>
-                </div>
+                <div className="mt-1 font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney0(r.revenue)}</div>
               </div>
 
               <div className="mt-3 grid gap-2 text-meta">

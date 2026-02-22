@@ -1603,7 +1603,13 @@ export function ExecutiveGapInsightsClient(props: {
 
               <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2">
                 <div className="text-tableLabel">Deals at risk</div>
-                <div className="mt-0.5 text-tableValue text-[color:var(--sf-text-primary)]">{fmtNum(dealsAtRisk.length)}</div>
+                <div className="mt-0.5 text-tableValue text-[color:var(--sf-text-primary)]">
+                  {(() => {
+                    const v: unknown = dealsAtRisk as unknown;
+                    const n = Array.isArray(v) ? v.length : Number(v as any);
+                    return fmtNum(n);
+                  })()}
+                </div>
               </div>
 
               <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2">
