@@ -34,8 +34,6 @@ export function ExecutiveProductPerformance(props: { data: ExecutiveProductPerfo
         </div>
       </div>
 
-      <ExecutiveProductPerformanceAiTakeawayClient quotaPeriodId={props.quotaPeriodId} payload={props.data} />
-
       <div className="mt-4 overflow-x-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
         <table className="min-w-[980px] w-full table-auto border-collapse text-sm">
           <thead className="bg-[color:var(--sf-surface)] text-xs text-[color:var(--sf-text-secondary)]">
@@ -125,6 +123,8 @@ export function ExecutiveProductPerformance(props: { data: ExecutiveProductPerfo
           </tbody>
         </table>
       </div>
+
+      <ExecutiveProductPerformanceAiTakeawayClient quotaPeriodId={props.quotaPeriodId} payload={props.data} />
     </section>
   );
 }
