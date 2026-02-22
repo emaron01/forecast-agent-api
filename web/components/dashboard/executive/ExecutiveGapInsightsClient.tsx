@@ -1728,7 +1728,9 @@ export function ExecutiveGapInsightsClient(props: {
                 <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
               )}
             </div>
+          </section>
 
+          <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
             <div className="mt-4 border-t border-[color:var(--sf-border)] pt-4">
               <div className="flex flex-wrap items-end justify-between gap-2">
                 <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">✨ AI Strategic Takeaway</div>
@@ -2120,12 +2122,9 @@ export function ExecutiveGapInsightsClient(props: {
             return (
               <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
                 <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Motion Performance Snapshot</div>
-                <div className="mt-3 flex flex-wrap items-start gap-3">
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {rows.map((row) => (
-                    <div
-                      key={row.k}
-                      className="inline-flex w-fit flex-col rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
-                    >
+                    <div key={row.k} className="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
                       <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{row.k}</div>
                       <div className="mt-3 grid gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
                         <div className="grid grid-cols-[1fr_auto] items-center gap-4">
@@ -2175,6 +2174,52 @@ export function ExecutiveGapInsightsClient(props: {
                       </div>
                     </div>
                   ))}
+
+                  {(() => {
+                    const deltaTone = (d: number | null) => (d == null || !Number.isFinite(d) ? "text-[color:var(--sf-text-disabled)]" : d > 0 ? "text-[#16A34A]" : d < 0 ? "text-[#E74C3C]" : "text-[color:var(--sf-text-primary)]");
+                    const fmtPp = (d01: number | null) => {
+                      if (d01 == null || !Number.isFinite(d01)) return "—";
+                      const pp = d01 * 100;
+                      const abs = Math.abs(pp);
+                      const txt = `${Math.round(abs)}pp`;
+                      return `${pp > 0 ? "+" : pp < 0 ? "-" : ""}${txt}`;
+                    };
+                    const fmtMoneyKSigned = (d: number | null) => {
+                      if (d == null || !Number.isFinite(d)) return "—";
+                      const k = Math.round(Math.abs(d) / 1000);
+                      const txt = `$${k.toLocaleString("en-US")}K`;
+                      return `${d > 0 ? "+" : d < 0 ? "-" : ""}${txt}`;
+                    };
+
+                    const dWin = directWin == null || partnerWin == null ? null : directWin - partnerWin;
+                    const dHealth = directHealth01 == null || partnerHealth01 == null ? null : directHealth01 - partnerHealth01;
+                    const dRev = directRev == null || partnerRev == null ? null : directRev - partnerRev;
+                    const dMix = directMix == null || partnerMix == null ? null : directMix - partnerMix;
+
+                    return (
+                      <div className="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+                        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Compare</div>
+                        <div className="mt-3 grid gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                            <span>Win Rate</span>
+                            <span className={["font-mono text-xs font-semibold", deltaTone(dWin)].join(" ")}>{fmtPp(dWin)}</span>
+                          </div>
+                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                            <span>Avg Health</span>
+                            <span className={["font-mono text-xs font-semibold", deltaTone(dHealth)].join(" ")}>{fmtPp(dHealth)}</span>
+                          </div>
+                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                            <span>Revenue</span>
+                            <span className={["font-mono text-xs font-semibold", deltaTone(dRev)].join(" ")}>{fmtMoneyKSigned(dRev)}</span>
+                          </div>
+                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                            <span>Mix</span>
+                            <span className={["font-mono text-xs font-semibold", deltaTone(dMix)].join(" ")}>{fmtPp(dMix)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             );
