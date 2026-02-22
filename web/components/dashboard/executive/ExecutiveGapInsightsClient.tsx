@@ -1570,8 +1570,15 @@ export function ExecutiveGapInsightsClient(props: {
 
           <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
-                This Quarter’s Outlook Driven By: ✨ AI Strategic Takeaway
+              <div className="inline-flex items-center gap-2 text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
+                <Image
+                  src="/brand/salesforecast-logo-trim.png"
+                  alt="SalesForecast.io"
+                  width={140}
+                  height={28}
+                  className="h-4 w-auto opacity-20"
+                />
+                <span>✨ Strategic Takeaway</span>
               </div>
               <div className="flex items-center gap-2">
                 <button
