@@ -2122,7 +2122,7 @@ export function ExecutiveGapInsightsClient(props: {
             return (
               <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
                 <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Motion Performance Snapshot</div>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   {rows.map((row) => (
                     <div key={row.k} className="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
                       <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{row.k}</div>
@@ -2220,6 +2220,90 @@ export function ExecutiveGapInsightsClient(props: {
                       </div>
                     );
                   })()}
+
+                  <div className="h-fit self-start rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+                    {(() => {
+                      const ceiCur = partnersDecisionEngine.cei.partner_index;
+                      const ceiPrev = partnersDecisionEngine.cei_prev_partner_index;
+                      const ceiCurN = ceiCur == null ? null : Number(ceiCur);
+                      const ceiPrevN = ceiPrev == null ? null : Number(ceiPrev);
+                      const delta = ceiCurN != null && ceiPrevN != null ? ceiCurN - ceiPrevN : null;
+
+                      const status =
+                        ceiCurN == null
+                          ? { label: "—", tone: "muted" as const }
+                          : ceiCurN >= 120
+                            ? { label: "HIGH", tone: "good" as const }
+                            : ceiCurN >= 90
+                              ? { label: "MEDIUM", tone: "warn" as const }
+                              : ceiCurN >= 70
+                                ? { label: "LOW", tone: "bad" as const }
+                                : { label: "CRITICAL", tone: "bad" as const };
+
+                      const partnerWon = Number(partnersDecisionEngine.partner.won_opps || 0) || 0;
+                      const sampleFactor = Math.min(1, partnerWon / 12);
+                      const revenueShare = partnersDecisionEngine.partnerMix == null ? 0 : Number(partnersDecisionEngine.partnerMix);
+                      const revenueFactor = Math.min(1, revenueShare / 0.4);
+                      const volatilityFactor = delta != null ? 1 - normalize(Math.abs(delta), 0, 100) : 0.6;
+                      const conf01 = sampleFactor * 0.5 + revenueFactor * 0.3 + volatilityFactor * 0.2;
+                      const conf = clampScore100(conf01 * 100);
+                      const confBand =
+                        conf >= 75 ? "HIGH CONFIDENCE" : conf >= 50 ? "MODERATE CONFIDENCE" : conf >= 30 ? "LOW CONFIDENCE" : "PRELIMINARY";
+
+                      const trend =
+                        delta == null
+                          ? { label: "—", arrow: "→", tone: "muted" as const }
+                          : delta >= 15
+                            ? { label: "Improving", arrow: "↑", tone: "good" as const }
+                            : delta <= -15
+                              ? { label: "Declining", arrow: "↓", tone: "bad" as const }
+                              : { label: "Stable", arrow: "→", tone: "muted" as const };
+
+                      return (
+                        <>
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CEI Performance</div>
+                          <div className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-[color:var(--sf-text-secondary)]">CEI Status</span>
+                              <span
+                                className={[
+                                  "inline-flex min-w-[110px] items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold",
+                                  pillToneClass(status.tone),
+                                ].join(" ")}
+                              >
+                                {status.label}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-[color:var(--sf-text-secondary)]">Partner CEI</span>
+                              <span className="font-mono font-semibold">
+                                {ceiCurN == null ? "—" : `${Math.round(ceiCurN).toLocaleString("en-US")} (Direct = 100)`}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-[color:var(--sf-text-secondary)]">Confidence</span>
+                              <span className="font-mono font-semibold">{confBand}</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-[color:var(--sf-text-secondary)]">Trend</span>
+                              <span
+                                className={[
+                                  "flex items-center gap-1 font-mono font-semibold",
+                                  trend.tone === "good" ? "text-[#16A34A]" : trend.tone === "bad" ? "text-[#E74C3C]" : "text-[color:var(--sf-text-secondary)]",
+                                ].join(" ")}
+                              >
+                                <span aria-hidden="true">{trend.arrow}</span>
+                                <span>{trend.label}</span>
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-[color:var(--sf-text-secondary)]">
+                              Based on {partnerWon.toLocaleString("en-US")} partner closed-won deal(s).
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
                 </div>
               </div>
             );
@@ -2232,88 +2316,8 @@ export function ExecutiveGapInsightsClient(props: {
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 lg:grid-cols-3">
-              <div className="h-fit self-start rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-                {(() => {
-                  const ceiCur = partnersDecisionEngine.cei.partner_index;
-                  const ceiPrev = partnersDecisionEngine.cei_prev_partner_index;
-                  const ceiCurN = ceiCur == null ? null : Number(ceiCur);
-                  const ceiPrevN = ceiPrev == null ? null : Number(ceiPrev);
-                  const delta = ceiCurN != null && ceiPrevN != null ? ceiCurN - ceiPrevN : null;
-
-                  const status =
-                    ceiCurN == null
-                      ? { label: "—", tone: "muted" as const }
-                      : ceiCurN >= 120
-                        ? { label: "HIGH", tone: "good" as const }
-                        : ceiCurN >= 90
-                          ? { label: "MEDIUM", tone: "warn" as const }
-                          : ceiCurN >= 70
-                            ? { label: "LOW", tone: "bad" as const }
-                            : { label: "CRITICAL", tone: "bad" as const };
-
-                  const partnerWon = Number(partnersDecisionEngine.partner.won_opps || 0) || 0;
-                  const sampleFactor = Math.min(1, partnerWon / 12);
-                  const revenueShare = partnersDecisionEngine.partnerMix == null ? 0 : Number(partnersDecisionEngine.partnerMix);
-                  const revenueFactor = Math.min(1, revenueShare / 0.4);
-                  const volatilityFactor =
-                    delta != null ? 1 - normalize(Math.abs(delta), 0, 100) : 0.6;
-                  const conf01 = sampleFactor * 0.5 + revenueFactor * 0.3 + volatilityFactor * 0.2;
-                  const conf = clampScore100(conf01 * 100);
-                  const confBand =
-                    conf >= 75 ? "HIGH CONFIDENCE" : conf >= 50 ? "MODERATE CONFIDENCE" : conf >= 30 ? "LOW CONFIDENCE" : "PRELIMINARY";
-
-                  const trend =
-                    delta == null
-                      ? { label: "—", arrow: "→", tone: "muted" as const }
-                      : delta >= 15
-                        ? { label: "Improving", arrow: "↑", tone: "good" as const }
-                        : delta <= -15
-                          ? { label: "Declining", arrow: "↓", tone: "bad" as const }
-                          : { label: "Stable", arrow: "→", tone: "muted" as const };
-
-                  return (
-                    <>
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CEI Performance</div>
-                      <div className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-[color:var(--sf-text-secondary)]">CEI Status</span>
-                          <span
-                            className={[
-                              "inline-flex min-w-[110px] items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold",
-                              pillToneClass(status.tone),
-                            ].join(" ")}
-                          >
-                            {status.label}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-[color:var(--sf-text-secondary)]">Partner CEI</span>
-                          <span className="font-mono font-semibold">
-                            {ceiCurN == null ? "—" : `${Math.round(ceiCurN).toLocaleString("en-US")} (Direct = 100)`}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-[color:var(--sf-text-secondary)]">Confidence</span>
-                          <span className="font-mono font-semibold">{confBand}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-[color:var(--sf-text-secondary)]">Trend</span>
-                          <span className={["flex items-center gap-1 font-mono font-semibold", trend.tone === "good" ? "text-[#16A34A]" : trend.tone === "bad" ? "text-[#E74C3C]" : "text-[color:var(--sf-text-secondary)]"].join(" ")}>
-                            <span aria-hidden="true">{trend.arrow}</span>
-                            <span>{trend.label}</span>
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-[color:var(--sf-text-secondary)]">
-                          Based on {partnerWon.toLocaleString("en-US")} partner closed-won deal(s).
-                        </div>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-
-              <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 lg:col-span-2">
+            <div className="mt-4 grid gap-3">
+              <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC + PQS (top partners)</div>
                 <div className="mt-3 flex flex-wrap gap-3">
                   {partnersDecisionEngine.scored
