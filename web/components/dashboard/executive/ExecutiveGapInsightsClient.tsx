@@ -1659,8 +1659,8 @@ export function ExecutiveGapInsightsClient(props: {
         />
       </div>
 
-      <div className="grid w-full gap-4 lg:grid-cols-[minmax(260px,360px)_minmax(0,1fr)]">
-        <section className="self-start rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+      <div className="grid w-full gap-4">
+        <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
           <div className="grid gap-2">
             <div className="flex items-center justify-end gap-2">
               <span className="text-meta">Show</span>
