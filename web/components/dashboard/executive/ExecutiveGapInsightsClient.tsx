@@ -509,7 +509,7 @@ export function ExecutiveGapInsightsClient(props: {
   // Deals list: keep small by default (space).
   const [topN, setTopN] = useState(() => clampInt(props.defaultTopN ?? 5, 5, 50));
   // Radar + account review: default to broader context.
-  const [radarTopN, setRadarTopN] = useState(50);
+  const [radarTopN, setRadarTopN] = useState(20);
   const [stageView, setStageView] = useState<"commit" | "best_case" | "pipeline" | "all">("all");
 
   const quotaPeriodId = String(sp.get("quota_period_id") || props.quotaPeriodId || "").trim();
@@ -1657,15 +1657,12 @@ export function ExecutiveGapInsightsClient(props: {
 
         <div className="grid gap-4 self-start">
           <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
-                Quick Account Review - Top {radarTopN}
-              </div>
-              <div className="flex items-center gap-2">
+            <div className="grid gap-2">
+              <div className="flex items-center justify-end gap-2">
                 <span className="text-meta">Show</span>
                 <select
                   value={radarTopN}
-                  onChange={(e) => setRadarTopN(clampInt(Number(e.target.value) || 50, 5, 50))}
+                  onChange={(e) => setRadarTopN(clampInt(Number(e.target.value) || 20, 5, 50))}
                   className="h-[36px] w-[100px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs text-[color:var(--sf-text-primary)]"
                 >
                   {topXOptions.map((n) => (
@@ -1675,6 +1672,7 @@ export function ExecutiveGapInsightsClient(props: {
                   ))}
                 </select>
               </div>
+              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quick Account Review - Top {radarTopN}</div>
             </div>
 
             <div className="mt-3 text-sm text-[color:var(--sf-text-primary)]">
@@ -1781,15 +1779,6 @@ export function ExecutiveGapInsightsClient(props: {
               ) : null}
             </div>
           </section>
-
-          <AiSummaryReportClient
-            entries={[
-              { label: "SalesForecast.io Outlook", surface: "hero", quotaPeriodId },
-              { label: "Risk radar takeaway", surface: "radar", quotaPeriodId },
-              { label: "Partner executive takeaways", surface: "partners_executive", quotaPeriodId },
-              { label: "Product performance takeaway", surface: "product_performance", quotaPeriodId },
-            ]}
-          />
         </div>
       </div>
 
@@ -2873,6 +2862,17 @@ export function ExecutiveGapInsightsClient(props: {
         </details>
       </section>
       */}
+
+      <div className="mt-6">
+        <AiSummaryReportClient
+          entries={[
+            { label: "SalesForecast.io Outlook", surface: "hero", quotaPeriodId },
+            { label: "Risk radar takeaway", surface: "radar", quotaPeriodId },
+            { label: "Partner executive takeaways", surface: "partners_executive", quotaPeriodId },
+            { label: "Product performance takeaway", surface: "product_performance", quotaPeriodId },
+          ]}
+        />
+      </div>
 
     </div>
   );

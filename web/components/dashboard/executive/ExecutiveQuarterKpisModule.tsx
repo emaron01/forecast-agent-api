@@ -200,6 +200,15 @@ export function ExecutiveQuarterKpisModule(props: {
   const createdActiveQoq = created?.qoq_total_amount_pct01 ?? null;
   const boxClass = "min-w-0 overflow-hidden rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2";
 
+  const commitAmt = Number(props.crmTotals?.commit_amount ?? NaN);
+  const bestAmt = Number(props.crmTotals?.best_case_amount ?? NaN);
+  const pipeAmt = Number(props.crmTotals?.pipeline_amount ?? NaN);
+  const totalPipelineAmt = Number.isFinite(commitAmt) && Number.isFinite(bestAmt) && Number.isFinite(pipeAmt) ? commitAmt + bestAmt + pipeAmt : null;
+  const mixTotal = totalPipelineAmt != null && Number.isFinite(totalPipelineAmt) && totalPipelineAmt > 0 ? totalPipelineAmt : null;
+  const mixCommitPct01 = mixTotal ? Math.max(0, Math.min(1, commitAmt / mixTotal)) : null;
+  const mixBestPct01 = mixTotal ? Math.max(0, Math.min(1, bestAmt / mixTotal)) : null;
+  const mixPipePct01 = mixTotal ? Math.max(0, Math.min(1, pipeAmt / mixTotal)) : null;
+
   return (
     <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -210,6 +219,52 @@ export function ExecutiveQuarterKpisModule(props: {
       </div>
 
       <div className="mt-4 grid gap-3">
+        {mixTotal ? (
+          <div>
+            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Forecast Mix</div>
+            <div
+              className="mt-2 h-[10px] w-full overflow-hidden rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]"
+              aria-label={`Forecast mix: Commit ${fmtPct(mixCommitPct01)}, Best Case ${fmtPct(mixBestPct01)}, Pipeline ${fmtPct(mixPipePct01)}`}
+              title={`Commit ${fmtPct(mixCommitPct01)} · Best Case ${fmtPct(mixBestPct01)} · Pipeline ${fmtPct(mixPipePct01)}`}
+            >
+              <div className="flex h-full w-full flex-row">
+                <div
+                  className="h-full bg-[#2ECC71]"
+                  style={{ width: mixCommitPct01 == null ? "0%" : `${Math.max(0, Math.min(100, mixCommitPct01 * 100))}%` }}
+                />
+                <div
+                  className="h-full bg-[color:var(--sf-accent-primary)]"
+                  style={{ width: mixBestPct01 == null ? "0%" : `${Math.max(0, Math.min(100, mixBestPct01 * 100))}%` }}
+                />
+                <div
+                  className="h-full bg-[#E74C3C]/80"
+                  style={{ width: mixPipePct01 == null ? "0%" : `${Math.max(0, Math.min(100, mixPipePct01 * 100))}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-meta">
+              <span className="inline-flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[#2ECC71]" aria-hidden="true" />
+                <span>
+                  Commit <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{fmtPct(mixCommitPct01)}</span>
+                </span>
+              </span>
+              <span className="inline-flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[color:var(--sf-accent-primary)]" aria-hidden="true" />
+                <span>
+                  Best Case <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{fmtPct(mixBestPct01)}</span>
+                </span>
+              </span>
+              <span className="inline-flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[#E74C3C]/80" aria-hidden="true" />
+                <span>
+                  Pipeline <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{fmtPct(mixPipePct01)}</span>
+                </span>
+              </span>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {createdFromKpis ? (
