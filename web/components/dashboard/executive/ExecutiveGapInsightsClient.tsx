@@ -2120,15 +2120,15 @@ export function ExecutiveGapInsightsClient(props: {
             return (
               <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
                 <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Motion Performance Snapshot</div>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="mt-3 flex flex-wrap items-start gap-3">
                   {rows.map((row) => (
                     <div
                       key={row.k}
-                      className="rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm sm:aspect-square sm:flex sm:flex-col"
+                      className="inline-flex w-fit flex-col rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
                     >
                       <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{row.k}</div>
-                      <div className="mt-3 grid gap-2 text-[11px] text-[color:var(--sf-text-secondary)] sm:flex-1">
-                        <div className="flex items-center justify-between gap-3">
+                      <div className="mt-3 grid gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                        <div className="grid grid-cols-[1fr_auto] items-center gap-4">
                           <span>Win Rate</span>
                           <span
                             className={[
@@ -2139,7 +2139,7 @@ export function ExecutiveGapInsightsClient(props: {
                             {row.win == null ? "—" : fmtPct01(row.win)}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="grid grid-cols-[1fr_auto] items-center gap-4">
                           <span>Avg Health</span>
                           <span
                             className={[
@@ -2150,7 +2150,7 @@ export function ExecutiveGapInsightsClient(props: {
                             {row.health == null ? "—" : `${Math.round(row.health * 100)}%`}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="grid grid-cols-[1fr_auto] items-center gap-4">
                           <span>Revenue</span>
                           <span
                             className={[
@@ -2161,7 +2161,7 @@ export function ExecutiveGapInsightsClient(props: {
                             {row.rev == null ? "—" : fmtMoneyK(row.rev)}
                           </span>
                         </div>
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="grid grid-cols-[1fr_auto] items-center gap-4">
                           <span>Mix</span>
                           <span
                             className={[
