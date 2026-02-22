@@ -1796,8 +1796,7 @@ export function ExecutiveGapInsightsClient(props: {
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Deals + Risk Filters</div>
-            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">These filters apply to the gap-driving deals section below.</div>
+            <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Adjust Risk Radae and Account View</div>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -2130,13 +2129,16 @@ export function ExecutiveGapInsightsClient(props: {
             ] as const;
 
             return (
-              <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+              <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
                 <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Motion Performance Snapshot</div>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   {rows.map((row) => (
-                    <div key={row.k} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+                    <div
+                      key={row.k}
+                      className="rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm sm:aspect-square sm:flex sm:flex-col"
+                    >
                       <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{row.k}</div>
-                      <div className="mt-2 grid gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                      <div className="mt-3 grid gap-2 text-[11px] text-[color:var(--sf-text-secondary)] sm:flex-1">
                         <div className="flex items-center justify-between gap-3">
                           <span>Win Rate</span>
                           <span

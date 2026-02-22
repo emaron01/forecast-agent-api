@@ -8,6 +8,23 @@ function storageKey(surface: string, quotaPeriodId: string) {
   return `sf_ai:${surface}:${quotaPeriodId}`;
 }
 
+function firstNSentences(text: string, n: number) {
+  const nn = Math.max(1, Math.min(6, Math.trunc(n || 1)));
+  const t = String(text || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t) return "";
+
+  const matches = t.match(/[^.!?]+[.!?]+/g);
+  if (matches?.length) return matches.slice(0, nn).join("").trim();
+
+  // Fallback for content without punctuation: return a short snippet.
+  const words = t.split(" ").filter(Boolean);
+  const take = Math.min(words.length, 28);
+  const snippet = words.slice(0, take).join(" ").trim();
+  return words.length > take ? `${snippet}…` : snippet;
+}
+
 function readEntry(entry: Entry): { summary: string; extended: string; updatedAt: number | null } | null {
   try {
     const raw = sessionStorage.getItem(storageKey(entry.surface, entry.quotaPeriodId));
@@ -96,8 +113,9 @@ export function AiSummaryReportClient(props: { entries: Entry[] }) {
     return () => window.clearInterval(t);
   }, []);
 
-  const { reportPreview, reportForCopy } = useMemo(() => {
+  const { reportPreview, collapsedPreview, reportForCopy } = useMemo(() => {
     const previewParts: string[] = [];
+    const narrativeParts: string[] = [];
     const copyParts: string[] = [];
     for (const e of props.entries || []) {
       const v = readEntry(e);
@@ -106,6 +124,7 @@ export function AiSummaryReportClient(props: { entries: Entry[] }) {
       const extended = String(v.extended || "").trim();
       const body = summary || extended;
       if (body) previewParts.push(`${e.label}\n${body}`.trim());
+      if (body) narrativeParts.push(body);
 
       if (summary && extended && summary !== extended) {
         copyParts.push(`${e.label}\nSummary:\n${summary}\n\nExtended analysis:\n${extended}`.trim());
@@ -115,8 +134,10 @@ export function AiSummaryReportClient(props: { entries: Entry[] }) {
         copyParts.push(`${e.label}\n${extended}`.trim());
       }
     }
+    const narrative = narrativeParts.join(" ").trim();
     return {
       reportPreview: previewParts.join("\n\n").trim(),
+      collapsedPreview: firstNSentences(narrative, 2),
       reportForCopy: copyParts.join("\n\n").trim(),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -169,7 +190,9 @@ export function AiSummaryReportClient(props: { entries: Entry[] }) {
 
       {reportPreview ? (
         <div className="mt-3 whitespace-pre-wrap rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
-          {expanded ? (renderCategorizedText(reportForCopy || reportPreview) || (reportForCopy || reportPreview)) : reportPreview}
+          {expanded
+            ? (renderCategorizedText(reportForCopy || reportPreview) || (reportForCopy || reportPreview))
+            : (collapsedPreview || reportPreview)}
         </div>
       ) : (
         <div className="mt-3 text-sm text-[color:var(--sf-text-secondary)]">No AI summaries available yet for this view.</div>
