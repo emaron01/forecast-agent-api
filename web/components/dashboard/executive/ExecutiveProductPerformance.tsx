@@ -25,6 +25,7 @@ export function ExecutiveProductPerformance(props: { data: ExecutiveProductPerfo
   const rows = computeExecutiveProductRows(props.data);
 
   const maxRevenue = Math.max(1, ...rows.map((r) => r.revenue));
+  const dotColors = ["#2ECC71", "var(--sf-accent-primary)", "#E74C3C"] as const;
 
   return (
     <section className="w-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
@@ -34,94 +35,120 @@ export function ExecutiveProductPerformance(props: { data: ExecutiveProductPerfo
         </div>
       </div>
 
-      <div className="mt-4 overflow-x-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
-        <table className="min-w-[980px] w-full table-auto border-collapse text-sm">
-          <thead className="bg-[color:var(--sf-surface)] text-xs text-[color:var(--sf-text-secondary)]">
-            <tr className="text-left">
-              <th className="border-b border-[color:var(--sf-border)] px-3 py-2">Product</th>
-              <th className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right">Revenue (Closed Won)</th>
-              <th className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right">% of Mix</th>
-              <th className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right">Volume</th>
-              <th className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right">Avg. Deal Size</th>
-              <th className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right">Deal Health</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, idx) => {
-              const barPct = Math.round((r.revenue / maxRevenue) * 100);
-              const tone = healthTone(r.health_score);
-              const spread = r.spread_pct;
-              const spreadBadge =
-                spread == null
-                  ? null
-                  : spread >= 0.08
-                    ? { t: "Pricing power", cls: "border-[#16A34A]/35 bg-[#16A34A]/10 text-[#16A34A]" }
-                    : spread <= -0.08
-                      ? { t: "Effort gap", cls: "border-[#E74C3C]/45 bg-[#E74C3C]/10 text-[#E74C3C]" }
-                      : { t: "Balanced", cls: "border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)]" };
+      {rows.length ? (
+        <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+          <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Revenue Mix</div>
+          <div className="mt-2">
+            <div className="relative h-[10px] w-full rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]" aria-hidden="true">
+              {rows.slice(0, 3).map((r, idx) => {
+                const pct = r.revenue_pct == null ? null : Math.max(0, Math.min(1, Number(r.revenue_pct)));
+                const left = pct == null ? 0 : pct * 100;
+                const c = dotColors[Math.min(dotColors.length - 1, idx)];
+                return (
+                  <span
+                    key={r.name}
+                    className="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border border-[color:var(--sf-border)]"
+                    style={{ left: `calc(${left}% - 6px)`, background: c }}
+                    aria-hidden="true"
+                  />
+                );
+              })}
+            </div>
 
-              return (
-                <tr
-                  key={r.name}
-                  className={[
-                    "text-[color:var(--sf-text-primary)]",
-                    idx % 2 === 0 ? "bg-transparent" : "bg-[color:var(--sf-surface)]/20",
-                    "hover:bg-[color:var(--sf-surface)]/35",
-                  ].join(" ")}
-                >
-                  <td className="border-b border-[color:var(--sf-border)] px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <div className="min-w-0">
-                        <div className="truncate font-semibold">{r.name}</div>
-                        {spreadBadge ? (
-                          <div className="mt-1">
-                            <span className={["inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold", spreadBadge.cls].join(" ")}>
-                              {spreadBadge.t}
-                            </span>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </td>
-
-                  <td className="border-b border-[color:var(--sf-border)] px-3 py-2">
-                    <div className="relative flex items-center justify-end">
-                      <div
-                        className="absolute left-0 top-1/2 h-[10px] -translate-y-1/2 rounded-full bg-[color:var(--sf-accent-primary)]/20"
-                        style={{ width: `${Math.max(6, barPct)}%` }}
-                        aria-hidden="true"
-                      />
-                      <span className="relative font-mono text-xs font-semibold">{fmtMoney0(r.revenue)}</span>
-                    </div>
-                  </td>
-
-                  <td className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right font-mono text-xs">{fmtPct01(r.revenue_pct)}</td>
-                  <td className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right">
-                    <span className="font-mono text-xs font-semibold">{r.orders}</span>{" "}
-                    <span className="text-xs text-[color:var(--sf-text-secondary)]">({fmtPct01(r.volume_pct)})</span>
-                  </td>
-                  <td className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right font-mono text-xs">
-                    {r.acv == null ? "—" : fmtMoney0(r.acv)}
-                  </td>
-                  <td className="border-b border-[color:var(--sf-border)] px-3 py-2 text-right">
-                    <span className={["inline-flex items-center gap-2 rounded-full border px-2 py-0.5 text-[11px] font-semibold", tone.badge].join(" ")}>
-                      <span className="relative flex h-2.5 w-2.5">
-                        {r.health_score != null && r.health_score >= 80 ? (
-                          <span className={["absolute inline-flex h-full w-full animate-ping rounded-full opacity-30", tone.dot].join(" ")} />
-                        ) : null}
-                        <span className={["relative inline-flex h-2.5 w-2.5 rounded-full", tone.dot].join(" ")} />
-                      </span>
-                      <span>
-                        {tone.label}
-                        {r.health_score == null ? "" : ` (${Math.round(r.health_score)}%)`}
-                      </span>
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-meta">
+              {rows.slice(0, 3).map((r, idx) => {
+                const c = dotColors[Math.min(dotColors.length - 1, idx)];
+                return (
+                  <span key={r.name} className="inline-flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full" style={{ background: c }} aria-hidden="true" />
+                    <span className="truncate">
+                      {r.name} <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{fmtPct01(r.revenue_pct)}</span>
                     </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {rows.map((r, idx) => {
+          const barPct = Math.round((r.revenue / maxRevenue) * 100);
+          const tone = healthTone(r.health_score);
+          const spread = r.spread_pct;
+          const spreadBadge =
+            spread == null
+              ? null
+              : spread >= 0.08
+                ? { t: "Pricing power", cls: "border-[#16A34A]/35 bg-[#16A34A]/10 text-[#16A34A]" }
+                : spread <= -0.08
+                  ? { t: "Effort gap", cls: "border-[#E74C3C]/45 bg-[#E74C3C]/10 text-[#E74C3C]" }
+                  : { t: "Balanced", cls: "border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)]" };
+          const dot = dotColors[Math.min(dotColors.length - 1, idx)] || "var(--sf-accent-primary)";
+
+          return (
+            <div key={r.name} className="rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full border border-[color:var(--sf-border)]" style={{ background: dot }} aria-hidden="true" />
+                    <div className="truncate text-sm font-semibold text-[color:var(--sf-text-primary)]">{r.name}</div>
+                  </div>
+                  {spreadBadge ? (
+                    <div className="mt-2">
+                      <span className={["inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold", spreadBadge.cls].join(" ")}>
+                        {spreadBadge.t}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">% of Mix</div>
+                  <div className="mt-1 font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtPct01(r.revenue_pct)}</div>
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Revenue (Closed Won)</div>
+                <div className="mt-1 flex items-center justify-between gap-3">
+                  <div className="relative h-[10px] w-full overflow-hidden rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]" aria-hidden="true">
+                    <div className="h-full rounded-full bg-[color:var(--sf-accent-primary)]/25" style={{ width: `${Math.max(6, barPct)}%` }} />
+                  </div>
+                  <div className="shrink-0 font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney0(r.revenue)}</div>
+                </div>
+              </div>
+
+              <div className="mt-3 grid gap-2 text-meta">
+                <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                  <span>Volume</span>
+                  <span className="font-mono font-[600] text-[color:var(--sf-text-primary)]">
+                    {r.orders} <span className="font-sans font-normal text-[color:var(--sf-text-secondary)]">({fmtPct01(r.volume_pct)})</span>
+                  </span>
+                </div>
+                <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                  <span>Avg. Deal Size</span>
+                  <span className="font-mono font-[600] text-[color:var(--sf-text-primary)]">{r.acv == null ? "—" : fmtMoney0(r.acv)}</span>
+                </div>
+                <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                  <span>Deal Health</span>
+                  <span className={["inline-flex items-center justify-end gap-2 rounded-full border px-2 py-0.5 text-[11px] font-semibold", tone.badge].join(" ")}>
+                    <span className="relative flex h-2.5 w-2.5">
+                      {r.health_score != null && r.health_score >= 80 ? (
+                        <span className={["absolute inline-flex h-full w-full animate-ping rounded-full opacity-30", tone.dot].join(" ")} />
+                      ) : null}
+                      <span className={["relative inline-flex h-2.5 w-2.5 rounded-full", tone.dot].join(" ")} />
+                    </span>
+                    <span>
+                      {tone.label}
+                      {r.health_score == null ? "" : ` (${Math.round(r.health_score)}%)`}
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       <ExecutiveProductPerformanceAiTakeawayClient quotaPeriodId={props.quotaPeriodId} payload={props.data} />

@@ -2198,7 +2198,7 @@ export function ExecutiveGapInsightsClient(props: {
 
                     return (
                       <div className="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-                        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Compare</div>
+                        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct Vs. Indirect Performance</div>
                         <div className="mt-3 grid gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
                           <div className="grid grid-cols-[1fr_auto] items-center gap-4">
                             <span>Win Rate</span>
