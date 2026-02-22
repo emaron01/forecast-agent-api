@@ -21,7 +21,7 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
       <div className="flex h-[65px] w-full items-center justify-between px-6">
         <div className="flex items-center gap-4">
           <Link href={dashHref} aria-label="SalesForecast home" className="shrink-0">
-            <div className="h-[65px] w-[min(260px,40vw)] overflow-hidden">
+            <div className="h-[65px] w-[min(270px,40vw)] overflow-hidden">
               <Image
                 src="/brand/salesforecast-logo-trim.png"
                 alt="SalesForecast.io"

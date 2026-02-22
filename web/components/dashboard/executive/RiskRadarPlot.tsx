@@ -221,10 +221,6 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
       <div className="flex items-end justify-between gap-3">
         <div>
           <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">AI Risk Radar</div>
-          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-            <div>Opportunities with MEDDPICC+TB risk are represented on the radar. Outer ring = lowest score / highest category risk.</div>
-            <div>AI Risk Radar coloring: center ring green · middle ring yellow · outer ring red.</div>
-          </div>
         </div>
       </div>
 
