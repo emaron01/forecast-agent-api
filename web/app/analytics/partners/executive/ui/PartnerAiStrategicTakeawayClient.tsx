@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 function stripJsonFence(s: string) {
@@ -183,7 +184,16 @@ export function PartnerAiStrategicTakeawayClient(props: { payload: any }) {
     <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="text-sectionTitle text-[color:var(--sf-text-primary)]">✨ AI Strategic Takeaways</div>
+          <div className="inline-flex items-center gap-2 text-sectionTitle text-[color:var(--sf-text-primary)]">
+            <Image
+              src="/brand/salesforecast-logo-white.png"
+              alt="SalesForecast.io"
+              width={258}
+              height={47}
+              className="h-[1.95rem] w-auto opacity-90"
+            />
+            <span>✨ AI Strategic Takeaways</span>
+          </div>
           <div className="mt-1 text-meta">
             CRO-grade interpretation of Direct vs Partner performance, with recommendations for coverage and channel investment.
           </div>

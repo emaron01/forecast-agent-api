@@ -1063,21 +1063,21 @@ export function ExecutiveGapInsightsClient(props: {
     const out: Array<{ key: string; tip: string; evidence: string }> = [];
     const seen = new Set<string>();
     const sourceDeals = analysisFlattenedDeals.length ? analysisFlattenedDeals : flattenedDeals;
-    const riskSet = sourceDeals.filter((d) => Number(d.weighted?.gap || 0) < 0);
-    const isRiskScore = (score: number | null) => {
+    // Include tips from categories with scores 0–2 (coaching moments); ignore categories with score 3
+    const isCoachingScore = (score: number | null) => {
       if (score == null) return true;
       if (!Number.isFinite(score)) return true;
-      return score <= 1;
+      return score <= 2;
     };
 
-    for (const d of riskSet) {
+    for (const d of sourceDeals) {
       for (const c of d.meddpicc_tb || []) {
         const key = String((c as any).key || "").trim();
         const tip = String((c as any).tip || "").trim();
         if (!key || !tip) continue;
         if (seen.has(key)) continue;
         const score = (c as any).score == null ? null : Number((c as any).score);
-        if (!isRiskScore(score)) continue;
+        if (!isCoachingScore(score)) continue;
         seen.add(key);
         out.push({ key, tip, evidence: String((c as any).evidence || "").trim() });
         if (out.length >= 6) return out;
@@ -1757,7 +1757,16 @@ export function ExecutiveGapInsightsClient(props: {
 
             <div className="mt-4 border-t border-[color:var(--sf-border)] pt-4">
               <div className="flex flex-wrap items-end justify-between gap-2">
-                <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">✨ AI Strategic Takeaway</div>
+                <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                  <Image
+                    src="/brand/salesforecast-logo-white.png"
+                    alt="SalesForecast.io"
+                    width={258}
+                    height={47}
+                    className="h-[1.95rem] w-auto opacity-90"
+                  />
+                  <span>✨ AI Strategic Takeaway</span>
+                </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"

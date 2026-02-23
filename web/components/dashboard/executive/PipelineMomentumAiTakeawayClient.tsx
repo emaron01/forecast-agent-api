@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 function stripJsonFence(s: string) {
@@ -200,7 +201,16 @@ export function PipelineMomentumAiTakeawayClient(props: { payload: any }) {
   return (
     <section className="rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">✨ AI Strategic Takeaway</div>
+        <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+          <Image
+            src="/brand/salesforecast-logo-white.png"
+            alt="SalesForecast.io"
+            width={258}
+            height={47}
+            className="h-[1.95rem] w-auto opacity-90"
+          />
+          <span>✨ AI Strategic Takeaway</span>
+        </div>
         <div className="flex items-center gap-2">
           <button
             type="button"

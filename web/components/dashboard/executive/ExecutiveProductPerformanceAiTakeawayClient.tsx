@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 function stripJsonFence(s: string) {
@@ -182,7 +183,16 @@ export function ExecutiveProductPerformanceAiTakeawayClient(props: Props) {
   return (
     <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">✨ AI Strategic Takeaway</div>
+        <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+          <Image
+            src="/brand/salesforecast-logo-white.png"
+            alt="SalesForecast.io"
+            width={258}
+            height={47}
+            className="h-[1.95rem] w-auto opacity-90"
+          />
+          <span>✨ AI Strategic Takeaway</span>
+        </div>
         <div className="flex items-center gap-2">
           <button
             type="button"
