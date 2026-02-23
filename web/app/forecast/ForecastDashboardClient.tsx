@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MEDDPICC_CANONICAL } from "../../lib/meddpiccCanonical";
-import { closedOutcomeFromStage } from "../../lib/opportunityOutcome";
+import { closedOutcomeFromOpportunityRow } from "../../lib/opportunityOutcome";
 import { dateOnly } from "../../lib/dateOnly";
 
 type Deal = Record<string, any> & {
@@ -393,7 +393,7 @@ export function ForecastDashboardClient(props: {
           const total = Number(d.health_score ?? scoreTotal(d)) || 0;
           const justSaved = saveBlinksRef.current.has(String(d.id || ""));
           const dealId = String(d.id || "");
-          const closed = closedOutcomeFromStage(d.forecast_stage);
+          const closed = closedOutcomeFromOpportunityRow(d);
 
           return (
             <article

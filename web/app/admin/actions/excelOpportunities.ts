@@ -224,9 +224,9 @@ function parseMappingPairs(rawMappingJson: string) {
     // Excel headers can contain leading/trailing/hidden whitespace and must match the raw row keys exactly.
     const rawSource = String(source ?? "");
     if (!rawSource.trim()) continue;
-    // Reporting standard: Forecast Stage is canonical for analytics bucketing.
-    // Treat legacy `stage` / `sales_stage` mappings as aliases for `forecast_stage`.
-    const canonicalTarget = parsedTarget.data === "stage" || parsedTarget.data === "sales_stage" ? "forecast_stage" : parsedTarget.data;
+    // Keep sales_stage separate (SF often has Forecast="Closed", Sales="Won"/"Closed Lost").
+    // Legacy `stage` without context maps to forecast_stage.
+    const canonicalTarget = parsedTarget.data === "stage" ? "forecast_stage" : parsedTarget.data;
     pairs.push({ source_field: rawSource, target_field: canonicalTarget });
   }
   return pairs;
@@ -253,7 +253,7 @@ function friendlyTargetName(t: string) {
     case "forecast_stage":
       return "Forecast Stage";
     case "sales_stage":
-      return "Forecast Stage (legacy Sales Stage)";
+      return "Sales Stage";
     case "partner_name":
       return "Partner Name";
     case "deal_registration":
@@ -473,7 +473,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
       const existing = await listFieldMappings({ mappingSetId }).catch(() => []);
       mappingPairs = existing.map((m) => ({
         source_field: m.source_field,
-        target_field: m.target_field === "stage" || m.target_field === "sales_stage" ? "forecast_stage" : m.target_field,
+        target_field: m.target_field === "stage" ? "forecast_stage" : m.target_field,
       }));
     }
 

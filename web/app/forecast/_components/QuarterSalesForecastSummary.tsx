@@ -298,7 +298,7 @@ export async function QuarterSalesForecastSummary(props: {
               -- Forecast reporting standard: forecast_stage drives all classification.
               lower(
                 regexp_replace(
-                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
                   '[^a-zA-Z]+',
                   ' ',
                   'g'
@@ -473,7 +473,7 @@ export async function QuarterSalesForecastSummary(props: {
               o.health_score,
               lower(
                 regexp_replace(
-            COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+            COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
                   '[^a-zA-Z]+',
                   ' ',
                   'g'
@@ -546,7 +546,7 @@ export async function QuarterSalesForecastSummary(props: {
               o.rep_name,
               lower(
                 regexp_replace(
-                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
                   '[^a-zA-Z]+',
                   ' ',
                   'g'
@@ -671,7 +671,7 @@ export async function QuarterSalesForecastSummary(props: {
                   o.health_score,
                   lower(
                     regexp_replace(
-                      COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                      COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
                       '[^a-zA-Z]+',
                       ' ',
                       'g'
@@ -814,7 +814,7 @@ export async function QuarterSalesForecastSummary(props: {
                 o.forecast_stage,
                 lower(
                   regexp_replace(
-                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
                     '[^a-zA-Z]+',
                     ' ',
                     'g'
@@ -904,7 +904,7 @@ export async function QuarterSalesForecastSummary(props: {
                 o.forecast_stage,
                 lower(
                   regexp_replace(
-                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
                     '[^a-zA-Z]+',
                     ' ',
                     'g'

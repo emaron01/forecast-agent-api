@@ -104,7 +104,7 @@ export async function GET(req: Request) {
         deals AS (
           SELECT
             COALESCE(o.amount, 0)::float8 AS amount,
-            lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
+            lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
             o.close_date::date AS close_d,
             o.rep_id,
             lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) AS rep_name_key
@@ -181,7 +181,7 @@ export async function GET(req: Request) {
           o.rep_name,
           o.sales_stage,
           o.forecast_stage,
-          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
+          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
           lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) AS rep_name_key
         FROM opportunities o
         WHERE o.org_id = $1

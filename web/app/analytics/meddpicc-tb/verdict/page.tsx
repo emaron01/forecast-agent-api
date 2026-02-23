@@ -189,7 +189,7 @@ export default async function VerdictForecastPage({
               END AS owner_role,
               lower(
                 regexp_replace(
-                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
                   '[^a-zA-Z]+',
                   ' ',
                   'g'
@@ -321,7 +321,7 @@ export default async function VerdictForecastPage({
                 END AS owner_role,
                 lower(
                   regexp_replace(
-                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
                     '[^a-zA-Z]+',
                     ' ',
                     'g'
@@ -482,7 +482,7 @@ export default async function VerdictForecastPage({
               COALESCE(NULLIF(btrim(m.display_name), ''), NULLIF(btrim(m.rep_name), ''), '(Unassigned)') AS manager_name_norm,
               lower(
                 regexp_replace(
-                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
                   '[^a-zA-Z]+',
                   ' ',
                   'g'
@@ -586,7 +586,7 @@ export default async function VerdictForecastPage({
                 COALESCE(NULLIF(btrim(m.display_name), ''), NULLIF(btrim(m.rep_name), ''), '(Unassigned)') AS manager_name_norm,
                 lower(
                   regexp_replace(
-                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
                     '[^a-zA-Z]+',
                     ' ',
                     'g'

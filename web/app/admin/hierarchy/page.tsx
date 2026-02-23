@@ -16,7 +16,7 @@ export default async function HierarchyPage({
   searchParams: Record<string, string | string[] | undefined>;
 }) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && ctx.user.role !== "ADMIN" && ctx.user.role !== "EXEC_MANAGER" && ctx.user.role !== "MANAGER") redirect("/admin/users");
 
   const saved = sp(searchParams.saved) || "";
   const error = sp(searchParams.error) || "";
@@ -46,6 +46,7 @@ export default async function HierarchyPage({
     (repsByManagerId.get(mgrId) as any).push(r);
   }
 
+  // Reps can report to managers (level 2) or executives (level 1) for flat orgs
   const unassignedManagers = managersByExecId.get(0) || [];
   const unassignedReps = repsByManagerId.get(0) || [];
 
@@ -85,7 +86,7 @@ export default async function HierarchyPage({
             {error === "cycle_detected"
               ? "Invalid org chart: a user cannot manage themselves (directly or indirectly)."
               : error === "rep_manager_must_be_manager"
-                ? "Invalid assignment: Reps must report to a Manager."
+                ? "Invalid assignment: Reps must report to a Manager or Executive Manager."
                 : error === "manager_manager_must_be_exec"
                   ? "Invalid assignment: Managers must report to an Executive Manager (or be unassigned)."
                   : "Could not save. Please review your selections and try again."}
@@ -103,6 +104,8 @@ export default async function HierarchyPage({
             <div className="grid gap-4 md:grid-cols-3">
               {executives.map((exec) => {
                 const myManagers = managersByExecId.get(exec.id) || [];
+                const directReps = repsByManagerId.get(exec.id) || [];
+                const hasContent = myManagers.length > 0 || directReps.length > 0;
                 return (
                   <section key={exec.id} className="rounded-xl border border-[color:var(--sf-border)] p-4">
                     <div className="flex flex-wrap items-start justify-between gap-2">
@@ -119,7 +122,48 @@ export default async function HierarchyPage({
                     </div>
 
                     <div className="mt-4 grid gap-3">
-                      {myManagers.length ? (
+                      {directReps.length > 0 ? (
+                        <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
+                          <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Direct reports (reps)</div>
+                          <ul className="mt-2 grid gap-2">
+                            {directReps.map((r) => (
+                              <li
+                                key={r.id}
+                                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[color:var(--sf-border)] px-3 py-2"
+                              >
+                                <div>
+                                  <div className="text-sm text-[color:var(--sf-text-primary)]">{r.display_name}</div>
+                                  <div className="text-xs text-[color:var(--sf-text-disabled)]">
+                                    {r.title ? `${r.title} · ` : ""}
+                                    {r.email}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Managed by</label>
+                                  <select
+                                    name={`mgr_${r.public_id}`}
+                                    defaultValue={exec.public_id}
+                                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-sm text-[color:var(--sf-text-primary)]"
+                                  >
+                                    <option value="">(unassigned)</option>
+                                    {executives.map((e) => (
+                                      <option key={e.public_id} value={String(e.public_id)}>
+                                        {e.display_name}
+                                      </option>
+                                    ))}
+                                    {managers.map((mm) => (
+                                      <option key={mm.public_id} value={String(mm.public_id)}>
+                                        {mm.display_name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {myManagers.length > 0 ? (
                         myManagers.map((m) => {
                           const myReps = repsByManagerId.get(m.id) || [];
                           return (
@@ -174,6 +218,11 @@ export default async function HierarchyPage({
                                             className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-sm text-[color:var(--sf-text-primary)]"
                                           >
                                             <option value="">(unassigned)</option>
+                                            {executives.map((e) => (
+                                              <option key={e.public_id} value={String(e.public_id)}>
+                                                {e.display_name}
+                                              </option>
+                                            ))}
                                             {managers.map((mm) => (
                                               <option key={mm.public_id} value={String(mm.public_id)}>
                                                 {mm.display_name}
@@ -191,9 +240,10 @@ export default async function HierarchyPage({
                             </div>
                           );
                         })
-                      ) : (
-                        <div className="text-sm text-[color:var(--sf-text-disabled)]">No managers assigned to this executive.</div>
-                      )}
+                      ) : null}
+                      {!hasContent ? (
+                        <div className="text-sm text-[color:var(--sf-text-disabled)]">No managers or direct reps assigned. Assign managers and/or reps below (Unassigned section) or add users first.</div>
+                      ) : null}
                     </div>
                   </section>
                 );
@@ -273,6 +323,11 @@ export default async function HierarchyPage({
                             className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-sm text-[color:var(--sf-text-primary)]"
                           >
                             <option value="">(unassigned)</option>
+                            {executives.map((e) => (
+                              <option key={e.public_id} value={String(e.public_id)}>
+                                {e.display_name}
+                              </option>
+                            ))}
                             {managers.map((m) => (
                               <option key={m.public_id} value={String(m.public_id)}>
                                 {m.display_name}

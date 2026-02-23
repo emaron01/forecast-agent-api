@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { closedOutcomeFromStage } from "../../../lib/opportunityOutcome";
+import { closedOutcomeFromOpportunityRow } from "../../../lib/opportunityOutcome";
 import { dateOnly } from "../../../lib/dateOnly";
 
 type Deal = Record<string, any> & {
@@ -54,7 +54,7 @@ function normalizeForecastBucket(stageLike: any): "Commit" | "Best Case" | "Pipe
 }
 
 function isClosedDeal(d: Deal) {
-  return closedOutcomeFromStage((d as any)?.forecast_stage) || null;
+  return closedOutcomeFromOpportunityRow(d) || null;
 }
 
 export function SimpleForecastDashboardClient(props: {

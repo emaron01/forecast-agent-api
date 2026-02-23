@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { closedOutcomeFromStage } from "../../../lib/opportunityOutcome";
+import { closedOutcomeFromOpportunityRow } from "../../../lib/opportunityOutcome";
 import { dateOnly } from "../../../lib/dateOnly";
 
 type Deal = Record<string, any> & {
@@ -77,7 +77,7 @@ function healthColorClass(pct: number | null) {
 }
 
 function isClosedDeal(d: Deal) {
-  return closedOutcomeFromStage((d as any)?.forecast_stage) || null;
+  return closedOutcomeFromOpportunityRow(d) || null;
 }
 
 type SortKey =

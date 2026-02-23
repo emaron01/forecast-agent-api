@@ -993,15 +993,13 @@ export async function processIngestionBatch(args: { organizationId: number; mapp
   const organizationId = zOrganizationId.parse(args.organizationId);
   const mappingSetId = zMappingSetId.parse(args.mappingSetId);
 
-  // Reporting standard:
-  // - Forecast Stage is the canonical stage dimension for all analytics bucketing.
-  // - Treat legacy `sales_stage` / `stage` mappings as aliases and migrate them before processing.
+  // Legacy: convert ambiguous `stage` mappings to forecast_stage. Keep sales_stage separate (SF: Forecast="Closed", Sales="Won").
   await pool.query(
     `
     UPDATE field_mappings
        SET target_field = 'forecast_stage'
      WHERE mapping_set_id = $1::bigint
-       AND target_field IN ('sales_stage', 'stage')
+       AND target_field = 'stage'
     `,
     [mappingSetId]
   );

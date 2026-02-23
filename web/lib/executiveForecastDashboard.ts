@@ -274,7 +274,7 @@ async function loadMotionStatsForPartners(args: { orgId: number; quotaPeriodId: 
         o.health_score::float8 AS health_score,
         o.create_date::timestamptz AS create_date,
         o.close_date::date AS close_date,
-        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
       FROM opportunities o
       JOIN qp ON TRUE
       WHERE o.org_id = $1
@@ -283,9 +283,9 @@ async function loadMotionStatsForPartners(args: { orgId: number; quotaPeriodId: 
         AND o.close_date >= qp.period_start
         AND o.close_date <= qp.period_end
         AND (
-          ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
-          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
-          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
+          ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
         )
     ),
     scored AS (
@@ -337,7 +337,7 @@ async function listPartnerRollupForExecutive(args: { orgId: number; quotaPeriodI
         o.health_score::float8 AS health_score,
         o.create_date::timestamptz AS create_date,
         o.close_date::date AS close_date,
-        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
       FROM opportunities o
       JOIN qp ON TRUE
       WHERE o.org_id = $1
@@ -348,9 +348,9 @@ async function listPartnerRollupForExecutive(args: { orgId: number; quotaPeriodI
         AND o.close_date >= qp.period_start
         AND o.close_date <= qp.period_end
         AND (
-          ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
-          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
-          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
+          ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
         )
     ),
     scored AS (
@@ -401,7 +401,7 @@ async function loadOpenPipelineByMotionForExecutive(args: { orgId: number; quota
           ELSE 'direct'
         END AS motion,
         COALESCE(o.amount, 0)::float8 AS amount,
-        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
       FROM opportunities o
       JOIN qp ON TRUE
       WHERE o.org_id = $1
@@ -410,9 +410,9 @@ async function loadOpenPipelineByMotionForExecutive(args: { orgId: number; quota
         AND o.close_date >= qp.period_start
         AND o.close_date <= qp.period_end
         AND NOT (
-          ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
-          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
-          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
+          ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
         )
     )
     SELECT
@@ -444,7 +444,7 @@ async function listOpenPipelineByPartnerForExecutive(args: { orgId: number; quot
       SELECT
         btrim(o.partner_name) AS partner_name,
         COALESCE(o.amount, 0)::float8 AS amount,
-        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
       FROM opportunities o
       JOIN qp ON TRUE
       WHERE o.org_id = $1
@@ -455,9 +455,9 @@ async function listOpenPipelineByPartnerForExecutive(args: { orgId: number; quot
         AND o.close_date >= qp.period_start
         AND o.close_date <= qp.period_end
         AND NOT (
-          ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
-          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
-          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
+          ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
+          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
         )
     )
     SELECT
@@ -537,7 +537,7 @@ async function getPipelineStageSnapshotForPeriod(args: {
         SELECT
           COALESCE(o.amount, 0)::float8 AS amount,
           o.health_score::float8 AS health_score,
-          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
+          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
           CASE
             WHEN o.close_date IS NULL THEN NULL
             WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
@@ -665,7 +665,7 @@ async function getPipelineStageSnapshotForPeriodWithNameFallback(args: {
       base AS (
         SELECT
           COALESCE(o.amount, 0)::float8 AS amount,
-          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
         FROM opportunities o
         JOIN qp ON TRUE
         WHERE o.org_id = $1
@@ -964,7 +964,7 @@ async function getPartnerSpeedSignals(args: {
           COALESCE(o.amount, 0)::float8 AS amount,
           o.create_date::timestamptz AS create_ts,
           o.close_date::timestamptz AS close_ts,
-          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
         FROM opportunities o
         JOIN qp ON TRUE
         WHERE o.org_id = $1
@@ -982,9 +982,9 @@ async function getPartnerSpeedSignals(args: {
             )
           )
           AND (
-            ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
-            OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
-            OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
+            ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
+            OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
+            OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
           )
       ),
       scored AS (
@@ -1185,7 +1185,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
                 COALESCE(o.amount, 0)::float8 AS amount,
                 lower(
                   regexp_replace(
-                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
                     '[^a-zA-Z]+',
                     ' ',
                     'g'
@@ -1260,7 +1260,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
               o.rep_name,
               lower(
                 regexp_replace(
-                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
                   '[^a-zA-Z]+',
                   ' ',
                   'g'
@@ -1377,7 +1377,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
               o.health_score,
               lower(
                 regexp_replace(
-                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
                   '[^a-zA-Z]+',
                   ' ',
                   'g'
@@ -1468,7 +1468,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
               o.rep_name,
               lower(
                 regexp_replace(
-                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
                   '[^a-zA-Z]+',
                   ' ',
                   'g'
@@ -1577,7 +1577,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
                     o.health_score,
                     lower(
                       regexp_replace(
-                        COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                        COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
                         '[^a-zA-Z]+',
                         ' ',
                         'g'
@@ -1839,7 +1839,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
                   base AS (
                     SELECT
                       COALESCE(o.amount, 0)::float8 AS amount,
-                      lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+                      lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
                     FROM opportunities o
                     JOIN qp ON TRUE
                     WHERE o.org_id = $1

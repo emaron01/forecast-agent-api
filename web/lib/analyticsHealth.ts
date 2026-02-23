@@ -41,7 +41,7 @@ export async function getHealthAveragesByPeriods(args: {
       SELECT
         p.quota_period_id::text AS quota_period_id,
         COALESCE(o.health_score, 0)::float8 AS health_score,
-        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
       FROM periods p
       JOIN opportunities o
         ON o.org_id = $1
@@ -111,7 +111,7 @@ export async function getHealthAveragesByRepByPeriods(args: {
         p.quota_period_id::text AS quota_period_id,
         o.rep_id::text AS rep_id,
         COALESCE(o.health_score, 0)::float8 AS health_score,
-        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
       FROM periods p
       JOIN opportunities o
         ON o.org_id = $1

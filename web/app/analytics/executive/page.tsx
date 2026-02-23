@@ -230,7 +230,7 @@ async function getPeriodKpis(args: { orgId: number; periodIds: string[]; repIds:
         o.close_date,
         lower(
           regexp_replace(
-            COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+            COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
             '[^a-zA-Z]+',
             ' ',
             'g'
@@ -357,7 +357,7 @@ async function getRepKpisByPeriod(args: { orgId: number; periodIds: string[]; re
         o.close_date,
         lower(
           regexp_replace(
-            COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+            COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
             '[^a-zA-Z]+',
             ' ',
             'g'

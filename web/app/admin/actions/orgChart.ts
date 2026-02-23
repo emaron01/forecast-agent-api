@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireOrgContext } from "../../../lib/auth";
 import { pool } from "../../../lib/pool";
-import { listUsers } from "../../../lib/db";
+import { listUsers, syncRepsFromUsers } from "../../../lib/db";
 
 function isNextRedirectError(e: unknown) {
   return typeof (e as any)?.digest === "string" && String((e as any).digest).startsWith("NEXT_REDIRECT");
@@ -47,7 +47,7 @@ function detectCycle(nextManagerByUserId: Map<number, number | null>) {
 export async function updateSalesOrgChartAction(formData: FormData) {
   try {
     const { ctx, orgId } = await requireOrgContext();
-    if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+    if (ctx.kind === "user" && ctx.user.role !== "ADMIN" && ctx.user.role !== "EXEC_MANAGER" && ctx.user.role !== "MANAGER") redirect("/admin/users");
 
     const users = await listUsers({ orgId, includeInactive: true }).catch(() => []);
     const byPublicId = new Map<string, (typeof users)[number]>();
@@ -78,10 +78,10 @@ export async function updateSalesOrgChartAction(formData: FormData) {
       if (manager.id === user.id) errRedirect("invalid_manager_self");
 
       // Enforce structure:
-      // - REP (level 3) must report to MANAGER (level 2)
+      // - REP (level 3) may report to MANAGER (level 2) OR EXEC_MANAGER (level 1) for flat orgs
       // - MANAGER (level 2) must report to EXEC_MANAGER (level 1) (optional)
       if (user.hierarchy_level === 3) {
-        if (manager.hierarchy_level !== 2) errRedirect("rep_manager_must_be_manager");
+        if (manager.hierarchy_level !== 2 && manager.hierarchy_level !== 1) errRedirect("rep_manager_must_be_manager");
       } else if (user.hierarchy_level === 2) {
         if (manager.hierarchy_level !== 1) errRedirect("manager_manager_must_be_exec");
       }
@@ -179,6 +179,7 @@ export async function updateSalesOrgChartAction(formData: FormData) {
       c.release();
     }
 
+    await syncRepsFromUsers({ organizationId: orgId }).catch(() => null);
     revalidatePath("/admin/hierarchy");
     okRedirect();
   } catch (e) {

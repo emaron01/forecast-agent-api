@@ -84,6 +84,7 @@ export async function GET(req: Request) {
         close_date,
         forecast_stage AS stage,
         forecast_stage,
+        sales_stage,
         ai_verdict,
         ai_forecast,
         partner_name,
@@ -133,8 +134,8 @@ export async function GET(req: Request) {
       where.push(
         `
         (
-          (' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% commit %'
-          OR (' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% best %'
+          (' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% commit %'
+          OR (' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% best %'
         )
         `.trim()
       );

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { closedOutcomeFromStage } from "../../../../lib/opportunityOutcome";
+import { closedOutcomeFromOpportunityRow } from "../../../../lib/opportunityOutcome";
 import { dateOnly } from "../../../../lib/dateOnly";
 
 type Deal = Record<string, any> & {
@@ -58,7 +58,7 @@ function safeDate(d: any) {
 
 function isClosedDeal(d: Deal) {
   // Analytics/reporting standard: forecast_stage drives all “closed” detection.
-  return closedOutcomeFromStage((d as any)?.forecast_stage) || null;
+  return closedOutcomeFromOpportunityRow(d) || null;
 }
 
 function healthPctFrom30(score: any) {

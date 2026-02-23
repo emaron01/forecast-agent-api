@@ -669,7 +669,7 @@ export async function GET(req: Request) {
           o.criteria_tip, o.competition_tip, o.timing_tip, o.budget_tip,
           lower(
             regexp_replace(
-              COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+              COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
               '[^a-zA-Z]+',
               ' ',
               'g'
@@ -882,7 +882,7 @@ export async function GET(req: Request) {
             o.criteria_tip, o.competition_tip, o.timing_tip, o.budget_tip,
             lower(
               regexp_replace(
-                COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
                 '[^a-zA-Z]+',
                 ' ',
                 'g'
@@ -1312,7 +1312,7 @@ export async function GET(req: Request) {
                 o.health_score,
                 lower(
                   regexp_replace(
-                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''),
+                    COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
                     '[^a-zA-Z]+',
                     ' ',
                     'g'

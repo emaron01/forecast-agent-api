@@ -110,7 +110,7 @@ async function getRepKpisByPeriod(args: {
         o.partner_name,
         o.create_date,
         o.close_date,
-        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
+        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
         p.range_end::timestamptz AS period_end_ts,
         p.range_start::date AS period_start,
         p.range_end::date AS period_end
