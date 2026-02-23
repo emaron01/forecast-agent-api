@@ -1695,52 +1695,46 @@ export function ExecutiveGapInsightsClient(props: {
         />
       </div>
 
-      <div className="grid w-full gap-4">
+      <div className="grid w-full gap-4 lg:grid-cols-[minmax(200px,280px)_1fr] lg:items-start">
         <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-          <div className="grid gap-2">
-            <div className="flex items-center justify-end gap-2">
-              <span className="text-meta">Show</span>
-              <select
-                value={radarTopN}
-                onChange={(e) => setRadarTopN(clampInt(Number(e.target.value) || 20, 5, 50))}
-                className="h-[36px] w-[100px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs text-[color:var(--sf-text-primary)]"
-              >
-                {topXOptions.map((n) => (
-                  <option key={n} value={n}>
-                    Top {n}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quick Account Review - Top {radarTopN}</div>
+            <select
+              value={radarTopN}
+              onChange={(e) => setRadarTopN(clampInt(Number(e.target.value) || 20, 5, 50))}
+              className="h-[36px] w-[80px] shrink-0 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
+            >
+              {topXOptions.map((n) => (
+                <option key={n} value={n}>
+                  Top {n}
+                </option>
+              ))}
+            </select>
           </div>
 
-          <details open className="mt-3">
-            <summary className="cursor-pointer text-meta font-[500]">Accounts</summary>
-            <div className="mt-2 text-sm text-[color:var(--sf-text-primary)]">
-              {radarDeals.length ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  {radarDeals.map((d) => (
-                    <div
-                      key={d.id}
-                      className="inline-flex max-w-full items-center gap-2 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1"
-                    >
-                      <span
-                        className="h-2.5 w-2.5 rounded-full border border-[color:var(--sf-border)]"
-                        style={{ background: d.color }}
-                        aria-hidden="true"
-                      />
-                      <span className="min-w-0 max-w-[260px] truncate" title={String(d.legendLabel || d.label)}>
-                        {String(d.legendLabel || d.label)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
-              )}
-            </div>
-          </details>
+          <div className="mt-3 text-sm text-[color:var(--sf-text-primary)]">
+            {radarDeals.length ? (
+              <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
+                {radarDeals.map((d) => (
+                  <div
+                    key={d.id}
+                    className="flex min-w-0 items-center gap-1.5 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1"
+                  >
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full border border-[color:var(--sf-border)]"
+                      style={{ background: d.color }}
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-0 truncate text-xs" title={String(d.legendLabel || d.label)}>
+                      {String(d.legendLabel || d.label)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
+            )}
+          </div>
         </section>
 
         <div className="grid min-w-0 gap-4">
