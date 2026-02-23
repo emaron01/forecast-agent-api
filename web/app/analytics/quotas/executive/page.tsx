@@ -171,7 +171,7 @@ export default async function AnalyticsQuotasExecutivePage({
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
   if (ctx.user.role === "ADMIN" && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
-  if (ctx.user.role !== "EXEC_MANAGER" && ctx.user.role !== "ADMIN") redirect("/dashboard");
+  if (ctx.user.role !== "EXEC_MANAGER" && ctx.user.role !== "MANAGER" && ctx.user.role !== "ADMIN") redirect("/dashboard");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
@@ -204,7 +204,7 @@ export default async function AnalyticsQuotasExecutivePage({
   const scope =
     ctx.user.role === "ADMIN"
       ? { allowedRepIds: null as number[] | null }
-      : await getScopedRepDirectory({ orgId: ctx.user.org_id, userId: ctx.user.id, role: "EXEC_MANAGER" }).catch(() => ({
+      : await getScopedRepDirectory({ orgId: ctx.user.org_id, userId: ctx.user.id, role: ctx.user.role as "EXEC_MANAGER" | "MANAGER" }).catch(() => ({
           repDirectory: [],
           allowedRepIds: [0] as number[],
           myRepId: null as number | null,

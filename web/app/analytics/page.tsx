@@ -53,16 +53,16 @@ export default async function AnalyticsPage() {
           {ctx.user.role === "MANAGER" ? (
             <Card href="/analytics/quotas/manager" title="Team Quotas" desc="Assign quotas to direct reports + team rollups." />
           ) : null}
-          {ctx.user.role === "EXEC_MANAGER" ? (
+          {(ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER") ? (
             <Card href="/analytics/quotas/executive" title="Top Deals" desc="Top Won + Closed Loss deals for the selected quarter (sortable)." />
           ) : null}
-          {ctx.user.role === "EXEC_MANAGER" ? (
+          {(ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER") ? (
             <Card href="/analytics/partners/executive" title="Top Partners" desc="Top Won + Closed Loss deals with a partner for the selected quarter (sortable)." />
           ) : null}
           {ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER" || ctx.user.role === "ADMIN" ? (
             <Card href="/analytics/custom-reports" title="Build Custom Reports" desc="Save/load custom rep comparison reports (fields + selected reps)." />
           ) : null}
-          {ctx.user.role === "EXEC_MANAGER" ? (
+          {(ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER") ? (
             <Card href="/analytics/executive" title="KPI Summary" desc="Quarter KPI dashboard with QoQ deltas + team/rep comparisons." />
           ) : null}
         </section>

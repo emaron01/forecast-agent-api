@@ -21,7 +21,7 @@ async function saveAction(formData: FormData) {
   "use server";
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role !== "EXEC_MANAGER" && ctx.user.role !== "ADMIN") redirect("/dashboard");
+  if (ctx.user.role !== "EXEC_MANAGER" && ctx.user.role !== "MANAGER" && ctx.user.role !== "ADMIN") redirect("/dashboard");
   if (ctx.user.role === "ADMIN" && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
 
   const commit = parsePct01(formData.get("commit_pct"));
@@ -37,7 +37,7 @@ async function saveAction(formData: FormData) {
 export default async function ExecutiveForecastProbabilitiesPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role !== "EXEC_MANAGER" && ctx.user.role !== "ADMIN") redirect("/dashboard");
+  if (ctx.user.role !== "EXEC_MANAGER" && ctx.user.role !== "MANAGER" && ctx.user.role !== "ADMIN") redirect("/dashboard");
   if (ctx.user.role === "ADMIN" && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);

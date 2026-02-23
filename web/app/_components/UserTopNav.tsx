@@ -36,6 +36,7 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
             <NavLink href={dashHref} label="Dashboard" />
             <NavLink href="/forecast" label="Sales Opportunities" />
             <NavLink href="/analytics" label="Analytics" />
+            <NavLink href="/dashboard/excel-upload" label="Upload" />
           </nav>
         </div>
 
