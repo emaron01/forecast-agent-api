@@ -1600,11 +1600,11 @@ export function ExecutiveGapInsightsClient(props: {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="inline-flex items-center gap-2 text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
                 <Image
-                  src="/brand/salesforecast-logo-trim.png"
+                  src="/brand/salesforecast-logo-white.png"
                   alt="SalesForecast.io"
                   width={258}
                   height={47}
-                  className="opacity-20"
+                  className="h-[1.95rem] w-auto opacity-90"
                 />
                 <span>✨ Strategic Takeaway</span>
               </div>
@@ -1739,9 +1739,9 @@ export function ExecutiveGapInsightsClient(props: {
           <RiskRadarPlot deals={radarDeals} size={960} />
 
           <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-            {coachingTips.length ? (
-              <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Coaching tips (from opportunities)</div>
+            <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Coaching tips (from opportunities)</div>
+              {coachingTips.length ? (
                 <ul className="mt-2 list-disc pl-5 text-sm text-[color:var(--sf-text-primary)]">
                   {coachingTips.map((t) => (
                     <li key={t.key}>
@@ -1750,8 +1750,10 @@ export function ExecutiveGapInsightsClient(props: {
                     </li>
                   ))}
                 </ul>
-              </div>
-            ) : null}
+              ) : (
+                <div className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">No coaching tips from opportunities in the current view.</div>
+              )}
+            </div>
 
             <div className="mt-4 border-t border-[color:var(--sf-border)] pt-4">
               <div className="flex flex-wrap items-end justify-between gap-2">

@@ -21,6 +21,8 @@ function healthTone(pct: number | null) {
   return { label: "Risk", dot: "bg-[#E74C3C]", badge: "border-[#E74C3C]/45 bg-[#E74C3C]/10 text-[#E74C3C]" };
 }
 
+const barColors = ["#7C3AED", "#2563EB", "#16A34A", "#F59E0B", "#EF4444"] as const;
+
 export function ExecutiveProductPerformance(props: { data: ExecutiveProductPerformanceData; quotaPeriodId: string }) {
   const rows = computeExecutiveProductRows(props.data);
   const dotColors = ["#2ECC71", "var(--sf-accent-primary)", "#E74C3C"] as const;
@@ -37,25 +39,34 @@ export function ExecutiveProductPerformance(props: { data: ExecutiveProductPerfo
         <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
           <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Revenue Mix</div>
           <div className="mt-2">
-            <div className="relative h-[10px] w-full rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]" aria-hidden="true">
-              {rows.slice(0, 3).map((r, idx) => {
-                const pct = r.revenue_pct == null ? null : Math.max(0, Math.min(1, Number(r.revenue_pct)));
-                const left = pct == null ? 0 : pct * 100;
-                const c = dotColors[Math.min(dotColors.length - 1, idx)];
-                return (
-                  <span
-                    key={r.name}
-                    className="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border border-[color:var(--sf-border)]"
-                    style={{ left: `calc(${left}% - 6px)`, background: c }}
-                    aria-hidden="true"
-                  />
-                );
-              })}
+            <div
+              className="h-[10px] w-full overflow-hidden rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]"
+              aria-label={rows.map((r) => `${r.name} ${Math.round((Number(r.revenue_pct) || 0) * 100)}%`).join(", ")}
+              title={rows.map((r) => `${r.name} ${Math.round((Number(r.revenue_pct) || 0) * 100)}%`).join(" · ")}
+            >
+              <div className="flex h-full w-full flex-row">
+                {rows.map((r, idx) => {
+                  const mix = r.revenue_pct == null ? 0 : Math.max(0, Math.min(1, Number(r.revenue_pct)));
+                  const total = rows.reduce((s, x) => s + (Number(x.revenue_pct) || 0), 0) || 1;
+                  const pct = total > 0 ? (mix / total) * 100 : 0;
+                  const c = barColors[idx % barColors.length] || "var(--sf-accent-primary)";
+                  return (
+                    <div
+                      key={r.name}
+                      className="h-full"
+                      style={{
+                        width: `${Math.max(0, Math.min(100, pct))}%`,
+                        background: c,
+                      }}
+                    />
+                  );
+                })}
+              </div>
             </div>
 
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-meta">
-              {rows.slice(0, 3).map((r, idx) => {
-                const c = dotColors[Math.min(dotColors.length - 1, idx)];
+              {rows.map((r, idx) => {
+                const c = barColors[idx % barColors.length] || "var(--sf-accent-primary)";
                 return (
                   <span key={r.name} className="inline-flex items-center gap-2">
                     <span className="h-2 w-2 rounded-full" style={{ background: c }} aria-hidden="true" />
