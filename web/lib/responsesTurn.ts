@@ -704,3 +704,37 @@ export async function runResponsesTurn(args: {
   return { assistantText, done };
 }
 
+/** Single-turn Responses API call (no tools). Used by comment ingestion. */
+export async function callResponsesApiSingleTurn(args: { instructions: string; userMessage: string }): Promise<string> {
+  const baseUrl = resolveBaseUrl();
+  const apiKey = String(process.env.MODEL_API_KEY || process.env.OPENAI_API_KEY || "").trim();
+  const model = process.env.MODEL_API_NAME;
+
+  if (!baseUrl) throw new Error("Missing OPENAI_BASE_URL (or MODEL_API_URL or MODEL_URL)");
+  if (!apiKey) throw new Error("Missing MODEL_API_KEY");
+  if (!model) throw new Error("Missing MODEL_API_NAME");
+
+  const resp = await fetch(`${baseUrl}/responses`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      instructions: args.instructions,
+      tool_choice: "none",
+      input: [userMsg(args.userMessage)],
+    }),
+  });
+
+  const json = await resp.json().catch(async () => ({ error: { message: await resp.text() } }));
+  if (!resp.ok) {
+    const msg = json?.error?.message || JSON.stringify(json);
+    throw new Error(msg);
+  }
+
+  const output = Array.isArray(json?.output) ? json.output : [];
+  return extractAssistantText(output);
+}
+

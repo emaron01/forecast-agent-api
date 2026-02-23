@@ -2445,3 +2445,102 @@ export async function replaceManagerVisibility(args: {
   });
 }
 
+// -----------------------------
+// Score definitions (authoritative rubric for deal review + comment ingestion)
+// -----------------------------
+
+export type ScoreDefRow = { category: string; score: number; label?: string; criteria?: string; public_id?: string };
+
+// score_definitions is global and identical across orgs.
+export async function listScoreDefinitions(): Promise<ScoreDefRow[]> {
+  const defsRes = await pool
+    .query(
+      `
+      SELECT category, score, label, criteria, public_id
+        FROM score_definitions
+       ORDER BY category ASC, score ASC
+      `
+    )
+    .catch(() => ({ rows: [] as ScoreDefRow[] }));
+  return defsRes.rows || [];
+}
+
+// -----------------------------
+// Comment ingestions
+// -----------------------------
+
+export async function insertCommentIngestion(args: {
+  orgId: number;
+  opportunityId: number;
+  sourceType: "excel" | "crm" | "manual";
+  sourceRef?: string | null;
+  rawText: string;
+  extractedJson: unknown;
+  modelMetadata?: unknown;
+}): Promise<{ id: number }> {
+  const orgId = zOrganizationId.parse(args.orgId);
+  const opportunityId = zOpportunityId.parse(args.opportunityId);
+  const sourceType = String(args.sourceType || "manual").trim();
+  if (!["excel", "crm", "manual"].includes(sourceType)) throw new Error("Invalid source_type");
+  const rawText = String(args.rawText ?? "");
+  const extractedJson = args.extractedJson ?? {};
+  const modelMetadata = args.modelMetadata ?? null;
+  const sourceRef = args.sourceRef != null ? String(args.sourceRef).trim() || null : null;
+
+  const { rows } = await pool.query<{ id: number }>(
+    `INSERT INTO comment_ingestions (org_id, opportunity_id, source_type, source_ref, raw_text, extracted_json, model_metadata)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb)
+     RETURNING id`,
+    [orgId, opportunityId, sourceType, sourceRef, rawText, JSON.stringify(extractedJson), modelMetadata ? JSON.stringify(modelMetadata) : null]
+  );
+  const id = rows?.[0]?.id;
+  if (id == null) throw new Error("insertCommentIngestion failed");
+  return { id };
+}
+
+export async function getCommentIngestionsForOpportunity(args: {
+  orgId: number;
+  opportunityId: number;
+  limit?: number;
+}): Promise<Array<{ id: number; source_type: string; raw_text: string; extracted_json: unknown; created_at: string }>> {
+  const orgId = zOrganizationId.parse(args.orgId);
+  const opportunityId = zOpportunityId.parse(args.opportunityId);
+  const limit = Math.min(50, Math.max(1, Number(args.limit) || 10));
+
+  const { rows } = await pool.query(
+    `SELECT id, source_type, raw_text, extracted_json, created_at
+     FROM comment_ingestions
+     WHERE org_id = $1 AND opportunity_id = $2
+     ORDER BY created_at DESC
+     LIMIT $3`,
+    [orgId, opportunityId, limit]
+  );
+  return (rows || []).map((r: any) => ({
+    id: Number(r.id),
+    source_type: String(r.source_type || ""),
+    raw_text: String(r.raw_text || ""),
+    extracted_json: r.extracted_json ?? {},
+    created_at: String(r.created_at || ""),
+  }));
+}
+
+export async function getCommentIngestionById(args: {
+  orgId: number;
+  id: number;
+}): Promise<{ id: number; raw_text: string; extracted_json: unknown } | null> {
+  const orgId = zOrganizationId.parse(args.orgId);
+  const id = Number(args.id);
+  if (!Number.isFinite(id)) return null;
+  const { rows } = await pool.query(
+    `SELECT id, raw_text, extracted_json FROM comment_ingestions WHERE org_id = $1 AND id = $2 LIMIT 1`,
+    [orgId, id]
+  );
+  const r = rows?.[0];
+  if (!r) return null;
+  return {
+    id: Number(r.id),
+    raw_text: String(r.raw_text || ""),
+    extracted_json: r.extracted_json ?? {},
+  };
+}
+

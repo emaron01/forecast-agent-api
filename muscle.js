@@ -4,6 +4,8 @@
  * - MUST export handleFunctionCall as a named export.
  */
 
+import { computeConfidence } from "./confidence.js";
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -514,8 +516,42 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       opp.ai_forecast = aiForecast;
     }
 
-    // Create audit event (compact delta)
+    // Fetch full opp for confidence computation (includes updated_at, close_date, category scores)
+    const { rows: oppRows } = await client.query(
+      `SELECT * FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,
+      [orgId, opportunityId]
+    );
+    const fullOpp = oppRows?.[0] || opp;
+    const scoring = computeConfidence({
+      opportunity: fullOpp,
+      source: "rep_review",
+      now: new Date(),
+    });
+
+    // Update audit_details.scoring (merge; do not overwrite other keys)
+    try {
+      await client.query(
+        `UPDATE opportunities
+           SET audit_details = jsonb_set(COALESCE(audit_details, '{}'), '{scoring}', $3::jsonb)
+         WHERE org_id = $1 AND id = $2`,
+        [orgId, opportunityId, JSON.stringify(scoring)]
+      );
+    } catch (e) {
+      if (String(e?.code || "") === "42703") {
+        // audit_details column may not exist in some DBs
+      } else {
+        throw e;
+      }
+    }
+
+    // Create audit event (compact delta) with meta.scoring
     const runId = args.run_id || null; // if you pass it later
+    const meta = {
+      rep_name: repName,
+      category,
+      saved_at: nowIso(),
+      scoring,
+    };
     const auditId = await insertAuditEvent(client, {
       orgId,
       opportunityId,
@@ -529,11 +565,7 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       riskFlags: args.risk_flags ?? null,
       delta,
       definitions: args.definitions ?? null,
-      meta: {
-        rep_name: repName,
-        category,
-        saved_at: nowIso(),
-      },
+      meta,
       runId: runId || cryptoRandomUUIDSafe(),
       callId,
       schemaVersion: 1,

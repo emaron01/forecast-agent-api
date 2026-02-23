@@ -45,6 +45,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               ) : null}
               <NavLink href="/admin/users" label="Users" />
               <NavLink href="/admin/excel-opportunities" label="Excel Upload" />
+              <NavLink href="/admin/ingest-comments" label="Ingest Comments" />
               {(ctx.kind === "user" && ctx.user.role === "MANAGER") || (ctx.kind === "user" && ctx.user.role === "EXEC_MANAGER") ? (
                 <>
                   <NavLink href="/admin/hierarchy" label="Sales Organization" />

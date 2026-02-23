@@ -143,6 +143,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
     });
 
     const healthPercent = computeHealthPercentFromOpportunity((opportunity as any)?.health_score);
+    const scoring = (opportunity as any)?.audit_details?.scoring ?? null;
 
     const rollup = {
       // Canonical stored wrap on opportunities.
@@ -161,6 +162,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
       rollup,
       healthPercent,
       categories,
+      scoring,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });

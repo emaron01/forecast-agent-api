@@ -3,6 +3,32 @@ type ScoreDef = { category: string; score: number; label?: string; criteria?: st
 
 export type GapSpec = { name: string; key: string; val: any; touchedKey: string };
 
+/** Reusable deal context block (same labels as buildPrompt). */
+export function buildDealContextBlock(deal: Deal): string {
+  const stage = String(deal?.forecast_stage || "Pipeline");
+  const amountStr = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(Number(deal?.amount || 0));
+  const closeDateStr = deal?.close_date ? new Date(deal.close_date).toLocaleDateString() : "TBD";
+  const oppName = (deal?.opportunity_name || "").trim() || "(none)";
+  return [
+    "DEAL CONTEXT (data)",
+    `DEAL_ID: ${deal?.id ?? ""}`,
+    `ACCOUNT_NAME: ${(deal?.account_name || "").trim() || "(none)"}`,
+    `OPPORTUNITY_NAME: ${oppName}`,
+    `STAGE: ${stage}`,
+    `AMOUNT: ${amountStr}`,
+    `CLOSE_DATE: ${closeDateStr}`,
+  ].join("\n");
+}
+
+/** Reusable scoring criteria block (header + formatScoreDefinitions). */
+export function buildScoringCriteriaBlock(scoreDefs: ScoreDef[]): string {
+  return ["", "SCORING CRITERIA (AUTHORITATIVE)", formatScoreDefinitions(scoreDefs || [])].join("\n");
+}
+
 function formatScoreDefinitions(defs: ScoreDef[]) {
   if (!Array.isArray(defs) || defs.length === 0) return "No criteria available.";
   const byCat = new Map<string, ScoreDef[]>();
@@ -148,16 +174,9 @@ export function buildPrompt(
   })();
 
   const firstLine = isFirstDeal ? callPickup : dealOpening;
-  const criteriaBlock = formatScoreDefinitions(scoreDefs);
 
   return [
-    "DEAL CONTEXT (data)",
-    `DEAL_ID: ${deal.id}`,
-    `ACCOUNT_NAME: ${deal.account_name}`,
-    `OPPORTUNITY_NAME: ${oppName || "(none)"}`,
-    `STAGE: ${stage}`,
-    `AMOUNT: ${amountStr}`,
-    `CLOSE_DATE: ${closeDateStr}`,
+    buildDealContextBlock(deal),
     "",
     "SPOKEN DEAL OPENER (exact):",
     firstLine,
@@ -174,9 +193,50 @@ export function buildPrompt(
           ...clarifiersFromDb.map((q) => `- ${q}`),
         ]
       : []),
+    buildScoringCriteriaBlock(scoreDefs),
+  ].join("\n");
+}
+
+const COMMENT_INGESTION_JSON_SCHEMA = `
+Return STRICT JSON ONLY. No markdown, no prose outside JSON. No extra keys.
+Schema:
+{
+  "summary": "string (2-4 sentences max)",
+  "meddpicc": {
+    "metrics": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
+    "economic_buyer": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
+    "decision_criteria": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
+    "decision_process": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
+    "paper_process": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
+    "pain": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
+    "champion": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
+    "competition": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] }
+  },
+  "timing": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
+  "budget": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
+  "risk_flags": [{ "type": "string", "severity": "low|med|high", "why": "string" }],
+  "next_steps": ["string", "string", "string"],
+  "follow_up_questions": [{ "category": "metrics|economic_buyer|decision_criteria|decision_process|paper_process|pain|champion|competition|timing|budget", "question": "string", "priority": "high|med|low" }],
+  "extraction_confidence": "high|medium|low"
+}
+`;
+
+export function buildCommentIngestionPrompt(deal: Deal, rawNotes: string, scoreDefs?: ScoreDef[]): string {
+  return [
+    "COMMENT INGESTION MODE",
+    "Extract MEDDPICC+TB signals from the following CRM notes. Use the same MEDDPICC framework as deal review.",
     "",
-    "SCORING CRITERIA (AUTHORITATIVE)",
-    criteriaBlock,
+    buildDealContextBlock(deal),
+    "",
+    "CRM NOTES / COMMENTS (raw text):",
+    rawNotes || "(no notes provided)",
+    "",
+    buildScoringCriteriaBlock(scoreDefs ?? []),
+    "",
+    "OUTPUT REQUIREMENTS:",
+    COMMENT_INGESTION_JSON_SCHEMA,
+    "",
+    "Return valid JSON only. No markdown fences, no extra keys.",
   ].join("\n");
 }
 

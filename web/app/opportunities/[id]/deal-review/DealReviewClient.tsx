@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSpeechRecognition } from "../../../../lib/useSpeechRecognition";
 import { MEDDPICC_CANONICAL } from "../../../../lib/meddpiccCanonical";
 import { dateOnly } from "../../../../lib/dateOnly";
+import { PasteNotesPanel } from "../../../../components/opportunities/PasteNotesPanel";
 
 type HandsFreeStatus = "RUNNING" | "WAITING_FOR_USER" | "DONE" | "ERROR";
 type HandsFreeMessage = { role: "assistant" | "user" | "system"; text: string; at: number };
@@ -33,11 +34,21 @@ type CategoryKey =
 
 type CategoryInputMode = "TEXT" | "VOICE";
 
+type Scoring = {
+  confidence_score: number;
+  confidence_band: string;
+  confidence_summary: string;
+  score_source: string;
+  evidence: { comment_ingestion_id: number | null };
+  computed_at: string;
+};
+
 type OppState = {
   opportunity: any;
   rollup: { summary?: string; next_steps?: string; risks?: string; updated_at?: any } | null;
   categories: Array<{ category: CategoryKey; score: number; label: string; tip: string; evidence: string; updated_at?: any }>;
   healthPercent?: number | null;
+  scoring?: Scoring | null;
 };
 
 function b64ToBlob(b64: string, mime: string) {
@@ -131,6 +142,7 @@ export function DealReviewClient(props: { opportunityId: string }) {
   const [speak, setSpeak] = useState(true);
   const [voice, setVoice] = useState(true);
   const [keepMicOpen, setKeepMicOpen] = useState(true);
+  const [evidenceModal, setEvidenceModal] = useState<{ id: number; raw_text: string; summary: string; risk_flags: unknown[]; next_steps: string[] } | null>(null);
 
   // Mic tune / capture controls (latest, voice-stable path uses mic+STT).
   const [micVadSilenceMs, setMicVadSilenceMs] = useState(1500);
@@ -1061,6 +1073,7 @@ export function DealReviewClient(props: { opportunityId: string }) {
   const opportunity = oppState?.opportunity || null;
   const rollup = oppState?.rollup || null;
   const healthPercent = oppState?.healthPercent ?? null;
+  const scoring = oppState?.scoring ?? null;
 
   const accountName = String(opportunity?.account_name || opportunity?.accountName || "");
   const oppName = String(opportunity?.opportunity_name || opportunity?.opportunityName || "");
@@ -1419,6 +1432,96 @@ export function DealReviewClient(props: { opportunityId: string }) {
                 <b>Next steps:</b> {rollup?.next_steps || "—"}
               </p>
             </div>
+          </div>
+
+          {scoring ? (
+            <div className="box" style={{ marginTop: 12 }}>
+              <h3>Confidence</h3>
+              <p className="small" style={{ textTransform: "capitalize" }}>
+                <b>{scoring.confidence_band}</b> · Scored by: {scoring.score_source === "rep_review" ? "Rep Review" : scoring.score_source === "ai_notes" ? "AI Notes" : scoring.score_source === "manager_override" ? "Manager Override" : "System"}
+              </p>
+              <p className="small">{scoring.confidence_summary}</p>
+              {scoring.evidence?.comment_ingestion_id ? (
+                <button
+                  type="button"
+                  className="small"
+                  style={{ marginTop: 4, padding: "4px 8px", cursor: "pointer" }}
+                  onClick={async () => {
+                    try {
+                      const res = await fetch(`/api/comment-ingestions/${scoring.evidence.comment_ingestion_id}`);
+                      const json = await res.json().catch(() => ({}));
+                      if (json?.ok) {
+                        setEvidenceModal({
+                          id: json.id,
+                          raw_text: json.raw_text || "",
+                          summary: json.summary || "",
+                          risk_flags: json.risk_flags || [],
+                          next_steps: json.next_steps || [],
+                        });
+                      }
+                    } catch {}
+                  }}
+                >
+                  View Evidence
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {evidenceModal ? (
+            <div
+              className="qaOverlay"
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}
+              onClick={() => setEvidenceModal(null)}
+            >
+              <div
+                className="card"
+                style={{ maxWidth: 480, maxHeight: "80vh", overflow: "auto" }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="hdr">
+                  <div className="title">Evidence</div>
+                  <button onClick={() => setEvidenceModal(null)}>Close</button>
+                </div>
+                <div style={{ padding: 12 }}>
+                  {evidenceModal.summary ? (
+                    <div style={{ marginBottom: 12 }}>
+                      <b>Summary:</b> {evidenceModal.summary}
+                    </div>
+                  ) : null}
+                  {evidenceModal.raw_text ? (
+                    <div style={{ marginBottom: 12 }}>
+                      <b>Raw notes:</b>
+                      <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, marginTop: 4 }}>{evidenceModal.raw_text}</pre>
+                    </div>
+                  ) : null}
+                  {(evidenceModal.risk_flags as any[])?.length ? (
+                    <div style={{ marginBottom: 12 }}>
+                      <b>Risk flags:</b>
+                      <ul style={{ marginTop: 4, paddingLeft: 20 }}>
+                        {(evidenceModal.risk_flags as any[]).map((r, i) => (
+                          <li key={i}>{typeof r === "object" && r?.type ? `${r.type} (${r.severity}): ${r.why}` : String(r)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {evidenceModal.next_steps?.length ? (
+                    <div>
+                      <b>Next steps:</b>
+                      <ul style={{ marginTop: 4, paddingLeft: 20 }}>
+                        {evidenceModal.next_steps.map((s, i) => (
+                          <li key={i}>{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <div style={{ marginTop: 16 }}>
+            <PasteNotesPanel opportunityId={opportunityId} />
           </div>
 
           <div className="med">
