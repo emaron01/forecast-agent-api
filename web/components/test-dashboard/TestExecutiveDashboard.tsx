@@ -306,6 +306,13 @@ export function TestExecutiveDashboard() {
 
             <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
               <div className="inline-flex items-center gap-2 text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
+                <Image
+                  src="/brand/salesforecast-logo-white.png"
+                  alt="SalesForecast.io"
+                  width={132}
+                  height={24}
+                  className="h-4 w-auto opacity-90"
+                />
                 <span>✨ Strategic Takeaway (mock)</span>
               </div>
               <div className="mt-3 rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">

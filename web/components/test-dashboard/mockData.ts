@@ -380,7 +380,7 @@ export const testExecutiveDashboardMock: TestExecutiveDashboardMock = {
       { partner: "CDW", verdict: "DEPRIORITIZE", wic: 28, pqs: 48, trend: "→" },
       { partner: "MSFT", verdict: "MAINTAIN", wic: 45, pqs: 62, trend: "→" },
       { partner: "SHI", verdict: "MAINTAIN", wic: 47, pqs: 51, trend: "→" },
-      { partner: "Computer Resell", verdict: "DEPRIORITIZE", wic: 39, pqs: 42, trend: "—" },
+      { partner: "Computer Resell", verdict: "DEPRIORITIZE", wic: 39, pqs: 42, trend: "→" },
     ],
   },
 };
