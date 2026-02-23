@@ -1737,88 +1737,86 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
         </section>
 
-        <div className="grid min-w-0 gap-4">
+        <div className="min-w-0">
           <RiskRadarPlot deals={radarDeals} size={960} />
-
-          <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-            <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
-              <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Coaching tips (from opportunities)</div>
-              {coachingTips.length ? (
-                <ul className="mt-2 list-disc pl-5 text-sm text-[color:var(--sf-text-primary)]">
-                  {coachingTips.map((t) => (
-                    <li key={`${t.key}-${t.rep}-${t.account}`}>
-                      <span className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{t.key}</span>: {t.tip}
-                      <span className="text-[color:var(--sf-text-secondary)]"> · Rep: {t.rep} · Account: {t.account}</span>
-                      {t.evidence ? <span className="text-[color:var(--sf-text-secondary)]"> · Evidence: {t.evidence}</span> : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">No coaching tips from opportunities in the current view.</div>
-              )}
-            </div>
-
-            <div className="mt-4 border-t border-[color:var(--sf-border)] pt-4">
-              <div className="flex flex-wrap items-end justify-between gap-2">
-                <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
-                  <Image
-                    src="/brand/salesforecast-logo-white.png"
-                    alt="SalesForecast.io"
-                    width={258}
-                    height={47}
-                    className="h-[1.95rem] w-auto opacity-90"
-                  />
-                  <span>✨ AI Strategic Takeaway</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void runRadarAi({ force: true, showNoChangeToast: true })}
-                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
-                  >
-                    Reanalyze
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void copyRadarAi()}
-                    className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
-                    disabled={!radarAiSummary && !radarAiExtended}
-                    title={radarAiSummary || radarAiExtended ? "Copy summary + extended" : "No summary to copy yet"}
-                  >
-                    <span aria-hidden="true">⧉</span>
-                    Copy
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRadarAiExpanded((v) => !v)}
-                    className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
-                  >
-                    {radarAiExpanded ? "Hide extended analysis" : "Extended analysis"}
-                  </button>
-                </div>
-              </div>
-              {radarAiToast ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{radarAiToast}</div> : null}
-              {radarAiCopied ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
-              {radarAiLoading ? (
-                <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating MEDDPICC+TB coaching guidance…</div>
-              ) : radarAiSummary || radarAiExtended ? (
-                <div className="mt-2 grid gap-3">
-                  {radarAiSummary ? (
-                    <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
-                      {renderCategorizedText(radarAiSummary) || <div className="whitespace-pre-wrap">{radarAiSummary}</div>}
-                    </div>
-                  ) : null}
-                  {radarAiExpanded && radarAiExtended ? (
-                    <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black whitespace-pre-wrap">
-                      {renderCategorizedText(radarAiExtended) || <div className="whitespace-pre-wrap">{radarAiExtended}</div>}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          </section>
         </div>
       </div>
+
+      <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+        <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Coaching tips (from opportunities)</div>
+          {coachingTips.length ? (
+            <ul className="mt-2 list-disc pl-5 text-sm text-[color:var(--sf-text-primary)]">
+              {coachingTips.map((t) => (
+                <li key={`${t.key}-${t.rep}-${t.account}`}>
+                  <span className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{t.key}</span>: {t.tip}
+                  <span className="text-[color:var(--sf-text-secondary)]"> · Rep: {t.rep} · Account: {t.account}</span>
+                  {t.evidence ? <span className="text-[color:var(--sf-text-secondary)]"> · Evidence: {t.evidence}</span> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">No coaching tips from opportunities in the current view.</div>
+          )}
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
+          <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+            <Image
+              src="/brand/salesforecast-logo-white.png"
+              alt="SalesForecast.io"
+              width={258}
+              height={47}
+              className="h-[1.95rem] w-auto opacity-90"
+            />
+            <span>✨ AI Strategic Takeaway</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void runRadarAi({ force: true, showNoChangeToast: true })}
+              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
+            >
+              Reanalyze
+            </button>
+            <button
+              type="button"
+              onClick={() => void copyRadarAi()}
+              className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
+              disabled={!radarAiSummary && !radarAiExtended}
+              title={radarAiSummary || radarAiExtended ? "Copy summary + extended" : "No summary to copy yet"}
+            >
+              <span aria-hidden="true">⧉</span>
+              Copy
+            </button>
+            <button
+              type="button"
+              onClick={() => setRadarAiExpanded((v) => !v)}
+              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
+            >
+              {radarAiExpanded ? "Hide extended analysis" : "Extended analysis"}
+            </button>
+          </div>
+        </div>
+        {radarAiToast ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{radarAiToast}</div> : null}
+        {radarAiCopied ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
+        {radarAiLoading ? (
+          <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating MEDDPICC+TB coaching guidance…</div>
+        ) : radarAiSummary || radarAiExtended ? (
+          <div className="mt-2 grid gap-3">
+            {radarAiSummary ? (
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
+                {renderCategorizedText(radarAiSummary) || <div className="whitespace-pre-wrap">{radarAiSummary}</div>}
+              </div>
+            ) : null}
+            {radarAiExpanded && radarAiExtended ? (
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black whitespace-pre-wrap">
+                {renderCategorizedText(radarAiExtended) || <div className="whitespace-pre-wrap">{radarAiExtended}</div>}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
 
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
