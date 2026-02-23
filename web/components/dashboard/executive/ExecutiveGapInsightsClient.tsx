@@ -1060,7 +1060,7 @@ export function ExecutiveGapInsightsClient(props: {
   }, [analysisFlattenedDeals, flattenedDeals]);
 
   const coachingTips = useMemo(() => {
-    const out: Array<{ key: string; tip: string; evidence: string }> = [];
+    const out: Array<{ key: string; tip: string; evidence: string; rep: string; account: string }> = [];
     const seen = new Set<string>();
     const sourceDeals = analysisFlattenedDeals.length ? analysisFlattenedDeals : flattenedDeals;
     // Include tips from categories with scores 0–2 (coaching moments); ignore categories with score 3
@@ -1071,6 +1071,8 @@ export function ExecutiveGapInsightsClient(props: {
     };
 
     for (const d of sourceDeals) {
+      const rep = dealRep(d);
+      const account = dealAccountLabel(d);
       for (const c of d.meddpicc_tb || []) {
         const key = String((c as any).key || "").trim();
         const tip = String((c as any).tip || "").trim();
@@ -1079,7 +1081,13 @@ export function ExecutiveGapInsightsClient(props: {
         const score = (c as any).score == null ? null : Number((c as any).score);
         if (!isCoachingScore(score)) continue;
         seen.add(key);
-        out.push({ key, tip, evidence: String((c as any).evidence || "").trim() });
+        out.push({
+          key,
+          tip,
+          evidence: String((c as any).evidence || "").trim(),
+          rep,
+          account,
+        });
         if (out.length >= 6) return out;
       }
     }
@@ -1744,8 +1752,9 @@ export function ExecutiveGapInsightsClient(props: {
               {coachingTips.length ? (
                 <ul className="mt-2 list-disc pl-5 text-sm text-[color:var(--sf-text-primary)]">
                   {coachingTips.map((t) => (
-                    <li key={t.key}>
+                    <li key={`${t.key}-${t.rep}-${t.account}`}>
                       <span className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{t.key}</span>: {t.tip}
+                      <span className="text-[color:var(--sf-text-secondary)]"> · Rep: {t.rep} · Account: {t.account}</span>
                       {t.evidence ? <span className="text-[color:var(--sf-text-secondary)]"> · Evidence: {t.evidence}</span> : null}
                     </li>
                   ))}
