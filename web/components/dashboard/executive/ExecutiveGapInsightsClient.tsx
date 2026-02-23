@@ -1059,6 +1059,34 @@ export function ExecutiveGapInsightsClient(props: {
     };
   }, [analysisFlattenedDeals, flattenedDeals]);
 
+  const coachingTips = useMemo(() => {
+    const out: Array<{ key: string; tip: string; evidence: string }> = [];
+    const seen = new Set<string>();
+    const sourceDeals = analysisFlattenedDeals.length ? analysisFlattenedDeals : flattenedDeals;
+    const riskSet = sourceDeals.filter((d) => Number(d.weighted?.gap || 0) < 0);
+    const isRiskScore = (score: number | null) => {
+      if (score == null) return true;
+      if (!Number.isFinite(score)) return true;
+      return score <= 1;
+    };
+
+    for (const d of riskSet) {
+      for (const c of d.meddpicc_tb || []) {
+        const key = String((c as any).key || "").trim();
+        const tip = String((c as any).tip || "").trim();
+        if (!key || !tip) continue;
+        if (seen.has(key)) continue;
+        const score = (c as any).score == null ? null : Number((c as any).score);
+        if (!isRiskScore(score)) continue;
+        seen.add(key);
+        out.push({ key, tip, evidence: String((c as any).evidence || "").trim() });
+        if (out.length >= 6) return out;
+      }
+    }
+
+    return out;
+  }, [analysisFlattenedDeals, flattenedDeals]);
+
   const radarTakeawayPayload = useMemo(() => {
     return {
       fiscal_year: props.fiscalYear,
@@ -1711,6 +1739,20 @@ export function ExecutiveGapInsightsClient(props: {
           <RiskRadarPlot deals={radarDeals} size={960} />
 
           <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+            {coachingTips.length ? (
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Coaching tips (from opportunities)</div>
+                <ul className="mt-2 list-disc pl-5 text-sm text-[color:var(--sf-text-primary)]">
+                  {coachingTips.map((t) => (
+                    <li key={t.key}>
+                      <span className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{t.key}</span>: {t.tip}
+                      {t.evidence ? <span className="text-[color:var(--sf-text-secondary)]"> · Evidence: {t.evidence}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
             <div className="mt-4 border-t border-[color:var(--sf-border)] pt-4">
               <div className="flex flex-wrap items-end justify-between gap-2">
                 <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">✨ AI Strategic Takeaway</div>
