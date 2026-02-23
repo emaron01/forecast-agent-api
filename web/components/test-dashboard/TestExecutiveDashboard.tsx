@@ -138,6 +138,23 @@ export function TestExecutiveDashboard() {
     }));
   })();
 
+  const coachingTips = (() => {
+    const out: Array<{ key: string; tip: string; evidence: string }> = [];
+    const seen = new Set<string>();
+    for (const d of mock.dealsDrivingGap || []) {
+      for (const c of d.meddpicc_tb || []) {
+        const key = String((c as any).key || "").trim();
+        const tip = String((c as any).tip || "").trim();
+        if (!key || !tip) continue;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ key, tip, evidence: String((c as any).evidence || "").trim() });
+        if (out.length >= 6) return out;
+      }
+    }
+    return out;
+  })();
+
   const missing = {
     quarterSummary: {
       cro: ["Forecast accuracy (last quarter vs actuals) + bias by stage/rep", "Stage-to-stage conversion rates (by segment/region)", "Pipeline required-to-win math (needed pipeline, needed wins, required ACV)"],
@@ -309,9 +326,9 @@ export function TestExecutiveDashboard() {
                 <Image
                   src="/brand/salesforecast-logo-white.png"
                   alt="SalesForecast.io"
-                  width={132}
-                  height={24}
-                  className="h-4 w-auto opacity-90"
+                  width={258}
+                  height={47}
+                  className="h-[1.95rem] w-auto opacity-90"
                 />
                 <span>✨ Strategic Takeaway (mock)</span>
               </div>
@@ -462,63 +479,76 @@ export function TestExecutiveDashboard() {
           </div>
         </PurpleAddOn>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(360px,520px)] lg:items-start">
+        <div className="grid gap-4">
           <div className="min-w-0">
             <RiskRadarPlot deals={radarDeals} size={960} />
           </div>
 
-          <div className="grid gap-4">
-            <Card title="AI Risk Radar (Strategic Takeaway)" subtitle="Mock narrative—no API calls.">
-              <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
-                The risk set contains {mock.dealsAtRisk} at-risk deals with total downside concentrated in Commit. Primary MEDDPICC gaps are Pain, Metrics, and Champion. A
-                single save in the top 1–2 deals can cover most of the gap; prioritize executive access and close-plan discipline.
+          <Card title="AI Risk Radar (Strategic Takeaway)" subtitle="Mock narrative—no API calls.">
+            {coachingTips.length ? (
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Coaching tips (from opportunities)</div>
+                <ul className="mt-2 list-disc pl-5 text-sm text-[color:var(--sf-text-primary)]">
+                  {coachingTips.map((t) => (
+                    <li key={t.key}>
+                      <span className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{t.key}</span>: {t.tip}
+                      {t.evidence ? <span className="text-[color:var(--sf-text-secondary)]"> · Evidence: {t.evidence}</span> : null}
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <div className="mt-4">
-                <PurpleAddOn title="Risk Radar completeness">
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-purple-700">CRO</div>
-                      <ul className="mt-2 list-disc pl-5 text-sm">{missing.riskRadar.cro.map((x) => <li key={x}>{x}</li>)}</ul>
-                    </div>
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-purple-700">CEO</div>
-                      <ul className="mt-2 list-disc pl-5 text-sm">{missing.riskRadar.ceo.map((x) => <li key={x}>{x}</li>)}</ul>
-                    </div>
-                    <div>
-                      <div className="text-xs font-semibold uppercase tracking-wide text-purple-700">SVP Sales</div>
-                      <ul className="mt-2 list-disc pl-5 text-sm">{missing.riskRadar.svp.map((x) => <li key={x}>{x}</li>)}</ul>
-                    </div>
-                  </div>
-                </PurpleAddOn>
-              </div>
-            </Card>
+            ) : null}
 
-            <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-              <div className="grid gap-2">
-                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quick Account Review - Top 20 (mock)</div>
-              </div>
-              <div className="mt-3">
-                <div className="text-meta font-[500]">Accounts</div>
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
-                  {radarDeals.length ? (
-                    radarDeals.slice(0, 20).map((d) => (
-                      <div
-                        key={d.id}
-                        className="inline-flex max-w-full items-center gap-2 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1"
-                      >
-                        <span className="h-2.5 w-2.5 rounded-full border border-[color:var(--sf-border)]" style={{ background: d.color }} aria-hidden="true" />
-                        <span className="min-w-0 max-w-[260px] truncate" title={String(d.legendLabel || d.label)}>
-                          {String(d.legendLabel || d.label)}
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
-                  )}
+            <div className="mt-3 rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
+              The risk set contains {mock.dealsAtRisk} at-risk deals with total downside concentrated in Commit. Primary MEDDPICC gaps are Pain, Metrics, and Champion. A single
+              save in the top 1–2 deals can cover most of the gap; prioritize executive access and close-plan discipline.
+            </div>
+
+            <div className="mt-4">
+              <PurpleAddOn title="Risk Radar completeness">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-purple-700">CRO</div>
+                    <ul className="mt-2 list-disc pl-5 text-sm">{missing.riskRadar.cro.map((x) => <li key={x}>{x}</li>)}</ul>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-purple-700">CEO</div>
+                    <ul className="mt-2 list-disc pl-5 text-sm">{missing.riskRadar.ceo.map((x) => <li key={x}>{x}</li>)}</ul>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-purple-700">SVP Sales</div>
+                    <ul className="mt-2 list-disc pl-5 text-sm">{missing.riskRadar.svp.map((x) => <li key={x}>{x}</li>)}</ul>
+                  </div>
                 </div>
+              </PurpleAddOn>
+            </div>
+          </Card>
+
+          <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+            <div className="grid gap-2">
+              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quick Account Review - Top 20 (mock)</div>
+            </div>
+            <div className="mt-3">
+              <div className="text-meta font-[500]">Accounts</div>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                {radarDeals.length ? (
+                  radarDeals.slice(0, 20).map((d) => (
+                    <div
+                      key={d.id}
+                      className="inline-flex max-w-full items-center gap-2 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1"
+                    >
+                      <span className="h-2.5 w-2.5 rounded-full border border-[color:var(--sf-border)]" style={{ background: d.color }} aria-hidden="true" />
+                      <span className="min-w-0 max-w-[260px] truncate" title={String(d.legendLabel || d.label)}>
+                        {String(d.legendLabel || d.label)}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
+                )}
               </div>
-            </section>
-          </div>
+            </div>
+          </section>
         </div>
 
         <ExecutiveDealsDrivingGapModule title="Deals Driving the Gap" deals={toExecutiveGapDeals()} />
@@ -541,6 +571,39 @@ export function TestExecutiveDashboard() {
         </PurpleAddOn>
 
         <Card title="Product Revenue Mix" subtitle="Mock data only.">
+          {(() => {
+            const rows = (mock.productRevenueMix || [])
+              .map((p) => ({ product: String(p.product || "").trim() || "(Unspecified)", mix: Math.max(0, Math.min(100, Number(p.mix_pct) || 0)) }))
+              .filter((p) => p.mix > 0);
+            const total = rows.reduce((s, r) => s + r.mix, 0);
+            if (!rows.length || total <= 0) return null;
+
+            const colors = palette.chartSeries.length ? palette.chartSeries : ["#7C3AED", "#2563EB", "#16A34A", "#F59E0B", "#EF4444"];
+            return (
+              <div className="mb-4">
+                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Revenue Mix</div>
+                <div
+                  className="mt-2 h-[10px] w-full overflow-hidden rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]"
+                  aria-label={rows.map((r) => `${r.product} ${Math.round((r.mix / total) * 100)}%`).join(", ")}
+                  title={rows.map((r) => `${r.product} ${Math.round((r.mix / total) * 100)}%`).join(" · ")}
+                >
+                  <div className="flex h-full w-full flex-row">
+                    {rows.map((r, idx) => (
+                      <div
+                        key={r.product}
+                        className="h-full"
+                        style={{
+                          width: `${Math.max(0, Math.min(100, (r.mix / total) * 100))}%`,
+                          background: colors[idx % colors.length] || "var(--sf-accent-primary)",
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           <div className="grid gap-3 lg:grid-cols-3">
             {mock.productRevenueMix.map((p) => (
               <div key={p.product} className="rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
@@ -556,6 +619,13 @@ export function TestExecutiveDashboard() {
                   <div className="shrink-0 text-right">
                     <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">% of Mix</div>
                     <div className="mt-1 font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtPct(p.mix_pct)}</div>
+                    <div className="mt-2 h-[8px] w-[140px] overflow-hidden rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                      <div
+                        className="h-full bg-[color:var(--sf-accent-primary)]"
+                        style={{ width: `${Math.max(0, Math.min(100, Number(p.mix_pct) || 0))}%` }}
+                        aria-hidden="true"
+                      />
+                    </div>
                   </div>
                 </div>
 
