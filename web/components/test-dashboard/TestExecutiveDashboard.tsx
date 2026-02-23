@@ -462,54 +462,64 @@ export function TestExecutiveDashboard() {
           </div>
         </PurpleAddOn>
 
-        <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-          <div className="grid gap-2">
-            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quick Account Review - Top 20 (mock)</div>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(360px,520px)] lg:items-start">
+          <div className="min-w-0">
+            <RiskRadarPlot deals={radarDeals} size={960} />
           </div>
-          <div className="mt-3">
-            <div className="text-meta font-[500]">Accounts</div>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
-              {radarDeals.length ? (
-                radarDeals.slice(0, 20).map((d) => (
-                  <div key={d.id} className="inline-flex max-w-full items-center gap-2 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1">
-                    <span className="h-2.5 w-2.5 rounded-full border border-[color:var(--sf-border)]" style={{ background: d.color }} aria-hidden="true" />
-                    <span className="min-w-0 max-w-[260px] truncate" title={String(d.legendLabel || d.label)}>
-                      {String(d.legendLabel || d.label)}
-                    </span>
+
+          <div className="grid gap-4">
+            <Card title="AI Risk Radar (Strategic Takeaway)" subtitle="Mock narrative—no API calls.">
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
+                The risk set contains {mock.dealsAtRisk} at-risk deals with total downside concentrated in Commit. Primary MEDDPICC gaps are Pain, Metrics, and Champion. A
+                single save in the top 1–2 deals can cover most of the gap; prioritize executive access and close-plan discipline.
+              </div>
+              <div className="mt-4">
+                <PurpleAddOn title="Risk Radar completeness">
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-purple-700">CRO</div>
+                      <ul className="mt-2 list-disc pl-5 text-sm">{missing.riskRadar.cro.map((x) => <li key={x}>{x}</li>)}</ul>
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-purple-700">CEO</div>
+                      <ul className="mt-2 list-disc pl-5 text-sm">{missing.riskRadar.ceo.map((x) => <li key={x}>{x}</li>)}</ul>
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-purple-700">SVP Sales</div>
+                      <ul className="mt-2 list-disc pl-5 text-sm">{missing.riskRadar.svp.map((x) => <li key={x}>{x}</li>)}</ul>
+                    </div>
                   </div>
-                ))
-              ) : (
-                <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
-              )}
-            </div>
-          </div>
-        </section>
+                </PurpleAddOn>
+              </div>
+            </Card>
 
-        <RiskRadarPlot deals={radarDeals} size={960} />
-
-        <Card title="AI Risk Radar (Strategic Takeaway)" subtitle="Mock narrative—no API calls.">
-          <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
-            The risk set contains {mock.dealsAtRisk} at-risk deals with total downside concentrated in Commit. Primary MEDDPICC gaps are Pain, Metrics, and Champion. A single save in the top 1–2 deals can cover most of the gap; prioritize executive access and close-plan discipline.
-          </div>
-          <div className="mt-4">
-            <PurpleAddOn title="Risk Radar completeness">
-              <div className="grid gap-3 md:grid-cols-3">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-purple-700">CRO</div>
-                  <ul className="mt-2 list-disc pl-5 text-sm">{missing.riskRadar.cro.map((x) => <li key={x}>{x}</li>)}</ul>
-                </div>
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-purple-700">CEO</div>
-                  <ul className="mt-2 list-disc pl-5 text-sm">{missing.riskRadar.ceo.map((x) => <li key={x}>{x}</li>)}</ul>
-                </div>
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-purple-700">SVP Sales</div>
-                  <ul className="mt-2 list-disc pl-5 text-sm">{missing.riskRadar.svp.map((x) => <li key={x}>{x}</li>)}</ul>
+            <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+              <div className="grid gap-2">
+                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quick Account Review - Top 20 (mock)</div>
+              </div>
+              <div className="mt-3">
+                <div className="text-meta font-[500]">Accounts</div>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                  {radarDeals.length ? (
+                    radarDeals.slice(0, 20).map((d) => (
+                      <div
+                        key={d.id}
+                        className="inline-flex max-w-full items-center gap-2 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1"
+                      >
+                        <span className="h-2.5 w-2.5 rounded-full border border-[color:var(--sf-border)]" style={{ background: d.color }} aria-hidden="true" />
+                        <span className="min-w-0 max-w-[260px] truncate" title={String(d.legendLabel || d.label)}>
+                          {String(d.legendLabel || d.label)}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
+                  )}
                 </div>
               </div>
-            </PurpleAddOn>
+            </section>
           </div>
-        </Card>
+        </div>
 
         <ExecutiveDealsDrivingGapModule title="Deals Driving the Gap" deals={toExecutiveGapDeals()} />
 
