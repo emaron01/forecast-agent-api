@@ -1416,6 +1416,11 @@ export function DealReviewClient(props: { opportunityId: string }) {
             </div>
           </div>
 
+          <div style={{ marginBottom: 10 }}>
+            <button className="btnPrimary" onClick={startFullDealReview} disabled={busy || !opportunityId}>
+              Full Deal Review
+            </button>
+          </div>
           <div className="cols">
             <div className="box">
               <h3>Risk Summary</h3>
@@ -1423,11 +1428,6 @@ export function DealReviewClient(props: { opportunityId: string }) {
             </div>
             <div className="box">
               <h3>Next Steps</h3>
-              <div style={{ marginBottom: 10 }}>
-                <button className="btnPrimary" onClick={startFullDealReview} disabled={busy || !opportunityId}>
-                  Full Deal Review
-                </button>
-              </div>
               <p>
                 <b>Next steps:</b> {rollup?.next_steps || "—"}
               </p>

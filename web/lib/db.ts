@@ -837,6 +837,12 @@ export async function updateFieldMappingSet(args: {
 export async function deleteFieldMappingSet(args: { organizationId: number; mappingSetId: string }) {
   const organizationId = zOrganizationId.parse(args.organizationId);
   const mappingSetId = zMappingSetId.parse(args.mappingSetId);
+  // Delete dependent rows first to avoid FK violations.
+  await pool.query(
+    `DELETE FROM ingestion_staging WHERE organization_id = $1 AND mapping_set_id = $2::bigint`,
+    [organizationId, mappingSetId]
+  );
+  await pool.query(`DELETE FROM field_mappings WHERE mapping_set_id = $1::bigint`, [mappingSetId]);
   await pool.query(`DELETE FROM field_mapping_sets WHERE organization_id = $1 AND id = $2::bigint`, [
     organizationId,
     mappingSetId,
