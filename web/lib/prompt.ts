@@ -199,25 +199,32 @@ export function buildPrompt(
 
 const COMMENT_INGESTION_JSON_SCHEMA = `
 Return STRICT JSON ONLY. No markdown, no prose outside JSON. No extra keys.
+CRITICAL: For each category you MUST output score (0-3), evidence_text (single string), and tip (coaching tip).
+Use the SCORING CRITERIA above to assign the correct 0-3 score. evidence_text = joined evidence. tip = actionable coaching.
+PEOPLE: If Champion/Internal Sponsor or Economic Buyer are explicitly named and/or given a title in the notes, populate champion_name, champion_title, eb_name, eb_title. If unclear or not stated, use null. Do not infer or guess.
 Schema:
 {
   "summary": "string (2-4 sentences max)",
   "meddpicc": {
-    "metrics": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
-    "economic_buyer": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
-    "decision_criteria": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
-    "decision_process": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
-    "paper_process": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
-    "pain": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
-    "champion": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
-    "competition": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] }
+    "metrics": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."], "score": 0-3, "evidence_text": "string", "tip": "string" },
+    "economic_buyer": { "signal": "...", "evidence": ["..."], "gaps": ["..."], "score": 0-3, "evidence_text": "string", "tip": "string" },
+    "decision_criteria": { "signal": "...", "evidence": ["..."], "gaps": ["..."], "score": 0-3, "evidence_text": "string", "tip": "string" },
+    "decision_process": { "signal": "...", "evidence": ["..."], "gaps": ["..."], "score": 0-3, "evidence_text": "string", "tip": "string" },
+    "paper_process": { "signal": "...", "evidence": ["..."], "gaps": ["..."], "score": 0-3, "evidence_text": "string", "tip": "string" },
+    "pain": { "signal": "...", "evidence": ["..."], "gaps": ["..."], "score": 0-3, "evidence_text": "string", "tip": "string" },
+    "champion": { "signal": "...", "evidence": ["..."], "gaps": ["..."], "score": 0-3, "evidence_text": "string", "tip": "string" },
+    "competition": { "signal": "...", "evidence": ["..."], "gaps": ["..."], "score": 0-3, "evidence_text": "string", "tip": "string" }
   },
-  "timing": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
-  "budget": { "signal": "strong|medium|weak|missing", "evidence": ["..."], "gaps": ["..."] },
+  "timing": { "signal": "...", "evidence": ["..."], "gaps": ["..."], "score": 0-3, "evidence_text": "string", "tip": "string" },
+  "budget": { "signal": "...", "evidence": ["..."], "gaps": ["..."], "score": 0-3, "evidence_text": "string", "tip": "string" },
   "risk_flags": [{ "type": "string", "severity": "low|med|high", "why": "string" }],
   "next_steps": ["string", "string", "string"],
   "follow_up_questions": [{ "category": "metrics|economic_buyer|decision_criteria|decision_process|paper_process|pain|champion|competition|timing|budget", "question": "string", "priority": "high|med|low" }],
-  "extraction_confidence": "high|medium|low"
+  "extraction_confidence": "high|medium|low",
+  "champion_name": "string or null (only if Champion/Internal Sponsor is explicitly named in notes; omit if unclear)",
+  "champion_title": "string or null (only if Champion title is explicitly stated; omit if unclear)",
+  "eb_name": "string or null (only if Economic Buyer is explicitly named in notes; omit if unclear)",
+  "eb_title": "string or null (only if Economic Buyer title is explicitly stated; omit if unclear)"
 }
 `;
 

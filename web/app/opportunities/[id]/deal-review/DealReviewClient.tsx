@@ -1521,7 +1521,7 @@ export function DealReviewClient(props: { opportunityId: string }) {
           ) : null}
 
           <div style={{ marginTop: 16 }}>
-            <PasteNotesPanel opportunityId={opportunityId} />
+            <PasteNotesPanel opportunityId={opportunityId} onApplied={loadOpportunityState} />
           </div>
 
           <div className="med">

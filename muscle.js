@@ -522,9 +522,14 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       [orgId, opportunityId]
     );
     const fullOpp = oppRows?.[0] || opp;
+    const scoreSource = args.score_source === "ai_notes" ? "ai_notes" : "rep_review";
+    const commentIngestionId = args.comment_ingestion_id != null ? Number(args.comment_ingestion_id) : null;
+    const extractionConfidence = args.extraction_confidence || null;
     const scoring = computeConfidence({
       opportunity: fullOpp,
-      source: "rep_review",
+      source: scoreSource,
+      extractionConfidence: extractionConfidence || undefined,
+      commentIngestionId: Number.isFinite(commentIngestionId) ? commentIngestionId : null,
       now: new Date(),
     });
 

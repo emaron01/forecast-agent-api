@@ -5,6 +5,7 @@ import { pool } from "../../../../../lib/pool";
 import { resolvePublicId } from "../../../../../lib/publicId";
 import { insertCommentIngestion } from "../../../../../lib/db";
 import { runCommentIngestionTurn, getPromptVersionHash } from "../../../../../lib/commentIngestionTurn";
+import { applyCommentIngestionToOpportunity } from "../../../../../lib/applyCommentIngestionToOpportunity";
 
 export const runtime = "nodejs";
 
@@ -81,7 +82,7 @@ export async function POST(
       timestamp: new Date().toISOString(),
     };
 
-    await insertCommentIngestion({
+    const { id: commentIngestionId } = await insertCommentIngestion({
       orgId,
       opportunityId,
       sourceType,
@@ -91,7 +92,20 @@ export async function POST(
       modelMetadata,
     });
 
-    return NextResponse.json({ ok: true, extracted });
+    const applyResult = await applyCommentIngestionToOpportunity({
+      orgId,
+      opportunityId,
+      extracted,
+      commentIngestionId,
+    });
+    if (!applyResult.ok) {
+      return NextResponse.json(
+        { ok: false, error: applyResult.error ?? "Failed to apply to opportunity" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ ok: true, extracted, applied: true });
   } catch (e: any) {
     const msg = e?.message || String(e);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });

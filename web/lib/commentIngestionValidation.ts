@@ -1,13 +1,19 @@
 /** Pure parsing/validation for comment ingestion extraction. No external deps. */
 
+export type CategoryExtraction = {
+  signal: string;
+  evidence: string[];
+  gaps: string[];
+  score?: number;
+  evidence_text?: string;
+  tip?: string;
+};
+
 export type CommentIngestionExtracted = {
   summary: string;
-  meddpicc: Record<
-    string,
-    { signal: string; evidence: string[]; gaps: string[] }
-  >;
-  timing: { signal: string; evidence: string[]; gaps: string[] };
-  budget: { signal: string; evidence: string[]; gaps: string[] };
+  meddpicc: Record<string, CategoryExtraction>;
+  timing: CategoryExtraction;
+  budget: CategoryExtraction;
   risk_flags: Array<{ type: string; severity: string; why: string }>;
   next_steps: string[];
   follow_up_questions: Array<{
@@ -16,6 +22,10 @@ export type CommentIngestionExtracted = {
     priority: string;
   }>;
   extraction_confidence: string;
+  champion_name?: string | null;
+  champion_title?: string | null;
+  eb_name?: string | null;
+  eb_title?: string | null;
 };
 
 /** Basic schema validation for extraction output. Returns null if invalid. */

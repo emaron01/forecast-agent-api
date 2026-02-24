@@ -4,6 +4,7 @@ import { getAuth } from "../../../../lib/auth";
 import { pool } from "../../../../lib/pool";
 import { insertCommentIngestion } from "../../../../lib/db";
 import { runCommentIngestionTurn, getPromptVersionHash } from "../../../../lib/commentIngestionTurn";
+import { applyCommentIngestionToOpportunity } from "../../../../lib/applyCommentIngestionToOpportunity";
 
 export const runtime = "nodejs";
 
@@ -106,7 +107,7 @@ export async function POST(req: Request) {
           forecast_stage: opp.forecast_stage,
         };
         const { extracted } = await runCommentIngestionTurn({ deal, rawNotes: rawText, orgId });
-        await insertCommentIngestion({
+        const { id: commentIngestionId } = await insertCommentIngestion({
           orgId,
           opportunityId: opp.id,
           sourceType: "excel",
@@ -119,6 +120,15 @@ export async function POST(req: Request) {
             timestamp: new Date().toISOString(),
           },
         });
+        const applyResult = await applyCommentIngestionToOpportunity({
+          orgId,
+          opportunityId: opp.id,
+          extracted,
+          commentIngestionId,
+        });
+        if (!applyResult.ok) {
+          throw new Error(applyResult.error ?? "Failed to apply to opportunity");
+        }
         results.push({ row: rowNum, opportunityId: opp.id, ok: true });
         okCount++;
       } catch (e: any) {

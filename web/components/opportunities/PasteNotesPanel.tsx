@@ -2,18 +2,14 @@
 
 import { useState } from "react";
 
-type Extracted = {
-  summary?: string;
-  risk_flags?: Array<{ type: string; severity: string; why: string }>;
-  next_steps?: string[];
-  follow_up_questions?: Array<{ category: string; question: string; priority: string }>;
-};
-
-export function PasteNotesPanel(props: { opportunityId: string }) {
+export function PasteNotesPanel(props: {
+  opportunityId: string;
+  onApplied?: () => void;
+}) {
   const [rawText, setRawText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [extracted, setExtracted] = useState<Extracted | null>(null);
+  const [successMsg, setSuccessMsg] = useState("");
 
   const analyze = async () => {
     const text = String(rawText || "").trim();
@@ -23,7 +19,7 @@ export function PasteNotesPanel(props: { opportunityId: string }) {
     }
     setBusy(true);
     setError("");
-    setExtracted(null);
+    setSuccessMsg("");
     try {
       const res = await fetch(`/api/opportunities/${encodeURIComponent(props.opportunityId)}/ingest-comments`, {
         method: "POST",
@@ -35,7 +31,8 @@ export function PasteNotesPanel(props: { opportunityId: string }) {
         setError(json?.error || "Analysis failed");
         return;
       }
-      setExtracted(json.extracted || null);
+      setSuccessMsg("Applied to opportunity. Categories scored; Risk Summary and Next Steps updated.");
+      props.onApplied?.();
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
@@ -43,15 +40,11 @@ export function PasteNotesPanel(props: { opportunityId: string }) {
     }
   };
 
-  const topQuestions = (extracted?.follow_up_questions || [])
-    .filter((q) => q.priority === "high")
-    .slice(0, 5);
-
   return (
     <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
       <h3 className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Paste Notes</h3>
       <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-        Paste CRM notes or comments and click Analyze to extract MEDDPICC signals.
+        Paste CRM notes or comments and click Analyze. The agent will score all MEDDPICC-TB categories and update Risk Summary and Next Steps.
       </p>
       <textarea
         value={rawText}
@@ -74,48 +67,9 @@ export function PasteNotesPanel(props: { opportunityId: string }) {
           {error}
         </div>
       ) : null}
-      {extracted ? (
-        <div className="mt-4 space-y-3 text-sm">
-          {extracted.summary ? (
-            <div>
-              <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Summary</div>
-              <div className="mt-1 text-[color:var(--sf-text-primary)]">{extracted.summary}</div>
-            </div>
-          ) : null}
-          {(extracted.risk_flags || []).length > 0 ? (
-            <div>
-              <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Risk flags</div>
-              <ul className="mt-1 list-disc pl-4 space-y-1 text-[color:var(--sf-text-primary)]">
-                {extracted.risk_flags!.map((r, i) => (
-                  <li key={i}>
-                    <span className="font-medium">{r.type}</span> ({r.severity}): {r.why}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          {(extracted.next_steps || []).length > 0 ? (
-            <div>
-              <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Next steps</div>
-              <ul className="mt-1 list-disc pl-4 space-y-1 text-[color:var(--sf-text-primary)]">
-                {extracted.next_steps!.map((s, i) => (
-                  <li key={i}>{s}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          {topQuestions.length > 0 ? (
-            <div>
-              <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Top follow-up questions</div>
-              <ul className="mt-1 list-disc pl-4 space-y-1 text-[color:var(--sf-text-primary)]">
-                {topQuestions.map((q, i) => (
-                  <li key={i}>
-                    <span className="text-[color:var(--sf-text-disabled)]">[{q.category}]</span> {q.question}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
+      {successMsg ? (
+        <div className="mt-3 rounded-md border border-[color:var(--good)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--good)]">
+          {successMsg}
         </div>
       ) : null}
     </section>
