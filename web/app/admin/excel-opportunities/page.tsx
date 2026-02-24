@@ -5,6 +5,7 @@ import { listFieldMappings, listFieldMappingSets } from "../../../lib/db";
 import { resolvePublicTextId } from "../../../lib/publicId";
 import { uploadExcelOpportunitiesAction } from "../actions/excelOpportunities";
 import { ExcelUploadClient } from "./ExcelUploadClient";
+import { ExcelCommentsUploadClient } from "../ingest-comments/ExcelCommentsUploadClient";
 
 export const runtime = "nodejs";
 
@@ -55,13 +56,24 @@ export default async function ExcelOpportunitiesPage({
         </div>
       </div>
 
-      <ExcelUploadClient
-        mappingSets={sets}
-        prefillSetPublicId={mappingSetPublicId}
-        prefillMappings={prefillMappings}
-        action={uploadExcelOpportunitiesAction}
-        allowDeleteAccounts={ctx.kind === "user" && ctx.user.role === "ADMIN"}
-      />
+      <div className="grid gap-8">
+        <ExcelUploadClient
+          mappingSets={sets}
+          prefillSetPublicId={mappingSetPublicId}
+          prefillMappings={prefillMappings}
+          action={uploadExcelOpportunitiesAction}
+          allowDeleteAccounts={ctx.kind === "user" && ctx.user.role === "ADMIN"}
+        />
+        <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+          <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Ingest Comments from Excel</h2>
+          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+            Upload an Excel file with Opportunity ID and Comments columns. Map columns, then ingest. Each row is applied to the matching opportunity.
+          </p>
+          <div className="mt-4">
+            <ExcelCommentsUploadClient />
+          </div>
+        </section>
+      </div>
     </main>
   );
 }

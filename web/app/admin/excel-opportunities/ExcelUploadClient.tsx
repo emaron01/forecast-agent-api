@@ -249,7 +249,7 @@ export function ExcelUploadClient(props: {
       const rows = XLSX.utils.sheet_to_json(ws, { defval: null }) as any[];
       const keys = rows.length ? Object.keys(rows[0] || {}) : [];
       setHeaders(keys);
-      setPreview(rows.slice(0, 5));
+      setPreview(rows.slice(0, 50));
 
       // If we don't have a mapping yet, guess it.
       setMapping((prev) => {
@@ -608,12 +608,12 @@ export function ExcelUploadClient(props: {
 
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Preview</h2>
-        <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">First 5 rows from the first sheet.</p>
+        <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">First 50 rows from the first sheet. Scroll for large tables.</p>
 
         {preview.length ? (
-          <div className="mt-4 max-h-[280px] overflow-y-auto overflow-x-auto rounded-lg border border-[color:var(--sf-border)]">
+          <div className="mt-4 max-h-[320px] overflow-y-auto overflow-x-auto rounded-lg border border-[color:var(--sf-border)]">
             <table className="min-w-full text-left text-xs">
-              <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
+              <thead className="sticky top-0 z-10 bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
                 <tr>
                   {headers.map((h) => (
                     <th key={h} className="px-3 py-2">

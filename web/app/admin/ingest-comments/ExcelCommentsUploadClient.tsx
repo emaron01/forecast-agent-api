@@ -21,6 +21,7 @@ function guessColumn(headers: string[], candidates: string[]): string {
 export function ExcelCommentsUploadClient() {
   const [file, setFile] = useState<File | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
+  const [preview, setPreview] = useState<any[]>([]);
   const [idColumn, setIdColumn] = useState("");
   const [commentsColumn, setCommentsColumn] = useState("");
   const [busy, setBusy] = useState(false);
@@ -31,6 +32,7 @@ export function ExcelCommentsUploadClient() {
     setFile(f);
     setResponse(null);
     setHeaders([]);
+    setPreview([]);
     setIdColumn("");
     setCommentsColumn("");
     if (!f) return;
@@ -46,10 +48,12 @@ export function ExcelCommentsUploadClient() {
         const rows = XLSX.utils.sheet_to_json(ws, { defval: null }) as any[];
         const keys = rows.length ? Object.keys(rows[0] || {}) : [];
         setHeaders(keys);
+        setPreview(rows.slice(0, 50));
         setIdColumn((guessColumn(keys, ID_CANDIDATES) || keys[0]) ?? "");
         setCommentsColumn((guessColumn(keys, COMMENTS_CANDIDATES) || keys[1] || keys[0]) ?? "");
       } catch {
         setHeaders([]);
+        setPreview([]);
       }
     };
     reader.readAsArrayBuffer(f);
@@ -162,6 +166,34 @@ export function ExcelCommentsUploadClient() {
         </div>
       ) : null}
 
+      {preview.length > 0 ? (
+        <div className="mt-4">
+          <h4 className="text-xs font-medium text-[color:var(--sf-text-secondary)] mb-2">Preview (first 50 rows)</h4>
+          <div className="max-h-[280px] overflow-y-auto overflow-x-auto rounded-md border border-[color:var(--sf-border)]">
+            <table className="min-w-full text-xs">
+              <thead className="sticky top-0 bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
+                <tr>
+                  {headers.map((h) => (
+                    <th key={h} className="px-3 py-2 text-left whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {preview.map((r, i) => (
+                  <tr key={i} className="border-t border-[color:var(--sf-border)]">
+                    {headers.map((h) => (
+                      <td key={h} className="px-3 py-2 whitespace-nowrap max-w-[200px] truncate" title={r?.[h] != null ? String(r[h]) : ""}>
+                        {r?.[h] == null ? "" : String(r[h])}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+
       {counts ? (
         <div className="mt-4 space-y-3">
           <div className="flex gap-4 text-sm">
@@ -170,8 +202,8 @@ export function ExcelCommentsUploadClient() {
             <span className="text-[color:var(--bad)]">Errors: <b>{counts.error}</b></span>
           </div>
           {results.length > 0 ? (
-            <div className="max-h-[300px] overflow-auto rounded-md border border-[color:var(--sf-border)]">
-              <table className="w-full text-sm">
+            <div className="max-h-[300px] overflow-y-auto overflow-x-auto rounded-md border border-[color:var(--sf-border)]">
+              <table className="min-w-full text-sm">
                 <thead className="sticky top-0 bg-[color:var(--sf-surface-alt)]">
                   <tr>
                     <th className="px-3 py-2 text-left">Row</th>
