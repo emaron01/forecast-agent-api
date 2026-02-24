@@ -328,7 +328,7 @@ export function ExcelUploadClient(props: {
                     File: <span className="font-mono">{state.fileName}</span>
                   </span>
                 ) : null}
-                {typeof state.deletedAccounts === "number" ? <span className="ml-2">· Accounts: {state.deletedAccounts}</span> : null}
+                {typeof state.deletedAccounts === "number" ? <span className="ml-2">· CRM IDs: {state.deletedAccounts}</span> : null}
                 {typeof state.deletedOpportunities === "number" ? (
                   <span className="ml-2">· Opportunities deleted: {state.deletedOpportunities}</span>
                 ) : null}
@@ -550,15 +550,15 @@ export function ExcelUploadClient(props: {
 
           {props.allowDeleteAccounts ? (
             <div className="rounded-lg border border-[#E74C3C]/40 bg-[#E74C3C]/5 p-4">
-              <div className="text-sm font-semibold text-[#E74C3C]">Danger zone: Delete accounts (ADMIN only)</div>
+              <div className="text-sm font-semibold text-[#E74C3C]">Danger zone: Delete by CRM ID (ADMIN only)</div>
               <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-                This treats the uploaded Excel file as a deletion list and will delete <span className="font-semibold">all opportunities</span> matching the
-                mapped <span className="font-mono">Account</span> column in the active org. This is irreversible.
+                This treats the uploaded Excel file as a deletion list and will delete <span className="font-semibold">only the opportunities</span> whose
+                <span className="font-mono"> CRM Opportunity ID</span> matches a value in the mapped column. One row = one opportunity. This is irreversible.
               </p>
               <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-[color:var(--sf-text-secondary)]">
-                <li>Required mapping: <span className="font-mono">Account</span></li>
+                <li>Required mapping: <span className="font-mono">CRM Opportunity ID</span></li>
                 <li>Other mappings are ignored for deletion.</li>
-                <li>Tip: Upload a file with a single column named “Account” for best results.</li>
+                <li>Tip: Upload a file with a single column of CRM IDs to delete specific bad opportunities.</li>
               </ul>
 
               <div className="mt-3 grid gap-2 md:grid-cols-12">
@@ -594,7 +594,7 @@ export function ExcelUploadClient(props: {
                     active={clickedIntent === "delete_accounts"}
                     onClick={() => setClickedIntent("delete_accounts")}
                   >
-                    Delete accounts
+                    Delete by CRM ID
                   </SubmitButton>
                 </div>
               </div>
@@ -611,7 +611,7 @@ export function ExcelUploadClient(props: {
         <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">First 5 rows from the first sheet.</p>
 
         {preview.length ? (
-          <div className="mt-4 overflow-auto rounded-lg border border-[color:var(--sf-border)]">
+          <div className="mt-4 max-h-[280px] overflow-y-auto overflow-x-auto rounded-lg border border-[color:var(--sf-border)]">
             <table className="min-w-full text-left text-xs">
               <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
                 <tr>

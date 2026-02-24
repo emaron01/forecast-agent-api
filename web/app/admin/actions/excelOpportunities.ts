@@ -309,17 +309,17 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
       return ok(intent, `Format deleted successfully.`, { mappingSetPublicId: mappingSetPublicIdInput, mappingSetName: set.name });
     }
 
-    // Delete accounts (ADMIN only)
+    // Delete by CRM ID (ADMIN only) — deletes specific opportunities by crm_opp_id, not by account.
     if (intent === "delete_accounts") {
       if (!(ctx.kind === "user" && ctx.user.role === "ADMIN")) {
-        return err(intent, "Forbidden.", ["Only ADMIN users can delete accounts."]);
+        return err(intent, "Forbidden.", ["Only ADMIN users can delete by CRM ID."]);
       }
       const confirm = String(formData.get("confirm_delete_accounts") || "").trim().toUpperCase();
       const ack = String(formData.get("ack_delete_accounts") || "").trim() === "1";
       if (!ack || confirm !== "DELETE") {
         return err(intent, "Confirmation required.", [
           `Check "I understand" and type DELETE to confirm.`,
-          `Required mapping: Account Name.`,
+          `Required mapping: CRM Opportunity ID.`,
         ]);
       }
 
@@ -327,53 +327,52 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
       if (!(file instanceof File)) return err(intent, "Please choose an Excel file to upload.", ["Choose an Excel file (.xlsx) first."]);
 
       const mappingPairs = mappingPairsFromJson;
-      const accountMapping = mappingPairs.find((m) => m.target_field === "account_name") || null;
-      if (!accountMapping) {
-        return err(intent, "Your deletion file is missing the required mapping.", ["Missing required field mapping: Account Name"]);
+      const crmIdMapping = mappingPairs.find((m) => m.target_field === "crm_opp_id") || null;
+      if (!crmIdMapping) {
+        return err(intent, "Your deletion file is missing the required mapping.", ["Missing required field mapping: CRM Opportunity ID"]);
       }
 
       const buf = Buffer.from(await file.arrayBuffer());
       const rawRows = parseExcelToRawRows(buf, 20000);
 
-      const normalizeAccountKey = (s: any) =>
-        String(s || "")
-          .trim()
-          .replace(/\s+/g, " ")
-          .toLowerCase();
+      const normalizeCrmId = (s: any) => {
+        const t = String(s ?? "").trim();
+        return t || null;
+      };
 
       const keys = new Set<string>();
       for (let i = 0; i < rawRows.length; i++) {
         const r = rawRows[i];
-        const v = (r as any)?.[accountMapping.source_field];
-        const k = normalizeAccountKey(v);
+        const v = (r as any)?.[crmIdMapping.source_field];
+        const k = normalizeCrmId(v);
         if (!k) continue;
         keys.add(k);
         if (keys.size > 5000) break;
       }
       if (!keys.size) {
-        return err(intent, "No account names found in the deletion file.", [
-          `Map the "Account" field to a column that contains account names.`,
+        return err(intent, "No CRM IDs found in the deletion file.", [
+          `Map the "CRM Opportunity ID" field to a column that contains CRM opportunity IDs.`,
           `The first sheet must contain data rows.`,
         ]);
       }
       if (keys.size > 5000) {
-        return err(intent, "Too many accounts in deletion file.", ["Max unique accounts per deletion is 5000."]);
+        return err(intent, "Too many CRM IDs in deletion file.", ["Max unique CRM IDs per deletion is 5000."]);
       }
 
-      // Delete all opportunities for matching accounts (case/whitespace normalized).
-      const accountKeys = Array.from(keys.values());
+      // Delete opportunities matching crm_opp_id (one row per opportunity).
+      const crmIds = Array.from(keys.values());
       const deleted = await pool
         .query<{ deleted_count: number }>(
           `
           WITH del AS (
             DELETE FROM opportunities
              WHERE org_id = $1
-               AND lower(regexp_replace(btrim(COALESCE(account_name, '')), '\\s+', ' ', 'g')) = ANY($2::text[])
+               AND NULLIF(btrim(COALESCE(crm_opp_id, '')), '') = ANY($2::text[])
             RETURNING 1
           )
           SELECT COUNT(*)::int AS deleted_count FROM del
           `,
-          [orgId, accountKeys]
+          [orgId, crmIds]
         )
         .then((r) => Number(r.rows?.[0]?.deleted_count || 0) || 0)
         .catch(() => 0);
@@ -387,10 +386,10 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
 
       const msg =
         deleted > 0
-          ? `Deleted ${accountKeys.length} account(s) from the deletion list (${deleted} opportunities removed).`
-          : `No opportunities matched the ${accountKeys.length} account(s) in the deletion list.`;
+          ? `Deleted ${crmIds.length} CRM ID(s) from the deletion list (${deleted} opportunities removed).`
+          : `No opportunities matched the ${crmIds.length} CRM ID(s) in the deletion list.`;
 
-      return ok(intent, msg, { fileName: file.name, deletedAccounts: accountKeys.length, deletedOpportunities: deleted });
+      return ok(intent, msg, { fileName: file.name, deletedAccounts: crmIds.length, deletedOpportunities: deleted });
     }
 
     // For saving a format, we require a name + mapping JSON with required targets.
