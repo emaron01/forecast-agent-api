@@ -360,8 +360,8 @@ export function ExcelUploadClient(props: {
   }
 
   return (
-    <div className="grid gap-6">
-      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+    <div className="grid min-w-0 max-w-full gap-6">
+      <section className="min-w-0 max-w-full overflow-hidden rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Map + Upload</h2>
         <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
           Upload an Excel file (.xlsx) of opportunities, map columns to Forecast Agent fields, and save the format for future uploads.
@@ -396,7 +396,7 @@ export function ExcelUploadClient(props: {
 
         <Banner />
 
-        <form action={formAction} className="mt-4 grid gap-4">
+        <form action={formAction} className="mt-4 min-w-0 grid gap-4">
           <div className="grid gap-2 md:grid-cols-2">
             <div className="grid gap-1">
               <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Format</label>
@@ -474,7 +474,7 @@ export function ExcelUploadClient(props: {
           <input type="hidden" name="mappingJson" value={mappingJson} />
           <input type="hidden" name="processNow" value="true" />
 
-          <div className="rounded-lg border border-[color:var(--sf-border)] p-4">
+          <div className="min-w-0 rounded-lg border border-[color:var(--sf-border)] p-4">
             <div className="text-sm font-medium text-[color:var(--sf-text-primary)]">Field mapping</div>
             <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Choose which Excel column maps to each target field.</p>
 
@@ -619,12 +619,12 @@ export function ExcelUploadClient(props: {
         <Banner />
       </section>
 
-      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+      <section className="min-w-0 max-w-full overflow-hidden rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Preview</h2>
         <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">First 50 rows from the first sheet. Scroll for large tables.</p>
 
         {preview.length ? (
-          <div className="mt-4 max-h-[320px] overflow-y-auto overflow-x-auto rounded-lg border border-[color:var(--sf-border)]">
+          <div className="mt-4 max-h-[320px] min-w-0 max-w-full overflow-y-auto overflow-x-auto rounded-lg border border-[color:var(--sf-border)]">
             <table className="min-w-full text-left text-xs">
               <thead className="sticky top-0 z-10 bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
                 <tr>

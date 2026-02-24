@@ -91,7 +91,7 @@ export async function POST(req: Request) {
       }
 
       const { rows: oppRows } = await pool.query(
-        `SELECT id, public_id, account_name, opportunity_name, amount, close_date, forecast_stage
+        `SELECT id, public_id, account_name, opportunity_name, amount, close_date, forecast_stage, baseline_health_score_ts
          FROM opportunities WHERE org_id = $1 AND NULLIF(btrim(crm_opp_id), '') = $2 LIMIT 1`,
         [orgId, crmOppId]
       );
@@ -99,6 +99,12 @@ export async function POST(req: Request) {
       if (!opp) {
         results.push({ row: rowNum, opportunityId: null, ok: false, error: "Opportunity not found" });
         errCount++;
+        continue;
+      }
+      // Ingestion "no rescore" guarantee: skip model + apply when baseline already exists.
+      if (opp.baseline_health_score_ts != null) {
+        results.push({ row: rowNum, opportunityId: opp.id, ok: true }); // Skipped; no rescore.
+        okCount++;
         continue;
       }
 

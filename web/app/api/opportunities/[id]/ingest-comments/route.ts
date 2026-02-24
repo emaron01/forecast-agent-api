@@ -52,13 +52,17 @@ export async function POST(
     }
 
     const { rows } = await pool.query(
-      `SELECT id, public_id, account_name, opportunity_name, amount, close_date, forecast_stage
+      `SELECT id, public_id, account_name, opportunity_name, amount, close_date, forecast_stage, baseline_health_score_ts
        FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,
       [orgId, opportunityId]
     );
     const opp = rows?.[0];
     if (!opp) {
       return NextResponse.json({ ok: false, error: "Opportunity not found" }, { status: 404 });
+    }
+    // Ingestion "no rescore" guarantee: skip model + apply when baseline already exists.
+    if (opp.baseline_health_score_ts != null) {
+      return NextResponse.json({ ok: true, extracted: null, applied: false, skipped: "baseline_exists" });
     }
 
     const deal = {

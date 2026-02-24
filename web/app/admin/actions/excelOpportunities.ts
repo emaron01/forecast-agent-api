@@ -687,12 +687,14 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
           commentsProcessed++;
           try {
             const { rows: oppRows } = await pool.query(
-              `SELECT id, account_name, opportunity_name, amount, close_date, forecast_stage
+              `SELECT id, account_name, opportunity_name, amount, close_date, forecast_stage, baseline_health_score_ts
                FROM opportunities WHERE org_id = $1 AND NULLIF(btrim(crm_opp_id), '') = $2 LIMIT 1`,
               [orgId, crmOppId]
             );
             const opp = oppRows?.[0];
             if (!opp) continue;
+            // Ingestion "no rescore" guarantee: skip model + apply when baseline already exists.
+            if (opp.baseline_health_score_ts != null) continue;
             const deal = {
               id: opp.id,
               account_name: opp.account_name,

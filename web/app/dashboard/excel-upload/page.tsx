@@ -51,7 +51,7 @@ export default async function DashboardExcelUploadPage({
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
-      <main className="mx-auto max-w-5xl p-6">
+      <main className="mx-auto min-w-0 max-w-5xl overflow-x-auto p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Excel opportunities upload</h1>

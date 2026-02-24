@@ -109,6 +109,15 @@ export async function applyCommentIngestionToOpportunity(args: {
   const { orgId, opportunityId, extracted, commentIngestionId } = args;
 
   try {
+    // Ingestion "no rescore" guarantee: if baseline already exists, skip all scoring (no model, no health_score update).
+    const { rows: oppRows } = await pool.query(
+      `SELECT baseline_health_score_ts FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,
+      [orgId, opportunityId]
+    );
+    if (oppRows?.[0]?.baseline_health_score_ts != null) {
+      return { ok: true }; // Skip; baseline already set; do not rescore from ingestion.
+    }
+
     const defs = await listScoreDefinitions().catch(() => []);
     const categoryArgs = buildCategoryArgs(extracted, defs);
     const riskSummary = buildRiskSummary(extracted);

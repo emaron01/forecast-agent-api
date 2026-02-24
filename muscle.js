@@ -156,9 +156,12 @@ function buildDelta(args) {
  * Compute running total score/max score if present in opportunity row
  * (kept minimal: muscle does not invent weights; server/db own scoring tables).
  */
+const EXCLUDED_SCORE_FIELDS = new Set(["health_score", "baseline_health_score"]);
+
 async function recomputeTotalScore(pool, orgId, opportunityId) {
   // Keep your existing schema assumptions: category columns end in _score
   // We'll sum whatever exists for MEDDPICC+TB (safe generic).
+  // Exclude derived fields (health_score, baseline_health_score) to prevent double-counting.
   const { rows } = await pool.query(
     `SELECT *
        FROM opportunities
@@ -174,6 +177,7 @@ async function recomputeTotalScore(pool, orgId, opportunityId) {
 
   for (const [k, v] of Object.entries(row)) {
     if (!k.endsWith("_score")) continue;
+    if (EXCLUDED_SCORE_FIELDS.has(k)) continue;
     if (typeof v !== "number") continue;
     total += v;
     hasAny = true;
@@ -463,9 +467,9 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       await client.query(q, [orgId, opportunityId, ...vals]);
     }
 
-    // Pull latest opp row for audit context fields
+    // Pull latest opp row for audit context fields (include baseline_health_score_ts for provenance)
     const { rows } = await client.query(
-      `SELECT id, org_id, forecast_stage, ai_forecast, health_score, risk_summary
+      `SELECT id, org_id, forecast_stage, ai_forecast, health_score, risk_summary, baseline_health_score_ts
          FROM opportunities
         WHERE org_id = $1 AND id = $2
         LIMIT 1`,
@@ -473,49 +477,68 @@ export async function handleFunctionCall({ toolName, args, pool }) {
     );
 
     const opp = rows[0] || {};
+    const baselineAlreadyExists = opp.baseline_health_score_ts != null;
     const recomputed = await recomputeTotalScore(client, orgId, opportunityId);
 
     // Persist computed health_score so the agent always has a real number to speak (never invent).
+    // Baseline immutability: only set baseline_* when baseline_health_score_ts IS NULL.
+    // Provenance: health_score_source = 'baseline' on first set, 'agent' on subsequent updates.
     if (recomputed.total_score != null && Number.isFinite(recomputed.total_score)) {
       const aiForecast = computeAiForecastFromHealthScore(recomputed.total_score);
+      const scoreSource = baselineAlreadyExists ? "agent" : "baseline";
       try {
-        await client.query(
-          `UPDATE opportunities
-              SET health_score = $3,
-                  ai_verdict = $4,
-                  ai_forecast = $4,
-                  baseline_health_score = COALESCE(baseline_health_score, $3),
-                  baseline_health_score_ts = COALESCE(baseline_health_score_ts, NOW()),
-                  updated_at = NOW()
-            WHERE org_id = $1 AND id = $2`,
-          [orgId, opportunityId, recomputed.total_score, aiForecast]
-        );
-      } catch (e) {
-      // If ai_verdict column doesn't exist yet, try ai_forecast. Otherwise, still persist health_score.
-      // Postgres undefined_column error code is 42703.
-      if (String(e?.code || "") === "42703") {
-        try {
+        if (baselineAlreadyExists) {
+          // Agent update: do NOT touch baseline_*; only update health_score and provenance.
           await client.query(
             `UPDATE opportunities
                 SET health_score = $3,
+                    ai_verdict = $4,
                     ai_forecast = $4,
+                    health_score_source = $5,
                     updated_at = NOW()
               WHERE org_id = $1 AND id = $2`,
-            [orgId, opportunityId, recomputed.total_score, aiForecast]
+            [orgId, opportunityId, recomputed.total_score, aiForecast, scoreSource]
           );
-        } catch (e2) {
-          if (String(e2?.code || "") === "42703") {
-            await client.query(
-              `UPDATE opportunities SET health_score = $3, updated_at = NOW() WHERE org_id = $1 AND id = $2`,
-              [orgId, opportunityId, recomputed.total_score]
-            );
-          } else {
-            throw e2;
-          }
+        } else {
+          // First scoring: set baseline and provenance.
+          await client.query(
+            `UPDATE opportunities
+                SET health_score = $3,
+                    ai_verdict = $4,
+                    ai_forecast = $4,
+                    baseline_health_score = COALESCE(baseline_health_score, $3),
+                    baseline_health_score_ts = COALESCE(baseline_health_score_ts, NOW()),
+                    health_score_source = $5,
+                    updated_at = NOW()
+              WHERE org_id = $1 AND id = $2`,
+            [orgId, opportunityId, recomputed.total_score, aiForecast, scoreSource]
+          );
         }
-      } else {
-        throw e;
-      }
+      } catch (e) {
+        // If ai_verdict or health_score_source column doesn't exist yet, try fallbacks.
+        if (String(e?.code || "") === "42703") {
+          try {
+            await client.query(
+              `UPDATE opportunities
+                  SET health_score = $3,
+                      ai_forecast = $4,
+                      updated_at = NOW()
+                WHERE org_id = $1 AND id = $2`,
+              [orgId, opportunityId, recomputed.total_score, aiForecast]
+            );
+          } catch (e2) {
+            if (String(e2?.code || "") === "42703") {
+              await client.query(
+                `UPDATE opportunities SET health_score = $3, updated_at = NOW() WHERE org_id = $1 AND id = $2`,
+                [orgId, opportunityId, recomputed.total_score]
+              );
+            } else {
+              throw e2;
+            }
+          }
+        } else {
+          throw e;
+        }
       }
 
       // Keep in-memory opp consistent for audit event fields below.
