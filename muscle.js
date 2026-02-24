@@ -404,8 +404,15 @@ export async function handleFunctionCall({ toolName, args, pool }) {
   const allowed = Object.keys(args).filter((k) =>
     /_(score|summary|tip|name|title|source|notes)$/.test(k)
   );
-  // Avoid double-assigning special summary fields handled below.
-  const safeAllowed = allowed.filter((k) => k !== "risk_summary" && k !== "next_steps");
+  // Exclude metadata keys (not DB columns) and special summary fields handled below.
+  const safeAllowed = allowed.filter(
+    (k) =>
+      k !== "risk_summary" &&
+      k !== "next_steps" &&
+      k !== "score_source" &&
+      k !== "comment_ingestion_id" &&
+      k !== "extraction_confidence"
+  );
 
   const sets = [];
   const vals = [];
