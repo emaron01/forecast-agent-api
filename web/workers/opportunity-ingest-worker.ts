@@ -4,15 +4,15 @@
  * Processes jobs in batches of 100, concurrency 2.
  * Respects baseline_health_score_ts skip gate.
  *
- * Start: npm run worker:ingest
+ * Start: npm run worker:ingest (from project root)
  * Requires: REDIS_URL, DATABASE_URL, MODEL_API_* env vars.
  */
 import "dotenv/config";
 import { Worker } from "bullmq";
-import { pool } from "../web/lib/pool";
-import { runCommentIngestionTurn, getPromptVersionHash } from "../web/lib/commentIngestionTurn";
-import { insertCommentIngestion } from "../web/lib/db";
-import { applyCommentIngestionToOpportunity } from "../web/lib/applyCommentIngestionToOpportunity";
+import { pool } from "../lib/pool";
+import { runCommentIngestionTurn, getPromptVersionHash } from "../lib/commentIngestionTurn";
+import { insertCommentIngestion } from "../lib/db";
+import { applyCommentIngestionToOpportunity } from "../lib/applyCommentIngestionToOpportunity";
 
 const QUEUE_NAME = "opportunity-ingest";
 const BATCH_SIZE = 100;

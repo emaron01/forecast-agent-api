@@ -14,7 +14,7 @@
     "start": "npm run start:web",
     "test": "echo \"Error: no test specified\" && exit 1",
     "verify:scoring": "node scripts/verify-scoring-triggers.mjs",
-    "worker:ingest": "tsx workers/opportunity-ingest-worker.ts"
+    "worker:ingest": "tsx web/workers/opportunity-ingest-worker.ts"
   },
   "keywords": [],
   "author": "",
