@@ -1,16 +1,11 @@
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { getAuth } from "../../../../lib/auth";
-import { pool } from "../../../../lib/pool";
-import { insertCommentIngestion } from "../../../../lib/db";
-import { runCommentIngestionTurn, getPromptVersionHash } from "../../../../lib/commentIngestionTurn";
-import { applyCommentIngestionToOpportunity } from "../../../../lib/applyCommentIngestionToOpportunity";
 import { getIngestQueue } from "../../../../lib/ingest-queue";
 
 export const runtime = "nodejs";
 
-const INLINE_MAX_ROWS = 200;
-const STAGED_MAX_ROWS = 5000;
+const MAX_ROWS = 5000;
 
 function isEmptyRow(r: any) {
   if (!r || typeof r !== "object") return true;
@@ -55,7 +50,7 @@ export async function POST(req: Request) {
     }
 
     const buf = Buffer.from(await file.arrayBuffer());
-    const rawRows = parseExcelToRawRows(buf, STAGED_MAX_ROWS);
+    const rawRows = parseExcelToRawRows(buf, MAX_ROWS);
 
     const headers = Object.keys(rawRows[0] || {});
     const idColRaw = formData.get("idColumn");
@@ -76,106 +71,35 @@ export async function POST(req: Request) {
       }, { status: 400 });
     }
 
-    // Large files: enqueue for background processing to avoid HTTP timeouts.
-    if (rawRows.length > INLINE_MAX_ROWS) {
-      const queue = getIngestQueue();
-      if (!queue) {
-        return NextResponse.json({
-          ok: false,
-          error: "Staged ingestion requires REDIS_URL. Set REDIS_URL or use a smaller file (<=200 rows).",
-        }, { status: 503 });
-      }
-      const jobRows = rawRows.map((row: any, i: number) => ({
-        rowNum: i + 2,
-        crmOppId: String(row?.[idCol] ?? "").trim(),
-        rawText: String(row?.[commentsCol] ?? "").trim(),
-      })).filter((r: { crmOppId: string; rawText: string }) => r.crmOppId && r.rawText);
-      const job = await queue.add("excel-comments", {
-        orgId,
-        fileName: (file as File).name,
-        rows: jobRows,
-      });
-      return NextResponse.json({ ok: true, jobId: job.id, staged: true, total: jobRows.length });
+    const queue = getIngestQueue();
+    if (!queue) {
+      return NextResponse.json({
+        ok: false,
+        error: "Ingestion requires REDIS_URL. Configure Redis and redeploy.",
+      }, { status: 503 });
     }
 
-    const results: Array<{ row: number; opportunityId: number | null; ok: boolean; error?: string }> = [];
-    let okCount = 0;
-    let errCount = 0;
+    const jobRows = rawRows.map((row: any, i: number) => ({
+      rowNum: i + 2,
+      crmOppId: String(row?.[idCol] ?? "").trim(),
+      rawText: String(row?.[commentsCol] ?? "").trim(),
+    })).filter((r: { crmOppId: string; rawText: string }) => r.crmOppId && r.rawText);
 
-    for (let i = 0; i < rawRows.length; i++) {
-      const row = rawRows[i] as any;
-      const rowNum = i + 2;
-      const crmOppId = String(row?.[idCol] ?? "").trim();
-      const rawText = String(row?.[commentsCol] ?? "").trim();
+    const commentsDetected = jobRows.filter((r) => r.rawText.length > 0).length;
 
-      if (!crmOppId || !rawText) {
-        results.push({ row: rowNum, opportunityId: null, ok: false, error: "Missing crm_opp_id or comments" });
-        errCount++;
-        continue;
-      }
-
-      const { rows: oppRows } = await pool.query(
-        `SELECT id, public_id, account_name, opportunity_name, amount, close_date, forecast_stage, baseline_health_score_ts
-         FROM opportunities WHERE org_id = $1 AND NULLIF(btrim(crm_opp_id), '') = $2 LIMIT 1`,
-        [orgId, crmOppId]
-      );
-      const opp = oppRows?.[0];
-      if (!opp) {
-        results.push({ row: rowNum, opportunityId: null, ok: false, error: "Opportunity not found" });
-        errCount++;
-        continue;
-      }
-      // Ingestion "no rescore" guarantee: skip model + apply when baseline already exists.
-      if (opp.baseline_health_score_ts != null) {
-        results.push({ row: rowNum, opportunityId: opp.id, ok: true }); // Skipped; no rescore.
-        okCount++;
-        continue;
-      }
-
-      try {
-        const deal = {
-          id: opp.id,
-          account_name: opp.account_name,
-          opportunity_name: opp.opportunity_name,
-          amount: opp.amount,
-          close_date: opp.close_date,
-          forecast_stage: opp.forecast_stage,
-        };
-        const { extracted } = await runCommentIngestionTurn({ deal, rawNotes: rawText, orgId });
-        const { id: commentIngestionId } = await insertCommentIngestion({
-          orgId,
-          opportunityId: opp.id,
-          sourceType: "excel",
-          sourceRef: (file as File).name,
-          rawText,
-          extractedJson: extracted,
-          modelMetadata: {
-            model: process.env.MODEL_API_NAME || "unknown",
-            promptVersionHash: getPromptVersionHash(),
-            timestamp: new Date().toISOString(),
-          },
-        });
-        const applyResult = await applyCommentIngestionToOpportunity({
-          orgId,
-          opportunityId: opp.id,
-          extracted,
-          commentIngestionId,
-        });
-        if (!applyResult.ok) {
-          throw new Error(applyResult.error ?? "Failed to apply to opportunity");
-        }
-        results.push({ row: rowNum, opportunityId: opp.id, ok: true });
-        okCount++;
-      } catch (e: any) {
-        results.push({ row: rowNum, opportunityId: opp.id, ok: false, error: e?.message || String(e) });
-        errCount++;
-      }
-    }
+    const job = await queue.add("excel-comments", {
+      orgId,
+      fileName: (file as File).name,
+      rows: jobRows,
+    });
+    console.log(`[ingest] Enqueued job ${job.id} | rows=${jobRows.length} | comments=${commentsDetected}`);
 
     return NextResponse.json({
       ok: true,
-      results,
-      counts: { total: rawRows.length, ok: okCount, error: errCount },
+      mode: "async",
+      jobId: job.id,
+      rowCount: jobRows.length,
+      commentsDetected,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });

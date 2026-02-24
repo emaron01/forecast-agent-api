@@ -289,6 +289,7 @@ async function saveToOpportunities(args: {
   const toolArgs: any = {
     org_id: args.orgId,
     opportunity_id: args.opportunityId,
+    score_event_source: "agent",
     [`${prefix}_score`]: Math.max(0, Math.min(3, Number(args.score) || 0)),
     // IMPORTANT: pass evidence only; muscle will prefix the rubric label.
     [`${prefix}_summary`]: String(args.evidence || "").trim(),

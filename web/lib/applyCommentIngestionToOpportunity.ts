@@ -105,8 +105,10 @@ export async function applyCommentIngestionToOpportunity(args: {
   opportunityId: number;
   extracted: CommentIngestionExtracted;
   commentIngestionId: number;
+  scoreEventSource?: "baseline" | "agent";
+  salesStage?: string | null;
 }): Promise<{ ok: boolean; error?: string }> {
-  const { orgId, opportunityId, extracted, commentIngestionId } = args;
+  const { orgId, opportunityId, extracted, commentIngestionId, scoreEventSource = "baseline", salesStage } = args;
 
   try {
     // Ingestion "no rescore" guarantee: if baseline already exists, skip all scoring (no model, no health_score update).
@@ -127,10 +129,12 @@ export async function applyCommentIngestionToOpportunity(args: {
       org_id: orgId,
       opportunity_id: opportunityId,
       score_source: "ai_notes",
+      score_event_source: scoreEventSource,
       comment_ingestion_id: commentIngestionId,
       extraction_confidence: extracted.extraction_confidence || null,
       ...categoryArgs,
     };
+    if (salesStage != null) toolArgs.sales_stage_for_closed = salesStage;
     if (riskSummary) toolArgs.risk_summary = riskSummary;
     if (nextSteps) toolArgs.next_steps = nextSteps;
     const cn = String(extracted.champion_name ?? "").trim();

@@ -3,9 +3,7 @@ import { z } from "zod";
 import { getAuth } from "../../../../../lib/auth";
 import { pool } from "../../../../../lib/pool";
 import { resolvePublicId } from "../../../../../lib/publicId";
-import { insertCommentIngestion } from "../../../../../lib/db";
-import { runCommentIngestionTurn, getPromptVersionHash } from "../../../../../lib/commentIngestionTurn";
-import { applyCommentIngestionToOpportunity } from "../../../../../lib/applyCommentIngestionToOpportunity";
+import { getIngestQueue } from "../../../../../lib/ingest-queue";
 
 export const runtime = "nodejs";
 
@@ -51,65 +49,20 @@ export async function POST(
       return NextResponse.json({ ok: false, error: "rawText is required" }, { status: 400 });
     }
 
-    const { rows } = await pool.query(
-      `SELECT id, public_id, account_name, opportunity_name, amount, close_date, forecast_stage, baseline_health_score_ts
-       FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,
-      [orgId, opportunityId]
-    );
-    const opp = rows?.[0];
-    if (!opp) {
-      return NextResponse.json({ ok: false, error: "Opportunity not found" }, { status: 404 });
-    }
-    // Ingestion "no rescore" guarantee: skip model + apply when baseline already exists.
-    if (opp.baseline_health_score_ts != null) {
-      return NextResponse.json({ ok: true, extracted: null, applied: false, skipped: "baseline_exists" });
+    const queue = getIngestQueue();
+    if (!queue) {
+      return NextResponse.json({ ok: false, error: "Ingestion requires REDIS_URL" }, { status: 503 });
     }
 
-    const deal = {
-      id: opp.id,
-      account_name: opp.account_name,
-      opportunity_name: opp.opportunity_name,
-      amount: opp.amount,
-      close_date: opp.close_date,
-      forecast_stage: opp.forecast_stage,
-    };
-
-    const { extracted, rawText: modelRawText } = await runCommentIngestionTurn({
-      deal,
-      rawNotes: rawTextTrimmed,
-      orgId,
-    });
-
-    const modelMetadata = {
-      model: process.env.MODEL_API_NAME || "unknown",
-      promptVersionHash: getPromptVersionHash(),
-      timestamp: new Date().toISOString(),
-    };
-
-    const { id: commentIngestionId } = await insertCommentIngestion({
+    const job = await queue.add("single-ingest", {
       orgId,
       opportunityId,
+      rawText: rawTextTrimmed,
       sourceType,
       sourceRef: sourceRef ?? null,
-      rawText: rawTextTrimmed,
-      extractedJson: extracted,
-      modelMetadata,
     });
 
-    const applyResult = await applyCommentIngestionToOpportunity({
-      orgId,
-      opportunityId,
-      extracted,
-      commentIngestionId,
-    });
-    if (!applyResult.ok) {
-      return NextResponse.json(
-        { ok: false, error: applyResult.error ?? "Failed to apply to opportunity" },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({ ok: true, extracted, applied: true });
+    return NextResponse.json({ ok: true, mode: "async", jobId: job.id });
   } catch (e: any) {
     const msg = e?.message || String(e);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });

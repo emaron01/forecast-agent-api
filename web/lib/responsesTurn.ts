@@ -536,6 +536,7 @@ export async function runResponsesTurn(args: {
             ...toolArgs,
             org_id: session.orgId,
             opportunity_id: activeDeal.id,
+            score_event_source: "agent",
             rep_name: session.repName,
             call_id: `web_turn_${Date.now()}`,
           },

@@ -3,15 +3,14 @@
 import { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
 
-type Result = { row: number; opportunityId: number | null; ok: boolean; error?: string };
 type ApiResponse = {
   ok: boolean;
-  results?: Result[];
-  counts?: { total: number; ok: number; error: number };
-  error?: string;
+  mode?: "async";
   jobId?: string;
-  staged?: boolean;
-  total?: number;
+  rowCount?: number;
+  commentsDetected?: number;
+  counts?: { total: number; ok: number; error: number; skipped_out_of_scope?: number; skipped_baseline_exists?: number };
+  error?: string;
 };
 
 const ID_CANDIDATES = ["crm_opp_id", "crm opp id", "opportunity id", "opportunity_id", "id"];
@@ -35,8 +34,12 @@ export function ExcelCommentsUploadClient() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [response, setResponse] = useState<ApiResponse | null>(null);
-  const [stagedJob, setStagedJob] = useState<{ jobId: string; total: number } | null>(null);
-  const [jobProgress, setJobProgress] = useState<{ state: string; progress: number | null; counts: { processed: number; ok: number; skipped: number; failed: number } } | null>(null);
+  const [stagedJob, setStagedJob] = useState<{ jobId: string; rowCount: number; commentsDetected: number } | null>(null);
+  const [jobProgress, setJobProgress] = useState<{
+    state: string;
+    progress: number | null;
+    counts: { processed: number; ok: number; skipped: number; skipped_out_of_scope: number; skipped_baseline_exists: number; failed: number };
+  } | null>(null);
 
   useEffect(() => {
     if (!stagedJob?.jobId) return;
@@ -45,10 +48,18 @@ export function ExcelCommentsUploadClient() {
         const res = await fetch(`/api/ingest/jobs/${stagedJob.jobId}`);
         const data = await res.json().catch(() => ({}));
         if (!data.ok) return;
+        const c = data.counts ?? {};
         setJobProgress({
           state: data.state,
           progress: data.progress,
-          counts: data.counts ?? { processed: 0, ok: 0, skipped: 0, failed: 0 },
+          counts: {
+            processed: c.processed ?? 0,
+            ok: c.ok ?? 0,
+            skipped: c.skipped ?? 0,
+            skipped_out_of_scope: c.skipped_out_of_scope ?? 0,
+            skipped_baseline_exists: c.skipped_baseline_exists ?? 0,
+            failed: c.failed ?? 0,
+          },
         });
         if (data.state === "completed" || data.state === "failed") {
           setStagedJob(null);
@@ -57,9 +68,9 @@ export function ExcelCommentsUploadClient() {
             setResponse({
               ok: true,
               counts: {
-                total: data.counts?.processed ?? 0,
-                ok: (data.counts?.ok ?? 0) + (data.counts?.skipped ?? 0),
-                error: data.counts?.failed ?? 0,
+                total: c.processed ?? 0,
+                ok: (c.ok ?? 0) + (c.skipped ?? 0),
+                error: c.failed ?? 0,
               },
             });
           } else if (data.state === "failed") {
@@ -77,6 +88,7 @@ export function ExcelCommentsUploadClient() {
 
   const onFileSelect = (f: File | null) => {
     setFile(f);
+    setError("");
     setResponse(null);
     setStagedJob(null);
     setJobProgress(null);
@@ -120,41 +132,42 @@ export function ExcelCommentsUploadClient() {
     setBusy(true);
     setError("");
     setResponse(null);
+    const ac = new AbortController();
+    const timeoutId = setTimeout(() => ac.abort(), 60000);
     try {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("idColumn", idColumn);
       formData.append("commentsColumn", commentsColumn);
-      const res = await fetch("/api/ingest/excel-comments", {
-        method: "POST",
-        body: formData,
-      });
+      const res = await fetch("/api/ingest/excel-comments", { method: "POST", body: formData, signal: ac.signal });
       const json: ApiResponse = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(json?.error || "Upload failed");
         return;
       }
-      if (json.jobId && json.staged) {
-        setStagedJob({ jobId: json.jobId, total: json.total ?? 0 });
-        setResponse({ ok: true, jobId: json.jobId, staged: true, total: json.total });
-      } else {
-        setResponse(json);
+      if (json.jobId && json.mode === "async") {
+        setStagedJob({
+          jobId: json.jobId,
+          rowCount: json.rowCount ?? 0,
+          commentsDetected: json.commentsDetected ?? 0,
+        });
+        setResponse({ ok: true, mode: "async", jobId: json.jobId, rowCount: json.rowCount, commentsDetected: json.commentsDetected });
       }
     } catch (e: any) {
-      setError(e?.message || String(e));
+      setError(e?.name === "AbortError" ? "Upload timed out" : e?.message || String(e));
     } finally {
+      clearTimeout(timeoutId);
       setBusy(false);
     }
   };
 
-  const results = response?.results ?? [];
   const counts = response?.counts;
 
   return (
     <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
       <h3 className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Column mapping</h3>
       <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-        Select a file, then map your Excel columns to Opportunity ID and Comments. Max 5000 rows (files {'>'}200 rows process in background).
+        Select a file, then map your Excel columns to Opportunity ID and Comments. Max 5000 rows. All uploads are queued; scoring runs in the background.
       </p>
 
       <div className="mt-3 flex flex-wrap items-end gap-4">
@@ -223,16 +236,24 @@ export function ExcelCommentsUploadClient() {
       {stagedJob || jobProgress ? (
         <div className="mt-3 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm">
           <div className="font-medium text-[color:var(--sf-text-primary)]">
-            {jobProgress?.state === "completed" ? "Completed" : "Processing in background…"}
+            {jobProgress?.state === "completed"
+              ? "Completed"
+              : stagedJob && !jobProgress
+                ? `Upload received: ${stagedJob.rowCount} rows. If comments are present, opportunities have been placed in the Scoring Queue.`
+                : "Processing in background…"}
           </div>
           {jobProgress && (
             <div className="mt-1 flex flex-wrap gap-4 text-xs text-[color:var(--sf-text-secondary)]">
-              {jobProgress.progress != null && (
-                <span>Progress: {jobProgress.progress}%</span>
-              )}
+              {jobProgress.progress != null && <span>Progress: {jobProgress.progress}%</span>}
               <span>Processed: {jobProgress.counts.processed}</span>
               <span className="text-[color:var(--good)]">OK: {jobProgress.counts.ok}</span>
               <span className="text-[color:var(--sf-text-secondary)]">Skipped: {jobProgress.counts.skipped}</span>
+              {jobProgress.counts.skipped_out_of_scope > 0 && (
+                <span title="Out of scope (closed before previous quarter)">Out of scope: {jobProgress.counts.skipped_out_of_scope}</span>
+              )}
+              {jobProgress.counts.skipped_baseline_exists > 0 && (
+                <span title="Baseline already set">Baseline exists: {jobProgress.counts.skipped_baseline_exists}</span>
+              )}
               <span className="text-[color:var(--bad)]">Failed: {jobProgress.counts.failed}</span>
             </div>
           )}
@@ -268,40 +289,10 @@ export function ExcelCommentsUploadClient() {
       ) : null}
 
       {counts ? (
-        <div className="mt-4 space-y-3">
-          <div className="flex gap-4 text-sm">
-            <span>Total: <b>{counts.total}</b></span>
-            <span className="text-[color:var(--good)]">OK: <b>{counts.ok}</b></span>
-            <span className="text-[color:var(--bad)]">Errors: <b>{counts.error}</b></span>
-          </div>
-          {results.length > 0 ? (
-            <div className="max-h-[300px] overflow-y-auto overflow-x-auto rounded-md border border-[color:var(--sf-border)]">
-              <table className="min-w-full text-sm">
-                <thead className="sticky top-0 bg-[color:var(--sf-surface-alt)]">
-                  <tr>
-                    <th className="px-3 py-2 text-left">Row</th>
-                    <th className="px-3 py-2 text-left">Opportunity ID</th>
-                    <th className="px-3 py-2 text-left">Status</th>
-                    <th className="px-3 py-2 text-left">Error</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map((r, i) => (
-                    <tr key={i} className="border-t border-[color:var(--sf-border)]">
-                      <td className="px-3 py-2">{r.row}</td>
-                      <td className="px-3 py-2 font-mono">{r.opportunityId ?? "—"}</td>
-                      <td className="px-3 py-2">
-                        <span className={r.ok ? "text-[color:var(--good)]" : "text-[color:var(--bad)]"}>
-                          {r.ok ? "OK" : "Error"}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-[color:var(--sf-text-secondary)]">{r.error ?? "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
+        <div className="mt-4 flex gap-4 text-sm">
+          <span>Total: <b>{counts.total}</b></span>
+          <span className="text-[color:var(--good)]">OK: <b>{counts.ok}</b></span>
+          <span className="text-[color:var(--bad)]">Failed: <b>{counts.error}</b></span>
         </div>
       ) : null}
     </section>

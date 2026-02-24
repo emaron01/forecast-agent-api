@@ -36,20 +36,39 @@ export async function GET(
   }
 
   const state = await job.getState();
-  const progress = (job.progress as { processed?: number; ok?: number; skipped?: number; failed?: number; percent?: number }) || {};
-  const returnvalue = job.returnvalue as { processed?: number; ok?: number; skipped?: number; failed?: number } | undefined;
+  const progress = (job.progress as {
+    processed?: number;
+    ok?: number;
+    skipped?: number;
+    skipped_out_of_scope?: number;
+    skipped_baseline_exists?: number;
+    failed?: number;
+    percent?: number;
+  }) || {};
+  const returnvalue = job.returnvalue as {
+    processed?: number;
+    ok?: number;
+    skipped?: number;
+    skipped_out_of_scope?: number;
+    skipped_baseline_exists?: number;
+    failed?: number;
+  } | undefined;
 
   const counts = state === "completed" && returnvalue
     ? {
         processed: returnvalue.processed ?? 0,
         ok: returnvalue.ok ?? 0,
-        skipped: returnvalue.skipped ?? 0,
+        skipped: (returnvalue.skipped ?? 0) + (returnvalue.skipped_out_of_scope ?? 0) + (returnvalue.skipped_baseline_exists ?? 0),
+        skipped_out_of_scope: returnvalue.skipped_out_of_scope ?? 0,
+        skipped_baseline_exists: returnvalue.skipped_baseline_exists ?? 0,
         failed: returnvalue.failed ?? 0,
       }
     : {
         processed: progress.processed ?? 0,
         ok: progress.ok ?? 0,
-        skipped: progress.skipped ?? 0,
+        skipped: (progress.skipped ?? 0) + (progress.skipped_out_of_scope ?? 0) + (progress.skipped_baseline_exists ?? 0),
+        skipped_out_of_scope: progress.skipped_out_of_scope ?? 0,
+        skipped_baseline_exists: progress.skipped_baseline_exists ?? 0,
         failed: progress.failed ?? 0,
       };
 

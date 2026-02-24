@@ -63,6 +63,22 @@ function computeAiForecastFromHealthScore(healthScore) {
   return computeAiVerdictFromHealthScore(healthScore);
 }
 
+/** CRO-safe: true if stage indicates Closed Won or Closed Lost. WON/LOST/CLOSED(standalone)=Lost. */
+function isClosedStage(stageLike) {
+  const s = String(stageLike || "").trim().toLowerCase();
+  if (!s) return false;
+  return /\bwon\b/.test(s) || /\blost\b/.test(s) || /\bclosed\b/.test(s);
+}
+
+/** CRO-safe: canonical ai_forecast/ai_verdict. Won=>Closed Won, Lost/Closed=>Closed Lost. */
+function normalizeClosedForecast(stageLike) {
+  const s = String(stageLike || "").trim().toLowerCase();
+  if (!s) return null;
+  if (/\bwon\b/.test(s)) return "Closed Won";
+  if (/\blost\b/.test(s) || /\bclosed\b/.test(s)) return "Closed Lost";
+  return null;
+}
+
 async function getScoreLabel(pool, orgId, category, score) {
   if (!category || score == null) return null;
   const cat = String(category || "").trim();
@@ -414,8 +430,10 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       k !== "risk_summary" &&
       k !== "next_steps" &&
       k !== "score_source" &&
+      k !== "score_event_source" &&
       k !== "comment_ingestion_id" &&
-      k !== "extraction_confidence"
+      k !== "extraction_confidence" &&
+      k !== "sales_stage_for_closed"
   );
 
   const sets = [];
@@ -467,9 +485,9 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       await client.query(q, [orgId, opportunityId, ...vals]);
     }
 
-    // Pull latest opp row for audit context fields (include baseline_health_score_ts for provenance)
+    // Pull latest opp row for audit context (sales_stage for CRO-safe closed guard)
     const { rows } = await client.query(
-      `SELECT id, org_id, forecast_stage, ai_forecast, health_score, risk_summary, baseline_health_score_ts
+      `SELECT id, org_id, forecast_stage, sales_stage, ai_forecast, health_score, risk_summary, baseline_health_score_ts
          FROM opportunities
         WHERE org_id = $1 AND id = $2
         LIMIT 1`,
@@ -480,12 +498,20 @@ export async function handleFunctionCall({ toolName, args, pool }) {
     const baselineAlreadyExists = opp.baseline_health_score_ts != null;
     const recomputed = await recomputeTotalScore(client, orgId, opportunityId);
 
+    // Provenance: score_event_source from args overrides; else baselineAlreadyExists ? 'agent' : 'baseline'
+    const scoreEventSource = args.score_event_source === "baseline" || args.score_event_source === "agent"
+      ? args.score_event_source
+      : baselineAlreadyExists ? "agent" : "baseline";
+
+    // CRO-safe closed pinning: if sales_stage indicates Closed Won/Lost, NEVER write Pipeline/Best Case/Commit.
+    const stageForClosed = args.sales_stage_for_closed ?? opp.sales_stage ?? opp.forecast_stage;
+    const pinnedClosed = isClosedStage(stageForClosed) ? normalizeClosedForecast(stageForClosed) : null;
+
     // Persist computed health_score so the agent always has a real number to speak (never invent).
     // Baseline immutability: only set baseline_* when baseline_health_score_ts IS NULL.
-    // Provenance: health_score_source = 'baseline' on first set, 'agent' on subsequent updates.
     if (recomputed.total_score != null && Number.isFinite(recomputed.total_score)) {
-      const aiForecast = computeAiForecastFromHealthScore(recomputed.total_score);
-      const scoreSource = baselineAlreadyExists ? "agent" : "baseline";
+      const aiForecast = pinnedClosed ?? computeAiForecastFromHealthScore(recomputed.total_score);
+      const scoreSource = scoreEventSource;
       try {
         if (baselineAlreadyExists) {
           // Agent update: do NOT touch baseline_*; only update health_score and provenance.

@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
  * BullMQ worker for opportunity comment ingestion.
- * Processes jobs in batches of 100, concurrency 2.
- * Respects baseline_health_score_ts skip gate.
+ * Strict scoring scope, baseline skip gate, CRO-safe closed pinning.
  *
  * Start: npm run worker:ingest (from project root)
  * Requires: REDIS_URL, DATABASE_URL, MODEL_API_* env vars.
@@ -13,26 +12,123 @@ import { pool } from "../lib/pool";
 import { runCommentIngestionTurn, getPromptVersionHash } from "../lib/commentIngestionTurn";
 import { insertCommentIngestion } from "../lib/db";
 import { applyCommentIngestionToOpportunity } from "../lib/applyCommentIngestionToOpportunity";
+import { outcomeFromStageLike } from "../lib/opportunityOutcome";
 
 const QUEUE_NAME = "opportunity-ingest";
 const BATCH_SIZE = 100;
-const CONCURRENCY = 2;
+
+function getStartOfPreviousQuarterUTC(): Date {
+  const now = new Date();
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth();
+  const q = Math.floor(m / 3) + 1;
+  const prevQ = q === 1 ? 4 : q - 1;
+  const prevY = q === 1 ? y - 1 : y;
+  const startMonth = (prevQ - 1) * 3;
+  return new Date(Date.UTC(prevY, startMonth, 1));
+}
+
+function outcomeFromRow(opp: { forecast_stage?: string | null; sales_stage?: string | null }): "Open" | "Won" | "Lost" {
+  const f = outcomeFromStageLike(opp.forecast_stage);
+  if (f !== "Open") return f;
+  return outcomeFromStageLike(opp.sales_stage);
+}
+
+function inScope(opp: { sales_stage?: string | null; forecast_stage?: string | null; close_date?: string | Date | null }, cutoff: Date): boolean {
+  const outcome = outcomeFromRow(opp);
+  if (outcome === "Open") return true;
+  const closeDate = opp.close_date ? new Date(opp.close_date) : null;
+  if (!closeDate || !Number.isFinite(closeDate.getTime())) return false;
+  return closeDate >= cutoff;
+}
 
 function getConnection() {
   const url = process.env.REDIS_URL || "redis://localhost:6379";
   return { connection: { url } };
 }
 
-async function processJob(job: { data: any; id?: string; updateProgress: (p: object) => Promise<void> }) {
+async function processSingleIngest(job: { data: any; updateProgress: (p: object) => Promise<void> }) {
+  const { orgId, opportunityId, rawText, sourceType, sourceRef } = job.data;
+  if (!orgId || !opportunityId || !rawText) {
+    throw new Error("Invalid single-ingest job: orgId, opportunityId, rawText required");
+  }
+
+  const cutoff = getStartOfPreviousQuarterUTC();
+  const { rows: oppRows } = await pool.query(
+    `SELECT id, account_name, opportunity_name, amount, close_date, forecast_stage, sales_stage, baseline_health_score_ts
+     FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,
+    [orgId, opportunityId]
+  );
+  const opp = oppRows?.[0];
+  if (!opp) {
+    return { processed: 1, ok: 0, skipped_out_of_scope: 0, skipped_baseline_exists: 0, failed: 1 };
+  }
+  if (!inScope(opp, cutoff)) {
+    return { processed: 1, ok: 0, skipped_out_of_scope: 1, skipped_baseline_exists: 0, failed: 0 };
+  }
+  if (opp.baseline_health_score_ts != null) {
+    return { processed: 1, ok: 0, skipped_out_of_scope: 0, skipped_baseline_exists: 1, failed: 0 };
+  }
+
+  try {
+    const deal = {
+      id: opp.id,
+      account_name: opp.account_name,
+      opportunity_name: opp.opportunity_name,
+      amount: opp.amount,
+      close_date: opp.close_date,
+      forecast_stage: opp.forecast_stage,
+    };
+    const { extracted } = await runCommentIngestionTurn({ deal, rawNotes: rawText, orgId });
+    const { id: commentIngestionId } = await insertCommentIngestion({
+      orgId,
+      opportunityId: opp.id,
+      sourceType: sourceType ?? "manual",
+      sourceRef: sourceRef ?? "single",
+      rawText,
+      extractedJson: extracted,
+      modelMetadata: {
+        model: process.env.MODEL_API_NAME || "unknown",
+        promptVersionHash: getPromptVersionHash(),
+        timestamp: new Date().toISOString(),
+      },
+    });
+    const applyResult = await applyCommentIngestionToOpportunity({
+      orgId,
+      opportunityId: opp.id,
+      extracted,
+      commentIngestionId,
+      scoreEventSource: "baseline",
+      salesStage: opp.sales_stage ?? opp.forecast_stage ?? null,
+    });
+    return {
+      processed: 1,
+      ok: applyResult.ok ? 1 : 0,
+      skipped_out_of_scope: 0,
+      skipped_baseline_exists: 0,
+      failed: applyResult.ok ? 0 : 1,
+    };
+  } catch {
+    return { processed: 1, ok: 0, skipped_out_of_scope: 0, skipped_baseline_exists: 0, failed: 1 };
+  }
+}
+
+async function processJob(job: { data: any; id?: string; name?: string; updateProgress: (p: object) => Promise<void> }) {
+  if (job.name === "single-ingest") {
+    return processSingleIngest(job);
+  }
+
   const { orgId, fileName, rows } = job.data;
   if (!orgId || !Array.isArray(rows) || !rows.length) {
     throw new Error("Invalid job: orgId and rows required");
   }
 
+  const cutoff = getStartOfPreviousQuarterUTC();
   const total = rows.length;
   let processed = 0;
   let okCount = 0;
-  let skippedCount = 0;
+  let skippedOutOfScope = 0;
+  let skippedBaselineExists = 0;
   let failedCount = 0;
 
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
@@ -47,7 +143,7 @@ async function processJob(job: { data: any; id?: string; updateProgress: (p: obj
 
       try {
         const { rows: oppRows } = await pool.query(
-          `SELECT id, account_name, opportunity_name, amount, close_date, forecast_stage, baseline_health_score_ts
+          `SELECT id, account_name, opportunity_name, amount, close_date, forecast_stage, sales_stage, baseline_health_score_ts
            FROM opportunities WHERE org_id = $1 AND NULLIF(btrim(crm_opp_id), '') = $2 LIMIT 1`,
           [orgId, crmOppId]
         );
@@ -57,8 +153,15 @@ async function processJob(job: { data: any; id?: string; updateProgress: (p: obj
           processed++;
           continue;
         }
+
+        if (!inScope(opp, cutoff)) {
+          skippedOutOfScope++;
+          processed++;
+          continue;
+        }
+
         if (opp.baseline_health_score_ts != null) {
-          skippedCount++;
+          skippedBaselineExists++;
           processed++;
           continue;
         }
@@ -90,6 +193,8 @@ async function processJob(job: { data: any; id?: string; updateProgress: (p: obj
           opportunityId: opp.id,
           extracted,
           commentIngestionId,
+          scoreEventSource: "baseline",
+          salesStage: opp.sales_stage ?? opp.forecast_stage ?? null,
         });
         if (applyResult.ok) okCount++;
         else failedCount++;
@@ -103,21 +208,43 @@ async function processJob(job: { data: any; id?: string; updateProgress: (p: obj
     await job.updateProgress({
       processed,
       ok: okCount,
-      skipped: skippedCount,
+      skipped_out_of_scope: skippedOutOfScope,
+      skipped_baseline_exists: skippedBaselineExists,
       failed: failedCount,
       percent: pct,
     });
   }
 
-  return { processed, ok: okCount, skipped: skippedCount, failed: failedCount };
+  return {
+    processed,
+    ok: okCount,
+    skipped_out_of_scope: skippedOutOfScope,
+    skipped_baseline_exists: skippedBaselineExists,
+    failed: failedCount,
+  };
 }
+
+function maskRedisHost(url: string): string {
+  try {
+    const u = new URL(url);
+    const host = u.hostname || "?";
+    return host.replace(/(.{2}).*(.{2})/, "$1***$2");
+  } catch {
+    return "?";
+  }
+}
+
+const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+console.log(
+  `[ingest] Worker starting | queue=${QUEUE_NAME} | redis=${maskRedisHost(redisUrl)} | concurrency=2 | batch=${BATCH_SIZE}`
+);
 
 const worker = new Worker(
   QUEUE_NAME,
   async (job) => processJob(job),
   {
     ...getConnection(),
-    concurrency: CONCURRENCY,
+    concurrency: 2, // hard cap; do not increase without DB headroom
   }
 );
 
@@ -133,4 +260,4 @@ worker.on("error", (err) => {
   console.error("[ingest] Worker error:", err);
 });
 
-console.log(`[ingest] Worker started. Queue: ${QUEUE_NAME}, concurrency: ${CONCURRENCY}, batch: ${BATCH_SIZE}`);
+console.log(`[ingest] Worker ready. Queue: ${QUEUE_NAME}`);

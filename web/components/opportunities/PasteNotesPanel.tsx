@@ -31,7 +31,11 @@ export function PasteNotesPanel(props: {
         setError(json?.error || "Analysis failed");
         return;
       }
-      setSuccessMsg("Applied to opportunity. Categories scored; Risk Summary and Next Steps updated.");
+      setSuccessMsg(
+        json.mode === "async"
+          ? "Queued. Scoring will run in the background."
+          : "Applied to opportunity. Categories scored; Risk Summary and Next Steps updated."
+      );
       props.onApplied?.();
     } catch (e: any) {
       setError(e?.message || String(e));
