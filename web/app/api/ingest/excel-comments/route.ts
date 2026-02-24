@@ -55,17 +55,22 @@ export async function POST(req: Request) {
     const buf = Buffer.from(await file.arrayBuffer());
     const rawRows = parseExcelToRawRows(buf, MAX_ROWS);
 
+    const headers = Object.keys(rawRows[0] || {});
+    const idColRaw = formData.get("idColumn");
+    const commentsColRaw = formData.get("commentsColumn");
     const idCol =
-      findColumn(rawRows[0], ["crm_opp_id", "crm opp id", "opportunity id", "opportunity_id", "id"]) ??
-      Object.keys(rawRows[0] || {})[0];
+      typeof idColRaw === "string" && idColRaw.trim() && headers.includes(idColRaw.trim())
+        ? idColRaw.trim()
+        : findColumn(rawRows[0], ["crm_opp_id", "crm opp id", "opportunity id", "opportunity_id", "id"]) ?? headers[0];
     const commentsCol =
-      findColumn(rawRows[0], ["comments", "notes", "comment", "note", "raw_text"]) ??
-      Object.keys(rawRows[0] || {})[1];
+      typeof commentsColRaw === "string" && commentsColRaw.trim() && headers.includes(commentsColRaw.trim())
+        ? commentsColRaw.trim()
+        : findColumn(rawRows[0], ["comments", "notes", "comment", "note", "raw_text"]) ?? headers[1];
 
     if (!idCol || !commentsCol) {
       return NextResponse.json({
         ok: false,
-        error: "Excel must have columns for opportunity id (crm_opp_id) and comments/notes",
+        error: "Excel must have columns for opportunity id (crm_opp_id) and comments/notes. Use the column mapping to select the correct columns.",
       }, { status: 400 });
     }
 
