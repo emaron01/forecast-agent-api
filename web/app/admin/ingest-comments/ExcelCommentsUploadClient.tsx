@@ -1,10 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
 
 type Result = { row: number; opportunityId: number | null; ok: boolean; error?: string };
-type ApiResponse = { ok: boolean; results?: Result[]; counts?: { total: number; ok: number; error: number }; error?: string };
+type ApiResponse = {
+  ok: boolean;
+  results?: Result[];
+  counts?: { total: number; ok: number; error: number };
+  error?: string;
+  jobId?: string;
+  staged?: boolean;
+  total?: number;
+};
 
 const ID_CANDIDATES = ["crm_opp_id", "crm opp id", "opportunity id", "opportunity_id", "id"];
 const COMMENTS_CANDIDATES = ["comments", "notes", "comment", "note", "raw_text", "activity notes", "description", "deal comments"];
@@ -27,10 +35,51 @@ export function ExcelCommentsUploadClient() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [response, setResponse] = useState<ApiResponse | null>(null);
+  const [stagedJob, setStagedJob] = useState<{ jobId: string; total: number } | null>(null);
+  const [jobProgress, setJobProgress] = useState<{ state: string; progress: number | null; counts: { processed: number; ok: number; skipped: number; failed: number } } | null>(null);
+
+  useEffect(() => {
+    if (!stagedJob?.jobId) return;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/ingest/jobs/${stagedJob.jobId}`);
+        const data = await res.json().catch(() => ({}));
+        if (!data.ok) return;
+        setJobProgress({
+          state: data.state,
+          progress: data.progress,
+          counts: data.counts ?? { processed: 0, ok: 0, skipped: 0, failed: 0 },
+        });
+        if (data.state === "completed" || data.state === "failed") {
+          setStagedJob(null);
+          setJobProgress(null);
+          if (data.state === "completed") {
+            setResponse({
+              ok: true,
+              counts: {
+                total: data.counts?.processed ?? 0,
+                ok: (data.counts?.ok ?? 0) + (data.counts?.skipped ?? 0),
+                error: data.counts?.failed ?? 0,
+              },
+            });
+          } else if (data.state === "failed") {
+            setError(data.failedReason ?? "Job failed");
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    poll();
+    const id = setInterval(poll, 2000);
+    return () => clearInterval(id);
+  }, [stagedJob?.jobId]);
 
   const onFileSelect = (f: File | null) => {
     setFile(f);
     setResponse(null);
+    setStagedJob(null);
+    setJobProgress(null);
     setHeaders([]);
     setPreview([]);
     setIdColumn("");
@@ -85,7 +134,12 @@ export function ExcelCommentsUploadClient() {
         setError(json?.error || "Upload failed");
         return;
       }
-      setResponse(json);
+      if (json.jobId && json.staged) {
+        setStagedJob({ jobId: json.jobId, total: json.total ?? 0 });
+        setResponse({ ok: true, jobId: json.jobId, staged: true, total: json.total });
+      } else {
+        setResponse(json);
+      }
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
@@ -100,7 +154,7 @@ export function ExcelCommentsUploadClient() {
     <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
       <h3 className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Column mapping</h3>
       <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-        Select a file, then map your Excel columns to Opportunity ID and Comments. Max 50 rows.
+        Select a file, then map your Excel columns to Opportunity ID and Comments. Max 5000 rows (files {'>'}200 rows process in background).
       </p>
 
       <div className="mt-3 flex flex-wrap items-end gap-4">
@@ -163,6 +217,25 @@ export function ExcelCommentsUploadClient() {
       {error ? (
         <div className="mt-3 rounded-md border border-[#E74C3C] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[#E74C3C]">
           {error}
+        </div>
+      ) : null}
+
+      {stagedJob || jobProgress ? (
+        <div className="mt-3 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm">
+          <div className="font-medium text-[color:var(--sf-text-primary)]">
+            {jobProgress?.state === "completed" ? "Completed" : "Processing in background…"}
+          </div>
+          {jobProgress && (
+            <div className="mt-1 flex flex-wrap gap-4 text-xs text-[color:var(--sf-text-secondary)]">
+              {jobProgress.progress != null && (
+                <span>Progress: {jobProgress.progress}%</span>
+              )}
+              <span>Processed: {jobProgress.counts.processed}</span>
+              <span className="text-[color:var(--good)]">OK: {jobProgress.counts.ok}</span>
+              <span className="text-[color:var(--sf-text-secondary)]">Skipped: {jobProgress.counts.skipped}</span>
+              <span className="text-[color:var(--bad)]">Failed: {jobProgress.counts.failed}</span>
+            </div>
+          )}
         </div>
       ) : null}
 

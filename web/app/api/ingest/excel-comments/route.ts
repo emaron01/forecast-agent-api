@@ -5,10 +5,12 @@ import { pool } from "../../../../lib/pool";
 import { insertCommentIngestion } from "../../../../lib/db";
 import { runCommentIngestionTurn, getPromptVersionHash } from "../../../../lib/commentIngestionTurn";
 import { applyCommentIngestionToOpportunity } from "../../../../lib/applyCommentIngestionToOpportunity";
+import { getIngestQueue } from "../../../../lib/ingest-queue";
 
 export const runtime = "nodejs";
 
-const MAX_ROWS = 50;
+const INLINE_MAX_ROWS = 200;
+const STAGED_MAX_ROWS = 5000;
 
 function isEmptyRow(r: any) {
   if (!r || typeof r !== "object") return true;
@@ -53,7 +55,7 @@ export async function POST(req: Request) {
     }
 
     const buf = Buffer.from(await file.arrayBuffer());
-    const rawRows = parseExcelToRawRows(buf, MAX_ROWS);
+    const rawRows = parseExcelToRawRows(buf, STAGED_MAX_ROWS);
 
     const headers = Object.keys(rawRows[0] || {});
     const idColRaw = formData.get("idColumn");
@@ -72,6 +74,28 @@ export async function POST(req: Request) {
         ok: false,
         error: "Excel must have columns for opportunity id (crm_opp_id) and comments/notes. Use the column mapping to select the correct columns.",
       }, { status: 400 });
+    }
+
+    // Large files: enqueue for background processing to avoid HTTP timeouts.
+    if (rawRows.length > INLINE_MAX_ROWS) {
+      const queue = getIngestQueue();
+      if (!queue) {
+        return NextResponse.json({
+          ok: false,
+          error: "Staged ingestion requires REDIS_URL. Set REDIS_URL or use a smaller file (<=200 rows).",
+        }, { status: 503 });
+      }
+      const jobRows = rawRows.map((row: any, i: number) => ({
+        rowNum: i + 2,
+        crmOppId: String(row?.[idCol] ?? "").trim(),
+        rawText: String(row?.[commentsCol] ?? "").trim(),
+      })).filter((r: { crmOppId: string; rawText: string }) => r.crmOppId && r.rawText);
+      const job = await queue.add("excel-comments", {
+        orgId,
+        fileName: (file as File).name,
+        rows: jobRows,
+      });
+      return NextResponse.json({ ok: true, jobId: job.id, staged: true, total: jobRows.length });
     }
 
     const results: Array<{ row: number; opportunityId: number | null; ok: boolean; error?: string }> = [];
