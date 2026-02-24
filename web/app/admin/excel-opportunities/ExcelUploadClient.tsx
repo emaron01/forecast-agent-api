@@ -40,6 +40,7 @@ const TARGETS: Array<{ key: TargetField; label: string; required?: boolean }> = 
   { key: "crm_opp_id", label: "CRM Opportunity ID", required: true },
   { key: "create_date_raw", label: "Create Date", required: true },
   { key: "close_date", label: "Close Date", required: true },
+  { key: "comments", label: "Comments / Notes (optional – AI scoring if mapped)" },
 ];
 
 type TargetField =
@@ -54,7 +55,8 @@ type TargetField =
   | "deal_registration"
   | "crm_opp_id"
   | "create_date_raw"
-  | "close_date";
+  | "close_date"
+  | "comments";
 
 function norm(s: string) {
   return String(s || "").trim().toLowerCase();
@@ -100,6 +102,16 @@ function guessMapping(headers: string[]) {
         (s.includes("close") && s.includes("date")) ||
         s === "expected close" ||
         s === "expected close date"
+    ),
+    comments: pick(
+      (s) =>
+        s === "comments" ||
+        s === "notes" ||
+        s === "comment" ||
+        s === "note" ||
+        s.includes("activity notes") ||
+        s.includes("raw_text") ||
+        s.includes("deal comments")
     ),
   } satisfies Record<TargetField, string>;
 }
@@ -371,6 +383,7 @@ export function ExcelUploadClient(props: {
             <li>Choose a saved format (recommended) or create a new format name.</li>
             <li>Upload your Excel file (.xlsx). We read the first sheet and use the first row as headers.</li>
             <li>Map your Excel columns to the required fields above (required fields have a red *).</li>
+            <li>(Optional) Map <strong>Comments / Notes</strong> to run AI scoring on notes for each row.</li>
             <li>(Optional) Save/Update the format so the next upload auto-maps.</li>
             <li>Click “Import Files” to stage and ingest rows.</li>
           </ol>

@@ -4,7 +4,6 @@ import { getOrganization, listFieldMappings, listFieldMappingSets } from "../../
 import { resolvePublicTextId } from "../../../lib/publicId";
 import { uploadExcelOpportunitiesAction } from "../../admin/actions/excelOpportunities";
 import { ExcelUploadClient } from "../../admin/excel-opportunities/ExcelUploadClient";
-import { ExcelCommentsUploadClient } from "../../admin/ingest-comments/ExcelCommentsUploadClient";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { redirect } from "next/navigation";
 
@@ -74,7 +73,7 @@ export default async function DashboardExcelUploadPage({
         </div>
       ) : null}
 
-        <div className="mt-6 grid gap-8">
+        <div className="mt-6">
           <ExcelUploadClient
             mappingSets={sets}
             prefillSetPublicId={mappingSetPublicId}
@@ -82,15 +81,6 @@ export default async function DashboardExcelUploadPage({
             action={uploadExcelOpportunitiesAction}
             allowDeleteAccounts={false}
           />
-          <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Ingest Comments from Excel</h2>
-            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-              Upload an Excel file with Opportunity ID and Comments columns. Map columns, then ingest. Each row is applied to the matching opportunity.
-            </p>
-            <div className="mt-4">
-              <ExcelCommentsUploadClient />
-            </div>
-          </section>
         </div>
       </main>
     </div>

@@ -9,6 +9,7 @@ import {
   createFieldMappingSet,
   deleteFieldMappingSet,
   getFieldMappingSet,
+  insertCommentIngestion,
   listIngestionStagingErrorsInRange,
   listIngestionStagingByFilter,
   listFieldMappings,
@@ -19,6 +20,31 @@ import {
   updateFieldMappingSet,
 } from "../../../lib/db";
 import { resolvePublicTextId } from "../../../lib/publicId";
+import { runCommentIngestionTurn, getPromptVersionHash } from "../../../lib/commentIngestionTurn";
+import { applyCommentIngestionToOpportunity } from "../../../lib/applyCommentIngestionToOpportunity";
+
+// Target fields that are opportunity columns (stored in field_mappings). Excludes "comments" which is handled separately.
+const OPPORTUNITY_TARGETS = [
+  "account_name",
+  "opportunity_name",
+  "amount",
+  "rep_name",
+  "product",
+  "stage",
+  "sales_stage",
+  "forecast_stage",
+  "crm_opp_id",
+  "create_date_raw",
+  "close_date",
+  "partner_name",
+  "deal_registration",
+] as const;
+
+function mappingsForOpportunitiesOnly(
+  pairs: Array<{ source_field: string; target_field: string }>
+): Array<{ source_field: string; target_field: string }> {
+  return pairs.filter((m) => m.target_field !== "comments");
+}
 
 const TargetField = z.enum([
   "account_name",
@@ -35,6 +61,7 @@ const TargetField = z.enum([
   "close_date",
   "partner_name",
   "deal_registration",
+  "comments", // Optional; used for AI scoring only; NOT stored in field_mappings (not an opportunity column).
 ]);
 
 const Schema = z.object({
@@ -412,7 +439,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
         if (!existing) return err(intent, "That saved format no longer exists.", ["Selected mapping set not found in this org."]);
         const nextName = mappingSetNameInput || existing.name;
         await updateFieldMappingSet({ organizationId: orgId, mappingSetId, name: nextName, source_system: "excel-opportunities" });
-        await replaceFieldMappings({ mappingSetId, mappings: mappingPairsFromJson });
+        await replaceFieldMappings({ mappingSetId, mappings: mappingsForOpportunitiesOnly(mappingPairsFromJson) });
 
         revalidatePath("/admin/excel-opportunities");
         revalidatePath("/dashboard/excel-upload");
@@ -434,7 +461,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
       }
 
       const created = await createFieldMappingSet({ organizationId: orgId, name: mappingSetNameInput, source_system: "excel-opportunities" });
-      await replaceFieldMappings({ mappingSetId: created.id, mappings: mappingPairsFromJson });
+      await replaceFieldMappings({ mappingSetId: created.id, mappings: mappingsForOpportunitiesOnly(mappingPairsFromJson) });
 
       revalidatePath("/admin/excel-opportunities");
       revalidatePath("/dashboard/excel-upload");
@@ -485,7 +512,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
       );
     }
 
-    await replaceFieldMappings({ mappingSetId, mappings: mappingPairs });
+    await replaceFieldMappings({ mappingSetId, mappings: mappingsForOpportunitiesOnly(mappingPairs) });
 
     const buf = Buffer.from(await file.arrayBuffer());
     let rawRows: any[] = [];
@@ -609,6 +636,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
 
     const staged = await stageIngestionRows({ organizationId: orgId, mappingSetId, rawRows });
     const processNow = parsed.processNow !== "false";
+    let commentsScored = 0;
     const summary = processNow ? await processIngestionBatch({ organizationId: orgId, mappingSetId }).catch((e: any) => {
       // Don't crash the UI; surface a helpful message.
       throw new Error(`Ingestion processing failed: ${e?.message || String(e)}`);
@@ -644,6 +672,61 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
             .filter(Boolean)
         );
       }
+
+      // If Comments column was mapped, run AI scoring for rows with comments (after opportunities are upserted).
+      const commentsSource = byTarget.get("comments") || "";
+      const crmOppIdSource = byTarget.get("crm_opp_id") || "";
+      if (commentsSource && crmOppIdSource) {
+        const MAX_COMMENT_ROWS = 100;
+        let commentsProcessed = 0;
+        for (let i = 0; i < rawRows.length && commentsProcessed < MAX_COMMENT_ROWS; i++) {
+          const row = rawRows[i] as any;
+          const rawText = String(row?.[commentsSource] ?? "").trim();
+          const crmOppId = String(row?.[crmOppIdSource] ?? "").trim();
+          if (!rawText || !crmOppId) continue;
+          commentsProcessed++;
+          try {
+            const { rows: oppRows } = await pool.query(
+              `SELECT id, account_name, opportunity_name, amount, close_date, forecast_stage
+               FROM opportunities WHERE org_id = $1 AND NULLIF(btrim(crm_opp_id), '') = $2 LIMIT 1`,
+              [orgId, crmOppId]
+            );
+            const opp = oppRows?.[0];
+            if (!opp) continue;
+            const deal = {
+              id: opp.id,
+              account_name: opp.account_name,
+              opportunity_name: opp.opportunity_name,
+              amount: opp.amount,
+              close_date: opp.close_date,
+              forecast_stage: opp.forecast_stage,
+            };
+            const { extracted } = await runCommentIngestionTurn({ deal, rawNotes: rawText, orgId });
+            const { id: commentIngestionId } = await insertCommentIngestion({
+              orgId,
+              opportunityId: opp.id,
+              sourceType: "excel",
+              sourceRef: file.name,
+              rawText,
+              extractedJson: extracted,
+              modelMetadata: {
+                model: process.env.MODEL_API_NAME || "unknown",
+                promptVersionHash: getPromptVersionHash(),
+                timestamp: new Date().toISOString(),
+              },
+            });
+            const applyResult = await applyCommentIngestionToOpportunity({
+              orgId,
+              opportunityId: opp.id,
+              extracted,
+              commentIngestionId,
+            });
+            if (applyResult.ok) commentsScored++;
+          } catch {
+            /* skip failed rows */
+          }
+        }
+      }
     }
 
     revalidatePath("/admin/ingestion");
@@ -651,11 +734,14 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
     revalidatePath("/dashboard");
 
     const changed = summary?.changed ?? summary?.processed ?? 0;
-    const successMessage = processNow
+    let successMessage = processNow
       ? changed > 0
         ? `Upload succeeded. ${changed} record(s) were updated.`
         : `Upload succeeded. No records needed updating.`
       : `Upload succeeded. Staged ${staged.inserted} row(s).`;
+    if (commentsScored > 0) {
+      successMessage += ` ${commentsScored} row(s) had comments scored.`;
+    }
 
     return ok(intent, successMessage, {
       fileName: file.name,
