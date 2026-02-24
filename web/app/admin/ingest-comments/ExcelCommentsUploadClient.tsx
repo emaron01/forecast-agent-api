@@ -109,38 +109,44 @@ export function ExcelCommentsUploadClient() {
             className="text-sm"
           />
         </div>
-        {headers.length > 0 ? (
-          <>
-            <div className="grid gap-1">
-              <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Opportunity ID column</label>
-              <select
-                value={idColumn}
-                onChange={(e) => setIdColumn(e.target.value)}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm"
-              >
-                {headers.map((h) => (
-                  <option key={h} value={h}>
-                    {h}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid gap-1">
-              <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Comments column</label>
-              <select
-                value={commentsColumn}
-                onChange={(e) => setCommentsColumn(e.target.value)}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm"
-              >
-                {headers.map((h) => (
-                  <option key={h} value={h}>
-                    {h}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </>
-        ) : null}
+        <div className="grid gap-1">
+          <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Opportunity ID column</label>
+          <select
+            value={idColumn}
+            onChange={(e) => setIdColumn(e.target.value)}
+            disabled={headers.length === 0}
+            className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm disabled:opacity-60"
+          >
+            {headers.length === 0 ? (
+              <option value="">Select a file first</option>
+            ) : (
+              headers.map((h) => (
+                <option key={h} value={h}>
+                  {h}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+        <div className="grid gap-1">
+          <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Comments column</label>
+          <select
+            value={commentsColumn}
+            onChange={(e) => setCommentsColumn(e.target.value)}
+            disabled={headers.length === 0}
+            className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm disabled:opacity-60"
+          >
+            {headers.length === 0 ? (
+              <option value="">Select a file first</option>
+            ) : (
+              headers.map((h) => (
+                <option key={h} value={h}>
+                  {h}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
         <button
           onClick={upload}
           disabled={busy || !file || !idColumn || !commentsColumn}
