@@ -55,7 +55,7 @@ export function ForecastPeriodFiltersClient(props: {
     const params = new URLSearchParams(sp.toString());
     setParam(params, "fiscal_year", nextFiscalYear);
     setParam(params, "quota_period_id", nextPeriodId);
-    router.replace(`${props.basePath}?${params.toString()}`);
+    router.replace(`${props.basePath}?${params.toString()}`, { scroll: false });
   }
 
   return (

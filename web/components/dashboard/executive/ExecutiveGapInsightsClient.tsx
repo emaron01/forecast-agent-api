@@ -1401,7 +1401,7 @@ export function ExecutiveGapInsightsClient(props: {
   function updateUrl(mut: (p: URLSearchParams) => void) {
     const params = new URLSearchParams(sp.toString());
     mut(params);
-    router.replace(`${props.basePath}?${params.toString()}`);
+    router.replace(`${props.basePath}?${params.toString()}`, { scroll: false });
   }
 
   const kpis = props.quarterKpis;
