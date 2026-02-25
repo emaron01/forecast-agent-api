@@ -36,3 +36,12 @@ export function computeAiForecastFromHealthScore(args: ComputeAiForecastArgs): A
   if (n >= BEST_CASE_THRESHOLD) return "Best Case";
   return "Pipeline";
 }
+
+export type OpenStage = "Commit" | "Best Case" | "Pipeline";
+
+/** Map AiForecastBucket to open-stage type (closed stages → Pipeline). */
+export function toOpenStage(bucket: AiForecastBucket | null): OpenStage | null {
+  if (!bucket) return null;
+  if (bucket === "Closed Won" || bucket === "Closed Lost") return "Pipeline";
+  return bucket;
+}

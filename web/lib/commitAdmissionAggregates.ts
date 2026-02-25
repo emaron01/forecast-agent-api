@@ -10,7 +10,7 @@ import {
   computeCommitAdmission,
   isCommitAdmissionApplicable,
 } from "./commitAdmission";
-import { computeAiForecastFromHealthScore } from "./aiForecast";
+import { computeAiForecastFromHealthScore, toOpenStage } from "./aiForecast";
 
 function n0(v: any) {
   const n = Number(v);
@@ -308,7 +308,7 @@ export async function getCommitAdmissionDealPanels(args: {
       name: String((row as any).opportunity_name || "").trim() || null,
       amount: n0(row.amount),
       crmBucket,
-      ai_forecast: aiForecast,
+      ai_forecast: toOpenStage(aiForecast),
       ai_verdict: verdictNote,
       commit_admission_status: admission.status,
       commit_admission_reasons: admission.reasons,

@@ -46,7 +46,7 @@ function normalizeAiVerdictRow(row: any) {
   let verdictNote: string | undefined;
 
   if (admission.status === "not_admitted") {
-    aiVerdict = downgradeAiVerdictOneLevel(aiForecast);
+    aiVerdict = downgradeAiVerdictOneLevel(aiForecast as "Commit" | "Best Case" | "Pipeline");
     verdictNote = "AI: Commit not supported (see admission reasons).";
   } else if (admission.status === "needs_review") {
     verdictNote = "AI: Commit evidence is low-confidence; review required.";

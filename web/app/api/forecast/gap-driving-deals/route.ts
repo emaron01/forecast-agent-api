@@ -6,7 +6,7 @@ import { getVisibleUsers } from "../../../../lib/db";
 import { resolvePublicId, zPublicId } from "../../../../lib/publicId";
 import { getForecastStageProbabilities } from "../../../../lib/forecastStageProbabilities";
 import { computeCommitAdmission } from "../../../../lib/commitAdmission";
-import { computeAiForecastFromHealthScore } from "../../../../lib/aiForecast";
+import { computeAiForecastFromHealthScore, toOpenStage } from "../../../../lib/aiForecast";
 
 export const runtime = "nodejs";
 
@@ -1142,7 +1142,6 @@ export async function GET(req: Request) {
       const aiForecast = computeAiForecastFromHealthScore({
         healthScore: d.health_score,
         forecastStage: d.forecast_stage,
-        salesStage: d.sales_stage,
       });
       const applicable = d.crm_bucket === "commit" || aiForecast === "Commit";
       const admission = computeCommitAdmission(d, applicable);
@@ -1213,11 +1212,12 @@ export async function GET(req: Request) {
           bucket: d.crm_bucket,
           label: bucketLabel(d.crm_bucket),
         },
-        ai_verdict_stage: computeAiForecastFromHealthScore({
-      healthScore: d.health_score,
-      forecastStage: d.forecast_stage,
-      salesStage: d.sales_stage,
-    }),
+        ai_verdict_stage: toOpenStage(
+          computeAiForecastFromHealthScore({
+            healthScore: d.health_score,
+            forecastStage: d.forecast_stage,
+          })
+        ),
         amount,
         health: {
           health_score: d.health_score,
