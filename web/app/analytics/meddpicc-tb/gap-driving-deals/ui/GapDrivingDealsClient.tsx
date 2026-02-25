@@ -319,7 +319,7 @@ export function GapDrivingDealsClient(props: {
   const repPublicId = String(qs.get("rep_public_id") || "");
   const repName = String(qs.get("rep_name") || "");
   const riskCategory = String(qs.get("risk_category") || "");
-  const commitFilter = String(qs.get("commit_filter") || "").trim() as "" | "not_admitted" | "needs_review" | "low_evidence";
+  const commitFilter = String(qs.get("commit_filter") || "").trim() as "" | "not_admitted" | "needs_review" | "low_evidence" | "verified";
   const suppressedOnly = String(qs.get("suppressed_only") || "") === "1";
   const healthPreset = healthPresetFromParams(qs);
 
@@ -704,6 +704,7 @@ export function GapDrivingDealsClient(props: {
               <option value="all">All</option>
               <option value="not_admitted">Commit Not Supported</option>
               <option value="needs_review">Commit Review Required</option>
+              <option value="verified">Verified Commit</option>
               <option value="low_evidence">Low Evidence Coverage</option>
             </select>
           </div>
@@ -973,6 +974,13 @@ export function GapDrivingDealsClient(props: {
                                     title={d.commit_admission_reasons?.slice(0, 2).join("; ") || "Commit evidence needs review"}
                                   >
                                     NEEDS REVIEW
+                                  </span>
+                                ) : (d.crm_stage.bucket === "commit" || d.ai_verdict_stage === "Commit") && d.commit_admission_status === "admitted" && ((d as { _commit_high_conf_count?: number })._commit_high_conf_count ?? 0) >= 2 ? (
+                                  <span
+                                    className="inline-flex items-center rounded-full border border-[#2ECC71]/60 bg-[#2ECC71]/15 px-2 py-0.5 text-xs font-semibold text-[#2ECC71]"
+                                    title="Admitted with ≥2 high-confidence gate categories"
+                                  >
+                                    VERIFIED
                                   </span>
                                 ) : null}
                               </div>

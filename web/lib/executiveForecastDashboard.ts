@@ -8,7 +8,12 @@ import { getForecastStageProbabilities } from "./forecastStageProbabilities";
 import { computeSalesVsVerdictForecastSummary } from "./forecastSummary";
 import { getQuarterKpisSnapshot, type QuarterKpisSnapshot } from "./quarterKpisSnapshot";
 import type { PipelineMomentumData } from "./pipelineMomentum";
-import { getCommitAdmissionAggregates, type CommitAdmissionAggregates } from "./commitAdmissionAggregates";
+import {
+  getCommitAdmissionAggregates,
+  getCommitAdmissionDealPanels,
+  type CommitAdmissionAggregates,
+  type CommitAdmissionDealPanels,
+} from "./commitAdmissionAggregates";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -147,6 +152,7 @@ export type ExecutiveForecastSummary = {
   leftToGo: number; // quota - AI weighted
   bucketDeltas: { commit: number; best_case: number; pipeline: number; total: number }; // (AI - CRM) per bucket + total
   commitAdmission: CommitAdmissionAggregates | null;
+  commitDealPanels: CommitAdmissionDealPanels | null;
   partnersExecutive: {
     direct: {
       opps: number;
@@ -1161,6 +1167,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
       leftToGo: 0,
       bucketDeltas: { commit: 0, best_case: 0, pipeline: 0, total: 0 },
       commitAdmission: null,
+      commitDealPanels: null,
       partnersExecutive: null,
     };
   }
@@ -2147,6 +2154,14 @@ export async function getExecutiveForecastDashboardSummary(args: {
       }).catch(() => null)
     : null;
 
+  const commitDealPanels = qpId
+    ? await getCommitAdmissionDealPanels({
+        orgId: args.orgId,
+        quotaPeriodId: qpId,
+        repIds: scope.allowedRepIds,
+      }).catch(() => null)
+    : null;
+
   return {
     periods,
     fiscalYearsSorted,
@@ -2189,6 +2204,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
       total: forecastGap,
     },
     commitAdmission,
+    commitDealPanels,
     partnersExecutive,
   };
 }

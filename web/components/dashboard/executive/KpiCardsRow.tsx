@@ -97,22 +97,22 @@ export function KpiCardsRow(props: {
 
   const variant = props.variant || "full";
 
-  const attributionCardClass = [card, variant === "forecast_only" ? "sm:col-span-2 lg:col-span-3" : ""].join(" ");
+  const attributionCardClass = [card, "min-w-0 p-3"].join(" ");
   const ForecastStageGapAttributionCard = (
     <div className={attributionCardClass}>
-      <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Forecast Stage Gap Attribution</div>
-      <div className="mt-3 grid gap-2 text-tableValue text-[color:var(--sf-text-primary)]">
+      <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Gap Attribution</div>
+      <div className="mt-2 grid gap-1.5 text-tableValue text-[color:var(--sf-text-primary)]">
         {[
-          { label: "Commit impact", v: props.bucketDeltas.commit },
+          { label: "Commit", v: props.bucketDeltas.commit },
           { label: "Best Case", v: props.bucketDeltas.best_case },
           { label: "Pipeline", v: props.bucketDeltas.pipeline },
         ].map((x) => (
-          <div key={x.label} className="grid grid-cols-[110px_1fr_84px] items-center gap-3">
-            <div className="text-tableLabel">{x.label}</div>
-            <div className="h-2 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+          <div key={x.label} className="grid grid-cols-[70px_minmax(0,1fr)_68px] items-center gap-2">
+            <div className="text-tableLabel text-xs">{x.label}</div>
+            <div className="h-1.5 min-w-0 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
               <div className={`h-full rounded-full ${x.v >= 0 ? "bg-[#2ECC71]" : "bg-[#E74C3C]"}`} style={{ width: bar(x.v) }} aria-hidden="true" />
             </div>
-            <div className={`text-right num-tabular ${deltaTextClass(x.v)}`}>{fmtMoney(x.v)}</div>
+            <div className={`text-right text-xs num-tabular shrink-0 ${deltaTextClass(x.v)}`}>{fmtMoney(x.v)}</div>
           </div>
         ))}
       </div>

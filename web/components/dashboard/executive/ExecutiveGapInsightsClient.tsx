@@ -7,7 +7,9 @@ import type { ExecRepOption } from "../../../lib/executiveForecastDashboard";
 import type { RepDirectoryRow } from "../../../lib/repScope";
 import type { QuarterKpisSnapshot } from "../../../lib/quarterKpisSnapshot";
 import { ExecutiveDealsDrivingGapModule, type ExecutiveGapDeal } from "./ExecutiveDealsDrivingGapModule";
+import Link from "next/link";
 import { KpiCardsRow, type CommitAdmissionAggregates } from "./KpiCardsRow";
+import type { CommitDealPanelItem } from "../../../lib/commitAdmissionAggregates";
 import { RiskRadarPlot, type RadarDeal } from "./RiskRadarPlot";
 import { palette } from "../../../lib/palette";
 import { ExecutiveProductPerformance } from "./ExecutiveProductPerformance";
@@ -479,6 +481,7 @@ export function ExecutiveGapInsightsClient(props: {
   aiPctToGoal: number | null;
   leftToGo: number;
   commitAdmission?: CommitAdmissionAggregates | null;
+  commitDealPanels?: { topPainDeals: CommitDealPanelItem[]; topVerifiedDeals: CommitDealPanelItem[] } | null;
   defaultTopN?: number;
 }) {
   const router = useRouter();
@@ -518,7 +521,7 @@ export function ExecutiveGapInsightsClient(props: {
   const teamRepId = Number(teamRepIdRaw);
   const teamRepIdValue = Number.isFinite(teamRepId) && teamRepId > 0 ? String(teamRepId) : "";
   const riskCategory = String(sp.get("risk_category") || "").trim();
-  const commitFilter = String(sp.get("commit_filter") || "").trim() as "" | "not_admitted" | "needs_review" | "low_evidence";
+  const commitFilter = String(sp.get("commit_filter") || "").trim() as "" | "not_admitted" | "needs_review" | "low_evidence" | "verified";
   const mode = String(sp.get("mode") || "drivers").trim() === "risk" ? "risk" : "drivers";
   const scoreDrivenOnly = String(sp.get("driver_require_score_effect") || sp.get("risk_require_score_effect") || "1").trim() !== "0";
 
@@ -1741,6 +1744,82 @@ export function ExecutiveGapInsightsClient(props: {
               ) : null}
             </div>
           ) : null}
+          {props.commitDealPanels && (props.commitDealPanels.topPainDeals.length > 0 || props.commitDealPanels.topVerifiedDeals.length > 0) ? (
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              {props.commitDealPanels.topPainDeals.length > 0 ? (
+                <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                  <div className="text-xs font-semibold uppercase text-[color:var(--sf-text-secondary)]">Top Commit Risks</div>
+                  <div className="mt-2 space-y-2">
+                    {props.commitDealPanels.topPainDeals.map((d) => (
+                      <Link
+                        key={d.id}
+                        href={`/opportunities/${encodeURIComponent(d.id)}/deal-review`}
+                        className="block rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+                        title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="min-w-0 truncate font-medium text-[color:var(--sf-text-primary)]">
+                            {[d.account, d.name].filter(Boolean).join(" — ") || "(Untitled)"}
+                          </span>
+                          <span className="shrink-0 text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                            {d.amount.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center gap-1.5">
+                          <span
+                            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                              d.commit_admission_status === "not_admitted"
+                                ? "bg-[#E74C3C]/20 text-[#E74C3C]"
+                                : "bg-[#F1C40F]/20 text-[#F1C40F]"
+                            }`}
+                          >
+                            {d.commit_admission_status === "not_admitted" ? "NOT ADMITTED" : "NEEDS REVIEW"}
+                          </span>
+                          <span className="min-w-0 truncate text-xs text-[color:var(--sf-text-secondary)]">
+                            {d.commit_admission_status === "not_admitted"
+                              ? d.commit_admission_reasons[0] || "Paper Process weak"
+                              : `Low-confidence evidence${d.low_conf_categories?.length ? ` (${d.low_conf_categories.join(", ")})` : ""}`}
+                          </span>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {props.commitDealPanels.topVerifiedDeals.length > 0 ? (
+                <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                  <div className="text-xs font-semibold uppercase text-[color:var(--sf-text-secondary)]">Top Verified Commit</div>
+                  <div className="mt-2 space-y-2">
+                    {props.commitDealPanels.topVerifiedDeals.map((d) => (
+                      <Link
+                        key={d.id}
+                        href={`/opportunities/${encodeURIComponent(d.id)}/deal-review`}
+                        className="block rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+                        title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="min-w-0 truncate font-medium text-[color:var(--sf-text-primary)]">
+                            {[d.account, d.name].filter(Boolean).join(" — ") || "(Untitled)"}
+                          </span>
+                          <span className="shrink-0 text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                            {d.amount.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          <span className="shrink-0 rounded bg-[#2ECC71]/20 px-1.5 py-0.5 text-[10px] font-semibold text-[#2ECC71]">VERIFIED</span>
+                          {(d.high_conf_categories || []).map((cat) => (
+                            <span key={cat} className="rounded bg-[color:var(--sf-surface)] px-1.5 py-0.5 text-[10px] text-[color:var(--sf-text-secondary)]">
+                              {cat}: High
+                            </span>
+                          ))}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -2093,6 +2172,7 @@ export function ExecutiveGapInsightsClient(props: {
                   { k: "", label: "All" },
                   { k: "not_admitted", label: "Commit Not Supported" },
                   { k: "needs_review", label: "Commit Review Required" },
+                  { k: "verified", label: "Verified Commit" },
                   { k: "low_evidence", label: "Low Evidence Coverage" },
                 ] as const
               ).map((t) => (

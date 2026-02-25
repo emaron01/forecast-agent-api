@@ -395,7 +395,7 @@ export async function GET(req: Request) {
       .parse(String(url.searchParams.get("risk_category") || url.searchParams.get("riskType") || "").trim() || undefined);
 
     const commitFilter = z
-      .enum(["not_admitted", "needs_review", "low_evidence"])
+      .enum(["not_admitted", "needs_review", "low_evidence", "verified"])
       .optional()
       .catch(undefined)
       .parse(String(url.searchParams.get("commit_filter") || "").trim() || undefined);
@@ -1251,6 +1251,7 @@ export async function GET(req: Request) {
         if (commitFilter === "not_admitted") return d.commit_admission_status === "not_admitted";
         if (commitFilter === "needs_review") return d.commit_admission_status === "needs_review";
         if (commitFilter === "low_evidence") return (d._commit_high_conf_count ?? 4) <= 1;
+        if (commitFilter === "verified") return d.commit_admission_status === "admitted" && (d._commit_high_conf_count ?? 0) >= 2;
         return true;
       });
     }
