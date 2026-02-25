@@ -46,16 +46,38 @@ export async function POST(req: Request) {
       body: outForm,
     });
 
-    const text = await resp.text();
+    const rawText = await resp.text();
     if (!resp.ok) {
-      return NextResponse.json({ ok: false, error: text || "Transcription failed" }, { status: resp.status });
+      return NextResponse.json({ ok: false, error: rawText || "Transcription failed" }, { status: resp.status });
     }
 
+    const text = rawText.trim();
     let json: any = null;
+
     try {
       json = JSON.parse(text);
     } catch {
-      return NextResponse.json({ ok: false, error: "Transcription returned non-JSON", raw: text }, { status: 502 });
+      // Some providers return JSON with trailing content (e.g. "Unexpected non-whitespace after JSON").
+      // Try parsing up to each "}" from first to last until we get valid JSON.
+      for (let i = 0; i < text.length; i++) {
+        if (text[i] === "}") {
+          try {
+            const candidate = JSON.parse(text.slice(0, i + 1));
+            if (candidate && typeof candidate.text === "string") {
+              json = candidate;
+              break;
+            }
+          } catch {
+            /* try next } */
+          }
+        }
+      }
+      if (!json) {
+        return NextResponse.json(
+          { ok: false, error: "Transcription returned non-JSON", raw: text.slice(0, 500) },
+          { status: 502 }
+        );
+      }
     }
 
     return NextResponse.json({ ok: true, text: String(json?.text || "") });
