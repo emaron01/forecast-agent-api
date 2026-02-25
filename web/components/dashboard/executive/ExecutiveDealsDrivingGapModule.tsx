@@ -166,16 +166,16 @@ export function ExecutiveDealsDrivingGapModule(props: {
       </div>
 
       <div className="mt-4 overflow-auto rounded-lg border border-[color:var(--sf-border)]">
-        <div className="min-w-[980px]">
-          <div className="grid grid-cols-[120px_1.6fr_140px_140px_120px_110px_140px_40px] gap-0 bg-[color:var(--sf-surface-alt)] text-tableLabel">
-            <div className="px-3 py-2">Risk</div>
-            <div className="px-3 py-2">Deal</div>
-            <div className="px-3 py-2">Sales Rep</div>
-            <div className="px-3 py-2">Stage</div>
-            <div className="px-3 py-2 text-right">Amount</div>
-            <div className="px-3 py-2 text-right">Health</div>
-            <div className="px-3 py-2 text-right">Gap</div>
-            <div className="px-3 py-2 text-right" aria-hidden="true">
+        <div className="min-w-[720px]">
+          <div className="grid grid-cols-[80px_1fr_100px_90px_90px_70px_90px_32px] gap-0 bg-[color:var(--sf-surface-alt)] text-tableLabel">
+            <div className="px-2 py-2">Risk</div>
+            <div className="px-2 py-2">Deal</div>
+            <div className="px-2 py-2">Rep</div>
+            <div className="px-2 py-2">Stage</div>
+            <div className="px-2 py-2 text-right">Amount</div>
+            <div className="px-2 py-2 text-right">Health</div>
+            <div className="px-2 py-2 text-right">Gap</div>
+            <div className="px-2 py-2 text-right" aria-hidden="true">
               &nbsp;
             </div>
           </div>
@@ -195,7 +195,7 @@ export function ExecutiveDealsDrivingGapModule(props: {
                 <div key={id} className="border-t border-[color:var(--sf-border)]">
                   <button
                     type="button"
-                    className="grid w-full grid-cols-[120px_1.6fr_140px_140px_120px_110px_140px_40px] items-center text-left text-tableValue text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
+                    className="grid w-full grid-cols-[80px_1fr_100px_90px_90px_70px_90px_32px] items-center text-left text-tableValue text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
                     aria-expanded={open}
                     aria-controls={detailsId}
                     onClick={() => {
@@ -208,41 +208,32 @@ export function ExecutiveDealsDrivingGapModule(props: {
                         {tone === "high" ? "High" : tone === "medium" ? "Medium" : tone === "low" ? "Low" : "—"}
                       </span>
                     </div>
-                    <div className="px-3 py-2">
-                      <div className="font-medium">{dealTitle(d)}</div>
+                    <div className="px-2 py-2 min-w-0">
+                      <div className="font-medium truncate" title={dealTitle(d)}>{dealTitle(d)}</div>
                       {(d.crm_stage?.bucket === "commit" || d.ai_verdict_stage === "Commit") && (d.commit_whats_missing || d.verdict_note) ? (
-                        <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]" title={d.verdict_note || undefined}>
+                        <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)] truncate" title={d.verdict_note || d.commit_whats_missing || undefined}>
                           {d.commit_whats_missing || d.verdict_note}
                         </div>
                       ) : null}
+                      {(d.crm_stage?.bucket === "commit" || d.ai_verdict_stage === "Commit") && (d.commit_admission_status === "not_admitted" || d.commit_admission_status === "needs_review" || d.commit_whats_missing) ? (
+                        <Link
+                          href={`/opportunities/${encodeURIComponent(d.id)}/deal-review?category=paper&prefill=${encodeURIComponent("Who (legal/procurement contact): \nWhat artifact (PO, MSA, redlines): \nWhen (date / next milestone): \nCurrent status (e.g., procurement cutting PO): ")}`}
+                          className="mt-1 inline-block rounded border border-[#F1C40F]/60 bg-[#F1C40F]/10 px-2 py-0.5 text-[11px] font-semibold text-[#F1C40F] hover:bg-[#F1C40F]/20"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          Capture Paper Process
+                        </Link>
+                      ) : null}
                     </div>
-                    <div className="px-3 py-2 text-meta">{dealRep(d)}</div>
-                    <div className="px-3 py-2 text-meta">{stage}</div>
-                    <div className="px-3 py-2 text-right text-tableValue num-tabular">{fmtMoney(d.amount)}</div>
-                    <div className={`px-3 py-2 text-right text-tableValue num-tabular ${healthTextClass(d.health?.health_pct ?? null)}`}>
+                    <div className="px-2 py-2 text-meta truncate" title={dealRep(d)}>{dealRep(d)}</div>
+                    <div className="px-2 py-2 text-meta">{stage}</div>
+                    <div className="px-2 py-2 text-right text-tableValue num-tabular shrink-0">{fmtMoney(d.amount)}</div>
+                    <div className={`px-2 py-2 text-right text-tableValue num-tabular shrink-0 ${healthTextClass(d.health?.health_pct ?? null)}`}>
                       {d.health?.health_pct == null ? "—" : `${d.health.health_pct}%`}
                     </div>
-                    <div className={`px-3 py-2 text-right text-tableValue num-tabular ${deltaTextClass(Number(d.weighted?.gap || 0) || 0)}`}>{fmtMoney(d.weighted?.gap)}</div>
-                    <div className="px-3 py-2 flex items-center justify-end gap-1">
-                      {(d.crm_stage?.bucket === "commit" || d.ai_verdict_stage === "Commit") && (d.commit_admission_status === "not_admitted" || d.commit_admission_status === "needs_review" || d.commit_whats_missing) ? (
-                        <>
-                          <Link
-                            href={`/opportunities/${encodeURIComponent(d.id)}/deal-review?category=paper&prefill=${encodeURIComponent("Who (legal/procurement contact): \nWhat artifact (PO, MSA, redlines): \nWhen (date / next milestone): \nCurrent status (e.g., procurement cutting PO): ")}`}
-                            className="rounded border border-[#F1C40F]/60 bg-[#F1C40F]/10 px-2 py-1 text-xs font-semibold text-[#F1C40F] hover:bg-[#F1C40F]/20"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            Capture Paper Process
-                          </Link>
-                          <Link
-                            href={`/opportunities/${encodeURIComponent(d.id)}/deal-review${(d.commit_missing_categories?.length ? `?category=${encodeURIComponent(d.commit_missing_categories[0])}` : "")}`}
-                            className="rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            Review
-                          </Link>
-                        </>
-                      ) : null}
-                      <span className="text-meta">{open ? "▾" : "›"}</span>
+                    <div className={`px-2 py-2 text-right text-tableValue num-tabular shrink-0 ${deltaTextClass(Number(d.weighted?.gap || 0) || 0)}`}>{fmtMoney(d.weighted?.gap)}</div>
+                    <div className="px-2 py-2 flex items-center justify-end">
+                      <span className="text-meta" aria-hidden="true">{open ? "▾" : "›"}</span>
                     </div>
                   </button>
 
