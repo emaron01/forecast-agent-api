@@ -205,6 +205,8 @@ type ExcelUploadState =
       error?: number;
       deletedAccounts?: number;
       deletedOpportunities?: number;
+      jobId?: string;
+      jobsQueued?: number;
       intent: string;
       ts: number;
     }
