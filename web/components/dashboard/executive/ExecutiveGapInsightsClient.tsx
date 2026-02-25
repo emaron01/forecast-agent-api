@@ -507,6 +507,8 @@ export function ExecutiveGapInsightsClient(props: {
   const [radarAiToast, setRadarAiToast] = useState<string>("");
   const [radarAiCopied, setRadarAiCopied] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const adjustRiskSectionRef = useRef<HTMLElement>(null);
+  const userChangedFilterRef = useRef(false);
 
   const topXOptions = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50] as const;
   const clampInt = (v: number, min: number, max: number) => Math.max(min, Math.min(max, Math.trunc(v)));
@@ -1401,8 +1403,16 @@ export function ExecutiveGapInsightsClient(props: {
   function updateUrl(mut: (p: URLSearchParams) => void) {
     const params = new URLSearchParams(sp.toString());
     mut(params);
+    userChangedFilterRef.current = true;
     router.replace(`${props.basePath}?${params.toString()}`, { scroll: false });
   }
+
+  // Scroll "Adjust Risk Radae" section into view after user changes a filter (prevents losing place when page re-renders)
+  useEffect(() => {
+    if (!userChangedFilterRef.current) return;
+    userChangedFilterRef.current = false;
+    adjustRiskSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [teamRepIdValue, commitFilter, riskCategory, mode, scoreDrivenOnly]);
 
   const kpis = props.quarterKpis;
   const avgHealthWon = kpis?.avgHealthWonPct ?? null;
@@ -1967,7 +1977,7 @@ export function ExecutiveGapInsightsClient(props: {
         ) : null}
       </section>
 
-      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+      <section ref={adjustRiskSectionRef} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Adjust Risk Radae and Account View</div>
