@@ -777,14 +777,16 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     ].join("\n");
 
     // Latency-layer: when streaming+chunking, return SSE. Otherwise JSON.
+    // Diagnostic: fires for every request that reaches the LLM (search logs for "update_category_llm")
+    console.log(
+      JSON.stringify({
+        event: "update_category_llm",
+        LLM_STREAM_ENABLED,
+        VOICE_SENTENCE_CHUNKING,
+        VOICE_LATENCY_LOGGING: process.env.VOICE_LATENCY_LOGGING ?? "(unset)",
+      })
+    );
     if (LLM_STREAM_ENABLED && VOICE_SENTENCE_CHUNKING) {
-      console.log(
-        JSON.stringify({
-          event: "voice_streaming_path",
-          hit: true,
-          VOICE_LATENCY_LOGGING: process.env.VOICE_LATENCY_LOGGING ?? "(unset)",
-        })
-      );
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
         async start(controller) {
