@@ -778,6 +778,13 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
 
     // Latency-layer: when streaming+chunking, return SSE. Otherwise JSON.
     if (LLM_STREAM_ENABLED && VOICE_SENTENCE_CHUNKING) {
+      console.log(
+        JSON.stringify({
+          event: "voice_streaming_path",
+          hit: true,
+          VOICE_LATENCY_LOGGING: process.env.VOICE_LATENCY_LOGGING ?? "(unset)",
+        })
+      );
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
         async start(controller) {
