@@ -394,6 +394,12 @@ export async function GET(req: Request) {
       .catch(undefined)
       .parse(String(url.searchParams.get("risk_category") || url.searchParams.get("riskType") || "").trim() || undefined);
 
+    const commitFilter = z
+      .enum(["not_admitted", "needs_review", "low_evidence"])
+      .optional()
+      .catch(undefined)
+      .parse(String(url.searchParams.get("commit_filter") || "").trim() || undefined);
+
     const suppressedOnly = parseBool(url.searchParams.get("suppressed_only") || url.searchParams.get("suppressedOnly"));
 
     let healthMinPct = z.coerce.number().min(0).max(100).optional().catch(undefined).parse(url.searchParams.get("health_min_pct"));
@@ -1122,6 +1128,11 @@ export async function GET(req: Request) {
       commit_admission_status?: "admitted" | "not_admitted" | "needs_review";
       commit_admission_reasons?: string[];
       verdict_note?: string | null;
+      /** Short "What's missing" line for Commit deals */
+      commit_whats_missing?: string | null;
+      /** Gate categories needing attention (paper, process, timing, budget) for deal review anchor */
+      commit_missing_categories?: string[];
+      _commit_high_conf_count?: number;
     };
 
     const enriched: DealOut[] = deals.map((d) => {
@@ -1138,6 +1149,38 @@ export async function GET(req: Request) {
       const aiForecast = computeAiFromHealthScore(d.health_score);
       const applicable = d.crm_bucket === "commit" || aiForecast === "Commit";
       const admission = computeCommitAdmission(d, applicable);
+
+      const GATE_CATS = [
+        { key: "paper", display: "Paper Process" },
+        { key: "process", display: "Decision Process" },
+        { key: "timing", display: "Timing" },
+        { key: "budget", display: "Budget" },
+      ] as const;
+      const highConfCount = GATE_CATS.filter((c) => String((d as any)[`${c.key}_confidence`] ?? "").trim().toLowerCase() === "high").length;
+      const lowConfCats = GATE_CATS.filter((c) => String((d as any)[`${c.key}_confidence`] ?? "").trim().toLowerCase() !== "high").map((c) => c.display);
+      const weakScoreCats = GATE_CATS.filter((c) => {
+        const s = Number((d as any)[`${c.key}_score`]);
+        return Number.isFinite(s) && s <= 1;
+      }).map((c) => c.display);
+
+      let commitWhatsMissing: string | null = null;
+      const commitMissingCategories: string[] = [];
+      if (applicable && admission.status !== "admitted") {
+        if (admission.status === "not_admitted") {
+          commitWhatsMissing = admission.reasons?.[0] ?? `Weak: ${weakScoreCats.join(", ") || "gate categories"}`;
+          commitMissingCategories.push(...GATE_CATS.filter((c) => {
+            const s = Number((d as any)[`${c.key}_score`]);
+            return Number.isFinite(s) && s <= 1;
+          }).map((c) => c.key));
+        } else {
+          commitWhatsMissing = `Low-confidence evidence in: ${lowConfCats.join(", ") || "gate categories"}`;
+          commitMissingCategories.push(...GATE_CATS.filter((c) => String((d as any)[`${c.key}_confidence`] ?? "").trim().toLowerCase() !== "high").map((c) => c.key));
+        }
+      } else if (applicable && highConfCount <= 1) {
+        commitWhatsMissing = `Low evidence coverage (${highConfCount}/4 high-confidence gate categories)`;
+        commitMissingCategories.push(...lowConfCats.length ? GATE_CATS.filter((c) => String((d as any)[`${c.key}_confidence`] ?? "").trim().toLowerCase() !== "high").map((c) => c.key) : ["paper", "process", "timing", "budget"]);
+      }
+
       const commitAdmissionOut =
         applicable && admission.status !== "admitted"
           ? {
@@ -1149,8 +1192,12 @@ export async function GET(req: Request) {
                   : admission.status === "needs_review"
                     ? "AI: Commit evidence is low-confidence; review required."
                     : null,
+              commit_whats_missing: commitWhatsMissing,
+              commit_missing_categories: commitMissingCategories.length ? commitMissingCategories : undefined,
             }
-          : {};
+          : commitWhatsMissing
+            ? { commit_whats_missing: commitWhatsMissing, commit_missing_categories: commitMissingCategories.length ? commitMissingCategories : undefined }
+            : {};
 
       return {
         id: String(d.id),
@@ -1191,13 +1238,26 @@ export async function GET(req: Request) {
         },
         risk_flags: riskFlags,
         coaching_insights: coaching,
+        _commit_high_conf_count: applicable ? highConfCount : undefined,
         ...commitAdmissionOut,
       };
     });
 
+    let filteredByCommit = enriched;
+    if (commitFilter) {
+      filteredByCommit = enriched.filter((d) => {
+        const isCommit = d.crm_stage.bucket === "commit" || d.ai_verdict_stage === "Commit";
+        if (!isCommit) return false;
+        if (commitFilter === "not_admitted") return d.commit_admission_status === "not_admitted";
+        if (commitFilter === "needs_review") return d.commit_admission_status === "needs_review";
+        if (commitFilter === "low_evidence") return (d._commit_high_conf_count ?? 4) <= 1;
+        return true;
+      });
+    }
+
     const filteredByRisk = riskCategory
-      ? enriched.filter((d) => d.risk_flags.some((rf) => rf.key === riskCategory))
-      : enriched;
+      ? filteredByCommit.filter((d) => d.risk_flags.some((rf) => rf.key === riskCategory))
+      : filteredByCommit;
 
     const groupAllFor = (bucket: "commit" | "best_case" | "pipeline") => filteredByRisk.filter((d) => d.crm_stage.bucket === bucket);
 

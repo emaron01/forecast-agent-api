@@ -9,7 +9,14 @@ import { closedOutcomeFromOpportunityRow } from "../../../../lib/opportunityOutc
 
 export const runtime = "nodejs";
 
-export default async function DealReviewPage(ctx: { params: Promise<{ id: string }> }) {
+const PAPER_PROCESS_PREFILL = `Who (legal/procurement contact): 
+What artifact (PO, MSA, redlines): 
+When (date / next milestone): 
+Current status (e.g., procurement cutting PO): `;
+
+export default async function DealReviewPage(
+  ctx: { params: Promise<{ id: string }>; searchParams?: Promise<Record<string, string | string[] | undefined>> }
+) {
   const auth = await requireAuth();
   if (auth.kind === "master") redirect("/admin/organizations");
   if (auth.user.role === "ADMIN") redirect("/admin");
@@ -20,6 +27,11 @@ export default async function DealReviewPage(ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   const opportunityPublicId = String(id || "").trim();
   if (!opportunityPublicId) redirect("/forecast");
+
+  const rawParams = ctx.searchParams ? await ctx.searchParams : {};
+  const category = String(Array.isArray(rawParams?.category) ? rawParams.category[0] : rawParams?.category || "").trim() || undefined;
+  const prefillRaw = String(Array.isArray(rawParams?.prefill) ? rawParams.prefill[0] : rawParams?.prefill || "").trim();
+  const prefill = prefillRaw || (category === "paper" ? PAPER_PROCESS_PREFILL : undefined);
 
   // Block Deal Review for closed opportunities (Won/Lost).
   try {
@@ -38,7 +50,7 @@ export default async function DealReviewPage(ctx: { params: Promise<{ id: string
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={auth.user} />
-      <DealReviewClient opportunityId={opportunityPublicId} />
+      <DealReviewClient opportunityId={opportunityPublicId} initialCategory={category} initialPrefill={prefill} />
     </div>
   );
 }

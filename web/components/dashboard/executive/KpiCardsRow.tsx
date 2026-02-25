@@ -24,6 +24,9 @@ export type CommitAdmissionAggregates = {
   commitNeedsReviewCount: number;
   totalCommitCrmAmount: number;
   aiSupportedCommitAmount: number;
+  commitEvidenceCoveragePct?: number;
+  verifiedCommitAmount?: number;
+  verifiedCommitCount?: number;
 };
 
 export function KpiCardsRow(props: {
@@ -191,6 +194,16 @@ export function KpiCardsRow(props: {
                   {fmtMoney(ca.commitNeedsReviewAmount)}
                 </div>
                 <div className="mt-1 text-meta"># Deals: {ca.commitNeedsReviewCount}</div>
+              </div>
+              <div className={card} title="% of Commit deals backed by verified evidence (≥2 of Timing, Paper, Decision, Budget).">
+                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Commit Evidence Coverage</div>
+                <div className={`mt-2 text-kpiValue ${(ca.commitEvidenceCoveragePct ?? 0) >= 40 ? "text-[#2ECC71]" : (ca.commitEvidenceCoveragePct ?? 0) > 0 ? "text-[#F1C40F]" : "text-[color:var(--sf-text-primary)]"}`}>
+                  {ca.commitEvidenceCoveragePct != null ? `${Math.round(ca.commitEvidenceCoveragePct)}%` : "—"}
+                </div>
+                <div className="mt-1 text-meta">% with ≥2 high-confidence gate categories</div>
+                {(ca.verifiedCommitAmount != null && ca.verifiedCommitAmount > 0) ? (
+                  <div className="mt-1 text-meta">Verified Commit: {fmtMoney(ca.verifiedCommitAmount)}</div>
+                ) : null}
               </div>
             </>
           ) : null}

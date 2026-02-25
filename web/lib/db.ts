@@ -1596,7 +1596,43 @@ export async function updateOrganization(args: {
 
 export async function deleteOrganization(args: { id: number }) {
   const id = zOrganizationId.parse(args.id);
-  await pool.query(`DELETE FROM organizations WHERE id = $1`, [id]);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // Delete in dependency order so no orphaned rows remain.
+    // 1. Opportunities (CASCADE deletes comment_ingestions, opportunity_audit_events)
+    await client.query("DELETE FROM opportunities WHERE org_id = $1", [id]);
+    // 1b. Clean any orphaned comment_ingestions / opportunity_audit_events by org_id
+    await client.query("DELETE FROM comment_ingestions WHERE org_id = $1", [id]);
+    await client.query("DELETE FROM opportunity_audit_events WHERE org_id = $1", [id]);
+    // 2. Field mappings (children of field_mapping_sets)
+    await client.query(
+      "DELETE FROM field_mappings WHERE mapping_set_id IN (SELECT id FROM field_mapping_sets WHERE organization_id = $1)",
+      [id]
+    );
+    // 3. Field mapping sets (CASCADE deletes ingestion_staging)
+    await client.query("DELETE FROM field_mapping_sets WHERE organization_id = $1", [id]);
+    // 4. Quotas (references quota_periods, reps)
+    await client.query("DELETE FROM quotas WHERE org_id = $1", [id]);
+    // 5. Quota periods
+    await client.query("DELETE FROM quota_periods WHERE org_id = $1", [id]);
+    // 6. Reps
+    await client.query("DELETE FROM reps WHERE organization_id = $1", [id]);
+    // 7. Analytics saved reports
+    await client.query("DELETE FROM analytics_saved_reports WHERE org_id = $1", [id]);
+    // 8. Forecast stage probabilities
+    await client.query("DELETE FROM forecast_stage_probabilities WHERE org_id = $1", [id]);
+    // 9. Executive snapshots
+    await client.query("DELETE FROM executive_snapshots WHERE org_id = $1", [id]);
+    // 10. Organization (CASCADE deletes users, user_sessions, password_reset_tokens, manager_visibility)
+    await client.query("DELETE FROM organizations WHERE id = $1", [id]);
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
   return { ok: true };
 }
 

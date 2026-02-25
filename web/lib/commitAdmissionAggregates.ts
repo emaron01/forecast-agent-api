@@ -31,6 +31,12 @@ export type CommitAdmissionAggregates = {
   commitNeedsReviewCount: number;
   totalCommitCrmAmount: number;
   aiSupportedCommitAmount: number;
+  /** % of Commit deals with ≥2 of 4 gate categories (paper, process, timing, budget) at high confidence */
+  commitEvidenceCoveragePct: number;
+  /** Sum of amount for admitted Commit deals */
+  verifiedCommitAmount: number;
+  /** Count of admitted Commit deals */
+  verifiedCommitCount: number;
 };
 
 export async function getCommitAdmissionAggregates(args: {
@@ -47,6 +53,9 @@ export async function getCommitAdmissionAggregates(args: {
       commitNeedsReviewCount: 0,
       totalCommitCrmAmount: 0,
       aiSupportedCommitAmount: 0,
+      commitEvidenceCoveragePct: 0,
+      verifiedCommitAmount: 0,
+      verifiedCommitCount: 0,
     };
   }
 
@@ -112,6 +121,12 @@ export async function getCommitAdmissionAggregates(args: {
   let needsReviewCount = 0;
   let totalCommitCrm = 0;
   let aiSupportedAmount = 0;
+  let verifiedAmount = 0;
+  let verifiedCount = 0;
+  let evidenceCoveredCount = 0;
+  let commitScopeCount = 0;
+
+  const GATE_CONF_KEYS = ["paper_confidence", "process_confidence", "timing_confidence", "budget_confidence"] as const;
 
   for (const row of deals) {
     const crmBucket = computeCrmBucket(row);
@@ -120,6 +135,7 @@ export async function getCommitAdmissionAggregates(args: {
 
     if (!isCommitScope) continue;
 
+    commitScopeCount += 1;
     if (crmBucket === "commit") totalCommitCrm += n0(row.amount);
 
     const applicable = isCommitAdmissionApplicable(row, aiForecast);
@@ -133,8 +149,15 @@ export async function getCommitAdmissionAggregates(args: {
       needsReviewCount += 1;
     } else if (admission.status === "admitted") {
       aiSupportedAmount += n0(row.amount);
+      verifiedAmount += n0(row.amount);
+      verifiedCount += 1;
     }
+
+    const highConfCount = GATE_CONF_KEYS.filter((k) => String((row as any)[k] ?? "").trim().toLowerCase() === "high").length;
+    if (highConfCount >= 2) evidenceCoveredCount += 1;
   }
+
+  const commitEvidenceCoveragePct = commitScopeCount > 0 ? (evidenceCoveredCount / commitScopeCount) * 100 : 0;
 
   return {
     unsupportedCommitAmount: unsupportedAmount,
@@ -143,5 +166,8 @@ export async function getCommitAdmissionAggregates(args: {
     commitNeedsReviewCount: needsReviewCount,
     totalCommitCrmAmount: totalCommitCrm,
     aiSupportedCommitAmount: aiSupportedAmount,
+    commitEvidenceCoveragePct,
+    verifiedCommitAmount: verifiedAmount,
+    verifiedCommitCount: verifiedCount,
   };
 }

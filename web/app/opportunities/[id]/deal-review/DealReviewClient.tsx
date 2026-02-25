@@ -122,8 +122,12 @@ function pickRecorderMime() {
   return "";
 }
 
-export function DealReviewClient(props: { opportunityId: string }) {
+const VALID_CATEGORIES: CategoryKey[] = ["metrics", "economic_buyer", "criteria", "process", "paper", "pain", "champion", "competition", "timing", "budget"];
+
+export function DealReviewClient(props: { opportunityId: string; initialCategory?: string; initialPrefill?: string }) {
   const opportunityId = String(props.opportunityId || "").trim();
+  const initialCategory = String(props.initialCategory || "").trim() || undefined;
+  const initialPrefill = String(props.initialPrefill || "").trim() || undefined;
 
   const [mounted, setMounted] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -995,6 +999,16 @@ export function DealReviewClient(props: { opportunityId: string }) {
     },
     [closeMicStreamOnly, opportunityId, playTts, primeMicPermissionFromGesture]
   );
+
+  const initialAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!mounted || !opportunityId || !initialCategory || initialAppliedRef.current) return;
+    const cat = initialCategory as CategoryKey;
+    if (!VALID_CATEGORIES.includes(cat)) return;
+    initialAppliedRef.current = true;
+    if (initialPrefill) setAnswer(initialPrefill);
+    void startCategoryUpdate(cat, false);
+  }, [mounted, opportunityId, initialCategory, initialPrefill, startCategoryUpdate]);
 
   const sendAnswer = useCallback(async () => {
     const text = String(answer || "").trim();

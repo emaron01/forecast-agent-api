@@ -518,6 +518,7 @@ export function ExecutiveGapInsightsClient(props: {
   const teamRepId = Number(teamRepIdRaw);
   const teamRepIdValue = Number.isFinite(teamRepId) && teamRepId > 0 ? String(teamRepId) : "";
   const riskCategory = String(sp.get("risk_category") || "").trim();
+  const commitFilter = String(sp.get("commit_filter") || "").trim() as "" | "not_admitted" | "needs_review" | "low_evidence";
   const mode = String(sp.get("mode") || "drivers").trim() === "risk" ? "risk" : "drivers";
   const scoreDrivenOnly = String(sp.get("driver_require_score_effect") || sp.get("risk_require_score_effect") || "1").trim() !== "0";
 
@@ -1694,6 +1695,15 @@ export function ExecutiveGapInsightsClient(props: {
         />
       </div>
 
+      {props.commitAdmission && props.commitAdmission.totalCommitCrmAmount > 0 && ((props.commitAdmission.commitEvidenceCoveragePct ?? 100) < 40 || (props.commitAdmission.verifiedCommitAmount ?? 0) === 0) ? (
+        <section className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Reporting is catching up</div>
+          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+            AI-supported Commit requires at least one full forecast review this quarter. After the first pass, weekly updates are quick.
+          </div>
+        </section>
+      ) : null}
+
       {props.commitAdmission && (props.commitAdmission.totalCommitCrmAmount > 0 || props.commitAdmission.unsupportedCommitAmount > 0 || props.commitAdmission.commitNeedsReviewAmount > 0 || props.commitAdmission.aiSupportedCommitAmount > 0) ? (
         <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
           <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Commit Integrity</div>
@@ -1723,6 +1733,14 @@ export function ExecutiveGapInsightsClient(props: {
               </div>
             </div>
           </div>
+          {(props.commitAdmission.commitEvidenceCoveragePct != null || (props.commitAdmission.verifiedCommitAmount != null && props.commitAdmission.verifiedCommitAmount > 0)) ? (
+            <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]" title="% of Commit deals backed by verified evidence (≥2 of Timing, Paper, Decision, Budget).">
+              Commit Evidence Coverage: {props.commitAdmission.commitEvidenceCoveragePct != null ? `${Math.round(props.commitAdmission.commitEvidenceCoveragePct)}%` : "—"}
+              {props.commitAdmission.verifiedCommitAmount != null && props.commitAdmission.verifiedCommitAmount > 0 ? (
+                <span className="ml-2">· Verified Commit: {props.commitAdmission.verifiedCommitAmount.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}</span>
+              ) : null}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -2057,6 +2075,39 @@ export function ExecutiveGapInsightsClient(props: {
                   className={[
                     "h-[40px] rounded-md border px-3 text-sm",
                     t.k === stageView
+                      ? "border-[color:var(--sf-accent-secondary)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
+                      : "border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface-alt)]",
+                  ].join(" ")}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-1">
+            <label className="text-xs text-[color:var(--sf-text-secondary)]">Commit flags</label>
+            <div className="flex flex-wrap items-center gap-2">
+              {(
+                [
+                  { k: "", label: "All" },
+                  { k: "not_admitted", label: "Commit Not Supported" },
+                  { k: "needs_review", label: "Commit Review Required" },
+                  { k: "low_evidence", label: "Low Evidence Coverage" },
+                ] as const
+              ).map((t) => (
+                <button
+                  key={t.k || "all"}
+                  type="button"
+                  onClick={() =>
+                    updateUrl((p) => {
+                      if (t.k) setParam(p, "commit_filter", t.k);
+                      else p.delete("commit_filter");
+                    })
+                  }
+                  className={[
+                    "h-[40px] rounded-md border px-3 text-sm",
+                    commitFilter === t.k
                       ? "border-[color:var(--sf-accent-secondary)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
                       : "border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface-alt)]",
                   ].join(" ")}

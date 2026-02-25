@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { MEDDPICC_CANONICAL } from "../../../lib/meddpiccCanonical";
 
@@ -40,12 +41,18 @@ export type ExecutiveGapDeal = {
   rep: { rep_public_id?: string | null; rep_name: string | null };
   deal_name: { account_name: string | null; opportunity_name: string | null };
   crm_stage: { forecast_stage?: string | null; bucket: "commit" | "best_case" | "pipeline" | null; label: string };
+  ai_verdict_stage?: "Commit" | "Best Case" | "Pipeline" | null;
   amount: number;
   health: { health_pct: number | null; suppression: boolean; health_modifier?: number };
   weighted: { gap: number; crm_weighted?: number; ai_weighted?: number };
   meddpicc_tb: MeddpiccEntry[];
   signals?: { risk_summary: string | null; next_steps: string | null };
   risk_flags: Array<{ key: RiskCategoryKey; label: string; tip?: string | null }>;
+  commit_admission_status?: "admitted" | "not_admitted" | "needs_review";
+  commit_admission_reasons?: string[];
+  verdict_note?: string | null;
+  commit_whats_missing?: string | null;
+  commit_missing_categories?: string[];
 };
 
 function fmtMoney(n: any) {
@@ -201,7 +208,14 @@ export function ExecutiveDealsDrivingGapModule(props: {
                         {tone === "high" ? "High" : tone === "medium" ? "Medium" : tone === "low" ? "Low" : "—"}
                       </span>
                     </div>
-                    <div className="px-3 py-2 font-medium">{dealTitle(d)}</div>
+                    <div className="px-3 py-2">
+                      <div className="font-medium">{dealTitle(d)}</div>
+                      {(d.crm_stage?.bucket === "commit" || d.ai_verdict_stage === "Commit") && (d.commit_whats_missing || d.verdict_note) ? (
+                        <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]" title={d.verdict_note || undefined}>
+                          {d.commit_whats_missing || d.verdict_note}
+                        </div>
+                      ) : null}
+                    </div>
                     <div className="px-3 py-2 text-meta">{dealRep(d)}</div>
                     <div className="px-3 py-2 text-meta">{stage}</div>
                     <div className="px-3 py-2 text-right text-tableValue num-tabular">{fmtMoney(d.amount)}</div>
@@ -209,7 +223,27 @@ export function ExecutiveDealsDrivingGapModule(props: {
                       {d.health?.health_pct == null ? "—" : `${d.health.health_pct}%`}
                     </div>
                     <div className={`px-3 py-2 text-right text-tableValue num-tabular ${deltaTextClass(Number(d.weighted?.gap || 0) || 0)}`}>{fmtMoney(d.weighted?.gap)}</div>
-                    <div className="px-3 py-2 text-right text-meta">{open ? "▾" : "›"}</div>
+                    <div className="px-3 py-2 flex items-center justify-end gap-1">
+                      {(d.crm_stage?.bucket === "commit" || d.ai_verdict_stage === "Commit") && (d.commit_admission_status === "not_admitted" || d.commit_admission_status === "needs_review" || d.commit_whats_missing) ? (
+                        <>
+                          <Link
+                            href={`/opportunities/${encodeURIComponent(d.id)}/deal-review?category=paper&prefill=${encodeURIComponent("Who (legal/procurement contact): \nWhat artifact (PO, MSA, redlines): \nWhen (date / next milestone): \nCurrent status (e.g., procurement cutting PO): ")}`}
+                            className="rounded border border-[#F1C40F]/60 bg-[#F1C40F]/10 px-2 py-1 text-xs font-semibold text-[#F1C40F] hover:bg-[#F1C40F]/20"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            Capture Paper Process
+                          </Link>
+                          <Link
+                            href={`/opportunities/${encodeURIComponent(d.id)}/deal-review${(d.commit_missing_categories?.length ? `?category=${encodeURIComponent(d.commit_missing_categories[0])}` : "")}`}
+                            className="rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            Review
+                          </Link>
+                        </>
+                      ) : null}
+                      <span className="text-meta">{open ? "▾" : "›"}</span>
+                    </div>
                   </button>
 
                   <div
@@ -283,6 +317,12 @@ export function ExecutiveDealsDrivingGapModule(props: {
                           ) : null}
                         </div>
 
+                        {d.verdict_note && (d.crm_stage?.bucket === "commit" || d.ai_verdict_stage === "Commit") ? (
+                          <div className="mt-3 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
+                            <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Verdict note</div>
+                            <div className="mt-1 text-sm text-[color:var(--sf-text-primary)]">{d.verdict_note}</div>
+                          </div>
+                        ) : null}
                         <div className="mt-3 grid gap-2 md:grid-cols-2">
                           <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
                             <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Risk Summary</div>

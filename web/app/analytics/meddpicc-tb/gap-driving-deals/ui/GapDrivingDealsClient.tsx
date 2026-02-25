@@ -319,6 +319,7 @@ export function GapDrivingDealsClient(props: {
   const repPublicId = String(qs.get("rep_public_id") || "");
   const repName = String(qs.get("rep_name") || "");
   const riskCategory = String(qs.get("risk_category") || "");
+  const commitFilter = String(qs.get("commit_filter") || "").trim() as "" | "not_admitted" | "needs_review" | "low_evidence";
   const suppressedOnly = String(qs.get("suppressed_only") || "") === "1";
   const healthPreset = healthPresetFromParams(qs);
 
@@ -377,6 +378,7 @@ export function GapDrivingDealsClient(props: {
       "risk_take_per_bucket",
       "risk_min_downside",
       "risk_require_score_effect",
+      "commit_filter",
     ].forEach((k) => sp.delete(k));
 
     if (qp) sp.set("quota_period_id", qp);
@@ -427,6 +429,7 @@ export function GapDrivingDealsClient(props: {
       "risk_take_per_bucket",
       "risk_min_downside",
       "risk_require_score_effect",
+      "commit_filter",
     ].forEach((k) => sp.delete(k));
 
     if (qp) sp.set("quota_period_id", qp);
@@ -685,6 +688,24 @@ export function GapDrivingDealsClient(props: {
               />
               Suppressed Best Case (low score)
             </label>
+
+            <span className="ml-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Commit flags</span>
+            <select
+              value={commitFilter || "all"}
+              onChange={(e) =>
+                setParamAndGo((sp) => {
+                  const v = String(e.target.value || "").trim();
+                  if (v && v !== "all") sp.set("commit_filter", v);
+                  else sp.delete("commit_filter");
+                })
+              }
+              className="h-[30px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
+            >
+              <option value="all">All</option>
+              <option value="not_admitted">Commit Not Supported</option>
+              <option value="needs_review">Commit Review Required</option>
+              <option value="low_evidence">Low Evidence Coverage</option>
+            </select>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
