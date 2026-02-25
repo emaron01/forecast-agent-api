@@ -40,6 +40,12 @@ export async function POST(req: Request) {
     const language = form.get("language");
     if (typeof language === "string" && language.trim()) outForm.set("language", language.trim());
 
+    // Use plain text when supported to avoid JSON parse errors (trailing content, unescaped quotes).
+    // whisper-1 supports "text"; gpt-4o-transcribe* only support "json". Set STT_RESPONSE_FORMAT=text to force.
+    const useFormatText =
+      process.env.STT_RESPONSE_FORMAT === "text" || (model && /^whisper-1$/i.test(model));
+    if (useFormatText) outForm.set("response_format", "text");
+
     const resp = await fetch(`${baseUrl}/audio/transcriptions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}` },
@@ -49,6 +55,10 @@ export async function POST(req: Request) {
     const rawText = await resp.text();
     if (!resp.ok) {
       return NextResponse.json({ ok: false, error: rawText || "Transcription failed" }, { status: resp.status });
+    }
+
+    if (useFormatText) {
+      return NextResponse.json({ ok: true, text: rawText.trim() });
     }
 
     const text = rawText.trim();

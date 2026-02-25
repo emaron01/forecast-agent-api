@@ -763,6 +763,11 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
                     throw new Error(data?.error || "Update failed");
                   }
                 } catch (e) {
+                  if (e instanceof SyntaxError) {
+                    // Chunk boundary split the JSON; put line back for next read.
+                    buffer = line + "\n" + buffer;
+                    break;
+                  }
                   if (e instanceof Error && donePayload === null) throw e;
                 }
               }
@@ -1167,6 +1172,10 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
                   throw new Error(data?.error || "Update failed");
                 }
               } catch (e) {
+                if (e instanceof SyntaxError) {
+                  buffer = line + "\n" + buffer;
+                  break;
+                }
                 if (e instanceof Error && donePayload === null) throw e;
               }
             }
