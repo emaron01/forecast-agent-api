@@ -7,8 +7,26 @@ import { pool } from "../../../../../../lib/pool";
 import { getAuth } from "../../../../../../lib/auth";
 import { resolvePublicId } from "../../../../../../lib/publicId";
 import { closedOutcomeFromOpportunityRow } from "../../../../../../lib/opportunityOutcome";
+import {
+  extractSentences,
+  extractQuestionFromPartialJson,
+  extractActionFromPartialJson,
+  getVoiceTuningFlags,
+  passesEarlyEmitGate,
+  logVoiceLatency,
+} from "../../../../../../lib/voiceStreaming";
 
 export const runtime = "nodejs";
+
+// Latency-layer only: env flags for streaming/chunking. No changes to MEDDPICC scoring,
+// gating, saves, DB writes, prompts, or model selection.
+//
+// VERIFICATION CHECKLIST (when LLM_STREAM_ENABLED=true, VOICE_LATENCY_LOGGING=true):
+// 1. time_to_first_token_ms: populated and low (<1000ms) — stream events consumed
+// 2. time_to_first_audio_ms: low (~2s) when early_audio_used=true — TTS started before full response
+// 3. early_audio_used: true when question extracted early; false when fallback to post-completion
+const LLM_STREAM_ENABLED = process.env.LLM_STREAM_ENABLED === "true";
+const VOICE_SENTENCE_CHUNKING = process.env.VOICE_SENTENCE_CHUNKING === "true";
 
 type ScoreDefRow = { score: number; label: string | null; criteria: string | null };
 
@@ -194,6 +212,7 @@ async function fetchOpportunity(orgId: number, opportunityId: number) {
   return rows?.[0] || null;
 }
 
+/** Latency-layer: non-streaming call. Preserves exact prompts and parameters. */
 async function callModelJSON(args: { instructions: string; input: string }) {
   const baseUrl = resolveBaseUrl();
   const apiKey = String(process.env.MODEL_API_KEY || process.env.OPENAI_API_KEY || "").trim();
@@ -202,6 +221,35 @@ async function callModelJSON(args: { instructions: string; input: string }) {
   if (!apiKey) throw new Error("Missing MODEL_API_KEY");
   if (!model) throw new Error("Missing MODEL_API_NAME");
 
+  if (!LLM_STREAM_ENABLED) {
+    const resp = await fetch(`${baseUrl}/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        instructions: args.instructions,
+        input: args.input,
+      }),
+    });
+    const json = await resp.json().catch(async () => ({ error: { message: await resp.text() } }));
+    if (!resp.ok) throw new Error(json?.error?.message || JSON.stringify(json));
+    const output = Array.isArray(json?.output) ? json.output : [];
+    const chunks: string[] = [];
+    for (const item of output) {
+      if (item?.type === "message" && item?.role === "assistant") {
+        for (const c of item?.content || []) {
+          if (c?.type === "output_text" && typeof c.text === "string") chunks.push(c.text);
+        }
+      }
+    }
+    const text = chunks.join("\n").trim();
+    return { raw: json, text };
+  }
+
+  // LLM_STREAM_ENABLED: consume token stream, accumulate. Same prompts/params.
+  const turnStart = Date.now();
+  let firstTokenAt: number | null = null;
+
   const resp = await fetch(`${baseUrl}/responses`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -209,22 +257,242 @@ async function callModelJSON(args: { instructions: string; input: string }) {
       model,
       instructions: args.instructions,
       input: args.input,
+      stream: true,
     }),
   });
-  const json = await resp.json().catch(async () => ({ error: { message: await resp.text() } }));
-  if (!resp.ok) throw new Error(json?.error?.message || JSON.stringify(json));
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(errText || "LLM request failed");
+  }
+  if (!resp.body) throw new Error("No response body");
 
-  const output = Array.isArray(json?.output) ? json.output : [];
-  const chunks: string[] = [];
-  for (const item of output) {
-    if (item?.type === "message" && item?.role === "assistant") {
-      for (const c of item?.content || []) {
-        if (c?.type === "output_text" && typeof c.text === "string") chunks.push(c.text);
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let fullText = "";
+
+  const extractDelta = (ev: any): string | null => {
+    if (ev?.type === "response.output_text.delta" && typeof ev.delta === "string") return ev.delta;
+    if (ev?.type === "response.output_text.done" && typeof ev.text === "string") return ev.text;
+    const part = ev?.part ?? ev?.delta;
+    if (part && typeof part === "object" && typeof part.text === "string") return part.text;
+    if (part && typeof part === "object" && typeof part.delta === "string") return part.delta;
+    return null;
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const data = line.slice(6);
+      if (data === "[DONE]" || data.trim() === "") continue;
+      try {
+        const ev = JSON.parse(data);
+        const delta = extractDelta(ev);
+        if (delta) {
+          if (firstTokenAt == null) firstTokenAt = Date.now();
+          fullText += delta;
+        }
+      } catch {
+        // ignore parse errors for non-JSON lines
       }
     }
   }
-  const text = chunks.join("\n").trim();
-  return { raw: json, text };
+  if (buffer.trim()) {
+    try {
+      const ev = JSON.parse(buffer.startsWith("data: ") ? buffer.slice(6) : buffer);
+      const delta = extractDelta(ev);
+      if (delta) {
+        if (firstTokenAt == null) firstTokenAt = Date.now();
+        fullText += delta;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const text = fullText.trim();
+  logVoiceLatency({
+    time_to_first_token_ms: firstTokenAt != null ? firstTokenAt - turnStart : undefined,
+    total_turn_time_ms: Date.now() - turnStart,
+  });
+  return { raw: null, text };
+}
+
+type SentenceCallback = (sentence: string) => void | Promise<void>;
+
+/**
+ * Latency-layer: TRUE early-audio streaming. Emit question to TTS as soon as we have
+ * a complete, properly-terminated "question" value from the stream — do NOT wait for
+ * full LLM response.
+ * Phase A: extract early candidate when we see "question":"...<value>" with matching
+ *   closing quote (handles \"). Safe because JSON string is final once quote closes.
+ * Phase B: validate on done; log early_validation_mismatch if candidate !== final.
+ */
+async function callModelJSONWithSentenceStream(
+  args: { instructions: string; input: string },
+  onSentence: SentenceCallback
+): Promise<{ text: string; emittedSentences: string[]; earlyAudioUsed: boolean }> {
+  const baseUrl = resolveBaseUrl();
+  const apiKey = String(process.env.MODEL_API_KEY || process.env.OPENAI_API_KEY || "").trim();
+  const model = process.env.MODEL_API_NAME;
+  if (!baseUrl) throw new Error("Missing OPENAI_BASE_URL (or MODEL_API_URL/MODEL_URL)");
+  if (!apiKey) throw new Error("Missing MODEL_API_KEY");
+  if (!model) throw new Error("Missing MODEL_API_NAME");
+
+  const turnStart = Date.now();
+  let firstTokenAt: number | null = null;
+  let earlyCandidate: string | null = null;
+  let earlyEmittedAt: number | null = null;
+
+  const resp = await fetch(`${baseUrl}/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      instructions: args.instructions,
+      input: args.input,
+      stream: true,
+    }),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(errText || "LLM request failed");
+  }
+  if (!resp.body) throw new Error("No response body");
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let fullText = "";
+
+  const extractDelta = (ev: any): string | null => {
+    if (ev?.type === "response.output_text.delta" && typeof ev.delta === "string") return ev.delta;
+    if (ev?.type === "response.output_text.done" && typeof ev.text === "string") return ev.text;
+    const part = ev?.part ?? ev?.delta;
+    if (part && typeof part === "object" && typeof part.text === "string") return part.text;
+    if (part && typeof part === "object" && typeof part.delta === "string") return part.delta;
+    return null;
+  };
+
+  const tuning = getVoiceTuningFlags();
+  let earlyActionSeen = false;
+  let earlyEmitDisabled = false;
+
+  const processBuffer = (): void => {
+    if (earlyEmitDisabled || earlyEmittedAt) return;
+    const action = extractActionFromPartialJson(fullText);
+    if (action) earlyActionSeen = true;
+    if (tuning.requireActionFollowup && action !== "followup") return;
+    const candidate = extractQuestionFromPartialJson(fullText);
+    if (
+      candidate &&
+      candidate.length >= tuning.minQuestionChars &&
+      passesEarlyEmitGate(candidate, { requireEndPunct: tuning.requireEndPunct }) &&
+      !earlyEmittedAt
+    ) {
+      earlyCandidate = candidate;
+      earlyEmittedAt = Date.now();
+      onSentence(candidate);
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const data = line.slice(6);
+      if (data === "[DONE]" || data.trim() === "") continue;
+      try {
+        const ev = JSON.parse(data);
+        const delta = extractDelta(ev);
+        if (delta) {
+          if (firstTokenAt == null) firstTokenAt = Date.now();
+          fullText += delta;
+          processBuffer();
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  if (buffer.trim()) {
+    try {
+      const ev = JSON.parse(buffer.startsWith("data: ") ? buffer.slice(6) : buffer);
+      const delta = extractDelta(ev);
+      if (delta) {
+        if (firstTokenAt == null) firstTokenAt = Date.now();
+        fullText += delta;
+        processBuffer();
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const text = fullText.trim();
+  const emittedSentences: string[] = [];
+  let earlyAudioUsed = false;
+
+  try {
+    const obj = parseStrictJson(text);
+    if (String(obj?.action || "").trim() === "followup") {
+      const finalQuestion = String(obj?.question || "").trim();
+      if (finalQuestion) {
+        if (earlyEmittedAt != null) {
+          earlyAudioUsed = true;
+          emittedSentences.push(finalQuestion);
+          const mismatch = earlyCandidate != null && earlyCandidate !== finalQuestion;
+          if (mismatch) {
+            earlyEmitDisabled = true;
+            console.warn(
+              JSON.stringify({
+                event: "early_audio_mismatch",
+                message: "Early candidate did not match final question; no further early emits this turn",
+              })
+            );
+          }
+        } else {
+          const sentences = extractSentences(finalQuestion);
+          for (const s of sentences) {
+            if (s) {
+              emittedSentences.push(s);
+              await onSentence(s);
+            }
+          }
+        }
+        logVoiceLatency({
+          time_to_first_token_ms: firstTokenAt != null ? firstTokenAt - turnStart : undefined,
+          time_to_first_audio_ms:
+            earlyEmittedAt != null ? earlyEmittedAt - turnStart : undefined,
+          total_turn_time_ms: Date.now() - turnStart,
+          early_audio_used: earlyAudioUsed,
+          early_validation_mismatch:
+            earlyCandidate != null && earlyCandidate !== finalQuestion,
+          early_action_seen_early: earlyActionSeen,
+        });
+        return { text, emittedSentences, earlyAudioUsed };
+      }
+    }
+  } catch {
+    /* parse failed — fall back to no sentence events */
+  }
+
+  logVoiceLatency({
+    time_to_first_token_ms: firstTokenAt != null ? firstTokenAt - turnStart : undefined,
+    total_turn_time_ms: Date.now() - turnStart,
+    early_audio_used: false,
+    early_action_seen_early: earlyActionSeen,
+  });
+  return { text, emittedSentences, earlyAudioUsed: false };
 }
 
 function parseStrictJson(text: string) {
@@ -507,6 +775,186 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "",
       "Return JSON only.",
     ].join("\n");
+
+    // Latency-layer: when streaming+chunking, return SSE. Otherwise JSON.
+    if (LLM_STREAM_ENABLED && VOICE_SENTENCE_CHUNKING) {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          try {
+            const { text: modelText, emittedSentences } = await callModelJSONWithSentenceStream(
+              { instructions, input },
+              async (sentence) => {
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ type: "sentence", text: sentence })}\n\n`)
+                );
+              }
+            );
+            const obj = parseStrictJson(modelText);
+            const action = String(obj?.action || "").trim();
+
+            if (action === "followup") {
+              const q = String(obj?.question || "").trim();
+              let remainingText = "";
+              if (q && emittedSentences.length > 0) {
+                let pos = 0;
+                for (const s of emittedSentences) {
+                  const i = q.indexOf(s, pos);
+                  if (i >= 0) pos = i + s.length;
+                }
+                remainingText = q.slice(pos).trim();
+              }
+              if (!q) {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: "error", error: "Model followup missing question" })}\n\n`
+                  )
+                );
+                controller.close();
+                return;
+              }
+              session.turns.push({ role: "assistant", text: q, at: Date.now() });
+              session.updatedAt = Date.now();
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({
+                    type: "done",
+                    ok: true,
+                    sessionId,
+                    category,
+                    assistantText: q,
+                    remainingText: remainingText || undefined,
+                  })}\n\n`
+                )
+              );
+              controller.close();
+              return;
+            }
+
+            if (action !== "finalize") {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ type: "error", error: "Model returned invalid action" })}\n\n`
+                )
+              );
+              controller.close();
+              return;
+            }
+
+            const material = Boolean(obj?.material_change);
+            if (!material) {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({
+                    type: "done",
+                    ok: true,
+                    sessionId,
+                    category,
+                    material_change: false,
+                    assistantText: "No material change — leaving the saved assessment and wrap as-is.",
+                    healthPercent: computeHealthPercentFromOpportunity(opp?.health_score),
+                  })}\n\n`
+                )
+              );
+              controller.close();
+              return;
+            }
+
+            const score = Number(obj?.score);
+            const evidence = String(obj?.evidence || "").trim();
+            const tip = String(obj?.tip || "").trim();
+            const riskSummary = String(obj?.risk_summary || "").trim();
+            const nextSteps = String(obj?.next_steps || "").trim();
+
+            if (!Number.isFinite(score) || score < 0 || score > 3) {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ type: "error", error: "Model returned invalid score" })}\n\n`
+                )
+              );
+              controller.close();
+              return;
+            }
+            if (!evidence || !tip) {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ type: "error", error: "Model returned empty evidence or tip" })}\n\n`
+                )
+              );
+              controller.close();
+              return;
+            }
+
+            await saveToOpportunities({
+              orgId,
+              opportunityId,
+              category,
+              score,
+              evidence,
+              tip,
+              riskSummary,
+              nextSteps,
+            });
+
+            const oppAfter = await fetchOpportunity(orgId, opportunityId);
+            const healthPercent = computeHealthPercentFromOpportunity(oppAfter?.health_score);
+            const assessedOnly = computeAssessedOnlyPercentFromOpportunity(oppAfter);
+            const disclaimer =
+              assessedOnly.unassessed > 0
+                ? "Overall score reflects only updated categories; remaining categories not assessed yet."
+                : "";
+            categoryUpdateSessions.delete(sessionId);
+            const assistantText = [
+              `Updated ${displayCategory(category)}.`,
+              assessedOnly.percent != null
+                ? `Overall: ${assessedOnly.percent}%`
+                : healthPercent != null
+                  ? `Overall: ${healthPercent}%`
+                  : "",
+              disclaimer ? disclaimer : "",
+            ]
+              .filter(Boolean)
+              .join("\n");
+
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  type: "done",
+                  ok: true,
+                  sessionId,
+                  category,
+                  material_change: true,
+                  result: {
+                    score: Math.max(0, Math.min(3, Number(score) || 0)),
+                    evidence,
+                    tip,
+                  },
+                  healthPercent,
+                  assessedOnlyPercent: assessedOnly.percent,
+                  assistantText,
+                })}\n\n`
+              )
+            );
+            controller.close();
+          } catch (e: any) {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ type: "error", error: e?.message || String(e) })}\n\n`
+              )
+            );
+            controller.close();
+          }
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
+        },
+      });
+    }
 
     const { text: modelText } = await callModelJSON({ instructions, input });
     const obj = parseStrictJson(modelText);

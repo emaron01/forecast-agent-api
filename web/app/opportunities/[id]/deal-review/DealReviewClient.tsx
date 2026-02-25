@@ -168,6 +168,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const [ttsError, setTtsError] = useState("");
   const [lastTranscript, setLastTranscript] = useState("");
   const [listening, setListening] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastAudioUrlRef = useRef<string>("");
@@ -511,13 +512,14 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   );
 
   const playTts = useCallback(
-    async (text: string) => {
+    async (text: string): Promise<void> => {
       if (!speak) return;
       const t = String(text || "").trim();
       if (!t) return;
       try {
         setTtsError("");
         speakingRef.current = true;
+        setSpeaking(true);
         // Stop speech capture while TTS plays.
         voiceActiveRef.current = false;
         setListening(false);
@@ -536,14 +538,25 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
         const el = audioRef.current;
         if (!el) return;
         el.src = url;
-        await el.play().catch(() => {
-          // If the browser blocks autoplay, show error but continue.
-          throw new Error("Audio playback blocked (click Play in the Audio panel).");
+        await new Promise<void>((resolve, reject) => {
+          const onEnded = () => {
+            el.removeEventListener("ended", onEnded);
+            resolve();
+          };
+          el.addEventListener("ended", onEnded);
+          el.play().catch((err) => {
+            el.removeEventListener("ended", onEnded);
+            reject(err);
+          });
         });
       } catch (e: any) {
         setTtsError(String(e?.message || e).slice(0, 220));
+        speakingRef.current = false;
+        setSpeaking(false);
+        throw e;
       } finally {
-        // When audio finishes, speakingRef is cleared in onended handler.
+        speakingRef.current = false;
+        setSpeaking(false);
       }
     },
     [speak]
@@ -554,6 +567,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
     if (!el) return;
     const onEnded = () => {
       speakingRef.current = false;
+      setSpeaking(false);
     };
     el.addEventListener("ended", onEnded);
     return () => el.removeEventListener("ended", onEnded);
@@ -702,6 +716,75 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ category: cat, text, sessionId: sid || undefined }),
           });
+          const contentType = res.headers.get("content-type") || "";
+          if (contentType.includes("text/event-stream")) {
+            // Latency-layer: SSE streaming with sentence chunking. Play sentences sequentially.
+            // No changes to scoring, saves, or business logic.
+            const reader = res.body?.getReader();
+            if (!reader) throw new Error("No response body");
+            const decoder = new TextDecoder();
+            let buffer = "";
+            const sentenceQueue: string[] = [];
+            let playing = false;
+            const playNext = async () => {
+              if (playing || sentenceQueue.length === 0) return;
+              playing = true;
+              const sentence = sentenceQueue.shift()!;
+              try {
+                await playTts(sentence);
+              } catch {
+                /* playTts sets error state */
+              }
+              playing = false;
+              if (sentenceQueue.length > 0) void playNext();
+            };
+            let donePayload: Record<string, unknown> | null = null;
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() || "";
+              for (const line of lines) {
+                if (!line.startsWith("data: ")) continue;
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  if (data?.type === "sentence" && typeof data.text === "string") {
+                    sentenceQueue.push(data.text.trim());
+                    void playNext();
+                  } else if (data?.type === "done") {
+                    donePayload = data;
+                    const rem = String((data as any)?.remainingText || "").trim();
+                    if (rem) {
+                      sentenceQueue.push(rem);
+                      void playNext();
+                    }
+                  } else if (data?.type === "error") {
+                    throw new Error(data?.error || "Update failed");
+                  }
+                } catch (e) {
+                  if (e instanceof Error && donePayload === null) throw e;
+                }
+              }
+            }
+            if (buffer.trim().startsWith("data: ")) {
+              try {
+                const data = JSON.parse(buffer.slice(6));
+                if (data?.type === "done") donePayload = data;
+                else if (data?.type === "error") throw new Error(data?.error || "Update failed");
+              } catch (e) {
+                if (e instanceof Error && donePayload === null) throw e;
+              }
+            }
+            if (!donePayload?.ok) throw new Error((donePayload as any)?.error || "Update failed");
+            if (donePayload?.sessionId) setCatSessionId(String(donePayload.sessionId));
+            const assistantText = String((donePayload as any)?.assistantText || "").trim();
+            if (assistantText) {
+              setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
+            }
+            void loadOpportunityState();
+            return;
+          }
           const json = await res.json().catch(() => ({}));
           if (!res.ok || !json?.ok) throw new Error(json?.error || "Update failed");
           if (json?.sessionId) setCatSessionId(String(json.sessionId));
@@ -710,7 +793,6 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
             void playTts(assistantText);
           }
-          // Refresh state after finalize.
           void loadOpportunityState();
         }
       };
@@ -881,10 +963,11 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
 
   useEffect(() => {
     // IMPORTANT: Text Update must never auto-open the mic.
-    if (categoryWaitingForUser && voice && categoryInputMode === "VOICE" && !speakingRef.current) {
+    // Depend on speaking (state) so we re-run when TTS finishes and can start listening.
+    if (categoryWaitingForUser && voice && categoryInputMode === "VOICE" && !speaking) {
       void captureOneUtteranceAndRoute();
     }
-  }, [captureOneUtteranceAndRoute, categoryInputMode, categoryWaitingForUser, voice]);
+  }, [captureOneUtteranceAndRoute, categoryInputMode, categoryWaitingForUser, voice, speaking]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1038,17 +1121,84 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ category: selectedCategory, text, sessionId: catSessionId || undefined }),
         });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok || !json?.ok) throw new Error(json?.error || "Update failed");
-        if (json?.sessionId) setCatSessionId(String(json.sessionId));
         setCatMessages((prev) => [...prev, { role: "user", text, at: Date.now() }]);
-        const rawAssistantText = String(json?.assistantText || "").trim();
-        const assistantText =
-          categoryInputMode === "TEXT" ? stripPercentCalloutsForTypedUpdate(rawAssistantText) : rawAssistantText;
-        if (assistantText) {
-          setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
-          // Typed updates are silent (no TTS).
-          if (categoryInputMode === "VOICE") void playTts(assistantText);
+        const contentType = res.headers.get("content-type") || "";
+        if (contentType.includes("text/event-stream")) {
+          const reader = res.body?.getReader();
+          if (!reader) throw new Error("No response body");
+          const decoder = new TextDecoder();
+          let buffer = "";
+          const sentenceQueue: string[] = [];
+          let playing = false;
+          const playNext = async () => {
+            if (playing || sentenceQueue.length === 0) return;
+            playing = true;
+            const sentence = sentenceQueue.shift()!;
+            try {
+              await playTts(sentence);
+            } catch {
+              /* playTts sets error state */
+            }
+            playing = false;
+            if (sentenceQueue.length > 0) void playNext();
+          };
+          let donePayload: Record<string, unknown> | null = null;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data?.type === "sentence" && typeof data.text === "string" && categoryInputMode === "VOICE") {
+                  sentenceQueue.push(data.text.trim());
+                  void playNext();
+                } else if (data?.type === "done") {
+                  donePayload = data;
+                  const rem = String((data as any)?.remainingText || "").trim();
+                  if (rem && categoryInputMode === "VOICE") {
+                    sentenceQueue.push(rem);
+                    void playNext();
+                  }
+                } else if (data?.type === "error") {
+                  throw new Error(data?.error || "Update failed");
+                }
+              } catch (e) {
+                if (e instanceof Error && donePayload === null) throw e;
+              }
+            }
+          }
+          if (buffer.trim().startsWith("data: ")) {
+            try {
+              const data = JSON.parse(buffer.slice(6));
+              if (data?.type === "done") donePayload = data;
+              else if (data?.type === "error") throw new Error(data?.error || "Update failed");
+            } catch (e) {
+              if (e instanceof Error && donePayload === null) throw e;
+            }
+          }
+          if (!donePayload?.ok) throw new Error((donePayload as any)?.error || "Update failed");
+          if (donePayload?.sessionId) setCatSessionId(String(donePayload.sessionId));
+          const rawAssistantText = String((donePayload as any)?.assistantText || "").trim();
+          const assistantText =
+            categoryInputMode === "TEXT" ? stripPercentCalloutsForTypedUpdate(rawAssistantText) : rawAssistantText;
+          if (assistantText) {
+            setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
+          }
+        } else {
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok || !json?.ok) throw new Error(json?.error || "Update failed");
+          if (json?.sessionId) setCatSessionId(String(json.sessionId));
+          const rawAssistantText = String(json?.assistantText || "").trim();
+          const assistantText =
+            categoryInputMode === "TEXT" ? stripPercentCalloutsForTypedUpdate(rawAssistantText) : rawAssistantText;
+          if (assistantText) {
+            setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
+            if (categoryInputMode === "VOICE") void playTts(assistantText);
+          }
         }
         void loadOpportunityState();
         return;
@@ -1579,10 +1729,10 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             ))}
           </div>
 
-          {mode === "FULL_REVIEW" || (mode === "CATEGORY_UPDATE" && categoryInputMode === "TEXT" && !qaPaneOpen) ? (
+          {mode === "FULL_REVIEW" || mode === "CATEGORY_UPDATE" ? (
             <>
-              <details style={{ marginTop: 12 }}>
-                <summary className="small">Conversation</summary>
+              <details style={{ marginTop: 12 }} open={mode === "CATEGORY_UPDATE"}>
+                <summary className="small">Conversation &amp; debug</summary>
                 <div className="chat">
                   {activeMessages?.length ? (
                     activeMessages.map((m, i) => (
