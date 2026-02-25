@@ -9,7 +9,7 @@ import {
   type CommitAdmissionStatus,
 } from "../../../../lib/commitAdmission";
 import { getScopedRepDirectory } from "../../../../lib/repScope";
-import { computeAiForecastFromHealthScore } from "../../../../lib/aiForecast";
+import { computeAiForecastFromHealthScore, toOpenStage } from "../../../../lib/aiForecast";
 
 export const runtime = "nodejs";
 
@@ -46,7 +46,8 @@ function normalizeAiVerdictRow(row: any) {
   let verdictNote: string | undefined;
 
   if (admission.status === "not_admitted") {
-    aiVerdict = downgradeAiVerdictOneLevel(aiForecast as "Commit" | "Best Case" | "Pipeline");
+    const openStage = toOpenStage(aiForecast);
+    aiVerdict = downgradeAiVerdictOneLevel(openStage ?? "Pipeline");
     verdictNote = "AI: Commit not supported (see admission reasons).";
   } else if (admission.status === "needs_review") {
     verdictNote = "AI: Commit evidence is low-confidence; review required.";
