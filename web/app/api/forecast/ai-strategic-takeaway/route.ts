@@ -152,6 +152,9 @@ export async function POST(req: Request) {
       });
     }
 
+    const evidenceGuidance =
+      "Evidence Confidence Policy: Prefer high-confidence evidence when drawing conclusions. Treat low-confidence evidence as forecast risk/uncertainty. When the payload includes confidence or evidence_strength per category, call out evidence fragility when multiple key categories are low-confidence. Do not overstate certainty when evidence is low. Do not treat seller-only assertions as verified truth.";
+
     const surfaceGuidance =
       body.surface === "pipeline_momentum"
         ? [
@@ -192,6 +195,7 @@ export async function POST(req: Request) {
       prior +
       "Write a CRO-grade ✨ AI Strategic Takeaway.\n" +
       `- ${surfaceGuidance}\n` +
+      `- ${evidenceGuidance}\n` +
       "- Keep it concise: 5-10 bullets max.\n\n" +
       "OUTPUT FORMAT (STRICT): Return ONLY valid JSON with these fields:\n" +
       `{\n  "no_change": boolean,\n  "summary": string,   // <=4 bullets OR a short paragraph\n  "extended": string   // full analysis; may include bullets\n}\n` +

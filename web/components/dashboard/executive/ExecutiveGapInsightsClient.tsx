@@ -7,7 +7,7 @@ import type { ExecRepOption } from "../../../lib/executiveForecastDashboard";
 import type { RepDirectoryRow } from "../../../lib/repScope";
 import type { QuarterKpisSnapshot } from "../../../lib/quarterKpisSnapshot";
 import { ExecutiveDealsDrivingGapModule, type ExecutiveGapDeal } from "./ExecutiveDealsDrivingGapModule";
-import { KpiCardsRow } from "./KpiCardsRow";
+import { KpiCardsRow, type CommitAdmissionAggregates } from "./KpiCardsRow";
 import { RiskRadarPlot, type RadarDeal } from "./RiskRadarPlot";
 import { palette } from "../../../lib/palette";
 import { ExecutiveProductPerformance } from "./ExecutiveProductPerformance";
@@ -478,6 +478,7 @@ export function ExecutiveGapInsightsClient(props: {
   bucketDeltas: { commit: number; best_case: number; pipeline: number };
   aiPctToGoal: number | null;
   leftToGo: number;
+  commitAdmission?: CommitAdmissionAggregates | null;
   defaultTopN?: number;
 }) {
   const router = useRouter();
@@ -989,7 +990,7 @@ export function ExecutiveGapInsightsClient(props: {
       { commit: 0, best_case: 0, pipeline: 0 } as Record<"commit" | "best_case" | "pipeline", number>
     );
 
-    const catCounts = new Map<string, { key: string; label: string; count: number; tips: string[] }>();
+    const catCounts = new Map<string, { key: string; label: string; count: number; tips: string[]; evidenceFragilityCount: number }>();
     const repGap = new Map<string, number>();
     const repCat = new Map<string, Map<string, number>>();
     const dealGapCount = new Map<string, number>();
@@ -1009,8 +1010,11 @@ export function ExecutiveGapInsightsClient(props: {
         if (!isRiskScore(score)) continue;
         gaps += 1;
         const label = key === "economic_buyer" ? "Economic Buyer" : key === "paper" ? "Paper Process" : key === "process" ? "Decision Process" : key[0].toUpperCase() + key.slice(1).replace(/_/g, " ");
-        const cur = catCounts.get(key) || { key, label, count: 0, tips: [] as string[] };
+        const cur = catCounts.get(key) || { key, label, count: 0, tips: [] as string[], evidenceFragilityCount: 0 };
         cur.count += 1;
+        const conf = String((c as any).confidence || "").toLowerCase();
+        const isLateStage = ["paper", "process", "timing", "budget"].includes(key);
+        if (isLateStage && conf && conf !== "high") cur.evidenceFragilityCount += 1;
         const tip = String((c as any).tip || "").trim();
         if (tip && !cur.tips.includes(tip)) cur.tips.push(tip);
         catCounts.set(key, cur);
@@ -1109,7 +1113,13 @@ export function ExecutiveGapInsightsClient(props: {
           at_risk_count: radarStrategicTakeaway.riskSetCount,
           at_risk_by_bucket: radarStrategicTakeaway.byBucket,
           downside_gap_abs: radarStrategicTakeaway.gapAbs,
-          top_meddpicc_gaps: radarStrategicTakeaway.topCats.map((c) => ({ key: c.key, label: c.label, count: c.count, tip: c.tips?.[0] || null })),
+          top_meddpicc_gaps: radarStrategicTakeaway.topCats.map((c) => ({
+            key: c.key,
+            label: c.label,
+            count: c.count,
+            tip: c.tips?.[0] || null,
+            ...(c.evidenceFragilityCount > 0 ? { evidence_fragility_count: c.evidenceFragilityCount } : {}),
+          })),
           rep_trends: radarStrategicTakeaway.repTrends.map((r) => ({
             rep: r.rep,
             downside_gap_abs: r.gapAbs,
@@ -1679,9 +1689,42 @@ export function ExecutiveGapInsightsClient(props: {
           usingFullRiskSet={quarterDrivers.usingFullRiskSet}
           productKpis={productViz.summary}
           productKpisPrev={productKpiPrev}
+          commitAdmission={props.commitAdmission}
           variant="forecast_only"
         />
       </div>
+
+      {props.commitAdmission && (props.commitAdmission.totalCommitCrmAmount > 0 || props.commitAdmission.unsupportedCommitAmount > 0 || props.commitAdmission.commitNeedsReviewAmount > 0 || props.commitAdmission.aiSupportedCommitAmount > 0) ? (
+        <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+          <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Commit Integrity</div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+              <div className="text-xs text-[color:var(--sf-text-secondary)]">Total Commit (CRM) $</div>
+              <div className="mt-1 text-lg font-semibold text-[color:var(--sf-text-primary)]">
+                {props.commitAdmission.totalCommitCrmAmount.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
+              </div>
+            </div>
+            <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+              <div className="text-xs text-[color:var(--sf-text-secondary)]">AI-Supported Commit $</div>
+              <div className="mt-1 text-lg font-semibold text-[#2ECC71]">
+                {props.commitAdmission.aiSupportedCommitAmount.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
+              </div>
+            </div>
+            <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+              <div className="text-xs text-[color:var(--sf-text-secondary)]">Unsupported Commit $</div>
+              <div className={`mt-1 text-lg font-semibold ${props.commitAdmission.unsupportedCommitAmount > 0 ? "text-[#E74C3C]" : "text-[color:var(--sf-text-primary)]"}`}>
+                {props.commitAdmission.unsupportedCommitAmount.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
+              </div>
+            </div>
+            <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+              <div className="text-xs text-[color:var(--sf-text-secondary)]">Needs Review $</div>
+              <div className={`mt-1 text-lg font-semibold ${props.commitAdmission.commitNeedsReviewAmount > 0 ? "text-[#F1C40F]" : "text-[color:var(--sf-text-primary)]"}`}>
+                {props.commitAdmission.commitNeedsReviewAmount.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <div className="mt-4">
         <ExecutiveQuarterKpisModule

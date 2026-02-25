@@ -5,6 +5,7 @@ import { pool } from "../../../../lib/pool";
 import { getVisibleUsers } from "../../../../lib/db";
 import { resolvePublicId, zPublicId } from "../../../../lib/publicId";
 import { getForecastStageProbabilities } from "../../../../lib/forecastStageProbabilities";
+import { computeCommitAdmission } from "../../../../lib/commitAdmission";
 
 export const runtime = "nodejs";
 
@@ -180,6 +181,14 @@ type DealRow = {
   competition_tip: string | null;
   timing_tip: string | null;
   budget_tip: string | null;
+  paper_confidence: string | null;
+  process_confidence: string | null;
+  timing_confidence: string | null;
+  budget_confidence: string | null;
+  paper_evidence_strength: string | null;
+  process_evidence_strength: string | null;
+  timing_evidence_strength: string | null;
+  budget_evidence_strength: string | null;
 };
 
 function bucketLabel(b: DealRow["crm_bucket"]) {
@@ -224,7 +233,18 @@ type RiskFlag = {
   key: RiskCategoryKey;
   label: string;
   tip: string | null;
+  evidence_fragility?: boolean;
 };
+
+const LATE_STAGE_KEYS: RiskCategoryKey[] = ["paper", "process", "timing", "budget"];
+
+function getConfidence(deal: DealRow, key: RiskCategoryKey): string | null {
+  if (key === "paper") return deal.paper_confidence ?? null;
+  if (key === "process") return deal.process_confidence ?? null;
+  if (key === "timing") return deal.timing_confidence ?? null;
+  if (key === "budget") return deal.budget_confidence ?? null;
+  return null;
+}
 
 function extractRiskFlags(deal: DealRow, labels: ScoreLabelMap): RiskFlag[] {
   const out: RiskFlag[] = [];
@@ -234,10 +254,14 @@ function extractRiskFlags(deal: DealRow, labels: ScoreLabelMap): RiskFlag[] {
     const lbl = labelForScore(labels, key, score);
     const scorePart = score == null ? "unscored" : `score ${scoreAsInt(score) ?? score}`;
     const labelPart = lbl ? lbl : scorePart;
+    const conf = getConfidence(deal, key);
+    const isLateStage = LATE_STAGE_KEYS.includes(key);
+    const evidenceFragility = isLateStage && conf != null && String(conf).toLowerCase() !== "high";
     out.push({
       key,
       label: `${displayName}: ${labelPart}`,
       tip: tip && String(tip).trim() ? String(tip).trim() : null,
+      ...(evidenceFragility ? { evidence_fragility: true } : {}),
     });
   };
 
@@ -294,6 +318,8 @@ type MeddpiccCategoryRow = {
   score_label: string;
   tip: string | null;
   evidence: string | null;
+  confidence?: string | null;
+  evidence_strength?: string | null;
 };
 
 function cleanText(v: any) {
@@ -306,6 +332,11 @@ function buildMeddpiccCategories(deal: DealRow, labels: ScoreLabelMap): Meddpicc
     const lbl = labelForScore(labels, key as any, score);
     return lbl || "";
   };
+  const withConf = (key: MeddpiccCategoryKey, row: Omit<MeddpiccCategoryRow, "confidence" | "evidence_strength">): MeddpiccCategoryRow => {
+    const conf = getConfidence(deal, key);
+    const es = (deal as any)[`${key === "economic_buyer" ? "eb" : key}_evidence_strength`] ?? null;
+    return { ...row, confidence: conf ?? undefined, evidence_strength: cleanText(es) ?? undefined };
+  };
 
   return [
     { key: "pain", score: deal.pain_score, score_label: scoreLabel("pain", deal.pain_score), tip: cleanText(deal.pain_tip), evidence: cleanText(deal.pain_summary) },
@@ -313,11 +344,11 @@ function buildMeddpiccCategories(deal: DealRow, labels: ScoreLabelMap): Meddpicc
     { key: "champion", score: deal.champion_score, score_label: scoreLabel("champion", deal.champion_score), tip: cleanText(deal.champion_tip), evidence: cleanText(deal.champion_summary) },
     { key: "criteria", score: deal.criteria_score, score_label: scoreLabel("criteria", deal.criteria_score), tip: cleanText(deal.criteria_tip), evidence: cleanText(deal.criteria_summary) },
     { key: "competition", score: deal.competition_score, score_label: scoreLabel("competition", deal.competition_score), tip: cleanText(deal.competition_tip), evidence: cleanText(deal.competition_summary) },
-    { key: "timing", score: deal.timing_score, score_label: scoreLabel("timing", deal.timing_score), tip: cleanText(deal.timing_tip), evidence: cleanText(deal.timing_summary) },
-    { key: "budget", score: deal.budget_score, score_label: scoreLabel("budget", deal.budget_score), tip: cleanText(deal.budget_tip), evidence: cleanText(deal.budget_summary) },
+    withConf("timing", { key: "timing", score: deal.timing_score, score_label: scoreLabel("timing", deal.timing_score), tip: cleanText(deal.timing_tip), evidence: cleanText(deal.timing_summary) }),
+    withConf("budget", { key: "budget", score: deal.budget_score, score_label: scoreLabel("budget", deal.budget_score), tip: cleanText(deal.budget_tip), evidence: cleanText(deal.budget_summary) }),
     { key: "economic_buyer", score: deal.eb_score, score_label: scoreLabel("economic_buyer", deal.eb_score), tip: cleanText(deal.eb_tip), evidence: cleanText(deal.eb_summary) },
-    { key: "process", score: deal.process_score, score_label: scoreLabel("process", deal.process_score), tip: cleanText(deal.process_tip), evidence: cleanText(deal.process_summary) },
-    { key: "paper", score: deal.paper_score, score_label: scoreLabel("paper", deal.paper_score), tip: cleanText(deal.paper_tip), evidence: cleanText(deal.paper_summary) },
+    withConf("process", { key: "process", score: deal.process_score, score_label: scoreLabel("process", deal.process_score), tip: cleanText(deal.process_tip), evidence: cleanText(deal.process_summary) }),
+    withConf("paper", { key: "paper", score: deal.paper_score, score_label: scoreLabel("paper", deal.paper_score), tip: cleanText(deal.paper_tip), evidence: cleanText(deal.paper_summary) }),
   ];
 }
 
@@ -667,6 +698,8 @@ export async function GET(req: Request) {
           o.criteria_summary, o.competition_summary, o.timing_summary, o.budget_summary,
           o.pain_tip, o.metrics_tip, o.champion_tip, o.eb_tip, o.paper_tip, o.process_tip,
           o.criteria_tip, o.competition_tip, o.timing_tip, o.budget_tip,
+          o.paper_confidence, o.process_confidence, o.timing_confidence, o.budget_confidence,
+          o.paper_evidence_strength, o.process_evidence_strength, o.timing_evidence_strength, o.budget_evidence_strength,
           lower(
             regexp_replace(
               COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -681,6 +714,7 @@ export async function GET(req: Request) {
           ON COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
          AND r.id = o.rep_id
         WHERE o.org_id = $1::bigint
+          AND (o.predictive_eligible IS NOT FALSE)
           AND o.close_date IS NOT NULL
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
@@ -786,7 +820,9 @@ export async function GET(req: Request) {
         pain_summary, metrics_summary, champion_summary, eb_summary, paper_summary, process_summary,
         criteria_summary, competition_summary, timing_summary, budget_summary,
         pain_tip, metrics_tip, champion_tip, eb_tip, paper_tip, process_tip,
-        criteria_tip, competition_tip, timing_tip, budget_tip
+        criteria_tip, competition_tip, timing_tip, budget_tip,
+        paper_confidence, process_confidence, timing_confidence, budget_confidence,
+        paper_evidence_strength, process_evidence_strength, timing_evidence_strength, budget_evidence_strength
       FROM modded
       WHERE (NOT $10::boolean OR suppression IS TRUE)
         AND (
@@ -880,6 +916,8 @@ export async function GET(req: Request) {
             o.criteria_summary, o.competition_summary, o.timing_summary, o.budget_summary,
             o.pain_tip, o.metrics_tip, o.champion_tip, o.eb_tip, o.paper_tip, o.process_tip,
             o.criteria_tip, o.competition_tip, o.timing_tip, o.budget_tip,
+            o.paper_confidence, o.process_confidence, o.timing_confidence, o.budget_confidence,
+            o.paper_evidence_strength, o.process_evidence_strength, o.timing_evidence_strength, o.budget_evidence_strength,
             lower(
               regexp_replace(
                 COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -894,6 +932,7 @@ export async function GET(req: Request) {
             ON COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
            AND r.id = o.rep_id
           WHERE o.org_id = $1::bigint
+            AND (o.predictive_eligible IS NOT FALSE)
             AND o.close_date IS NOT NULL
             AND o.close_date >= qp.period_start
             AND o.close_date <= qp.period_end
@@ -969,7 +1008,9 @@ export async function GET(req: Request) {
           pain_summary, metrics_summary, champion_summary, eb_summary, paper_summary, process_summary,
           criteria_summary, competition_summary, timing_summary, budget_summary,
           pain_tip, metrics_tip, champion_tip, eb_tip, paper_tip, process_tip,
-          criteria_tip, competition_tip, timing_tip, budget_tip
+          criteria_tip, competition_tip, timing_tip, budget_tip,
+          paper_confidence, process_confidence, timing_confidence, budget_confidence,
+          paper_evidence_strength, process_evidence_strength, timing_evidence_strength, budget_evidence_strength
         FROM open_only
         WHERE (NOT $10::boolean OR FALSE)
           AND (
@@ -1078,6 +1119,9 @@ export async function GET(req: Request) {
       };
       risk_flags: RiskFlag[];
       coaching_insights: string[];
+      commit_admission_status?: "admitted" | "not_admitted" | "needs_review";
+      commit_admission_reasons?: string[];
+      verdict_note?: string | null;
     };
 
     const enriched: DealOut[] = deals.map((d) => {
@@ -1090,6 +1134,23 @@ export async function GET(req: Request) {
       const riskFlags = extractRiskFlags(d, labels);
       const coaching = uniqueNonEmpty(riskFlags.map((r) => r.tip));
       const categories = buildMeddpiccCategories(d, labels);
+
+      const aiForecast = computeAiFromHealthScore(d.health_score);
+      const applicable = d.crm_bucket === "commit" || aiForecast === "Commit";
+      const admission = computeCommitAdmission(d, applicable);
+      const commitAdmissionOut =
+        applicable && admission.status !== "admitted"
+          ? {
+              commit_admission_status: admission.status as "admitted" | "not_admitted" | "needs_review",
+              commit_admission_reasons: admission.reasons,
+              verdict_note:
+                admission.status === "not_admitted"
+                  ? "AI: Commit not supported (see admission reasons)."
+                  : admission.status === "needs_review"
+                    ? "AI: Commit evidence is low-confidence; review required."
+                    : null,
+            }
+          : {};
 
       return {
         id: String(d.id),
@@ -1130,6 +1191,7 @@ export async function GET(req: Request) {
         },
         risk_flags: riskFlags,
         coaching_insights: coaching,
+        ...commitAdmissionOut,
       };
     });
 

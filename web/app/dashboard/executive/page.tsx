@@ -78,6 +78,7 @@ export default async function ExecutiveDashboardPage({
             }}
             aiPctToGoal={summary.pctToGoal}
             leftToGo={summary.leftToGo}
+            commitAdmission={summary.commitAdmission}
             defaultTopN={5}
           />
         </div>

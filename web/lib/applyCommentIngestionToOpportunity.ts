@@ -7,6 +7,7 @@
 import { handleFunctionCall } from "../../muscle.js";
 import { pool } from "./pool";
 import { listScoreDefinitions, type ScoreDefRow } from "./db";
+import { isClosedOpportunityRow } from "./opportunityOutcome";
 import type { CommentIngestionExtracted, CategoryExtraction } from "./commentIngestionValidation";
 
 const EXTRACTION_TO_DB: Record<string, string> = {
@@ -111,13 +112,14 @@ export async function applyCommentIngestionToOpportunity(args: {
   const { orgId, opportunityId, extracted, commentIngestionId, scoreEventSource = "baseline", salesStage } = args;
 
   try {
-    // Ingestion "no rescore" guarantee: if baseline already exists, skip all scoring (no model, no health_score update).
     const { rows: oppRows } = await pool.query(
-      `SELECT baseline_health_score_ts FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,
+      `SELECT baseline_health_score_ts, forecast_stage, sales_stage FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,
       [orgId, opportunityId]
     );
-    if (oppRows?.[0]?.baseline_health_score_ts != null) {
-      return { ok: true }; // Skip; baseline already set; do not rescore from ingestion.
+    const opp = oppRows?.[0];
+    if (opp?.baseline_health_score_ts != null) return { ok: true };
+    if (isClosedOpportunityRow(opp)) {
+      return { ok: true };
     }
 
     const defs = await listScoreDefinitions().catch(() => []);

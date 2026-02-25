@@ -34,12 +34,10 @@ function outcomeFromRow(opp: { forecast_stage?: string | null; sales_stage?: str
   return outcomeFromStageLike(opp.sales_stage);
 }
 
-function inScope(opp: { sales_stage?: string | null; forecast_stage?: string | null; close_date?: string | Date | null }, cutoff: Date): boolean {
+function inScope(opp: { sales_stage?: string | null; forecast_stage?: string | null; close_date?: string | Date | null }, _cutoff: Date): boolean {
   const outcome = outcomeFromRow(opp);
-  if (outcome === "Open") return true;
-  const closeDate = opp.close_date ? new Date(opp.close_date) : null;
-  if (!closeDate || !Number.isFinite(closeDate.getTime())) return false;
-  return closeDate >= cutoff;
+  if (outcome !== "Open") return false;
+  return true;
 }
 
 function getConnection() {

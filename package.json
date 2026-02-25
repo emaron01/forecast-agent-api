@@ -14,6 +14,7 @@
     "start": "npm run start:web",
     "test": "echo \"Error: no test specified\" && exit 1",
     "verify:scoring": "node scripts/verify-scoring-triggers.mjs",
+    "verify:telemetry": "tsx scripts/verify_telemetry.ts",
     "worker:ingest": "tsx web/workers/opportunity-ingest-worker.ts"
   },
   "keywords": [],

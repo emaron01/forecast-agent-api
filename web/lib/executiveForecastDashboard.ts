@@ -8,6 +8,7 @@ import { getForecastStageProbabilities } from "./forecastStageProbabilities";
 import { computeSalesVsVerdictForecastSummary } from "./forecastSummary";
 import { getQuarterKpisSnapshot, type QuarterKpisSnapshot } from "./quarterKpisSnapshot";
 import type { PipelineMomentumData } from "./pipelineMomentum";
+import { getCommitAdmissionAggregates, type CommitAdmissionAggregates } from "./commitAdmissionAggregates";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -145,6 +146,7 @@ export type ExecutiveForecastSummary = {
   pctToGoal: number | null; // AI weighted / quota
   leftToGo: number; // quota - AI weighted
   bucketDeltas: { commit: number; best_case: number; pipeline: number; total: number }; // (AI - CRM) per bucket + total
+  commitAdmission: CommitAdmissionAggregates | null;
   partnersExecutive: {
     direct: {
       opps: number;
@@ -537,6 +539,7 @@ async function getPipelineStageSnapshotForPeriod(args: {
         SELECT
           COALESCE(o.amount, 0)::float8 AS amount,
           o.health_score::float8 AS health_score,
+          o.predictive_eligible,
           lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
           CASE
             WHEN o.close_date IS NULL THEN NULL
@@ -593,18 +596,18 @@ async function getPipelineStageSnapshotForPeriod(args: {
         FROM base
       )
       SELECT
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
-        AVG(CASE WHEN is_active AND bucket = 'commit' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS commit_avg_health_score,
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'best' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'best' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
-        AVG(CASE WHEN is_active AND bucket = 'best' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS best_case_avg_health_score,
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
-        AVG(CASE WHEN is_active AND bucket = 'pipeline' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS pipeline_avg_health_score,
-        COALESCE(SUM(CASE WHEN is_active THEN amount ELSE 0 END), 0)::float8 AS total_active_amount,
-        COALESCE(SUM(CASE WHEN is_active THEN 1 ELSE 0 END), 0)::int AS total_active_count,
-        AVG(CASE WHEN is_active THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS total_active_avg_health_score,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) AND bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) AND bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
+        AVG(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) AND bucket = 'commit' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS commit_avg_health_score,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) AND bucket = 'best' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) AND bucket = 'best' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
+        AVG(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) AND bucket = 'best' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS best_case_avg_health_score,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) AND bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) AND bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
+        AVG(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) AND bucket = 'pipeline' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS pipeline_avg_health_score,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) THEN amount ELSE 0 END), 0)::float8 AS total_active_amount,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) THEN 1 ELSE 0 END), 0)::int AS total_active_count,
+        AVG(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS total_active_avg_health_score,
         COALESCE(SUM(CASE WHEN is_won THEN amount ELSE 0 END), 0)::float8 AS won_amount,
         COALESCE(SUM(CASE WHEN is_won THEN 1 ELSE 0 END), 0)::int AS won_count,
         COALESCE(SUM(CASE WHEN is_lost THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
@@ -665,6 +668,7 @@ async function getPipelineStageSnapshotForPeriodWithNameFallback(args: {
       base AS (
         SELECT
           COALESCE(o.amount, 0)::float8 AS amount,
+          o.predictive_eligible,
           lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
         FROM opportunities o
         JOIN qp ON TRUE
@@ -695,14 +699,14 @@ async function getPipelineStageSnapshotForPeriodWithNameFallback(args: {
         FROM base
       )
       SELECT
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'best' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'best' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
-        COALESCE(SUM(CASE WHEN is_active THEN amount ELSE 0 END), 0)::float8 AS total_active_amount,
-        COALESCE(SUM(CASE WHEN is_active THEN 1 ELSE 0 END), 0)::int AS total_active_count,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) AND bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) AND bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) AND bucket = 'best' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) AND bucket = 'best' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) AND bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) AND bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) THEN amount ELSE 0 END), 0)::float8 AS total_active_amount,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS NOT FALSE) THEN 1 ELSE 0 END), 0)::int AS total_active_count,
         COALESCE(SUM(CASE WHEN is_won THEN amount ELSE 0 END), 0)::float8 AS won_amount,
         COALESCE(SUM(CASE WHEN is_won THEN 1 ELSE 0 END), 0)::int AS won_count,
         COALESCE(SUM(CASE WHEN is_lost THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
@@ -1156,6 +1160,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
       pctToGoal: null,
       leftToGo: 0,
       bucketDeltas: { commit: 0, best_case: 0, pipeline: 0, total: 0 },
+      commitAdmission: null,
       partnersExecutive: null,
     };
   }
@@ -2134,6 +2139,14 @@ export async function getExecutiveForecastDashboardSummary(args: {
       })()
     : null;
 
+  const commitAdmission = qpId
+    ? await getCommitAdmissionAggregates({
+        orgId: args.orgId,
+        quotaPeriodId: qpId,
+        repIds: scope.allowedRepIds,
+      }).catch(() => null)
+    : null;
+
   return {
     periods,
     fiscalYearsSorted,
@@ -2175,6 +2188,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
       pipeline: pipeDelta,
       total: forecastGap,
     },
+    commitAdmission,
     partnersExecutive,
   };
 }

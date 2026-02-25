@@ -73,6 +73,9 @@ type DealOut = {
   };
   risk_flags: Array<{ key: RiskCategoryKey; label: string; tip: string | null }>;
   coaching_insights: string[];
+  commit_admission_status?: "admitted" | "not_admitted" | "needs_review";
+  commit_admission_reasons?: string[];
+  verdict_note?: string | null;
 };
 
 type ApiResponse =
@@ -929,12 +932,34 @@ export function GapDrivingDealsClient(props: {
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
                               <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">{title}</div>
-                              <div className="mt-1 text-base text-[color:var(--sf-text-secondary)]">
-                                Sales Rep {repLabel} · Close {fmtDateMmddyyyy(d.close_date)} · CRM Forecast Stage{" "}
-                                <span className="font-semibold text-[color:var(--sf-text-primary)]">{crmStageLabel}</span> · AI Verdict Stage{" "}
-                                <span className={["font-semibold", stageDeltaClass(crmStageLabel, aiStageLabel)].join(" ")}>{aiStageLabel}</span>
-                                {d.health.suppression ? " · Suppressed Best Case (low score)" : ""}
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-base text-[color:var(--sf-text-secondary)]">
+                                <span>
+                                  Sales Rep {repLabel} · Close {fmtDateMmddyyyy(d.close_date)} · CRM Forecast Stage{" "}
+                                  <span className="font-semibold text-[color:var(--sf-text-primary)]">{crmStageLabel}</span> · AI Verdict Stage{" "}
+                                  <span className={["font-semibold", stageDeltaClass(crmStageLabel, aiStageLabel)].join(" ")}>{aiStageLabel}</span>
+                                  {d.health.suppression ? " · Suppressed Best Case (low score)" : ""}
+                                </span>
+                                {(d.crm_stage.bucket === "commit" || d.ai_verdict_stage === "Commit") && d.commit_admission_status === "not_admitted" ? (
+                                  <span
+                                    className="inline-flex items-center rounded-full border border-[#E74C3C]/60 bg-[#E74C3C]/15 px-2 py-0.5 text-xs font-semibold text-[#E74C3C]"
+                                    title={d.commit_admission_reasons?.slice(0, 2).join("; ") || "Commit not supported"}
+                                  >
+                                    NOT ADMITTED
+                                  </span>
+                                ) : (d.crm_stage.bucket === "commit" || d.ai_verdict_stage === "Commit") && d.commit_admission_status === "needs_review" ? (
+                                  <span
+                                    className="inline-flex items-center rounded-full border border-[#F1C40F]/60 bg-[#F1C40F]/15 px-2 py-0.5 text-xs font-semibold text-[#B8860B]"
+                                    title={d.commit_admission_reasons?.slice(0, 2).join("; ") || "Commit evidence needs review"}
+                                  >
+                                    NEEDS REVIEW
+                                  </span>
+                                ) : null}
                               </div>
+                              {d.verdict_note && (d.crm_stage.bucket === "commit" || d.ai_verdict_stage === "Commit") ? (
+                                <div className="mt-1.5 rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1.5 text-xs text-[color:var(--sf-text-secondary)] line-clamp-2" title={d.verdict_note}>
+                                  {d.verdict_note}
+                                </div>
+                              ) : null}
                               <div className="mt-2">
                                 <Link
                                   href={`/opportunities/${encodeURIComponent(d.id)}/deal-review`}

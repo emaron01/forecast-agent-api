@@ -17,6 +17,15 @@ function clamp01(n: number) {
   return n;
 }
 
+export type CommitAdmissionAggregates = {
+  unsupportedCommitAmount: number;
+  unsupportedCommitCount: number;
+  commitNeedsReviewAmount: number;
+  commitNeedsReviewCount: number;
+  totalCommitCrmAmount: number;
+  aiSupportedCommitAmount: number;
+};
+
 export function KpiCardsRow(props: {
   quota: number;
   aiForecast: number;
@@ -28,6 +37,7 @@ export function KpiCardsRow(props: {
   usingFullRiskSet: boolean;
   productKpis: { total_revenue: number; total_orders: number; blended_acv: number } | null;
   productKpisPrev: { total_revenue: number; total_orders: number; blended_acv: number } | null;
+  commitAdmission?: CommitAdmissionAggregates | null;
   variant?: "full" | "product_only" | "forecast_only";
 }) {
   const absMax = Math.max(Math.abs(props.bucketDeltas.commit), Math.abs(props.bucketDeltas.best_case), Math.abs(props.bucketDeltas.pipeline), 1);
@@ -136,10 +146,12 @@ export function KpiCardsRow(props: {
     );
   }
 
+  const ca = props.commitAdmission;
+
   if (variant === "forecast_only") {
     return (
       <section className="grid gap-3">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-9">
           <div className={card}>
             <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quota</div>
             <div className={val}>{fmtMoney(props.quota)}</div>
@@ -163,6 +175,25 @@ export function KpiCardsRow(props: {
             <div className="mt-1 text-meta">Outlook delta (AI − CRM)</div>
             {props.dealsAtRisk != null ? <div className="mt-1 text-meta">Deals at risk: {props.dealsAtRisk}</div> : null}
           </div>
+
+          {ca ? (
+            <>
+              <div className={card}>
+                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Unsupported Commit</div>
+                <div className={`mt-2 text-kpiValue ${ca.unsupportedCommitAmount > 0 ? "text-[#E74C3C]" : "text-[color:var(--sf-text-primary)]"}`}>
+                  {fmtMoney(ca.unsupportedCommitAmount)}
+                </div>
+                <div className="mt-1 text-meta"># Deals: {ca.unsupportedCommitCount}</div>
+              </div>
+              <div className={card}>
+                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Commit Needs Review</div>
+                <div className={`mt-2 text-kpiValue ${ca.commitNeedsReviewAmount > 0 ? "text-[#F1C40F]" : "text-[color:var(--sf-text-primary)]"}`}>
+                  {fmtMoney(ca.commitNeedsReviewAmount)}
+                </div>
+                <div className="mt-1 text-meta"># Deals: {ca.commitNeedsReviewCount}</div>
+              </div>
+            </>
+          ) : null}
 
           {ForecastStageGapAttributionCard}
         </div>

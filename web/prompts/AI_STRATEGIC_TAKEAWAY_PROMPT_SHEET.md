@@ -96,6 +96,14 @@ If the surface is not “risk deals”, adapt the placeholders but keep the stru
 - **Extended must begin with the same executive one-line**, then a short **Executive Summary** section (2–4 lines), then deeper detail.
 - Do NOT recompute risk from UI sorts or Top N lists. If the payload includes both a “total risk set” and a “display subset”, use the **total risk set** for counts/dollars and treat the subset as display-only.
 
+## Evidence Confidence Policy
+
+- **High-confidence evidence** is more reliable than medium/low.
+- **Low-confidence evidence** increases forecast risk and should be surfaced as uncertainty.
+- If multiple conclusions rely on low-confidence evidence, explicitly state that the insight is based on weak support.
+- Do not treat seller-only assertions as verified truth.
+- When the payload includes `confidence` or `evidence_strength` per category: prefer high-confidence evidence when drawing conclusions; treat low-confidence as forecast risk/uncertainty; call out "evidence fragility" when multiple key categories are low-confidence; do not overstate certainty when evidence is low.
+
 ## Guardrails
 
 - Never invent deal facts.

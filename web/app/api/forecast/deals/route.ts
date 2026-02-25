@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuth } from "../../../../lib/auth";
 import { pool } from "../../../../lib/pool";
-import { closedOutcomeFromOpportunityRow } from "../../../../lib/opportunityOutcome";
+import { closedOutcomeFromOpportunityRow, normalizeClosedForecast } from "../../../../lib/opportunityOutcome";
+import {
+  computeCommitAdmission,
+  isCommitAdmissionApplicable,
+  type CommitAdmissionStatus,
+} from "../../../../lib/commitAdmission";
 import { getScopedRepDirectory } from "../../../../lib/repScope";
 
 export const runtime = "nodejs";
@@ -11,7 +16,7 @@ function jsonError(status: number, error: string) {
   return NextResponse.json({ ok: false, error }, { status });
 }
 
-function computeAiFromHealthScore(healthScore: any) {
+function computeAiFromHealthScore(healthScore: any): "Commit" | "Best Case" | "Pipeline" | null {
   const n = Number(healthScore);
   if (!Number.isFinite(n)) return null;
   if (n >= 24) return "Commit";
@@ -19,16 +24,49 @@ function computeAiFromHealthScore(healthScore: any) {
   return "Pipeline";
 }
 
+function downgradeAiVerdictOneLevel(
+  ai: "Commit" | "Best Case" | "Pipeline"
+): "Best Case" | "Pipeline" {
+  if (ai === "Commit") return "Best Case";
+  if (ai === "Best Case") return "Pipeline";
+  return "Pipeline";
+}
+
 function normalizeAiVerdictRow(row: any) {
   const closed = closedOutcomeFromOpportunityRow(row);
   if (closed) {
-    return { ...row, ai_verdict: closed };
+    const closedLabel = normalizeClosedForecast(closed) ?? closed;
+    return { ...row, ai_verdict: closedLabel, ai_forecast: closedLabel };
   }
-  const ai = computeAiFromHealthScore(row?.health_score);
-  if (!ai) return row;
-  // Force AI display to align with computed health score (non-negotiable).
-  // Keep the raw DB fields too, but always provide a correct `ai_verdict`.
-  return { ...row, ai_verdict: ai };
+
+  const aiForecast = computeAiFromHealthScore(row?.health_score);
+  if (!aiForecast) return { ...row };
+
+  const applicable = isCommitAdmissionApplicable(row, aiForecast);
+  const admission = computeCommitAdmission(row, applicable);
+
+  let aiVerdict: string = aiForecast;
+  let verdictNote: string | undefined;
+
+  if (admission.status === "not_admitted") {
+    aiVerdict = downgradeAiVerdictOneLevel(aiForecast);
+    verdictNote = "AI: Commit not supported (see admission reasons).";
+  } else if (admission.status === "needs_review") {
+    verdictNote = "AI: Commit evidence is low-confidence; review required.";
+  }
+
+  const out: Record<string, unknown> = {
+    ...row,
+    ai_verdict: aiVerdict,
+    ai_forecast: aiForecast,
+  };
+  if (applicable) {
+    out.commit_admission_status = admission.status as CommitAdmissionStatus;
+    out.commit_admission_reasons = admission.reasons;
+  }
+  if (verdictNote) out.verdict_note = verdictNote;
+
+  return out;
 }
 
 export async function GET(req: Request) {
@@ -103,6 +141,7 @@ export async function GET(req: Request) {
         paper_score, paper_summary, paper_tip,
         timing_score, timing_summary, timing_tip,
         budget_score, budget_summary, budget_tip,
+        paper_confidence, process_confidence, timing_confidence, budget_confidence,
         updated_at
       FROM opportunities o
     `;

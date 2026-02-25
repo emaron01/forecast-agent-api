@@ -63,6 +63,20 @@ function computeAiForecastFromHealthScore(healthScore) {
   return computeAiVerdictFromHealthScore(healthScore);
 }
 
+/** CRO-safe: returns "Won"|"Lost"|null from forecast_stage or sales_stage. Matches web/lib/opportunityOutcome. */
+function closedOutcomeFromOpportunityRow(row) {
+  const s = (v) => String(v || "").trim().toLowerCase();
+  const check = (val) => {
+    if (!val) return null;
+    const v = s(val);
+    if (/\bwon\b/.test(v)) return "Won";
+    if (/\blost\b/.test(v)) return "Lost";
+    if (/\bclosed\b/.test(v)) return "Lost";
+    return null;
+  };
+  return check(row?.forecast_stage) || check(row?.sales_stage) || null;
+}
+
 /** CRO-safe: true if stage indicates Closed Won or Closed Lost. WON/LOST/CLOSED(standalone)=Lost. */
 function isClosedStage(stageLike) {
   const s = String(stageLike || "").trim().toLowerCase();
@@ -360,7 +374,7 @@ export async function handleFunctionCall({ toolName, args, pool }) {
   // Normalize Economic Buyer key prefix: models sometimes emit `economic_buyer_*`,
   // but the DB schema uses `eb_*`.
   if (args) {
-    for (const suffix of ["score", "summary", "tip"]) {
+    for (const suffix of ["score", "summary", "tip", "evidence_strength", "confidence"]) {
       const fromKey = `economic_buyer_${suffix}`;
       const toKey = `eb_${suffix}`;
       if (args[fromKey] !== undefined) {
@@ -419,10 +433,28 @@ export async function handleFunctionCall({ toolName, args, pool }) {
     }
   }
 
+  // Telemetry: derive confidence from evidence_strength when missing (locked mapping).
+  const EVIDENCE_TO_CONFIDENCE = {
+    explicit_verified: "high",
+    credible_indirect: "medium",
+    vague_rep_assertion: "low",
+    unknown_missing: "low",
+  };
+  for (const k of Object.keys(args || {})) {
+    const m = k.match(/^(.+)_evidence_strength$/);
+    if (!m) continue;
+    const cat = m[1];
+    const confKey = `${cat}_confidence`;
+    if (args[confKey] != null && String(args[confKey]).trim()) continue;
+    const es = String(args[k] || "").trim();
+    const derived = EVIDENCE_TO_CONFIDENCE[es] || null;
+    if (derived) args[confKey] = derived;
+  }
+
   // Update opportunity columns that are present in args (score/summary/tip + optional extras)
-  // Only allow known patterns: *_score, *_summary, *_tip, *_name, *_title, etc.
+  // Only allow known patterns: *_score, *_summary, *_tip, *_name, *_title, *_evidence_strength, *_confidence, etc.
   const allowed = Object.keys(args).filter((k) =>
-    /_(score|summary|tip|name|title|source|notes)$/.test(k)
+    /_(score|summary|tip|name|title|source|notes|evidence_strength|confidence)$/.test(k)
   );
   // Exclude metadata keys (not DB columns) and special summary fields handled below.
   const safeAllowed = allowed.filter(
@@ -451,8 +483,14 @@ export async function handleFunctionCall({ toolName, args, pool }) {
     if (k.endsWith("_tip") && args[k] == null) {
       args[k] = "";
     }
-    sets.push(`${k} = $${++i}`);
-    vals.push(args[k]);
+    // Telemetry: evidence_strength/confidence — store NULL when empty (missing = NULL per spec)
+    if ((k.endsWith("_evidence_strength") || k.endsWith("_confidence")) && !cleanText(args[k])) {
+      sets.push(`${k} = $${++i}`);
+      vals.push(null);
+    } else {
+      sets.push(`${k} = $${++i}`);
+      vals.push(args[k]);
+    }
   }
 
   // Also update risk_summary/next_steps if provided by tool (only persist non-empty to avoid wiping).
@@ -497,6 +535,18 @@ export async function handleFunctionCall({ toolName, args, pool }) {
     const opp = rows[0] || {};
     const baselineAlreadyExists = opp.baseline_health_score_ts != null;
     const recomputed = await recomputeTotalScore(client, orgId, opportunityId);
+
+    // Telemetry: predictive_eligible = TRUE when NOT Closed Won/Lost (for training data filtering).
+    const closed = closedOutcomeFromOpportunityRow(opp);
+    const predictiveEligible = closed == null;
+    try {
+      await client.query(
+        `UPDATE opportunities SET predictive_eligible = $3 WHERE org_id = $1 AND id = $2`,
+        [orgId, opportunityId, predictiveEligible]
+      );
+    } catch (e) {
+      if (String(e?.code || "") !== "42703") throw e; // ignore if column missing
+    }
 
     // Provenance: score_event_source from args overrides; else baselineAlreadyExists ? 'agent' : 'baseline'
     const scoreEventSource = args.score_event_source === "baseline" || args.score_event_source === "agent"
