@@ -31,11 +31,7 @@ export function PasteNotesPanel(props: {
         setError(json?.error || "Analysis failed");
         return;
       }
-      setSuccessMsg(
-        json.mode === "async"
-          ? "Queued. Scoring will run in the background."
-          : "Applied to opportunity. Categories scored; Risk Summary and Next Steps updated."
-      );
+      setSuccessMsg("Applied to opportunity. Categories scored; Risk Summary and Next Steps updated.");
       props.onApplied?.();
     } catch (e: any) {
       setError(e?.message || String(e));
@@ -71,9 +67,9 @@ export function PasteNotesPanel(props: {
           {error}
         </div>
       ) : null}
-      {successMsg ? (
+      {(busy || successMsg) ? (
         <div className="mt-3 rounded-md border border-[color:var(--good)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--good)]">
-          {successMsg}
+          {busy ? "Your notes are being analyzed - please wait." : successMsg}
         </div>
       ) : null}
     </section>

@@ -9,7 +9,6 @@ import {
   createFieldMappingSet,
   deleteFieldMappingSet,
   getFieldMappingSet,
-  insertCommentIngestion,
   listIngestionStagingErrorsInRange,
   listIngestionStagingByFilter,
   listFieldMappings,
@@ -20,8 +19,7 @@ import {
   updateFieldMappingSet,
 } from "../../../lib/db";
 import { resolvePublicTextId } from "../../../lib/publicId";
-import { runCommentIngestionTurn, getPromptVersionHash } from "../../../lib/commentIngestionTurn";
-import { applyCommentIngestionToOpportunity } from "../../../lib/applyCommentIngestionToOpportunity";
+import { getIngestQueue, QUEUE_NAME } from "../../../lib/ingest-queue";
 
 // Target fields that are opportunity columns (stored in field_mappings). Excludes "comments" which is handled separately.
 const OPPORTUNITY_TARGETS = [
@@ -636,7 +634,8 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
 
     const staged = await stageIngestionRows({ organizationId: orgId, mappingSetId, rawRows });
     const processNow = parsed.processNow !== "false";
-    let commentsScored = 0;
+    let commentsQueued = 0;
+    let jobId: string | undefined;
     const summary = processNow ? await processIngestionBatch({ organizationId: orgId, mappingSetId }).catch((e: any) => {
       // Don't crash the UI; surface a helpful message.
       throw new Error(`Ingestion processing failed: ${e?.message || String(e)}`);
@@ -673,59 +672,46 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
         );
       }
 
-      // If Comments column was mapped, run AI scoring for rows with comments (after opportunities are upserted).
+      // If Comments column was mapped, enqueue AI scoring for rows with comments (after opportunities are upserted).
       const commentsSource = byTarget.get("comments") || "";
       const crmOppIdSource = byTarget.get("crm_opp_id") || "";
       if (commentsSource && crmOppIdSource) {
-        const MAX_COMMENT_ROWS = 100;
-        let commentsProcessed = 0;
-        for (let i = 0; i < rawRows.length && commentsProcessed < MAX_COMMENT_ROWS; i++) {
-          const row = rawRows[i] as any;
-          const rawText = String(row?.[commentsSource] ?? "").trim();
-          const crmOppId = String(row?.[crmOppIdSource] ?? "").trim();
-          if (!rawText || !crmOppId) continue;
-          commentsProcessed++;
+        const jobRows = rawRows
+          .map((row: any, i: number) => ({
+            rowNum: i + 2,
+            crmOppId: String(row?.[crmOppIdSource] ?? "").trim(),
+            rawText: String(row?.[commentsSource] ?? "").trim(),
+          }))
+          .filter((r: { crmOppId: string; rawText: string }) => r.crmOppId && r.rawText);
+
+        if (jobRows.length > 0) {
+          const queue = getIngestQueue();
+          if (!queue) {
+            return err(intent, "Comment scoring requires Redis. Set REDIS_URL and redeploy.", [
+              "Comment scoring is queued via BullMQ. REDIS_URL must be configured.",
+            ]);
+          }
+          if (QUEUE_NAME !== "opportunity-ingest") {
+            return err(intent, "Queue configuration error.", [`Expected queue name "opportunity-ingest", got "${QUEUE_NAME}".`]);
+          }
+
+          console.log(`[ingest] enqueue start { count: ${jobRows.length}, queueName: "${QUEUE_NAME}" }`);
           try {
-            const { rows: oppRows } = await pool.query(
-              `SELECT id, account_name, opportunity_name, amount, close_date, forecast_stage, baseline_health_score_ts
-               FROM opportunities WHERE org_id = $1 AND NULLIF(btrim(crm_opp_id), '') = $2 LIMIT 1`,
-              [orgId, crmOppId]
-            );
-            const opp = oppRows?.[0];
-            if (!opp) continue;
-            // Ingestion "no rescore" guarantee: skip model + apply when baseline already exists.
-            if (opp.baseline_health_score_ts != null) continue;
-            const deal = {
-              id: opp.id,
-              account_name: opp.account_name,
-              opportunity_name: opp.opportunity_name,
-              amount: opp.amount,
-              close_date: opp.close_date,
-              forecast_stage: opp.forecast_stage,
-            };
-            const { extracted } = await runCommentIngestionTurn({ deal, rawNotes: rawText, orgId });
-            const { id: commentIngestionId } = await insertCommentIngestion({
+            const job = await queue.add("excel-comments", {
               orgId,
-              opportunityId: opp.id,
-              sourceType: "excel",
-              sourceRef: file.name,
-              rawText,
-              extractedJson: extracted,
-              modelMetadata: {
-                model: process.env.MODEL_API_NAME || "unknown",
-                promptVersionHash: getPromptVersionHash(),
-                timestamp: new Date().toISOString(),
-              },
+              fileName: file.name,
+              rows: jobRows,
             });
-            const applyResult = await applyCommentIngestionToOpportunity({
-              orgId,
-              opportunityId: opp.id,
-              extracted,
-              commentIngestionId,
-            });
-            if (applyResult.ok) commentsScored++;
-          } catch {
-            /* skip failed rows */
+            const jobsAdded = 1;
+            console.log(`[ingest] enqueue success { jobsAdded: ${jobsAdded} }`);
+            commentsQueued = jobRows.length;
+            jobId = job.id;
+          } catch (enqErr: any) {
+            console.error("[ingest] enqueue FAILED", enqErr?.stack || enqErr);
+            return err(intent, "Failed to queue comment scoring.", [
+              String(enqErr?.message || enqErr),
+              "Ensure Redis is reachable and REDIS_URL is correct.",
+            ]);
           }
         }
       }
@@ -741,8 +727,8 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
         ? `Upload succeeded. ${changed} record(s) were updated.`
         : `Upload succeeded. No records needed updating.`
       : `Upload succeeded. Staged ${staged.inserted} row(s).`;
-    if (commentsScored > 0) {
-      successMessage += ` ${commentsScored} row(s) had comments scored.`;
+    if (commentsQueued > 0) {
+      successMessage += ` ${commentsQueued} row(s) with comments placed in scoring queue.`;
     }
 
     return ok(intent, successMessage, {
@@ -753,6 +739,8 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
       changed,
       processed: summary?.processed ?? undefined,
       error: summary?.error ?? undefined,
+      jobId,
+      jobsQueued: commentsQueued > 0 ? 1 : 0,
     });
   } catch (e: any) {
     return err(intent, "We couldn’t upload your file.", [String(e?.message || e)]);
