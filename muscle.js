@@ -5,6 +5,7 @@
  */
 
 import { computeConfidence } from "./confidence.js";
+import { computeAiForecastFromHealthScore } from "./aiForecast.js";
 
 function nowIso() {
   return new Date().toISOString();
@@ -40,27 +41,6 @@ function vpTipForCategory(category) {
       "Identify the economic buyer, confirm their priorities, and secure direct access or a committed intro.",
   };
   return tips[category] || "Validate the critical evidence and confirm ownership for this category.";
-}
-
-/**
- * Map health_score (0-30) to an AI verdict stage for analytics.
- * - Commit: 24+
- * - Best Case: 18-23
- * - Pipeline: 0-17
- *
- * Note: This does NOT change CRM forecast_stage; it writes ai_verdict only.
- */
-function computeAiVerdictFromHealthScore(healthScore) {
-  const n = Number(healthScore);
-  if (!Number.isFinite(n)) return null;
-  if (n >= 24) return "Commit";
-  if (n >= 18) return "Best Case";
-  return "Pipeline";
-}
-
-function computeAiForecastFromHealthScore(healthScore) {
-  // AI Forecast uses the same Health Score → Forecast Stage mapping already in the codebase.
-  return computeAiVerdictFromHealthScore(healthScore);
 }
 
 /** CRO-safe: returns "Won"|"Lost"|null from forecast_stage or sales_stage. Matches web/lib/opportunityOutcome. */
@@ -560,7 +540,12 @@ export async function handleFunctionCall({ toolName, args, pool }) {
     // Persist computed health_score so the agent always has a real number to speak (never invent).
     // Baseline immutability: only set baseline_* when baseline_health_score_ts IS NULL.
     if (recomputed.total_score != null && Number.isFinite(recomputed.total_score)) {
-      const aiForecast = pinnedClosed ?? computeAiForecastFromHealthScore(recomputed.total_score);
+      const aiForecast = pinnedClosed ?? computeAiForecastFromHealthScore({
+        healthScore: recomputed.total_score,
+        salesStageForClosed: stageForClosed,
+        salesStage: opp.sales_stage,
+        forecastStage: opp.forecast_stage,
+      });
       const scoreSource = scoreEventSource;
       try {
         if (baselineAlreadyExists) {

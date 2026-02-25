@@ -6,6 +6,7 @@ import { getVisibleUsers } from "../../../../lib/db";
 import { resolvePublicId, zPublicId } from "../../../../lib/publicId";
 import { getForecastStageProbabilities } from "../../../../lib/forecastStageProbabilities";
 import { computeCommitAdmission } from "../../../../lib/commitAdmission";
+import { computeAiForecastFromHealthScore } from "../../../../lib/aiForecast";
 
 export const runtime = "nodejs";
 
@@ -42,14 +43,6 @@ function healthPctFromScore30(score: any) {
   const n = Number(score);
   if (!Number.isFinite(n) || n <= 0) return null;
   return clamp(Math.round((n / 30) * 100), 0, 100);
-}
-
-function computeAiFromHealthScore(healthScore: any): "Commit" | "Best Case" | "Pipeline" | null {
-  const n = Number(healthScore);
-  if (!Number.isFinite(n)) return null;
-  if (n >= 24) return "Commit";
-  if (n >= 18) return "Best Case";
-  return "Pipeline";
 }
 
 type ScoreLabelMap = Record<string, Record<number, string>>;
@@ -720,7 +713,7 @@ export async function GET(req: Request) {
           ON COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
          AND r.id = o.rep_id
         WHERE o.org_id = $1::bigint
-          AND (o.predictive_eligible IS NOT FALSE)
+          AND (o.predictive_eligible IS TRUE)
           AND o.close_date IS NOT NULL
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
@@ -938,7 +931,7 @@ export async function GET(req: Request) {
             ON COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
            AND r.id = o.rep_id
           WHERE o.org_id = $1::bigint
-            AND (o.predictive_eligible IS NOT FALSE)
+            AND (o.predictive_eligible IS TRUE)
             AND o.close_date IS NOT NULL
             AND o.close_date >= qp.period_start
             AND o.close_date <= qp.period_end
@@ -1146,7 +1139,11 @@ export async function GET(req: Request) {
       const coaching = uniqueNonEmpty(riskFlags.map((r) => r.tip));
       const categories = buildMeddpiccCategories(d, labels);
 
-      const aiForecast = computeAiFromHealthScore(d.health_score);
+      const aiForecast = computeAiForecastFromHealthScore({
+        healthScore: d.health_score,
+        forecastStage: d.forecast_stage,
+        salesStage: d.sales_stage,
+      });
       const applicable = d.crm_bucket === "commit" || aiForecast === "Commit";
       const admission = computeCommitAdmission(d, applicable);
 
@@ -1216,7 +1213,11 @@ export async function GET(req: Request) {
           bucket: d.crm_bucket,
           label: bucketLabel(d.crm_bucket),
         },
-        ai_verdict_stage: computeAiFromHealthScore(d.health_score),
+        ai_verdict_stage: computeAiForecastFromHealthScore({
+      healthScore: d.health_score,
+      forecastStage: d.forecast_stage,
+      salesStage: d.sales_stage,
+    }),
         amount,
         health: {
           health_score: d.health_score,

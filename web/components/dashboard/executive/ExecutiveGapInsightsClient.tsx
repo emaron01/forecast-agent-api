@@ -9,6 +9,7 @@ import type { QuarterKpisSnapshot } from "../../../lib/quarterKpisSnapshot";
 import { ExecutiveDealsDrivingGapModule, type ExecutiveGapDeal } from "./ExecutiveDealsDrivingGapModule";
 import Link from "next/link";
 import { KpiCardsRow, type CommitAdmissionAggregates } from "./KpiCardsRow";
+import { DataReadinessCard } from "./DataReadinessCard";
 import type { CommitDealPanelItem } from "../../../lib/commitAdmissionAggregates";
 import { RiskRadarPlot, type RadarDeal } from "./RiskRadarPlot";
 import { palette } from "../../../lib/palette";
@@ -1706,6 +1707,14 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
         </section>
       ) : null}
+
+      <section className="mt-4">
+        <DataReadinessCard
+          quotaPeriodId={quotaPeriodId}
+          snapshotOffsetDays={90}
+          isAdmin={false}
+        />
+      </section>
 
       {props.commitAdmission && (props.commitAdmission.totalCommitCrmAmount > 0 || props.commitAdmission.unsupportedCommitAmount > 0 || props.commitAdmission.commitNeedsReviewAmount > 0 || props.commitAdmission.aiSupportedCommitAmount > 0) ? (
         <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">

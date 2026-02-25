@@ -207,9 +207,9 @@ export function KpiCardsRow(props: {
               </div>
             </>
           ) : null}
-
-          {ForecastStageGapAttributionCard}
         </div>
+
+        {ForecastStageGapAttributionCard}
       </section>
     );
   }

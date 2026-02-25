@@ -9,19 +9,12 @@ import {
   type CommitAdmissionStatus,
 } from "../../../../lib/commitAdmission";
 import { getScopedRepDirectory } from "../../../../lib/repScope";
+import { computeAiForecastFromHealthScore } from "../../../../lib/aiForecast";
 
 export const runtime = "nodejs";
 
 function jsonError(status: number, error: string) {
   return NextResponse.json({ ok: false, error }, { status });
-}
-
-function computeAiFromHealthScore(healthScore: any): "Commit" | "Best Case" | "Pipeline" | null {
-  const n = Number(healthScore);
-  if (!Number.isFinite(n)) return null;
-  if (n >= 24) return "Commit";
-  if (n >= 18) return "Best Case";
-  return "Pipeline";
 }
 
 function downgradeAiVerdictOneLevel(
@@ -39,7 +32,11 @@ function normalizeAiVerdictRow(row: any) {
     return { ...row, ai_verdict: closedLabel, ai_forecast: closedLabel };
   }
 
-  const aiForecast = computeAiFromHealthScore(row?.health_score);
+  const aiForecast = computeAiForecastFromHealthScore({
+    healthScore: row?.health_score,
+    forecastStage: row?.forecast_stage,
+    salesStage: row?.sales_stage,
+  });
   if (!aiForecast) return { ...row };
 
   const applicable = isCommitAdmissionApplicable(row, aiForecast);

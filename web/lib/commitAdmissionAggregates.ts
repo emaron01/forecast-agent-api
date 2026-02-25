@@ -10,14 +10,7 @@ import {
   computeCommitAdmission,
   isCommitAdmissionApplicable,
 } from "./commitAdmission";
-
-function computeAiFromHealthScore(healthScore: any): "Commit" | "Best Case" | "Pipeline" | null {
-  const n = Number(healthScore);
-  if (!Number.isFinite(n)) return null;
-  if (n >= 24) return "Commit";
-  if (n >= 18) return "Best Case";
-  return "Pipeline";
-}
+import { computeAiForecastFromHealthScore } from "./aiForecast";
 
 function n0(v: any) {
   const n = Number(v);
@@ -95,7 +88,7 @@ export async function getCommitAdmissionAggregates(args: {
           AND o.close_date IS NOT NULL
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
-          AND (o.predictive_eligible IS NOT FALSE)
+          AND (o.predictive_eligible IS TRUE)
           AND NOT ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
           AND NOT ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
           AND NOT ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% closed %')
@@ -130,7 +123,11 @@ export async function getCommitAdmissionAggregates(args: {
 
   for (const row of deals) {
     const crmBucket = computeCrmBucket(row);
-    const aiForecast = computeAiFromHealthScore(row.health_score);
+    const aiForecast = computeAiForecastFromHealthScore({
+      healthScore: row.health_score,
+      forecastStage: row.forecast_stage,
+      salesStage: row.sales_stage,
+    });
     const isCommitScope = crmBucket === "commit" || aiForecast === "Commit";
 
     if (!isCommitScope) continue;
@@ -241,7 +238,7 @@ export async function getCommitAdmissionDealPanels(args: {
           AND o.close_date IS NOT NULL
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
-          AND (o.predictive_eligible IS NOT FALSE)
+          AND (o.predictive_eligible IS TRUE)
           AND NOT ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
           AND NOT ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
           AND NOT ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% closed %')
@@ -277,7 +274,11 @@ export async function getCommitAdmissionDealPanels(args: {
 
   for (const row of deals) {
     const crmBucket = computeCrmBucket(row);
-    const aiForecast = computeAiFromHealthScore(row.health_score);
+    const aiForecast = computeAiForecastFromHealthScore({
+      healthScore: row.health_score,
+      forecastStage: row.forecast_stage,
+      salesStage: row.sales_stage,
+    });
     const isCommitScope = crmBucket === "commit" || aiForecast === "Commit";
 
     if (!isCommitScope) continue;

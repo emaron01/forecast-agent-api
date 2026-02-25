@@ -30,6 +30,7 @@ export default async function AdminAnalyticsHome() {
         <Card href="/admin/analytics/quota-periods" title="Fiscal calendar" desc="Manage quota periods (quota_periods)." />
         <Card href="/admin/analytics/quotas" title="Quota assignments" desc="Assign quotas to reps, managers, VPs, and CRO." />
         <Card href="/admin/analytics/forecast-probabilities" title="Forecast probabilities" desc="Set close probabilities by forecast category (Commit/Best/Pipeline)." />
+        <Card href="/admin/analytics/training-readiness" title="Data Readiness" desc="MEDDPICC evidence coverage and training snapshot diagnostics (Admin only)." />
         {hasFullAnalyticsAccess ? (
           <>
             <Card href="/admin/analytics/quota-rollups" title="Quota roll-ups" desc="View quota roll-ups by level." />

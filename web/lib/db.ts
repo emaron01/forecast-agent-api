@@ -1051,7 +1051,26 @@ export async function processIngestionBatch(args: { organizationId: number; mapp
     [organizationId]
   );
 
-  return { ok: s.data.ok, processed: s.data.processed, error: s.data.error, changed: s.data.processed };
+  // RISK 1: Set predictive_eligible on CRM ingest. Closed (won/lost/closed) => false, open => true.
+  const { rowCount: predictiveUpdated } = await pool.query(
+    `
+    UPDATE opportunities
+       SET predictive_eligible = NOT (
+         COALESCE(forecast_stage ~* '\\y(won|lost|closed)\\y', false)
+         OR COALESCE(sales_stage ~* '\\y(won|lost|closed)\\y', false)
+       )
+     WHERE org_id = $1::bigint
+    `,
+    [organizationId]
+  );
+
+  return {
+    ok: s.data.ok,
+    processed: s.data.processed,
+    error: s.data.error,
+    changed: s.data.processed,
+    predictive_eligible_updated: predictiveUpdated ?? 0,
+  };
 }
 
 export async function retryFailedStagingRows(args: {
