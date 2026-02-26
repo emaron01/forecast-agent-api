@@ -54,12 +54,18 @@ export async function POST(req: Request) {
 
     const rawText = await resp.text();
     // TEMP DEBUG: surface upstream STT body for analysis (server logs only).
+    const contentType = resp.headers.get("content-type") || "";
+    const contentLength = resp.headers.get("content-length") || "";
     console.log(
       JSON.stringify({
         event: "stt_upstream_response",
         ok: resp.ok,
         status: resp.status,
-        body_snippet: rawText.slice(0, 500),
+        content_type: contentType,
+        content_length: contentLength,
+        head: rawText.slice(0, 500),
+        tail: rawText.length > 500 ? rawText.slice(-500) : "",
+        total_length: rawText.length,
       })
     );
     if (!resp.ok) {
