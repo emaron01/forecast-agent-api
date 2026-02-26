@@ -231,8 +231,8 @@ async function callModelJSON(args: { instructions: string; input: string }) {
         input: args.input,
       }),
     });
-    const json = await resp.json().catch(async () => ({ error: { message: await resp.text() } }));
-    if (!resp.ok) throw new Error(json?.error?.message || JSON.stringify(json));
+    const json = await resp.json().catch(() => ({ error: { message: "Upstream request failed" } }));
+    if (!resp.ok) throw new Error(json?.error?.message || "Upstream request failed");
     const output = Array.isArray(json?.output) ? json.output : [];
     const chunks: string[] = [];
     for (const item of output) {
