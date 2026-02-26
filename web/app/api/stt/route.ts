@@ -53,6 +53,15 @@ export async function POST(req: Request) {
     });
 
     const rawText = await resp.text();
+    // TEMP DEBUG: surface upstream STT body for analysis (server logs only).
+    console.log(
+      JSON.stringify({
+        event: "stt_upstream_response",
+        ok: resp.ok,
+        status: resp.status,
+        body_snippet: rawText.slice(0, 500),
+      })
+    );
     if (!resp.ok) {
       return NextResponse.json({ ok: false, error: rawText || "Transcription failed" }, { status: resp.status });
     }
