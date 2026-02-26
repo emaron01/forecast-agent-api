@@ -544,6 +544,10 @@ async function saveToOpportunities(args: {
   tip: string;
   riskSummary: string;
   nextSteps: string;
+  champion_name?: string;
+  champion_title?: string;
+  eb_name?: string;
+  eb_title?: string;
 }) {
   const prefix = oppPrefixForCategory(args.category);
   const toolArgs: any = {
@@ -557,6 +561,14 @@ async function saveToOpportunities(args: {
     risk_summary: String(args.riskSummary || "").trim(),
     next_steps: String(args.nextSteps || "").trim(),
   };
+  const cn = String(args.champion_name ?? "").trim();
+  if (cn) toolArgs.champion_name = cn;
+  const ct = String(args.champion_title ?? "").trim();
+  if (ct) toolArgs.champion_title = ct;
+  const ebn = String(args.eb_name ?? "").trim();
+  if (ebn) toolArgs.eb_name = ebn;
+  const ebt = String(args.eb_title ?? "").trim();
+  if (ebt) toolArgs.eb_title = ebt;
 
   await handleFunctionCall({ toolName: "save_deal_data", args: toolArgs, pool });
 }
@@ -744,6 +756,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "Output MUST be strict JSON with one of these shapes:",
       `- {"action":"followup","question":"..."} `,
       `- {"action":"finalize","material_change":true,"score":0-3,"evidence":"...","tip":"...","risk_summary":"...","next_steps":"..."} `,
+      "- Optional on finalize when explicitly stated: champion_name, champion_title, eb_name, eb_title (omit if unclear).",
       `- {"action":"finalize","material_change":false} `,
     ].join("\n");
 
@@ -880,6 +893,10 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
               tip,
               riskSummary,
               nextSteps,
+              champion_name: String((obj as any)?.champion_name ?? "").trim() || undefined,
+              champion_title: String((obj as any)?.champion_title ?? "").trim() || undefined,
+              eb_name: String((obj as any)?.eb_name ?? "").trim() || undefined,
+              eb_title: String((obj as any)?.eb_title ?? "").trim() || undefined,
             });
 
             const oppAfter = await fetchOpportunity(orgId, opportunityId);
@@ -989,6 +1006,10 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       tip,
       riskSummary,
       nextSteps,
+      champion_name: String(obj?.champion_name ?? "").trim() || undefined,
+      champion_title: String(obj?.champion_title ?? "").trim() || undefined,
+      eb_name: String(obj?.eb_name ?? "").trim() || undefined,
+      eb_title: String(obj?.eb_title ?? "").trim() || undefined,
     });
 
     const oppAfter = await fetchOpportunity(orgId, opportunityId);

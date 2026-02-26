@@ -325,6 +325,51 @@ async function detectOpportunityAuditEventsOrgColumn(pool) {
   }
 }
 
+// Feature flags: persist Champion/EB name and title; safe rollout and debug logging.
+const ENTITY_PERSIST_ENABLED = process.env.ENTITY_PERSIST_ENABLED === "true";
+const DEBUG_ENTITY_PERSIST = process.env.DEBUG_ENTITY_PERSIST === "true";
+const ENTITY_FIELDS = ["eb_name", "eb_title", "champion_name", "champion_title"];
+
+/** Persistence safety: prefer full name (>=2 words) over single word. */
+function isBetterName(existing, incoming) {
+  const inVal = cleanText(incoming);
+  if (!inVal) return false;
+  const exVal = cleanText(existing);
+  if (!exVal) return true;
+  const inWords = inVal.split(/\s+/).filter(Boolean).length;
+  const exWords = exVal.split(/\s+/).filter(Boolean).length;
+  return inWords >= 2 && exWords < 2;
+}
+
+/** Persistence safety: prefer specific title (role-like or longer) over generic. */
+function isBetterTitle(existing, incoming) {
+  const inVal = cleanText(incoming);
+  if (!inVal) return false;
+  const exVal = cleanText(existing);
+  if (!exVal) return true;
+  const roleLike = /\b(director|vp|vice president|manager|head|lead|chief|engineer|architect)\b/i;
+  const inSpecific = inVal.length > 3 || roleLike.test(inVal);
+  const exSpecific = exVal.length > 3 || roleLike.test(exVal);
+  if (inSpecific && !exSpecific) return true;
+  if (inVal.length > exVal.length && inSpecific) return true;
+  return false;
+}
+
+/** Returns value to persist, or null to skip (never overwrite non-empty with empty; prefer higher quality). */
+function mergeEntityValue(key, existingVal, incomingVal) {
+  const incoming = cleanText(incomingVal);
+  if (!incoming) return null;
+  const existing = cleanText(existingVal);
+  if (!existing) return incoming;
+  const isName = key.endsWith("_name");
+  const isTitle = key.endsWith("_title");
+  if (isName && !isBetterName(existing, incoming)) return null;
+  if (isTitle && !isBetterTitle(existing, incoming)) return null;
+  return incoming;
+}
+
+export { isBetterName, isBetterTitle, mergeEntityValue };
+
 /**
  * Main tool handler (named export)
  */
@@ -411,6 +456,18 @@ export async function handleFunctionCall({ toolName, args, pool }) {
         args[tipKey] = vpTipForCategory(category);
       }
     }
+    // Scoring skepticism: EB/Champion identified but missing name/title → lower confidence.
+    if (hasScore && (category === "champion" || category === "eb")) {
+      const nameKey = category === "champion" ? "champion_name" : "eb_name";
+      const titleKey = category === "champion" ? "champion_title" : "eb_title";
+      const hasName = !!cleanText(args[nameKey]);
+      const hasTitle = !!cleanText(args[titleKey]);
+      if (!hasName || !hasTitle) {
+        const confKey = `${category === "eb" ? "eb" : "champion"}_confidence`;
+        const current = String(args[confKey] || "").trim().toLowerCase();
+        if (current !== "high" && current !== "medium") args[confKey] = "low";
+      }
+    }
   }
 
   // Telemetry: derive confidence from evidence_strength when missing (locked mapping).
@@ -452,7 +509,41 @@ export async function handleFunctionCall({ toolName, args, pool }) {
   const vals = [];
   let i = 2;
 
+  // Entity merge: fetch current values only when persistence is enabled (no extra query when disabled).
+  let currentEntity = null;
+  if (ENTITY_PERSIST_ENABLED) {
+    try {
+      const { rows } = await pool.query(
+        `SELECT eb_name, eb_title, champion_name, champion_title FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,
+        [orgId, opportunityId]
+      );
+      currentEntity = rows?.[0] || {};
+    } catch (e) {
+      if (String(e?.code || "") !== "42703") throw e;
+      currentEntity = {};
+    }
+  }
+
   for (const k of safeAllowed) {
+    // Entity fields: only persist when enabled and merge allows (never overwrite non-empty with empty).
+    if (ENTITY_FIELDS.includes(k)) {
+      if (!ENTITY_PERSIST_ENABLED) continue;
+      const existing = currentEntity ? (currentEntity[k] ?? null) : null;
+      const merged = mergeEntityValue(k, existing, args[k]);
+      if (merged == null) continue;
+      sets.push(`${k} = $${++i}`);
+      vals.push(merged);
+      if (DEBUG_ENTITY_PERSIST) {
+        console.log(
+          JSON.stringify({
+            event: "entity_persist",
+            field: k,
+            persisted: merged.slice(0, 50) + (merged.length > 50 ? "…" : ""),
+          })
+        );
+      }
+      continue;
+    }
     // Prevent wiping summaries with empty strings
     if (k.endsWith("_summary")) {
       const cleaned = cleanText(args[k]);
@@ -501,6 +592,31 @@ export async function handleFunctionCall({ toolName, args, pool }) {
            AND id = $2
       `;
       await client.query(q, [orgId, opportunityId, ...vals]);
+    }
+
+    if (DEBUG_ENTITY_PERSIST && ENTITY_PERSIST_ENABLED) {
+      try {
+        const { rows } = await client.query(
+          `SELECT eb_name, eb_title, champion_name, champion_title FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,
+          [orgId, opportunityId]
+        );
+        const row = rows?.[0] || {};
+        const sanitize = (v) => {
+          const s = v != null ? String(v).trim() : "";
+          return s ? (s.length > 40 ? s.slice(0, 40) + "…" : s) : "";
+        };
+        console.log(
+          JSON.stringify({
+            event: "entity_persist_after_update",
+            eb_name: sanitize(row.eb_name),
+            eb_title: sanitize(row.eb_title),
+            champion_name: sanitize(row.champion_name),
+            champion_title: sanitize(row.champion_title),
+          })
+        );
+      } catch (e) {
+        if (String(e?.code || "") !== "42703") console.warn("[DEBUG_ENTITY_PERSIST] post-select", e?.message);
+      }
     }
 
     // Pull latest opp row for audit context (sales_stage for CRO-safe closed guard)
