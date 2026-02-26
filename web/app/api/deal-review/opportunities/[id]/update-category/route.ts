@@ -892,11 +892,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
             categoryUpdateSessions.delete(sessionId);
             const assistantText = [
               `Updated ${displayCategory(category)}.`,
-              assessedOnly.percent != null
-                ? `Overall: ${assessedOnly.percent}%`
-                : healthPercent != null
-                  ? `Overall: ${healthPercent}%`
-                  : "",
+              healthPercent != null ? `Overall: ${healthPercent}%` : "",
               disclaimer ? disclaimer : "",
             ]
               .filter(Boolean)
@@ -1008,7 +1004,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
 
     const assistantText = [
       `Updated ${displayCategory(category)}.`,
-      assessedOnly.percent != null ? `Overall: ${assessedOnly.percent}%` : healthPercent != null ? `Overall: ${healthPercent}%` : "",
+      healthPercent != null ? `Overall: ${healthPercent}%` : "",
       disclaimer ? disclaimer : "",
     ]
       .filter(Boolean)
