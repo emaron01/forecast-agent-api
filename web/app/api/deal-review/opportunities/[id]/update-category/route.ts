@@ -790,6 +790,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       const stream = new ReadableStream({
         async start(controller) {
           const encoder = new TextEncoder();
+          controller.enqueue(encoder.encode(': keepalive\n\n'));
           const sendSSE = (
             payload: object,
             _opts?: { event?: string; id?: string }
