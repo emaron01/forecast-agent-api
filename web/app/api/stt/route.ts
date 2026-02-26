@@ -54,7 +54,10 @@ export async function POST(req: Request) {
 
     const rawText = await resp.text();
     if (!resp.ok) {
-      return NextResponse.json({ ok: false, error: rawText || "Transcription failed" }, { status: resp.status });
+      const trimmed = rawText.trim();
+      const isProviderJsonParseError = /Unexpected non-whitespace character after JSON/i.test(trimmed);
+      const friendlyError = isProviderJsonParseError ? "Transcription backend returned invalid JSON" : trimmed || "Transcription failed";
+      return NextResponse.json({ ok: false, error: friendlyError }, { status: resp.status });
     }
 
     if (useFormatText) {
