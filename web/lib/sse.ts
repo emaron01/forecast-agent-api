@@ -17,7 +17,7 @@ export type SSESendOptions = {
  * so the stream never contains "}data:" without an intervening \n\n.
  */
 export function sendSSE(
-  controller: WritableStreamDefaultController<Uint8Array>,
+  controller: WritableStreamDefaultController,
   payload: object,
   opts?: SSESendOptions
 ): void {
