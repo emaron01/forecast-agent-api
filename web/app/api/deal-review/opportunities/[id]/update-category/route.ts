@@ -273,9 +273,6 @@ async function callModelJSON(args: { instructions: string; input: string }) {
 
   const extractDelta = (ev: any): string | null => {
     if (ev?.type === "response.output_text.delta" && typeof ev.delta === "string") return ev.delta;
-    const part = ev?.part ?? ev?.delta;
-    if (part && typeof part === "object" && typeof part.text === "string") return part.text;
-    if (part && typeof part === "object" && typeof part.delta === "string") return part.delta;
     return null;
   };
 
@@ -371,9 +368,6 @@ async function callModelJSONWithSentenceStream(
 
   const extractDelta = (ev: any): string | null => {
     if (ev?.type === "response.output_text.delta" && typeof ev.delta === "string") return ev.delta;
-    const part = ev?.part ?? ev?.delta;
-    if (part && typeof part === "object" && typeof part.text === "string") return part.text;
-    if (part && typeof part === "object" && typeof part.delta === "string") return part.delta;
     return null;
   };
 
