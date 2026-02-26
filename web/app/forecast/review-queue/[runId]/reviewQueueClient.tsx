@@ -373,7 +373,7 @@ export function ReviewQueueClient(props: { runId: string }) {
         const head = trimmed.slice(0, 120);
         return {
           ok: false,
-          error: `Transcription backend returned invalid JSON. head=${head}`,
+          error: "Transcription failed",
         };
       }
     };

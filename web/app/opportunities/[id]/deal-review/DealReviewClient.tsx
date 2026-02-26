@@ -624,7 +624,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
         const head = trimmed.slice(0, 120);
         return {
           ok: false,
-          error: `Transcription backend returned invalid JSON. head=${head}`,
+          error: "Transcription failed",
         };
       }
     };
