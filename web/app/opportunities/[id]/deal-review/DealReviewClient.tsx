@@ -604,15 +604,36 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   }, []);
 
   const sendToStt = useCallback(async (blob: Blob) => {
+    const readSttResponse = async (
+      res: Response
+    ): Promise<{ ok: boolean; text?: string; error?: string }> => {
+      const ct = (res.headers.get("content-type") || "").toLowerCase();
+      if (ct.includes("application/json")) {
+        try {
+          return (await res.json()) as any;
+        } catch {
+          // fall through to text parsing
+        }
+      }
+      const t = await res.text();
+      try {
+        return JSON.parse(t) as any;
+      } catch {
+        return { ok: false, error: t || "Transcription failed" };
+      }
+    };
+
     const mime = blob.type || "audio/webm";
     const ext = mime.includes("ogg") ? "ogg" : "webm";
     const file = new File([blob], `audio.${ext}`, { type: mime });
     const form = new FormData();
     form.set("file", file, file.name);
     const res = await fetch("/api/stt", { method: "POST", body: form });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok || !json?.ok) throw new Error(json?.error || "STT failed");
-    const text = String(json?.text || "").trim();
+    const payload = await readSttResponse(res);
+    if (!payload?.ok) {
+      throw new Error(`STT: ${payload?.error || "Transcription failed"}`);
+    }
+    const text = String(payload?.text || "").trim();
     return text;
   }, []);
 
