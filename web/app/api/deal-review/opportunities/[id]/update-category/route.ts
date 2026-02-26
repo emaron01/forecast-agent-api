@@ -231,8 +231,8 @@ async function callModelJSON(args: { instructions: string; input: string }) {
         input: args.input,
       }),
     });
-    const json = await resp.json().catch(() => ({ error: { message: "Upstream request failed" } }));
-    if (!resp.ok) throw new Error(json?.error?.message || "Upstream request failed");
+    const json = await resp.json().catch(() => ({ error: { message: "Upstream LLM request failed" } }));
+    if (!resp.ok) throw new Error(json?.error?.message || "Upstream LLM request failed");
     const output = Array.isArray(json?.output) ? json.output : [];
     const chunks: string[] = [];
     for (const item of output) {
@@ -943,7 +943,12 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     }
 
     const { text: modelText } = await callModelJSON({ instructions, input });
-    const obj = parseStrictJson(modelText);
+    let obj: any;
+    try {
+      obj = parseStrictJson(modelText);
+    } catch {
+      throw new Error("LLM returned unexpected response format");
+    }
     const action = String(obj?.action || "").trim();
 
     if (action === "followup") {
