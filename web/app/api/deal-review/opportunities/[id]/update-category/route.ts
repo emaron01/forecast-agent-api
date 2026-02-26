@@ -943,6 +943,14 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     }
 
     const { text: modelText } = await callModelJSON({ instructions, input });
+    console.log(
+      JSON.stringify({
+        event: "parse_strict_json_input",
+        modelText_length: modelText.length,
+        modelText_head: modelText.slice(0, 300),
+        modelText_tail: modelText.length > 300 ? modelText.slice(-300) : "",
+      })
+    );
     let obj: any;
     try {
       obj = parseStrictJson(modelText);
