@@ -108,8 +108,10 @@ export async function applyCommentIngestionToOpportunity(args: {
   commentIngestionId: number;
   scoreEventSource?: "baseline" | "agent";
   salesStage?: string | null;
+  /** When true (e.g. manual paste), apply even if baseline_health_score_ts is set (scores + entity fields). */
+  allowWhenBaselineExists?: boolean;
 }): Promise<{ ok: boolean; error?: string }> {
-  const { orgId, opportunityId, extracted, commentIngestionId, scoreEventSource = "baseline", salesStage } = args;
+  const { orgId, opportunityId, extracted, commentIngestionId, scoreEventSource = "baseline", salesStage, allowWhenBaselineExists } = args;
 
   try {
     const { rows: oppRows } = await pool.query(
@@ -117,7 +119,7 @@ export async function applyCommentIngestionToOpportunity(args: {
       [orgId, opportunityId]
     );
     const opp = oppRows?.[0];
-    if (opp?.baseline_health_score_ts != null) return { ok: true };
+    if (opp?.baseline_health_score_ts != null && !allowWhenBaselineExists) return { ok: true };
     if (isClosedOpportunityRow(opp)) {
       return { ok: true };
     }

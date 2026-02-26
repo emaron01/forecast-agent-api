@@ -509,9 +509,10 @@ export async function handleFunctionCall({ toolName, args, pool }) {
   const vals = [];
   let i = 2;
 
-  // Entity merge: fetch current values only when persistence is enabled (no extra query when disabled).
+  // Entity merge: fetch current values when any entity field is in args (so we can merge / avoid overwriting).
+  const hasEntityArg = ENTITY_FIELDS.some((f) => args[f] != null && String(args[f]).trim() !== "");
   let currentEntity = null;
-  if (ENTITY_PERSIST_ENABLED) {
+  if (hasEntityArg) {
     try {
       const { rows } = await pool.query(
         `SELECT eb_name, eb_title, champion_name, champion_title FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,
@@ -523,22 +524,41 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       currentEntity = {};
     }
   }
+  if (DEBUG_ENTITY_PERSIST && hasEntityArg) {
+    const sanit = (v) => (v != null && String(v).trim() ? String(v).trim().slice(0, 40) + (String(v).length > 40 ? "…" : "") : "");
+    console.log(
+      JSON.stringify({
+        event: "entity_persist_extracted",
+        eb_name: sanit(args.eb_name),
+        eb_title: sanit(args.eb_title),
+        champion_name: sanit(args.champion_name),
+        champion_title: sanit(args.champion_title),
+      })
+    );
+    console.log(
+      JSON.stringify({ event: "entity_persist_payload_keys", keys: Object.keys(args).filter((k) => ENTITY_FIELDS.includes(k)) })
+    );
+  }
 
   for (const k of safeAllowed) {
-    // Entity fields: only persist when enabled and merge allows (never overwrite non-empty with empty).
+    // Entity fields: always persist when merge allows (never overwrite non-empty with empty; allow initial write when existing empty).
     if (ENTITY_FIELDS.includes(k)) {
-      if (!ENTITY_PERSIST_ENABLED) continue;
       const existing = currentEntity ? (currentEntity[k] ?? null) : null;
       const merged = mergeEntityValue(k, existing, args[k]);
       if (merged == null) continue;
       sets.push(`${k} = $${++i}`);
       vals.push(merged);
       if (DEBUG_ENTITY_PERSIST) {
+        const ex = existing != null ? String(existing).trim() : "";
+        const changed = ex !== (merged || "");
         console.log(
           JSON.stringify({
-            event: "entity_persist",
+            event: "entity_persist_merge",
             field: k,
-            persisted: merged.slice(0, 50) + (merged.length > 50 ? "…" : ""),
+            existing: ex.slice(0, 30) + (ex.length > 30 ? "…" : ""),
+            incoming: String(args[k] || "").trim().slice(0, 30) + (String(args[k] || "").length > 30 ? "…" : ""),
+            merged: merged.slice(0, 30) + (merged.length > 30 ? "…" : ""),
+            changed,
           })
         );
       }
@@ -584,6 +604,7 @@ export async function handleFunctionCall({ toolName, args, pool }) {
   try {
     await client.query("BEGIN");
 
+    let updateRowCount = null;
     if (sets.length) {
       const q = `
         UPDATE opportunities
@@ -591,10 +612,14 @@ export async function handleFunctionCall({ toolName, args, pool }) {
          WHERE org_id = $1
            AND id = $2
       `;
-      await client.query(q, [orgId, opportunityId, ...vals]);
+      const updateResult = await client.query(q, [orgId, opportunityId, ...vals]);
+      updateRowCount = updateResult?.rowCount ?? null;
+      if (DEBUG_ENTITY_PERSIST) {
+        console.log(JSON.stringify({ event: "entity_persist_update_rowcount", rowCount: updateRowCount }));
+      }
     }
 
-    if (DEBUG_ENTITY_PERSIST && ENTITY_PERSIST_ENABLED) {
+    if (DEBUG_ENTITY_PERSIST && hasEntityArg) {
       try {
         const { rows } = await client.query(
           `SELECT eb_name, eb_title, champion_name, champion_title FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,

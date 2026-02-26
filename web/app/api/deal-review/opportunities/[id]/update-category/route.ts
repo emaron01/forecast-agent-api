@@ -27,6 +27,7 @@ export const runtime = "nodejs";
 // 3. early_audio_used: true when question extracted early; false when fallback to post-completion
 const LLM_STREAM_ENABLED = process.env.LLM_STREAM_ENABLED === "true";
 const VOICE_SENTENCE_CHUNKING = process.env.VOICE_SENTENCE_CHUNKING === "true";
+const DEBUG_ENTITY_PERSIST = process.env.DEBUG_ENTITY_PERSIST === "true";
 
 type ScoreDefRow = { score: number; label: string | null; criteria: string | null };
 
@@ -884,6 +885,31 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
               return;
             }
 
+            const sseEntity = {
+              champion_name: String((obj as any)?.champion_name ?? "").trim() || undefined,
+              champion_title: String((obj as any)?.champion_title ?? "").trim() || undefined,
+              eb_name: String((obj as any)?.eb_name ?? "").trim() || undefined,
+              eb_title: String((obj as any)?.eb_title ?? "").trim() || undefined,
+            };
+            if (DEBUG_ENTITY_PERSIST) {
+              const sanit = (v: string | undefined) => (v ? v.slice(0, 40) + (v.length > 40 ? "…" : "") : "");
+              console.log(
+                JSON.stringify({
+                  event: "update_category_entity_extracted",
+                  channel: "sse",
+                  ...Object.fromEntries(
+                    Object.entries(sseEntity).map(([k, v]) => [k, sanit(v)])
+                  ),
+                })
+              );
+              console.log(
+                JSON.stringify({
+                  event: "update_category_save_payload_keys",
+                  channel: "sse",
+                  entityKeys: Object.keys(sseEntity).filter((k) => (sseEntity as any)[k] != null),
+                })
+              );
+            }
             await saveToOpportunities({
               orgId,
               opportunityId,
@@ -893,10 +919,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
               tip,
               riskSummary,
               nextSteps,
-              champion_name: String((obj as any)?.champion_name ?? "").trim() || undefined,
-              champion_title: String((obj as any)?.champion_title ?? "").trim() || undefined,
-              eb_name: String((obj as any)?.eb_name ?? "").trim() || undefined,
-              eb_title: String((obj as any)?.eb_title ?? "").trim() || undefined,
+              ...sseEntity,
             });
 
             const oppAfter = await fetchOpportunity(orgId, opportunityId);
@@ -997,6 +1020,29 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     if (!evidence) return NextResponse.json({ ok: false, error: "Model returned empty evidence" }, { status: 500 });
     if (!tip) return NextResponse.json({ ok: false, error: "Model returned empty tip" }, { status: 500 });
 
+    const jsonEntity = {
+      champion_name: String(obj?.champion_name ?? "").trim() || undefined,
+      champion_title: String(obj?.champion_title ?? "").trim() || undefined,
+      eb_name: String(obj?.eb_name ?? "").trim() || undefined,
+      eb_title: String(obj?.eb_title ?? "").trim() || undefined,
+    };
+    if (DEBUG_ENTITY_PERSIST) {
+      const sanit = (v: string | undefined) => (v ? v.slice(0, 40) + (v.length > 40 ? "…" : "") : "");
+      console.log(
+        JSON.stringify({
+          event: "update_category_entity_extracted",
+          channel: "json",
+          ...Object.fromEntries(Object.entries(jsonEntity).map(([k, v]) => [k, sanit(v)])),
+        })
+      );
+      console.log(
+        JSON.stringify({
+          event: "update_category_save_payload_keys",
+          channel: "json",
+          entityKeys: Object.keys(jsonEntity).filter((k) => (jsonEntity as any)[k] != null),
+        })
+      );
+    }
     await saveToOpportunities({
       orgId,
       opportunityId,
@@ -1006,10 +1052,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       tip,
       riskSummary,
       nextSteps,
-      champion_name: String(obj?.champion_name ?? "").trim() || undefined,
-      champion_title: String(obj?.champion_title ?? "").trim() || undefined,
-      eb_name: String(obj?.eb_name ?? "").trim() || undefined,
-      eb_title: String(obj?.eb_title ?? "").trim() || undefined,
+      ...jsonEntity,
     });
 
     const oppAfter = await fetchOpportunity(orgId, opportunityId);

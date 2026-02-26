@@ -51,6 +51,10 @@ export async function POST(
       return NextResponse.json({ ok: false, error: "rawText is required" }, { status: 400 });
     }
 
+    console.log(
+      JSON.stringify({ event: "ingest_comments_start", opportunityId, sourceType })
+    );
+
     const { rows } = await pool.query(
       `SELECT id, public_id, account_name, opportunity_name, amount, close_date, forecast_stage, sales_stage, baseline_health_score_ts
        FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,
@@ -60,7 +64,8 @@ export async function POST(
     if (!opp) {
       return NextResponse.json({ ok: false, error: "Opportunity not found" }, { status: 404 });
     }
-    if (opp.baseline_health_score_ts != null) {
+    // Manual paste: allow running even when baseline exists (apply extraction + entity fields).
+    if (opp.baseline_health_score_ts != null && sourceType !== "manual") {
       return NextResponse.json({ ok: true, extracted: null, applied: false, skipped: "baseline_exists" });
     }
 
@@ -102,17 +107,27 @@ export async function POST(
       commentIngestionId,
       scoreEventSource: "agent",
       salesStage: opp.sales_stage ?? opp.forecast_stage ?? null,
+      allowWhenBaselineExists: sourceType === "manual",
     });
     if (!applyResult.ok) {
+      console.log(
+        JSON.stringify({ event: "ingest_comments_apply_error", opportunityId, error: applyResult.error })
+      );
       return NextResponse.json(
         { ok: false, error: applyResult.error ?? "Failed to apply to opportunity" },
         { status: 500 }
       );
     }
 
+    console.log(
+      JSON.stringify({ event: "ingest_comments_end", opportunityId, sourceType, applied: true })
+    );
     return NextResponse.json({ ok: true, extracted, applied: true });
   } catch (e: any) {
     const msg = e?.message || String(e);
+    console.log(
+      JSON.stringify({ event: "ingest_comments_error", error: msg })
+    );
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }

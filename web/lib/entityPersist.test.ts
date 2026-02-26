@@ -13,10 +13,12 @@ test("mergeEntityValue: do not overwrite existing with empty", () => {
   assert.strictEqual(mergeEntityValue("eb_title", "Director", "  "), null);
 });
 
-test("mergeEntityValue: use incoming when existing is empty", () => {
+test("mergeEntityValue: use incoming when existing is empty (including generic titles)", () => {
   assert.strictEqual(mergeEntityValue("champion_name", null, "Jane Doe"), "Jane Doe");
   assert.strictEqual(mergeEntityValue("champion_name", "", "Jane Doe"), "Jane Doe");
   assert.strictEqual(mergeEntityValue("eb_title", null, "VP Engineering"), "VP Engineering");
+  assert.strictEqual(mergeEntityValue("eb_title", "", "CFO"), "CFO");
+  assert.strictEqual(mergeEntityValue("champion_title", null, "VP"), "VP");
 });
 
 test("mergeEntityValue: full name (>=2 words) beats single word", () => {
