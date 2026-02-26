@@ -356,19 +356,23 @@ export function ReviewQueueClient(props: { runId: string }) {
     const readSttResponse = async (
       res: Response
     ): Promise<{ ok: boolean; text?: string; error?: string }> => {
-      const ct = (res.headers.get("content-type") || "").toLowerCase();
-      if (ct.includes("application/json")) {
-        try {
-          return (await res.json()) as any;
-        } catch {
-          // fall through to text parsing
-        }
-      }
       const t = await res.text();
+      const trimmed = (t || "").trim();
+
+      if (!trimmed) {
+        return { ok: false, error: "Transcription failed" };
+      }
+
       try {
-        return JSON.parse(t) as any;
+        return JSON.parse(trimmed) as any;
       } catch {
-        return { ok: false, error: t || "Transcription failed" };
+        // Never surface raw upstream parser errors to UI.
+        // Include small safe snippet for diagnostics.
+        const head = trimmed.slice(0, 120);
+        return {
+          ok: false,
+          error: `Transcription backend returned invalid JSON. head=${head}`,
+        };
       }
     };
 
