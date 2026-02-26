@@ -63,34 +63,15 @@ function extractJsonStringValue(buffer: string, key: string): string | null {
   return null;
 }
 
-/**
- * Extract the "question" value from partial JSON stream.
- * Uses robust JSON-string extraction + JSON.parse for decoding.
- */
 export function extractQuestionFromPartialJson(buffer: string): string | null {
-  try {
-    const obj = JSON.parse(buffer);
-    const q = obj?.question;
-    return typeof q === "string" ? q : null;
-  } catch {
-    return extractJsonStringValue(buffer, "question");
-  }
+  return extractJsonStringValue(buffer, "question");
 }
 
-/**
- * Extract the "action" value from partial JSON stream.
- * Returns "followup" | "finalize" | null when not yet available.
- */
 export function extractActionFromPartialJson(buffer: string): string | null {
-  try {
-    const obj = JSON.parse(buffer);
-    const a = obj?.action;
-    if (typeof a !== "string") return null;
-    const s = a.trim().toLowerCase();
-    return s === "followup" || s === "finalize" ? s : null;
-  } catch {
-    return extractJsonStringValue(buffer, "action");
-  }
+  const a = extractJsonStringValue(buffer, "action");
+  if (typeof a !== "string") return null;
+  const s = a.trim().toLowerCase();
+  return s || null;
 }
 
 export function getVoiceTuningFlags() {
