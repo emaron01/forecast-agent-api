@@ -787,16 +787,24 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       })
     );
     if (LLM_STREAM_ENABLED && VOICE_SENTENCE_CHUNKING) {
-      const encoder = new TextEncoder();
       const stream = new ReadableStream({
         async start(controller) {
+          const encoder = new TextEncoder();
+          const sendSSE = (
+            payload: object,
+            _opts?: { event?: string; id?: string }
+          ) => {
+            let out = "";
+            if (_opts?.event) out += `event: ${String(_opts.event).replace(/\n/g, "")}\n`;
+            if (_opts?.id != null) out += `id: ${String(_opts.id).replace(/\n/g, "")}\n`;
+            out += `data: ${JSON.stringify(payload)}\n\n`;
+            controller.enqueue(encoder.encode(out));
+          };
           try {
             const { text: modelText, emittedSentences } = await callModelJSONWithSentenceStream(
               { instructions, input },
               async (sentence) => {
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ type: "sentence", text: sentence })}\n\n`)
-                );
+                sendSSE({ type: "sentence", text: sentence });
               }
             );
             const obj = parseStrictJson(modelText);
@@ -814,57 +822,41 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
                 remainingText = q.slice(pos).trim();
               }
               if (!q) {
-                controller.enqueue(
-                  encoder.encode(
-                    `data: ${JSON.stringify({ type: "error", error: "Model followup missing question" })}\n\n`
-                  )
-                );
+                sendSSE({ type: "error", error: "Model followup missing question" });
                 controller.close();
                 return;
               }
               session.turns.push({ role: "assistant", text: q, at: Date.now() });
               session.updatedAt = Date.now();
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({
-                    type: "done",
-                    ok: true,
-                    sessionId,
-                    category,
-                    assistantText: q,
-                    remainingText: remainingText || undefined,
-                  })}\n\n`
-                )
-              );
+              sendSSE({
+                type: "done",
+                ok: true,
+                sessionId,
+                category,
+                assistantText: q,
+                remainingText: remainingText || undefined,
+              });
               controller.close();
               return;
             }
 
             if (action !== "finalize") {
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({ type: "error", error: "Model returned invalid action" })}\n\n`
-                )
-              );
+              sendSSE({ type: "error", error: "Model returned invalid action" });
               controller.close();
               return;
             }
 
             const material = Boolean(obj?.material_change);
             if (!material) {
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({
-                    type: "done",
-                    ok: true,
-                    sessionId,
-                    category,
-                    material_change: false,
-                    assistantText: "No material change — leaving the saved assessment and wrap as-is.",
-                    healthPercent: computeHealthPercentFromOpportunity(opp?.health_score),
-                  })}\n\n`
-                )
-              );
+              sendSSE({
+                type: "done",
+                ok: true,
+                sessionId,
+                category,
+                material_change: false,
+                assistantText: "No material change — leaving the saved assessment and wrap as-is.",
+                healthPercent: computeHealthPercentFromOpportunity(opp?.health_score),
+              });
               controller.close();
               return;
             }
@@ -876,20 +868,12 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
             const nextSteps = String(obj?.next_steps || "").trim();
 
             if (!Number.isFinite(score) || score < 0 || score > 3) {
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({ type: "error", error: "Model returned invalid score" })}\n\n`
-                )
-              );
+              sendSSE({ type: "error", error: "Model returned invalid score" });
               controller.close();
               return;
             }
             if (!evidence || !tip) {
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({ type: "error", error: "Model returned empty evidence or tip" })}\n\n`
-                )
-              );
+              sendSSE({ type: "error", error: "Model returned empty evidence or tip" });
               controller.close();
               return;
             }
@@ -925,32 +909,24 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
               .filter(Boolean)
               .join("\n");
 
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  type: "done",
-                  ok: true,
-                  sessionId,
-                  category,
-                  material_change: true,
-                  result: {
-                    score: Math.max(0, Math.min(3, Number(score) || 0)),
-                    evidence,
-                    tip,
-                  },
-                  healthPercent,
-                  assessedOnlyPercent: assessedOnly.percent,
-                  assistantText,
-                })}\n\n`
-              )
-            );
+            sendSSE({
+              type: "done",
+              ok: true,
+              sessionId,
+              category,
+              material_change: true,
+              result: {
+                score: Math.max(0, Math.min(3, Number(score) || 0)),
+                evidence,
+                tip,
+              },
+              healthPercent,
+              assessedOnlyPercent: assessedOnly.percent,
+              assistantText,
+            });
             controller.close();
           } catch (e: any) {
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({ type: "error", error: e?.message || String(e) })}\n\n`
-              )
-            );
+            sendSSE({ type: "error", error: e?.message || String(e) });
             controller.close();
           }
         },

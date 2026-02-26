@@ -124,6 +124,36 @@ function pickRecorderMime() {
 
 const VALID_CATEGORIES: CategoryKey[] = ["metrics", "economic_buyer", "criteria", "process", "paper", "pain", "champion", "competition", "timing", "budget"];
 
+const DEBUG_SSE = false;
+
+function parseSSE(buffer: string): { messages: any[]; remaining: string } {
+  const messages: any[] = [];
+  const normalized = buffer.replace(/\r\n/g, "\n");
+  const delim = "\n\n";
+  const lastIdx = normalized.lastIndexOf(delim);
+  const complete = lastIdx === -1 ? "" : normalized.slice(0, lastIdx);
+  const remaining = lastIdx === -1 ? normalized : normalized.slice(lastIdx + delim.length);
+
+  const eventBlocks = complete ? complete.split(delim) : [];
+  for (const block of eventBlocks) {
+    const dataLines = block
+      .split("\n")
+      .filter((l) => l.startsWith("data:"))
+      .map((l) => l.slice(5).replace(/^ /, ""));
+    const joined = dataLines.join("\n");
+    if (joined.trim() === "" || joined === "[DONE]") continue;
+    try {
+      const data = JSON.parse(joined);
+      messages.push(data);
+    } catch (e) {
+      if (DEBUG_SSE && typeof console !== "undefined") {
+        console.warn("[SSE] Parse failure", { offendingBlock: block.slice(-512), bufferTail: buffer.slice(-2048) });
+      }
+    }
+  }
+  return { messages, remaining };
+}
+
 export function DealReviewClient(props: { opportunityId: string; initialCategory?: string; initialPrefill?: string }) {
   const opportunityId = String(props.opportunityId || "").trim();
   const initialCategory = String(props.initialCategory || "").trim() || undefined;
@@ -719,7 +749,6 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           const contentType = res.headers.get("content-type") || "";
           if (contentType.includes("text/event-stream")) {
             // Latency-layer: SSE streaming with sentence chunking. Play sentences sequentially.
-            // No changes to scoring, saves, or business logic.
             const reader = res.body?.getReader();
             if (!reader) throw new Error("No response body");
             const decoder = new TextDecoder();
@@ -743,43 +772,30 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               const { done, value } = await reader.read();
               if (done) break;
               buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split("\n");
-              buffer = lines.pop() || "";
-              for (const line of lines) {
-                if (!line.startsWith("data: ")) continue;
-                try {
-                  const data = JSON.parse(line.slice(6));
-                  if (data?.type === "sentence" && typeof data.text === "string") {
-                    sentenceQueue.push(data.text.trim());
+              const { messages: batch, remaining } = parseSSE(buffer);
+              buffer = remaining;
+              for (const data of batch) {
+                if (data?.type === "error") throw new Error((data.error as string) || "Update failed");
+                if (data?.type === "sentence" && typeof data.text === "string") {
+                  sentenceQueue.push(String(data.text).trim());
+                  void playNext();
+                } else if (data?.type === "done") {
+                  donePayload = data;
+                  const rem = String((data as any)?.remainingText || "").trim();
+                  if (rem) {
+                    sentenceQueue.push(rem);
                     void playNext();
-                  } else if (data?.type === "done") {
-                    donePayload = data;
-                    const rem = String((data as any)?.remainingText || "").trim();
-                    if (rem) {
-                      sentenceQueue.push(rem);
-                      void playNext();
-                    }
-                  } else if (data?.type === "error") {
-                    throw new Error(data?.error || "Update failed");
                   }
-                } catch (e) {
-                  if (e instanceof SyntaxError) {
-                    // Chunk boundary split the JSON; put line back for next read.
-                    buffer = line + "\n" + buffer;
-                    break;
-                  }
-                  if (e instanceof Error && donePayload === null) throw e;
                 }
               }
             }
-            if (buffer.trim().startsWith("data: ")) {
-              try {
-                const data = JSON.parse(buffer.slice(6));
-                if (data?.type === "done") donePayload = data;
-                else if (data?.type === "error") throw new Error(data?.error || "Update failed");
-              } catch (e) {
-                if (e instanceof Error && donePayload === null) throw e;
-              }
+            const { messages: flush, remaining: tail } = parseSSE(buffer);
+            for (const data of flush) {
+              if (data?.type === "error") throw new Error((data.error as string) || "Update failed");
+              if (data?.type === "done") donePayload = data;
+            }
+            if (tail.trim() !== "" && DEBUG_SSE && typeof console !== "undefined") {
+              console.warn("[SSE] Incomplete tail", tail.slice(-512));
             }
             if (!donePayload?.ok) throw new Error((donePayload as any)?.error || "Update failed");
             if (donePayload?.sessionId) setCatSessionId(String(donePayload.sessionId));
@@ -1152,42 +1168,30 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             const { done, value } = await reader.read();
             if (done) break;
             buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              try {
-                const data = JSON.parse(line.slice(6));
-                if (data?.type === "sentence" && typeof data.text === "string" && categoryInputMode === "VOICE") {
-                  sentenceQueue.push(data.text.trim());
+            const { messages: batch, remaining } = parseSSE(buffer);
+            buffer = remaining;
+            for (const data of batch) {
+              if (data?.type === "error") throw new Error((data.error as string) || "Update failed");
+              if (data?.type === "sentence" && typeof data.text === "string" && categoryInputMode === "VOICE") {
+                sentenceQueue.push(String(data.text).trim());
+                void playNext();
+              } else if (data?.type === "done") {
+                donePayload = data;
+                const rem = String((data as any)?.remainingText || "").trim();
+                if (rem && categoryInputMode === "VOICE") {
+                  sentenceQueue.push(rem);
                   void playNext();
-                } else if (data?.type === "done") {
-                  donePayload = data;
-                  const rem = String((data as any)?.remainingText || "").trim();
-                  if (rem && categoryInputMode === "VOICE") {
-                    sentenceQueue.push(rem);
-                    void playNext();
-                  }
-                } else if (data?.type === "error") {
-                  throw new Error(data?.error || "Update failed");
                 }
-              } catch (e) {
-                if (e instanceof SyntaxError) {
-                  buffer = line + "\n" + buffer;
-                  break;
-                }
-                if (e instanceof Error && donePayload === null) throw e;
               }
             }
           }
-          if (buffer.trim().startsWith("data: ")) {
-            try {
-              const data = JSON.parse(buffer.slice(6));
-              if (data?.type === "done") donePayload = data;
-              else if (data?.type === "error") throw new Error(data?.error || "Update failed");
-            } catch (e) {
-              if (e instanceof Error && donePayload === null) throw e;
-            }
+          const { messages: flush, remaining: tail } = parseSSE(buffer);
+          for (const data of flush) {
+            if (data?.type === "error") throw new Error((data.error as string) || "Update failed");
+            if (data?.type === "done") donePayload = data;
+          }
+          if (tail.trim() !== "" && DEBUG_SSE && typeof console !== "undefined") {
+            console.warn("[SSE] Incomplete tail", tail.slice(-512));
           }
           if (!donePayload?.ok) throw new Error((donePayload as any)?.error || "Update failed");
           if (donePayload?.sessionId) setCatSessionId(String(donePayload.sessionId));
