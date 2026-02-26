@@ -353,6 +353,8 @@ export function ReviewQueueClient(props: { runId: string }) {
   }, []);
 
   const sendToStt = useCallback(async (blob: Blob) => {
+    // STT response already read as res.text() then JSON.parse() here (no res.json()).
+    // Previous hardening: body read once, parse failures return stable error; raw SyntaxError never surfaces to UI.
     const readSttResponse = async (
       res: Response
     ): Promise<{ ok: boolean; text?: string; error?: string }> => {
@@ -376,17 +378,22 @@ export function ReviewQueueClient(props: { runId: string }) {
       }
     };
 
-    const mime = blob.type || "audio/webm";
-    const ext = mime.includes("ogg") ? "ogg" : "webm";
-    const file = new File([blob], `audio.${ext}`, { type: mime });
-    const form = new FormData();
-    form.set("file", file, file.name);
-    const res = await fetch("/api/stt", { method: "POST", body: form });
-    const payload = await readSttResponse(res);
-    if (!payload?.ok) {
-      throw new Error(`STT: ${payload?.error || "Transcription failed"}`);
+    try {
+      const mime = blob.type || "audio/webm";
+      const ext = mime.includes("ogg") ? "ogg" : "webm";
+      const file = new File([blob], `audio.${ext}`, { type: mime });
+      const form = new FormData();
+      form.set("file", file, file.name);
+      const res = await fetch("/api/stt", { method: "POST", body: form });
+      const payload = await readSttResponse(res);
+      if (!payload?.ok) {
+        throw new Error(`STT: ${payload?.error || "Transcription failed"}`);
+      }
+      return String(payload?.text || "").trim();
+    } catch (e) {
+      console.error("[STT sendToStt] Raw caught error:", e);
+      throw e;
     }
-    return String(payload?.text || "").trim();
   }, []);
 
   const stopRecorder = useCallback(async () => {
