@@ -885,15 +885,12 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
             const oppAfter = await fetchOpportunity(orgId, opportunityId);
             const healthPercent = computeHealthPercentFromOpportunity(oppAfter?.health_score);
             const assessedOnly = computeAssessedOnlyPercentFromOpportunity(oppAfter);
-            const disclaimer =
-              assessedOnly.unassessed > 0
-                ? "Overall score reflects only updated categories; remaining categories not assessed yet."
-                : "";
             categoryUpdateSessions.delete(sessionId);
             const assistantText = [
               `Updated ${displayCategory(category)}.`,
-              healthPercent != null ? `Overall: ${healthPercent}%` : "",
-              disclaimer ? disclaimer : "",
+              healthPercent != null
+                ? `Overall score is ${healthPercent}% and reflects only changes to assessed categories.`
+                : "",
             ]
               .filter(Boolean)
               .join("\n");
@@ -997,15 +994,14 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     const oppAfter = await fetchOpportunity(orgId, opportunityId);
     const healthPercent = computeHealthPercentFromOpportunity(oppAfter?.health_score);
     const assessedOnly = computeAssessedOnlyPercentFromOpportunity(oppAfter);
-    const disclaimer =
-      assessedOnly.unassessed > 0 ? "Overall score reflects only updated categories; remaining categories not assessed yet." : "";
 
     categoryUpdateSessions.delete(sessionId);
 
     const assistantText = [
       `Updated ${displayCategory(category)}.`,
-      healthPercent != null ? `Overall: ${healthPercent}%` : "",
-      disclaimer ? disclaimer : "",
+      healthPercent != null
+        ? `Overall score is ${healthPercent}% and reflects only changes to assessed categories.`
+        : "",
     ]
       .filter(Boolean)
       .join("\n");
