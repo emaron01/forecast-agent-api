@@ -68,6 +68,33 @@ function extractTouchedKeysFromSaveToolArgs(toolArgs: any) {
   return out;
 }
 
+function extractPersonAndTitleFromText(raw: string): { name?: string; title?: string } {
+  const text = String(raw || "").replace(/\s+/g, " ").trim();
+  if (!text) return {};
+  const role =
+    /\b(ceo|cfo|coo|cto|cio|cmo|cro|chief|president|owner|svp|evp|vp|vice president|director|head|manager|lead)\b/i;
+  const nameLike = /([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})/;
+
+  // "Susan Johnson is the CEO"
+  const m1 = text.match(new RegExp(`${nameLike.source}\\s+is\\s+(?:the\\s+)?([^.,;\\n]+)`, "i"));
+  if (m1?.[1]) {
+    const name = String(m1[1]).trim();
+    const tail = String(m1[2] || "").trim();
+    const title = tail && role.test(tail) ? tail.split(/\b(?:and|but)\b/i)[0].trim() : "";
+    if (name && title) return { name, title };
+    if (name) return { name };
+  }
+  // "Susan Johnson, CEO"
+  const m2 = text.match(new RegExp(`${nameLike.source}\\s*,\\s*([^.,;\\n]+)`, "i"));
+  if (m2?.[1] && m2?.[2] && role.test(m2[2])) return { name: String(m2[1]).trim(), title: String(m2[2]).trim() };
+  // "CEO Susan Johnson"
+  const m3 = text.match(new RegExp(`\\b(${role.source})\\b\\s+${nameLike.source}`, "i"));
+  if (m3?.[1] && m3?.[2]) return { title: String(m3[1]).trim(), name: String(m3[2]).trim() };
+  const nm = text.match(nameLike);
+  const rm = text.match(role);
+  return { name: nm?.[1]?.trim() || undefined, title: rm?.[1]?.trim() || undefined };
+}
+
 function displayTouchedKey(touchedKey: string) {
   const k = String(touchedKey || "").trim().toLowerCase();
   switch (k) {
@@ -504,6 +531,21 @@ export async function runResponsesTurn(args: {
         if (toolArgs.champion_title == null && (toolArgs as any).championTitle != null) toolArgs.champion_title = (toolArgs as any).championTitle;
         if (toolArgs.eb_name == null && (toolArgs as any).ebName != null) toolArgs.eb_name = (toolArgs as any).ebName;
         if (toolArgs.eb_title == null && (toolArgs as any).ebTitle != null) toolArgs.eb_title = (toolArgs as any).ebTitle;
+
+        // Fallback capture: if model didn't include entity fields, try to extract from the saved evidence text
+        // for Champion or Economic Buyer only.
+        if ((toolArgs.champion_name == null || toolArgs.champion_title == null) && (toolArgs.champion_summary || toolArgs.champion_tip)) {
+          const src = String(toolArgs.champion_summary || "");
+          const ex = extractPersonAndTitleFromText(src);
+          if (toolArgs.champion_name == null && ex.name) toolArgs.champion_name = ex.name;
+          if (toolArgs.champion_title == null && ex.title) toolArgs.champion_title = ex.title;
+        }
+        if ((toolArgs.eb_name == null || toolArgs.eb_title == null) && (toolArgs.eb_summary || (toolArgs as any).economic_buyer_summary)) {
+          const src = String(toolArgs.eb_summary ?? (toolArgs as any).economic_buyer_summary ?? "");
+          const ex = extractPersonAndTitleFromText(src);
+          if (toolArgs.eb_name == null && ex.name) toolArgs.eb_name = ex.name;
+          if (toolArgs.eb_title == null && ex.title) toolArgs.eb_title = ex.title;
+        }
         const wrapRisk = cleanText(toolArgs.risk_summary);
         const wrapNext = cleanText(toolArgs.next_steps);
         const wrapComplete = !!wrapRisk && !!wrapNext;

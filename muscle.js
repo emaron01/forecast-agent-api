@@ -351,7 +351,7 @@ function isBetterTitle(existing, incoming) {
   if (!inVal) return false;
   const exVal = cleanText(existing);
   if (!exVal) return true;
-  const roleLike = /\b(director|vp|vice president|manager|head|lead|chief|engineer|architect)\b/i;
+  const roleLike = /\b(director|vp|svp|evp|vice president|manager|head|lead|chief|ceo|cfo|coo|cto|cio|cmo|cro|president|owner)\b/i;
   const inSpecific = inVal.length > 3 || roleLike.test(inVal);
   const exSpecific = exVal.length > 3 || roleLike.test(exVal);
   // Allow replacements when incoming is specific (role-like or longer than 3 chars).

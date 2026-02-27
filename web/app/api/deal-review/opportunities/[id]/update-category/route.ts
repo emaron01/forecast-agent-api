@@ -104,6 +104,48 @@ function splitLabelEvidence(summary: any) {
   return { label: "", evidence: s };
 }
 
+function extractPersonAndTitleFromText(raw: string): { name?: string; title?: string } {
+  const text = String(raw || "").replace(/\s+/g, " ").trim();
+  if (!text) return {};
+  const role =
+    /\b(ceo|cfo|coo|cto|cio|cmo|cro|chief|president|owner|svp|evp|vp|vice president|director|head|manager|lead)\b/i;
+  const nameLike = /([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})/; // 2-4 words, Title Case
+
+  // "Susan Johnson is the CEO"
+  {
+    const m = text.match(new RegExp(`${nameLike.source}\\s+is\\s+(?:the\\s+)?([^.,;\\n]+)`, "i"));
+    const name = m?.[1]?.trim() || "";
+    const tail = m?.[2]?.trim() || "";
+    const title = tail && role.test(tail) ? tail.split(/\b(?:and|but)\b/i)[0].trim() : "";
+    if (name && title) return { name, title };
+    if (name) return { name };
+    if (title) return { title };
+  }
+
+  // "Susan Johnson, CEO"
+  {
+    const m = text.match(new RegExp(`${nameLike.source}\\s*,\\s*([^.,;\\n]+)`, "i"));
+    const name = m?.[1]?.trim() || "";
+    const title = m?.[2]?.trim() || "";
+    if (name && title && role.test(title)) return { name, title };
+  }
+
+  // "CEO Susan Johnson"
+  {
+    const m = text.match(new RegExp(`\\b(${role.source})\\b\\s+${nameLike.source}`, "i"));
+    const title = m?.[1]?.trim() || "";
+    const name = m?.[2]?.trim() || "";
+    if (name && title) return { name, title };
+  }
+
+  // Fallback: any name + any role token nearby
+  const nm = text.match(nameLike);
+  const rm = text.match(role);
+  const name = nm?.[1]?.trim() || "";
+  const title = rm?.[1]?.trim() || "";
+  return { name: name || undefined, title: title || undefined };
+}
+
 function isNoChangeReply(userText: string) {
   const t = String(userText || "").trim().toLowerCase();
   if (!t) return false;
@@ -904,13 +946,14 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
             const existingChampionTitle = String((opp as any)?.champion_title ?? "").trim() || undefined;
             const existingEbName = String((opp as any)?.eb_name ?? "").trim() || undefined;
             const existingEbTitle = String((opp as any)?.eb_title ?? "").trim() || undefined;
+            const fallback = extractPersonAndTitleFromText([text, evidence].filter(Boolean).join("\n"));
             const sseEntity: Record<string, string | boolean | undefined> = {};
             if (category === "champion") {
-              sseEntity.champion_name = rawChampionName ?? existingChampionName;
-              sseEntity.champion_title = rawChampionTitle ?? existingChampionTitle;
+              sseEntity.champion_name = rawChampionName ?? fallback.name ?? existingChampionName;
+              sseEntity.champion_title = rawChampionTitle ?? fallback.title ?? existingChampionTitle;
             } else if (category === "economic_buyer") {
-              sseEntity.eb_name = rawEbName ?? existingEbName;
-              sseEntity.eb_title = rawEbTitle ?? existingEbTitle;
+              sseEntity.eb_name = rawEbName ?? fallback.name ?? existingEbName;
+              sseEntity.eb_title = rawEbTitle ?? fallback.title ?? existingEbTitle;
             }
             if (entityOverride) sseEntity.entity_override = true;
             if (DEBUG_ENTITY_PERSIST) {
@@ -920,6 +963,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
                   channel: "sse",
                   objKeys: Object.keys(obj || {}),
                   entityFields: { champion_name: rawChampionName, champion_title: rawChampionTitle, eb_name: rawEbName, eb_title: rawEbTitle },
+                  fallback_entity: fallback,
                   entity_override: entityOverride,
                   roleSafePayload: sseEntity,
                 })
@@ -1044,13 +1088,14 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     const existingChampionTitle = String((opp as any)?.champion_title ?? "").trim() || undefined;
     const existingEbName = String((opp as any)?.eb_name ?? "").trim() || undefined;
     const existingEbTitle = String((opp as any)?.eb_title ?? "").trim() || undefined;
+    const fallback = extractPersonAndTitleFromText([text, evidence].filter(Boolean).join("\n"));
     const jsonEntity: Record<string, string | boolean | undefined> = {};
     if (category === "champion") {
-      jsonEntity.champion_name = rawChampionName ?? existingChampionName;
-      jsonEntity.champion_title = rawChampionTitle ?? existingChampionTitle;
+      jsonEntity.champion_name = rawChampionName ?? fallback.name ?? existingChampionName;
+      jsonEntity.champion_title = rawChampionTitle ?? fallback.title ?? existingChampionTitle;
     } else if (category === "economic_buyer") {
-      jsonEntity.eb_name = rawEbName ?? existingEbName;
-      jsonEntity.eb_title = rawEbTitle ?? existingEbTitle;
+      jsonEntity.eb_name = rawEbName ?? fallback.name ?? existingEbName;
+      jsonEntity.eb_title = rawEbTitle ?? fallback.title ?? existingEbTitle;
     }
     if (entityOverride) jsonEntity.entity_override = true;
     if (DEBUG_ENTITY_PERSIST) {
@@ -1060,6 +1105,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
           channel: "json",
           objKeys: Object.keys(obj || {}),
           entityFields: { champion_name: rawChampionName, champion_title: rawChampionTitle, eb_name: rawEbName, eb_title: rawEbTitle },
+          fallback_entity: fallback,
           entity_override: entityOverride,
           roleSafePayload: jsonEntity,
         })

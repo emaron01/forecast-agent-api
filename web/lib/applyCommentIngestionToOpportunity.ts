@@ -129,6 +129,34 @@ export async function applyCommentIngestionToOpportunity(args: {
     const riskSummary = buildRiskSummary(extracted);
     const nextSteps = buildNextSteps(extracted);
 
+    // People fields: ingestion can mis-route EB vs champion when the person is clearly a budget owner.
+    // We keep this conservative: only remap when Economic Buyer category exists AND the title/evidence indicates EB.
+    let championName = String(extracted.champion_name ?? "").trim();
+    let championTitle = String(extracted.champion_title ?? "").trim();
+    let ebName = String(extracted.eb_name ?? "").trim();
+    let ebTitle = String(extracted.eb_title ?? "").trim();
+
+    const ebCat: any = (extracted as any)?.meddpicc?.economic_buyer;
+    const hasEbCategorySignal =
+      !!ebCat &&
+      ((typeof ebCat.signal === "string" && ebCat.signal.toLowerCase() !== "missing") ||
+        (Number.isFinite(ebCat.score) && Number(ebCat.score) > 0));
+    const looksLikeEconomicBuyerTitle = /\b(ceo|cfo|coo|cto|cio|chief|president|owner)\b/i.test(championTitle);
+    const ebEvidenceText = [
+      String(ebCat?.evidence_text ?? "").trim(),
+      Array.isArray(ebCat?.evidence) ? ebCat.evidence.join(" ") : "",
+    ]
+      .join(" ")
+      .toLowerCase();
+    const evidenceMentionsBudget = /\bbudget\b|\bowns?\s+budgets?\b|\bapprov(e|al)\b/.test(ebEvidenceText);
+
+    if (!ebName && championName && hasEbCategorySignal && (looksLikeEconomicBuyerTitle || evidenceMentionsBudget)) {
+      ebName = championName;
+      if (!ebTitle && championTitle) ebTitle = championTitle;
+      championName = "";
+      championTitle = "";
+    }
+
     const toolArgs: Record<string, unknown> = {
       org_id: orgId,
       opportunity_id: opportunityId,
@@ -141,14 +169,10 @@ export async function applyCommentIngestionToOpportunity(args: {
     if (salesStage != null) toolArgs.sales_stage_for_closed = salesStage;
     if (riskSummary) toolArgs.risk_summary = riskSummary;
     if (nextSteps) toolArgs.next_steps = nextSteps;
-    const cn = String(extracted.champion_name ?? "").trim();
-    if (cn) toolArgs.champion_name = cn;
-    const ct = String(extracted.champion_title ?? "").trim();
-    if (ct) toolArgs.champion_title = ct;
-    const ebn = String(extracted.eb_name ?? "").trim();
-    if (ebn) toolArgs.eb_name = ebn;
-    const ebt = String(extracted.eb_title ?? "").trim();
-    if (ebt) toolArgs.eb_title = ebt;
+    if (championName) toolArgs.champion_name = championName;
+    if (championTitle) toolArgs.champion_title = championTitle;
+    if (ebName) toolArgs.eb_name = ebName;
+    if (ebTitle) toolArgs.eb_title = ebTitle;
 
     await handleFunctionCall({
       toolName: "save_deal_data",
