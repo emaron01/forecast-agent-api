@@ -111,14 +111,37 @@ function extractPersonAndTitleFromText(raw: string): { name?: string; title?: st
     /\b(ceo|cfo|coo|cto|cio|cmo|cro|chief|president|owner|svp|evp|vp|vice president|director|head|manager|lead)\b/i;
   const nameLike = /([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})/; // 2-4 words, Title Case
 
+  const cleanupTitle = (t: string) => {
+    let out = String(t || "").trim();
+    if (!out) return "";
+    out = out.replace(/\b(now|currently)\s+identified\s+as\s+the\b/i, "").trim();
+    out = out.replace(/\b(now|currently)\s+identified\s+as\b/i, "").trim();
+    out = out.replace(/\b(now|currently)\s+the\b/i, "").trim();
+    out = out.replace(/\b(now|currently)\b/i, "").trim();
+    out = out.split(/\b(which|who|that)\b/i)[0].trim();
+    out = out.split(/[.,;]/)[0].trim();
+    return out;
+  };
+
+  const cleanupName = (n: string) => {
+    const parts = String(n || "").trim().split(/\s+/);
+    const drop = /^(the|a|an)$/i;
+    const roleWord =
+      /\b(ceo|cfo|coo|cto|cio|cmo|cro|chief|president|owner|svp|evp|vp|vice|director|head|manager|lead|director)\b/i;
+    const kept = parts.filter((w, idx) => idx === parts.length - 1 || (!drop.test(w) && !roleWord.test(w)));
+    const name = kept.slice(-3).join(" ").trim();
+    return name || n;
+  };
+
   // "Susan Johnson is the CEO"
   {
     const m = text.match(new RegExp(`${nameLike.source}\\s+is\\s+(?:the\\s+)?([^.,;\\n]+)`, "i"));
     const name = m?.[1]?.trim() || "";
     const tail = m?.[2]?.trim() || "";
-    const title = tail && role.test(tail) ? tail.split(/\b(?:and|but)\b/i)[0].trim() : "";
-    if (name && title) return { name, title };
-    if (name) return { name };
+    const rawTitle = tail && role.test(tail) ? tail.split(/\b(?:and|but)\b/i)[0].trim() : "";
+    const title = cleanupTitle(rawTitle);
+    if (name && title) return { name: cleanupName(name), title };
+    if (name) return { name: cleanupName(name) };
     if (title) return { title };
   }
 
@@ -126,16 +149,18 @@ function extractPersonAndTitleFromText(raw: string): { name?: string; title?: st
   {
     const m = text.match(new RegExp(`${nameLike.source}\\s*,\\s*([^.,;\\n]+)`, "i"));
     const name = m?.[1]?.trim() || "";
-    const title = m?.[2]?.trim() || "";
-    if (name && title && role.test(title)) return { name, title };
+    const rawTitle = m?.[2]?.trim() || "";
+    const title = cleanupTitle(rawTitle);
+    if (name && title && role.test(title)) return { name: cleanupName(name), title };
   }
 
   // "CEO Susan Johnson"
   {
     const m = text.match(new RegExp(`\\b(${role.source})\\b\\s+${nameLike.source}`, "i"));
-    const title = m?.[1]?.trim() || "";
+    const rawTitle = m?.[1]?.trim() || "";
     const name = m?.[2]?.trim() || "";
-    if (name && title) return { name, title };
+    const title = cleanupTitle(rawTitle);
+    if (name && title) return { name: cleanupName(name), title };
   }
 
   // Fallback: any name + any role token nearby
