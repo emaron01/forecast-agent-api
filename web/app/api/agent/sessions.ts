@@ -29,6 +29,8 @@ declare global {
       // Strict Master Prompt enforcement: health score phrase must be spoken exactly before advance.
       wrapExpectedHealthPercent?: number;
       wrapHealthPhraseOk?: boolean;
+      /** Accumulated EB/Champion fields from save_deal_data during review; persisted on wrap save. */
+      accumulatedEntity?: Record<string, string>;
     }
   > | undefined;
 }
@@ -57,6 +59,7 @@ const sessions =
       wrapSaved: boolean;
       wrapExpectedHealthPercent?: number;
       wrapHealthPhraseOk?: boolean;
+      accumulatedEntity?: Record<string, string>;
     }
   >());
 
