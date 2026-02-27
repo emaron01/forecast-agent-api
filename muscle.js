@@ -505,6 +505,9 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       k !== "sales_stage_for_closed" &&
       k !== "entity_override"
   );
+  // Ensure entity fields in args are always considered (in case they were omitted from allowed by regex).
+  const entityKeysInArgs = ENTITY_FIELDS.filter((f) => args[f] !== undefined);
+  const keysToProcess = [...new Set([...safeAllowed, ...entityKeysInArgs])];
 
   const sets = [];
   const vals = [];
@@ -512,8 +515,9 @@ export async function handleFunctionCall({ toolName, args, pool }) {
 
   // Entity merge: fetch current values when any entity field is in args or entity_override is set.
   const hasEntityArg = ENTITY_FIELDS.some((f) => args[f] != null && String(args[f]).trim() !== "");
+  const hasAnyEntityKeyInArgs = entityKeysInArgs.length > 0;
   const entityOverride = args.entity_override === true;
-  const needEntityFetch = hasEntityArg || entityOverride;
+  const needEntityFetch = hasEntityArg || entityOverride || hasAnyEntityKeyInArgs;
   let currentEntity = null;
   if (needEntityFetch) {
     try {
@@ -544,7 +548,7 @@ export async function handleFunctionCall({ toolName, args, pool }) {
     );
   }
 
-  for (const k of safeAllowed) {
+  for (const k of keysToProcess) {
     // Entity fields: when entity_override true, allow overwrite/clear; else upgrade-only merge.
     if (ENTITY_FIELDS.includes(k)) {
       const existing = currentEntity ? (currentEntity[k] ?? null) : null;
