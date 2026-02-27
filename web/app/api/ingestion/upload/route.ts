@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { getFieldMappingSet, stageIngestionRows } from "../../../../lib/db";
 import { getAuth } from "../../../../lib/auth";
 import { resolvePublicId, resolvePublicTextId } from "../../../../lib/publicId";
+import { startSpan, endSpan, orgIdFromAuth, type SpanHandle } from "../../../../lib/perf";
 
 export const runtime = "nodejs";
 
@@ -34,9 +36,20 @@ function parseUploadedTextToRows(text: string) {
 }
 
 export async function POST(req: Request) {
+  const callId = randomUUID();
+  let auth: Awaited<ReturnType<typeof getAuth>> = null;
+  let reqSpan: SpanHandle | null = null;
   try {
-    const auth = await getAuth();
+    auth = await getAuth();
     if (!auth) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+
+    const orgId = orgIdFromAuth(auth);
+    reqSpan = startSpan({
+      workflow: "ingestion",
+      stage: "request_total",
+      org_id: orgId,
+      call_id: callId,
+    });
 
     const contentType = String(req.headers.get("content-type") || "");
 
@@ -49,27 +62,42 @@ export async function POST(req: Request) {
       const explicitOrgId = auth.kind === "master" && orgPublicId ? await resolvePublicId("organizations", orgPublicId) : 0;
       const cookieOrgId = auth.kind === "master" ? auth.orgId || 0 : 0;
       if (auth.kind === "master" && explicitOrgId && cookieOrgId && explicitOrgId !== cookieOrgId) {
+        endSpan(reqSpan!, { status: "error", http_status: 400 });
         return NextResponse.json({ ok: false, error: "org_mismatch" }, { status: 400 });
       }
       const organizationId = auth.kind === "user" ? auth.user.org_id : explicitOrgId || cookieOrgId || 0;
-      if (!organizationId) return NextResponse.json({ ok: false, error: "missing_org" }, { status: 400 });
+      if (!organizationId) {
+        endSpan(reqSpan!, { status: "error", http_status: 400 });
+        return NextResponse.json({ ok: false, error: "missing_org" }, { status: 400 });
+      }
 
       const pid = z.string().uuid().safeParse(mappingSetPublicId);
-      if (!pid.success) return NextResponse.json({ ok: false, error: "invalid_mapping_set_public_id" }, { status: 400 });
+      if (!pid.success) {
+        endSpan(reqSpan!, { status: "error", http_status: 400 });
+        return NextResponse.json({ ok: false, error: "invalid_mapping_set_public_id" }, { status: 400 });
+      }
       const mappingSetId = await resolvePublicTextId("field_mapping_sets", pid.data);
       const set = await getFieldMappingSet({ organizationId, mappingSetId }).catch(() => null);
-      if (!set) return NextResponse.json({ ok: false, error: "mapping_set_not_found" }, { status: 404 });
+      if (!set) {
+        endSpan(reqSpan!, { status: "error", http_status: 404 });
+        return NextResponse.json({ ok: false, error: "mapping_set_not_found" }, { status: 404 });
+      }
 
       const file = form.get("file");
       if (!(file instanceof File)) {
+        endSpan(reqSpan!, { status: "error", http_status: 400 });
         return NextResponse.json({ ok: false, error: "Missing file field: file" }, { status: 400 });
       }
 
       const text = await file.text();
       const rawRows = parseUploadedTextToRows(text);
-      if (!rawRows.length) return NextResponse.json({ ok: false, error: "No rows found in upload" }, { status: 400 });
+      if (!rawRows.length) {
+        endSpan(reqSpan!, { status: "error", http_status: 400 });
+        return NextResponse.json({ ok: false, error: "No rows found in upload" }, { status: 400 });
+      }
 
       const r = await stageIngestionRows({ organizationId, mappingSetId, rawRows });
+      endSpan(reqSpan!, { status: "ok", http_status: 200 });
       return NextResponse.json({ ok: true, inserted: r.inserted });
     }
 
@@ -78,22 +106,31 @@ export async function POST(req: Request) {
     const explicitOrgId = auth.kind === "master" && body.org_public_id ? await resolvePublicId("organizations", body.org_public_id) : 0;
     const cookieOrgId = auth.kind === "master" ? auth.orgId || 0 : 0;
     if (auth.kind === "master" && explicitOrgId && cookieOrgId && explicitOrgId !== cookieOrgId) {
+      endSpan(reqSpan!, { status: "error", http_status: 400 });
       return NextResponse.json({ ok: false, error: "org_mismatch" }, { status: 400 });
     }
     const organizationId = auth.kind === "user" ? auth.user.org_id : explicitOrgId || cookieOrgId || 0;
-    if (!organizationId) return NextResponse.json({ ok: false, error: "missing_org" }, { status: 400 });
+    if (!organizationId) {
+      endSpan(reqSpan!, { status: "error", http_status: 400 });
+      return NextResponse.json({ ok: false, error: "missing_org" }, { status: 400 });
+    }
 
     const mappingSetId = await resolvePublicTextId("field_mapping_sets", body.mapping_set_public_id);
     const set = await getFieldMappingSet({ organizationId, mappingSetId }).catch(() => null);
-    if (!set) return NextResponse.json({ ok: false, error: "mapping_set_not_found" }, { status: 404 });
+    if (!set) {
+      endSpan(reqSpan!, { status: "error", http_status: 404 });
+      return NextResponse.json({ ok: false, error: "mapping_set_not_found" }, { status: 404 });
+    }
 
     const r = await stageIngestionRows({
       organizationId,
       mappingSetId,
       rawRows: body.rawRows,
     });
+    endSpan(reqSpan!, { status: "ok", http_status: 200 });
     return NextResponse.json({ ok: true, inserted: r.inserted });
   } catch (e: any) {
+    if (reqSpan) endSpan(reqSpan, { status: "error", http_status: 400 });
     return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 400 });
   }
 }

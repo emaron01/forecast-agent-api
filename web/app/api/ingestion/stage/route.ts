@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { getFieldMappingSet, stageIngestionRows } from "../../../../lib/db";
 import { getAuth } from "../../../../lib/auth";
 import { resolvePublicId, resolvePublicTextId } from "../../../../lib/publicId";
+import { startSpan, endSpan, orgIdFromAuth } from "../../../../lib/perf";
 
 export const runtime = "nodejs";
 
@@ -13,9 +15,18 @@ const BodySchema = z.object({
 });
 
 export async function POST(req: Request) {
+  const callId = randomUUID();
+  let reqSpan: ReturnType<typeof startSpan> | null = null;
   try {
     const auth = await getAuth();
     if (!auth) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+
+    reqSpan = startSpan({
+      workflow: "ingestion",
+      stage: "request_total",
+      org_id: orgIdFromAuth(auth),
+      call_id: callId,
+    });
 
     const body = BodySchema.parse(await req.json().catch(() => ({})));
 
@@ -36,8 +47,10 @@ export async function POST(req: Request) {
       mappingSetId,
       rawRows: body.rawRows,
     });
+    endSpan(reqSpan!, { status: "ok", http_status: 200 });
     return NextResponse.json({ ok: true, ...r });
   } catch (e: any) {
+    if (reqSpan) endSpan(reqSpan, { status: "error", http_status: 400 });
     return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 400 });
   }
 }

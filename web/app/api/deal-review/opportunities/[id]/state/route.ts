@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { pool } from "../../../../../../lib/pool";
 import { getAuth } from "../../../../../../lib/auth";
 import { resolvePublicId } from "../../../../../../lib/publicId";
 import { closedOutcomeFromOpportunityRow } from "../../../../../../lib/opportunityOutcome";
+import { startSpan, endSpan, orgIdFromAuth } from "../../../../../../lib/perf";
 
 export const runtime = "nodejs";
 
@@ -77,12 +79,21 @@ async function ensureManagerCanSeeRep(args: { orgId: number; managerUserId: numb
 }
 
 export async function GET(req: Request, ctx: { params: { id: string } }) {
+  const callId = randomUUID();
+  let reqSpan: ReturnType<typeof startSpan> | null = null;
   try {
     const auth = await getAuth();
     if (!auth) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
     const orgId = auth.kind === "user" ? auth.user.org_id : auth.orgId || 0;
     if (!orgId) return NextResponse.json({ ok: false, error: "Missing org context" }, { status: 400 });
+
+    reqSpan = startSpan({
+      workflow: "voice_review",
+      stage: "request_total",
+      org_id: orgId,
+      call_id: callId,
+    });
 
     const opportunityId = await resolvePublicId("opportunities", ctx.params.id);
 
@@ -96,21 +107,34 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
       [orgId, opportunityId]
     );
     const opportunity = oppRes.rows?.[0] || null;
-    if (!opportunity) return NextResponse.json({ ok: false, error: "Opportunity not found" }, { status: 404 });
+    if (!opportunity) {
+      endSpan(reqSpan!, { status: "error", http_status: 404 });
+      return NextResponse.json({ ok: false, error: "Opportunity not found" }, { status: 404 });
+    }
 
     const closed = closedOutcomeFromOpportunityRow({ ...opportunity, stage: (opportunity as any)?.sales_stage });
     if (closed) {
+      endSpan(reqSpan!, { status: "error", http_status: 409 });
       return NextResponse.json({ ok: false, error: `Closed opportunity (${closed}). Deal Review is disabled.` }, { status: 409 });
     }
 
     const repName = (opportunity as any)?.rep_name ?? null;
     const vis = ensureOpportunityVisible({ auth, orgId, opportunityRepName: repName });
-    if (!vis.ok) return NextResponse.json({ ok: false, error: vis.error }, { status: vis.status });
+    if (!vis.ok) {
+      endSpan(reqSpan!, { status: "error", http_status: vis.status });
+      return NextResponse.json({ ok: false, error: vis.error }, { status: vis.status });
+    }
 
     if (auth.kind === "user" && auth.user.role === "MANAGER") {
-      if (!repName) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+      if (!repName) {
+        endSpan(reqSpan!, { status: "error", http_status: 403 });
+        return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+      }
       const ok = await ensureManagerCanSeeRep({ orgId, managerUserId: auth.user.id, repName });
-      if (!ok) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+      if (!ok) {
+        endSpan(reqSpan!, { status: "error", http_status: 403 });
+        return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+      }
     }
 
     const categories = ALL_CATEGORIES.map((c) => {
@@ -156,6 +180,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
     // Do not expose internal numeric ids by default; the client operates on public ids.
     const { id: _id, org_id: _orgId, rep_id: _repId, ...opportunityPublic } = opportunity as any;
 
+    endSpan(reqSpan!, { status: "ok", http_status: 200 });
     return NextResponse.json({
       ok: true,
       opportunity: opportunityPublic,
@@ -165,6 +190,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
       scoring,
     });
   } catch (e: any) {
+    if (reqSpan) endSpan(reqSpan, { status: "error", http_status: 500 });
     return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
   }
 }

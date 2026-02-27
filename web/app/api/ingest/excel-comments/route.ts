@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
 import { getAuth } from "../../../../lib/auth";
 import { getIngestQueue } from "../../../../lib/ingest-queue";
+import { startSpan, endSpan } from "../../../../lib/perf";
 
 export const runtime = "nodejs";
 
@@ -35,6 +37,8 @@ function findColumn(row: any, candidates: string[]): string | null {
 }
 
 export async function POST(req: Request) {
+  const callId = randomUUID();
+  let reqSpan: ReturnType<typeof startSpan> | null = null;
   try {
     const auth = await getAuth();
     if (!auth || auth.kind !== "user") {
@@ -42,10 +46,17 @@ export async function POST(req: Request) {
     }
 
     const orgId = auth.user.org_id;
+    reqSpan = startSpan({
+      workflow: "paste_note",
+      stage: "request_total",
+      org_id: orgId,
+      call_id: callId,
+    });
 
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
     if (!file || !(file instanceof Blob)) {
+      endSpan(reqSpan!, { status: "error", http_status: 400 });
       return NextResponse.json({ ok: false, error: "Missing file" }, { status: 400 });
     }
 
@@ -65,6 +76,7 @@ export async function POST(req: Request) {
         : findColumn(rawRows[0], ["comments", "notes", "comment", "note", "raw_text"]) ?? headers[1];
 
     if (!idCol || !commentsCol) {
+      endSpan(reqSpan!, { status: "error", http_status: 400 });
       return NextResponse.json({
         ok: false,
         error: "Excel must have columns for opportunity id (crm_opp_id) and comments/notes. Use the column mapping to select the correct columns.",
@@ -73,6 +85,7 @@ export async function POST(req: Request) {
 
     const queue = getIngestQueue();
     if (!queue) {
+      endSpan(reqSpan!, { status: "error", http_status: 503 });
       return NextResponse.json({
         ok: false,
         error: "Ingestion requires REDIS_URL. Configure Redis and redeploy.",
@@ -94,6 +107,7 @@ export async function POST(req: Request) {
     });
     console.log(`[ingest] Enqueued job ${job.id} | rows=${jobRows.length} | comments=${commentsDetected}`);
 
+    endSpan(reqSpan!, { status: "ok", http_status: 200 });
     return NextResponse.json({
       ok: true,
       mode: "async",
@@ -102,6 +116,7 @@ export async function POST(req: Request) {
       commentsDetected,
     });
   } catch (e: any) {
+    if (reqSpan) endSpan(reqSpan, { status: "error", http_status: 500 });
     return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
   }
 }

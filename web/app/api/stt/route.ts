@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
+import { startSpan, endSpan } from "../../../lib/perf";
 
 export const runtime = "nodejs";
 
@@ -14,24 +16,52 @@ function resolveBaseUrl() {
 }
 
 export async function POST(req: Request) {
+  const callId = randomUUID();
+  const reqSpan = startSpan({
+    workflow: "voice_review",
+    stage: "request_total",
+    org_id: 0,
+    call_id: callId,
+  });
   try {
     const baseUrl = resolveBaseUrl();
     const apiKey = String(process.env.MODEL_API_KEY || process.env.OPENAI_API_KEY || "").trim();
     const model = process.env.TRANSCRIBE_MODEL;
 
-    if (!baseUrl)
+    if (!baseUrl) {
+      endSpan(reqSpan, { status: "error", http_status: 500 });
       return NextResponse.json(
         { ok: false, error: "Missing OPENAI_BASE_URL (or MODEL_API_URL or MODEL_URL)" },
         { status: 500 }
       );
-    if (!apiKey) return NextResponse.json({ ok: false, error: "Missing MODEL_API_KEY" }, { status: 500 });
-    if (!model) return NextResponse.json({ ok: false, error: "Missing TRANSCRIBE_MODEL" }, { status: 500 });
+    }
+    if (!apiKey) {
+      endSpan(reqSpan, { status: "error", http_status: 500 });
+      return NextResponse.json({ ok: false, error: "Missing MODEL_API_KEY" }, { status: 500 });
+    }
+    if (!model) {
+      endSpan(reqSpan, { status: "error", http_status: 500 });
+      return NextResponse.json({ ok: false, error: "Missing TRANSCRIBE_MODEL" }, { status: 500 });
+    }
 
     const form = await req.formData();
     const file = form.get("file");
     if (!(file instanceof File)) {
+      endSpan(reqSpan, { status: "error", http_status: 400 });
       return NextResponse.json({ ok: false, error: "Missing audio file (field: file)" }, { status: 400 });
     }
+
+    const payloadBytes = file.size;
+    const audioMs = undefined;
+    const sttSpan = startSpan({
+      workflow: "voice_review",
+      stage: "stt",
+      org_id: 0,
+      call_id: callId,
+      payload_bytes: payloadBytes,
+      audio_ms: audioMs ?? null,
+      model: model ?? null,
+    });
 
     const outForm = new FormData();
     outForm.set("model", model);
@@ -52,6 +82,11 @@ export async function POST(req: Request) {
       body: outForm,
     });
 
+    endSpan(sttSpan, {
+      status: resp.ok ? "ok" : "error",
+      http_status: resp.status,
+    });
+
     const rawText = await resp.text();
     // TEMP DEBUG: log upstream STT body for analysis (server logs only).
     const contentType = resp.headers.get("content-type") || "";
@@ -69,6 +104,7 @@ export async function POST(req: Request) {
       })
     );
     if (!resp.ok) {
+      endSpan(reqSpan, { status: "error", http_status: resp.status });
       const trimmed = rawText.trim();
       const isProviderJsonParseError = /Unexpected non-whitespace character after JSON/i.test(trimmed);
       const friendlyError = isProviderJsonParseError ? "Transcription backend returned invalid JSON" : trimmed || "Transcription failed";
@@ -76,6 +112,7 @@ export async function POST(req: Request) {
     }
 
     if (useFormatText) {
+      endSpan(reqSpan, { status: "ok", http_status: 200 });
       return NextResponse.json({ ok: true, text: rawText.trim() });
     }
 
@@ -101,6 +138,7 @@ export async function POST(req: Request) {
         }
       }
       if (!json) {
+        endSpan(reqSpan, { status: "error", http_status: 502 });
         return NextResponse.json(
           { ok: false, error: "Transcription returned non-JSON", raw: text.slice(0, 500) },
           { status: 502 }
@@ -108,8 +146,10 @@ export async function POST(req: Request) {
       }
     }
 
+    endSpan(reqSpan, { status: "ok", http_status: 200 });
     return NextResponse.json({ ok: true, text: String(json?.text || "") });
   } catch (e: any) {
+    endSpan(reqSpan, { status: "error", http_status: 500 });
     return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
   }
 }

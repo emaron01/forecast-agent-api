@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
+import { startSpan, endSpan } from "../../../lib/perf";
 
 export const runtime = "nodejs";
 
@@ -19,6 +21,13 @@ function toBase64(buf: ArrayBuffer) {
 }
 
 export async function POST(req: Request) {
+  const callId = randomUUID();
+  const reqSpan = startSpan({
+    workflow: "voice_review",
+    stage: "request_total",
+    org_id: 0,
+    call_id: callId,
+  });
   try {
     const baseUrl = resolveBaseUrl();
     const apiKey = String(process.env.MODEL_API_KEY || process.env.OPENAI_API_KEY || "").trim();
@@ -26,18 +35,41 @@ export async function POST(req: Request) {
     const voice = String(process.env.TTS_VOICE || "").trim().toLowerCase();
     const responseFormat = process.env.TTS_FORMAT || "mp3";
 
-    if (!baseUrl)
+    if (!baseUrl) {
+      endSpan(reqSpan, { status: "error", http_status: 500 });
       return NextResponse.json(
         { ok: false, error: "Missing OPENAI_BASE_URL (or MODEL_API_URL or MODEL_URL)" },
         { status: 500 }
       );
-    if (!apiKey) return NextResponse.json({ ok: false, error: "Missing MODEL_API_KEY" }, { status: 500 });
-    if (!model) return NextResponse.json({ ok: false, error: "Missing TTS_MODEL" }, { status: 500 });
-    if (!voice) return NextResponse.json({ ok: false, error: "Missing TTS_VOICE" }, { status: 500 });
+    }
+    if (!apiKey) {
+      endSpan(reqSpan, { status: "error", http_status: 500 });
+      return NextResponse.json({ ok: false, error: "Missing MODEL_API_KEY" }, { status: 500 });
+    }
+    if (!model) {
+      endSpan(reqSpan, { status: "error", http_status: 500 });
+      return NextResponse.json({ ok: false, error: "Missing TTS_MODEL" }, { status: 500 });
+    }
+    if (!voice) {
+      endSpan(reqSpan, { status: "error", http_status: 500 });
+      return NextResponse.json({ ok: false, error: "Missing TTS_VOICE" }, { status: 500 });
+    }
 
     const body = await req.json().catch(() => ({}));
     const input = String(body?.text || "").trim();
-    if (!input) return NextResponse.json({ ok: false, error: "Missing text" }, { status: 400 });
+    if (!input) {
+      endSpan(reqSpan, { status: "error", http_status: 400 });
+      return NextResponse.json({ ok: false, error: "Missing text" }, { status: 400 });
+    }
+
+    const ttsSpan = startSpan({
+      workflow: "voice_review",
+      stage: "tts",
+      org_id: 0,
+      call_id: callId,
+      text_chars: input.length,
+      model: model ?? null,
+    });
 
     const resp = await fetch(`${baseUrl}/audio/speech`, {
       method: "POST",
@@ -54,19 +86,23 @@ export async function POST(req: Request) {
     });
 
     if (!resp.ok) {
+      endSpan(ttsSpan, { status: "error", http_status: resp.status });
+      endSpan(reqSpan, { status: "error", http_status: resp.status });
       const errText = await resp.text();
       return NextResponse.json({ ok: false, error: errText || "TTS failed" }, { status: resp.status });
     }
 
+    endSpan(ttsSpan, { status: "ok", http_status: resp.status });
     const buf = await resp.arrayBuffer();
     const b64 = toBase64(buf);
-    // For now, return base64 for browser playback.
+    endSpan(reqSpan, { status: "ok", http_status: 200 });
     return NextResponse.json({
       ok: true,
       audio_base64: b64,
       mime: responseFormat === "wav" ? "audio/wav" : responseFormat === "aac" ? "audio/aac" : responseFormat === "opus" ? "audio/opus" : "audio/mpeg",
     });
   } catch (e: any) {
+    endSpan(reqSpan, { status: "error", http_status: 500 });
     return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
   }
 }

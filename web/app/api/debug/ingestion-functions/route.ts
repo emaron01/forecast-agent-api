@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { pool } from "../../../../lib/pool";
 import { getAuth } from "../../../../lib/auth";
+import { startSpan, endSpan, orgIdFromAuth } from "../../../../lib/perf";
 
 export const runtime = "nodejs";
 
@@ -10,6 +12,13 @@ export async function GET() {
   if (auth.kind === "user" && auth.user.role !== "ADMIN") {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
+
+  const reqSpan = startSpan({
+    workflow: "ingestion",
+    stage: "request_total",
+    org_id: orgIdFromAuth(auth),
+    call_id: randomUUID(),
+  });
 
   const names = ["normalize_row", "validate_row", "upsert_opportunity", "process_ingestion_batch"];
   const { rows } = await pool.query(
@@ -27,6 +36,7 @@ export async function GET() {
     [names]
   );
 
+  endSpan(reqSpan, { status: "ok", http_status: 200 });
   return NextResponse.json({ ok: true, functions: rows || [] });
 }
 

@@ -8,6 +8,7 @@ import { getAuth } from "../../../../lib/auth";
 import { pool } from "../../../../lib/pool";
 import { resolvePublicId } from "../../../../lib/publicId";
 import { closedOutcomeFromOpportunityRow } from "../../../../lib/opportunityOutcome";
+import { startSpan, endSpan, orgIdFromAuth } from "../../../../lib/perf";
 
 export const runtime = "nodejs";
 
@@ -56,18 +57,31 @@ async function assertOpportunityVisible(args: {
 }
 
 export async function POST(req: Request) {
+  const callId = randomUUID();
+  let reqSpan: ReturnType<typeof startSpan> | null = null;
   try {
     const auth = await getAuth();
     if (!auth) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
+    const orgId = auth.kind === "user" ? auth.user.org_id : auth.orgId || 0;
+    reqSpan = startSpan({
+      workflow: "voice_review",
+      stage: "request_total",
+      org_id: orgId || 1,
+      call_id: callId,
+    });
+
     const body = await req.json().catch(() => ({}));
     const opportunityPublicId = String(body?.opportunityId || "").trim();
     if (!opportunityPublicId) {
+      endSpan(reqSpan!, { status: "error", http_status: 400 });
       return NextResponse.json({ ok: false, error: "Missing opportunityId" }, { status: 400 });
     }
 
-    const orgId = auth.kind === "user" ? auth.user.org_id : auth.orgId || 0;
-    if (!orgId) return NextResponse.json({ ok: false, error: "Missing org context" }, { status: 400 });
+    if (!orgId) {
+      endSpan(reqSpan!, { status: "error", http_status: 400 });
+      return NextResponse.json({ ok: false, error: "Missing org context" }, { status: 400 });
+    }
 
     const opportunityId = await resolvePublicId("opportunities", opportunityPublicId);
 
@@ -77,9 +91,13 @@ export async function POST(req: Request) {
       opportunityId,
     ]);
     const deal = rows?.[0] || null;
-    if (!deal) return NextResponse.json({ ok: false, error: "Opportunity not found" }, { status: 404 });
+    if (!deal) {
+      endSpan(reqSpan!, { status: "error", http_status: 404 });
+      return NextResponse.json({ ok: false, error: "Opportunity not found" }, { status: 404 });
+    }
     const closed = closedOutcomeFromOpportunityRow({ ...deal, stage: (deal as any)?.sales_stage });
     if (closed) {
+      endSpan(reqSpan!, { status: "error", http_status: 409 });
       return NextResponse.json({ ok: false, error: `Deal Review is disabled for closed opportunities (${closed}).` }, { status: 409 });
     }
 
@@ -88,7 +106,10 @@ export async function POST(req: Request) {
       orgId,
       opportunityRepName: (deal as any)?.rep_name ?? null,
     });
-    if (!vis.ok) return NextResponse.json({ ok: false, error: vis.error }, { status: vis.status });
+    if (!vis.ok) {
+      endSpan(reqSpan!, { status: "error", http_status: vis.status });
+      return NextResponse.json({ ok: false, error: vis.error }, { status: vis.status });
+    }
 
     // Load score definitions for rubric text.
     const defsRes = await pool
@@ -158,8 +179,10 @@ export async function POST(req: Request) {
     });
 
     const run = await runUntilPauseOrEnd({ pool, runId, kickoff: true });
+    endSpan(reqSpan!, { status: "ok", http_status: 200 });
     return NextResponse.json({ ok: true, run });
   } catch (e: any) {
+    if (reqSpan) endSpan(reqSpan, { status: "error", http_status: 500 });
     return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
   }
 }

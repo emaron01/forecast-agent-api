@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { getAuth } from "../../../../../lib/auth";
 import { getIngestQueue } from "../../../../../lib/ingest-queue";
+import { startSpan, endSpan } from "../../../../../lib/perf";
 
 export const runtime = "nodejs";
 
@@ -13,8 +15,16 @@ export async function GET(
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
+  const reqSpan = startSpan({
+    workflow: "ingestion",
+    stage: "request_total",
+    org_id: auth.user.org_id,
+    call_id: randomUUID(),
+  });
+
   const queue = getIngestQueue();
   if (!queue) {
+    endSpan(reqSpan, { status: "error", http_status: 503 });
     return NextResponse.json(
       { ok: false, error: "Staged ingestion not configured (REDIS_URL required)" },
       { status: 503 }
@@ -23,15 +33,18 @@ export async function GET(
 
   const { jobId } = await ctx.params;
   if (!jobId) {
+    endSpan(reqSpan, { status: "error", http_status: 400 });
     return NextResponse.json({ ok: false, error: "Missing jobId" }, { status: 400 });
   }
 
   const job = await queue.getJob(jobId);
   if (!job) {
+    endSpan(reqSpan, { status: "error", http_status: 404 });
     return NextResponse.json({ ok: false, error: "Job not found" }, { status: 404 });
   }
 
   if (job.data?.orgId !== auth.user.org_id) {
+    endSpan(reqSpan, { status: "error", http_status: 404 });
     return NextResponse.json({ ok: false, error: "Job not found" }, { status: 404 });
   }
 
@@ -72,6 +85,7 @@ export async function GET(
         failed: progress.failed ?? 0,
       };
 
+  endSpan(reqSpan, { status: "ok", http_status: 200 });
   return NextResponse.json({
     ok: true,
     jobId: job.id,
