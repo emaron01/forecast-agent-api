@@ -110,6 +110,7 @@ SAVE RULES (TOOL CALLS ARE SILENT)
   - <category>_score (0–3)
   - <category>_summary (facts/evidence only)
   - <category>_tip (quiet coaching)
+  - When the category is Champion/Internal Sponsor or Economic Buyer, include champion_name, champion_title, eb_name, eb_title when the rep has stated them.
 - After saving, immediately ask the next category question.
 - If the rep indicated “no change” on a locked check pattern: do NOT call save_deal_data for that category; proceed to the next question.
 

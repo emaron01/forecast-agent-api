@@ -498,6 +498,10 @@ export async function runResponsesTurn(args: {
         // Normalize camelCase variants
         if (toolArgs.risk_summary == null && toolArgs.riskSummary != null) toolArgs.risk_summary = toolArgs.riskSummary;
         if (toolArgs.next_steps == null && toolArgs.nextSteps != null) toolArgs.next_steps = toolArgs.nextSteps;
+        if (toolArgs.champion_name == null && (toolArgs as any).championName != null) toolArgs.champion_name = (toolArgs as any).championName;
+        if (toolArgs.champion_title == null && (toolArgs as any).championTitle != null) toolArgs.champion_title = (toolArgs as any).championTitle;
+        if (toolArgs.eb_name == null && (toolArgs as any).ebName != null) toolArgs.eb_name = (toolArgs as any).ebName;
+        if (toolArgs.eb_title == null && (toolArgs as any).ebTitle != null) toolArgs.eb_title = (toolArgs as any).ebTitle;
         const wrapRisk = cleanText(toolArgs.risk_summary);
         const wrapNext = cleanText(toolArgs.next_steps);
         const wrapComplete = !!wrapRisk && !!wrapNext;

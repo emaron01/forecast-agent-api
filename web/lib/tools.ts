@@ -5,7 +5,7 @@ export function buildTools() {
       type: "function",
       name: "save_deal_data",
       description:
-        "REQUIRED after EVERY rep answer. Save the score (0-3), summary, and coaching tip for the category you just asked about.",
+        "REQUIRED after EVERY rep answer. Save the score (0-3), summary, and coaching tip for the category you just asked about. When the category is Champion/Internal Sponsor or Economic Buyer, include champion_name, champion_title, eb_name, eb_title when the rep has stated them.",
       parameters: {
         type: "object",
         properties: {

@@ -757,7 +757,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "Output MUST be strict JSON with one of these shapes:",
       `- {"action":"followup","question":"..."} `,
       `- {"action":"finalize","material_change":true,"score":0-3,"evidence":"...","tip":"...","risk_summary":"...","next_steps":"..."} `,
-      "- Optional on finalize when explicitly stated: champion_name, champion_title, eb_name, eb_title (omit if unclear).",
+      "When finalizing for Internal Sponsor or Economic Buyer, if the rep stated a name or title, include champion_name, champion_title, eb_name, eb_title (snake_case) in your JSON. Omit only if unclear.",
       `- {"action":"finalize","material_change":false} `,
     ].join("\n");
 
@@ -775,6 +775,9 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       `- last_tip: ${lastTip || "(none)"}`,
       `- current_risk_summary: ${String(opp?.risk_summary || "").trim() || "(none)"}`,
       `- current_next_steps: ${String(opp?.next_steps || "").trim() || "(none)"}`,
+      (category === "champion" || category === "economic_buyer")
+        ? `- current entity: champion_name=${String((opp as any)?.champion_name ?? "").trim() || "(none)"}, champion_title=${String((opp as any)?.champion_title ?? "").trim() || "(none)"}, eb_name=${String((opp as any)?.eb_name ?? "").trim() || "(none)"}, eb_title=${String((opp as any)?.eb_title ?? "").trim() || "(none)"}`
+        : "",
       "",
       "Conversation so far:",
       ...session.turns.map((t) => `${t.role.toUpperCase()}: ${String(t.text || "").trim()}`),
@@ -886,10 +889,10 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
             }
 
             const sseEntity = {
-              champion_name: String((obj as any)?.champion_name ?? "").trim() || undefined,
-              champion_title: String((obj as any)?.champion_title ?? "").trim() || undefined,
-              eb_name: String((obj as any)?.eb_name ?? "").trim() || undefined,
-              eb_title: String((obj as any)?.eb_title ?? "").trim() || undefined,
+              champion_name: String((obj as any)?.champion_name ?? (obj as any)?.championName ?? "").trim() || undefined,
+              champion_title: String((obj as any)?.champion_title ?? (obj as any)?.championTitle ?? "").trim() || undefined,
+              eb_name: String((obj as any)?.eb_name ?? (obj as any)?.ebName ?? "").trim() || undefined,
+              eb_title: String((obj as any)?.eb_title ?? (obj as any)?.ebTitle ?? "").trim() || undefined,
             };
             if (DEBUG_ENTITY_PERSIST) {
               const sanit = (v: string | undefined) => (v ? v.slice(0, 40) + (v.length > 40 ? "…" : "") : "");
@@ -1021,10 +1024,10 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     if (!tip) return NextResponse.json({ ok: false, error: "Model returned empty tip" }, { status: 500 });
 
     const jsonEntity = {
-      champion_name: String(obj?.champion_name ?? "").trim() || undefined,
-      champion_title: String(obj?.champion_title ?? "").trim() || undefined,
-      eb_name: String(obj?.eb_name ?? "").trim() || undefined,
-      eb_title: String(obj?.eb_title ?? "").trim() || undefined,
+      champion_name: String((obj as any)?.champion_name ?? (obj as any)?.championName ?? "").trim() || undefined,
+      champion_title: String((obj as any)?.champion_title ?? (obj as any)?.championTitle ?? "").trim() || undefined,
+      eb_name: String((obj as any)?.eb_name ?? (obj as any)?.ebName ?? "").trim() || undefined,
+      eb_title: String((obj as any)?.eb_title ?? (obj as any)?.ebTitle ?? "").trim() || undefined,
     };
     if (DEBUG_ENTITY_PERSIST) {
       const sanit = (v: string | undefined) => (v ? v.slice(0, 40) + (v.length > 40 ? "…" : "") : "");
