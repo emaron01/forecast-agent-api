@@ -101,6 +101,44 @@ function buildNextSteps(extracted: CommentIngestionExtracted): string {
   return (extracted.next_steps || []).filter(Boolean).join("\n").trim();
 }
 
+function extractSinglePersonAndTitleFromNotes(rawNotes: string): { name?: string; title?: string; reason?: string } {
+  const raw = String(rawNotes || "").trim();
+  if (!raw) return {};
+  const role =
+    /\b(ceo|cfo|coo|cto|cio|cmo|cro|chief|president|owner|svp|evp|vp|vice president|director|head|manager|lead)\b/i;
+  const nameLike = /([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})/;
+  const sentences = raw
+    .split(/[\n.!?]+/g)
+    .map((s) => s.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, 200);
+
+  const candidates: Array<{ name: string; title: string }> = [];
+  for (const s of sentences) {
+    // Name is (the) Title
+    const m1 = s.match(new RegExp(`${nameLike.source}\\s+is\\s+(?:the\\s+)?([^,;]+)`, "i"));
+    if (m1?.[1]) {
+      const name = String(m1[1]).trim();
+      const tail = String(m1[2] || "").trim();
+      const title = tail && role.test(tail) ? tail.split(/\b(?:and|but)\b/i)[0].trim() : "";
+      if (name && title) candidates.push({ name, title });
+    }
+    // Name, Title
+    const m2 = s.match(new RegExp(`${nameLike.source}\\s*,\\s*([^,;]+)`, "i"));
+    if (m2?.[1] && m2?.[2] && role.test(m2[2])) candidates.push({ name: String(m2[1]).trim(), title: String(m2[2]).trim() });
+    // Title Name
+    const m3 = s.match(new RegExp(`\\b(${role.source})\\b\\s+${nameLike.source}`, "i"));
+    if (m3?.[1] && m3?.[2]) candidates.push({ title: String(m3[1]).trim(), name: String(m3[2]).trim() });
+  }
+
+  const key = (c: { name: string; title: string }) => `${c.name.toLowerCase()}|${c.title.toLowerCase()}`;
+  const uniq = new Map<string, { name: string; title: string }>();
+  for (const c of candidates) uniq.set(key(c), c);
+  const out = Array.from(uniq.values());
+  if (out.length === 1) return { ...out[0], reason: "single_candidate" };
+  return { reason: out.length ? "ambiguous_multiple_candidates" : "no_candidates" };
+}
+
 export async function applyCommentIngestionToOpportunity(args: {
   orgId: number;
   opportunityId: number;
@@ -110,8 +148,10 @@ export async function applyCommentIngestionToOpportunity(args: {
   salesStage?: string | null;
   /** When true (e.g. manual paste), apply even if baseline_health_score_ts is set (scores + entity fields). */
   allowWhenBaselineExists?: boolean;
+  /** Raw notes (manual paste / CRM notes). Used only for conservative fallback entity capture. */
+  rawNotes?: string;
 }): Promise<{ ok: boolean; error?: string }> {
-  const { orgId, opportunityId, extracted, commentIngestionId, scoreEventSource = "baseline", salesStage, allowWhenBaselineExists } = args;
+  const { orgId, opportunityId, extracted, commentIngestionId, scoreEventSource = "baseline", salesStage, allowWhenBaselineExists, rawNotes } = args;
 
   try {
     const { rows: oppRows } = await pool.query(
@@ -155,6 +195,28 @@ export async function applyCommentIngestionToOpportunity(args: {
       if (!ebTitle && championTitle) ebTitle = championTitle;
       championName = "";
       championTitle = "";
+    }
+
+    // Conservative fallback: if extraction signaled EB/Champion but left name/title empty, try to parse ONE unambiguous
+    // Name+Title from the raw notes. If multiple candidates exist, leave blank.
+    const champCat: any = (extracted as any)?.meddpicc?.champion;
+    const hasChampSignal =
+      !!champCat &&
+      ((typeof champCat.signal === "string" && champCat.signal.toLowerCase() !== "missing") ||
+        (Number.isFinite(champCat.score) && Number(champCat.score) > 0));
+    if (rawNotes && !ebName && hasEbCategorySignal) {
+      const c = extractSinglePersonAndTitleFromNotes(rawNotes);
+      if (c?.name && c?.title) {
+        ebName = c.name;
+        if (!ebTitle) ebTitle = c.title;
+      }
+    }
+    if (rawNotes && !championName && hasChampSignal) {
+      const c = extractSinglePersonAndTitleFromNotes(rawNotes);
+      if (c?.name && c?.title) {
+        championName = c.name;
+        if (!championTitle) championTitle = c.title;
+      }
     }
 
     const toolArgs: Record<string, unknown> = {

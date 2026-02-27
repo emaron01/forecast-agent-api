@@ -108,6 +108,7 @@ export async function POST(
       scoreEventSource: "agent",
       salesStage: opp.sales_stage ?? opp.forecast_stage ?? null,
       allowWhenBaselineExists: sourceType === "manual",
+      rawNotes: rawTextTrimmed,
     });
     if (!applyResult.ok) {
       console.log(

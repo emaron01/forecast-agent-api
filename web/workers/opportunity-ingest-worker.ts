@@ -98,6 +98,7 @@ async function processSingleIngest(job: { data: any; updateProgress: (p: object)
       commentIngestionId,
       scoreEventSource: "baseline",
       salesStage: opp.sales_stage ?? opp.forecast_stage ?? null,
+      rawNotes: rawText,
     });
     return {
       processed: 1,
@@ -193,6 +194,7 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
           commentIngestionId,
           scoreEventSource: "baseline",
           salesStage: opp.sales_stage ?? opp.forecast_stage ?? null,
+          rawNotes: rawText,
         });
         if (applyResult.ok) okCount++;
         else failedCount++;
