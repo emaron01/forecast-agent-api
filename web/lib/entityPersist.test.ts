@@ -36,7 +36,8 @@ test("isBetterName: full name > single word", () => {
   assert.strictEqual(isBetterName("", "Jane Doe"), true);
   assert.strictEqual(isBetterName("Jane", "Jane Doe"), true);
   assert.strictEqual(isBetterName("Jane Doe", "Jane"), false);
-  assert.strictEqual(isBetterName("Jane Doe", "Bob Smith"), false);
+  // Allow replacing one full name with another full name.
+  assert.strictEqual(isBetterName("Jane Doe", "Bob Smith"), true);
 });
 
 test("isBetterTitle: specific/longer beats generic", () => {

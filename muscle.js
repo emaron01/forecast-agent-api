@@ -338,7 +338,11 @@ function isBetterName(existing, incoming) {
   if (!exVal) return true;
   const inWords = inVal.split(/\s+/).filter(Boolean).length;
   const exWords = exVal.split(/\s+/).filter(Boolean).length;
-  return inWords >= 2 && exWords < 2;
+  // Allow replacements when incoming is a full name (>=2 words).
+  // Still conservative: do not replace a full name with a single token.
+  if (inWords >= 2 && exWords < 2) return true;
+  if (inWords >= 2 && exWords >= 2 && inVal.toLowerCase() !== exVal.toLowerCase()) return true;
+  return false;
 }
 
 /** Persistence safety: prefer specific title (role-like or longer) over generic. */
@@ -350,8 +354,12 @@ function isBetterTitle(existing, incoming) {
   const roleLike = /\b(director|vp|vice president|manager|head|lead|chief|engineer|architect)\b/i;
   const inSpecific = inVal.length > 3 || roleLike.test(inVal);
   const exSpecific = exVal.length > 3 || roleLike.test(exVal);
-  if (inSpecific && !exSpecific) return true;
-  if (inVal.length > exVal.length && inSpecific) return true;
+  // Allow replacements when incoming is specific (role-like or longer than 3 chars).
+  // Avoid overwriting a specific/longer title with a shorter/generic one unless override is used.
+  if (!inSpecific) return false;
+  if (!exSpecific) return true;
+  if (inVal.toLowerCase() === exVal.toLowerCase()) return false;
+  if (inVal.length >= exVal.length) return true;
   return false;
 }
 
@@ -556,13 +564,30 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       const incomingCleaned = cleanText(incomingVal);
       let merged;
       let changed;
+      let decision = "skip";
+      let reason = "";
       if (entityOverride) {
         if (args[k] === undefined) continue;
         merged = incomingCleaned || null;
         changed = (existing != null ? String(existing).trim() : "") !== (merged != null ? String(merged) : "");
+        decision = "write";
+        reason = incomingCleaned ? "override_write" : "override_clear";
       } else {
         merged = mergeEntityValue(k, existing, incomingVal);
         changed = merged != null && (existing == null || String(existing).trim() !== merged);
+        if (!incomingCleaned) {
+          decision = "skip";
+          reason = "incoming_empty";
+        } else if (!cleanText(existing)) {
+          decision = "write";
+          reason = "existing_empty";
+        } else if (String(existing || "").trim().toLowerCase() === incomingCleaned.toLowerCase()) {
+          decision = "skip";
+          reason = "same_as_existing";
+        } else {
+          decision = merged != null ? "write" : "skip";
+          reason = merged != null ? "accepted_by_merge" : "rejected_by_merge";
+        }
       }
       if (merged === undefined) continue;
       // mergeEntityValue returns null to indicate "skip" (do not update) — never write NULL unless override is on.
@@ -578,6 +603,8 @@ export async function handleFunctionCall({ toolName, args, pool }) {
             event: "entity_persist_merge",
             field: k,
             entity_override: entityOverride,
+            decision,
+            reason,
             existing: ex.slice(0, 30) + (ex.length > 30 ? "…" : ""),
             incoming: String(incomingVal ?? "").trim().slice(0, 30) + (String(incomingVal ?? "").length > 30 ? "…" : ""),
             merged: merged != null ? String(merged).slice(0, 30) + (String(merged).length > 30 ? "…" : "") : "null",
