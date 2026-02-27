@@ -25,6 +25,8 @@ export type ForecastSession = {
   // Strict wrap enforcement: exact health-score phrase must be spoken before advancing.
   wrapExpectedHealthPercent?: number;
   wrapHealthPhraseOk?: boolean;
+  /** Accumulated EB/Champion fields from save_deal_data calls during this review; persisted on wrap save. */
+  accumulatedEntity?: Record<string, string>;
 };
 
 function normalizeCategoryKeyFromLabel(label: string) {
@@ -506,6 +508,17 @@ export async function runResponsesTurn(args: {
         const wrapNext = cleanText(toolArgs.next_steps);
         const wrapComplete = !!wrapRisk && !!wrapNext;
 
+        // Accumulate entity fields from this save so we can persist them on the wrap save (Full Voice Review).
+        if (!session.accumulatedEntity) session.accumulatedEntity = {};
+        for (const key of ["champion_name", "champion_title", "eb_name", "eb_title"]) {
+          const v = String((toolArgs as any)[key] ?? "").trim();
+          if (v) (session.accumulatedEntity as Record<string, string>)[key] = v;
+        }
+        // On wrap save, merge accumulated entity into this call so ONE persistence writes wrap + entity fields.
+        const argsForSave = wrapComplete && Object.keys(session.accumulatedEntity).length > 0
+          ? { ...session.accumulatedEntity, ...toolArgs }
+          : toolArgs;
+
         // Track touched + reviewed categories
         for (const key of Object.keys(toolArgs || {})) {
           const tk = touchedKeyFromSaveToolField(key);
@@ -537,7 +550,7 @@ export async function runResponsesTurn(args: {
         const result = await handleFunctionCall({
           toolName: "save_deal_data",
           args: {
-            ...toolArgs,
+            ...argsForSave,
             org_id: session.orgId,
             opportunity_id: activeDeal.id,
             score_event_source: "agent",
@@ -658,6 +671,7 @@ export async function runResponsesTurn(args: {
         session.wrapSaved = false;
         session.wrapExpectedHealthPercent = undefined;
         session.wrapHealthPhraseOk = undefined;
+        session.accumulatedEntity = {};
         advancedThisBatch = true;
 
         if (session.index >= session.deals.length) {

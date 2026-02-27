@@ -549,6 +549,7 @@ async function saveToOpportunities(args: {
   champion_title?: string;
   eb_name?: string;
   eb_title?: string;
+  entity_override?: boolean;
 }) {
   const prefix = oppPrefixForCategory(args.category);
   const toolArgs: any = {
@@ -562,14 +563,19 @@ async function saveToOpportunities(args: {
     risk_summary: String(args.riskSummary || "").trim(),
     next_steps: String(args.nextSteps || "").trim(),
   };
-  const cn = String(args.champion_name ?? "").trim();
-  if (cn) toolArgs.champion_name = cn;
-  const ct = String(args.champion_title ?? "").trim();
-  if (ct) toolArgs.champion_title = ct;
-  const ebn = String(args.eb_name ?? "").trim();
-  if (ebn) toolArgs.eb_name = ebn;
-  const ebt = String(args.eb_title ?? "").trim();
-  if (ebt) toolArgs.eb_title = ebt;
+  // Role-safe: only pass entity fields for the category being updated (no cross-role writes).
+  if (args.category === "champion") {
+    const cn = String(args.champion_name ?? "").trim();
+    if (cn) toolArgs.champion_name = cn;
+    const ct = String(args.champion_title ?? "").trim();
+    if (ct) toolArgs.champion_title = ct;
+  } else if (args.category === "economic_buyer") {
+    const ebn = String(args.eb_name ?? "").trim();
+    if (ebn) toolArgs.eb_name = ebn;
+    const ebt = String(args.eb_title ?? "").trim();
+    if (ebt) toolArgs.eb_title = ebt;
+  }
+  if (args.entity_override === true) toolArgs.entity_override = true;
 
   await handleFunctionCall({ toolName: "save_deal_data", args: toolArgs, pool });
 }
@@ -757,7 +763,8 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "Output MUST be strict JSON with one of these shapes:",
       `- {"action":"followup","question":"..."} `,
       `- {"action":"finalize","material_change":true,"score":0-3,"evidence":"...","tip":"...","risk_summary":"...","next_steps":"..."} `,
-      "When finalizing for Internal Sponsor or Economic Buyer, if the rep stated a name or title, include champion_name, champion_title, eb_name, eb_title (snake_case) in your JSON. Omit only if unclear.",
+      "When finalizing for Internal Sponsor or Economic Buyer, if the rep stated a name or title, include only that role's fields: for Economic Buyer use eb_name, eb_title; for Internal Sponsor use champion_name, champion_title. Do not cross-populate the other role.",
+      "Set entity_override to true only when the rep explicitly corrects or replaces the person/title (e.g. 'actually', 'correction', 'new EB', 'changed roles'). Otherwise omit entity_override.",
       `- {"action":"finalize","material_change":false} `,
     ].join("\n");
 
@@ -888,28 +895,29 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
               return;
             }
 
-            const sseEntity = {
-              champion_name: String((obj as any)?.champion_name ?? (obj as any)?.championName ?? "").trim() || undefined,
-              champion_title: String((obj as any)?.champion_title ?? (obj as any)?.championTitle ?? "").trim() || undefined,
-              eb_name: String((obj as any)?.eb_name ?? (obj as any)?.ebName ?? "").trim() || undefined,
-              eb_title: String((obj as any)?.eb_title ?? (obj as any)?.ebTitle ?? "").trim() || undefined,
-            };
+            const rawChampionName = String((obj as any)?.champion_name ?? (obj as any)?.championName ?? "").trim() || undefined;
+            const rawChampionTitle = String((obj as any)?.champion_title ?? (obj as any)?.championTitle ?? "").trim() || undefined;
+            const rawEbName = String((obj as any)?.eb_name ?? (obj as any)?.ebName ?? "").trim() || undefined;
+            const rawEbTitle = String((obj as any)?.eb_title ?? (obj as any)?.ebTitle ?? "").trim() || undefined;
+            const entityOverride = (obj as any)?.entity_override === true;
+            const sseEntity: Record<string, string | boolean | undefined> = {};
+            if (category === "champion") {
+              if (rawChampionName !== undefined) sseEntity.champion_name = rawChampionName;
+              if (rawChampionTitle !== undefined) sseEntity.champion_title = rawChampionTitle;
+            } else if (category === "economic_buyer") {
+              if (rawEbName !== undefined) sseEntity.eb_name = rawEbName;
+              if (rawEbTitle !== undefined) sseEntity.eb_title = rawEbTitle;
+            }
+            if (entityOverride) sseEntity.entity_override = true;
             if (DEBUG_ENTITY_PERSIST) {
-              const sanit = (v: string | undefined) => (v ? v.slice(0, 40) + (v.length > 40 ? "…" : "") : "");
               console.log(
                 JSON.stringify({
-                  event: "update_category_entity_extracted",
+                  event: "update_category_entity_parsed",
                   channel: "sse",
-                  ...Object.fromEntries(
-                    Object.entries(sseEntity).map(([k, v]) => [k, sanit(v)])
-                  ),
-                })
-              );
-              console.log(
-                JSON.stringify({
-                  event: "update_category_save_payload_keys",
-                  channel: "sse",
-                  entityKeys: Object.keys(sseEntity).filter((k) => (sseEntity as any)[k] != null),
+                  objKeys: Object.keys(obj || {}),
+                  entityFields: { champion_name: rawChampionName, champion_title: rawChampionTitle, eb_name: rawEbName, eb_title: rawEbTitle },
+                  entity_override: entityOverride,
+                  roleSafePayload: sseEntity,
                 })
               );
             }
@@ -1023,26 +1031,29 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     if (!evidence) return NextResponse.json({ ok: false, error: "Model returned empty evidence" }, { status: 500 });
     if (!tip) return NextResponse.json({ ok: false, error: "Model returned empty tip" }, { status: 500 });
 
-    const jsonEntity = {
-      champion_name: String((obj as any)?.champion_name ?? (obj as any)?.championName ?? "").trim() || undefined,
-      champion_title: String((obj as any)?.champion_title ?? (obj as any)?.championTitle ?? "").trim() || undefined,
-      eb_name: String((obj as any)?.eb_name ?? (obj as any)?.ebName ?? "").trim() || undefined,
-      eb_title: String((obj as any)?.eb_title ?? (obj as any)?.ebTitle ?? "").trim() || undefined,
-    };
+    const rawChampionName = String((obj as any)?.champion_name ?? (obj as any)?.championName ?? "").trim() || undefined;
+    const rawChampionTitle = String((obj as any)?.champion_title ?? (obj as any)?.championTitle ?? "").trim() || undefined;
+    const rawEbName = String((obj as any)?.eb_name ?? (obj as any)?.ebName ?? "").trim() || undefined;
+    const rawEbTitle = String((obj as any)?.eb_title ?? (obj as any)?.ebTitle ?? "").trim() || undefined;
+    const entityOverride = (obj as any)?.entity_override === true;
+    const jsonEntity: Record<string, string | boolean | undefined> = {};
+    if (category === "champion") {
+      if (rawChampionName !== undefined) jsonEntity.champion_name = rawChampionName;
+      if (rawChampionTitle !== undefined) jsonEntity.champion_title = rawChampionTitle;
+    } else if (category === "economic_buyer") {
+      if (rawEbName !== undefined) jsonEntity.eb_name = rawEbName;
+      if (rawEbTitle !== undefined) jsonEntity.eb_title = rawEbTitle;
+    }
+    if (entityOverride) jsonEntity.entity_override = true;
     if (DEBUG_ENTITY_PERSIST) {
-      const sanit = (v: string | undefined) => (v ? v.slice(0, 40) + (v.length > 40 ? "…" : "") : "");
       console.log(
         JSON.stringify({
-          event: "update_category_entity_extracted",
+          event: "update_category_entity_parsed",
           channel: "json",
-          ...Object.fromEntries(Object.entries(jsonEntity).map(([k, v]) => [k, sanit(v)])),
-        })
-      );
-      console.log(
-        JSON.stringify({
-          event: "update_category_save_payload_keys",
-          channel: "json",
-          entityKeys: Object.keys(jsonEntity).filter((k) => (jsonEntity as any)[k] != null),
+          objKeys: Object.keys(obj || {}),
+          entityFields: { champion_name: rawChampionName, champion_title: rawChampionTitle, eb_name: rawEbName, eb_title: rawEbTitle },
+          entity_override: entityOverride,
+          roleSafePayload: jsonEntity,
         })
       );
     }

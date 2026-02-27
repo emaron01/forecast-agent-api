@@ -502,17 +502,20 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       k !== "score_event_source" &&
       k !== "comment_ingestion_id" &&
       k !== "extraction_confidence" &&
-      k !== "sales_stage_for_closed"
+      k !== "sales_stage_for_closed" &&
+      k !== "entity_override"
   );
 
   const sets = [];
   const vals = [];
   let i = 2;
 
-  // Entity merge: fetch current values when any entity field is in args (so we can merge / avoid overwriting).
+  // Entity merge: fetch current values when any entity field is in args or entity_override is set.
   const hasEntityArg = ENTITY_FIELDS.some((f) => args[f] != null && String(args[f]).trim() !== "");
+  const entityOverride = args.entity_override === true;
+  const needEntityFetch = hasEntityArg || entityOverride;
   let currentEntity = null;
-  if (hasEntityArg) {
+  if (needEntityFetch) {
     try {
       const { rows } = await pool.query(
         `SELECT eb_name, eb_title, champion_name, champion_title FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,
@@ -524,7 +527,7 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       currentEntity = {};
     }
   }
-  if (DEBUG_ENTITY_PERSIST && hasEntityArg) {
+  if (DEBUG_ENTITY_PERSIST && needEntityFetch) {
     const sanit = (v) => (v != null && String(v).trim() ? String(v).trim().slice(0, 40) + (String(v).length > 40 ? "…" : "") : "");
     console.log(
       JSON.stringify({
@@ -533,6 +536,7 @@ export async function handleFunctionCall({ toolName, args, pool }) {
         eb_title: sanit(args.eb_title),
         champion_name: sanit(args.champion_name),
         champion_title: sanit(args.champion_title),
+        entity_override: entityOverride,
       })
     );
     console.log(
@@ -541,23 +545,34 @@ export async function handleFunctionCall({ toolName, args, pool }) {
   }
 
   for (const k of safeAllowed) {
-    // Entity fields: always persist when merge allows (never overwrite non-empty with empty; allow initial write when existing empty).
+    // Entity fields: when entity_override true, allow overwrite/clear; else upgrade-only merge.
     if (ENTITY_FIELDS.includes(k)) {
       const existing = currentEntity ? (currentEntity[k] ?? null) : null;
-      const merged = mergeEntityValue(k, existing, args[k]);
-      if (merged == null) continue;
+      const incomingVal = args[k];
+      const incomingCleaned = cleanText(incomingVal);
+      let merged;
+      let changed;
+      if (entityOverride) {
+        if (args[k] === undefined) continue;
+        merged = incomingCleaned || null;
+        changed = (existing != null ? String(existing).trim() : "") !== (merged != null ? String(merged) : "");
+      } else {
+        merged = mergeEntityValue(k, existing, incomingVal);
+        changed = merged != null && (existing == null || String(existing).trim() !== merged);
+      }
+      if (merged === undefined) continue;
       sets.push(`${k} = $${++i}`);
       vals.push(merged);
       if (DEBUG_ENTITY_PERSIST) {
         const ex = existing != null ? String(existing).trim() : "";
-        const changed = ex !== (merged || "");
         console.log(
           JSON.stringify({
             event: "entity_persist_merge",
             field: k,
+            entity_override: entityOverride,
             existing: ex.slice(0, 30) + (ex.length > 30 ? "…" : ""),
-            incoming: String(args[k] || "").trim().slice(0, 30) + (String(args[k] || "").length > 30 ? "…" : ""),
-            merged: merged.slice(0, 30) + (merged.length > 30 ? "…" : ""),
+            incoming: String(incomingVal ?? "").trim().slice(0, 30) + (String(incomingVal ?? "").length > 30 ? "…" : ""),
+            merged: merged != null ? String(merged).slice(0, 30) + (String(merged).length > 30 ? "…" : "") : "null",
             changed,
           })
         );
@@ -619,7 +634,7 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       }
     }
 
-    if (DEBUG_ENTITY_PERSIST && hasEntityArg) {
+    if (DEBUG_ENTITY_PERSIST && needEntityFetch) {
       try {
         const { rows } = await client.query(
           `SELECT eb_name, eb_title, champion_name, champion_title FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,

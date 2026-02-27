@@ -46,6 +46,7 @@ export function buildTools() {
           risk_summary: { type: "string" },
           next_steps: { type: "string" },
           rep_comments: { type: "string" },
+          entity_override: { type: "boolean", description: "Set true only when rep explicitly corrects/replaces EB or Champion (e.g. 'actually', 'new EB', 'changed roles')." },
         },
         required: [],
       },

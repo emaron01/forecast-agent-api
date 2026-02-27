@@ -141,6 +141,7 @@ export async function POST(req: Request) {
       touched: new Set<string>(),
       items: [],
       wrapSaved: false,
+      accumulatedEntity: {},
     });
 
     const runId = randomUUID();
