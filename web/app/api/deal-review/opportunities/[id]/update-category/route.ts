@@ -764,7 +764,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       `- {"action":"followup","question":"..."} `,
       `- {"action":"finalize","material_change":true,"score":0-3,"evidence":"...","tip":"...","risk_summary":"...","next_steps":"..."} `,
       "When finalizing for Internal Sponsor or Economic Buyer, if the rep stated a name or title, include only that role's fields: for Economic Buyer use eb_name, eb_title; for Internal Sponsor use champion_name, champion_title. Do not cross-populate the other role.",
-      "Set entity_override to true only when the rep explicitly corrects or replaces the person/title (e.g. 'actually', 'correction', 'new EB', 'changed roles'). Otherwise omit entity_override.",
+      "If the rep gives a new name and/or title for EB or Champion, accept it (they can change it back if wrong). Omit entity_override when unclear.",
       `- {"action":"finalize","material_change":false} `,
     ].join("\n");
 
@@ -900,13 +900,17 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
             const rawEbName = String((obj as any)?.eb_name ?? (obj as any)?.ebName ?? "").trim() || undefined;
             const rawEbTitle = String((obj as any)?.eb_title ?? (obj as any)?.ebTitle ?? "").trim() || undefined;
             const entityOverride = (obj as any)?.entity_override === true;
+            const existingChampionName = String((opp as any)?.champion_name ?? "").trim() || undefined;
+            const existingChampionTitle = String((opp as any)?.champion_title ?? "").trim() || undefined;
+            const existingEbName = String((opp as any)?.eb_name ?? "").trim() || undefined;
+            const existingEbTitle = String((opp as any)?.eb_title ?? "").trim() || undefined;
             const sseEntity: Record<string, string | boolean | undefined> = {};
             if (category === "champion") {
-              if (rawChampionName !== undefined) sseEntity.champion_name = rawChampionName;
-              if (rawChampionTitle !== undefined) sseEntity.champion_title = rawChampionTitle;
+              sseEntity.champion_name = rawChampionName ?? existingChampionName;
+              sseEntity.champion_title = rawChampionTitle ?? existingChampionTitle;
             } else if (category === "economic_buyer") {
-              if (rawEbName !== undefined) sseEntity.eb_name = rawEbName;
-              if (rawEbTitle !== undefined) sseEntity.eb_title = rawEbTitle;
+              sseEntity.eb_name = rawEbName ?? existingEbName;
+              sseEntity.eb_title = rawEbTitle ?? existingEbTitle;
             }
             if (entityOverride) sseEntity.entity_override = true;
             if (DEBUG_ENTITY_PERSIST) {
@@ -1036,13 +1040,17 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     const rawEbName = String((obj as any)?.eb_name ?? (obj as any)?.ebName ?? "").trim() || undefined;
     const rawEbTitle = String((obj as any)?.eb_title ?? (obj as any)?.ebTitle ?? "").trim() || undefined;
     const entityOverride = (obj as any)?.entity_override === true;
+    const existingChampionName = String((opp as any)?.champion_name ?? "").trim() || undefined;
+    const existingChampionTitle = String((opp as any)?.champion_title ?? "").trim() || undefined;
+    const existingEbName = String((opp as any)?.eb_name ?? "").trim() || undefined;
+    const existingEbTitle = String((opp as any)?.eb_title ?? "").trim() || undefined;
     const jsonEntity: Record<string, string | boolean | undefined> = {};
     if (category === "champion") {
-      if (rawChampionName !== undefined) jsonEntity.champion_name = rawChampionName;
-      if (rawChampionTitle !== undefined) jsonEntity.champion_title = rawChampionTitle;
+      jsonEntity.champion_name = rawChampionName ?? existingChampionName;
+      jsonEntity.champion_title = rawChampionTitle ?? existingChampionTitle;
     } else if (category === "economic_buyer") {
-      if (rawEbName !== undefined) jsonEntity.eb_name = rawEbName;
-      if (rawEbTitle !== undefined) jsonEntity.eb_title = rawEbTitle;
+      jsonEntity.eb_name = rawEbName ?? existingEbName;
+      jsonEntity.eb_title = rawEbTitle ?? existingEbTitle;
     }
     if (entityOverride) jsonEntity.entity_override = true;
     if (DEBUG_ENTITY_PERSIST) {

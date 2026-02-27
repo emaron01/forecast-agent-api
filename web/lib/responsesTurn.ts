@@ -514,10 +514,6 @@ export async function runResponsesTurn(args: {
           const v = String((toolArgs as any)[key] ?? "").trim();
           if (v) (session.accumulatedEntity as Record<string, string>)[key] = v;
         }
-        // On wrap save, merge accumulated entity into this call so ONE persistence writes wrap + entity fields.
-        const argsForSave = wrapComplete && Object.keys(session.accumulatedEntity).length > 0
-          ? { ...session.accumulatedEntity, ...toolArgs }
-          : toolArgs;
 
         // Track touched + reviewed categories
         for (const key of Object.keys(toolArgs || {})) {
@@ -533,6 +529,29 @@ export async function runResponsesTurn(args: {
           toolOutputs.push(toolOutput(callId, { status: "error", error: "No active deal" }));
           continue;
         }
+
+        // On wrap save, include entity fields so ONE persistence writes wrap + entities (from accumulation or current DB).
+        let entityForWrap: Record<string, string> = { ...session.accumulatedEntity };
+        if (wrapComplete && Object.keys(entityForWrap).length === 0) {
+          try {
+            const { rows } = await pool.query<{ eb_name: string | null; eb_title: string | null; champion_name: string | null; champion_title: string | null }>(
+              "SELECT eb_name, eb_title, champion_name, champion_title FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1",
+              [session.orgId, activeDeal.id]
+            );
+            const row = rows?.[0];
+            if (row) {
+              for (const k of ["champion_name", "champion_title", "eb_name", "eb_title"] as const) {
+                const v = row[k];
+                if (v != null && String(v).trim() !== "") entityForWrap[k] = String(v).trim();
+              }
+            }
+          } catch {
+            // ignore
+          }
+        }
+        const argsForSave = wrapComplete && Object.keys(entityForWrap).length > 0
+          ? { ...entityForWrap, ...toolArgs }
+          : toolArgs;
 
         // If the rep said "no change" for a locked check pattern, do NOT overwrite DB fields.
         // We still return success so the model can proceed to the next question.

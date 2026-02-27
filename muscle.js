@@ -565,6 +565,8 @@ export async function handleFunctionCall({ toolName, args, pool }) {
         changed = merged != null && (existing == null || String(existing).trim() !== merged);
       }
       if (merged === undefined) continue;
+      // Paste Notes (comment ingestion): never clear existing entity — only populate or leave unchanged.
+      if (merged === null && args.comment_ingestion_id != null) continue;
       sets.push(`${k} = $${++i}`);
       vals.push(merged);
       if (DEBUG_ENTITY_PERSIST) {
