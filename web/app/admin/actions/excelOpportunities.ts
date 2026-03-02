@@ -713,20 +713,20 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
           }
 
           console.log(`[ingest] enqueue start { count: ${jobRows.length}, queueName: "${QUEUE_NAME}" }`);
-          try {
-            // Required so OPPORTUNITY_NOT_READY triggers BullMQ retry/backoff for this job.
-            // Use a deterministic jobId so overlapping ingests don't drop work; duplicate jobIds are treated as success.
-            const deterministicJobId = [
-              "excel-comments",
-              orgId,
-              String(mappingSetId),
-              String((staged as any)?.firstId || ""),
-              String((staged as any)?.lastId || ""),
-            ]
-              .filter(Boolean)
-              .join(":");
+          // Required so OPPORTUNITY_NOT_READY triggers BullMQ retry/backoff for this job.
+          // Use a deterministic jobId so overlapping ingests don't drop work; duplicate jobIds are treated as success.
+          const deterministicJobId = [
+            "excel-comments",
+            orgId,
+            String(mappingSetId),
+            String((staged as any)?.firstId || ""),
+            String((staged as any)?.lastId || ""),
+          ]
+            .filter(Boolean)
+            .join(":");
 
-            let queuedJobId: string | number | null = null;
+          let queuedJobId: string | number | null = null;
+          try {
 
             const job = await queue.add(
               "excel-comments",
