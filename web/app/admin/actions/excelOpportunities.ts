@@ -699,10 +699,16 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
 
           console.log(`[ingest] enqueue start { count: ${jobRows.length}, queueName: "${QUEUE_NAME}" }`);
           try {
+            // Required so OPPORTUNITY_NOT_READY triggers BullMQ retry/backoff for this job.
             const job = await queue.add("excel-comments", {
               orgId,
               fileName: file.name,
               rows: jobRows,
+            }, {
+              attempts: 8,
+              backoff: { type: "exponential", delay: 2000 },
+              removeOnComplete: true,
+              removeOnFail: false,
             });
             const jobsAdded = 1;
             console.log(`[ingest] enqueue success { jobsAdded: ${jobsAdded} }`);

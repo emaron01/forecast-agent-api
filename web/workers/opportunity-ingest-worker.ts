@@ -162,9 +162,9 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
         );
         const opp = oppRows?.[0];
         if (!opp) {
-          failedCount++;
-          processed++;
-          continue;
+          // Let the job retry when the opportunity row is not yet available.
+          // Handled as a retryable error in the catch block below.
+          throw new Error("OPPORTUNITY_NOT_READY");
         }
 
         if (!inScope(opp, cutoff)) {
@@ -213,6 +213,15 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
         if (applyResult.ok) okCount++;
         else failedCount++;
       } catch (e: any) {
+        const msg = String(e?.message || e);
+        if (msg.startsWith("OPPORTUNITY_NOT_READY")) {
+          console.log(
+            "[ingest] comments waiting for opportunity",
+            JSON.stringify({ orgId, fileName, crmOppId })
+          );
+          // Re-throw so BullMQ can retry this job with backoff according to queue settings.
+          throw e;
+        }
         console.error(
           "[ingest] excel-comments row failed",
           JSON.stringify(
@@ -220,7 +229,7 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
               orgId,
               fileName,
               crmOppId,
-              error: e?.message || String(e),
+              error: msg,
             },
             null,
             2
