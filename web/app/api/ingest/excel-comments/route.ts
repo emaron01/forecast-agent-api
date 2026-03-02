@@ -100,11 +100,21 @@ export async function POST(req: Request) {
 
     const commentsDetected = jobRows.filter((r) => r.rawText.length > 0).length;
 
-    const job = await queue.add("excel-comments", {
-      orgId,
-      fileName: (file as File).name,
-      rows: jobRows,
-    });
+    // Required so OPPORTUNITY_NOT_READY triggers BullMQ retry/backoff for this job.
+    const job = await queue.add(
+      "excel-comments",
+      {
+        orgId,
+        fileName: (file as File).name,
+        rows: jobRows,
+      },
+      {
+        attempts: 8,
+        backoff: { type: "exponential", delay: 2000 },
+        removeOnComplete: true,
+        removeOnFail: false,
+      }
+    );
     console.log(`[ingest] Enqueued job ${job.id} | rows=${jobRows.length} | comments=${commentsDetected}`);
 
     endSpan(reqSpan!, { status: "ok", http_status: 200 });
