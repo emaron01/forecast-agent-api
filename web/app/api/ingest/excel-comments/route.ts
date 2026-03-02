@@ -101,9 +101,9 @@ export async function POST(req: Request) {
     const commentsDetected = jobRows.filter((r) => r.rawText.length > 0).length;
 
     // Required so OPPORTUNITY_NOT_READY triggers BullMQ retry/backoff for this job.
-    // Required so OPPORTUNITY_NOT_READY triggers BullMQ retry/backoff for this job.
     // Use a deterministic jobId so overlapping uploads don't duplicate work; duplicate jobIds are treated as success.
-    const deterministicJobId = ["excel-comments-api", orgId, (file as File).name].filter(Boolean).join(":");
+    const safeFileName = String((file as File).name || "").replace(/[^a-zA-Z0-9._-]/g, "_");
+    const deterministicJobId = ["excel-comments-api", orgId, safeFileName].filter(Boolean).join("_");
 
     let jobId: string | number | null = null;
     try {

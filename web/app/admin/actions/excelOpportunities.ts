@@ -723,7 +723,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
             String((staged as any)?.lastId || ""),
           ]
             .filter(Boolean)
-            .join(":");
+            .join("_");
 
           let queuedJobId: string | number | null = null;
           try {
