@@ -19,7 +19,7 @@ declare global {
 function defaultPromptPath() {
   // Default to a bundled, repo-shipped prompt file (works in Render/Linux).
   // Can be overridden with MASTER_DCO_PROMPT_PATH for local editing.
-  return "prompts/master Dco Prompts.txt";
+  return "web/prompts/master Dco Prompts.txt";
 }
 
 export async function loadMasterDcoPrompt(): Promise<MasterPromptRecord> {
