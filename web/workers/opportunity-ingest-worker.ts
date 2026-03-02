@@ -28,6 +28,14 @@ function getStartOfPreviousQuarterUTC(): Date {
   return new Date(Date.UTC(prevY, startMonth, 1));
 }
 
+function getStartOfCurrentQuarterUTC(now: Date): Date {
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth();
+  const q = Math.floor(m / 3);
+  const startMonth = q * 3;
+  return new Date(Date.UTC(y, startMonth, 1));
+}
+
 function outcomeFromRow(opp: { forecast_stage?: string | null; sales_stage?: string | null }): "Open" | "Won" | "Lost" {
   const f = outcomeFromStageLike(opp.forecast_stage);
   if (f !== "Open") return f;
@@ -37,7 +45,23 @@ function outcomeFromRow(opp: { forecast_stage?: string | null; sales_stage?: str
 function inScope(opp: { sales_stage?: string | null; forecast_stage?: string | null; close_date?: string | Date | null }, _cutoff: Date): boolean {
   const outcome = outcomeFromRow(opp);
   if (outcome === "Open") return true;
-  return isClosedDealInLastTwoCompletedQuarters(opp);
+
+  const rawClose = opp.close_date;
+  if (!rawClose) return false;
+  const closeDate = new Date(rawClose as any);
+  if (!Number.isFinite(closeDate.getTime())) return false;
+
+  // Include closed deals from the last two completed quarters.
+  if (isClosedDealInLastTwoCompletedQuarters(opp)) {
+    return true;
+  }
+
+  // Also include closed deals in the current in-progress quarter so fresh Closed Won/Lost
+  // opportunities with valid close dates are eligible for scoring.
+  const now = new Date();
+  const currentQuarterStart = getStartOfCurrentQuarterUTC(now).getTime();
+  const t = closeDate.getTime();
+  return t >= currentQuarterStart;
 }
 
 function getConnection() {
