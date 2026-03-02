@@ -107,7 +107,21 @@ async function processSingleIngest(job: { data: any; updateProgress: (p: object)
       skipped_baseline_exists: 0,
       failed: applyResult.ok ? 0 : 1,
     };
-  } catch {
+  } catch (e: any) {
+    console.error(
+      "[ingest] single-ingest failed",
+      JSON.stringify(
+        {
+          orgId,
+          opportunityId,
+          sourceType: sourceType ?? "manual",
+          sourceRef: sourceRef ?? "single",
+          error: e?.message || String(e),
+        },
+        null,
+        2
+      )
+    );
     return { processed: 1, ok: 0, skipped_out_of_scope: 0, skipped_baseline_exists: 0, failed: 1 };
   }
 }
@@ -198,7 +212,20 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
         });
         if (applyResult.ok) okCount++;
         else failedCount++;
-      } catch {
+      } catch (e: any) {
+        console.error(
+          "[ingest] excel-comments row failed",
+          JSON.stringify(
+            {
+              orgId,
+              fileName,
+              crmOppId,
+              error: e?.message || String(e),
+            },
+            null,
+            2
+          )
+        );
         failedCount++;
       }
       processed++;
