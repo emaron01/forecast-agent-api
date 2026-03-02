@@ -265,8 +265,18 @@ export function ExcelUploadClient(props: {
 
       // If we don't have a mapping yet, guess it.
       setMapping((prev) => {
+        // For existing saved formats, respect only the saved mapping.
+        // Guessing for extra fields can make it look like a mapping exists
+        // even when it was never saved (e.g., Deal Registration).
+        if (props.prefillSetPublicId) {
+          const merged = { ...prev };
+          for (const [k, v] of Object.entries(prefillByTarget)) {
+            if (v) (merged as any)[k] = v;
+          }
+          return merged;
+        }
+
         const merged = { ...guessMapping(keys), ...prev };
-        // If a saved mapping exists, keep it.
         for (const [k, v] of Object.entries(prefillByTarget)) {
           if (v) (merged as any)[k] = v;
         }
