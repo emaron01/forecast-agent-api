@@ -12,7 +12,7 @@ import { pool } from "../lib/pool";
 import { runCommentIngestionTurn, getPromptVersionHash } from "../lib/commentIngestionTurn";
 import { insertCommentIngestion } from "../lib/db";
 import { applyCommentIngestionToOpportunity } from "../lib/applyCommentIngestionToOpportunity";
-import { outcomeFromStageLike } from "../lib/opportunityOutcome";
+import { outcomeFromStageLike, isClosedDealInLastTwoCompletedQuarters } from "../lib/opportunityOutcome";
 
 const QUEUE_NAME = "opportunity-ingest";
 const BATCH_SIZE = 100;
@@ -36,8 +36,8 @@ function outcomeFromRow(opp: { forecast_stage?: string | null; sales_stage?: str
 
 function inScope(opp: { sales_stage?: string | null; forecast_stage?: string | null; close_date?: string | Date | null }, _cutoff: Date): boolean {
   const outcome = outcomeFromRow(opp);
-  if (outcome !== "Open") return false;
-  return true;
+  if (outcome === "Open") return true;
+  return isClosedDealInLastTwoCompletedQuarters(opp);
 }
 
 function getConnection() {

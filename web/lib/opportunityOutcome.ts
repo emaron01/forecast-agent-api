@@ -49,3 +49,47 @@ export function isClosedOpportunityRow(row: any) {
   return closedOutcomeFromOpportunityRow(row) != null;
 }
 
+function getLastTwoCompletedQuartersWindowUTC(now: Date): { start: Date; endExclusive: Date } {
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth(); // 0-11
+  const currentQuarter = Math.floor(month / 3) + 1; // 1-4
+
+  let lastQuarter = currentQuarter - 1;
+  let lastQuarterYear = year;
+  if (lastQuarter === 0) {
+    lastQuarter = 4;
+    lastQuarterYear = year - 1;
+  }
+
+  let prevQuarter = lastQuarter - 1;
+  let prevQuarterYear = lastQuarterYear;
+  if (prevQuarter === 0) {
+    prevQuarter = 4;
+    prevQuarterYear = lastQuarterYear - 1;
+  }
+
+  const start = new Date(Date.UTC(prevQuarterYear, (prevQuarter - 1) * 3, 1));
+  const endExclusive = new Date(Date.UTC(year, (currentQuarter - 1) * 3, 1));
+  return { start, endExclusive };
+}
+
+export function isClosedDealInLastTwoCompletedQuarters(
+  row: { forecast_stage?: string | null; sales_stage?: string | null; close_date?: string | Date | null },
+  now?: Date
+): boolean {
+  const closed = closedOutcomeFromOpportunityRow(row);
+  if (!closed) return false;
+
+  const rawClose = row.close_date;
+  if (!rawClose) return false;
+
+  const closeDate = new Date(rawClose as any);
+  if (!Number.isFinite(closeDate.getTime())) return false;
+
+  const ref = now ?? new Date();
+  const { start, endExclusive } = getLastTwoCompletedQuartersWindowUTC(ref);
+  const t = closeDate.getTime();
+  return t >= start.getTime() && t < endExclusive.getTime();
+}
+
+
