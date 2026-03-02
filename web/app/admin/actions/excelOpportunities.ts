@@ -642,6 +642,21 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
       // Don't crash the UI; surface a helpful message.
       throw new Error(`Ingestion processing failed: ${e?.message || String(e)}`);
     }) : null;
+
+    if (process.env.DEBUG_INGEST === "true") {
+      console.log(
+        JSON.stringify({
+          event: "ingestion_batch_complete",
+          org_id: orgId,
+          mapping_set_id: mappingSetId,
+          inserted: staged.inserted ?? 0,
+          first_staging_id: (staged as any)?.firstId ?? null,
+          last_staging_id: (staged as any)?.lastId ?? null,
+          processed: summary?.processed ?? 0,
+          error: summary?.error ?? 0,
+        })
+      );
+    }
     if (processNow) {
       const idMin = (staged as any)?.firstId ? String((staged as any).firstId) : "";
       const idMax = (staged as any)?.lastId ? String((staged as any).lastId) : "";
@@ -700,26 +715,83 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
           console.log(`[ingest] enqueue start { count: ${jobRows.length}, queueName: "${QUEUE_NAME}" }`);
           try {
             // Required so OPPORTUNITY_NOT_READY triggers BullMQ retry/backoff for this job.
-            const job = await queue.add("excel-comments", {
+            // Use a deterministic jobId so overlapping ingests don't drop work; duplicate jobIds are treated as success.
+            const jobId = [
+              "excel-comments",
               orgId,
-              fileName: file.name,
-              rows: jobRows,
-            }, {
-              attempts: 8,
-              backoff: { type: "exponential", delay: 2000 },
-              removeOnComplete: true,
-              removeOnFail: false,
-            });
+              String(mappingSetId),
+              String((staged as any)?.firstId || ""),
+              String((staged as any)?.lastId || ""),
+            ]
+              .filter(Boolean)
+              .join(":");
+
+            const job = await queue.add(
+              "excel-comments",
+              {
+                orgId,
+                fileName: file.name,
+                rows: jobRows,
+              },
+              {
+                jobId,
+                attempts: 8,
+                backoff: { type: "exponential", delay: 2000 },
+                removeOnComplete: true,
+                removeOnFail: false,
+              }
+            );
             const jobsAdded = 1;
-            console.log(`[ingest] enqueue success { jobsAdded: ${jobsAdded} }`);
+            if (process.env.DEBUG_INGEST === "true") {
+              console.log(
+                JSON.stringify({
+                  event: "enqueue_excel_comments",
+                  queue: QUEUE_NAME,
+                  job_name: "excel-comments",
+                  job_id: job.id,
+                  jobId_deterministic: jobId,
+                  org_id: orgId,
+                  file_name: file.name,
+                  rows: jobRows.length,
+                  jobsAdded,
+                })
+              );
+            } else {
+              console.log(`[ingest] enqueue success { jobsAdded: ${jobsAdded} }`);
+            }
             commentsQueued = jobRows.length;
             jobId = job.id;
           } catch (enqErr: any) {
-            console.error("[ingest] enqueue FAILED", enqErr?.stack || enqErr);
-            return err(intent, "Failed to queue comment scoring.", [
-              String(enqErr?.message || enqErr),
-              "Ensure Redis is reachable and REDIS_URL is correct.",
-            ]);
+            const msg = String(enqErr?.message || enqErr || "");
+            if (msg.includes("jobId") && msg.includes("already exists")) {
+              // Idempotent enqueue: treat duplicate jobId as success (another worker/job will handle this batch).
+              if (process.env.DEBUG_INGEST === "true") {
+                console.log(
+                  JSON.stringify({
+                    event: "enqueue_excel_comments_duplicate",
+                    queue: QUEUE_NAME,
+                    job_name: "excel-comments",
+                    job_id: null,
+                    jobId_deterministic: null,
+                    org_id: orgId,
+                    file_name: file.name,
+                    rows: jobRows.length,
+                    error: msg,
+                  })
+                );
+              } else {
+                console.log(
+                  `[ingest] enqueue duplicate ignored { queueName: "${QUEUE_NAME}", reason: "jobId already exists" }`
+                );
+              }
+              commentsQueued = jobRows.length;
+            } else {
+              console.error("[ingest] enqueue FAILED", enqErr?.stack || enqErr);
+              return err(intent, "Failed to queue comment scoring.", [
+                msg,
+                "Ensure Redis is reachable and REDIS_URL is correct.",
+              ]);
+            }
           }
         }
       }

@@ -101,27 +101,80 @@ export async function POST(req: Request) {
     const commentsDetected = jobRows.filter((r) => r.rawText.length > 0).length;
 
     // Required so OPPORTUNITY_NOT_READY triggers BullMQ retry/backoff for this job.
-    const job = await queue.add(
-      "excel-comments",
-      {
-        orgId,
-        fileName: (file as File).name,
-        rows: jobRows,
-      },
-      {
-        attempts: 8,
-        backoff: { type: "exponential", delay: 2000 },
-        removeOnComplete: true,
-        removeOnFail: false,
+    // Required so OPPORTUNITY_NOT_READY triggers BullMQ retry/backoff for this job.
+    // Use a deterministic jobId so overlapping uploads don't duplicate work; duplicate jobIds are treated as success.
+    const deterministicJobId = ["excel-comments-api", orgId, (file as File).name].filter(Boolean).join(":");
+
+    let jobId: string | number | null = null;
+    try {
+      const job = await queue.add(
+        "excel-comments",
+        {
+          orgId,
+          fileName: (file as File).name,
+          rows: jobRows,
+        },
+        {
+          jobId: deterministicJobId,
+          attempts: 8,
+          backoff: { type: "exponential", delay: 2000 },
+          removeOnComplete: true,
+          removeOnFail: false,
+        }
+      );
+      jobId = job.id;
+      if (process.env.DEBUG_INGEST === "true") {
+        console.log(
+          JSON.stringify({
+            event: "enqueue_excel_comments_api",
+            queue: "opportunity-ingest",
+            job_name: "excel-comments",
+            job_id: job.id,
+            jobId_deterministic: deterministicJobId,
+            org_id: orgId,
+            file_name: (file as File).name,
+            rows: jobRows.length,
+            commentsDetected,
+          })
+        );
+      } else {
+        console.log(`[ingest] Enqueued job ${job.id} | rows=${jobRows.length} | comments=${commentsDetected}`);
       }
-    );
-    console.log(`[ingest] Enqueued job ${job.id} | rows=${jobRows.length} | comments=${commentsDetected}`);
+    } catch (e: any) {
+      const msg = String(e?.message || e || "");
+      if (msg.includes("jobId") && msg.includes("already exists")) {
+        // Idempotent enqueue: treat duplicate jobId as success; an existing job will process this payload.
+        jobId = deterministicJobId;
+        if (process.env.DEBUG_INGEST === "true") {
+          console.log(
+            JSON.stringify({
+              event: "enqueue_excel_comments_api_duplicate",
+              queue: "opportunity-ingest",
+              job_name: "excel-comments",
+              job_id: null,
+              jobId_deterministic: deterministicJobId,
+              org_id: orgId,
+              file_name: (file as File).name,
+              rows: jobRows.length,
+              commentsDetected,
+              error: msg,
+            })
+          );
+        } else {
+          console.log(
+            `[ingest] Enqueue duplicate ignored { queueName: "opportunity-ingest", reason: "jobId already exists" }`
+          );
+        }
+      } else {
+        throw e;
+      }
+    }
 
     endSpan(reqSpan!, { status: "ok", http_status: 200 });
     return NextResponse.json({
       ok: true,
       mode: "async",
-      jobId: job.id,
+      jobId,
       rowCount: jobRows.length,
       commentsDetected,
     });

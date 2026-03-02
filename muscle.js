@@ -860,6 +860,43 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       logicVersion: args.logic_version || "v1",
     });
 
+    // Increment run_count for each successful scoring run; ignore if column not present.
+    let nextRunCount = null;
+    try {
+      const res = await client.query(
+        `
+        UPDATE opportunities
+           SET run_count = COALESCE(run_count, 0) + 1
+         WHERE org_id = $1
+           AND id = $2
+        RETURNING run_count
+        `,
+        [orgId, opportunityId]
+      );
+      nextRunCount = res?.rows?.[0]?.run_count ?? null;
+    } catch (e) {
+      // Some DBs may not have run_count yet; do not fail scoring in that case.
+      if (String(e?.code || "") !== "42703") {
+        throw e;
+      }
+    }
+
+    if (process.env.DEBUG_INGEST === "true") {
+      try {
+        console.log(
+          JSON.stringify({
+            event: "review_run_complete",
+            org_id: orgId,
+            opportunity_id: opportunityId,
+            run_count: nextRunCount,
+            audit_event_id: auditId ?? null,
+          })
+        );
+      } catch {
+        // ignore logging failures
+      }
+    }
+
     await client.query("COMMIT");
 
     return {
@@ -867,6 +904,7 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       saved: true,
       opportunity_id: opportunityId,
       audit_event_id: auditId,
+      run_count: nextRunCount,
     };
   } catch (e) {
     await client.query("ROLLBACK");
