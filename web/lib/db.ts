@@ -1619,37 +1619,36 @@ export async function deleteOrganization(args: { id: number }) {
   try {
     await client.query("BEGIN");
     // Delete in dependency order so no orphaned rows remain.
-    // 1. Opportunities (CASCADE deletes comment_ingestions, opportunity_audit_events)
-    await client.query("DELETE FROM opportunities WHERE org_id = $1", [id]);
-    // 1b. Clean any orphaned comment_ingestions / opportunity_audit_events by org_id
-    await client.query("DELETE FROM comment_ingestions WHERE org_id = $1", [id]);
-    await client.query("DELETE FROM opportunity_audit_events WHERE org_id = $1", [id]);
-    // 2. Field mappings (children of field_mapping_sets)
-    await client.query(
-      "DELETE FROM field_mappings WHERE mapping_set_id IN (SELECT id FROM field_mapping_sets WHERE organization_id = $1)",
+    // 1. Collect rep IDs (for quota manager cleanup)
+    const repIdsResult = await client.query(
+      `SELECT id FROM reps WHERE org_id = $1 OR organization_id = $1`,
       [id]
     );
-    // 3. Field mapping sets (CASCADE deletes ingestion_staging)
-    await client.query("DELETE FROM field_mapping_sets WHERE organization_id = $1", [id]);
-    // 4. Break circular FKs between reps <-> quotas before deleting rows.
-    //    quotas_rep_id_fkey: quotas.rep_id -> reps.id
-    await client.query("UPDATE quotas SET rep_id = NULL WHERE org_id = $1", [id]);
-    //    reps_quota_fk: reps.quota_id -> quotas.id
-    await client.query("UPDATE reps SET quota_id = NULL WHERE organization_id = $1", [id]);
-    // 5. Reps
-    await client.query("DELETE FROM reps WHERE organization_id = $1", [id]);
-    // 6. Quotas
-    await client.query("DELETE FROM quotas WHERE org_id = $1", [id]);
-    // 7. Quota periods
-    await client.query("DELETE FROM quota_periods WHERE org_id = $1", [id]);
-    // 8. Analytics saved reports
-    await client.query("DELETE FROM analytics_saved_reports WHERE org_id = $1", [id]);
-    // 9. Forecast stage probabilities
-    await client.query("DELETE FROM forecast_stage_probabilities WHERE org_id = $1", [id]);
-    // 10. Executive snapshots
-    await client.query("DELETE FROM executive_snapshots WHERE org_id = $1", [id]);
-    // 11. Organization (CASCADE deletes users, user_sessions, password_reset_tokens, manager_visibility)
+    const repIds: number[] = (repIdsResult.rows || []).map((r) => Number(r.id)).filter((n) => Number.isFinite(n));
+
+    // 2. Clean up quota manager references (manager_id -> reps.id)
+    if (repIds.length > 0) {
+      await client.query(`DELETE FROM quotas WHERE manager_id = ANY($1::bigint[])`, [repIds]);
+    }
+
+    // 3. Delete all direct org dependents
+    await client.query(`DELETE FROM analytics_saved_reports WHERE org_id = $1`, [id]);
+    await client.query(`DELETE FROM field_mapping_sets WHERE organization_id = $1`, [id]);
+    await client.query(`DELETE FROM forecast_probabilities WHERE org_id = $1`, [id]);
+    await client.query(`DELETE FROM forecast_stage_probabilities WHERE org_id = $1`, [id]);
+    await client.query(`DELETE FROM health_score_rules WHERE org_id = $1`, [id]);
+    await client.query(`DELETE FROM ingestion_staging WHERE organization_id = $1`, [id]);
+    await client.query(`DELETE FROM opportunities WHERE org_id = $1`, [id]);
+    await client.query(`DELETE FROM quota_periods WHERE org_id = $1`, [id]);
+    await client.query(`DELETE FROM quotas WHERE org_id = $1`, [id]);
+    await client.query(`DELETE FROM reps WHERE org_id = $1 OR organization_id = $1`, [id]);
+
+    // 4. Nullify self-referencing child orgs (do not delete them)
+    await client.query(`UPDATE organizations SET parent_org_id = NULL WHERE parent_org_id = $1`, [id]);
+
+    // 5. Finally delete the org
     await client.query("DELETE FROM organizations WHERE id = $1", [id]);
+
     await client.query("COMMIT");
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
