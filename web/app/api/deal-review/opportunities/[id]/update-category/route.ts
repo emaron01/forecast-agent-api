@@ -15,6 +15,13 @@ import {
   passesEarlyEmitGate,
   logVoiceLatency,
 } from "../../../../../../lib/voiceStreaming";
+import {
+  evidenceDelta,
+  scoreDelta,
+  actionabilityDelta,
+  shouldEmitNoMaterialChange,
+  fallbackForEvidenceOnly,
+} from "../../../../../../lib/categoryUpdateDeltas";
 
 export const runtime = "nodejs";
 
@@ -102,6 +109,59 @@ function splitLabelEvidence(summary: any) {
     return { label, evidence };
   }
   return { label: "", evidence: s };
+}
+
+/** When LLM says material_change=false, compute deltas; if any delta is true, override to material change and return payload to persist. */
+function resolveMaterialChangeOverride(args: {
+  llmMaterial: boolean;
+  llmScore: number | undefined;
+  llmEvidence: string;
+  llmTip: string;
+  llmRiskSummary: string;
+  llmNextSteps: string;
+  userText: string;
+  lastEvidence: string;
+  lastScore: number;
+  lastTip: string;
+  category: CategoryKey;
+  existingRiskSummary: string;
+  existingNextSteps: string;
+}): { noMaterialChange: boolean; score?: number; evidence?: string; tip?: string; riskSummary?: string; nextSteps?: string } {
+  const {
+    llmMaterial,
+    llmScore,
+    llmEvidence,
+    llmTip,
+    llmRiskSummary,
+    llmNextSteps,
+    userText,
+    lastEvidence,
+    lastScore,
+    lastTip,
+    category,
+    existingRiskSummary,
+    existingNextSteps,
+  } = args;
+  if (llmMaterial) {
+    return { noMaterialChange: false, score: llmScore, evidence: llmEvidence, tip: llmTip, riskSummary: llmRiskSummary, nextSteps: llmNextSteps };
+  }
+  const evDelta = evidenceDelta({ category, userText, lastEvidence, llmEvidence: llmEvidence || null });
+  const scDelta = scoreDelta(lastScore, llmScore);
+  const actDelta = actionabilityDelta({ lastTip, llmTip: llmTip || null, score: llmScore ?? lastScore });
+  if (shouldEmitNoMaterialChange({ evidence_delta: evDelta, score_delta: scDelta, actionability_delta: actDelta })) {
+    return { noMaterialChange: true };
+  }
+  const evidence = llmEvidence?.trim() || fallbackForEvidenceOnly({ category, userText }).evidence;
+  const tip = llmTip?.trim() || fallbackForEvidenceOnly({ category, userText }).tip;
+  const score = Number.isFinite(llmScore) && llmScore != null ? Math.max(0, Math.min(3, llmScore)) : fallbackForEvidenceOnly({ category, userText }).score;
+  return {
+    noMaterialChange: false,
+    score,
+    evidence,
+    tip,
+    riskSummary: llmRiskSummary?.trim() || existingRiskSummary,
+    nextSteps: llmNextSteps?.trim() || existingNextSteps,
+  };
 }
 
 function extractPersonAndTitleFromText(raw: string): { name?: string; title?: string } {
@@ -820,7 +880,9 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "You are an Expert Sales Leader running a targeted update for ONE category only.",
       "CRITICAL:",
       "- Do NOT evaluate or change any other categories.",
-      "- If the rep indicates there is no material change, set material_change=false and do not propose updates.",
+      "- Only set material_change=false when the rep explicitly indicates nothing has changed (e.g. 'no', 'same', 'unchanged').",
+      "- New evidence includes negative or missing confirmation: e.g. 'we have not discussed pricing', 'no budget', 'not confirmed', 'don\'t know approval path'. In those cases set material_change=true and output score (low), evidence, and a helpful coaching tip.",
+      "- For Budget: phrases like 'haven\'t discussed pricing', 'no budget', 'not confirmed' are explicit evidence; score low and provide a tip to confirm funding/approval.",
       "- If you need more information to score, ask ONE focused follow-up question.",
       "- Otherwise, produce a final update for this category: score (0-3), evidence, and coaching tip.",
       "- Also update wrap outputs (risk_summary and next_steps) using ONLY the known evidence. If coverage is incomplete, be accurate and not harsh.",
@@ -930,8 +992,27 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
               return;
             }
 
-            const material = Boolean(obj?.material_change);
-            if (!material) {
+            const llmScore = Number(obj?.score);
+            const llmEvidence = String(obj?.evidence || "").trim();
+            const llmTip = String(obj?.tip || "").trim();
+            const llmRiskSummary = String(obj?.risk_summary || "").trim();
+            const llmNextSteps = String(obj?.next_steps || "").trim();
+            const override = resolveMaterialChangeOverride({
+              llmMaterial: Boolean(obj?.material_change),
+              llmScore: Number.isFinite(llmScore) ? llmScore : undefined,
+              llmEvidence,
+              llmTip,
+              llmRiskSummary,
+              llmNextSteps,
+              userText: text,
+              lastEvidence,
+              lastScore,
+              lastTip,
+              category,
+              existingRiskSummary: String(opp?.risk_summary || "").trim(),
+              existingNextSteps: String(opp?.next_steps || "").trim(),
+            });
+            if (override.noMaterialChange) {
               sendSSE({
                 type: "done",
                 ok: true,
@@ -945,11 +1026,11 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
               return;
             }
 
-            const score = Number(obj?.score);
-            const evidence = String(obj?.evidence || "").trim();
-            const tip = String(obj?.tip || "").trim();
-            const riskSummary = String(obj?.risk_summary || "").trim();
-            const nextSteps = String(obj?.next_steps || "").trim();
+            const score = Math.max(0, Math.min(3, Number(override.score ?? llmScore) || 0));
+            const evidence = (override.evidence ?? llmEvidence).trim();
+            const tip = (override.tip ?? llmTip).trim();
+            const riskSummary = (override.riskSummary ?? llmRiskSummary).trim();
+            const nextSteps = (override.nextSteps ?? llmNextSteps).trim();
 
             if (!Number.isFinite(score) || score < 0 || score > 3) {
               sendSSE({ type: "error", error: "Model returned invalid score" });
@@ -1080,8 +1161,27 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       return NextResponse.json({ ok: false, error: "Model returned invalid action" }, { status: 500 });
     }
 
-    const material = Boolean(obj?.material_change);
-    if (!material) {
+    const llmScore = Number(obj?.score);
+    const llmEvidence = String(obj?.evidence || "").trim();
+    const llmTip = String(obj?.tip || "").trim();
+    const llmRiskSummary = String(obj?.risk_summary || "").trim();
+    const llmNextSteps = String(obj?.next_steps || "").trim();
+    const override = resolveMaterialChangeOverride({
+      llmMaterial: Boolean(obj?.material_change),
+      llmScore: Number.isFinite(llmScore) ? llmScore : undefined,
+      llmEvidence,
+      llmTip,
+      llmRiskSummary,
+      llmNextSteps,
+      userText: text,
+      lastEvidence,
+      lastScore,
+      lastTip,
+      category,
+      existingRiskSummary: String(opp?.risk_summary || "").trim(),
+      existingNextSteps: String(opp?.next_steps || "").trim(),
+    });
+    if (override.noMaterialChange) {
       return NextResponse.json({
         ok: true,
         sessionId,
@@ -1092,11 +1192,11 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       });
     }
 
-    const score = Number(obj?.score);
-    const evidence = String(obj?.evidence || "").trim();
-    const tip = String(obj?.tip || "").trim();
-    const riskSummary = String(obj?.risk_summary || "").trim();
-    const nextSteps = String(obj?.next_steps || "").trim();
+    const score = Math.max(0, Math.min(3, Number(override.score ?? llmScore) || 0));
+    const evidence = (override.evidence ?? llmEvidence).trim();
+    const tip = (override.tip ?? llmTip).trim();
+    const riskSummary = (override.riskSummary ?? llmRiskSummary).trim();
+    const nextSteps = (override.nextSteps ?? llmNextSteps).trim();
 
     if (!Number.isFinite(score) || score < 0 || score > 3) {
       return NextResponse.json({ ok: false, error: "Model returned invalid score" }, { status: 500 });
