@@ -38,11 +38,23 @@ export function normalizeClosedForecast(stageLike: any): "Closed Won" | "Closed 
   return null;
 }
 
+/** Outcome from row using BOTH forecast_stage and sales_stage; Won wins over Lost. */
+export function outcomeFromOpportunityRow(row: any): Outcome {
+  const a = outcomeFromStageLike(row?.forecast_stage);
+  const b = outcomeFromStageLike(row?.sales_stage);
+  if (a === "Won" || b === "Won") return "Won";
+  if (a === "Lost" || b === "Lost") return "Lost";
+  return "Open";
+}
+
 export function closedOutcomeFromOpportunityRow(row: any): ClosedOutcome | null {
   // Forecast reporting standard: forecast_stage drives all “closed” detection.
   // (We intentionally do NOT use sales_stage here.)
   // forecast_stage takes precedence, then sales_stage
-  return closedOutcomeFromStage(row?.forecast_stage) || closedOutcomeFromStage(row?.sales_stage) || null;
+  const o = outcomeFromOpportunityRow(row);
+  if (o === "Won") return "Won";
+  if (o === "Lost") return "Lost";
+  return null;
 }
 
 export function isClosedOpportunityRow(row: any) {

@@ -12,7 +12,7 @@ import { pool } from "../lib/pool";
 import { runCommentIngestionTurn, getPromptVersionHash } from "../lib/commentIngestionTurn";
 import { insertCommentIngestion } from "../lib/db";
 import { applyCommentIngestionToOpportunity } from "../lib/applyCommentIngestionToOpportunity";
-import { outcomeFromStageLike, isClosedDealInLastTwoCompletedQuarters } from "../lib/opportunityOutcome";
+import { outcomeFromOpportunityRow, isClosedDealInLastTwoCompletedQuarters } from "../lib/opportunityOutcome";
 
 const QUEUE_NAME = "opportunity-ingest";
 const BATCH_SIZE = 100;
@@ -36,14 +36,8 @@ function getStartOfCurrentQuarterUTC(now: Date): Date {
   return new Date(Date.UTC(y, startMonth, 1));
 }
 
-function outcomeFromRow(opp: { forecast_stage?: string | null; sales_stage?: string | null }): "Open" | "Won" | "Lost" {
-  const f = outcomeFromStageLike(opp.forecast_stage);
-  if (f !== "Open") return f;
-  return outcomeFromStageLike(opp.sales_stage);
-}
-
 function inScope(opp: { sales_stage?: string | null; forecast_stage?: string | null; close_date?: string | Date | null }, _cutoff: Date): boolean {
-  const outcome = outcomeFromRow(opp);
+  const outcome = outcomeFromOpportunityRow(opp);
   if (outcome === "Open") return true;
 
   const rawClose = opp.close_date;
@@ -207,7 +201,23 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
           throw new Error("OPPORTUNITY_NOT_READY");
         }
 
+        const computedOutcome = outcomeFromOpportunityRow(opp);
         if (!inScope(opp, cutoff)) {
+          if (process.env.DEBUG_INGEST === "true" && computedOutcome !== "Open") {
+            const rawClose = opp.close_date;
+            const skipReason = !rawClose ? "closed_missing_close_date" : "closed_out_of_scope";
+            console.log(
+              JSON.stringify({
+                event: "comment_row_skipped",
+                opportunity_id: opp.id,
+                forecast_stage: opp.forecast_stage ?? null,
+                sales_stage: opp.sales_stage ?? null,
+                close_date: rawClose ?? null,
+                computed_outcome: computedOutcome,
+                skip_reason: skipReason,
+              })
+            );
+          }
           skippedTotal++;
           skippedOutOfScope++;
           processed++;
@@ -253,6 +263,16 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
           rawNotes: rawText,
         });
         if (applyResult.ok) {
+          if (process.env.DEBUG_INGEST === "true") {
+            console.log(
+              JSON.stringify({
+                event: "comment_row_processed",
+                opportunity_id: opp.id,
+                computed_outcome: computedOutcome,
+                close_date: opp.close_date ?? null,
+              })
+            );
+          }
           processedSuccess++;
           okCount++;
         } else failedCount++;
