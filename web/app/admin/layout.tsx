@@ -41,6 +41,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                   <NavLink href="/admin/all-users" label="All Users" />
                   <NavLink href="/admin/email-templates" label="Email Templates" />
                   <NavLink href="/admin/ingestion" label="Ingestion" />
+                  <NavLink href="/admin/ingestion-health" label="Ingestion Health" />
                   <NavLink href="/admin/health" label="Health" />
                 </>
               ) : null}
@@ -54,6 +55,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               ) : (
                 <>
                   <NavLink href="/admin/org-profile" label="Org Profile" />
+                  {ctx.kind === "user" && ctx.user.role === "ADMIN" ? (
+                    <NavLink href="/admin/ingestion-health" label="Ingestion Health" />
+                  ) : null}
                   <NavLink href="/admin/hierarchy" label="Sales Organization" />
                   {ctx.kind === "master" ? <NavLink href="/admin/mapping-sets" label="Mapping Sets" /> : null}
                   {hasQuotaSetupAccess ? (

@@ -160,6 +160,20 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
     throw new Error("Invalid job: orgId and rows required");
   }
 
+  const t0 = Date.now();
+  let processedSuccess = 0;
+  let skippedTotal = 0;
+  let notReadyTotal = 0;
+
+  console.log(
+    JSON.stringify({
+      event: "excel_comments_job_start",
+      job_id: job.id,
+      attempt: (job as any).attemptsMade + 1,
+      rows_total: rows.length,
+    })
+  );
+
   const cutoff = getStartOfPreviousQuarterUTC();
   const total = rows.length;
   let processed = 0;
@@ -168,11 +182,13 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
   let skippedBaselineExists = 0;
   let failedCount = 0;
 
+  try {
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE);
     for (const item of batch) {
       const { crmOppId, rawText } = item;
       if (!crmOppId || !rawText) {
+        skippedTotal++;
         failedCount++;
         processed++;
         continue;
@@ -192,12 +208,14 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
         }
 
         if (!inScope(opp, cutoff)) {
+          skippedTotal++;
           skippedOutOfScope++;
           processed++;
           continue;
         }
 
         if (opp.baseline_health_score_ts != null) {
+          skippedTotal++;
           skippedBaselineExists++;
           processed++;
           continue;
@@ -234,11 +252,14 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
           salesStage: opp.sales_stage ?? opp.forecast_stage ?? null,
           rawNotes: rawText,
         });
-        if (applyResult.ok) okCount++;
-        else failedCount++;
+        if (applyResult.ok) {
+          processedSuccess++;
+          okCount++;
+        } else failedCount++;
       } catch (e: any) {
         const msg = String(e?.message || e);
         if (msg.startsWith("OPPORTUNITY_NOT_READY")) {
+          notReadyTotal++;
           console.log(
             "[ingest] comments waiting for opportunity",
             JSON.stringify({ orgId, fileName, crmOppId })
@@ -275,6 +296,20 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
     });
   }
 
+  console.log(
+    JSON.stringify({
+      event: "excel_comments_job_done",
+      status: "completed",
+      job_id: job.id,
+      attempt: (job as any).attemptsMade + 1,
+      rows_total: rows.length,
+      processed_rows: processedSuccess,
+      skipped_rows: skippedTotal,
+      not_ready_rows: notReadyTotal,
+      duration_ms: Date.now() - t0,
+    })
+  );
+
   return {
     processed,
     ok: okCount,
@@ -282,6 +317,23 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
     skipped_baseline_exists: skippedBaselineExists,
     failed: failedCount,
   };
+  } catch (err: any) {
+    console.log(
+      JSON.stringify({
+        event: "excel_comments_job_done",
+        status: "failed",
+        job_id: job.id,
+        attempt: (job as any).attemptsMade + 1,
+        rows_total: rows.length,
+        processed_rows: processedSuccess,
+        skipped_rows: skippedTotal,
+        not_ready_rows: notReadyTotal,
+        duration_ms: Date.now() - t0,
+        error: String(err?.message || err),
+      })
+    );
+    throw err;
+  }
 }
 
 function maskRedisHost(url: string): string {
