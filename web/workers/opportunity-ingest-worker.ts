@@ -368,7 +368,7 @@ function maskRedisHost(url: string): string {
 
 const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
 console.log(
-  `[ingest] Worker starting | queue=${QUEUE_NAME} | redis=${maskRedisHost(redisUrl)} | concurrency=2 | batch=${BATCH_SIZE}`
+  `[ingest] Worker starting | queue=${QUEUE_NAME} | redis=${maskRedisHost(redisUrl)} | concurrency=3 | batch=${BATCH_SIZE}`
 );
 
 const worker = new Worker(
@@ -376,7 +376,7 @@ const worker = new Worker(
   async (job) => processJob(job),
   {
     ...getConnection(),
-    concurrency: 2, // hard cap; do not increase without DB headroom
+    concurrency: 3, // hard cap; do not increase without DB headroom
   }
 );
 
