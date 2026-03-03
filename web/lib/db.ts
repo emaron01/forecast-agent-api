@@ -1631,12 +1631,12 @@ export async function deleteOrganization(args: { id: number }) {
     );
     // 3. Field mapping sets (CASCADE deletes ingestion_staging)
     await client.query("DELETE FROM field_mapping_sets WHERE organization_id = $1", [id]);
-    // 4. Quotas (references quota_periods, reps)
-    await client.query("DELETE FROM quotas WHERE org_id = $1", [id]);
-    // 5. Quota periods
-    await client.query("DELETE FROM quota_periods WHERE org_id = $1", [id]);
-    // 6. Reps
+    // 4. Reps (references quotas)
     await client.query("DELETE FROM reps WHERE organization_id = $1", [id]);
+    // 5. Quotas (references quota_periods)
+    await client.query("DELETE FROM quotas WHERE org_id = $1", [id]);
+    // 6. Quota periods
+    await client.query("DELETE FROM quota_periods WHERE org_id = $1", [id]);
     // 7. Analytics saved reports
     await client.query("DELETE FROM analytics_saved_reports WHERE org_id = $1", [id]);
     // 8. Forecast stage probabilities
