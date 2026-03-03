@@ -12,21 +12,10 @@ import { pool } from "../lib/pool";
 import { runCommentIngestionTurn, getPromptVersionHash } from "../lib/commentIngestionTurn";
 import { insertCommentIngestion } from "../lib/db";
 import { applyCommentIngestionToOpportunity } from "../lib/applyCommentIngestionToOpportunity";
-import { outcomeFromOpportunityRow, isClosedDealInLastTwoCompletedQuarters } from "../lib/opportunityOutcome";
+import { outcomeFromOpportunityRow } from "../lib/opportunityOutcome";
 
 const QUEUE_NAME = "opportunity-ingest";
 const BATCH_SIZE = 100;
-
-function getStartOfPreviousQuarterUTC(): Date {
-  const now = new Date();
-  const y = now.getUTCFullYear();
-  const m = now.getUTCMonth();
-  const q = Math.floor(m / 3) + 1;
-  const prevQ = q === 1 ? 4 : q - 1;
-  const prevY = q === 1 ? y - 1 : y;
-  const startMonth = (prevQ - 1) * 3;
-  return new Date(Date.UTC(prevY, startMonth, 1));
-}
 
 function getStartOfCurrentQuarterUTC(now: Date): Date {
   const y = now.getUTCFullYear();
@@ -36,7 +25,7 @@ function getStartOfCurrentQuarterUTC(now: Date): Date {
   return new Date(Date.UTC(y, startMonth, 1));
 }
 
-function inScope(opp: { sales_stage?: string | null; forecast_stage?: string | null; close_date?: string | Date | null }, _cutoff: Date): boolean {
+function inScope(opp: { sales_stage?: string | null; forecast_stage?: string | null; close_date?: string | Date | null }): boolean {
   const outcome = outcomeFromOpportunityRow(opp);
   if (outcome === "Open") return true;
 
@@ -45,17 +34,12 @@ function inScope(opp: { sales_stage?: string | null; forecast_stage?: string | n
   const closeDate = new Date(rawClose as any);
   if (!Number.isFinite(closeDate.getTime())) return false;
 
-  // Include closed deals from the last two completed quarters.
-  if (isClosedDealInLastTwoCompletedQuarters(opp)) {
-    return true;
-  }
-
-  // Also include closed deals in the current in-progress quarter so fresh Closed Won/Lost
-  // opportunities with valid close dates are eligible for scoring.
   const now = new Date();
-  const currentQuarterStart = getStartOfCurrentQuarterUTC(now).getTime();
-  const t = closeDate.getTime();
-  return t >= currentQuarterStart;
+  const currentQuarterStart = getStartOfCurrentQuarterUTC(now);
+  const cutoff2q = new Date(
+    Date.UTC(currentQuarterStart.getUTCFullYear(), currentQuarterStart.getUTCMonth() - 6, 1)
+  );
+  return closeDate.getTime() >= cutoff2q.getTime();
 }
 
 function getConnection() {
@@ -69,7 +53,6 @@ async function processSingleIngest(job: { data: any; updateProgress: (p: object)
     throw new Error("Invalid single-ingest job: orgId, opportunityId, rawText required");
   }
 
-  const cutoff = getStartOfPreviousQuarterUTC();
   const { rows: oppRows } = await pool.query(
     `SELECT id, account_name, opportunity_name, amount, close_date, forecast_stage, sales_stage, baseline_health_score_ts
      FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,
@@ -79,7 +62,7 @@ async function processSingleIngest(job: { data: any; updateProgress: (p: object)
   if (!opp) {
     return { processed: 1, ok: 0, skipped_out_of_scope: 0, skipped_baseline_exists: 0, failed: 1 };
   }
-  if (!inScope(opp, cutoff)) {
+  if (!inScope(opp)) {
     return { processed: 1, ok: 0, skipped_out_of_scope: 1, skipped_baseline_exists: 0, failed: 0 };
   }
   if (opp.baseline_health_score_ts != null) {
@@ -168,7 +151,6 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
     })
   );
 
-  const cutoff = getStartOfPreviousQuarterUTC();
   const total = rows.length;
   let processed = 0;
   let okCount = 0;
@@ -202,7 +184,7 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
         }
 
         const computedOutcome = outcomeFromOpportunityRow(opp);
-        if (!inScope(opp, cutoff)) {
+        if (!inScope(opp)) {
           if (process.env.DEBUG_INGEST === "true" && computedOutcome !== "Open") {
             const rawClose = opp.close_date;
             const skipReason = !rawClose ? "closed_missing_close_date" : "closed_out_of_scope";
