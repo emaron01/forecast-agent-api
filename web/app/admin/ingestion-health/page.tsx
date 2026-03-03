@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { requireManagerAdminOrMaster } from "../../lib/auth";
-import { pool } from "../../lib/pool";
+import { requireManagerAdminOrMaster } from "../../../lib/auth";
+import { pool } from "../../../lib/pool";
 
 type Row = {
   org_id: number;
