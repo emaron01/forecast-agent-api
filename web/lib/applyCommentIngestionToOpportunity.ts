@@ -7,7 +7,7 @@
 import { handleFunctionCall } from "../../muscle.js";
 import { pool } from "./pool";
 import { listScoreDefinitions, type ScoreDefRow } from "./db";
-import { isClosedOpportunityRow, isClosedDealInLastTwoCompletedQuarters } from "./opportunityOutcome";
+import { isClosedOpportunityRow } from "./opportunityOutcome";
 import type { CommentIngestionExtracted, CategoryExtraction } from "./commentIngestionValidation";
 
 const EXTRACTION_TO_DB: Record<string, string> = {
@@ -115,15 +115,16 @@ export function isBaselineEligibleForClosed(
 ): boolean {
   if (!isClosedOpportunityRow(opp)) return true;
 
-  if (isClosedDealInLastTwoCompletedQuarters(opp)) return true;
-
   const rawClose = opp?.close_date;
   if (!rawClose) return false;
   const closeDate = new Date(rawClose as any);
   if (!Number.isFinite(closeDate.getTime())) return false;
 
   const currentQuarterStart = getStartOfCurrentQuarterUTC(now);
-  return closeDate.getTime() >= currentQuarterStart.getTime();
+  const cutoff2q = new Date(
+    Date.UTC(currentQuarterStart.getUTCFullYear(), currentQuarterStart.getUTCMonth() - 6, 1)
+  );
+  return closeDate.getTime() >= cutoff2q.getTime();
 }
 
 function extractSinglePersonAndTitleFromNotes(rawNotes: string): { name?: string; title?: string; reason?: string } {
