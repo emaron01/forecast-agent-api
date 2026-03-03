@@ -115,7 +115,7 @@ export function isBaselineEligibleForClosed(
 ): boolean {
   if (!isClosedOpportunityRow(opp)) return true;
 
-  if (isClosedDealInLastTwoCompletedQuarters(opp, now)) return true;
+  if (isClosedDealInLastTwoCompletedQuarters(opp)) return true;
 
   const rawClose = opp?.close_date;
   if (!rawClose) return false;

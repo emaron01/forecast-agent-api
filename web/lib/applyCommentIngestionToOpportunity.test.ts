@@ -15,8 +15,8 @@ test("applyCommentIngestionToOpportunity is a function", () => {
 
 test("baseline closed eligibility: Closed Won inside last two completed quarters is eligible", () => {
   const opp = {
-    forecast_stage: "Closed Won",
-    sales_stage: null,
+    forecast_stage: "Closed",
+    sales_stage: "Won and Closed",
     close_date: "2025-09-15T00:00:00Z",
   };
   const now = new Date("2026-01-15T00:00:00Z");
@@ -25,10 +25,20 @@ test("baseline closed eligibility: Closed Won inside last two completed quarters
 
 test("baseline closed eligibility: Closed Won older than window is not eligible", () => {
   const opp = {
-    forecast_stage: "Closed Won",
-    sales_stage: null,
+    forecast_stage: "Closed",
+    sales_stage: "Won and Closed",
     close_date: "2024-12-31T00:00:00Z",
   };
   const now = new Date("2026-01-15T00:00:00Z");
   assert.strictEqual(isBaselineEligibleForClosed(opp, now), false);
+});
+
+test("baseline closed eligibility: current-quarter closed is eligible", () => {
+  const opp = {
+    forecast_stage: "Closed",
+    sales_stage: "Won and Closed",
+    close_date: "2026-02-15T00:00:00Z",
+  };
+  const now = new Date("2026-02-20T00:00:00Z");
+  assert.strictEqual(isBaselineEligibleForClosed(opp, now), true);
 });
