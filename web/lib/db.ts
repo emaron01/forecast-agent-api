@@ -1631,19 +1631,24 @@ export async function deleteOrganization(args: { id: number }) {
     );
     // 3. Field mapping sets (CASCADE deletes ingestion_staging)
     await client.query("DELETE FROM field_mapping_sets WHERE organization_id = $1", [id]);
-    // 4. Reps (references quotas)
+    // 4. Break circular FKs between reps <-> quotas before deleting rows.
+    //    quotas_rep_id_fkey: quotas.rep_id -> reps.id
+    await client.query("UPDATE quotas SET rep_id = NULL WHERE org_id = $1", [id]);
+    //    reps_quota_fk: reps.quota_id -> quotas.id
+    await client.query("UPDATE reps SET quota_id = NULL WHERE organization_id = $1", [id]);
+    // 5. Reps
     await client.query("DELETE FROM reps WHERE organization_id = $1", [id]);
-    // 5. Quotas (references quota_periods)
+    // 6. Quotas
     await client.query("DELETE FROM quotas WHERE org_id = $1", [id]);
-    // 6. Quota periods
+    // 7. Quota periods
     await client.query("DELETE FROM quota_periods WHERE org_id = $1", [id]);
-    // 7. Analytics saved reports
+    // 8. Analytics saved reports
     await client.query("DELETE FROM analytics_saved_reports WHERE org_id = $1", [id]);
-    // 8. Forecast stage probabilities
+    // 9. Forecast stage probabilities
     await client.query("DELETE FROM forecast_stage_probabilities WHERE org_id = $1", [id]);
-    // 9. Executive snapshots
+    // 10. Executive snapshots
     await client.query("DELETE FROM executive_snapshots WHERE org_id = $1", [id]);
-    // 10. Organization (CASCADE deletes users, user_sessions, password_reset_tokens, manager_visibility)
+    // 11. Organization (CASCADE deletes users, user_sessions, password_reset_tokens, manager_visibility)
     await client.query("DELETE FROM organizations WHERE id = $1", [id]);
     await client.query("COMMIT");
   } catch (e) {
