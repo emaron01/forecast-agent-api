@@ -7,8 +7,28 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyCommentIngestionToOpportunity } from "./applyCommentIngestionToOpportunity";
+import { applyCommentIngestionToOpportunity, isBaselineEligibleForClosed } from "./applyCommentIngestionToOpportunity";
 
 test("applyCommentIngestionToOpportunity is a function", () => {
   assert.strictEqual(typeof applyCommentIngestionToOpportunity, "function");
+});
+
+test("baseline closed eligibility: Closed Won inside last two completed quarters is eligible", () => {
+  const opp = {
+    forecast_stage: "Closed Won",
+    sales_stage: null,
+    close_date: "2025-09-15T00:00:00Z",
+  };
+  const now = new Date("2026-01-15T00:00:00Z");
+  assert.strictEqual(isBaselineEligibleForClosed(opp, now), true);
+});
+
+test("baseline closed eligibility: Closed Won older than window is not eligible", () => {
+  const opp = {
+    forecast_stage: "Closed Won",
+    sales_stage: null,
+    close_date: "2024-12-31T00:00:00Z",
+  };
+  const now = new Date("2026-01-15T00:00:00Z");
+  assert.strictEqual(isBaselineEligibleForClosed(opp, now), false);
 });

@@ -7,7 +7,7 @@
 import { handleFunctionCall } from "../../muscle.js";
 import { pool } from "./pool";
 import { listScoreDefinitions, type ScoreDefRow } from "./db";
-import { isClosedOpportunityRow } from "./opportunityOutcome";
+import { isClosedOpportunityRow, isClosedDealInLastTwoCompletedQuarters } from "./opportunityOutcome";
 import type { CommentIngestionExtracted, CategoryExtraction } from "./commentIngestionValidation";
 
 const EXTRACTION_TO_DB: Record<string, string> = {
@@ -101,6 +101,31 @@ function buildNextSteps(extracted: CommentIngestionExtracted): string {
   return (extracted.next_steps || []).filter(Boolean).join("\n").trim();
 }
 
+function getStartOfCurrentQuarterUTC(now: Date): Date {
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth();
+  const q = Math.floor(m / 3);
+  const startMonth = q * 3;
+  return new Date(Date.UTC(y, startMonth, 1));
+}
+
+export function isBaselineEligibleForClosed(
+  opp: { forecast_stage?: string | null; sales_stage?: string | null; close_date?: string | Date | null },
+  now: Date = new Date()
+): boolean {
+  if (!isClosedOpportunityRow(opp)) return true;
+
+  if (isClosedDealInLastTwoCompletedQuarters(opp, now)) return true;
+
+  const rawClose = opp?.close_date;
+  if (!rawClose) return false;
+  const closeDate = new Date(rawClose as any);
+  if (!Number.isFinite(closeDate.getTime())) return false;
+
+  const currentQuarterStart = getStartOfCurrentQuarterUTC(now);
+  return closeDate.getTime() >= currentQuarterStart.getTime();
+}
+
 function extractSinglePersonAndTitleFromNotes(rawNotes: string): { name?: string; title?: string; reason?: string } {
   const raw = String(rawNotes || "").trim();
   if (!raw) return {};
@@ -160,7 +185,7 @@ export async function applyCommentIngestionToOpportunity(args: {
     );
     const opp = oppRows?.[0];
     if (opp?.baseline_health_score_ts != null && !allowWhenBaselineExists) return { ok: true };
-    if (isClosedOpportunityRow(opp)) {
+    if (scoreEventSource === "baseline" && opp && !isBaselineEligibleForClosed(opp)) {
       return { ok: true };
     }
 
