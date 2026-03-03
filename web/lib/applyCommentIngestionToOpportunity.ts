@@ -10,6 +10,10 @@ import { listScoreDefinitions, type ScoreDefRow } from "./db";
 import { isClosedOpportunityRow } from "./opportunityOutcome";
 import type { CommentIngestionExtracted, CategoryExtraction } from "./commentIngestionValidation";
 
+function debugIngestLog(obj: Record<string, unknown>): void {
+  if (process.env.DEBUG_INGEST === "true") console.log(JSON.stringify(obj));
+}
+
 const EXTRACTION_TO_DB: Record<string, string> = {
   economic_buyer: "eb",
   decision_criteria: "criteria",
@@ -181,12 +185,42 @@ export async function applyCommentIngestionToOpportunity(args: {
 
   try {
     const { rows: oppRows } = await pool.query(
-      `SELECT baseline_health_score_ts, forecast_stage, sales_stage FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,
+      `SELECT baseline_health_score_ts, forecast_stage, sales_stage, close_date FROM opportunities WHERE org_id = $1 AND id = $2 LIMIT 1`,
       [orgId, opportunityId]
     );
     const opp = oppRows?.[0];
-    if (opp?.baseline_health_score_ts != null && !allowWhenBaselineExists) return { ok: true };
+    debugIngestLog({
+      event: "apply_opp_fetched",
+      opportunity_id: opportunityId,
+      org_id: orgId,
+      scoreEventSource,
+      forecast_stage: opp?.forecast_stage ?? null,
+      sales_stage: opp?.sales_stage ?? null,
+      close_date: opp?.close_date ?? null,
+      baseline_health_score_ts: opp?.baseline_health_score_ts ?? null,
+    });
+    if (opp?.baseline_health_score_ts != null && !allowWhenBaselineExists) {
+      debugIngestLog({
+        event: "apply_skip",
+        reason: "skip_baseline_exists",
+        opportunity_id: opportunityId,
+        scoreEventSource,
+        close_date: opp?.close_date ?? null,
+        forecast_stage: opp?.forecast_stage ?? null,
+        sales_stage: opp?.sales_stage ?? null,
+      });
+      return { ok: true };
+    }
     if (scoreEventSource === "baseline" && opp && !isBaselineEligibleForClosed(opp)) {
+      debugIngestLog({
+        event: "apply_skip",
+        reason: "skip_closed_ineligible",
+        opportunity_id: opportunityId,
+        scoreEventSource,
+        close_date: opp?.close_date ?? null,
+        forecast_stage: opp?.forecast_stage ?? null,
+        sales_stage: opp?.sales_stage ?? null,
+      });
       return { ok: true };
     }
 
@@ -262,14 +296,22 @@ export async function applyCommentIngestionToOpportunity(args: {
     if (ebName) toolArgs.eb_name = ebName;
     if (ebTitle) toolArgs.eb_title = ebTitle;
 
+    debugIngestLog({ event: "calling_save_deal_data", opportunity_id: opportunityId, scoreEventSource });
     await handleFunctionCall({
       toolName: "save_deal_data",
       args: toolArgs,
       pool,
     });
+    debugIngestLog({ event: "save_deal_data_ok", opportunity_id: opportunityId, scoreEventSource });
 
     return { ok: true };
   } catch (e: any) {
+    debugIngestLog({
+      event: "save_deal_data_error",
+      opportunity_id: opportunityId,
+      scoreEventSource,
+      error: e?.message ?? String(e),
+    });
     return { ok: false, error: e?.message ?? String(e) };
   }
 }

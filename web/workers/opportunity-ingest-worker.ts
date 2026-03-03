@@ -184,7 +184,19 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
         }
 
         const computedOutcome = outcomeFromOpportunityRow(opp);
-        if (!inScope(opp)) {
+        const inScopeResult = inScope(opp);
+        if (process.env.DEBUG_INGEST === "true") {
+          console.log(
+            JSON.stringify({
+              event: "ingest_row_debug",
+              crmOppId,
+              opportunity_id: opp.id,
+              outcome: computedOutcome,
+              inScope: inScopeResult,
+            })
+          );
+        }
+        if (!inScopeResult) {
           if (process.env.DEBUG_INGEST === "true" && computedOutcome !== "Open") {
             const rawClose = opp.close_date;
             const skipReason = !rawClose ? "closed_missing_close_date" : "closed_out_of_scope";
@@ -207,6 +219,16 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
         }
 
         if (opp.baseline_health_score_ts != null) {
+          if (process.env.DEBUG_INGEST === "true") {
+            console.log(
+              JSON.stringify({
+                event: "ingest_row_skipped",
+                reason: "baseline_exists",
+                opportunity_id: opp.id,
+                crmOppId,
+              })
+            );
+          }
           skippedTotal++;
           skippedBaselineExists++;
           processed++;
@@ -244,6 +266,17 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
           salesStage: opp.sales_stage ?? opp.forecast_stage ?? null,
           rawNotes: rawText,
         });
+        if (process.env.DEBUG_INGEST === "true") {
+          console.log(
+            JSON.stringify({
+              event: "ingest_apply_result",
+              opportunity_id: opp.id,
+              crmOppId,
+              apply_ok: applyResult.ok,
+              apply_error: applyResult?.error ?? null,
+            })
+          );
+        }
         if (applyResult.ok) {
           if (process.env.DEBUG_INGEST === "true") {
             console.log(
