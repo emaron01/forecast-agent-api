@@ -339,6 +339,16 @@ export async function runResponsesTurn(args: {
     session.masterPromptSourcePath = mp.sourcePath;
   }
 
+  let orgName = "our company";
+  try {
+    const orgRows = await pool.query("SELECT name FROM organizations WHERE id = $1", [session.orgId]);
+    const raw = orgRows?.rows?.[0]?.name;
+    if (raw != null && String(raw).trim()) orgName = String(raw).trim();
+  } catch {
+    // keep fallback
+  }
+  const masterPromptResolved = (session.masterPromptText ?? "").replace(/\{\{org_name\}\}/g, orgName);
+
   const maxLoops = Math.max(1, Math.min(20, Number(args.maxToolLoops ?? 6)));
   let loop = 0;
   let lastResponse: any = null;
@@ -400,7 +410,7 @@ export async function runResponsesTurn(args: {
           questionPack
         )
       : buildNoDealsPrompt(firstName(session.repName), "No deals available in the system for this rep.");
-    const instructions = `${session.masterPromptText}\n\n${contextBlock}`;
+    const instructions = `${masterPromptResolved}\n\n${contextBlock}`;
 
     const resp = await fetch(`${baseUrl}/responses`, {
       method: "POST",
