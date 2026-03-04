@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import fs from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
@@ -19,7 +20,7 @@ declare global {
 function defaultPromptPath() {
   // Default to a bundled, repo-shipped prompt file (works in Render/Linux).
   // Can be overridden with MASTER_DCO_PROMPT_PATH for local editing.
-  return "web/prompts/master Dco Prompts.txt";
+  return "prompts/master Dco Prompts.txt";
 }
 
 export async function loadMasterDcoPrompt(): Promise<MasterPromptRecord> {
@@ -37,6 +38,10 @@ export async function loadMasterDcoPrompt(): Promise<MasterPromptRecord> {
         path.isAbsolute(sourcePath) || isWindowsDriveAbs
           ? sourcePath
           : path.resolve(process.cwd(), sourcePath);
+
+      if (!fs.existsSync(absPath)) {
+        throw new Error(`Prompt file not found: ${absPath}`);
+      }
       const buf = await readFile(absPath);
 
       // Keep text verbatim: do NOT trim or normalize newlines.
