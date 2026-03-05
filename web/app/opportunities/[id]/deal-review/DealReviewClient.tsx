@@ -841,7 +841,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
             }
             void loadOpportunityState();
-            if (donePayload?.action === "finalize") {
+            if (donePayload?.material_change !== undefined) {
               const savedCategory = cat as CategoryKey;
               setCompletedCategoryKey(savedCategory);
               setTimeout(() => {
@@ -884,7 +884,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             void playTts(assistantText);
           }
           void loadOpportunityState();
-          if (json?.action === "finalize") {
+          if (json?.material_change !== undefined) {
             const savedCategory = cat as CategoryKey;
             setCompletedCategoryKey(savedCategory);
             setTimeout(() => {
@@ -1297,7 +1297,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           responsePayload = json;
         }
         void loadOpportunityState();
-        if (responsePayload?.action === "finalize") {
+        if (responsePayload?.material_change !== undefined) {
           const savedCategory = selectedCategory;
           setCompletedCategoryKey(savedCategory);
           setTimeout(() => {
