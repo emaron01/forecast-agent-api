@@ -22,7 +22,7 @@ import {
   shouldEmitNoMaterialChange,
   fallbackForEvidenceOnly,
 } from "../../../../../../lib/categoryUpdateDeltas";
-import { loadMasterDcoPrompt } from "../../../../../../lib/masterDcoPrompt";
+import { loadScoringDiscipline, loadConversationalRules, promptHash } from "../../../../../../lib/masterDcoPrompt";
 
 export const runtime = "nodejs";
 
@@ -877,7 +877,11 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     }
 
     const defs = await fetchRubric(orgId, category);
-    const masterDco = await loadMasterDcoPrompt();
+    const [scoring, conversational] = await Promise.all([
+      loadScoringDiscipline(),
+      loadConversationalRules(),
+    ]);
+    const composedText = scoring.text + "\n\n---\n\n" + conversational.text;
     let orgName = "our company";
     try {
       const orgRows = await pool.query(
@@ -889,7 +893,17 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     } catch {
       /* keep fallback */
     }
-    const masterPromptResolved = (masterDco.text ?? "").replace(/\{\{org_name\}\}/g, orgName);
+    const masterPromptResolved = composedText.replace(/\{\{org_name\}\}/g, orgName);
+
+    console.log(JSON.stringify({
+      event: "prompt_composition",
+      flow: "per_category",
+      scoring_hash: promptHash(scoring.text),
+      conversational_hash: promptHash(conversational.text),
+      composed_hash: promptHash(masterPromptResolved),
+      org_id: orgId,
+      category,
+    }));
     const categoryInstructions = [
       "You are an Expert Sales Leader running a targeted update for ONE category only.",
       "CRITICAL:",

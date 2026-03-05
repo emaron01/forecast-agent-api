@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import { buildNoDealsPrompt, buildPrompt, computeFirstGap } from "./prompt";
-import { loadMasterDcoPrompt } from "./masterDcoPrompt";
+import { loadScoringDiscipline, loadConversationalRules, promptHash } from "./masterDcoPrompt";
 import { buildTools } from "./tools";
 import { handleFunctionCall } from "../../muscle.js";
 import { getQuestionPack } from "../../db.js";
@@ -330,15 +330,6 @@ export async function runResponsesTurn(args: {
 
   nextInput.push(userMsg(text));
 
-  // Load master prompt once per session (cached globally too).
-  if (!session.masterPromptText) {
-    const mp = await loadMasterDcoPrompt();
-    session.masterPromptText = mp.text;
-    session.masterPromptSha256 = mp.sha256;
-    session.masterPromptLoadedAt = mp.loadedAt;
-    session.masterPromptSourcePath = mp.sourcePath;
-  }
-
   let orgName = "our company";
   try {
     const orgRows = await pool.query("SELECT name FROM organizations WHERE id = $1", [session.orgId]);
@@ -347,6 +338,21 @@ export async function runResponsesTurn(args: {
   } catch {
     // keep fallback
   }
+
+  // Load master prompt once per session (cached globally too).
+  if (!session.masterPromptText) {
+    const [scoring, conversational] = await Promise.all([
+      loadScoringDiscipline(),
+      loadConversationalRules(),
+    ]);
+    const composedText = scoring.text + "\n\n---\n\n" + conversational.text;
+    const masterPromptResolved = composedText.replace(/\{\{org_name\}\}/g, orgName);
+    session.masterPromptText = masterPromptResolved;
+    session.masterPromptSha256 = promptHash(masterPromptResolved);
+    session.masterPromptLoadedAt = Date.now();
+    session.masterPromptSourcePath = "composed:scoring+conversational";
+  }
+
   const masterPromptResolved = (session.masterPromptText ?? "").replace(/\{\{org_name\}\}/g, orgName);
 
   const maxLoops = Math.max(1, Math.min(20, Number(args.maxToolLoops ?? 6)));
@@ -411,6 +417,19 @@ export async function runResponsesTurn(args: {
         )
       : buildNoDealsPrompt(firstName(session.repName), "No deals available in the system for this rep.");
     const instructions = `${masterPromptResolved}\n\n${contextBlock}`;
+
+    const [scoring, conversational] = await Promise.all([
+      loadScoringDiscipline(),
+      loadConversationalRules(),
+    ]);
+    console.log(JSON.stringify({
+      event: "prompt_composition",
+      flow: "full_review",
+      scoring_hash: promptHash(scoring.text),
+      conversational_hash: promptHash(conversational.text),
+      composed_hash: promptHash(masterPromptResolved),
+      org_id: session.orgId,
+    }));
 
     const resp = await fetch(`${baseUrl}/responses`, {
       method: "POST",

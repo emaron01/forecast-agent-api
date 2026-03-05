@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { sessions } from "../../../agent/sessions";
 import { handsfreeRuns } from "../../../handsfree/runs";
 import { runUntilPauseOrEnd } from "../../../handsfree/runner";
-import { loadMasterDcoPrompt } from "../../../../../lib/masterDcoPrompt";
+import { loadScoringDiscipline, loadConversationalRules, promptHash } from "../../../../../lib/masterDcoPrompt";
 import { getAuth } from "../../../../../lib/auth";
 import { pool } from "../../../../../lib/pool";
 import { resolvePublicId } from "../../../../../lib/publicId";
@@ -172,7 +172,17 @@ export async function POST(req: Request) {
       });
     const scoreDefs = defsRes.rows || [];
 
-    const mp = await loadMasterDcoPrompt();
+    const [scoring, conversational] = await Promise.all([
+      loadScoringDiscipline(),
+      loadConversationalRules(),
+    ]);
+    const composedText = scoring.text + "\n\n---\n\n" + conversational.text;
+    const mp = {
+      text: composedText,
+      sha256: promptHash(composedText),
+      loadedAt: Date.now(),
+      sourcePath: "composed:scoring+conversational",
+    };
     const sessionId = randomUUID();
     sessions.set(sessionId, {
       orgId,

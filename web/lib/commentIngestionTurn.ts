@@ -1,4 +1,4 @@
-import { loadMasterDcoPrompt } from "./masterDcoPrompt";
+import { loadScoringDiscipline, loadIngestRules, promptHash } from "./masterDcoPrompt";
 import { buildCommentIngestionPrompt } from "./prompt";
 import { callResponsesApiSingleTurn } from "./responsesTurn";
 import { listScoreDefinitions } from "./db";
@@ -37,9 +37,21 @@ export async function runCommentIngestionTurn(args: {
     return { extracted: RUBRIC_UNAVAILABLE_EXTRACTED, rawText: "" };
   }
 
-  const master = await loadMasterDcoPrompt();
+  const [scoring, ingest] = await Promise.all([
+    loadScoringDiscipline(),
+    loadIngestRules(),
+  ]);
+  const composedText = scoring.text + "\n\n---\n\n" + ingest.text;
   const contextBlock = buildCommentIngestionPrompt(deal, rawNotes, scoreDefs);
-  const instructions = `${master.text}\n\n---\n\n${contextBlock}`;
+  const instructions = composedText + "\n\n---\n\n" + contextBlock;
+
+  console.log(JSON.stringify({
+    event: "prompt_composition",
+    flow: "ingest",
+    scoring_hash: promptHash(scoring.text),
+    ingest_hash: promptHash(ingest.text),
+    composed_hash: promptHash(composedText),
+  }));
 
   const userMessage = `Analyze the CRM notes above and return the JSON extraction.`;
 
