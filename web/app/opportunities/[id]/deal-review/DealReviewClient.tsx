@@ -841,6 +841,14 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
             }
             void loadOpportunityState();
+            if (donePayload?.action === "finalize") {
+              const savedCategory = cat;
+              setCompletedCategoryKey(savedCategory);
+              setTimeout(() => {
+                setCompletedCategoryKey("");
+                setSelectedCategory("");
+              }, 2300);
+            }
             return;
           }
           const json = await res.json().catch(() => ({}));
@@ -876,6 +884,14 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             void playTts(assistantText);
           }
           void loadOpportunityState();
+          if (json?.action === "finalize") {
+            const savedCategory = cat;
+            setCompletedCategoryKey(savedCategory);
+            setTimeout(() => {
+              setCompletedCategoryKey("");
+              setSelectedCategory("");
+            }, 2300);
+          }
         }
       };
 
@@ -1208,6 +1224,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
         });
         setCatMessages((prev) => [...prev, { role: "user", text, at: Date.now() }]);
         const contentType = res.headers.get("content-type") || "";
+        let responsePayload: Record<string, unknown> | null = null;
         if (contentType.includes("text/event-stream")) {
           const reader = res.body?.getReader();
           if (!reader) throw new Error("No response body");
@@ -1265,6 +1282,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           if (assistantText) {
             setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
           }
+          responsePayload = donePayload;
         } else {
           const json = await res.json().catch(() => ({}));
           if (!res.ok || !json?.ok) throw new Error(json?.error || "Update failed");
@@ -1276,8 +1294,17 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
             if (categoryInputMode === "VOICE") void playTts(assistantText);
           }
+          responsePayload = json;
         }
         void loadOpportunityState();
+        if (responsePayload?.action === "finalize") {
+          const savedCategory = selectedCategory;
+          setCompletedCategoryKey(savedCategory);
+          setTimeout(() => {
+            setCompletedCategoryKey("");
+            setSelectedCategory("");
+          }, 2300);
+        }
         return;
       }
     } catch (e: any) {
@@ -1837,11 +1864,11 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
                     aria-hidden
                   >
                     {chipState === "listening" ? (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+                      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
                     ) : chipState === "reviewing" ? (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
                     ) : (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                     )}
                   </span>
                 ) : null}
