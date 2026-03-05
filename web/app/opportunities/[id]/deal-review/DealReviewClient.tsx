@@ -167,6 +167,9 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const [categoryInputMode, setCategoryInputMode] = useState<CategoryInputMode>("VOICE");
   const [qaPaneOpen, setQaPaneOpen] = useState(false);
   const [fullReviewHighlightCategory, setFullReviewHighlightCategory] = useState<CategoryKey | "">("");
+  const [completedCategoryKey, setCompletedCategoryKey] = useState<CategoryKey | "">("");
+  const [completedCategoryFadeOut, setCompletedCategoryFadeOut] = useState(false);
+  const prevHighlightCategoryKeyRef = useRef<CategoryKey | "">("");
 
   const [oppState, setOppState] = useState<OppState | null>(null);
   const [run, setRun] = useState<HandsFreeRun | null>(null);
@@ -1300,6 +1303,27 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
 
   const activeMessages = mode === "FULL_REVIEW" ? run?.messages || [] : catMessages;
   const highlightCategoryKey = (mode === "CATEGORY_UPDATE" ? selectedCategory : fullReviewHighlightCategory) as CategoryKey | "";
+  const sessionHasActiveCategory = (mode === "FULL_REVIEW" && !!runId) || (mode === "CATEGORY_UPDATE" && !!selectedCategory);
+
+  // Display-only: show "complete" chip on the category that just lost focus for 2s then fade out 300ms.
+  useEffect(() => {
+    const prev = prevHighlightCategoryKeyRef.current;
+    if (prev !== highlightCategoryKey && prev) {
+      setCompletedCategoryKey(prev);
+      setCompletedCategoryFadeOut(false);
+      const t1 = window.setTimeout(() => setCompletedCategoryFadeOut(true), 2000);
+      const t2 = window.setTimeout(() => {
+        setCompletedCategoryKey("");
+        setCompletedCategoryFadeOut(false);
+      }, 2300);
+      return () => {
+        window.clearTimeout(t1);
+        window.clearTimeout(t2);
+      };
+    }
+    prevHighlightCategoryKeyRef.current = highlightCategoryKey;
+  }, [highlightCategoryKey]);
+
   const qaDrawerOpen = mode === "CATEGORY_UPDATE" && qaPaneOpen;
   const qaCanonical = selectedCategory ? (MEDDPICC_CANONICAL as any)[selectedCategory] : null;
 
@@ -1734,12 +1758,44 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           </div>
 
           <div className="med">
-            {tileRows.map((c) => (
+            {tileRows.map((c) => {
+              const isActive = highlightCategoryKey === c.key;
+              const isCompleted = completedCategoryKey === c.key;
+              const showChipActive = sessionHasActiveCategory && isActive && ((isWaiting || categoryWaitingForUser) || isRunning);
+              const chipState =
+                isCompleted
+                  ? "complete"
+                  : showChipActive
+                    ? (isWaiting || categoryWaitingForUser ? "listening" : "reviewing")
+                    : null;
+              const mfocusClasses = [
+                highlightCategoryKey === c.key ? "active" : "",
+                sessionHasActiveCategory && isActive ? "mfocus-active" : "",
+                sessionHasActiveCategory && !isActive && !isCompleted ? "mfocus-inactive" : "",
+                chipState ? "mfocus-card" : "",
+              ]
+                .filter(Boolean)
+                .join(" ");
+              return (
               <div
                 key={c.key}
-                className={`cat ${highlightCategoryKey === c.key ? "active" : ""}`}
+                className={`cat ${mfocusClasses}`}
                 style={{ borderTop: `3px solid ${scoreColor(c.score)}` }}
               >
+                {chipState ? (
+                  <span
+                    className={`mfocus-chip mfocus-${chipState} ${chipState === "complete" && completedCategoryFadeOut ? "mfocus-fadeout" : ""}`}
+                    aria-hidden
+                  >
+                    {chipState === "listening" ? (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+                    ) : chipState === "reviewing" ? (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                    ) : (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    )}
+                  </span>
+                ) : null}
                 <div className="ch">
                   <div>
                     <b>{c.catLabel}</b>
@@ -1771,7 +1827,8 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {mode === "FULL_REVIEW" || mode === "CATEGORY_UPDATE" ? (
@@ -2178,6 +2235,53 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
         .cat.active {
           outline: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
         }
+
+        /* MEDDPICCTB Focus States — UX Enhancement */
+        .cat.mfocus-card {
+          position: relative;
+        }
+        .cat.mfocus-active {
+          background: #1a2f4a;
+          border-left: 4px solid #00BCD4;
+          transition: background 300ms ease, border-left 300ms ease, opacity 300ms ease;
+        }
+        .cat.mfocus-inactive {
+          opacity: 0.75;
+          transition: opacity 300ms ease;
+        }
+        .mfocus-chip {
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          width: 24px;
+          height: 24px;
+          border-radius: 999px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+        .mfocus-chip.mfocus-listening {
+          background: #4CAF50;
+          animation: mfocus-pulse 1.4s ease-in-out infinite;
+        }
+        .mfocus-chip.mfocus-reviewing {
+          background: #FFA726;
+          animation: mfocus-pulse 1.4s ease-in-out infinite;
+        }
+        .mfocus-chip.mfocus-complete {
+          background: #9C27B0;
+          animation: none;
+          transition: opacity 300ms ease;
+        }
+        .mfocus-chip.mfocus-complete.mfocus-fadeout {
+          opacity: 0;
+        }
+        @keyframes mfocus-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.6; }
+        }
+
         .cat .ch {
           display: flex;
           justify-content: space-between;
