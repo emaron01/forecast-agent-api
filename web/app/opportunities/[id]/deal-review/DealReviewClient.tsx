@@ -844,7 +844,31 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             return;
           }
           const json = await res.json().catch(() => ({}));
-          if (!res.ok || !json?.ok) throw new Error(json?.error || "Update failed");
+          if (!res.ok || !json?.ok) {
+            if (json?.error === "Unknown sessionId") {
+              catSessionIdRef.current = "";
+              setCatSessionId("");
+              const retryRes = await fetch(`/api/deal-review/opportunities/${encodeURIComponent(opportunityId)}/update-category`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ category: cat, text }),
+              });
+              const retryJson = await retryRes.json().catch(() => ({}));
+              if (!retryRes.ok || !retryJson?.ok) {
+                failCapture(new Error(retryJson?.error || "Update failed"));
+                return;
+              }
+              if (retryJson?.sessionId) setCatSessionId(String(retryJson.sessionId));
+              const retryAssistantText = String(retryJson?.assistantText || "").trim();
+              if (retryAssistantText) {
+                setCatMessages((prev) => [...prev, { role: "assistant", text: retryAssistantText, at: Date.now() }]);
+                void playTts(retryAssistantText);
+              }
+              void loadOpportunityState();
+              return;
+            }
+            throw new Error(json?.error || "Update failed");
+          }
           if (json?.sessionId) setCatSessionId(String(json.sessionId));
           const assistantText = String(json?.assistantText || "").trim();
           if (assistantText) {
