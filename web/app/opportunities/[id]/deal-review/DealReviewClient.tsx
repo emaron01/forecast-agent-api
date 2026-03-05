@@ -1725,11 +1725,6 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             </div>
           </div>
 
-          <div style={{ marginBottom: 10 }}>
-            <button className="btnPrimary" onClick={startFullDealReview} disabled={busy || !opportunityId || isStartingRef.current}>
-              Full Deal Review
-            </button>
-          </div>
           <div className="cols">
             <div className="box">
               <h3>Risk Summary</h3>
@@ -1831,6 +1826,12 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
 
           <div style={{ marginTop: 16 }}>
             <PasteNotesPanel opportunityId={opportunityId} onApplied={loadOpportunityState} />
+          </div>
+
+          <div style={{ marginBottom: 10 }}>
+            <button className="btnPrimary" onClick={startFullDealReview} disabled={busy || !opportunityId || isStartingRef.current}>
+              Full Deal Review
+            </button>
           </div>
 
           <div className="med">

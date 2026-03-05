@@ -111,14 +111,12 @@ export function buildPrompt(
   const oppNamePart = oppName ? ` — ${oppName}` : "";
 
   const callPickup =
-    `Hi ${repName}, this is Matthew from Sales Forecaster. ` +
-    `Today we are reviewing ${totalCount} deals. ` +
-    `Let's jump in starting with ${deal.account_name}${oppNamePart} ` +
-    `for ${amountStr} in CRM Forecast Stage ${stage} closing ${closeDateStr}.`;
+    `Hi ${repName}, let's review ${deal.account_name}${oppNamePart}, ` +
+    `Forecast Stage ${stage}, closing ${closeDateStr}.`;
 
   const dealOpening =
-    `Let’s look at ${deal.account_name}${oppNamePart}, ` +
-    `${stage}, ${amountStr}, closing ${closeDateStr}.`;
+    `${deal.account_name}${oppNamePart}, ` +
+    `Forecast Stage ${stage}, closing ${closeDateStr}.`;
 
   const riskRecall = deal.risk_summary
     ? `Existing Risk Summary: ${deal.risk_summary}`
