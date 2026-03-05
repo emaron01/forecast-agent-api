@@ -145,7 +145,7 @@ function resolveMaterialChangeOverride(args: {
   if (llmMaterial) {
     return { noMaterialChange: false, score: llmScore, evidence: llmEvidence, tip: llmTip, riskSummary: llmRiskSummary, nextSteps: llmNextSteps };
   }
-  const evDelta = evidenceDelta({ category, userText, lastEvidence, llmEvidence: llmEvidence || null });
+  const evDelta = evidenceDelta({ category, userText, lastEvidence, llmEvidence: llmEvidence || null, lastScore });
   const scDelta = scoreDelta(lastScore, llmScore);
   const actDelta = actionabilityDelta({ lastTip, llmTip: llmTip || null, score: llmScore ?? lastScore });
   if (shouldEmitNoMaterialChange({ evidence_delta: evDelta, score_delta: scDelta, actionability_delta: actDelta })) {
@@ -920,6 +920,11 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "",
       "Return JSON only.",
     ].join("\n");
+
+    console.log(JSON.stringify({
+      event: "instructions_head",
+      head: instructions.slice(0, 500)
+    }));
 
     // Latency-layer: when streaming+chunking, return SSE. Otherwise JSON.
     // Diagnostic: fires for every request that reaches the LLM (search logs for "update_category_llm")

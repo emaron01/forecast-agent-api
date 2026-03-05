@@ -59,11 +59,15 @@ export function evidenceDelta(args: {
   userText: string;
   lastEvidence: string;
   llmEvidence?: string | null;
+  lastScore?: number;
 }): boolean {
-  const { category, userText, lastEvidence, llmEvidence } = args;
+  const { category, userText, lastEvidence, llmEvidence, lastScore } = args;
   const user = String(userText ?? "").trim();
   const last = normalizedEvidence(lastEvidence);
   const llm = normalizedEvidence(llmEvidence);
+
+  // Prior score 0 (Unknown): any substantive answer is new evidence by definition.
+  if (lastScore === 0 && user && !/^(no|nope|nah|unchanged|no change|nothing changed|nothing new|same)\s*$/i.test(user)) return true;
 
   // Trivial no-change replies are not new evidence.
   if (!user) return false;
