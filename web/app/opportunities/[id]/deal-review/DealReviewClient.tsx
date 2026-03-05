@@ -762,14 +762,30 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           if (!rid) return;
           const waitingSeq = r?.waitingSeq;
           setRun((prev) => (prev ? { ...prev, messages: [...(prev.messages || []), msg] } : prev));
-          await fetch(`/api/deal-review/${encodeURIComponent(rid)}/input`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text, waitingSeq }),
-          }).then(async (res) => {
-            const json = await res.json().catch(() => ({}));
-            if (!res.ok || !json?.ok) throw new Error(json?.error || "Send failed");
-          });
+          const postInput = async (retries = 3, delayMs = 400) => {
+            for (let i = 0; i < retries; i++) {
+              const res = await fetch(
+                `/api/deal-review/${encodeURIComponent(rid)}/input`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ text, waitingSeq }),
+                }
+              );
+              const json = await res.json().catch(() => ({}));
+              if (res.ok && json?.ok) return; // success
+              if (res.status === 409) {
+                // Run is busy — wait and retry
+                if (i < retries - 1) {
+                  await new Promise((r) => setTimeout(r, delayMs));
+                  continue;
+                }
+              }
+              // Non-409 error or retries exhausted
+              throw new Error(json?.error || "Send failed");
+            }
+          };
+          await postInput();
           return;
         }
 
