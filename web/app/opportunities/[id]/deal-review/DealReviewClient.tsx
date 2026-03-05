@@ -231,6 +231,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const runRef = useRef<HandsFreeRun | null>(null);
   const catSessionIdRef = useRef<string>("");
   const selectedCategoryRef = useRef<string>("");
+  const isStartingRef = useRef(false);
 
   const micLevelRef = useRef(0);
   const micPeakRef = useRef(0);
@@ -1035,6 +1036,8 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
 
   const startFullDealReview = useCallback(async () => {
     if (!opportunityId) return;
+    if (isStartingRef.current) return;
+    isStartingRef.current = true;
     setBusy(true);
     setMode("FULL_REVIEW");
     setCatMessages([]);
@@ -1057,6 +1060,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
     } catch (e: any) {
       setRun({ runId: "", sessionId: "", status: "ERROR", error: String(e?.message || e), messages: [], modelCalls: 0, updatedAt: Date.now() } as any);
     } finally {
+      isStartingRef.current = false;
       setBusy(false);
     }
   }, [opportunityId, primeMicPermissionFromGesture]);
@@ -1671,7 +1675,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           </div>
 
           <div style={{ marginBottom: 10 }}>
-            <button className="btnPrimary" onClick={startFullDealReview} disabled={busy || !opportunityId}>
+            <button className="btnPrimary" onClick={startFullDealReview} disabled={busy || !opportunityId || isStartingRef.current}>
               Full Deal Review
             </button>
           </div>

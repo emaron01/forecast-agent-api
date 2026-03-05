@@ -111,6 +111,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: vis.error }, { status: vis.status });
     }
 
+    // If an active run already exists for this opportunity, return it to avoid duplicate loops.
+    for (const r of handsfreeRuns.values()) {
+      if (r.status === "DONE" || r.status === "ERROR") continue;
+      const session = sessions.get(r.sessionId);
+      const deal = session?.deals?.[session?.index ?? 0] ?? session?.deals?.[0];
+      if (deal?.id === opportunityId) {
+        endSpan(reqSpan!, { status: "ok", http_status: 200 });
+        return NextResponse.json({ ok: true, run: r });
+      }
+    }
+
     // Load score definitions for rubric text.
     const defsRes = await pool
       .query(
