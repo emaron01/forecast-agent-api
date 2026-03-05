@@ -34,10 +34,21 @@ export async function loadMasterDcoPrompt(): Promise<MasterPromptRecord> {
 
       // path.isAbsolute does not treat Windows drive paths as absolute on Linux/macOS.
       const isWindowsDriveAbs = /^[a-zA-Z]:[\\/]/.test(sourcePath);
-      const absPath =
-        path.isAbsolute(sourcePath) || isWindowsDriveAbs
-          ? sourcePath
-          : path.resolve(process.cwd(), sourcePath);
+      const absPath = (() => {
+        if (path.isAbsolute(sourcePath) || isWindowsDriveAbs) return sourcePath;
+
+        // Prefer cwd-relative resolution, but support workers whose cwd is repo root.
+        if (!envPath) {
+          const candidates = [
+            path.resolve(process.cwd(), sourcePath),
+            path.resolve(process.cwd(), "web", sourcePath),
+          ];
+          const existing = candidates.find((p) => fs.existsSync(p));
+          return existing || candidates[0];
+        }
+
+        return path.resolve(process.cwd(), sourcePath);
+      })();
 
       if (!fs.existsSync(absPath)) {
         throw new Error(`Prompt file not found: ${absPath}`);
