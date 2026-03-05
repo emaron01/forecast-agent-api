@@ -842,7 +842,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             }
             void loadOpportunityState();
             if (donePayload?.action === "finalize") {
-              const savedCategory = cat;
+              const savedCategory = cat as CategoryKey;
               setCompletedCategoryKey(savedCategory);
               setTimeout(() => {
                 setCompletedCategoryKey("");
@@ -885,7 +885,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           }
           void loadOpportunityState();
           if (json?.action === "finalize") {
-            const savedCategory = cat;
+            const savedCategory = cat as CategoryKey;
             setCompletedCategoryKey(savedCategory);
             setTimeout(() => {
               setCompletedCategoryKey("");
