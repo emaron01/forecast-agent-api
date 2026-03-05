@@ -22,6 +22,7 @@ import {
   shouldEmitNoMaterialChange,
   fallbackForEvidenceOnly,
 } from "../../../../../../lib/categoryUpdateDeltas";
+import { loadMasterDcoPrompt } from "../../../../../../lib/masterDcoPrompt";
 
 export const runtime = "nodejs";
 
@@ -876,7 +877,20 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     }
 
     const defs = await fetchRubric(orgId, category);
-    const instructions = [
+    const masterDco = await loadMasterDcoPrompt();
+    let orgName = "our company";
+    try {
+      const orgRows = await pool.query(
+        "SELECT name FROM organizations WHERE id = $1",
+        [orgId]
+      );
+      const raw = orgRows?.rows?.[0]?.name;
+      if (raw != null && String(raw).trim()) orgName = String(raw).trim();
+    } catch {
+      /* keep fallback */
+    }
+    const masterPromptResolved = (masterDco.text ?? "").replace(/\{\{org_name\}\}/g, orgName);
+    const categoryInstructions = [
       "You are an Expert Sales Leader running a targeted update for ONE category only.",
       "CRITICAL:",
       "- Do NOT evaluate or change any other categories.",
@@ -896,6 +910,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "If the rep gives a new name and/or title for EB or Champion, accept it (they can change it back if wrong). Omit entity_override when unclear.",
       `- {"action":"finalize","material_change":false} `,
     ].join("\n");
+    const instructions = `${masterPromptResolved}\n\n---\n\n${categoryInstructions}`;
 
     const input = [
       `Opportunity: ${opportunityPublicId} (org ${orgId})`,
