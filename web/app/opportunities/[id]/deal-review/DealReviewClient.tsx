@@ -170,6 +170,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const [completedCategoryKey, setCompletedCategoryKey] = useState<CategoryKey | "">("");
   const [completedCategoryFadeOut, setCompletedCategoryFadeOut] = useState(false);
   const prevHighlightCategoryKeyRef = useRef<CategoryKey | "">("");
+  const prevSessionHasActiveCategoryRef = useRef(false);
 
   const [oppState, setOppState] = useState<OppState | null>(null);
   const [run, setRun] = useState<HandsFreeRun | null>(null);
@@ -1306,10 +1307,14 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const sessionHasActiveCategory = (mode === "FULL_REVIEW" && !!runId) || (mode === "CATEGORY_UPDATE" && !!selectedCategory);
 
   // Display-only: show "complete" chip on the category that just lost focus for 2s then fade out 300ms.
+  // Trigger 1: highlightCategoryKey changed to a different category → show complete on previous.
+  // Trigger 2: session ended (sessionHasActiveCategory true → false) with a non-empty highlight → show complete on that category.
   useEffect(() => {
-    const prev = prevHighlightCategoryKeyRef.current;
-    if (prev !== highlightCategoryKey && prev) {
-      setCompletedCategoryKey(prev);
+    const prevHighlight = prevHighlightCategoryKeyRef.current;
+    const prevSessionActive = prevSessionHasActiveCategoryRef.current;
+
+    const showCompleteOn = (key: CategoryKey) => {
+      setCompletedCategoryKey(key);
       setCompletedCategoryFadeOut(false);
       const t1 = window.setTimeout(() => setCompletedCategoryFadeOut(true), 2000);
       const t2 = window.setTimeout(() => {
@@ -1320,9 +1325,25 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
         window.clearTimeout(t1);
         window.clearTimeout(t2);
       };
+    };
+
+    if (prevHighlight !== highlightCategoryKey && prevHighlight) {
+      const cleanup = showCompleteOn(prevHighlight);
+      prevHighlightCategoryKeyRef.current = highlightCategoryKey;
+      prevSessionHasActiveCategoryRef.current = sessionHasActiveCategory;
+      return cleanup;
     }
+
+    if (prevSessionActive && !sessionHasActiveCategory && highlightCategoryKey) {
+      const cleanup = showCompleteOn(highlightCategoryKey);
+      prevHighlightCategoryKeyRef.current = highlightCategoryKey;
+      prevSessionHasActiveCategoryRef.current = sessionHasActiveCategory;
+      return cleanup;
+    }
+
     prevHighlightCategoryKeyRef.current = highlightCategoryKey;
-  }, [highlightCategoryKey]);
+    prevSessionHasActiveCategoryRef.current = sessionHasActiveCategory;
+  }, [highlightCategoryKey, sessionHasActiveCategory]);
 
   const qaDrawerOpen = mode === "CATEGORY_UPDATE" && qaPaneOpen;
   const qaCanonical = selectedCategory ? (MEDDPICC_CANONICAL as any)[selectedCategory] : null;
