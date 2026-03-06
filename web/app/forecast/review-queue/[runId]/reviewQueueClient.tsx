@@ -112,8 +112,13 @@ export function ReviewQueueClient(props: { runId: string }) {
   const heardVoiceRef = useRef(false);
   const firstVoiceAtRef = useRef(0);
   const lastVoiceAtRef = useRef(0);
+  const keepMicOpenRef = useRef(keepMicOpen);
 
   const runRef = useRef<HandsFreeRun | null>(null);
+
+  useEffect(() => {
+    keepMicOpenRef.current = keepMicOpen;
+  }, [keepMicOpen]);
   useEffect(() => {
     runRef.current = run;
   }, [run]);
@@ -138,6 +143,7 @@ export function ReviewQueueClient(props: { runId: string }) {
   }, [refreshMicDevices]);
 
   const closeMicStreamOnly = useCallback(() => {
+    console.log(JSON.stringify({ event: "close_mic", keepMicOpen: keepMicOpenRef.current }));
     try {
       if (segmentTimeoutRef.current) {
         window.clearTimeout(segmentTimeoutRef.current);
@@ -180,7 +186,9 @@ export function ReviewQueueClient(props: { runId: string }) {
       micPeakRef.current = 0;
       setListening(false);
       voiceActiveRef.current = false;
-    } catch {}
+    } catch (e) {
+      console.log(JSON.stringify({ event: "close_mic_error", error: String(e) }));
+    }
   }, []);
 
   const ensureMic = useCallback(async () => {
@@ -297,7 +305,7 @@ export function ReviewQueueClient(props: { runId: string }) {
       } finally {
         if (!keepMicOpen) {
           window.setTimeout(() => {
-            if (keepMicOpen) return;
+            if (keepMicOpenRef.current) return;
             if (voiceActiveRef.current) return;
             closeMicStreamOnly();
           }, 1200);
@@ -531,6 +539,9 @@ export function ReviewQueueClient(props: { runId: string }) {
           setListening(false);
           setSttError("No microphone input detected. Check mic device/permissions or click Prime mic now.");
           maybeCloseMicForPrivacy();
+          if (voiceActiveRef.current === false && runRef.current?.status === "WAITING_FOR_USER") {
+            void captureOneUtteranceAndSend();
+          }
           return;
         }
 
@@ -555,8 +566,11 @@ export function ReviewQueueClient(props: { runId: string }) {
           voiceActiveRef.current = false;
           setListening(false);
           maybeCloseMicForPrivacy();
+          if (voiceActiveRef.current === false && runRef.current?.status === "WAITING_FOR_USER") {
+            void captureOneUtteranceAndSend();
+          }
         });
-      }, Math.max(2000, Number(micMaxSegmentMs) || 12000));
+      }, Number(micMaxSegmentMs) || 70000);
 
       await loop();
     } catch (e: any) {

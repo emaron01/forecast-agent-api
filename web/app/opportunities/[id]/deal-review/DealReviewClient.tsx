@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSpeechRecognition } from "../../../../lib/useSpeechRecognition";
 import { MEDDPICC_CANONICAL } from "../../../../lib/meddpiccCanonical";
 import { dateOnly } from "../../../../lib/dateOnly";
 import { PasteNotesPanel } from "../../../../components/opportunities/PasteNotesPanel";
@@ -235,11 +234,12 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
 
   const micLevelRef = useRef(0);
   const micPeakRef = useRef(0);
+  const keepMicOpenRef = useRef(keepMicOpen);
+  const categoryWaitingForUserRef = useRef(false);
 
-  const speech = useSpeechRecognition({
-    // Kept for browsers where users want WebSpeech; mic+STT is primary path.
-    silenceMs: 900,
-  });
+  useEffect(() => {
+    keepMicOpenRef.current = keepMicOpen;
+  }, [keepMicOpen]);
 
   const runId = run?.runId || "";
   const status = run?.status || "DONE";
@@ -358,6 +358,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   }, [refreshMicDevices]);
 
   const closeMicStreamOnly = useCallback(() => {
+    console.log(JSON.stringify({ event: "close_mic", keepMicOpen: keepMicOpenRef.current }));
     try {
       if (segmentTimeoutRef.current) {
         window.clearTimeout(segmentTimeoutRef.current);
@@ -409,7 +410,9 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       heardVoiceRef.current = false;
       firstVoiceAtRef.current = 0;
       lastVoiceAtRef.current = 0;
-    } catch {}
+    } catch (e) {
+      console.log(JSON.stringify({ event: "close_mic_error", error: String(e) }));
+    }
   }, []);
 
   const ensureMic = useCallback(async () => {
@@ -538,7 +541,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
         if (!keepMicOpen) {
           // Close shortly after priming in privacy mode.
           window.setTimeout(() => {
-            if (keepMicOpen) return;
+            if (keepMicOpenRef.current) return;
             if (voiceActiveRef.current) return;
             closeMicStreamOnly();
           }, 1200);
@@ -960,6 +963,13 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           setListening(false);
           setSttError("No microphone input detected. Check mic device/permissions or click Prime mic now.");
           maybeCloseMicForPrivacy();
+          if (
+            voiceActiveRef.current === false &&
+            ((mode === "FULL_REVIEW" && runRef.current?.status === "WAITING_FOR_USER") ||
+              (mode === "CATEGORY_UPDATE" && categoryWaitingForUserRef.current))
+          ) {
+            void captureOneUtteranceAndRoute();
+          }
           return;
         }
 
@@ -993,8 +1003,15 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           voiceActiveRef.current = false;
           setListening(false);
           maybeCloseMicForPrivacy();
+          if (
+            voiceActiveRef.current === false &&
+            ((mode === "FULL_REVIEW" && runRef.current?.status === "WAITING_FOR_USER") ||
+              (mode === "CATEGORY_UPDATE" && categoryWaitingForUserRef.current))
+          ) {
+            void captureOneUtteranceAndRoute();
+          }
         });
-      }, Math.max(2000, Number(micMaxSegmentMs) || 12000));
+      }, Number(micMaxSegmentMs) || 70000);
 
       await loop().catch(failCapture);
     } catch (e: any) {
@@ -1076,6 +1093,10 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
     if (!lastLine) return false;
     return lastLine.endsWith("?") || /\b(tell me|walk me through|describe|confirm|what|who|how)\b/i.test(lastLine);
   }, [catMessages, mode, selectedCategory]);
+
+  useEffect(() => {
+    categoryWaitingForUserRef.current = categoryWaitingForUser;
+  }, [categoryWaitingForUser]);
 
   useEffect(() => {
     // IMPORTANT: Text Update must never auto-open the mic.
@@ -1680,7 +1701,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             Status: <b>{run?.status || (mode === "CATEGORY_UPDATE" ? (selectedCategory ? "ACTIVE" : "—") : "—")}</b>
           </span>
           <span className="pill">
-            Listening: <b>{listening || speech.listening ? "ON" : "OFF"}</b>
+            Listening: <b>{listening ? "ON" : "OFF"}</b>
           </span>
           <span className={`pill ${micOpen ? "ok" : "warn"}`}>
             Microphone: <b>{micOpen ? "ON" : "OFF"}</b>
@@ -1736,7 +1757,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               </div>
             </div>
             <div className="meta">
-              {mounted ? (speech.supported ? <span className="pill ok">Speech OK</span> : <span className="pill warn">Speech N/A</span>) : <span className="pill">Speech</span>}
+              {mounted ? <span className="pill ok">Mic+STT</span> : <span className="pill">Voice</span>}
               {micError ? <span className="pill err">Mic error</span> : null}
               {ttsError ? <span className="pill err">TTS error</span> : null}
               {sttError ? <span className="pill err">STT error</span> : null}
