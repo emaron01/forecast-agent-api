@@ -193,6 +193,9 @@ export async function runUntilPauseOrEnd(args: {
       return run;
     }
   } finally {
+    if (run.status === "DONE" || run.status === "ERROR") {
+      run.completedAt = Date.now();
+    }
     run.inFlight = false;
   }
 }

@@ -1089,7 +1089,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       setListening(false);
       if (!keepMicOpen) closeMicStreamOnly();
     }
-  }, [captureOneUtteranceAndRoute, closeMicStreamOnly, keepMicOpen, playTts, run, runId, speak, voice]);
+  }, [captureOneUtteranceAndRoute, closeMicStreamOnly, keepMicOpen, playTts, run, runId, speak, speaking, voice]);
 
   // Category update: if waiting (last assistant asked a question), capture voice.
   const categoryWaitingForUser = useMemo(() => {

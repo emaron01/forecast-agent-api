@@ -23,6 +23,8 @@ export type HandsFreeRun = {
   messages: HandsFreeMessage[];
   modelCalls: number;
   updatedAt: number;
+  /** Set when status becomes DONE or ERROR; used for TTL pruning. */
+  completedAt?: number;
 };
 
 declare global {
@@ -31,4 +33,26 @@ declare global {
 }
 
 export const handsfreeRuns = global.__handsfreeRuns__ || (global.__handsfreeRuns__ = new Map<string, HandsFreeRun>());
+
+const RUN_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function pruneCompletedRuns() {
+  const before = handsfreeRuns.size;
+  const now = Date.now();
+  for (const [id, run] of handsfreeRuns.entries()) {
+    if (
+      (run.status === "DONE" || run.status === "ERROR") &&
+      now - (run.completedAt ?? 0) > RUN_TTL_MS
+    ) {
+      handsfreeRuns.delete(id);
+    }
+  }
+  const after = handsfreeRuns.size;
+  if (before !== after) {
+    console.log(JSON.stringify({ event: "runs_pruned", removed: before - after, remaining: after }));
+  }
+}
+
+// Run every 10 minutes; unref prevents interval from keeping Node process alive.
+setInterval(pruneCompletedRuns, 10 * 60 * 1000).unref();
 
