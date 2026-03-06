@@ -106,7 +106,7 @@ export async function runUntilPauseOrEnd(args: {
           pool: args.pool,
           session,
           text: nextText,
-          toolChoice: args.kickoff ? "none" : "auto",
+          toolChoice: (args.kickoff ? "none" : "auto") as "auto" | "none",
           repTurn: !args.kickoff,
         };
         let r = await runResponsesTurn(turnArgs);
