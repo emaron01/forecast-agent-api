@@ -54,6 +54,7 @@ export async function runUntilPauseOrEnd(args: {
   userText?: string;
   kickoff?: boolean;
   shortInputGuard?: boolean;
+  onSentence?: (sentence: string) => void;
 }): Promise<HandsFreeRun> {
   const run = handsfreeRuns.get(args.runId);
   if (!run) throw new Error("Invalid runId");
@@ -110,6 +111,8 @@ export async function runUntilPauseOrEnd(args: {
           toolChoice: (args.kickoff ? "none" : "auto") as "auto" | "none",
           repTurn: !args.kickoff,
           shortInputGuard: args.shortInputGuard && calls === 1 && !args.kickoff,
+          onSentence:
+            calls === 1 && !args.kickoff && args.onSentence ? args.onSentence : undefined,
         };
         let r = await runResponsesTurn(turnArgs);
         let assistantText = r.assistantText ?? "";

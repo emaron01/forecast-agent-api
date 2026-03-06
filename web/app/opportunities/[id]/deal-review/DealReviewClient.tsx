@@ -237,6 +237,8 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const keepMicOpenRef = useRef(keepMicOpen);
   const categoryWaitingForUserRef = useRef(false);
   const inputInFlightRef = useRef(false);
+  const sentenceQueueRef = useRef<string[]>([]);
+  const isPlayingSentenceRef = useRef(false);
 
   useEffect(() => {
     keepMicOpenRef.current = keepMicOpen;
@@ -603,6 +605,20 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
     [speak]
   );
 
+  const drainSentenceQueue = useCallback(async () => {
+    if (isPlayingSentenceRef.current) return;
+    isPlayingSentenceRef.current = true;
+    while (sentenceQueueRef.current.length > 0) {
+      const sentence = sentenceQueueRef.current.shift()!;
+      try {
+        await playTts(sentence);
+      } catch {
+        /* playTts sets error state */
+      }
+    }
+    isPlayingSentenceRef.current = false;
+  }, [playTts]);
+
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
@@ -769,9 +785,12 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           if (!rid) return;
           const waitingSeq = r?.waitingSeq;
           setRun((prev) => (prev ? { ...prev, messages: [...(prev.messages || []), msg] } : prev));
-          const postInput = async (retries = 3, delayMs = 400) => {
+          inputInFlightRef.current = true;
+          try {
+            const retries = 3;
+            const delayMs = 400;
             for (let i = 0; i < retries; i++) {
-              const res = await fetch(
+              const response = await fetch(
                 `/api/deal-review/${encodeURIComponent(rid)}/input`,
                 {
                   method: "POST",
@@ -779,24 +798,83 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
                   body: JSON.stringify({ text, waitingSeq }),
                 }
               );
-              const json = await res.json().catch(() => ({}));
-              if (res.ok && json?.ok) return; // success
-              if (res.status === 409) {
-                // Run is busy — wait and retry
+
+              if (response.status === 409) {
+                await response.json().catch(() => ({}));
                 if (i < retries - 1) {
                   await new Promise((r) => setTimeout(r, delayMs));
                   continue;
                 }
+                throw new Error("Run is busy");
               }
-              // Non-409 error or retries exhausted
-              throw new Error(json?.error || "Send failed");
+
+              if (!response.ok) {
+                const errJson = await response.json().catch(() => ({}));
+                throw new Error(errJson?.error || "Send failed");
+              }
+
+              const contentType = response.headers.get("Content-Type") ?? "";
+
+              if (contentType.includes("text/event-stream")) {
+                const reader = response.body!.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+
+                const processLine = (line: string) => {
+                  if (!line.startsWith("data: ")) return;
+                  try {
+                    const event = JSON.parse(line.slice(6));
+
+                    if (event.type === "sentence") {
+                      const sentenceText = String(event.text ?? "").trim();
+                      if (sentenceText) {
+                        sentenceQueueRef.current.push(sentenceText);
+                        void drainSentenceQueue();
+                      }
+                    }
+
+                    if (event.type === "done") {
+                      if (event.run) setRun(event.run);
+                      inputInFlightRef.current = false;
+                    }
+
+                    if (event.type === "error") {
+                      console.log(
+                        JSON.stringify({
+                          event: "input_sse_error",
+                          error: event.error,
+                        })
+                      );
+                      setSttError("Something went wrong. Please try again.");
+                      inputInFlightRef.current = false;
+                    }
+                  } catch {
+                    /* skip malformed lines */
+                  }
+                };
+
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  buffer += decoder.decode(value, { stream: true });
+                  const lines = buffer.split("\n");
+                  buffer = lines.pop() ?? "";
+                  for (const line of lines) processLine(line);
+                }
+                for (const line of buffer.split("\n")) processLine(line);
+                return;
+              }
+
+              const data = await response.json().catch(() => ({}));
+              if (data?.ok) {
+                inputInFlightRef.current = false;
+                return;
+              }
+              throw new Error(data?.error || "Send failed");
             }
-          };
-          inputInFlightRef.current = true;
-          try {
-            await postInput();
-          } finally {
+          } catch (e) {
             inputInFlightRef.current = false;
+            throw e;
           }
           return;
         }
@@ -1031,6 +1109,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       maybeCloseMicForPrivacy();
     }
   }, [
+    drainSentenceQueue,
     ensureMic,
     loadOpportunityState,
     maybeCloseMicForPrivacy,

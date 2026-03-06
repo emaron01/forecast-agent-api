@@ -76,6 +76,59 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ runId: str
       }
     }
 
+    const streamEnabled =
+      process.env.LLM_STREAM_ENABLED === "true" &&
+      process.env.VOICE_SENTENCE_CHUNKING === "true";
+
+    if (streamEnabled) {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          const sendSSE = (payload: object) => {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+          };
+
+          const onSentence = (sentenceText: string) => {
+            sendSSE({ type: "sentence", text: sentenceText });
+          };
+
+          try {
+            await runUntilPauseOrEnd({
+              pool,
+              runId,
+              userText: text,
+              shortInputGuard,
+              onSentence,
+            });
+
+            const updated = handsfreeRuns.get(runId);
+            endSpan(reqSpan!, { status: "ok", http_status: 200 });
+            sendSSE({ type: "done", ok: true, run: updated ?? null });
+          } catch (err) {
+            endSpan(reqSpan!, { status: "error", http_status: 500 });
+            console.log(
+              JSON.stringify({
+                event: "input_stream_error",
+                runId,
+                error: String(err),
+              })
+            );
+            sendSSE({ type: "error", ok: false, error: String(err) });
+          } finally {
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    }
+
     const updated = await runUntilPauseOrEnd({ pool, runId, userText: text, shortInputGuard });
     endSpan(reqSpan!, { status: "ok", http_status: 200 });
     return NextResponse.json({ ok: true, run: updated });

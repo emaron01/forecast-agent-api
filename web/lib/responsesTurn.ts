@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import { buildNoDealsPrompt, buildPrompt, computeFirstGap } from "./prompt";
 import { loadScoringDiscipline, loadConversationalRules, promptHash } from "./masterDcoPrompt";
 import { buildTools } from "./tools";
+import { extractSentences } from "./voiceStreaming";
 import { handleFunctionCall } from "../../muscle.js";
 import { getQuestionPack } from "../../db.js";
 
@@ -275,6 +276,7 @@ export async function runResponsesTurn(args: {
   toolChoice?: "auto" | "none";
   repTurn?: boolean;
   shortInputGuard?: boolean;
+  onSentence?: (sentence: string) => void;
 }): Promise<RunResponsesTurnResult> {
   const { pool, session } = args;
   const baseUrl = resolveBaseUrl();
@@ -444,6 +446,9 @@ export async function runResponsesTurn(args: {
       org_id: session.orgId,
     }));
 
+    const useStreaming =
+      !!args.onSentence && toolChoice !== "none" && previousResponseId === null;
+
     const resp = await fetch(`${baseUrl}/responses`, {
       method: "POST",
       headers: {
@@ -457,21 +462,171 @@ export async function runResponsesTurn(args: {
         tool_choice: toolChoice,
         ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
         input: nextInput,
+        ...(useStreaming ? { stream: true } : {}),
       }),
     });
 
-    const json = await resp.json().catch(async () => ({ error: { message: await resp.text() } }));
     if (!resp.ok) {
+      const errBody = await resp.text();
+      const json = (() => {
+        try {
+          return JSON.parse(errBody);
+        } catch {
+          return { error: { message: errBody } };
+        }
+      })();
       const msg = json?.error?.message || JSON.stringify(json);
       throw new Error(msg);
+    }
+
+    let json: any;
+    let output: any[];
+    let chunkText: string;
+
+    if (useStreaming && resp.body) {
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullText = "";
+      let toolCallDetected = false;
+      const streamOutput: any[] = [];
+      let lastMessageContent: any[] | null = null;
+      let lastFunctionCall: any = null;
+      let responseId = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6).trim();
+          if (data === "[DONE]" || !data) continue;
+          try {
+            const ev = JSON.parse(data);
+            if (ev.type === "response.completed" && ev.response?.id) {
+              responseId = String(ev.response.id ?? "").trim();
+            }
+            if (ev.type === "response.output_item.added" && ev.item) {
+              const item = ev.item;
+              if (item.type === "message") {
+                streamOutput.push({ type: "message", role: "assistant", content: [] });
+                lastMessageContent = (streamOutput[streamOutput.length - 1] as any).content;
+                lastFunctionCall = null;
+              } else if (item.type === "function_call") {
+                toolCallDetected = true;
+                streamOutput.push({
+                  type: "function_call",
+                  call_id: item.id ?? "",
+                  name: item.name ?? "",
+                  arguments: "",
+                });
+                lastFunctionCall = streamOutput[streamOutput.length - 1] as any;
+                lastMessageContent = null;
+              }
+            }
+            const delta =
+              ev.type === "response.output_text.delta" && typeof ev.delta === "string"
+                ? ev.delta
+                : null;
+            if (delta) {
+              fullText += delta;
+            }
+            if (
+              ev.type === "response.function_call_arguments.delta" &&
+              typeof ev.delta === "string" &&
+              lastFunctionCall
+            ) {
+              lastFunctionCall.arguments = (lastFunctionCall.arguments || "") + ev.delta;
+            }
+          } catch {
+            /* skip malformed SSE lines */
+          }
+        }
+      }
+      if (buffer.trim()) {
+        try {
+          const data = buffer.startsWith("data: ") ? buffer.slice(6).trim() : buffer.trim();
+          if (data && data !== "[DONE]") {
+            const ev = JSON.parse(data);
+            if (ev.type === "response.completed" && ev.response?.id) {
+              responseId = String(ev.response.id ?? "").trim();
+            }
+            if (ev.type === "response.output_item.added" && ev.item) {
+              const item = ev.item;
+              if (item.type === "message") {
+                streamOutput.push({ type: "message", role: "assistant", content: [] });
+                lastMessageContent = (streamOutput[streamOutput.length - 1] as any).content;
+                lastFunctionCall = null;
+              } else if (item.type === "function_call") {
+                toolCallDetected = true;
+                streamOutput.push({
+                  type: "function_call",
+                  call_id: item.id ?? "",
+                  name: item.name ?? "",
+                  arguments: "",
+                });
+                lastFunctionCall = streamOutput[streamOutput.length - 1] as any;
+                lastMessageContent = null;
+              }
+            }
+            const delta =
+              ev.type === "response.output_text.delta" && typeof ev.delta === "string"
+                ? ev.delta
+                : null;
+            if (delta) fullText += delta;
+            if (
+              ev.type === "response.function_call_arguments.delta" &&
+              typeof ev.delta === "string" &&
+              lastFunctionCall
+            ) {
+              lastFunctionCall.arguments = (lastFunctionCall.arguments || "") + ev.delta;
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      if (fullText.trim()) {
+        if (lastMessageContent) {
+          lastMessageContent.push({ type: "output_text", text: fullText.trim() });
+        } else {
+          streamOutput.push({
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: fullText.trim() }],
+          });
+        }
+      }
+
+      if (!toolCallDetected && args.onSentence && fullText.trim()) {
+        const sentences = extractSentences(fullText.trim());
+        for (const s of sentences) {
+          if (s) args.onSentence(s);
+        }
+      }
+
+      json = { id: responseId, response_id: responseId, output: streamOutput };
+      output = streamOutput;
+      chunkText = fullText.trim();
+    } else {
+      json = await resp.json().catch(async () => ({ error: { message: await resp.text() } }));
+      if (json?.error?.message) {
+        throw new Error(json.error.message);
+      }
+      lastResponse = json;
+      const respId = String(json?.id || json?.response_id || "").trim();
+      if (respId) previousResponseId = respId;
+      output = Array.isArray(json?.output) ? json.output : [];
+      chunkText = extractAssistantText(output);
     }
 
     lastResponse = json;
     const respId = String(json?.id || json?.response_id || "").trim();
     if (respId) previousResponseId = respId;
-    const output = Array.isArray(json?.output) ? json.output : [];
-
-    const chunkText = extractAssistantText(output);
     if (chunkText) assistantTexts.push(chunkText);
 
     // Strict wrap enforcement: detect exact health-score phrase when expected.
