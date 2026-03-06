@@ -1,7 +1,10 @@
 import type { Pool } from "pg";
 import { sessions } from "../agent/sessions";
+import { computeFirstGap } from "../../../lib/prompt";
 import { runResponsesTurn } from "../../../lib/responsesTurn";
 import { handsfreeRuns, type HandsFreeRun } from "./runs";
+
+const AGENT_REPLY_FALLBACK = "I didn't catch that — can you tell me more?";
 
 const KICKOFF_TEXT =
   "Begin the forecast review now. Follow the workflow. Start with your greeting and immediately ask the first MEDDPICC gap question for the first deal.";
@@ -93,18 +96,39 @@ export async function runUntilPauseOrEnd(args: {
           return run;
         }
 
-        const categoryBeforeTurn = session.lastCategoryKey ?? null;
-        const r = await runResponsesTurn({
+        const deal = session.deals?.[session.index];
+        const stage = String(deal?.forecast_stage || "Pipeline");
+        const expectedGap =
+          deal != null ? computeFirstGap(deal, stage, session.reviewed ?? undefined) : null;
+        const categoryBeforeTurn = expectedGap?.touchedKey ?? session.lastCategoryKey ?? null;
+
+        const turnArgs = {
           pool: args.pool,
           session,
           text: nextText,
-          // IMPORTANT: During kickoff/intro, do not allow tool calls.
-          // This prevents the model from fabricating evidence and saving before the rep speaks.
           toolChoice: args.kickoff ? "none" : "auto",
           repTurn: !args.kickoff,
-        });
-        const assistantText = r.assistantText || "";
-        const done = !!r.done;
+        };
+        let r = await runResponsesTurn(turnArgs);
+        let assistantText = r.assistantText ?? "";
+        let done = !!r.done;
+
+        if (assistantText === "" || assistantText == null) {
+          console.log(
+            JSON.stringify({
+              event: "agent_reply_null",
+              session_id: run.sessionId ?? null,
+              turn_index: run.modelCalls ?? null,
+            })
+          );
+          r = await runResponsesTurn(turnArgs);
+          assistantText = r.assistantText ?? "";
+          done = !!r.done;
+          if (assistantText === "" || assistantText == null) {
+            assistantText = AGENT_REPLY_FALLBACK;
+            if (categoryBeforeTurn != null) session.lastCategoryKey = categoryBeforeTurn;
+          }
+        }
 
         console.log(
           JSON.stringify({

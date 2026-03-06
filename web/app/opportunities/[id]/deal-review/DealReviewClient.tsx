@@ -327,14 +327,16 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
     void loadOpportunityState();
   }, [loadOpportunityState, mode, run?.status, run?.updatedAt]);
 
-  // Full Review: highlight the inferred active category from the latest waiting prompt.
+  // Full Review: highlight the active category from each status poll. Prefer explicit category
+  // from the run if present; otherwise infer from waitingPrompt. Only update when the value is
+  // non-empty so we never reset the indicator during an active session.
   useEffect(() => {
-    if (mode !== "FULL_REVIEW") return;
-    if (!isWaiting) return;
-    const prompt = String(run?.waitingPrompt || "").trim();
-    const inferred = inferCategoryFromPromptText(prompt) || "";
-    if (inferred) setFullReviewHighlightCategory(inferred);
-  }, [isWaiting, mode, run?.waitingPrompt]);
+    if (mode !== "FULL_REVIEW" || !run) return;
+    const explicit = String((run as { category?: string }).category ?? "").trim();
+    const inferred = inferCategoryFromPromptText(String(run?.waitingPrompt ?? "").trim()) || "";
+    const incoming = explicit || inferred;
+    if (incoming) setFullReviewHighlightCategory(incoming as CategoryKey);
+  }, [mode, run, run?.waitingPrompt, run?.updatedAt]);
 
   const refreshMicDevices = useCallback(async () => {
     try {
