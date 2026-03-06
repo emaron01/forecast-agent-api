@@ -93,6 +93,7 @@ export async function runUntilPauseOrEnd(args: {
           return run;
         }
 
+        const categoryBeforeTurn = session.lastCategoryKey ?? null;
         const r = await runResponsesTurn({
           pool: args.pool,
           session,
@@ -104,6 +105,20 @@ export async function runUntilPauseOrEnd(args: {
         });
         const assistantText = r.assistantText || "";
         const done = !!r.done;
+
+        console.log(
+          JSON.stringify({
+            event: "agent_turn",
+            session_id: run.sessionId ?? null,
+            turn_index: run.modelCalls ?? null,
+            user_input: userText || null,
+            category_before: categoryBeforeTurn,
+            agent_reply: assistantText || null,
+            next_category: session.lastCategoryKey ?? null,
+            scores: null,
+            is_empty_input: !userText,
+          })
+        );
 
         if (assistantText) append(run, "assistant", assistantText);
 
