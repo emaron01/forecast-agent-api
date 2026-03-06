@@ -17,18 +17,18 @@ function NavLink({ href, label }: { href: string; label: string }) {
 export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser }) {
   const dashHref = user.role === "MANAGER" || user.role === "EXEC_MANAGER" ? "/dashboard/executive" : "/dashboard";
   return (
-    <header className="border-b border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-      <div className="flex h-[65px] w-full items-center justify-between px-6">
-        <div className="flex items-center gap-4">
-          <Link href={dashHref} aria-label="SalesForecast home" className="shrink-0">
-            <div className="h-[65px] w-[min(300px,50vw)] overflow-hidden">
+    <header className="overflow-visible border-b border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+      <div className="flex h-[65px] w-full items-center justify-between overflow-visible px-6">
+        <div className="flex items-center gap-4 overflow-visible">
+          <Link href={dashHref} aria-label="SalesForecast home" className="relative shrink-0 translate-y-1 overflow-visible">
+            <div className="relative h-[72px] w-[min(320px,55vw)] overflow-visible">
               <Image
                 src="/brand/salesforecast-logo-trim.png"
                 alt="SalesForecast.io"
                 width={520}
                 height={120}
                 priority={false}
-                className="h-full w-full object-cover object-left"
+                className="h-full w-full object-contain object-left object-top"
               />
             </div>
           </Link>
