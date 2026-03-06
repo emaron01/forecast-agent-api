@@ -260,6 +260,13 @@ function extractHealthPercentFromAssistant(text: string) {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
+export type RunResponsesTurnResult = {
+  assistantText: string;
+  done: boolean;
+  /** True when the LLM response was parseable and valid but assistantText was empty (soft null). Omitted on hard null or non-empty. */
+  softNull?: boolean;
+};
+
 export async function runResponsesTurn(args: {
   pool: Pool;
   session: ForecastSession;
@@ -267,7 +274,8 @@ export async function runResponsesTurn(args: {
   maxToolLoops?: number;
   toolChoice?: "auto" | "none";
   repTurn?: boolean;
-}): Promise<{ assistantText: string; done: boolean }> {
+  shortInputGuard?: boolean;
+}): Promise<RunResponsesTurnResult> {
   const { pool, session } = args;
   const baseUrl = resolveBaseUrl();
   const apiKey = String(process.env.MODEL_API_KEY || process.env.OPENAI_API_KEY || "").trim();
@@ -328,6 +336,13 @@ export async function runResponsesTurn(args: {
     session.skipSaveCategoryKey = undefined;
   }
 
+  if (args.shortInputGuard) {
+    nextInput.push({
+      role: "system",
+      content:
+        "User input was very brief. Do not advance to the next category based on this input alone. Ask a follow-up question within the current category.",
+    });
+  }
   nextInput.push(userMsg(text));
 
   let orgName = "our company";
@@ -339,12 +354,14 @@ export async function runResponsesTurn(args: {
     // keep fallback
   }
 
+  // Load scoring/conversational once per turn (used for master prompt composition and prompt_composition logging).
+  const [scoring, conversational] = await Promise.all([
+    loadScoringDiscipline(),
+    loadConversationalRules(),
+  ]);
+
   // Load master prompt once per session (cached globally too).
   if (!session.masterPromptText) {
-    const [scoring, conversational] = await Promise.all([
-      loadScoringDiscipline(),
-      loadConversationalRules(),
-    ]);
     const composedText = scoring.text + "\n\n---\n\n" + conversational.text;
     const masterPromptResolved = composedText.replace(/\{\{org_name\}\}/g, orgName);
     session.masterPromptText = masterPromptResolved;
@@ -418,10 +435,6 @@ export async function runResponsesTurn(args: {
       : buildNoDealsPrompt(firstName(session.repName), "No deals available in the system for this rep.");
     const instructions = `${masterPromptResolved}\n\n${contextBlock}`;
 
-    const [scoring, conversational] = await Promise.all([
-      loadScoringDiscipline(),
-      loadConversationalRules(),
-    ]);
     console.log(JSON.stringify({
       event: "prompt_composition",
       flow: "full_review",
@@ -810,7 +823,9 @@ export async function runResponsesTurn(args: {
     session.lastCheckType = undefined;
   }
   const done = session.index >= session.deals.length;
-  return { assistantText, done };
+  // Soft null: parseable response but empty text. Not set when response was malformed (lastResponse.error from parse catch).
+  const softNull = !assistantText && !lastResponse?.error;
+  return { assistantText, done, ...(softNull ? { softNull: true } : {}) };
 }
 
 /** Single-turn Responses API call (no tools). Used by comment ingestion. */

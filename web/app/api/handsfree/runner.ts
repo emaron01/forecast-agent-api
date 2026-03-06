@@ -53,6 +53,7 @@ export async function runUntilPauseOrEnd(args: {
   runId: string;
   userText?: string;
   kickoff?: boolean;
+  shortInputGuard?: boolean;
 }): Promise<HandsFreeRun> {
   const run = handsfreeRuns.get(args.runId);
   if (!run) throw new Error("Invalid runId");
@@ -108,12 +109,23 @@ export async function runUntilPauseOrEnd(args: {
           text: nextText,
           toolChoice: (args.kickoff ? "none" : "auto") as "auto" | "none",
           repTurn: !args.kickoff,
+          shortInputGuard: args.shortInputGuard && calls === 1 && !args.kickoff,
         };
         let r = await runResponsesTurn(turnArgs);
         let assistantText = r.assistantText ?? "";
         let done = !!r.done;
 
-        if (assistantText === "" || assistantText == null) {
+        if (r.softNull) {
+          console.log(
+            JSON.stringify({
+              event: "agent_reply_null",
+              soft: true,
+              session_id: run.sessionId ?? null,
+              turn_index: run.modelCalls ?? null,
+            })
+          );
+        }
+        if (!assistantText && !r.softNull) {
           console.log(
             JSON.stringify({
               event: "agent_reply_null",
@@ -124,10 +136,10 @@ export async function runUntilPauseOrEnd(args: {
           r = await runResponsesTurn(turnArgs);
           assistantText = r.assistantText ?? "";
           done = !!r.done;
-          if (assistantText === "" || assistantText == null) {
-            assistantText = AGENT_REPLY_FALLBACK;
-            if (categoryBeforeTurn != null) session.lastCategoryKey = categoryBeforeTurn;
-          }
+        }
+        if (!assistantText) {
+          assistantText = AGENT_REPLY_FALLBACK;
+          if (categoryBeforeTurn != null) session.lastCategoryKey = categoryBeforeTurn;
         }
 
         console.log(

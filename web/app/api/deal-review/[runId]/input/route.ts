@@ -47,6 +47,21 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ runId: str
       endSpan(reqSpan!, { status: "error", http_status: 400 });
       return NextResponse.json({ ok: false, error: "Missing text" }, { status: 400 });
     }
+    const audioTokens = body?.usage?.input_token_details?.audio_tokens;
+    const charCount = text.length;
+    const shortInputGuard =
+      (typeof audioTokens === "number" && audioTokens < 50) || (audioTokens == null && charCount < 30);
+    if (shortInputGuard) {
+      console.log(
+        JSON.stringify({
+          event: "short_input_guard",
+          session_id: run.sessionId ?? null,
+          turn_index: run.modelCalls ?? null,
+          audio_tokens: audioTokens ?? null,
+          char_count: charCount,
+        })
+      );
+    }
     const waitingSeq = body?.waitingSeq;
     if (waitingSeq != null) {
       const expected = Number(run.waitingSeq || 0) || 0;
@@ -61,7 +76,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ runId: str
       }
     }
 
-    const updated = await runUntilPauseOrEnd({ pool, runId, userText: text });
+    const updated = await runUntilPauseOrEnd({ pool, runId, userText: text, shortInputGuard });
     endSpan(reqSpan!, { status: "ok", http_status: 200 });
     return NextResponse.json({ ok: true, run: updated });
   } catch (e: any) {
