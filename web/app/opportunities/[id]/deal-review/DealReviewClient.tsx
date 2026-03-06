@@ -237,6 +237,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const keepMicOpenRef = useRef(keepMicOpen);
   const categoryWaitingForUserRef = useRef(false);
   const inputInFlightRef = useRef(false);
+  const sttInFlightRef = useRef(false);
   const sentenceQueueRef = useRef<string[]>([]);
   const isPlayingSentenceRef = useRef(false);
 
@@ -724,7 +725,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   }, [closeMicStreamOnly, keepMicOpen]);
 
   const captureOneUtteranceAndRoute = useCallback(async () => {
-    if (inputInFlightRef.current) return;
+    if (inputInFlightRef.current || sttInFlightRef.current) return;
     if (!voice) return;
     if (speakingRef.current) return;
     if (voiceActiveRef.current) return;
@@ -836,6 +837,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
                     if (event.type === "done") {
                       if (event.run) setRun(event.run);
                       inputInFlightRef.current = false;
+                      sttInFlightRef.current = false;
                     }
 
                     if (event.type === "error") {
@@ -847,6 +849,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
                       );
                       setSttError("Something went wrong. Please try again.");
                       inputInFlightRef.current = false;
+                      sttInFlightRef.current = false;
                     }
                   } catch {
                     /* skip malformed lines */
@@ -868,12 +871,14 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               const data = await response.json().catch(() => ({}));
               if (data?.ok) {
                 inputInFlightRef.current = false;
+                sttInFlightRef.current = false;
                 return;
               }
               throw new Error(data?.error || "Send failed");
             }
           } catch (e) {
             inputInFlightRef.current = false;
+            sttInFlightRef.current = false;
             throw e;
           }
           return;
@@ -1030,8 +1035,10 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           voiceActiveRef.current = false;
           setListening(false);
           if (!rec) return;
+          sttInFlightRef.current = true;
           const transcript = await sendToStt(rec.blob);
           if (!transcript) {
+            sttInFlightRef.current = false;
             setSttError("Empty transcript (check mic/tune and try again)");
             maybeCloseMicForPrivacy();
             return;
@@ -1051,6 +1058,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           if (
             voiceActiveRef.current === false &&
             !inputInFlightRef.current &&
+            !sttInFlightRef.current &&
             ((mode === "FULL_REVIEW" && runRef.current?.status === "WAITING_FOR_USER") ||
               (mode === "CATEGORY_UPDATE" && categoryWaitingForUserRef.current))
           ) {
@@ -1065,8 +1073,10 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           voiceActiveRef.current = false;
           setListening(false);
           if (!rec) return;
+          sttInFlightRef.current = true;
           const transcript = await sendToStt(rec.blob);
           if (!transcript) {
+            sttInFlightRef.current = false;
             setSttError("Empty transcript (max segment reached)");
             maybeCloseMicForPrivacy();
             return;
@@ -1092,6 +1102,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           if (
             voiceActiveRef.current === false &&
             !inputInFlightRef.current &&
+            !sttInFlightRef.current &&
             ((mode === "FULL_REVIEW" && runRef.current?.status === "WAITING_FOR_USER") ||
               (mode === "CATEGORY_UPDATE" && categoryWaitingForUserRef.current))
           ) {
@@ -1102,6 +1113,8 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
 
       await loop().catch(failCapture);
     } catch (e: any) {
+      inputInFlightRef.current = false;
+      sttInFlightRef.current = false;
       const msg = String(e?.message || e).slice(0, 300);
       setSttError(msg);
       voiceActiveRef.current = false;
@@ -1160,7 +1173,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
         void playTts(lastAssistant.text);
       }
     }
-    if (run.status === "WAITING_FOR_USER" && voice && !speakingRef.current && !inputInFlightRef.current) {
+    if (run.status === "WAITING_FOR_USER" && voice && !speakingRef.current && !inputInFlightRef.current && !sttInFlightRef.current) {
       void captureOneUtteranceAndRoute();
     }
     if (run.status === "DONE" || run.status === "ERROR") {
