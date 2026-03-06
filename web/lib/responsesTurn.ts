@@ -657,7 +657,7 @@ export async function runResponsesTurn(args: {
         nextInput = [
           userMsg(
             "The rep just answered with new information. You MUST now:\n" +
-              "1) Say only: \"Got it.\"\n" +
+              "1) Say a single short sentence acknowledging the rep's answer (do not say 'Got it', 'Great', 'Perfect', or similar filler phrases).\n" +
               `2) Call save_deal_data with the score, summary, and tip for ${expectedLabel} ONLY (do not save any other category).\n` +
               "3) Then ask the next required category question (ONE direct question).\n" +
               "Do not repeat the prior question."
