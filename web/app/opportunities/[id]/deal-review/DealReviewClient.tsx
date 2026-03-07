@@ -218,6 +218,8 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const [lastTranscript, setLastTranscript] = useState("");
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+  const [sttInFlight, setSttInFlight] = useState(false);
+  const [inputInFlight, setInputInFlight] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastAudioUrlRef = useRef<string>("");
@@ -858,16 +860,21 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       };
 
       const routeTranscript = async (text: string) => {
-        setLastTranscript(text);
-        const now = Date.now();
-        const msg: HandsFreeMessage = { role: "user", text, at: now };
+        sttInFlightRef.current = false;
+        setSttInFlight(false);
+        inputInFlightRef.current = true;
+        setInputInFlight(true);
+        try {
+          setLastTranscript(text);
+          const now = Date.now();
+          const msg: HandsFreeMessage = { role: "user", text, at: now };
 
-        if (mode === "CATEGORY_UPDATE") {
-          const cat = String(selectedCategoryRef.current || "").trim();
-          if (!cat) return;
-          const sid = String(catSessionIdRef.current || "").trim();
-          setCatMessages((prev) => [...prev, msg]);
-          const res = await fetch(`/api/deal-review/opportunities/${encodeURIComponent(opportunityId)}/update-category`, {
+          if (mode === "CATEGORY_UPDATE") {
+            const cat = String(selectedCategoryRef.current || "").trim();
+            if (!cat) return;
+            const sid = String(catSessionIdRef.current || "").trim();
+            setCatMessages((prev) => [...prev, msg]);
+            const res = await fetch(`/api/deal-review/opportunities/${encodeURIComponent(opportunityId)}/update-category`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ category: cat, text, sessionId: sid || undefined }),
@@ -936,7 +943,6 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               const score = (donePayload as any)?.result?.score;
               void onCategoryCompleteInChain(savedCategory, Number(score));
             }
-            sttInFlightRef.current = false;
             return;
           }
           const json = await res.json().catch(() => ({}));
@@ -961,7 +967,6 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
                 void playTts(retryAssistantText);
               }
               void loadOpportunityState();
-              sttInFlightRef.current = false;
               return;
             }
             throw new Error(json?.error || "Update failed");
@@ -979,7 +984,10 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             const score = (json as any)?.result?.score;
             void onCategoryCompleteInChain(savedCategory, Number(score));
           }
-          sttInFlightRef.current = false;
+        }
+        } finally {
+          inputInFlightRef.current = false;
+          setInputInFlight(false);
         }
       };
 
@@ -1013,11 +1021,20 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           setListening(false);
           if (!rec) return;
           sttInFlightRef.current = true;
+          setSttInFlight(true);
           const transcript = await sendToStt(rec.blob);
           if (!transcript) {
             sttInFlightRef.current = false;
+            setSttInFlight(false);
+            voiceActiveRef.current = false;
+            setListening(false);
             setSttError("Empty transcript (check mic/tune and try again)");
             maybeCloseMicForPrivacy();
+            window.setTimeout(() => {
+              if (categoryWaitingForUserRef.current && !speakingRef.current) {
+                void captureOneUtteranceAndRoute();
+              }
+            }, 500);
             return;
           }
           await routeTranscript(transcript);
@@ -1050,11 +1067,20 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           setListening(false);
           if (!rec) return;
           sttInFlightRef.current = true;
+          setSttInFlight(true);
           const transcript = await sendToStt(rec.blob);
           if (!transcript) {
             sttInFlightRef.current = false;
+            setSttInFlight(false);
+            voiceActiveRef.current = false;
+            setListening(false);
             setSttError("Empty transcript (max segment reached)");
             maybeCloseMicForPrivacy();
+            window.setTimeout(() => {
+              if (categoryWaitingForUserRef.current && !speakingRef.current) {
+                void captureOneUtteranceAndRoute();
+              }
+            }, 500);
             return;
           }
           await routeTranscript(transcript);
@@ -1090,6 +1116,8 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
     } catch (e: any) {
       inputInFlightRef.current = false;
       sttInFlightRef.current = false;
+      setInputInFlight(false);
+      setSttInFlight(false);
       const msg = String(e?.message || e).slice(0, 300);
       setSttError(msg);
       voiceActiveRef.current = false;
@@ -1131,6 +1159,27 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   useEffect(() => {
     categoryWaitingForUserRef.current = categoryWaitingForUser;
   }, [categoryWaitingForUser]);
+
+  const micIndicatorState = useMemo<"matthew_speaking" | "processing" | "your_turn" | "idle">(() => {
+    if (speaking) return "matthew_speaking";
+    if (sttInFlight || inputInFlight) return "processing";
+    if (categoryWaitingForUser && voice) return "your_turn";
+    return "idle";
+  }, [speaking, sttInFlight, inputInFlight, categoryWaitingForUser, voice]);
+
+  const micIndicatorLabel = useMemo(() => {
+    switch (micIndicatorState) {
+      case "matthew_speaking":
+        return "Matthew is speaking...";
+      case "processing":
+        return "Analyzing...";
+      case "your_turn":
+        return "Your turn — speak now";
+      case "idle":
+      default:
+        return "Idle";
+    }
+  }, [micIndicatorState]);
 
   useEffect(() => {
     // IMPORTANT: Text Update must never auto-open the mic.
@@ -1745,6 +1794,11 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           <span className={`pill ${micOpen ? "ok" : "warn"}`}>
             Microphone: <b>{micOpen ? "ON" : "OFF"}</b>
           </span>
+          {voice && mode === "CATEGORY_UPDATE" ? (
+            <span className="pill small" title={micIndicatorLabel}>
+              Mic: <b>{micIndicatorLabel}</b>
+            </span>
+          ) : null}
           {healthPercent != null ? (
             <span className={`pill ${healthPillClass(healthPercent)}`}>
               Health: <b>{healthPercent}%</b>
@@ -1920,12 +1974,12 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             {tileRows.map((c) => {
               const isActive = highlightCategoryKey === c.key;
               const isCompleted = completedCategoryKey === c.key;
-              const showChipActive = sessionHasActiveCategory && isActive && categoryWaitingForUser;
+              const showChipActive = sessionHasActiveCategory && isActive && voice;
               const chipState =
                 isCompleted
                   ? "complete"
                   : showChipActive
-                    ? (categoryWaitingForUser ? "listening" : "reviewing")
+                    ? micIndicatorState
                     : null;
               const mfocusClasses = [
                 highlightCategoryKey === c.key ? "active" : "",
@@ -1943,16 +1997,30 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               >
                 {chipState ? (
                   <span
-                    className={`mfocus-chip mfocus-${chipState} ${chipState === "complete" && completedCategoryFadeOut ? "mfocus-fadeout" : ""}`}
+                    className={`mfocus-chip mfocus-${chipState} ${chipState === "complete" && completedCategoryFadeOut ? "mfocus-fadeout" : ""} ${
+                      chipState === "matthew_speaking" ? "bg-blue-500 text-white animate-pulse" :
+                      chipState === "processing" ? "bg-amber-500 text-white" :
+                      chipState === "your_turn" ? "bg-green-600 text-white" :
+                      chipState === "idle" ? "bg-gray-400 text-white" : ""
+                    }`}
                     aria-hidden
                   >
-                    {chipState === "listening" ? (
-                      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
-                    ) : chipState === "reviewing" ? (
-                      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-                    ) : (
-                      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                    )}
+                    {chipState === "matthew_speaking" ? (
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+                    ) : chipState === "processing" ? (
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin flex-shrink-0"><circle cx="12" cy="12" r="10" strokeOpacity={0.25}/><path d="M12 2a10 10 0 0 1 10 10" strokeOpacity={1}/></svg>
+                    ) : chipState === "your_turn" ? (
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+                    ) : chipState === "idle" ? (
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+                    ) : chipState === "complete" ? (
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    ) : null}
+                  </span>
+                ) : null}
+                {chipState && chipState !== "complete" ? (
+                  <span className="mfocus-chip-label small" style={{ position: "absolute", top: 10, right: 42, whiteSpace: "nowrap", color: "var(--muted)" }}>
+                    {micIndicatorLabel}
                   </span>
                 ) : null}
                 <div className="ch">
