@@ -382,8 +382,12 @@ function maskRedisHost(url: string): string {
 }
 
 const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+// Each ingest row runs 11 parallel LLM calls; default BullMQ lock (30s) is too short.
+const lockDurationMs = parseInt(process.env.INGEST_JOB_LOCK_DURATION_MS ?? "900000", 10) || 900000;
+const maxStalledCount = parseInt(process.env.INGEST_MAX_STALLED_COUNT ?? "2", 10) || 2;
+
 console.log(
-  `[ingest] Worker starting | queue=${QUEUE_NAME} | redis=${maskRedisHost(redisUrl)} | concurrency=3 | batch=${BATCH_SIZE}`
+  `[ingest] Worker starting | queue=${QUEUE_NAME} | redis=${maskRedisHost(redisUrl)} | concurrency=${process.env.WORKER_CONCURRENCY ?? "3"} | batch=${BATCH_SIZE} | lockDuration=${lockDurationMs}ms | maxStalledCount=${maxStalledCount}`
 );
 
 const worker = new Worker(
@@ -391,9 +395,9 @@ const worker = new Worker(
   async (job) => processJob(job),
   {
     ...getConnection(),
-    // configurable via WORKER_CONCURRENCY env var;
-    // keep in coordination with DB_POOL_MAX
     concurrency: parseInt(process.env.WORKER_CONCURRENCY ?? "3"),
+    lockDuration: lockDurationMs,
+    maxStalledCount,
   }
 );
 
