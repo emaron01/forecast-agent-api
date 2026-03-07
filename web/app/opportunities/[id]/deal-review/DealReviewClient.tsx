@@ -1795,7 +1795,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             Microphone: <b>{micOpen ? "ON" : "OFF"}</b>
           </span>
           {voice && mode === "CATEGORY_UPDATE" ? (
-            <span className="pill small" title={micIndicatorLabel}>
+            <span className="bg-white text-black text-xs font-medium px-2 py-0.5 rounded-full shadow-sm" title={micIndicatorLabel}>
               Mic: <b>{micIndicatorLabel}</b>
             </span>
           ) : null}
@@ -2019,7 +2019,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
                   </span>
                 ) : null}
                 {chipState && chipState !== "complete" ? (
-                  <span className="mfocus-chip-label small" style={{ position: "absolute", top: 10, right: 42, whiteSpace: "nowrap", color: "var(--muted)" }}>
+                  <span className="mfocus-chip-label bg-white text-black text-xs font-medium px-2 py-0.5 rounded-full shadow-sm" style={{ position: "absolute", top: 10, right: 42, whiteSpace: "nowrap" }}>
                     {micIndicatorLabel}
                   </span>
                 ) : null}
