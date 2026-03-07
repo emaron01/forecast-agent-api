@@ -134,19 +134,6 @@ function buildInitialChain(forecastStage: string): CategoryKey[] {
   return [...CHAIN_ORDER_PIPELINE];
 }
 
-/** Bridging sentence (TTS) between categories — hardcoded, no LLM. Covers dynamic chain. */
-function getBridgingSentence(prevCategory: CategoryKey, nextCategory: CategoryKey): string {
-  const key = `${prevCategory}→${nextCategory}`;
-  const map: Record<string, string> = {
-    "pain→metrics": "Good. Now let's look at the numbers behind that.",
-    "metrics→champion": "Helpful. Who internally is driving this forward?",
-    "champion→competition": "Got it. What else are they considering?",
-    "competition→criteria": "Understood. Let's talk about what winning looks like.",
-    "criteria→process": "Good. What needs to happen to move this forward?",
-  };
-  return map[key] ?? `Let's talk about ${nextCategory.replace(/_/g, " ")}.`;
-}
-
 const DEBUG_SSE = false;
 
 function parseSSE(buffer: string): { messages: any[]; remaining: string } {
@@ -732,7 +719,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
     closeMicStreamOnly();
   }, [closeMicStreamOnly, keepMicOpen]);
 
-  /** When a category completes with a score: if in Full Review chain, 500ms + bridge TTS + advance to next or finish; else clear chip after 2300ms. */
+  /** When a category completes with a score: if in Full Review chain, advance to next (one TTS from update-category) or finish; else clear chip after 2300ms. */
   const onCategoryCompleteInChain = useCallback(
     async (savedCategory: CategoryKey, scoreFromResponse?: number) => {
       const idx = fullReviewChainIndexRef.current;
@@ -791,12 +778,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       }
       setBusy(true);
       try {
-        await new Promise((r) => setTimeout(r, 500));
-        const prevCat = order[idx];
         const nextCat = order[nextIdx];
-        const bridge = getBridgingSentence(prevCat, nextCat);
-        await playTts(bridge);
-        setCatMessages((prev) => [...prev, { role: "assistant", text: bridge, at: Date.now() }]);
         setFullReviewChainIndex(nextIdx);
         setSelectedCategory(nextCat);
         setCatSessionId("");
