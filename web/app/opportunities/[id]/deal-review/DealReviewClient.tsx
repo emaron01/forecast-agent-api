@@ -825,6 +825,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
                   if (!line.startsWith("data: ")) return;
                   try {
                     const event = JSON.parse(line.slice(6));
+                    console.log('[SSE event]', JSON.stringify(event));
 
                     if (event.type === "sentence") {
                       const sentenceText = String(event.text ?? "").trim();
