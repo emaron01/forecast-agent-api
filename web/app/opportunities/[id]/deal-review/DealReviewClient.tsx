@@ -189,9 +189,6 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const [fullReviewChainIndex, setFullReviewChainIndex] = useState<number | null>(null);
   /** Current category order for this chain run (gated by forecast stage; can change via promotion/demotion). */
   const [fullReviewChainOrder, setFullReviewChainOrder] = useState<CategoryKey[]>([]);
-  /** Set when chain completes; coaching brief (3–5 bullets) from LLM. Placeholder until API exists. */
-  const [coachingBrief, setCoachingBrief] = useState<string | null>(null);
-
   const [speak, setSpeak] = useState(true);
   const [voice, setVoice] = useState(true);
   const [keepMicOpen, setKeepMicOpen] = useState(true);
@@ -770,13 +767,12 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       const nextIdx = idx + 1;
       if (nextIdx >= order.length) {
         try {
-          await playTts("Review complete. Your scores, coaching tips, and next steps are ready on screen.");
+          await playTts("That completes this deal review. Please review the risk assessment, next steps, and category tips.");
         } catch {
           /* TTS error already surfaced via setTtsError */
         }
         setFullReviewChainIndex(null);
         setFullReviewChainOrder([]);
-        setCoachingBrief("Review complete. Coaching brief will appear here once the API is connected.");
         setTimeout(() => {
           setCompletedCategoryKey("");
           setSelectedCategory("");
@@ -1228,7 +1224,6 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
     );
     isStartingRef.current = true;
     setBusy(true);
-    setCoachingBrief(null);
     chainScoresRef.current = {};
     fullReviewForecastStageRef.current = forecastStage;
     setFullReviewChainOrder(initialChain);
@@ -1253,7 +1248,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       let greeting: string;
       if (isReturning) {
         const base = dealLabel
-          ? `${dealLabel} was at ${Math.round(healthScore as number)}% last time. I'll walk you through the deal components, please provide the details of what you know today.`
+          ? `Let's review ${dealLabel}. I'll walk you through the deal components, please provide the details of what you know today.`
           : "I'll walk you through the deal components, please provide the details of what you know today.";
         greeting = repName ? `Hi ${repName}, welcome back. ${base}` : `Welcome back. ${base}`;
       } else {
@@ -1292,7 +1287,6 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       setFullReviewChainIndex(null);
       setFullReviewChainOrder([]);
       chainScoresRef.current = {};
-      setCoachingBrief(null);
       setMode("FULL_REVIEW");
       setSelectedCategory("");
       setCatSessionId("");
@@ -1482,7 +1476,6 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
     setFullReviewChainIndex(null);
     setFullReviewChainOrder([]);
     chainScoresRef.current = {};
-    setCoachingBrief(null);
     setMode("FULL_REVIEW");
     setSelectedCategory("");
     setCatSessionId("");
@@ -2090,13 +2083,6 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               );
             })}
           </div>
-
-          {coachingBrief ? (
-            <div style={{ marginTop: 12, padding: 12, background: "var(--bg-2)", borderRadius: 8 }}>
-              <strong>Coaching brief</strong>
-              <p style={{ marginTop: 8, marginBottom: 0 }}>{coachingBrief}</p>
-            </div>
-          ) : null}
 
           {mode === "FULL_REVIEW" || mode === "CATEGORY_UPDATE" ? (
             <>
