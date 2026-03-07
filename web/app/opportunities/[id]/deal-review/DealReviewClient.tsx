@@ -5,19 +5,7 @@ import { MEDDPICC_CANONICAL } from "../../../../lib/meddpiccCanonical";
 import { dateOnly } from "../../../../lib/dateOnly";
 import { PasteNotesPanel } from "../../../../components/opportunities/PasteNotesPanel";
 
-type HandsFreeStatus = "RUNNING" | "WAITING_FOR_USER" | "DONE" | "ERROR";
 type HandsFreeMessage = { role: "assistant" | "user" | "system"; text: string; at: number };
-type HandsFreeRun = {
-  runId: string;
-  sessionId: string;
-  status: HandsFreeStatus;
-  waitingSeq?: number;
-  waitingPrompt?: string;
-  error?: string;
-  messages: HandsFreeMessage[];
-  modelCalls: number;
-  updatedAt: number;
-};
 
 type CategoryKey =
   | "metrics"
@@ -123,10 +111,19 @@ function pickRecorderMime() {
 
 const VALID_CATEGORIES: CategoryKey[] = ["metrics", "economic_buyer", "criteria", "process", "paper", "pain", "champion", "competition", "timing", "budget"];
 
-/** Full Review runs as a chain of Single Category Reviews in this order. */
-const FULL_REVIEW_CHAIN_ORDER: CategoryKey[] = ["pain", "metrics", "champion", "competition", "criteria", "process"];
+/** Pipeline: 4 categories only. Best Case / Commit: all 6. */
+const CHAIN_ORDER_PIPELINE: CategoryKey[] = ["pain", "metrics", "champion", "competition"];
+const CHAIN_ORDER_BEST_CASE_COMMIT: CategoryKey[] = ["pain", "metrics", "champion", "competition", "criteria", "process"];
 
-/** Bridging sentence (TTS) between categories — hardcoded, no LLM. */
+function buildInitialChain(forecastStage: string): CategoryKey[] {
+  const stage = String(forecastStage || "").trim().toLowerCase();
+  if (stage.includes("commit") || stage.includes("best case") || stage.includes("bestcase")) {
+    return [...CHAIN_ORDER_BEST_CASE_COMMIT];
+  }
+  return [...CHAIN_ORDER_PIPELINE];
+}
+
+/** Bridging sentence (TTS) between categories — hardcoded, no LLM. Covers dynamic chain. */
 function getBridgingSentence(prevCategory: CategoryKey, nextCategory: CategoryKey): string {
   const key = `${prevCategory}→${nextCategory}`;
   const map: Record<string, string> = {
@@ -188,11 +185,12 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const prevSessionHasActiveCategoryRef = useRef(false);
 
   const [oppState, setOppState] = useState<OppState | null>(null);
-  const [run, setRun] = useState<HandsFreeRun | null>(null);
   const [catSessionId, setCatSessionId] = useState("");
   const [catMessages, setCatMessages] = useState<HandsFreeMessage[]>([]);
-  /** When non-null, Full Review is running as a chain; value is current category index in FULL_REVIEW_CHAIN_ORDER. */
+  /** When non-null, Full Review is running as a chain; value is current category index in fullReviewChainOrder. */
   const [fullReviewChainIndex, setFullReviewChainIndex] = useState<number | null>(null);
+  /** Current category order for this chain run (gated by forecast stage; can change via promotion/demotion). */
+  const [fullReviewChainOrder, setFullReviewChainOrder] = useState<CategoryKey[]>([]);
   /** Set when chain completes; coaching brief (3–5 bullets) from LLM. Placeholder until API exists. */
   const [coachingBrief, setCoachingBrief] = useState<string | null>(null);
 
@@ -247,11 +245,14 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const heardVoiceRef = useRef(false);
   const voiceActiveRef = useRef(false);
 
-  const runRef = useRef<HandsFreeRun | null>(null);
   const catSessionIdRef = useRef<string>("");
   const selectedCategoryRef = useRef<string>("");
   const isStartingRef = useRef(false);
   const fullReviewChainIndexRef = useRef<number | null>(null);
+  const fullReviewChainOrderRef = useRef<CategoryKey[]>([]);
+  const fullReviewForecastStageRef = useRef<string>("");
+  /** Scores for completed categories in this chain (0–3); used for promotion/demotion. */
+  const chainScoresRef = useRef<Record<string, number>>({});
 
   const micLevelRef = useRef(0);
   const micPeakRef = useRef(0);
@@ -266,18 +267,10 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
     keepMicOpenRef.current = keepMicOpen;
   }, [keepMicOpen]);
 
-  const runId = run?.runId || "";
-  const status = run?.status || "DONE";
-  const isWaiting = status === "WAITING_FOR_USER";
-  const isRunning = status === "RUNNING";
-
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  useEffect(() => {
-    runRef.current = run;
-  }, [run]);
   useEffect(() => {
     catSessionIdRef.current = catSessionId;
   }, [catSessionId]);
@@ -287,6 +280,9 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   useEffect(() => {
     fullReviewChainIndexRef.current = fullReviewChainIndex;
   }, [fullReviewChainIndex]);
+  useEffect(() => {
+    fullReviewChainOrderRef.current = fullReviewChainOrder;
+  }, [fullReviewChainOrder]);
 
   const categories = useMemo(
     () => [
@@ -342,29 +338,6 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   useEffect(() => {
     void loadOpportunityState();
   }, [loadOpportunityState]);
-
-  // Full Review: refresh tiles after the agent pauses/completes so saves are visible.
-  const lastOppRefreshRunUpdatedAtRef = useRef<number>(0);
-  useEffect(() => {
-    if (mode !== "FULL_REVIEW") return;
-    if (!run?.updatedAt) return;
-    if (run.status !== "WAITING_FOR_USER" && run.status !== "DONE") return;
-    const u = Number(run.updatedAt) || 0;
-    if (u <= (lastOppRefreshRunUpdatedAtRef.current || 0)) return;
-    lastOppRefreshRunUpdatedAtRef.current = u;
-    void loadOpportunityState();
-  }, [loadOpportunityState, mode, run?.status, run?.updatedAt]);
-
-  // Full Review: highlight the active category from each status poll. Prefer explicit category
-  // from the run if present; otherwise infer from waitingPrompt. Only update when the value is
-  // non-empty so we never reset the indicator during an active session.
-  useEffect(() => {
-    if (mode !== "FULL_REVIEW" || !run) return;
-    const explicit = String((run as { category?: string }).category ?? "").trim();
-    const inferred = inferCategoryFromPromptText(String(run?.waitingPrompt ?? "").trim()) || "";
-    const incoming = explicit || inferred;
-    if (incoming) setFullReviewHighlightCategory(incoming as CategoryKey);
-  }, [mode, run, run?.waitingPrompt, run?.updatedAt]);
 
   const refreshMicDevices = useCallback(async () => {
     try {
@@ -750,7 +723,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
 
   /** When a category completes with a score: if in Full Review chain, 500ms + bridge TTS + advance to next or finish; else clear chip after 2300ms. */
   const onCategoryCompleteInChain = useCallback(
-    async (savedCategory: CategoryKey) => {
+    async (savedCategory: CategoryKey, scoreFromResponse?: number) => {
       const idx = fullReviewChainIndexRef.current;
       if (idx === null) {
         setTimeout(() => {
@@ -759,9 +732,45 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
         }, 2300);
         return;
       }
+      const score = Number(scoreFromResponse);
+      if (Number.isFinite(score)) {
+        chainScoresRef.current[savedCategory] = Math.max(0, Math.min(3, score));
+      }
+      let order = [...fullReviewChainOrderRef.current];
+      const forecastStage = fullReviewForecastStageRef.current;
+      const stageLower = forecastStage.trim().toLowerCase();
+      const isPipeline = !stageLower.includes("commit") && !stageLower.includes("best case") && !stageLower.includes("bestcase");
+      const isBestCaseOrCommit = stageLower.includes("commit") || stageLower.includes("best case") || stageLower.includes("bestcase");
+
+      // Score-driven promotion: Pipeline deal, after competition, pain AND metrics both > 50% (score >= 2) → add criteria, process
+      if (isPipeline && savedCategory === "competition") {
+        const pain = chainScoresRef.current["pain"];
+        const metrics = chainScoresRef.current["metrics"];
+        if (Number.isFinite(pain) && Number.isFinite(metrics) && pain >= 2 && metrics >= 2) {
+          const remaining = order.slice(idx + 1);
+          if (!remaining.includes("criteria")) {
+            order = [...order.slice(0, idx + 1), "criteria", "process"];
+            setFullReviewChainOrder(order);
+          }
+        }
+      }
+
+      // Score-driven demotion: Best Case/Commit, after pain or metrics, pain OR metrics < 30% (score < 1) → remove criteria, process from remaining
+      if (isBestCaseOrCommit && (savedCategory === "pain" || savedCategory === "metrics")) {
+        const pain = chainScoresRef.current["pain"];
+        const metrics = chainScoresRef.current["metrics"];
+        if ((Number.isFinite(pain) && pain < 1) || (Number.isFinite(metrics) && metrics < 1)) {
+          const before = order.slice(0, idx + 1);
+          const remaining = order.slice(idx + 1).filter((c) => c !== "criteria" && c !== "process");
+          order = [...before, ...remaining];
+          setFullReviewChainOrder(order);
+        }
+      }
+
       const nextIdx = idx + 1;
-      if (nextIdx >= FULL_REVIEW_CHAIN_ORDER.length) {
+      if (nextIdx >= order.length) {
         setFullReviewChainIndex(null);
+        setFullReviewChainOrder([]);
         setCoachingBrief("Review complete. Coaching brief will appear here once the API is connected.");
         setTimeout(() => {
           setCompletedCategoryKey("");
@@ -772,8 +781,8 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       setBusy(true);
       try {
         await new Promise((r) => setTimeout(r, 500));
-        const prevCat = FULL_REVIEW_CHAIN_ORDER[idx];
-        const nextCat = FULL_REVIEW_CHAIN_ORDER[nextIdx];
+        const prevCat = order[idx];
+        const nextCat = order[nextIdx];
         const bridge = getBridgingSentence(prevCat, nextCat);
         await playTts(bridge);
         setCatMessages((prev) => [...prev, { role: "assistant", text: bridge, at: Date.now() }]);
@@ -796,6 +805,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       } catch (e: any) {
         setCatMessages((prev) => [...prev, { role: "system", text: String(e?.message || e), at: Date.now() }]);
         setFullReviewChainIndex(null);
+        setFullReviewChainOrder([]);
       } finally {
         setBusy(false);
       }
@@ -858,134 +868,6 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
         setLastTranscript(text);
         const now = Date.now();
         const msg: HandsFreeMessage = { role: "user", text, at: now };
-
-        if (mode === "FULL_REVIEW") {
-          const r = runRef.current;
-          const rid = r?.runId || "";
-          if (!rid) return;
-          const waitingSeq = r?.waitingSeq;
-          setRun((prev) => (prev ? { ...prev, messages: [...(prev.messages || []), msg] } : prev));
-          inputInFlightRef.current = true;
-          try {
-            const retries = 3;
-            const delayMs = 400;
-            for (let i = 0; i < retries; i++) {
-              const response = await fetch(
-                `/api/deal-review/${encodeURIComponent(rid)}/input`,
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ text, waitingSeq }),
-                }
-              );
-
-              if (response.status === 409) {
-                await response.json().catch(() => ({}));
-                if (i < retries - 1) {
-                  await new Promise((r) => setTimeout(r, delayMs));
-                  continue;
-                }
-                throw new Error("Run is busy");
-              }
-
-              if (!response.ok) {
-                const errJson = await response.json().catch(() => ({}));
-                throw new Error(errJson?.error || "Send failed");
-              }
-
-              const contentType = response.headers.get("Content-Type") ?? "";
-
-              if (contentType.includes("text/event-stream")) {
-                const reader = response.body!.getReader();
-                const decoder = new TextDecoder();
-                let buffer = "";
-
-                const processLine = (line: string) => {
-                  if (!line.startsWith("data: ")) return;
-                  try {
-                    const event = JSON.parse(line.slice(6));
-                    console.log('[SSE event]', JSON.stringify(event));
-
-                    if (event.type === "ping") {
-                      // keepalive, ignore
-                    } else if (event.type === "sentence") {
-                      const sentenceText = String(event.text ?? "").trim();
-                      if (sentenceText) {
-                        sentenceQueueRef.current.push(sentenceText);
-                        void drainSentenceQueue();
-                      }
-                    }
-
-                    if (event.type === "done") {
-                      if (event.run) setRun(event.run);
-                      inputInFlightRef.current = false;
-                      sttInFlightRef.current = false;
-                    }
-
-                    if (event.type === "error") {
-                      console.log(
-                        JSON.stringify({
-                          event: "input_sse_error",
-                          error: event.error,
-                        })
-                      );
-                      setSttError("Something went wrong. Please try again.");
-                      inputInFlightRef.current = false;
-                      sttInFlightRef.current = false;
-                    }
-                  } catch {
-                    /* skip malformed lines */
-                  }
-                };
-
-                const streamTimeout = setTimeout(() => {
-                  reader.cancel();
-                }, 45000);
-
-                try {
-                  while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split("\n");
-                    buffer = lines.pop() ?? "";
-                    for (const line of lines) processLine(line);
-                  }
-                  for (const line of buffer.split("\n")) processLine(line);
-                } finally {
-                  clearTimeout(streamTimeout);
-                }
-
-                // Safety valve — if stream ended without a done event, clear flags
-                if (inputInFlightRef.current) {
-                  console.log(
-                    JSON.stringify({
-                      event: "sse_stream_no_done",
-                      runId: rid,
-                    })
-                  );
-                  inputInFlightRef.current = false;
-                  sttInFlightRef.current = false;
-                  setSttError("Connection interrupted. Please speak your answer again.");
-                }
-                return;
-              }
-
-              const data = await response.json().catch(() => ({}));
-              if (data?.ok) {
-                inputInFlightRef.current = false;
-                sttInFlightRef.current = false;
-                return;
-              }
-              throw new Error(data?.error || "Send failed");
-            }
-          } catch (e) {
-            inputInFlightRef.current = false;
-            sttInFlightRef.current = false;
-            throw e;
-          }
-          return;
-        }
 
         if (mode === "CATEGORY_UPDATE") {
           const cat = String(selectedCategoryRef.current || "").trim();
@@ -1058,7 +940,8 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             if (donePayload?.material_change !== undefined) {
               const savedCategory = cat as CategoryKey;
               setCompletedCategoryKey(savedCategory);
-              void onCategoryCompleteInChain(savedCategory);
+              const score = (donePayload as any)?.result?.score;
+              void onCategoryCompleteInChain(savedCategory, Number(score));
             }
             sttInFlightRef.current = false;
             return;
@@ -1100,7 +983,8 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           if (json?.material_change !== undefined) {
             const savedCategory = cat as CategoryKey;
             setCompletedCategoryKey(savedCategory);
-            void onCategoryCompleteInChain(savedCategory);
+            const score = (json as any)?.result?.score;
+            void onCategoryCompleteInChain(savedCategory, Number(score));
           }
           sttInFlightRef.current = false;
         }
@@ -1159,8 +1043,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             voiceActiveRef.current === false &&
             !inputInFlightRef.current &&
             !sttInFlightRef.current &&
-            ((mode === "FULL_REVIEW" && runRef.current?.status === "WAITING_FOR_USER") ||
-              (mode === "CATEGORY_UPDATE" && categoryWaitingForUserRef.current))
+            categoryWaitingForUserRef.current
           ) {
             void captureOneUtteranceAndRoute();
           }
@@ -1203,8 +1086,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             voiceActiveRef.current === false &&
             !inputInFlightRef.current &&
             !sttInFlightRef.current &&
-            ((mode === "FULL_REVIEW" && runRef.current?.status === "WAITING_FOR_USER") ||
-              (mode === "CATEGORY_UPDATE" && categoryWaitingForUserRef.current))
+            categoryWaitingForUserRef.current
           ) {
             void captureOneUtteranceAndRoute();
           }
@@ -1241,49 +1123,6 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
     voice,
   ]);
 
-  // Poll run status while active.
-  useEffect(() => {
-    if (!runId) return;
-    let alive = true;
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/deal-review/${encodeURIComponent(runId)}/status`, { cache: "no-store" });
-        const json = await res.json().catch(() => ({}));
-        if (!alive) return;
-        if (res.ok && json?.ok && json?.run) setRun(json.run);
-      } catch {}
-    };
-    const t = window.setInterval(poll, 900);
-    void poll();
-    return () => {
-      alive = false;
-      window.clearInterval(t);
-    };
-  }, [runId]);
-
-  // Speak assistant updates + capture voice when waiting.
-  const lastSpokenAssistantAtRef = useRef<number>(0);
-  useEffect(() => {
-    if (!runId || !run) return;
-    const msgs = Array.isArray(run.messages) ? run.messages : [];
-    const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant");
-    if (lastAssistant && speak) {
-      const at = Number(lastAssistant.at || 0) || 0;
-      if (at && at > (lastSpokenAssistantAtRef.current || 0)) {
-        lastSpokenAssistantAtRef.current = at;
-        void playTts(lastAssistant.text);
-      }
-    }
-    if (run.status === "WAITING_FOR_USER" && voice && !speakingRef.current && !inputInFlightRef.current && !sttInFlightRef.current) {
-      void captureOneUtteranceAndRoute();
-    }
-    if (run.status === "DONE" || run.status === "ERROR") {
-      voiceActiveRef.current = false;
-      setListening(false);
-      if (!keepMicOpen) closeMicStreamOnly();
-    }
-  }, [captureOneUtteranceAndRoute, closeMicStreamOnly, keepMicOpen, playTts, run, runId, speak, speaking, voice]);
-
   // Category update: if waiting (last assistant asked a question), capture voice.
   const categoryWaitingForUser = useMemo(() => {
     if (mode !== "CATEGORY_UPDATE") return false;
@@ -1318,14 +1157,29 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const startFullDealReview = useCallback(async () => {
     if (!opportunityId) return;
     if (isStartingRef.current) return;
+    const opportunity = oppState?.opportunity ?? null;
+    const forecastStage = String(
+      (opportunity as any)?.forecast_stage ?? (opportunity as any)?.forecastStage ?? ""
+    ).trim();
+    const initialChain = buildInitialChain(forecastStage);
+    console.log(
+      JSON.stringify({
+        event: "chain_gating",
+        forecast_stage: forecastStage || "(unknown)",
+        initial_chain: initialChain,
+        final_chain: initialChain,
+      })
+    );
     isStartingRef.current = true;
     setBusy(true);
-    setRun(null);
     setCoachingBrief(null);
+    chainScoresRef.current = {};
+    fullReviewForecastStageRef.current = forecastStage;
+    setFullReviewChainOrder(initialChain);
     setFullReviewChainIndex(0);
     setCatMessages([]);
     setCatSessionId("");
-    setSelectedCategory(FULL_REVIEW_CHAIN_ORDER[0]);
+    setSelectedCategory(initialChain[0]);
     setQaPaneOpen(false);
     setCategoryInputMode("VOICE");
     setSttError("");
@@ -1337,7 +1191,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       const res = await fetch(`/api/deal-review/opportunities/${encodeURIComponent(opportunityId)}/update-category`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ category: FULL_REVIEW_CHAIN_ORDER[0], sessionId: undefined, text: "" }),
+        body: JSON.stringify({ category: initialChain[0], sessionId: undefined, text: "" }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Full deal review failed");
@@ -1349,23 +1203,20 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       }
     } catch (e: any) {
       setFullReviewChainIndex(null);
+      setFullReviewChainOrder([]);
       setCatMessages([{ role: "system", text: String(e?.message || e), at: Date.now() }]);
     } finally {
       isStartingRef.current = false;
       setBusy(false);
     }
-  }, [opportunityId, playTts, primeMicPermissionFromGesture]);
+  }, [opportunityId, oppState?.opportunity, playTts, primeMicPermissionFromGesture]);
 
   const stopNow = useCallback(async () => {
-    const rid = String(runRef.current?.runId || "").trim();
     setBusy(true);
     try {
-      if (rid) {
-        await fetch(`/api/deal-review/${encodeURIComponent(rid)}/stop`, { method: "POST" }).catch(() => null);
-      }
-    } finally {
-      setRun(null);
       setFullReviewChainIndex(null);
+      setFullReviewChainOrder([]);
+      chainScoresRef.current = {};
       setCoachingBrief(null);
       setMode("FULL_REVIEW");
       setSelectedCategory("");
@@ -1374,6 +1225,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       setQaPaneOpen(false);
       setCategoryInputMode("VOICE");
       setFullReviewHighlightCategory("");
+    } finally {
       setBusy(false);
       closeMicStreamOnly();
     }
@@ -1387,7 +1239,6 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       setSelectedCategory(categoryKey);
       setCatSessionId("");
       setCatMessages([]);
-      setRun(null);
       setSttError("");
       setTtsError("");
       // Text update uses the slide-out Q&A drawer. Voice update stays voice-only (no text panel).
@@ -1454,25 +1305,6 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
     setBusy(true);
     setSttError("");
     try {
-      if (mode === "FULL_REVIEW") {
-        const rid = String(runRef.current?.runId || "").trim();
-        if (!rid) return;
-        const waitingSeq = runRef.current?.waitingSeq;
-        inputInFlightRef.current = true;
-        try {
-          const res = await fetch(`/api/deal-review/${encodeURIComponent(rid)}/input`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text, waitingSeq }),
-          });
-          const json = await res.json().catch(() => ({}));
-          if (!res.ok || !json?.ok) throw new Error(json?.error || "Send failed");
-        } finally {
-          inputInFlightRef.current = false;
-        }
-        return;
-      }
-
       if (mode === "CATEGORY_UPDATE") {
         if (!selectedCategory) return;
         const res = await fetch(`/api/deal-review/opportunities/${encodeURIComponent(opportunityId)}/update-category`, {
@@ -1558,27 +1390,23 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
         if (responsePayload?.material_change !== undefined) {
           const savedCategory = selectedCategory;
           setCompletedCategoryKey(savedCategory);
-          void onCategoryCompleteInChain(savedCategory);
+          const score = (responsePayload as any)?.result?.score;
+          void onCategoryCompleteInChain(savedCategory, Number(score));
         }
         return;
       }
     } catch (e: any) {
       const msg = String(e?.message || e);
-      if (mode === "FULL_REVIEW") {
-        setRun((prev) =>
-          prev ? { ...prev, messages: [...(prev.messages || []), { role: "system", text: msg, at: Date.now() }] } : prev
-        );
-      } else {
-        setCatMessages((prev) => [...prev, { role: "system", text: msg, at: Date.now() }]);
-      }
+      setCatMessages((prev) => [...prev, { role: "system", text: msg, at: Date.now() }]);
     } finally {
       setBusy(false);
     }
   }, [answer, catSessionId, loadOpportunityState, mode, opportunityId, playTts, selectedCategory]);
 
   const resetUi = useCallback(() => {
-    setRun(null);
     setFullReviewChainIndex(null);
+    setFullReviewChainOrder([]);
+    chainScoresRef.current = {};
     setCoachingBrief(null);
     setMode("FULL_REVIEW");
     setSelectedCategory("");
@@ -1614,9 +1442,9 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const dealRegistration = dealRegistrationRaw === true || dealRegistrationRaw === false ? dealRegistrationRaw : null;
   const aiForecast = String(opportunity?.ai_verdict || opportunity?.ai_forecast || "");
 
-  const activeMessages = mode === "FULL_REVIEW" ? run?.messages || [] : catMessages;
+  const activeMessages = catMessages;
   const highlightCategoryKey = (mode === "CATEGORY_UPDATE" ? selectedCategory : fullReviewHighlightCategory) as CategoryKey | "";
-  const sessionHasActiveCategory = (mode === "FULL_REVIEW" && !!runId) || (mode === "CATEGORY_UPDATE" && !!selectedCategory);
+  const sessionHasActiveCategory = mode === "CATEGORY_UPDATE" && !!selectedCategory;
 
   // Display-only: show "complete" chip on the category that just lost focus for 2s then fade out 300ms.
   // Trigger 1: highlightCategoryKey changed to a different category → show complete on previous.
@@ -1760,7 +1588,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           <button onClick={resetUi} disabled={busy}>
             Reset
           </button>
-          <button onClick={stopNow} disabled={busy && !runId}>
+          <button onClick={stopNow} disabled={busy}>
             End Review
           </button>
           <details className="micSettings">
@@ -1911,12 +1739,12 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
 
       <div className="status">
         <div className="row">
-          <span className={`pill ${run?.error ? "err" : runId ? "ok" : "warn"}`}>{run?.error ? "ERROR" : runId ? "OK" : "IDLE"}</span>
+          <span className="pill warn">IDLE</span>
           <span className="pill">
             Mode: <b>{mode === "FULL_REVIEW" ? "Full Deal Review" : "Category Update"}</b>
           </span>
           <span className="pill">
-            Status: <b>{run?.status || (mode === "CATEGORY_UPDATE" ? (selectedCategory ? "ACTIVE" : "—") : "—")}</b>
+            Status: <b>{mode === "CATEGORY_UPDATE" ? (selectedCategory ? "ACTIVE" : "—") : "—"}</b>
           </span>
           <span className="pill">
             Listening: <b>{listening ? "ON" : "OFF"}</b>
@@ -1936,7 +1764,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           ) : null}
         </div>
         <div className="small">
-          {run?.error ? `Error: ${run.error}` : isWaiting ? "Waiting for your answer." : isRunning ? "Running…" : "Ready."}
+          Ready.
         </div>
       </div>
 
@@ -2099,12 +1927,12 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             {tileRows.map((c) => {
               const isActive = highlightCategoryKey === c.key;
               const isCompleted = completedCategoryKey === c.key;
-              const showChipActive = sessionHasActiveCategory && isActive && ((isWaiting || categoryWaitingForUser) || isRunning);
+              const showChipActive = sessionHasActiveCategory && isActive && categoryWaitingForUser;
               const chipState =
                 isCompleted
                   ? "complete"
                   : showChipActive
-                    ? (isWaiting || categoryWaitingForUser ? "listening" : "reviewing")
+                    ? (categoryWaitingForUser ? "listening" : "reviewing")
                     : null;
               const mfocusClasses = [
                 highlightCategoryKey === c.key ? "active" : "",
@@ -2199,13 +2027,9 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               <div className="inputCard">
                 <div className="row" style={{ justifyContent: "space-between", width: "100%" }}>
                   <div className="small">
-                    {mode === "FULL_REVIEW"
-                      ? isWaiting
-                        ? "Full review paused — answer to continue."
-                        : "Full review will pause when input is needed."
-                      : categoryWaitingForUser
-                        ? "Category update paused — answer to continue."
-                        : "Category update active."}
+                    {categoryWaitingForUser
+                      ? "Category update paused — answer to continue."
+                      : "Category update active."}
                   </div>
                   <span className="small">Voice uses mic+STT (tune below if needed).</span>
                 </div>
@@ -2232,10 +2056,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
                     onChange={(e) => setAnswer(e.target.value)}
                     placeholder="Type your answer…"
                     style={{ flex: 1, minWidth: 260 }}
-                    disabled={
-                      busy ||
-                      (mode === "FULL_REVIEW" ? !runId : mode === "CATEGORY_UPDATE" ? !selectedCategory : true)
-                    }
+                    disabled={busy || (mode === "CATEGORY_UPDATE" ? !selectedCategory : true)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") void sendAnswer();
                     }}
