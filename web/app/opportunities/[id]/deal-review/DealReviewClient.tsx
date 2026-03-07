@@ -748,6 +748,61 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
     closeMicStreamOnly();
   }, [closeMicStreamOnly, keepMicOpen]);
 
+  /** When a category completes with a score: if in Full Review chain, 500ms + bridge TTS + advance to next or finish; else clear chip after 2300ms. */
+  const onCategoryCompleteInChain = useCallback(
+    async (savedCategory: CategoryKey) => {
+      const idx = fullReviewChainIndexRef.current;
+      if (idx === null) {
+        setTimeout(() => {
+          setCompletedCategoryKey("");
+          setSelectedCategory("");
+        }, 2300);
+        return;
+      }
+      const nextIdx = idx + 1;
+      if (nextIdx >= FULL_REVIEW_CHAIN_ORDER.length) {
+        setFullReviewChainIndex(null);
+        setCoachingBrief("Review complete. Coaching brief will appear here once the API is connected.");
+        setTimeout(() => {
+          setCompletedCategoryKey("");
+          setSelectedCategory("");
+        }, 2300);
+        return;
+      }
+      setBusy(true);
+      try {
+        await new Promise((r) => setTimeout(r, 500));
+        const prevCat = FULL_REVIEW_CHAIN_ORDER[idx];
+        const nextCat = FULL_REVIEW_CHAIN_ORDER[nextIdx];
+        const bridge = getBridgingSentence(prevCat, nextCat);
+        await playTts(bridge);
+        setCatMessages((prev) => [...prev, { role: "assistant", text: bridge, at: Date.now() }]);
+        setFullReviewChainIndex(nextIdx);
+        setSelectedCategory(nextCat);
+        setCatSessionId("");
+        const res = await fetch(`/api/deal-review/opportunities/${encodeURIComponent(opportunityId!)}/update-category`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category: nextCat, sessionId: undefined, text: "" }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json?.ok) throw new Error(json?.error || "Next category failed");
+        if (json?.sessionId) setCatSessionId(String(json.sessionId));
+        const rawAssistantText = String(json?.assistantText ?? "").trim();
+        if (rawAssistantText) {
+          setCatMessages((prev) => [...prev, { role: "assistant", text: rawAssistantText, at: Date.now() }]);
+          await playTts(rawAssistantText);
+        }
+      } catch (e: any) {
+        setCatMessages((prev) => [...prev, { role: "system", text: String(e?.message || e), at: Date.now() }]);
+        setFullReviewChainIndex(null);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [opportunityId, playTts]
+  );
+
   const captureOneUtteranceAndRoute = useCallback(async () => {
     if (inputInFlightRef.current || sttInFlightRef.current) return;
     if (!voice) return;
@@ -1377,61 +1432,6 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       }
     },
     [closeMicStreamOnly, opportunityId, playTts, primeMicPermissionFromGesture]
-  );
-
-  /** When a category completes with a score: if in Full Review chain, 500ms + bridge TTS + advance to next or finish; else clear chip after 2300ms. */
-  const onCategoryCompleteInChain = useCallback(
-    async (savedCategory: CategoryKey) => {
-      const idx = fullReviewChainIndexRef.current;
-      if (idx === null) {
-        setTimeout(() => {
-          setCompletedCategoryKey("");
-          setSelectedCategory("");
-        }, 2300);
-        return;
-      }
-      const nextIdx = idx + 1;
-      if (nextIdx >= FULL_REVIEW_CHAIN_ORDER.length) {
-        setFullReviewChainIndex(null);
-        setCoachingBrief("Review complete. Coaching brief will appear here once the API is connected.");
-        setTimeout(() => {
-          setCompletedCategoryKey("");
-          setSelectedCategory("");
-        }, 2300);
-        return;
-      }
-      setBusy(true);
-      try {
-        await new Promise((r) => setTimeout(r, 500));
-        const prevCat = FULL_REVIEW_CHAIN_ORDER[idx];
-        const nextCat = FULL_REVIEW_CHAIN_ORDER[nextIdx];
-        const bridge = getBridgingSentence(prevCat, nextCat);
-        await playTts(bridge);
-        setCatMessages((prev) => [...prev, { role: "assistant", text: bridge, at: Date.now() }]);
-        setFullReviewChainIndex(nextIdx);
-        setSelectedCategory(nextCat);
-        setCatSessionId("");
-        const res = await fetch(`/api/deal-review/opportunities/${encodeURIComponent(opportunityId!)}/update-category`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ category: nextCat, sessionId: undefined, text: "" }),
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok || !json?.ok) throw new Error(json?.error || "Next category failed");
-        if (json?.sessionId) setCatSessionId(String(json.sessionId));
-        const rawAssistantText = String(json?.assistantText ?? "").trim();
-        if (rawAssistantText) {
-          setCatMessages((prev) => [...prev, { role: "assistant", text: rawAssistantText, at: Date.now() }]);
-          await playTts(rawAssistantText);
-        }
-      } catch (e: any) {
-        setCatMessages((prev) => [...prev, { role: "system", text: String(e?.message || e), at: Date.now() }]);
-        setFullReviewChainIndex(null);
-      } finally {
-        setBusy(false);
-      }
-    },
-    [opportunityId, playTts]
   );
 
   const initialAppliedRef = useRef(false);
