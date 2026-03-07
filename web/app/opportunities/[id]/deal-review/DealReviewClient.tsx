@@ -1244,7 +1244,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       await primeMicPermissionFromGesture("full_review");
       setMode("CATEGORY_UPDATE");
       setVoice(true);
-      const repName = (oppState?.opportunity?.rep_name ?? "").trim();
+      const repName = (oppState?.opportunity?.rep_name ?? "").trim().split(/\s+/)[0] ?? "";
       const accountName = (oppState?.opportunity?.account_name ?? "").trim();
       const opportunityName = (oppState?.opportunity?.opportunity_name ?? "").trim();
       const healthScore = oppState?.opportunity?.health_score;

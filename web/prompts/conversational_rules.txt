@@ -58,6 +58,8 @@ TURN TRANSITIONS (SPOKEN)
   "Let's move on to..." or "Now let's talk about...".
 
 CATEGORY CHECK PATTERNS (LOCKED, SPOKEN)
+CRITICAL: When rep indicates no change on a locked check, you MUST NOT call save_deal_data. Proceed directly to the next category question.
+
 If prior score ≥ 3:
 "Last review <Category> was strong.
 Has anything changed that could introduce new risk?"
