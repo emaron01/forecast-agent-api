@@ -769,6 +769,11 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
 
       const nextIdx = idx + 1;
       if (nextIdx >= order.length) {
+        try {
+          await playTts("Review complete. Your scores, coaching tips, and next steps are ready on screen.");
+        } catch {
+          /* TTS error already surfaced via setTtsError */
+        }
         setFullReviewChainIndex(null);
         setFullReviewChainOrder([]);
         setCoachingBrief("Review complete. Coaching brief will appear here once the API is connected.");
@@ -1181,6 +1186,15 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
     }
   }, [micIndicatorState]);
 
+  const fullReviewButtonLabel = useMemo(() => {
+    const stage = String(oppState?.opportunity?.forecast_stage ?? oppState?.opportunity?.forecastStage ?? "").trim();
+    const lower = stage.toLowerCase();
+    const isBestCaseOrCommit = lower.includes("commit") || lower.includes("best case") || lower.includes("bestcase");
+    if (isBestCaseOrCommit) return "Full Review: All MEDDPICC + Timing & Budget Categories";
+    if (stage === "") return "Full Review: All MEDDPICC + Timing & Budget Categories";
+    return "Quick Review: Pain, Metrics, Champion, Competition & Budget";
+  }, [oppState?.opportunity]);
+
   useEffect(() => {
     // IMPORTANT: Text Update must never auto-open the mic.
     // Depend on speaking (state) so we re-run when TTS finishes and can start listening.
@@ -1230,6 +1244,25 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       await primeMicPermissionFromGesture("full_review");
       setMode("CATEGORY_UPDATE");
       setVoice(true);
+      const repName = (oppState?.opportunity?.rep_name ?? "").trim();
+      const accountName = (oppState?.opportunity?.account_name ?? "").trim();
+      const opportunityName = (oppState?.opportunity?.opportunity_name ?? "").trim();
+      const healthScore = oppState?.opportunity?.health_score;
+      const isReturning = typeof healthScore === "number" && healthScore > 0;
+      const dealLabel = [accountName, opportunityName].filter(Boolean).join(" — ");
+      let greeting: string;
+      if (isReturning) {
+        const base = dealLabel
+          ? `${dealLabel} was at ${Math.round(healthScore as number)}% last time. I'll walk you through the deal components, please provide the details of what you know today.`
+          : "I'll walk you through the deal components, please provide the details of what you know today.";
+        greeting = repName ? `Hi ${repName}, welcome back. ${base}` : `Welcome back. ${base}`;
+      } else {
+        const base = dealLabel
+          ? `let's review ${dealLabel}. I'll walk you through the deal components, please provide the details of what you know today.`
+          : "Let's review. I'll walk you through the deal components, please provide the details of what you know today.";
+        greeting = repName ? `Hi ${repName}, ${base}` : base.charAt(0).toUpperCase() + base.slice(1);
+      }
+      await playTts(greeting);
       const res = await fetch(`/api/deal-review/opportunities/${encodeURIComponent(opportunityId)}/update-category`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1966,7 +1999,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               onClick={startFullDealReview}
               disabled={busy || !opportunityId || isStartingRef.current || fullReviewChainIndex !== null}
             >
-              Full Deal Review
+              {fullReviewButtonLabel}
             </button>
           </div>
 
