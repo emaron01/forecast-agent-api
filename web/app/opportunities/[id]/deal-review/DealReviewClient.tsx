@@ -123,6 +123,22 @@ function pickRecorderMime() {
 
 const VALID_CATEGORIES: CategoryKey[] = ["metrics", "economic_buyer", "criteria", "process", "paper", "pain", "champion", "competition", "timing", "budget"];
 
+/** Full Review runs as a chain of Single Category Reviews in this order. */
+const FULL_REVIEW_CHAIN_ORDER: CategoryKey[] = ["pain", "metrics", "champion", "competition", "criteria", "process"];
+
+/** Bridging sentence (TTS) between categories — hardcoded, no LLM. */
+function getBridgingSentence(prevCategory: CategoryKey, nextCategory: CategoryKey): string {
+  const key = `${prevCategory}→${nextCategory}`;
+  const map: Record<string, string> = {
+    "pain→metrics": "Good. Now let's look at the numbers behind that.",
+    "metrics→champion": "Helpful. Who internally is driving this forward?",
+    "champion→competition": "Got it. What else are they considering?",
+    "competition→criteria": "Understood. Let's talk about what winning looks like.",
+    "criteria→process": "Good. What needs to happen to move this forward?",
+  };
+  return map[key] ?? `Let's talk about ${nextCategory.replace(/_/g, " ")}.`;
+}
+
 const DEBUG_SSE = false;
 
 function parseSSE(buffer: string): { messages: any[]; remaining: string } {
@@ -175,6 +191,10 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const [run, setRun] = useState<HandsFreeRun | null>(null);
   const [catSessionId, setCatSessionId] = useState("");
   const [catMessages, setCatMessages] = useState<HandsFreeMessage[]>([]);
+  /** When non-null, Full Review is running as a chain; value is current category index in FULL_REVIEW_CHAIN_ORDER. */
+  const [fullReviewChainIndex, setFullReviewChainIndex] = useState<number | null>(null);
+  /** Set when chain completes; coaching brief (3–5 bullets) from LLM. Placeholder until API exists. */
+  const [coachingBrief, setCoachingBrief] = useState<string | null>(null);
 
   const [speak, setSpeak] = useState(true);
   const [voice, setVoice] = useState(true);
@@ -231,6 +251,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const catSessionIdRef = useRef<string>("");
   const selectedCategoryRef = useRef<string>("");
   const isStartingRef = useRef(false);
+  const fullReviewChainIndexRef = useRef<number | null>(null);
 
   const micLevelRef = useRef(0);
   const micPeakRef = useRef(0);
@@ -263,6 +284,9 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   useEffect(() => {
     selectedCategoryRef.current = selectedCategory;
   }, [selectedCategory]);
+  useEffect(() => {
+    fullReviewChainIndexRef.current = fullReviewChainIndex;
+  }, [fullReviewChainIndex]);
 
   const categories = useMemo(
     () => [
@@ -827,7 +851,9 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
                     const event = JSON.parse(line.slice(6));
                     console.log('[SSE event]', JSON.stringify(event));
 
-                    if (event.type === "sentence") {
+                    if (event.type === "ping") {
+                      // keepalive, ignore
+                    } else if (event.type === "sentence") {
                       const sentenceText = String(event.text ?? "").trim();
                       if (sentenceText) {
                         sentenceQueueRef.current.push(sentenceText);
@@ -977,10 +1003,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             if (donePayload?.material_change !== undefined) {
               const savedCategory = cat as CategoryKey;
               setCompletedCategoryKey(savedCategory);
-              setTimeout(() => {
-                setCompletedCategoryKey("");
-                setSelectedCategory("");
-              }, 2300);
+              void onCategoryCompleteInChain(savedCategory);
             }
             return;
           }
@@ -1020,10 +1043,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           if (json?.material_change !== undefined) {
             const savedCategory = cat as CategoryKey;
             setCompletedCategoryKey(savedCategory);
-            setTimeout(() => {
-              setCompletedCategoryKey("");
-              setSelectedCategory("");
-            }, 2300);
+            void onCategoryCompleteInChain(savedCategory);
           }
         }
       };
@@ -1153,6 +1173,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
     micNoSpeechRestartMs,
     micVadSilenceMs,
     mode,
+    onCategoryCompleteInChain,
     opportunityId,
     playTts,
     sendToStt,
@@ -1241,31 +1262,41 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
     if (isStartingRef.current) return;
     isStartingRef.current = true;
     setBusy(true);
-    setMode("FULL_REVIEW");
+    setRun(null);
+    setCoachingBrief(null);
+    setFullReviewChainIndex(0);
     setCatMessages([]);
     setCatSessionId("");
-    setSelectedCategory("");
+    setSelectedCategory(FULL_REVIEW_CHAIN_ORDER[0]);
     setQaPaneOpen(false);
     setCategoryInputMode("VOICE");
     setSttError("");
     setTtsError("");
     try {
       await primeMicPermissionFromGesture("full_review");
-      const res = await fetch("/api/deal-review/start", {
+      setMode("CATEGORY_UPDATE");
+      setVoice(true);
+      const res = await fetch(`/api/deal-review/opportunities/${encodeURIComponent(opportunityId)}/update-category`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ opportunityId }),
+        body: JSON.stringify({ category: FULL_REVIEW_CHAIN_ORDER[0], sessionId: undefined, text: "" }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Full deal review failed");
-      setRun(json.run as HandsFreeRun);
+      if (json?.sessionId) setCatSessionId(String(json.sessionId));
+      const rawAssistantText = String(json?.assistantText ?? "").trim();
+      if (rawAssistantText) {
+        setCatMessages([{ role: "assistant", text: rawAssistantText, at: Date.now() }]);
+        void playTts(rawAssistantText);
+      }
     } catch (e: any) {
-      setRun({ runId: "", sessionId: "", status: "ERROR", error: String(e?.message || e), messages: [], modelCalls: 0, updatedAt: Date.now() } as any);
+      setFullReviewChainIndex(null);
+      setCatMessages([{ role: "system", text: String(e?.message || e), at: Date.now() }]);
     } finally {
       isStartingRef.current = false;
       setBusy(false);
     }
-  }, [opportunityId, primeMicPermissionFromGesture]);
+  }, [opportunityId, playTts, primeMicPermissionFromGesture]);
 
   const stopNow = useCallback(async () => {
     const rid = String(runRef.current?.runId || "").trim();
@@ -1276,6 +1307,8 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       }
     } finally {
       setRun(null);
+      setFullReviewChainIndex(null);
+      setCoachingBrief(null);
       setMode("FULL_REVIEW");
       setSelectedCategory("");
       setCatSessionId("");
@@ -1344,6 +1377,61 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       }
     },
     [closeMicStreamOnly, opportunityId, playTts, primeMicPermissionFromGesture]
+  );
+
+  /** When a category completes with a score: if in Full Review chain, 500ms + bridge TTS + advance to next or finish; else clear chip after 2300ms. */
+  const onCategoryCompleteInChain = useCallback(
+    async (savedCategory: CategoryKey) => {
+      const idx = fullReviewChainIndexRef.current;
+      if (idx === null) {
+        setTimeout(() => {
+          setCompletedCategoryKey("");
+          setSelectedCategory("");
+        }, 2300);
+        return;
+      }
+      const nextIdx = idx + 1;
+      if (nextIdx >= FULL_REVIEW_CHAIN_ORDER.length) {
+        setFullReviewChainIndex(null);
+        setCoachingBrief("Review complete. Coaching brief will appear here once the API is connected.");
+        setTimeout(() => {
+          setCompletedCategoryKey("");
+          setSelectedCategory("");
+        }, 2300);
+        return;
+      }
+      setBusy(true);
+      try {
+        await new Promise((r) => setTimeout(r, 500));
+        const prevCat = FULL_REVIEW_CHAIN_ORDER[idx];
+        const nextCat = FULL_REVIEW_CHAIN_ORDER[nextIdx];
+        const bridge = getBridgingSentence(prevCat, nextCat);
+        await playTts(bridge);
+        setCatMessages((prev) => [...prev, { role: "assistant", text: bridge, at: Date.now() }]);
+        setFullReviewChainIndex(nextIdx);
+        setSelectedCategory(nextCat);
+        setCatSessionId("");
+        const res = await fetch(`/api/deal-review/opportunities/${encodeURIComponent(opportunityId!)}/update-category`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category: nextCat, sessionId: undefined, text: "" }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json?.ok) throw new Error(json?.error || "Next category failed");
+        if (json?.sessionId) setCatSessionId(String(json.sessionId));
+        const rawAssistantText = String(json?.assistantText ?? "").trim();
+        if (rawAssistantText) {
+          setCatMessages((prev) => [...prev, { role: "assistant", text: rawAssistantText, at: Date.now() }]);
+          await playTts(rawAssistantText);
+        }
+      } catch (e: any) {
+        setCatMessages((prev) => [...prev, { role: "system", text: String(e?.message || e), at: Date.now() }]);
+        setFullReviewChainIndex(null);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [opportunityId, playTts]
   );
 
   const initialAppliedRef = useRef(false);
@@ -1467,10 +1555,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
         if (responsePayload?.material_change !== undefined) {
           const savedCategory = selectedCategory;
           setCompletedCategoryKey(savedCategory);
-          setTimeout(() => {
-            setCompletedCategoryKey("");
-            setSelectedCategory("");
-          }, 2300);
+          void onCategoryCompleteInChain(savedCategory);
         }
         return;
       }
@@ -1490,6 +1575,8 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
 
   const resetUi = useCallback(() => {
     setRun(null);
+    setFullReviewChainIndex(null);
+    setCoachingBrief(null);
     setMode("FULL_REVIEW");
     setSelectedCategory("");
     setCatSessionId("");
@@ -1996,7 +2083,11 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           </div>
 
           <div style={{ marginBottom: 10 }}>
-            <button className="btnPrimary" onClick={startFullDealReview} disabled={busy || !opportunityId || isStartingRef.current}>
+            <button
+              className="btnPrimary"
+              onClick={startFullDealReview}
+              disabled={busy || !opportunityId || isStartingRef.current || fullReviewChainIndex !== null}
+            >
               Full Deal Review
             </button>
           </div>
@@ -2074,6 +2165,13 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               );
             })}
           </div>
+
+          {coachingBrief ? (
+            <div style={{ marginTop: 12, padding: 12, background: "var(--bg-2)", borderRadius: 8 }}>
+              <strong>Coaching brief</strong>
+              <p style={{ marginTop: 8, marginBottom: 0 }}>{coachingBrief}</p>
+            </div>
+          ) : null}
 
           {mode === "FULL_REVIEW" || mode === "CATEGORY_UPDATE" ? (
             <>

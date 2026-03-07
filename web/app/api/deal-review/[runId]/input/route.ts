@@ -103,6 +103,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ runId: str
 
             const updated = handsfreeRuns.get(runId);
             endSpan(reqSpan!, { status: "ok", http_status: 200 });
+            // Flush any buffered data before done
+            sendSSE({ type: "ping" });
             sendSSE({ type: "done", ok: true, run: updated ?? null });
           } catch (err) {
             endSpan(reqSpan!, { status: "error", http_status: 500 });
@@ -125,6 +127,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ runId: str
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
           Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
         },
       });
     }
