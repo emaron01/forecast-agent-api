@@ -1060,6 +1060,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               setCompletedCategoryKey(savedCategory);
               void onCategoryCompleteInChain(savedCategory);
             }
+            sttInFlightRef.current = false;
             return;
           }
           const json = await res.json().catch(() => ({}));
@@ -1084,6 +1085,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
                 void playTts(retryAssistantText);
               }
               void loadOpportunityState();
+              sttInFlightRef.current = false;
               return;
             }
             throw new Error(json?.error || "Update failed");
@@ -1100,6 +1102,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             setCompletedCategoryKey(savedCategory);
             void onCategoryCompleteInChain(savedCategory);
           }
+          sttInFlightRef.current = false;
         }
       };
 
