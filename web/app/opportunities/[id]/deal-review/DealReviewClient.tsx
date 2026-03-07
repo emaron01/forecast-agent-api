@@ -856,15 +856,36 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
                   }
                 };
 
-                while (true) {
-                  const { done, value } = await reader.read();
-                  if (done) break;
-                  buffer += decoder.decode(value, { stream: true });
-                  const lines = buffer.split("\n");
-                  buffer = lines.pop() ?? "";
-                  for (const line of lines) processLine(line);
+                const streamTimeout = setTimeout(() => {
+                  reader.cancel();
+                }, 45000);
+
+                try {
+                  while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split("\n");
+                    buffer = lines.pop() ?? "";
+                    for (const line of lines) processLine(line);
+                  }
+                  for (const line of buffer.split("\n")) processLine(line);
+                } finally {
+                  clearTimeout(streamTimeout);
                 }
-                for (const line of buffer.split("\n")) processLine(line);
+
+                // Safety valve — if stream ended without a done event, clear flags
+                if (inputInFlightRef.current) {
+                  console.log(
+                    JSON.stringify({
+                      event: "sse_stream_no_done",
+                      runId: rid,
+                    })
+                  );
+                  inputInFlightRef.current = false;
+                  sttInFlightRef.current = false;
+                  setSttError("Connection interrupted. Please speak your answer again.");
+                }
                 return;
               }
 
