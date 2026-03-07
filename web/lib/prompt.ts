@@ -226,7 +226,8 @@ Schema:
 }
 `;
 
-export function buildCommentIngestionPrompt(deal: Deal, rawNotes: string, scoreDefs?: ScoreDef[]): string {
+/** Context only (deal + notes + scoring criteria). For per-category or metadata calls. */
+export function buildCommentIngestionContextOnly(deal: Deal, rawNotes: string, scoreDefs?: ScoreDef[]): string {
   return [
     "COMMENT INGESTION MODE",
     "Extract MEDDPICC+TB signals from the following CRM notes. Use the same MEDDPICC framework as deal review.",
@@ -237,6 +238,12 @@ export function buildCommentIngestionPrompt(deal: Deal, rawNotes: string, scoreD
     rawNotes || "(no notes provided)",
     "",
     buildScoringCriteriaBlock(scoreDefs ?? []),
+  ].join("\n");
+}
+
+export function buildCommentIngestionPrompt(deal: Deal, rawNotes: string, scoreDefs?: ScoreDef[]): string {
+  return [
+    buildCommentIngestionContextOnly(deal, rawNotes, scoreDefs),
     "",
     "OUTPUT REQUIREMENTS:",
     COMMENT_INGESTION_JSON_SCHEMA,
