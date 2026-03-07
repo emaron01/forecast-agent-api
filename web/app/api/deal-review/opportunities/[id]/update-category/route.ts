@@ -358,6 +358,7 @@ async function callModelJSON(args: { instructions: string; input: string }) {
         model,
         instructions: args.instructions,
         input: args.input,
+        temperature: 0,
       }),
     });
     const json = await resp.json().catch(() => ({ error: { message: "Upstream LLM request failed" } }));
@@ -387,6 +388,7 @@ async function callModelJSON(args: { instructions: string; input: string }) {
       instructions: args.instructions,
       input: args.input,
       stream: true,
+      temperature: 0,
     }),
   });
   if (!resp.ok) {
@@ -482,6 +484,7 @@ async function callModelJSONWithSentenceStream(
       instructions: args.instructions,
       input: args.input,
       stream: true,
+      temperature: 0,
     }),
   });
   if (!resp.ok) {

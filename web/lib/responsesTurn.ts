@@ -463,6 +463,7 @@ export async function runResponsesTurn(args: {
         ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
         input: nextInput,
         ...(useStreaming ? { stream: true } : {}),
+        temperature: 0,
       }),
     });
 
@@ -1004,6 +1005,7 @@ export async function callResponsesApiSingleTurn(args: { instructions: string; u
       instructions: args.instructions,
       tool_choice: "none",
       input: [userMsg(args.userMessage)],
+      temperature: 0,
     }),
   });
 

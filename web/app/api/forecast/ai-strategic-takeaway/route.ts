@@ -217,6 +217,7 @@ export async function POST(req: Request) {
         instructions: prompt.text,
         tool_choice: "none",
         input: [{ role: "user", content: userText }],
+        temperature: 0,
       }),
     });
 
