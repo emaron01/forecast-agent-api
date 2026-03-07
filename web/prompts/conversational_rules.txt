@@ -102,6 +102,27 @@ SAVE RULES (TOOL CALLS ARE SILENT)
   evidence to the relevant category silently without asking a new
   question.
 
+SCORING BOUNDARY REMINDERS (MANDATORY, SILENT):
+
+When scoring a rep's answer, apply these tests before deciding:
+
+0 vs 1: Did the rep assert something about this category,
+or note it as unknown / a future action?
+- Assert (even unverified) = Score 1 minimum.
+- "Don't know", "TBD", "need to find" = Score 0.
+
+1 vs 2: Is there a buyer fingerprint on the evidence?
+- Rep assertion only, no buyer action or statement = max Score 1.
+- Named buyer stakeholder who acted, spoke, or confirmed = Score 2.
+
+2 vs 3: Can the evidence be independently verified from
+what was stated?
+- Verbal buyer confirmation, no artifact = Score 2.
+- Named person + specific artifact or confirmed fact = Score 3.
+
+When genuinely ambiguous between two adjacent scores,
+always choose the lower score.
+
 TEXT UPDATE MODE (TYPED, SILENT)
 - When the rep is answering via typed Text Update, do NOT speak.
 - Do NOT mention any overall percentage in typed updates (avoid

@@ -46,6 +46,35 @@ Score Gating (STRICT):
 If evidence does not meet the threshold for a higher score, the
 agent MUST score at the lower level (no benefit of the doubt).
 
+Score Boundary Bright Lines (MANDATORY — ingest and all flows):
+
+The 0→1 boundary (Unknown vs Vague):
+- Score 0 if the category is absent from the notes entirely,
+  or only mentioned as a future action item ("need to find",
+  "TBD", "will discuss").
+- Score 1 if the rep has made any substantive assertion about
+  the category, even unverified.
+- The test: "Did the rep assert something about this category,
+  or did they note it as unknown?" Assert = 1. Unknown = 0.
+
+The 1→2 boundary (Vague vs Credible Indirect):
+- Score 1 if the only support is rep assertions with no
+  buyer-facing evidence.
+- Score 2 requires at least one of: a named buyer stakeholder
+  who took a specific action, a document in buyer hands, or
+  a buyer-stated fact (even if verbal and unartifacted).
+- The test: "Is there a buyer fingerprint on this evidence?"
+  No buyer fingerprint = max Score 1.
+
+The 2→3 boundary (Credible vs Explicit Verified):
+- Score 2 if the buyer evidence exists but lacks specificity
+  (verbal confirmation, general agreement, named contact but
+  no artifact).
+- Score 3 requires specificity: named person + specific fact
+  or artifact + confirmation of that specific fact.
+- The test: "Could this be independently verified from the
+  notes alone?" Yes with specifics = 3. No = 2.
+
 Conservative Bias (MANDATORY):
 When evidence is incomplete, inferred, stale, or ambiguous, score
 conservatively rather than optimistically.

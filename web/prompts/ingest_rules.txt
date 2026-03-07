@@ -26,6 +26,63 @@ INGEST EVIDENCE STANDARDS:
 - Do not upgrade evidence strength because the notes sound
   confident. Confidence of tone is not evidence quality.
 
+INGEST BOUNDARY RULES (MANDATORY — prevents scoring drift):
+
+Score 0 (Unknown / Missing) — use when:
+- The category is not mentioned anywhere in the notes, OR
+- The only mention is the rep's company name, product name,
+  or deal name with no category-relevant content, OR
+- The notes contain only a date, a meeting reference, or an
+  administrative note with no substantive category content.
+
+Score 1 (Vague / Rep Assertion) — use when:
+- The rep has made at least one substantive assertion about
+  this category, even if unverified by the buyer, AND
+- The assertion contains a specific claim (not just a generic
+  statement that the category exists).
+- Examples that qualify as Score 1:
+  - "Customer has pain around VMware costs" (pain asserted)
+  - "Vince is our champion" (champion named, unverified)
+  - "Budget exists" (budget asserted, unconfirmed)
+  - "No competition" (rep-stated, no buyer confirmation)
+- Examples that do NOT qualify for Score 1 (use Score 0):
+  - "Need to identify pain" (not an assertion, a to-do)
+  - "Champion TBD" (explicitly unknown)
+  - "Will discuss budget next call" (no assertion made)
+
+Score 2 (Credible but Indirect) — use when:
+- There is buyer-facing evidence: a meeting outcome, a named
+  stakeholder who took an action, a sent artifact, or an
+  indirect confirmation from the buyer side, AND
+- The evidence is specific enough to be independently
+  described (not just "good conversation" or "positive call").
+- Examples that qualify as Score 2:
+  - "PO submitted but not approved" (buyer action taken)
+  - "Devon confirmed budget exists in our last call"
+    (named stakeholder, specific claim)
+  - "Contract with legal team" (artifact in buyer hands)
+  - "Buyer said no other vendors" (buyer-stated, no artifact)
+
+Score 3 (Explicit & Verified) — use when:
+- A specific buyer-stated fact, signed artifact, or confirmed
+  outcome is documented with enough specificity to be
+  independently verified, AND
+- The evidence names who confirmed it, when, and what
+  specifically was confirmed.
+- Examples that qualify as Score 3:
+  - "PO #5344463 received" (specific artifact)
+  - "Laura VP signed the SOW on 11/4" (named, dated, artifact)
+  - "Buyer confirmed DocuSign sent, finance approved"
+
+DRIFT PREVENTION (MANDATORY):
+- When evidence is genuinely ambiguous between two adjacent
+  scores, always choose the LOWER score.
+- Never round up based on tone, deal stage, or deal size.
+- A rep noting a category exists without specifics is Score 1,
+  not Score 2. Specificity is required to cross from 1 to 2.
+- A buyer action or statement is required to cross from 1 to 2.
+  Rep assertions alone, however specific, cannot exceed Score 1.
+
 INGEST SCOPE:
 - Score only categories for which the notes contain relevant content.
 - Do not fabricate evidence for categories not mentioned.
