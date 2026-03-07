@@ -57,6 +57,24 @@ verified? Yes = 3. No = 2.
 When ambiguous between two adjacent scores, always
 choose the lower score.
 
+TIMING AND BUDGET SPECIFIC RULES (MANDATORY):
+
+Timing — score above 0 ONLY if the notes contain:
+- An explicit date, deadline, or named quarter/month, OR
+- A buyer-stated urgency with a specific reason
+- Do NOT score timing from deal metadata (close_date, stage)
+- Do NOT score timing from phrases like "fast moving",
+  "urgent", or "ASAP" without a specific date or deadline
+- "Fast moving" with no date = Score 0
+
+Budget — score above 0 ONLY if the notes contain:
+- An explicit dollar amount stated by the rep or buyer, OR
+- A named stakeholder who confirmed budget exists, OR
+- A PO number or approval reference
+- Do NOT score budget from the deal AMOUNT field in the
+  deal context — that is CRM data, not note evidence
+- "Budget exists" with no specifics = Score 1 maximum
+
 INGEST SCOPE:
 - Score only categories for which the notes contain relevant content.
 - Do not fabricate evidence for categories not mentioned.
