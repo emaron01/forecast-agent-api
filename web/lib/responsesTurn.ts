@@ -1006,6 +1006,7 @@ export async function callResponsesApiSingleTurn(args: { instructions: string; u
       tool_choice: "none",
       input: [userMsg(args.userMessage)],
       temperature: 0,
+      max_output_tokens: 2000,
     }),
   });
 
@@ -1016,6 +1017,12 @@ export async function callResponsesApiSingleTurn(args: { instructions: string; u
   }
 
   const output = Array.isArray(json?.output) ? json.output : [];
+  console.log(JSON.stringify({
+    event: "ingest_token_usage",
+    input_tokens: json?.usage?.input_tokens,
+    output_tokens: json?.usage?.output_tokens,
+    total_tokens: json?.usage?.total_tokens,
+  }));
   return extractAssistantText(output);
 }
 

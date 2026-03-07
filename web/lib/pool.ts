@@ -11,6 +11,7 @@ function makeSharedPool() {
   return new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false },
+    max: parseInt(process.env.DB_POOL_MAX ?? "10"),
   });
 }
 

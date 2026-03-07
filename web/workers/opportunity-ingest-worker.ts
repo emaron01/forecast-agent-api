@@ -391,7 +391,9 @@ const worker = new Worker(
   async (job) => processJob(job),
   {
     ...getConnection(),
-    concurrency: 3, // hard cap; do not increase without DB headroom
+    // configurable via WORKER_CONCURRENCY env var;
+    // keep in coordination with DB_POOL_MAX
+    concurrency: parseInt(process.env.WORKER_CONCURRENCY ?? "3"),
   }
 );
 
