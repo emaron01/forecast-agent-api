@@ -111,9 +111,20 @@ function pickRecorderMime() {
 
 const VALID_CATEGORIES: CategoryKey[] = ["metrics", "economic_buyer", "criteria", "process", "paper", "pain", "champion", "competition", "timing", "budget"];
 
-/** Pipeline: 4 categories only. Best Case / Commit: all 6. */
-const CHAIN_ORDER_PIPELINE: CategoryKey[] = ["pain", "metrics", "champion", "competition"];
-const CHAIN_ORDER_BEST_CASE_COMMIT: CategoryKey[] = ["pain", "metrics", "champion", "competition", "criteria", "process"];
+/** Pipeline: matches prompt category order. Best Case / Commit: full prompt order (eb = economic_buyer, paper_process = paper). */
+const CHAIN_ORDER_PIPELINE: CategoryKey[] = ["pain", "metrics", "champion", "competition", "budget"];
+const CHAIN_ORDER_BEST_CASE_COMMIT: CategoryKey[] = [
+  "pain",
+  "metrics",
+  "champion",
+  "criteria",
+  "competition",
+  "timing",
+  "budget",
+  "economic_buyer",
+  "process",
+  "paper",
+];
 
 function buildInitialChain(forecastStage: string): CategoryKey[] {
   const stage = String(forecastStage || "").trim().toLowerCase();
