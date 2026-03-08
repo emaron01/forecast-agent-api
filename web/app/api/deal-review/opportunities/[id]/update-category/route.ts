@@ -778,6 +778,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     let sessionId = String(body?.sessionId || "").trim();
     const category = String(body?.category || "").trim() as CategoryKey;
     const text = String(body?.text || "").trim();
+    const crossCategoryContext = body?.cross_category_context as { champion_name?: string; champion_title?: string } | undefined;
 
     if (!ALL_CATEGORIES.includes(category)) {
       return NextResponse.json({ ok: false, error: "Invalid category" }, { status: 400 });
@@ -837,7 +838,15 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       } catch {
         baseQuestion = "";
       }
-      const q = openerQuestion({ category, lastScore, lastLabel, baseQuestion });
+      let q = openerQuestion({ category, lastScore, lastLabel, baseQuestion });
+      if (category === "economic_buyer" && crossCategoryContext?.champion_name) {
+        const championName = String(crossCategoryContext.champion_name).trim();
+        const championTitle = crossCategoryContext.champion_title ? String(crossCategoryContext.champion_title).trim() : "";
+        const prefixLine = championTitle
+          ? `Rep identified ${championName} (${championTitle}) as Champion this session. Confirm: is this person also the Economic Buyer, or someone else?`
+          : `Rep identified ${championName} as Champion this session. Confirm: is this person also the Economic Buyer, or someone else?`;
+        q = `${prefixLine}\n${q}`;
+      }
       session.turns.push({ role: "assistant", text: q, at: Date.now() });
       session.updatedAt = Date.now();
       return NextResponse.json({ ok: true, sessionId, category, assistantText: q });
@@ -1137,17 +1146,24 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
               .filter(Boolean)
               .join("\n");
 
+            const sseResultPayload: { score: number; evidence: string; tip: string; champion_name?: string; champion_title?: string } = {
+              score: Math.max(0, Math.min(3, Number(score) || 0)),
+              evidence,
+              tip,
+            };
+            if (category === "champion") {
+              const cn = String(sseEntity.champion_name ?? "").trim();
+              if (cn) sseResultPayload.champion_name = cn;
+              const ct = String(sseEntity.champion_title ?? "").trim();
+              if (ct) sseResultPayload.champion_title = ct;
+            }
             sendSSE({
               type: "done",
               ok: true,
               sessionId,
               category,
               material_change: true,
-              result: {
-                score: Math.max(0, Math.min(3, Number(score) || 0)),
-                evidence,
-                tip,
-              },
+              result: sseResultPayload,
               healthPercent,
               assessedOnlyPercent: assessedOnly.percent,
               assistantText,
@@ -1300,16 +1316,23 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       .filter(Boolean)
       .join("\n");
 
+    const resultPayload: { score: number; evidence: string; tip: string; champion_name?: string; champion_title?: string } = {
+      score: Math.max(0, Math.min(3, Number(score) || 0)),
+      evidence,
+      tip,
+    };
+    if (category === "champion") {
+      const cn = String(jsonEntity.champion_name ?? "").trim();
+      if (cn) resultPayload.champion_name = cn;
+      const ct = String(jsonEntity.champion_title ?? "").trim();
+      if (ct) resultPayload.champion_title = ct;
+    }
     return NextResponse.json({
       ok: true,
       sessionId,
       category,
       material_change: true,
-      result: {
-        score: Math.max(0, Math.min(3, Number(score) || 0)),
-        evidence,
-        tip,
-      },
+      result: resultPayload,
       healthPercent,
       assessedOnlyPercent: assessedOnly.percent,
       assistantText,
