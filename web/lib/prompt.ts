@@ -178,6 +178,13 @@ export function buildPrompt(
   const championName = String(entity.champion_name ?? "").trim();
   const championTitle = String(entity.champion_title ?? "").trim();
   const ebName = String(entity.eb_name ?? "").trim();
+  console.log(JSON.stringify({
+    event: "buildPrompt_entity_check",
+    touchedKey: firstGap.touchedKey,
+    championName: championName,
+    ebName: ebName,
+    entityThisSession: entityThisSession ?? null
+  }));
   if (firstGap.touchedKey === "eb" && championName) {
     const championLine =
       championTitle
