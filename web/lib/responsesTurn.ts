@@ -820,6 +820,8 @@ export async function runResponsesTurn(args: {
           pool,
         });
 
+        console.log(JSON.stringify({ event: "save_deal_data_accumulated_entity", accumulatedEntity: session.accumulatedEntity ?? null }));
+
         // Keep local deal in sync
         for (const [k, v] of Object.entries(toolArgs || {})) {
           if (v !== undefined) (activeDeal as any)[k] = v;
@@ -994,6 +996,11 @@ export async function callResponsesApiSingleTurn(args: { instructions: string; u
   if (!baseUrl) throw new Error("Missing OPENAI_BASE_URL (or MODEL_API_URL or MODEL_URL)");
   if (!apiKey) throw new Error("Missing MODEL_API_KEY");
   if (!model) throw new Error("Missing INGEST_MODEL or MODEL_API_NAME");
+
+  console.log(JSON.stringify({
+    event: "ingest_model",
+    model: model
+  }));
 
   const resp = await fetch(`${baseUrl}/responses`, {
     method: "POST",
