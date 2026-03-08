@@ -432,7 +432,8 @@ export async function runResponsesTurn(args: {
           session.index === 0,
           session.reviewed,
           session.scoreDefs,
-          questionPack
+          questionPack,
+          session.accumulatedEntity ?? undefined
         )
       : buildNoDealsPrompt(firstName(session.repName), "No deals available in the system for this rep.");
     const instructions = `${masterPromptResolved}\n\n${contextBlock}`;

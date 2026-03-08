@@ -98,7 +98,8 @@ export function buildPrompt(
   isFirstDeal: boolean,
   touchedSet: Set<string>,
   scoreDefs: ScoreDef[],
-  questionPack?: { primary?: string; clarifiers?: string[] }
+  questionPack?: { primary?: string; clarifiers?: string[] },
+  entityThisSession?: Record<string, string>
 ) {
   const stage = deal.forecast_stage || "Pipeline";
   const amountStr = new Intl.NumberFormat("en-US", {
@@ -171,6 +172,23 @@ export function buildPrompt(
     return `Last review ${firstGap.name} was ${label}.\nHave we made progress since the last review?`;
   })();
 
+  // Optional confirmation line when we already have Champion or EB from this session (voice review only).
+  let nextQuestionText = gapQuestion;
+  const entity = entityThisSession ?? {};
+  const championName = String(entity.champion_name ?? "").trim();
+  const championTitle = String(entity.champion_title ?? "").trim();
+  const ebName = String(entity.eb_name ?? "").trim();
+  if (firstGap.touchedKey === "eb" && championName) {
+    const championLine =
+      championTitle
+        ? `Rep identified ${championName} (${championTitle}) as Champion this session. Confirm: is this person also the Economic Buyer, or someone else?`
+        : `Rep identified ${championName} as Champion this session. Confirm: is this person also the Economic Buyer, or someone else?`;
+    nextQuestionText = `${championLine}\n${gapQuestion}`;
+  } else if (firstGap.touchedKey === "champion" && ebName) {
+    const ebLine = `Rep identified ${ebName} as Economic Buyer this session. Confirm: is this person also the Champion, or someone else?`;
+    nextQuestionText = `${ebLine}\n${gapQuestion}`;
+  }
+
   const firstLine = isFirstDeal ? callPickup : dealOpening;
 
   return [
@@ -183,7 +201,7 @@ export function buildPrompt(
     riskRecall,
     "",
     "NEXT QUESTION (ask now):",
-    gapQuestion,
+    nextQuestionText,
     ...(clarifiersFromDb.length
       ? [
           "",
