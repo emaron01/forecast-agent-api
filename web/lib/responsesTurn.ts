@@ -989,11 +989,11 @@ export async function runResponsesTurn(args: {
 export async function callResponsesApiSingleTurn(args: { instructions: string; userMessage: string }): Promise<string> {
   const baseUrl = resolveBaseUrl();
   const apiKey = String(process.env.MODEL_API_KEY || process.env.OPENAI_API_KEY || "").trim();
-  const model = process.env.MODEL_API_NAME;
+  const model = process.env.INGEST_MODEL || process.env.MODEL_API_NAME;
 
   if (!baseUrl) throw new Error("Missing OPENAI_BASE_URL (or MODEL_API_URL or MODEL_URL)");
   if (!apiKey) throw new Error("Missing MODEL_API_KEY");
-  if (!model) throw new Error("Missing MODEL_API_NAME");
+  if (!model) throw new Error("Missing INGEST_MODEL or MODEL_API_NAME");
 
   const resp = await fetch(`${baseUrl}/responses`, {
     method: "POST",
