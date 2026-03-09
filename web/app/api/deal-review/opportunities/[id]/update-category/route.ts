@@ -866,7 +866,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
           sessionId,
           category,
           material_change: false,
-          assistantText: "Got it — no material change. Leaving the saved assessment and wrap as-is.",
+          assistantText: "Got it — no material change. Leaving the saved assessment as-is.",
           healthPercent: computeHealthPercentFromOpportunity(opp?.health_score),
         });
       }
@@ -882,7 +882,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
           sessionId,
           category,
           material_change: false,
-          assistantText: "Got it — no material change. Leaving the saved assessment and wrap as-is.",
+          assistantText: "Got it — no material change. Leaving the saved assessment as-is.",
           healthPercent: computeHealthPercentFromOpportunity(opp?.health_score),
         });
       }
@@ -931,8 +931,10 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "",
       "Output MUST be strict JSON with one of these shapes:",
       `- {"action":"followup","question":"..."} `,
-      `- {"action":"finalize","material_change":true,"score":0-3,"evidence":"...","tip":"...","risk_summary":"...","next_steps":"..."} `,
-      "When finalizing for Internal Sponsor or Economic Buyer, if the rep stated a name or title, include only that role's fields: for Economic Buyer use eb_name, eb_title; for Internal Sponsor use champion_name, champion_title. Do not cross-populate the other role.",
+      `- {"action":"finalize","material_change":true,"score":0-3,"evidence":"...","tip":"...","risk_summary":"...","next_steps":"..."}`,
+      `  When category is "champion", add: ,"champion_name":"First Last","champion_title":"Title"`,
+      `  When category is "economic_buyer", add: ,"eb_name":"First Last","eb_title":"Title"`,
+      "When finalizing for Internal Sponsor or Economic Buyer, if the rep stated a name or title, include only that role's fields: for Economic Buyer use eb_name, eb_title; for Internal Sponsor use champion_name, champion_title. champion_name must be a person's full name only (e.g. 'Vince Campbell'), never a title or role description. Do not cross-populate the other role.",
       "If the rep gives a new name and/or title for EB or Champion, accept it (they can change it back if wrong). Omit entity_override when unclear.",
       `- {"action":"finalize","material_change":false} `,
     ].join("\n");
@@ -1065,7 +1067,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
                 sessionId,
                 category,
                 material_change: false,
-                assistantText: "No material change — leaving the saved assessment and wrap as-is.",
+                assistantText: "No material change — leaving the saved assessment as-is.",
                 healthPercent: computeHealthPercentFromOpportunity(opp?.health_score),
               });
               controller.close();
@@ -1240,7 +1242,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
         sessionId,
         category,
         material_change: false,
-        assistantText: "No material change — leaving the saved assessment and wrap as-is.",
+        assistantText: "No material change — leaving the saved assessment as-is.",
         healthPercent: computeHealthPercentFromOpportunity(opp?.health_score),
       });
     }

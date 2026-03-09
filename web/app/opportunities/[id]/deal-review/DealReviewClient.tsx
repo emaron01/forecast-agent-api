@@ -974,6 +974,13 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               setCompletedCategoryKey(savedCategory);
               const result = (donePayload as any)?.result;
               const score = result?.score;
+              // Ensure all TTS sentences have finished playing before advancing to the next category.
+              if (sentenceQueue.length > 0 && !playing) {
+                void playNext();
+              }
+              while (sentenceQueue.length > 0 || playing) {
+                await new Promise((resolve) => setTimeout(resolve, 50));
+              }
               void onCategoryCompleteInChain(savedCategory, Number(score), result);
             }
             return;
@@ -1008,7 +1015,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           const assistantText = String(json?.assistantText || "").trim();
           if (assistantText) {
             setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
-            void playTts(assistantText);
+            await playTts(assistantText);
           }
           void loadOpportunityState();
           if (json?.material_change !== undefined) {
