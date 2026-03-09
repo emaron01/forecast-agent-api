@@ -250,6 +250,8 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const fullReviewForecastStageRef = useRef<string>("");
   /** Scores for completed categories in this chain (0–3); used for promotion/demotion. */
   const chainScoresRef = useRef<Record<string, number>>({});
+  /** When champion completes with champion_name in response, store for economic_buyer cross-category prompt. */
+  const lastChampionFromChainRef = useRef<{ champion_name: string; champion_title?: string } | null>(null);
 
   const micLevelRef = useRef(0);
   const micPeakRef = useRef(0);
@@ -720,7 +722,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
 
   /** When a category completes with a score: if in Full Review chain, advance to next (one TTS from update-category) or finish; else clear chip after 2300ms. */
   const onCategoryCompleteInChain = useCallback(
-    async (savedCategory: CategoryKey, scoreFromResponse?: number) => {
+    async (savedCategory: CategoryKey, scoreFromResponse?: number, resultFromResponse?: { champion_name?: string; champion_title?: string }) => {
       const idx = fullReviewChainIndexRef.current;
       if (idx === null) {
         setTimeout(() => {
@@ -728,6 +730,17 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           setSelectedCategory("");
         }, 2300);
         return;
+      }
+      if (savedCategory === "champion" && resultFromResponse?.champion_name) {
+        lastChampionFromChainRef.current = {
+          champion_name: String(resultFromResponse.champion_name).trim(),
+          champion_title: resultFromResponse.champion_title ? String(resultFromResponse.champion_title).trim() : undefined,
+        };
+        console.log("cross_category_debug", {
+          savedCategory,
+          champion_name: lastChampionFromChainRef.current,
+          nextCat: fullReviewChainOrderRef.current[fullReviewChainIndexRef.current !== null ? fullReviewChainIndexRef.current + 1 : -1],
+        });
       }
       const score = Number(scoreFromResponse);
       if (Number.isFinite(score)) {
@@ -785,10 +798,28 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
         setFullReviewChainIndex(nextIdx);
         setSelectedCategory(nextCat);
         setCatSessionId("");
+        const championCtx = nextCat === "economic_buyer" ? lastChampionFromChainRef.current : null;
+        const postBody: { category: string; sessionId: undefined; text: string; cross_category_context?: { champion_name: string; champion_title?: string } } = {
+          category: nextCat,
+          sessionId: undefined,
+          text: "",
+        };
+        if (championCtx?.champion_name) {
+          postBody.cross_category_context = {
+            champion_name: championCtx.champion_name,
+            ...(championCtx.champion_title ? { champion_title: championCtx.champion_title } : {}),
+          };
+        }
+        console.log("cross_category_debug", {
+          savedCategory,
+          champion_name: lastChampionFromChainRef.current,
+          nextCat,
+          requestBody: postBody,
+        });
         const res = await fetch(`/api/deal-review/opportunities/${encodeURIComponent(opportunityId!)}/update-category`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ category: nextCat, sessionId: undefined, text: "" }),
+          body: JSON.stringify(postBody),
         });
         const json = await res.json().catch(() => ({}));
         if (!res.ok || !json?.ok) throw new Error(json?.error || "Next category failed");
@@ -941,8 +972,9 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             if (donePayload?.material_change !== undefined) {
               const savedCategory = cat as CategoryKey;
               setCompletedCategoryKey(savedCategory);
-              const score = (donePayload as any)?.result?.score;
-              void onCategoryCompleteInChain(savedCategory, Number(score));
+              const result = (donePayload as any)?.result;
+              const score = result?.score;
+              void onCategoryCompleteInChain(savedCategory, Number(score), result);
             }
             return;
           }
@@ -982,8 +1014,9 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           if (json?.material_change !== undefined) {
             const savedCategory = cat as CategoryKey;
             setCompletedCategoryKey(savedCategory);
-            const score = (json as any)?.result?.score;
-            void onCategoryCompleteInChain(savedCategory, Number(score));
+            const result = (json as any)?.result;
+            const score = result?.score;
+            void onCategoryCompleteInChain(savedCategory, Number(score), result);
           }
         }
         } finally {
@@ -1459,8 +1492,9 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
         if (responsePayload?.material_change !== undefined) {
           const savedCategory = selectedCategory;
           setCompletedCategoryKey(savedCategory);
-          const score = (responsePayload as any)?.result?.score;
-          void onCategoryCompleteInChain(savedCategory, Number(score));
+          const result = (responsePayload as any)?.result;
+          const score = result?.score;
+          void onCategoryCompleteInChain(savedCategory, Number(score), result);
         }
         return;
       }
