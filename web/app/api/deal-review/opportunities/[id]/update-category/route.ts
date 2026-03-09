@@ -842,10 +842,10 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       if (category === "economic_buyer" && crossCategoryContext?.champion_name) {
         const championName = String(crossCategoryContext.champion_name).trim();
         const championTitle = crossCategoryContext.champion_title ? String(crossCategoryContext.champion_title).trim() : "";
-        const prefixLine = championTitle
-          ? `Rep identified ${championName} (${championTitle}) as Champion this session. Confirm: is this person also the Economic Buyer, or someone else?`
-          : `Rep identified ${championName} as Champion this session. Confirm: is this person also the Economic Buyer, or someone else?`;
-        q = `${prefixLine}\n${q}`;
+        const suffix = championTitle
+          ? ` — noting that ${championName} (${championTitle}) was identified as Champion this session; is this the same person?`
+          : ` — noting that ${championName} was identified as Champion this session; is this the same person?`;
+        q = `${q}${suffix}`;
       }
       session.turns.push({ role: "assistant", text: q, at: Date.now() });
       session.updatedAt = Date.now();

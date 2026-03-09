@@ -134,6 +134,11 @@ where the rep's answer contradicts prior evidence,
 sounds inconsistent with the deal history, or is
 implausibly strong given the deal stage.
 
+Accepting an assertion does not mean the category
+is complete — if key evidence for a higher score
+is still missing, ask ONE follow-up to surface it
+before finalizing.
+
 The goal is not to catch every possible gap — it is to
 capture what the rep genuinely knows, probe what seems
 off, and let the pattern of reviews over time surface
