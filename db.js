@@ -151,7 +151,38 @@ export async function getQuestionDefinitions(pool, { orgId, category, questionTy
     [org, cat, qt, Number.isFinite(cId) ? cId : null]
   );
 
-  return rows || [];
+  if (rows && rows.length > 0) return rows;
+
+  const { rows: globalRows } = await pool.query(
+    `
+    SELECT id, question_text, min_criteria_id, max_criteria_id, priority
+      FROM question_definitions
+     WHERE org_id = $1
+       AND category = $2
+       AND question_type = $3
+       AND active = TRUE
+       AND (
+         (min_criteria_id IS NULL AND max_criteria_id IS NULL)
+         OR
+         ($4::int IS NOT NULL AND min_criteria_id <= $4::int AND max_criteria_id >= $4::int)
+       )
+     ORDER BY priority ASC, id ASC
+    `,
+    [1, cat, qt, Number.isFinite(cId) ? cId : null]
+  );
+
+  if (globalRows && globalRows.length > 0) {
+    console.log(
+      JSON.stringify({
+        event: "question_definitions_global_fallback",
+        org_id: org,
+        category: cat,
+        question_type: qt,
+      })
+    );
+  }
+
+  return globalRows || [];
 }
 
 /**
