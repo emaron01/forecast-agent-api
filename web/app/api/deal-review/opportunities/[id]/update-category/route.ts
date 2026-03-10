@@ -783,6 +783,8 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       pricing_discussed?: boolean;
       po_submitted?: boolean;
       is_also_eb?: boolean;
+      champion_name?: string;
+      champion_title?: string;
       sole_vendor?: boolean;
       contract_in_place?: boolean;
       existing_customer?: boolean;
