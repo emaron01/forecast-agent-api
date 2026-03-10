@@ -843,9 +843,13 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     // If this is the first call, ask opener unless we got text for one-shot.
     if (!session.turns.length && !text) {
       let baseQuestion = "";
+      let clarifierQuestions: string[] = [];
       try {
         const pack = await getQuestionPack(pool, { orgId, category, criteriaId: lastScore });
         baseQuestion = String(pack?.primary || "").trim();
+        clarifierQuestions = (pack?.clarifiers || [])
+          .map((c: any) => String((c as any)?.question_text || "").trim())
+          .filter(Boolean);
       } catch {
         baseQuestion = "";
       }
@@ -963,6 +967,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "- New evidence includes negative or missing confirmation: e.g. 'we have not discussed pricing', 'no budget', 'not confirmed', 'don\'t know approval path'. In those cases set material_change=true and output score (low), evidence, and a helpful coaching tip.",
       "- For Budget: phrases like 'haven\'t discussed pricing', 'no budget', 'not confirmed' are explicit evidence; score low and provide a tip to confirm funding/approval.",
       "- If you need more information to score, ask ONE focused follow-up question.",
+      "If probe_guidance is provided and the rep's answer is sufficient for the current score tier but has not yet provided evidence for the next tier, ask ONE probe question before finalizing. Adapt the phrasing naturally — do not recite verbatim. Skip the probe if the rep has already answered it or if asking would be redundant given context.",
       "- Otherwise, produce a final update for this category: score (0-3), evidence, and coaching tip.",
       "- Also update wrap outputs (risk_summary and next_steps) using ONLY the known evidence. If coverage is incomplete, be accurate and not harsh.",
       "- Do NOT use the word 'champion' in any user-facing text; use 'Internal Sponsor'.",
@@ -1003,6 +1008,9 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       `- current_next_steps: ${String(opp?.next_steps || "").trim() || "(none)"}`,
       category === "budget" || category === "economic_buyer"
         ? `- prior_deal_context_signals: pricing_discussed=${!!dealContext?.pricing_discussed}, po_submitted=${!!dealContext?.po_submitted}, is_also_eb=${!!dealContext?.is_also_eb}, sole_vendor=${!!dealContext?.sole_vendor}, contract_in_place=${!!dealContext?.contract_in_place}, existing_customer=${!!dealContext?.existing_customer}, po_process_described=${!!dealContext?.po_process_described}`
+        : "",
+      clarifierQuestions.length > 0
+        ? `- probe_guidance: If the rep's answer qualifies for the current score but key evidence for a higher score is still missing, probe once using one of these questions before finalizing (adapt naturally to what was already said, do not ask verbatim if context makes it redundant): ${clarifierQuestions.join(" | ")}`
         : "",
       (category === "champion" || category === "economic_buyer")
         ? `- current entity: champion_name=${String((opp as any)?.champion_name ?? "").trim() || "(none)"}, champion_title=${String((opp as any)?.champion_title ?? "").trim() || "(none)"}, eb_name=${String((opp as any)?.eb_name ?? "").trim() || "(none)"}, eb_title=${String((opp as any)?.eb_title ?? "").trim() || "(none)"}`
