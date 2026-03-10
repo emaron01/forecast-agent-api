@@ -252,6 +252,17 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const chainScoresRef = useRef<Record<string, number>>({});
   /** When champion completes with champion_name in response, store for economic_buyer cross-category prompt. */
   const lastChampionFromChainRef = useRef<{ champion_name: string; champion_title?: string } | null>(null);
+  /** Accumulated deal signals from completed categories in this chain; passed into Budget as context. */
+  const dealContextRef = useRef<{
+    pricing_discussed?: boolean;
+    po_submitted?: boolean;
+    champion_name?: string;
+    champion_title?: string;
+    sole_vendor?: boolean;
+    contract_in_place?: boolean;
+    existing_customer?: boolean;
+    po_process_described?: boolean;
+  }>({});
 
   const micLevelRef = useRef(0);
   const micPeakRef = useRef(0);
@@ -721,8 +732,38 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   }, [closeMicStreamOnly, keepMicOpen]);
 
   /** When a category completes with a score: if in Full Review chain, advance to next (one TTS from update-category) or finish; else clear chip after 2300ms. */
+  const extractDealSignals = useCallback(
+    (finalizeJson: any, categoryName: CategoryKey) => {
+      switch (categoryName) {
+        case "champion":
+          return {
+            pricing_discussed: Boolean(finalizeJson?.pricing_discussed),
+            po_submitted: Boolean(finalizeJson?.po_submitted),
+            champion_name: finalizeJson?.champion_name,
+            champion_title: finalizeJson?.champion_title,
+          };
+        case "competition":
+          return {
+            sole_vendor: Boolean(finalizeJson?.sole_vendor),
+            contract_in_place: Boolean(finalizeJson?.contract_in_place),
+          };
+        case "criteria":
+          return {
+            existing_customer: Boolean(finalizeJson?.existing_customer),
+          };
+        case "process":
+          return {
+            po_process_described: Boolean(finalizeJson?.po_process_described),
+          };
+        default:
+          return {};
+      }
+    },
+    []
+  );
+
   const onCategoryCompleteInChain = useCallback(
-    async (savedCategory: CategoryKey, scoreFromResponse?: number, resultFromResponse?: { champion_name?: string; champion_title?: string }) => {
+    async (savedCategory: CategoryKey, scoreFromResponse?: number, resultFromResponse?: { champion_name?: string; champion_title?: string } & Record<string, any>) => {
       const idx = fullReviewChainIndexRef.current;
       if (idx === null) {
         setTimeout(() => {
@@ -741,6 +782,14 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           champion_name: lastChampionFromChainRef.current,
           nextCat: fullReviewChainOrderRef.current[fullReviewChainIndexRef.current !== null ? fullReviewChainIndexRef.current + 1 : -1],
         });
+      }
+
+      if (resultFromResponse) {
+        const mergedSignals = {
+          ...dealContextRef.current,
+          ...extractDealSignals(resultFromResponse, savedCategory),
+        };
+        dealContextRef.current = mergedSignals;
       }
       const score = Number(scoreFromResponse);
       if (Number.isFinite(score)) {
@@ -799,7 +848,13 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
         setSelectedCategory(nextCat);
         setCatSessionId("");
         const championCtx = nextCat === "economic_buyer" ? lastChampionFromChainRef.current : null;
-        const postBody: { category: string; sessionId: undefined; text: string; cross_category_context?: { champion_name: string; champion_title?: string } } = {
+        const postBody: {
+          category: string;
+          sessionId: undefined;
+          text: string;
+          cross_category_context?: { champion_name: string; champion_title?: string };
+          deal_context?: typeof dealContextRef.current;
+        } = {
           category: nextCat,
           sessionId: undefined,
           text: "",
@@ -809,6 +864,9 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             champion_name: championCtx.champion_name,
             ...(championCtx.champion_title ? { champion_title: championCtx.champion_title } : {}),
           };
+        }
+        if (nextCat === "budget" && dealContextRef.current) {
+          postBody.deal_context = dealContextRef.current;
         }
         console.log("cross_category_debug", {
           savedCategory,
