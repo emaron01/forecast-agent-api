@@ -840,10 +840,11 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       return NextResponse.json({ ok: false, error: "sessionId does not match org/opportunity/category" }, { status: 400 });
     }
 
+    let clarifierQuestions: string[] = [];
+
     // If this is the first call, ask opener unless we got text for one-shot.
     if (!session.turns.length && !text) {
       let baseQuestion = "";
-      let clarifierQuestions: string[] = [];
       try {
         const pack = await getQuestionPack(pool, { orgId, category, criteriaId: lastScore });
         baseQuestion = String(pack?.primary || "").trim();
