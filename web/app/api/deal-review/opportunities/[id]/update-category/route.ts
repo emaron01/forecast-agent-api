@@ -782,6 +782,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     const dealContext = (body?.deal_context || body?.dealContext || {}) as {
       pricing_discussed?: boolean;
       po_submitted?: boolean;
+      is_also_eb?: boolean;
       sole_vendor?: boolean;
       contract_in_place?: boolean;
       existing_customer?: boolean;
@@ -847,39 +848,40 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
         baseQuestion = "";
       }
       let q = openerQuestion({ category, lastScore, lastLabel, baseQuestion });
-      if (category === "economic_buyer" && crossCategoryContext?.champion_name) {
-        const championName = String(crossCategoryContext.champion_name).trim();
-        const championTitle = crossCategoryContext.champion_title ? String(crossCategoryContext.champion_title).trim() : "";
-        const suffix = championTitle
-          ? ` — noting that ${championName} (${championTitle}) was identified as Champion this session; is this the same person?`
-          : ` — noting that ${championName} was identified as Champion this session; is this the same person?`;
-        q = `${q}${suffix}`;
+      if (category === "economic_buyer") {
+        const isAlsoEb = dealContext?.is_also_eb === true;
+        const championNameFromContext = String(
+          (dealContext?.champion_name ?? crossCategoryContext?.champion_name ?? "") || ""
+        ).trim();
+        const championTitleFromContext = String(
+          (dealContext?.champion_title ?? crossCategoryContext?.champion_title ?? "") || ""
+        ).trim();
+
+        if (isAlsoEb && championNameFromContext) {
+          q = `You mentioned ${championNameFromContext} is also the economic buyer — is that correct?`;
+        } else if (crossCategoryContext?.champion_name) {
+          const championName = String(crossCategoryContext.champion_name).trim();
+          const championTitle = crossCategoryContext.champion_title ? String(crossCategoryContext.champion_title).trim() : "";
+          const suffix = championTitle
+            ? ` — noting that ${championName} (${championTitle}) was identified as Champion this session; is this the same person?`
+            : ` — noting that ${championName} was identified as Champion this session; is this the same person?`;
+          q = `${q}${suffix}`;
+        }
       } else if (category === "budget") {
         const pricingDiscussed = !!dealContext?.pricing_discussed;
         const poSubmitted = !!dealContext?.po_submitted;
         const soleVendor = !!dealContext?.sole_vendor;
         const contractInPlace = !!dealContext?.contract_in_place;
-        const existingCustomer = !!dealContext?.existing_customer;
-        const poProcessDescribed = !!dealContext?.po_process_described;
 
         if (poSubmitted) {
           q =
             "You mentioned a quote was submitted for PO approvals — has pricing been formally presented and accepted by the budget holder?";
-        } else if (pricingDiscussed && soleVendor) {
-          q =
-            "You mentioned pricing has been discussed and you're the sole approved vendor — has that pricing been formally accepted?";
         } else if (pricingDiscussed) {
           q =
-            "You mentioned pricing has been discussed — has that pricing been formally presented and accepted by the budget holder?";
-        } else if (contractInPlace) {
+            "You mentioned pricing has been discussed — has it been formally presented and accepted?";
+        } else if (soleVendor && contractInPlace) {
           q =
-            "You mentioned there is a contract or MSA already in place — does that agreement fully cover this deal’s commercial terms and approvals?";
-        } else if (existingCustomer) {
-          q =
-            "You mentioned they are already a customer — is the budget for this expansion or renewal fully confirmed and approved?";
-        } else if (poProcessDescribed) {
-          q =
-            "You described the PO and approval process — is that process already in motion for this deal, with a clear owner and dates?";
+            "You mentioned you're the sole approved vendor with a contract already in place — has pricing for this expansion been formally presented and accepted?";
         }
       }
       session.turns.push({ role: "assistant", text: q, at: Date.now() });
@@ -967,8 +969,9 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "Output MUST be strict JSON with one of these shapes:",
       `- {"action":"followup","question":"..."} `,
       `- {"action":"finalize","material_change":true,"score":0-3,"evidence":"...","tip":"...","risk_summary":"...","next_steps":"..."}`,
-      `  When category is "champion", add: ,"champion_name":"First Last","champion_title":"Title","pricing_discussed":true/false,"po_submitted":true/false`,
-      "    These pricing_discussed and po_submitted fields must reflect only what the rep explicitly stated in this Internal Sponsor turn about pricing, quotes, or POs. Default each to false if not clearly mentioned. Do not infer or guess.",
+      `  When category is "champion", add: ,"champion_name":"First Last","champion_title":"Title","pricing_discussed":true/false,"po_submitted":true/false,"is_also_eb":true/false`,
+      "    These pricing_discussed, po_submitted, and is_also_eb fields must reflect only what the rep explicitly stated in this Internal Sponsor turn about pricing, quotes, POs, or whether the Internal Sponsor is also the economic buyer. Default each to false if not clearly mentioned. Do not infer or guess.",
+      "    is_also_eb must only be true if the rep explicitly stated the champion is also the economic buyer in this turn. Do not infer from seniority or title alone.",
       `  When category is "economic_buyer", add: ,"eb_name":"First Last","eb_title":"Title"`,
       `  When category is "competition", add: ,"sole_vendor":true/false,"contract_in_place":true/false`,
       "    These sole_vendor and contract_in_place fields must reflect only what the rep explicitly stated in this Competition turn. Default each to false if not clearly mentioned. Do not infer or guess.",
@@ -996,8 +999,8 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       `- last_tip: ${lastTip || "(none)"}`,
       `- current_risk_summary: ${String(opp?.risk_summary || "").trim() || "(none)"}`,
       `- current_next_steps: ${String(opp?.next_steps || "").trim() || "(none)"}`,
-      category === "budget"
-        ? `- prior_deal_context_signals: pricing_discussed=${!!dealContext?.pricing_discussed}, po_submitted=${!!dealContext?.po_submitted}, sole_vendor=${!!dealContext?.sole_vendor}, contract_in_place=${!!dealContext?.contract_in_place}, existing_customer=${!!dealContext?.existing_customer}, po_process_described=${!!dealContext?.po_process_described}`
+      category === "budget" || category === "economic_buyer"
+        ? `- prior_deal_context_signals: pricing_discussed=${!!dealContext?.pricing_discussed}, po_submitted=${!!dealContext?.po_submitted}, is_also_eb=${!!dealContext?.is_also_eb}, sole_vendor=${!!dealContext?.sole_vendor}, contract_in_place=${!!dealContext?.contract_in_place}, existing_customer=${!!dealContext?.existing_customer}, po_process_described=${!!dealContext?.po_process_described}`
         : "",
       (category === "champion" || category === "economic_buyer")
         ? `- current entity: champion_name=${String((opp as any)?.champion_name ?? "").trim() || "(none)"}, champion_title=${String((opp as any)?.champion_title ?? "").trim() || "(none)"}, eb_name=${String((opp as any)?.eb_name ?? "").trim() || "(none)"}, eb_title=${String((opp as any)?.eb_title ?? "").trim() || "(none)"}`

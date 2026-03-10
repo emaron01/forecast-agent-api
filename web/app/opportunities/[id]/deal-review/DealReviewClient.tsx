@@ -252,10 +252,11 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   const chainScoresRef = useRef<Record<string, number>>({});
   /** When champion completes with champion_name in response, store for economic_buyer cross-category prompt. */
   const lastChampionFromChainRef = useRef<{ champion_name: string; champion_title?: string } | null>(null);
-  /** Accumulated deal signals from completed categories in this chain; passed into Budget as context. */
+  /** Accumulated deal signals from completed categories in this chain; passed into Budget and EB as context. */
   const dealContextRef = useRef<{
     pricing_discussed?: boolean;
     po_submitted?: boolean;
+    is_also_eb?: boolean;
     champion_name?: string;
     champion_title?: string;
     sole_vendor?: boolean;
@@ -737,23 +738,24 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       switch (categoryName) {
         case "champion":
           return {
-            pricing_discussed: Boolean(finalizeJson?.pricing_discussed),
-            po_submitted: Boolean(finalizeJson?.po_submitted),
+            pricing_discussed: finalizeJson?.pricing_discussed ?? false,
+            po_submitted: finalizeJson?.po_submitted ?? false,
+            is_also_eb: finalizeJson?.is_also_eb ?? false,
             champion_name: finalizeJson?.champion_name,
             champion_title: finalizeJson?.champion_title,
           };
         case "competition":
           return {
-            sole_vendor: Boolean(finalizeJson?.sole_vendor),
-            contract_in_place: Boolean(finalizeJson?.contract_in_place),
+            sole_vendor: finalizeJson?.sole_vendor ?? false,
+            contract_in_place: finalizeJson?.contract_in_place ?? false,
           };
         case "criteria":
           return {
-            existing_customer: Boolean(finalizeJson?.existing_customer),
+            existing_customer: finalizeJson?.existing_customer ?? false,
           };
         case "process":
           return {
-            po_process_described: Boolean(finalizeJson?.po_process_described),
+            po_process_described: finalizeJson?.po_process_described ?? false,
           };
         default:
           return {};
@@ -865,7 +867,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             ...(championCtx.champion_title ? { champion_title: championCtx.champion_title } : {}),
           };
         }
-        if (nextCat === "budget" && dealContextRef.current) {
+        if ((nextCat === "budget" || nextCat === "economic_buyer") && dealContextRef.current) {
           postBody.deal_context = dealContextRef.current;
         }
         console.log("cross_category_debug", {
@@ -964,10 +966,23 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             if (!cat) return;
             const sid = String(catSessionIdRef.current || "").trim();
             setCatMessages((prev) => [...prev, msg]);
+            const baseBody: {
+              category: string;
+              text: string;
+              sessionId?: string;
+              deal_context?: typeof dealContextRef.current;
+            } = {
+              category: cat,
+              text,
+              sessionId: sid || undefined,
+            };
+            if ((cat === "budget" || cat === "economic_buyer") && dealContextRef.current) {
+              baseBody.deal_context = dealContextRef.current;
+            }
             const res = await fetch(`/api/deal-review/opportunities/${encodeURIComponent(opportunityId)}/update-category`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ category: cat, text, sessionId: sid || undefined }),
+            body: JSON.stringify(baseBody),
           });
           const contentType = res.headers.get("content-type") || "";
           if (contentType.includes("text/event-stream")) {
@@ -1048,10 +1063,18 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             if (json?.error === "Unknown sessionId") {
               catSessionIdRef.current = "";
               setCatSessionId("");
+              const retryBody: {
+                category: string;
+                text: string;
+                deal_context?: typeof dealContextRef.current;
+              } = { category: cat, text };
+              if ((cat === "budget" || cat === "economic_buyer") && dealContextRef.current) {
+                retryBody.deal_context = dealContextRef.current;
+              }
               const retryRes = await fetch(`/api/deal-review/opportunities/${encodeURIComponent(opportunityId)}/update-category`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ category: cat, text }),
+                body: JSON.stringify(retryBody),
               });
               const retryJson = await retryRes.json().catch(() => ({}));
               if (!retryRes.ok || !retryJson?.ok) {
