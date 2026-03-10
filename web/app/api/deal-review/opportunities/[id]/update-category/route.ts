@@ -1198,7 +1198,20 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
               .filter(Boolean)
               .join("\n");
 
-            const sseResultPayload: { score: number; evidence: string; tip: string; champion_name?: string; champion_title?: string } = {
+            const sseResultPayload: {
+              score: number;
+              evidence: string;
+              tip: string;
+              champion_name?: string;
+              champion_title?: string;
+              pricing_discussed?: boolean;
+              po_submitted?: boolean;
+              is_also_eb?: boolean;
+              sole_vendor?: boolean;
+              contract_in_place?: boolean;
+              existing_customer?: boolean;
+              po_process_described?: boolean;
+            } = {
               score: Math.max(0, Math.min(3, Number(score) || 0)),
               evidence,
               tip,
@@ -1208,6 +1221,16 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
               if (cn) sseResultPayload.champion_name = cn;
               const ct = String(sseEntity.champion_title ?? "").trim();
               if (ct) sseResultPayload.champion_title = ct;
+              sseResultPayload.pricing_discussed = (obj as any)?.pricing_discussed === true;
+              sseResultPayload.po_submitted = (obj as any)?.po_submitted === true;
+              sseResultPayload.is_also_eb = (obj as any)?.is_also_eb === true;
+            } else if (category === "competition") {
+              sseResultPayload.sole_vendor = (obj as any)?.sole_vendor === true;
+              sseResultPayload.contract_in_place = (obj as any)?.contract_in_place === true;
+            } else if (category === "criteria") {
+              sseResultPayload.existing_customer = (obj as any)?.existing_customer === true;
+            } else if (category === "process") {
+              sseResultPayload.po_process_described = (obj as any)?.po_process_described === true;
             }
             sendSSE({
               type: "done",
@@ -1368,7 +1391,20 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       .filter(Boolean)
       .join("\n");
 
-    const resultPayload: { score: number; evidence: string; tip: string; champion_name?: string; champion_title?: string } = {
+    const resultPayload: {
+      score: number;
+      evidence: string;
+      tip: string;
+      champion_name?: string;
+      champion_title?: string;
+      pricing_discussed?: boolean;
+      po_submitted?: boolean;
+      is_also_eb?: boolean;
+      sole_vendor?: boolean;
+      contract_in_place?: boolean;
+      existing_customer?: boolean;
+      po_process_described?: boolean;
+    } = {
       score: Math.max(0, Math.min(3, Number(score) || 0)),
       evidence,
       tip,
@@ -1378,6 +1414,16 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       if (cn) resultPayload.champion_name = cn;
       const ct = String(jsonEntity.champion_title ?? "").trim();
       if (ct) resultPayload.champion_title = ct;
+      resultPayload.pricing_discussed = (obj as any)?.pricing_discussed === true;
+      resultPayload.po_submitted = (obj as any)?.po_submitted === true;
+      resultPayload.is_also_eb = (obj as any)?.is_also_eb === true;
+    } else if (category === "competition") {
+      resultPayload.sole_vendor = (obj as any)?.sole_vendor === true;
+      resultPayload.contract_in_place = (obj as any)?.contract_in_place === true;
+    } else if (category === "criteria") {
+      resultPayload.existing_customer = (obj as any)?.existing_customer === true;
+    } else if (category === "process") {
+      resultPayload.po_process_described = (obj as any)?.po_process_described === true;
     }
     return NextResponse.json({
       ok: true,
