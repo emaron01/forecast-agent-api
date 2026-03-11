@@ -173,8 +173,15 @@ explicitly in their response."
   impact or ROI, or is this your assessment?"
 - Champion: "What specific action have they taken
   to move this deal forward internally?"
-- Economic Buyer: "Have you spoken with them
-  directly, or is access through someone else?"
+- Economic Buyer: "If rep names the EB but score
+  would be below 3, ALWAYS ask before finalizing:
+  'Have you met or spoken directly with [name],
+  and do you have a direct line to them?'
+
+  Note: processing a PO, submitting a quote, or
+  being named as champion does NOT confirm direct
+  EB relationship — direct communication must be
+  explicitly stated."
 - Criteria: "Are the criteria documented and
   confirmed by the buying team, or still general
   requirements?"
