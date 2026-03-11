@@ -1717,14 +1717,36 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
         <div className="qaBody">
           <div className="chat" style={{ marginTop: 0, maxHeight: "none" }}>
             {activeMessages?.length ? (
-              activeMessages.map((m, i) => (
-                <div key={`${m.at}-${i}`} className="msg">
-                  <div className="msgMeta">
-                    <strong className={`role ${m.role}`}>{m.role.toUpperCase()}</strong> · {new Date(m.at).toLocaleTimeString()}
+              activeMessages.map((m, i) => {
+                const isLastAssistantFollowUp =
+                  i === activeMessages.length - 1 && m.role === "assistant" && activeMessages.length > 1;
+                return (
+                  <div
+                    key={`${m.at}-${i}`}
+                    className="msg"
+                    style={
+                      isLastAssistantFollowUp
+                        ? {
+                            borderLeft: "3px solid #F1C40F",
+                            backgroundColor: "rgba(241, 196, 15, 0.06)",
+                            paddingLeft: 10,
+                          }
+                        : undefined
+                    }
+                  >
+                    <div className="msgMeta">
+                      <strong className={`role ${m.role}`}>{m.role.toUpperCase()}</strong> ·{" "}
+                      {new Date(m.at).toLocaleTimeString()}
+                    </div>
+                    {isLastAssistantFollowUp ? (
+                      <div className="small" style={{ color: "#F1C40F", fontWeight: 600, marginBottom: 2 }}>
+                        Follow-up Question
+                      </div>
+                    ) : null}
+                    <div className="msgBody">{m.text}</div>
                   </div>
-                  <div className="msgBody">{m.text}</div>
-                </div>
-              ))
+                );
+              })
             ) : (
               <div className="small">Waiting for the agent prompt…</div>
             )}
