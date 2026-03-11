@@ -969,6 +969,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "- For Budget: phrases like 'haven\'t discussed pricing', 'no budget', 'not confirmed' are explicit evidence; score low and provide a tip to confirm funding/approval.",
       "- If you need more information to score, ask ONE focused follow-up question.",
       "If probe_guidance is provided and the rep's answer is sufficient for the current score tier but has not yet provided evidence for the next tier, ask ONE probe question before finalizing. Adapt the phrasing naturally — do not recite verbatim. Skip the probe if the rep has already answered it or if asking would be redundant given context.",
+      "MANDATORY: Before finalizing any category at score 0, 1, or 2, you MUST ask the follow-up question specified in your instructions for that category. Do not finalize below score 3 without first asking it. The only exception is if the rep already answered it explicitly.",
       "- Otherwise, produce a final update for this category: score (0-3), evidence, and coaching tip.",
       "- Also update wrap outputs (risk_summary and next_steps) using ONLY the known evidence. If coverage is incomplete, be accurate and not harsh.",
       "- Do NOT use the word 'champion' in any user-facing text; use 'Internal Sponsor'.",
