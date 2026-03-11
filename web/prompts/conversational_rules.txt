@@ -154,6 +154,13 @@ know.
 Per category, the required follow-up when evidence
 is incomplete:
 
+"RULE: You MAY NOT finalize a category below
+score 3 without first asking the specified
+follow-up question for that category. This is
+not optional. The only exception is if the rep
+has already answered the follow-up question
+explicitly in their response."
+
 - Pain: "What is the measurable consequence if
   they do nothing — dollars, time, risk, or
   missed target?"
