@@ -1697,8 +1697,8 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             <div className="qaMeaningLine">{String(qaCanonical?.meaningLine || "").trim() || ""}</div>
           </div>
           <div className="qaMeta">
-            <span className="pill">{categoryInputMode === "TEXT" ? "TEXT (silent)" : "VOICE"}</span>
             <button
+              className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-xs font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)] disabled:opacity-60"
               onClick={() => {
                 setQaPaneOpen(false);
                 setAnswer("");
@@ -1739,19 +1739,32 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
                 <span className="small">Typing is silent.</span>
               </div>
 
-              <div className="row" style={{ marginTop: 10, width: "100%" }}>
-                <input
+              <div className="row" style={{ marginTop: 10, width: "100%", alignItems: "flex-end" }}>
+                <textarea
                   value={answer}
                   onChange={(e) => setAnswer(e.target.value)}
                   placeholder="Type your answer…"
-                  style={{ flex: 1, minWidth: 220 }}
+                  rows={4}
+                  style={{
+                    flex: 1,
+                    minWidth: 220,
+                    resize: "vertical",
+                    fontSize: "11pt",
+                    lineHeight: 1.4,
+                  }}
                   disabled={busy || !selectedCategory}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") void sendAnswer();
+                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") void sendAnswer();
                   }}
                 />
-                <button type="button" onClick={() => void sendAnswer()} disabled={busy || !answer.trim()}>
-                  Send
+                <button
+                  type="button"
+                  onClick={() => void sendAnswer()}
+                  disabled={busy || !answer.trim()}
+                  style={{ marginLeft: 8 }}
+                  className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-xs font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)] disabled:opacity-60"
+                >
+                  Save Update
                 </button>
               </div>
             </div>
