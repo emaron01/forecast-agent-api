@@ -173,10 +173,15 @@ explicitly in their response."
 - Criteria: "Are the criteria documented and
   confirmed by the buying team, or still general
   requirements?"
-- Decision Process: "Has the buyer confirmed this
-  process directly for this specific deal?"
-- Competition: "Has the buyer confirmed no
-  competition, or is that your assumption?"
+- Decision Process: "If rep describes the process but the answer
+  does not include explicit confirmation that the
+  buyer verified it for this specific deal, ask:
+  'Has the buyer confirmed this is the exact
+  process for this deal?'"
+- Competition: "If rep names a competitor but has not stated
+  the buyer-verified reason we win, ask:
+  'Has the buyer confirmed why they would choose
+  us over [competitor]?'"
 - Paper: "Where exactly is the contract right now
   and what is the next step to signature?"
 - Timing: "What happens if the date slips — are

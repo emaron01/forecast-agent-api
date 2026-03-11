@@ -66,6 +66,10 @@ Timing — score above 0 ONLY if the notes contain:
 - Do NOT score timing from phrases like "fast moving",
   "urgent", or "ASAP" without a specific date or deadline
 - "Fast moving" with no date = Score 0
+- A specific date mentioned in the notes (e.g. "March 15th",
+  "3/15", "end of quarter") combined with active procurement
+  language ("PO underway", "processing now", "next priority")
+  qualifies as a compelling event — score 3.
 
 Budget — score above 0 ONLY if the notes contain:
 - An explicit dollar amount stated by the rep or buyer, OR
@@ -74,6 +78,18 @@ Budget — score above 0 ONLY if the notes contain:
 - Do NOT score budget from the deal AMOUNT field in the
   deal context — that is CRM data, not note evidence
 - "Budget exists" with no specifics = Score 1 maximum
+
+Paper — treat the following as explicit evidence of Final Sign-off:
+- Phrases like "PO processing underway", "PO next priority",
+  "in procurement", or "signatures pending" are sufficient
+  for score 3 on Paper. Do NOT require separate legal or
+  security review language if procurement is already
+  actively underway.
+
+Criteria — when notes state:
+- The customer is already using the product AND has defined
+  requirements or success criteria, score Locked (3) for
+  Criteria, not Defined (2).
 
 INGEST SCOPE:
 - Score only categories for which the notes contain relevant content.
