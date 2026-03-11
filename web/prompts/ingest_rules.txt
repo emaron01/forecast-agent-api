@@ -78,6 +78,11 @@ Budget — score above 0 ONLY if the notes contain:
 - Do NOT score budget from the deal AMOUNT field in the
   deal context — that is CRM data, not note evidence
 - "Budget exists" with no specifics = Score 1 maximum
+- Phrases like "PO processing underway", "PO next priority",
+  "cutting a PO", "quote submitted", or "quote cut and
+  with [buyer]" are explicit evidence of Budget & Pricing
+  Fully Confirmed — score 3. Do not score 0 when any of
+  these procurement phrases are present.
 
 Paper — treat the following as explicit evidence of Final Sign-off:
 - Phrases like "PO processing underway", "PO next priority",
@@ -90,6 +95,13 @@ Criteria — when notes state:
 - The customer is already using the product AND has defined
   requirements or success criteria, score Locked (3) for
   Criteria, not Defined (2).
+
+Economic Buyer — score rules:
+- Any named contact in the notes (with or without title)
+  scores at minimum Identified (1) for Economic Buyer.
+- Score 0 for Economic Buyer only when no person is named
+  and there is no reference to a decision maker anywhere
+  in the notes.
 
 INGEST SCOPE:
 - Score only categories for which the notes contain relevant content.
