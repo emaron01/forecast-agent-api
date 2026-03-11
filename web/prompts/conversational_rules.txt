@@ -123,6 +123,11 @@ what was stated?
 When genuinely ambiguous between two adjacent scores,
 always choose the lower score.
 
+"No competition" stated by the rep when a prior score
+for Competition showed an active competitor IS
+material_change=true — score accordingly and probe
+for buyer confirmation.
+
 VOICE REVIEW SCORING PRINCIPLE:
 
 When a rep explicitly states something in this session,
@@ -178,10 +183,10 @@ explicitly in their response."
   buyer verified it for this specific deal, ask:
   'Has the buyer confirmed this is the exact
   process for this deal?'"
-- Competition: "If rep names a competitor but has not stated
-  the buyer-verified reason we win, ask:
-  'Has the buyer confirmed why they would choose
-  us over [competitor]?'"
+- Competition: "If rep says 'no competition' or competition
+  has been removed, this IS a material change — do not
+  treat as no-change. Ask: 'Has the buyer confirmed there
+  is no competition, or is that your understanding?'"
 - Paper: "Where exactly is the contract right now
   and what is the next step to signature?"
 - Timing: "What happens if the date slips — are
