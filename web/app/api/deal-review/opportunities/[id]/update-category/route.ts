@@ -991,6 +991,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "When finalizing for Internal Sponsor or Economic Buyer, if the rep stated a name or title, include only that role's fields: for Economic Buyer use eb_name, eb_title; for Internal Sponsor use champion_name, champion_title. champion_name must be a person's full name only (e.g. 'Vince Campbell'), never a title or role description. Do not cross-populate the other role.",
       "If the rep gives a new name and/or title for EB or Champion, accept it (they can change it back if wrong). Omit entity_override when unclear.",
       `- {"action":"finalize","material_change":false} `,
+      "MANDATORY: Before finalizing any category at score 0, 1, or 2, you MUST ask the follow-up question specified in your system instructions for that category. Do not finalize below score 3 without first asking it. The only exception is if the rep has already explicitly answered it in their current response.",
     ].join("\n");
     const instructions = `${masterPromptResolved}\n\n---\n\n${categoryInstructions}`;
 
@@ -1145,6 +1146,37 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
               controller.close();
               return;
             }
+
+            if (score <= 2) {
+              const assistantTurns = session.turns.filter((t) => t?.role === "assistant");
+              const hasPriorFollowUp = assistantTurns.length >= 2;
+              if (!hasPriorFollowUp) {
+                let followUpQ = "";
+                try {
+                  const pack = await getQuestionPack(pool, { orgId, category, criteriaId: lastScore });
+                  const clarifiers = (pack?.clarifiers || [])
+                    .map((c: any) => String((c?.question_text ?? c) || "").trim())
+                    .filter(Boolean);
+                  followUpQ = clarifiers[0] || "";
+                } catch {
+                  /* ignore */
+                }
+                if (followUpQ) {
+                  session.turns.push({ role: "assistant", text: followUpQ, at: Date.now() });
+                  session.updatedAt = Date.now();
+                  sendSSE({
+                    type: "done",
+                    ok: true,
+                    sessionId,
+                    category,
+                    assistantText: followUpQ,
+                  });
+                  controller.close();
+                  return;
+                }
+              }
+            }
+
             if (!evidence || !tip) {
               sendSSE({ type: "error", error: "Model returned empty evidence or tip" });
               controller.close();
@@ -1339,6 +1371,29 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     if (!Number.isFinite(score) || score < 0 || score > 3) {
       return NextResponse.json({ ok: false, error: "Model returned invalid score" }, { status: 500 });
     }
+
+    if (score <= 2) {
+      const assistantTurns = session.turns.filter((t) => t?.role === "assistant");
+      const hasPriorFollowUp = assistantTurns.length >= 2;
+      if (!hasPriorFollowUp) {
+        let followUpQ = "";
+        try {
+          const pack = await getQuestionPack(pool, { orgId, category, criteriaId: lastScore });
+          const clarifiers = (pack?.clarifiers || [])
+            .map((c: any) => String((c?.question_text ?? c) || "").trim())
+            .filter(Boolean);
+          followUpQ = clarifiers[0] || "";
+        } catch {
+          /* ignore */
+        }
+        if (followUpQ) {
+          session.turns.push({ role: "assistant", text: followUpQ, at: Date.now() });
+          session.updatedAt = Date.now();
+          return NextResponse.json({ ok: true, sessionId, category, assistantText: followUpQ });
+        }
+      }
+    }
+
     if (!evidence) return NextResponse.json({ ok: false, error: "Model returned empty evidence" }, { status: 500 });
     if (!tip) return NextResponse.json({ ok: false, error: "Model returned empty tip" }, { status: 500 });
 
