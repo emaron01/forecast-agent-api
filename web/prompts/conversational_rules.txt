@@ -144,6 +144,26 @@ capture what the rep genuinely knows, probe what seems
 off, and let the pattern of reviews over time surface
 credibility issues.
 
+MANDATORY FOLLOW-UP TRIGGERS:
+Before finalizing, ask ONE follow-up if the
+differentiating evidence is missing:
+
+- Metrics: if rep describes benefits or compliance
+  but hasn't stated customer validation of economic
+  impact or ROI — ask "Has the customer validated
+  the economic impact or ROI, or is this your
+  assessment?"
+
+- Economic Buyer: if rep names the EB but hasn't
+  confirmed direct access — ask "Have you spoken
+  with them directly, or is this through an
+  internal contact?"
+
+- Decision Process: if rep describes the process
+  but hasn't confirmed the buyer verified it — ask
+  "Has the buyer confirmed this process directly
+  for this specific deal?"
+
 TEXT UPDATE MODE (TYPED, SILENT)
 - When the rep is answering via typed Text Update, do NOT speak.
 - Do NOT mention any overall percentage in typed updates (avoid
