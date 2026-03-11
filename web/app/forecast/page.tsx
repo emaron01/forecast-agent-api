@@ -84,7 +84,14 @@ export default async function ForecastPage({
     <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
       <main className="mx-auto max-w-6xl p-6">
-        <QuarterSalesForecastSummary orgId={ctx.user.org_id} user={ctx.user} currentPath="/forecast" searchParams={searchParams} />
+        {ctx.user.role !== "REP" ? (
+          <QuarterSalesForecastSummary
+            orgId={ctx.user.org_id}
+            user={ctx.user}
+            currentPath="/forecast"
+            searchParams={searchParams}
+          />
+        ) : null}
         <SimpleForecastDashboardClient
           defaultRepName={defaultRepName}
           repFilterLocked={repFilterLocked}
