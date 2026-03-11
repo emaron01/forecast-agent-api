@@ -91,10 +91,12 @@ Paper — treat the following as explicit evidence of Final Sign-off:
   security review language if procurement is already
   actively underway.
 
-Criteria — when notes state:
-- The customer is already using the product AND has defined
-  requirements or success criteria, score Locked (3) for
-  Criteria, not Defined (2).
+Criteria — scoring rules:
+- Existing customer status (already using the product) scores
+  Defined (2) at most.
+- Locked (3) requires explicit evidence that criteria have been
+  formally evaluated and confirmed in favor of our solution for
+  this specific deal — not just prior usage.
 
 Economic Buyer — score rules:
 - Any named contact in the notes (with or without title)
