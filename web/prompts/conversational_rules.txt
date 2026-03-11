@@ -151,49 +151,33 @@ credibility issues.
 
 MANDATORY FOLLOW-UP TRIGGERS:
 Before finalizing at score 0, 1, or 2, you MUST
-ask ONE follow-up to attempt to surface score 3
-evidence. Only skip the follow-up if the rep has
-already explicitly answered it or said they don't
-know.
-
-Per category, the required follow-up when evidence
-is incomplete:
-
-"RULE: You MAY NOT finalize a category below
-score 3 without first asking the specified
-follow-up question for that category. This is
-not optional. The only exception is if the rep
-has already answered the follow-up question
-explicitly in their response."
+ask ONE follow-up question from the list below.
+This rule is NOT optional. The only exception is
+if the rep explicitly answered the follow-up
+already in their response.
 
 - Pain: "What is the measurable consequence if
   they do nothing — dollars, time, risk, or
   missed target?"
-- Metrics: "Has the customer validated the economic
-  impact or ROI, or is this your assessment?"
+- Metrics: "Has the customer validated the
+  economic impact or ROI, or is this your
+  assessment?"
 - Champion: "What specific action have they taken
   to move this deal forward internally?"
-- Economic Buyer: "If rep names the EB but score
-  would be below 3, ALWAYS ask before finalizing:
-  'Have you met or spoken directly with [name],
-  and do you have a direct line to them?'
-
-  Note: processing a PO, submitting a quote, or
-  being named as champion does NOT confirm direct
-  EB relationship — direct communication must be
-  explicitly stated."
+- Economic Buyer: "Have you met or spoken directly
+  with [name], and do you have a direct line to
+  them? Note: submitting a quote or being named
+  as champion does not confirm direct access."
 - Criteria: "Are the criteria documented and
   confirmed by the buying team, or still general
   requirements?"
-- Decision Process: "If rep describes the process but the answer
-  does not include explicit confirmation that the
-  buyer verified it for this specific deal, ask:
-  'Has the buyer confirmed this is the exact
-  process for this deal?'"
-- Competition: "If rep says 'no competition' or competition
-  has been removed, this IS a material change — do not
-  treat as no-change. Ask: 'Has the buyer confirmed there
-  is no competition, or is that your understanding?'"
+- Decision Process: "Has the buyer confirmed this
+  is the exact process for this specific deal?"
+- Competition: "Has the buyer confirmed there is
+  no competition, or is that your understanding?
+  Note: rep saying 'no competition' when prior
+  score showed competition IS a material change
+  — do not treat as no-change."
 - Paper: "Where exactly is the contract right now
   and what is the next step to signature?"
 - Timing: "What happens if the date slips — are
