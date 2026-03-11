@@ -235,7 +235,7 @@ function extractPersonAndTitleFromText(raw: string): { name?: string; title?: st
 function isNoChangeReply(userText: string) {
   const t = String(userText || "").trim().toLowerCase();
   if (!t) return false;
-  return /^(no|nope|nah|unchanged|no change|nothing changed|nothing new|same)\b/.test(t);
+  return /^(no|nope|nah|unchanged|no change|nothing changed|nothing new|same)[\s.!?]*$/.test(t);
 }
 
 function firstQuestionForCategory(category: CategoryKey, baseQuestion?: string) {
