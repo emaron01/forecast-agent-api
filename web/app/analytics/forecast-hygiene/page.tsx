@@ -6,11 +6,11 @@ import { redirect } from "next/navigation";
 
 type SearchParams = { quota_period_id?: string };
 
-function coverageRowClass(pct: number | null): string {
-  if (pct == null) return "";
-  if (pct === 0) return "bg-red-50";
-  if (pct === 100) return "bg-green-50";
-  return "";
+function coveragePctTextClass(pct: number | null): string {
+  if (pct == null) return "text-[color:var(--sf-text-primary)]";
+  if (pct === 0) return "text-red-600";
+  if (pct === 100) return "text-green-600";
+  return "text-[color:var(--sf-text-primary)]";
 }
 
 function scoreColor(score: number | null | undefined): string {
@@ -583,11 +583,11 @@ export default async function ForecastHygienePage({
               </thead>
               <tbody>
                 {coverageRows.map((row) => (
-                  <tr key={row.rep_id} className={coverageRowClass(row.coverage_pct)}>
+                  <tr key={row.rep_id} className="border-t border-[color:var(--sf-border)]">
                     <td className="px-3 py-2 text-[color:var(--sf-text-primary)]">{row.rep_name}</td>
                     <td className="px-3 py-2 text-right text-[color:var(--sf-text-primary)]">{row.total_opps}</td>
                     <td className="px-3 py-2 text-right text-[color:var(--sf-text-primary)]">{row.reviewed_opps}</td>
-                    <td className="px-3 py-2 text-right text-[color:var(--sf-text-primary)]">
+                    <td className={`px-3 py-2 text-right font-medium ${coveragePctTextClass(row.coverage_pct)}`}>
                       {row.coverage_pct != null ? `${row.coverage_pct}%` : "—"}
                     </td>
                   </tr>
@@ -727,12 +727,8 @@ export default async function ForecastHygienePage({
                 </tr>
               </thead>
               <tbody>
-                {progressionRepSummaries.map((row, idx) => {
-                  const stalledRatio = row.total ? row.stalled / row.total : 0;
-                  const rowClass =
-                    stalledRatio > 0.5 ? "border-l-4 border-red-400 bg-red-50" : "";
-                  return (
-                    <tr key={`${row.repName}:${idx}`} className={`border-t border-[color:var(--sf-border)] ${rowClass}`}>
+                {progressionRepSummaries.map((row, idx) => (
+                    <tr key={`${row.repName}:${idx}`} className="border-t border-[color:var(--sf-border)]">
                       <td className="px-3 py-2 text-[color:var(--sf-text-primary)] whitespace-nowrap">
                         {row.repName}
                       </td>
@@ -749,8 +745,7 @@ export default async function ForecastHygienePage({
                         {row.total}
                       </td>
                     </tr>
-                  );
-                })}
+                ))}
                 {!progressionRepSummaries.length && (
                   <tr>
                     <td colSpan={5} className="px-3 py-4 text-center text-sm text-[color:var(--sf-text-secondary)]">
