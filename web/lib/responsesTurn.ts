@@ -1001,19 +1001,23 @@ export async function callResponsesApiSingleTurn(args: { instructions: string; u
   const baseUrl = resolveBaseUrl();
   const apiKey = String(process.env.MODEL_API_KEY || process.env.OPENAI_API_KEY || "").trim();
   const model = process.env.INGEST_MODEL || process.env.MODEL_API_NAME;
-
   if (!baseUrl) throw new Error("Missing OPENAI_BASE_URL (or MODEL_API_URL or MODEL_URL)");
   if (!apiKey) throw new Error("Missing MODEL_API_KEY");
   if (!model) throw new Error("Missing INGEST_MODEL or MODEL_API_NAME");
 
-  console.log(JSON.stringify({
-    event: "ingest_model",
-    model: model
-  }));
+  console.log(JSON.stringify({ event: "ingest_model", model }));
 
-  const resp = await withTimeout(
-    fetch(`${baseUrl}/responses`, {
+  const TIMEOUT_MS = 45000; // 45 seconds covers the full round trip
+
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => {
+    controller.abort();
+  }, TIMEOUT_MS);
+
+  try {
+    const resp = await fetch(`${baseUrl}/responses`, {
       method: "POST",
+      signal: controller.signal,
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
@@ -1026,24 +1030,37 @@ export async function callResponsesApiSingleTurn(args: { instructions: string; u
         temperature: 0,
         max_output_tokens: 2000,
       }),
-    }),
-    30000,  // 30 second timeout per category call
-    `ingest category call`
-  );
+    });
 
-  const json = await resp.json().catch(async () => ({ error: { message: await resp.text() } }));
-  if (!resp.ok) {
-    const msg = json?.error?.message || JSON.stringify(json);
-    throw new Error(msg);
+    const json = await resp.json().catch(async () => ({ error: { message: await resp.text() } }));
+
+    if (!resp.ok) {
+      const msg = json?.error?.message || JSON.stringify(json);
+      throw new Error(msg);
+    }
+
+    const output = Array.isArray(json?.output) ? json.output : [];
+    console.log(JSON.stringify({
+      event: "ingest_token_usage",
+      input_tokens: json?.usage?.input_tokens,
+      output_tokens: json?.usage?.output_tokens,
+      total_tokens: json?.usage?.total_tokens,
+    }));
+
+    return extractAssistantText(output);
+
+  } catch (e: any) {
+    if (e?.name === "AbortError") {
+      console.error(JSON.stringify({
+        event: "ingest_timeout",
+        model,
+        timeout_ms: TIMEOUT_MS,
+      }));
+      throw new Error(`INGEST_TIMEOUT: callResponsesApiSingleTurn exceeded ${TIMEOUT_MS}ms`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeoutHandle);
   }
-
-  const output = Array.isArray(json?.output) ? json.output : [];
-  console.log(JSON.stringify({
-    event: "ingest_token_usage",
-    input_tokens: json?.usage?.input_tokens,
-    output_tokens: json?.usage?.output_tokens,
-    total_tokens: json?.usage?.total_tokens,
-  }));
-  return extractAssistantText(output);
 }
 
