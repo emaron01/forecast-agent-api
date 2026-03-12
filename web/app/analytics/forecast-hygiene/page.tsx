@@ -184,10 +184,7 @@ export default async function ForecastHygienePage({
             FROM opportunity_audit_events oae
            WHERE oae.opportunity_id = opp.id
              AND oae.org_id = $1
-             AND (
-               oae.meta->>'score_event_source' = 'agent'
-               OR oae.event_type = 'agent'
-             )
+             AND oae.total_score IS NOT NULL
         )
       )::int AS reviewed_opps,
       ROUND(
@@ -197,10 +194,7 @@ export default async function ForecastHygienePage({
               FROM opportunity_audit_events oae
              WHERE oae.opportunity_id = opp.id
                AND oae.org_id = $1
-               AND (
-                 oae.meta->>'score_event_source' = 'agent'
-                 OR oae.event_type = 'agent'
-               )
+               AND oae.total_score IS NOT NULL
           )
         )::numeric
         / NULLIF(COUNT(opp.id), 0) * 100
@@ -278,10 +272,7 @@ export default async function ForecastHygienePage({
          FROM opportunity_audit_events oae
         WHERE oae.opportunity_id = opp.id
           AND oae.org_id = $1
-          AND (
-            oae.meta->>'score_event_source' = 'agent'
-            OR oae.event_type = 'agent'
-          )
+          AND oae.total_score IS NOT NULL
      )
     WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
       AND r.id = ANY($4::bigint[])
