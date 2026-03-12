@@ -297,31 +297,7 @@ export function SimpleForecastDashboardClient(props: {
             </div>
           )}
 
-          {showDealReviewWorkflow ? (
-            <div className="md:col-span-3 flex items-end justify-end gap-2">
-              <button
-                type="button"
-                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)] disabled:opacity-60"
-                disabled={busy || !filtered.length}
-                onClick={() => {
-                  setSelected((prev) => {
-                    const next = { ...prev };
-                    for (const d of filtered) {
-                      const id = String(d.id || "");
-                      if (!id) continue;
-                      next[id] = !allVisibleSelected;
-                    }
-                    return next;
-                  });
-                }}
-                title="Select/deselect all visible deals (after search filter)."
-              >
-                {allVisibleSelected ? "Clear All For Review" : "Select All For Review"}
-              </button>
-            </div>
-          ) : (
-            <div className="md:col-span-3" />
-          )}
+          <div className="md:col-span-3" />
         </div>
 
         {error ? (
@@ -333,9 +309,8 @@ export function SimpleForecastDashboardClient(props: {
 
       <section className="overflow-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm">
         <table className="w-full min-w-[980px] text-left text-sm">
-          <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
+              <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
             <tr>
-              {showDealReviewWorkflow ? <th className="px-4 py-3 w-[56px]">Queue</th> : null}
               <th className="px-4 py-3">Account Name</th>
               <th className="px-4 py-3">Opp Name</th>
               <th className="px-4 py-3">Revenue</th>
@@ -346,23 +321,13 @@ export function SimpleForecastDashboardClient(props: {
               <th className="px-4 py-3 text-right">{showDealReviewWorkflow ? "Review" : "Deal Score Card"}</th>
             </tr>
           </thead>
-          <tbody>
+              <tbody>
             {filtered.map((d) => {
               const id = String(d.id || "");
               const checked = !!selected[id];
               const bucket = normalizeForecastBucket(d.forecast_stage);
               return (
                 <tr key={id} className="border-t border-[color:var(--sf-border)]">
-                  {showDealReviewWorkflow ? (
-                    <td className="px-4 py-3">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => setSelected((prev) => ({ ...prev, [id]: e.target.checked }))}
-                        aria-label="Queue for review"
-                      />
-                    </td>
-                  ) : null}
                   <td className="px-4 py-3">{d.account_name || "—"}</td>
                   <td className="px-4 py-3">{d.opportunity_name || "—"}</td>
                   <td className="px-4 py-3">{fmtMoney(d.amount)}</td>
