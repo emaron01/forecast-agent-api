@@ -44,6 +44,11 @@ export default async function AnalyticsPage() {
               desc="Deal heatmap + risk/next steps report (sortable)."
             />
           ) : null}
+          <Card
+            href="/analytics/forecast-hygiene"
+            title="Forecast Hygiene"
+            desc="Rep and team engagement with Matthew — coverage gaps, score velocity, deal progression, and MEDDPICC assessment by rep and manager."
+          />
           {ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER" ? (
             <Card href="/analytics/detail-dashboard" title="Detail dashboard (report)" desc="The legacy detail dashboard, now housed in Analytics." />
           ) : null}

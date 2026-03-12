@@ -65,6 +65,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                       <NavLink href="/admin/analytics" label="Analytics" />
                       <NavLink href="/admin/analytics/quota-periods" label="Quota Periods" />
                       <NavLink href="/admin/analytics/quotas" label="Quotas" />
+                      <NavLink href="/admin/analytics/forecast-hygiene" label="Forecast Hygiene" />
                     </>
                   ) : null}
                 </>
