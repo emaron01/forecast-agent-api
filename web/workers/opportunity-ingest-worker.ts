@@ -26,19 +26,20 @@ function getStartOfCurrentQuarterUTC(now: Date): Date {
 }
 
 function inScope(opp: { sales_stage?: string | null; forecast_stage?: string | null; close_date?: string | Date | null }): boolean {
-  const outcome = outcomeFromOpportunityRow(opp);
-  if (outcome === "Open") return true;
-
   const rawClose = opp.close_date;
   if (!rawClose) return false;
+
   const closeDate = new Date(rawClose as any);
   if (!Number.isFinite(closeDate.getTime())) return false;
 
   const now = new Date();
   const currentQuarterStart = getStartOfCurrentQuarterUTC(now);
+
+  // Exclude anything older than 2 quarters back — no exceptions for Open stage
   const cutoff2q = new Date(
     Date.UTC(currentQuarterStart.getUTCFullYear(), currentQuarterStart.getUTCMonth() - 6, 1)
   );
+
   return closeDate.getTime() >= cutoff2q.getTime();
 }
 
