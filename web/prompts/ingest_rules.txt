@@ -105,14 +105,6 @@ Economic Buyer — score rules:
   and there is no reference to a decision maker anywhere
   in the notes.
 
-Competition — evidence phrasing:
-- When scoring based on a rep assertion of no competition,
-  use the actual note text as the evidence sentence.
-- Do NOT invent internal reasoning language such as
-  "rep has stated no competition exists with a credible
-  reason (incumbent position, sole approved vendor)";
-  keep the evidence aligned to what the notes explicitly say.
-
 INGEST SCOPE:
 - Score only categories for which the notes contain relevant content.
 - Do not fabricate evidence for categories not mentioned.
