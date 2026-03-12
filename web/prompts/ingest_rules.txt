@@ -121,6 +121,72 @@ Competition — scoring rules:
   AND no competitive context exists anywhere in the notes.
 - Do NOT require the word "competition" or "competitor" to appear.
 
+Champion — scoring rules (ingest only):
+- Rep-initiated contact phrases ("connected with", "met with",
+  "introduced", "reached out", "following up") = score 1 maximum.
+  A rep action is not a buyer action. No exceptions.
+- Score 2 requires a sentence in the notes where the named person
+  took a buyer-side action: initiated contact, made an internal
+  introduction, shared information, or explicitly agreed to support.
+- Score 3 requires the named person to have visibly acted
+  internally: submitted something, removed a blocker, or
+  influenced a decision on the deal's behalf — stated explicitly
+  in the notes.
+- When ambiguous, score 1.
+
+Metrics — scoring rules (ingest only):
+- Score 0 if no specific metric, KPI, dollar amount, or ROI
+  figure is mentioned anywhere in the notes.
+- Score 1 if the rep mentions metrics exist or matter but
+  provides no specific figures or buyer validation.
+- Score 2 requires a specific metric or figure stated in the
+  notes with indirect buyer context (rep references what the
+  buyer tracks or has discussed).
+- Score 3 requires the buyer to have explicitly validated a
+  specific metric or ROI figure — named person + specific
+  number or outcome confirmed.
+- "They care about ROI" or "metrics are important" = score 0.
+  No number, no score above 0.
+
+Decision Process — scoring rules (ingest only):
+- Score 0 if no process, steps, or stakeholders are mentioned.
+- Score 1 if the rep asserts a process exists but provides
+  no specifics ("procurement underway" with no detail = score 1).
+- Score 2 requires specific steps, named stakeholders, or a
+  named system stated in the notes (e.g. "goes through Ariba",
+  "requires 4 signatures", "Vince submitted the quote").
+- Score 3 requires the buyer to have explicitly confirmed this
+  is the exact process for this specific deal — named person
+  + specific confirmed steps.
+- "Procurement underway" alone = score 1, not 2 or 3.
+
+Pain — scoring rules (ingest only):
+- Score 0 if no pain, problem, or business impact is mentioned.
+- Score 1 if the rep asserts pain exists with no specifics.
+- Score 2 if the notes describe a named business problem with
+  indirect buyer context but no quantified consequence.
+- Score 3 REQUIRES an explicit stated consequence of inaction:
+  a dollar amount, a named regulatory/compliance consequence,
+  explicit operational or data risk stated, or a deadline with
+  an explicit consequence if missed. A project timeline or
+  milestone alone does NOT qualify. "They want to get it done
+  by May" = score 1 or 2, never 3.
+
+Economic Buyer — scoring rules (ingest only):
+- Score 0 only if no person is named and no decision maker
+  is referenced anywhere in the notes.
+- Score 1 if a person is named but no EB-specific action or
+  confirmation is present.
+- Score 2 requires the named person to have taken a buying-
+  related action: approved something, been identified as budget
+  owner, or confirmed as decision maker by the rep with context.
+- Score 3 requires direct confirmed access: the rep has met or
+  spoken directly with the EB and the EB has taken a specific
+  verifiable action on this deal (approved budget, signed off,
+  submitted for PO).
+- Being named as a new contact or replacement does not exceed
+  score 1 without a buying action.
+
 Economic Buyer — score rules:
 - Any named contact in the notes (with or without title)
   scores at minimum Identified (1) for Economic Buyer.
