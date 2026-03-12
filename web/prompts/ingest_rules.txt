@@ -102,6 +102,19 @@ Criteria — scoring rules:
   proposed, this IS explicit Criteria evidence — score minimum
   Defined (2).
 
+Competition — scoring rules:
+- If the notes explicitly state no competition exists, OR the rep
+  states they are the incumbent/sole approved vendor, OR the notes
+  describe an active renewal of an existing contract with no
+  mention of alternatives being evaluated — score 2 (Identified).
+- Score 3 only if the buyer has explicitly confirmed no alternatives
+  are being considered, with a specific reason (e.g. compliance
+  requirement, sole approved vendor, switching cost stated).
+- Score 0 only when the notes contain zero reference to competitive
+  context AND this is not a renewal or expansion of existing usage.
+- Do NOT require the rep to use the word "competition" — renewal
+  and incumbent context IS explicit competition evidence.
+
 Economic Buyer — score rules:
 - Any named contact in the notes (with or without title)
   scores at minimum Identified (1) for Economic Buyer.
