@@ -103,17 +103,23 @@ Criteria — scoring rules:
   Defined (2).
 
 Competition — scoring rules:
-- If the notes explicitly state no competition exists, OR the rep
-  states they are the incumbent/sole approved vendor, OR the notes
-  describe an active renewal of an existing contract with no
-  mention of alternatives being evaluated — score 2 (Identified).
+- The following phrases anywhere in the notes ARE explicit
+  competition evidence and MUST trigger score 2 (Identified).
+  No exceptions. Do not score 0 when any of these are present:
+    "renewal", "renewing", "already consuming", "consuming licenses",
+    "already using", "existing contract", "incumbent", "sole vendor",
+    "sole approved vendor", "procurement underway", "PO underway",
+    "PO next priority", "PO processing", "next purchase",
+    "requisition", "MSA", "expand", "expansion", "additional licenses"
+- When any of the above phrases appear AND no competitor is
+  named anywhere in the notes — score 2. This is mandatory.
 - Score 3 only if the buyer has explicitly confirmed no alternatives
-  are being considered, with a specific reason (e.g. compliance
-  requirement, sole approved vendor, switching cost stated).
-- Score 0 only when the notes contain zero reference to competitive
-  context AND this is not a renewal or expansion of existing usage.
-- Do NOT require the rep to use the word "competition" — renewal
-  and incumbent context IS explicit competition evidence.
+  are being considered with a specific reason stated by the buyer
+  (e.g. compliance requirement, sole approved vendor confirmed
+  by buyer, switching cost described).
+- Score 0 ONLY when none of the above trigger phrases appear
+  AND no competitive context exists anywhere in the notes.
+- Do NOT require the word "competition" or "competitor" to appear.
 
 Economic Buyer — score rules:
 - Any named contact in the notes (with or without title)
