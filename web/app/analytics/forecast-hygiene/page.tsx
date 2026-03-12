@@ -177,7 +177,7 @@ export default async function ForecastHygienePage({
       ROUND(AVG(opp.paper_score))       AS paper,
       ROUND(AVG(opp.timing_score))      AS timing,
       ROUND(AVG(opp.budget_score))      AS budget,
-      ROUND(AVG(opp.total_score))       AS avg_total
+      ROUND(AVG(opp.health_score))      AS avg_total
     FROM users u
     LEFT JOIN opportunities opp
       ON opp.rep_id = u.id
@@ -212,8 +212,8 @@ export default async function ForecastHygienePage({
       opp.rep_id,
       COALESCE(NULLIF(btrim(u.display_name), ''), NULLIF(btrim(u.account_owner_name), ''), u.email) AS rep_name,
       first_event.total_score AS baseline_score,
-      opp.total_score AS current_score,
-      (opp.total_score - first_event.total_score) AS delta
+      opp.health_score AS current_score,
+      (opp.health_score - first_event.total_score) AS delta
     FROM opportunities opp
     JOIN users u ON u.id = opp.rep_id
     JOIN LATERAL (
