@@ -13,12 +13,13 @@ function coveragePctTextClass(pct: number | null): string {
   return "text-[color:var(--sf-text-primary)]";
 }
 
-function scoreColor(score: number | null | undefined): string {
-  if (score === null || score === undefined) return "bg-gray-100 text-gray-400";
-  if (score === 0) return "bg-red-600 text-white";
-  if (score === 1) return "bg-orange-500 text-white";
-  if (score === 2) return "bg-yellow-400 text-gray-900";
-  return "bg-green-500 text-white";
+/** Text-only colors for Matthew's Assessment: no cell highlight, keep red/orange/yellow/green */
+function assessmentScoreTextClass(score: number | null | undefined): string {
+  if (score === null || score === undefined) return "text-gray-400";
+  if (score === 0) return "text-red-600";
+  if (score === 1) return "text-orange-600";
+  if (score === 2) return "text-yellow-600";
+  return "text-green-600";
 }
 
 function deltaTextClass(delta: number): string {
@@ -639,7 +640,7 @@ export default async function ForecastHygienePage({
                     ].map((v, idx) => (
                       <td
                         key={idx}
-                        className={`px-2 py-1 text-center font-mono ${scoreColor(v)}`}
+                        className={`px-2 py-1 text-center font-mono ${assessmentScoreTextClass(v)}`}
                       >
                         {v != null ? v : "—"}
                       </td>
