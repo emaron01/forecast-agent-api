@@ -998,7 +998,9 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               playing = true;
               const sentence = sentenceQueue.shift()!;
               try {
-                await playTts(sentence);
+                if (voice) {
+                  await playTts(sentence);
+                }
               } catch {
                 /* playTts sets error state */
               }
@@ -1042,7 +1044,9 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
             }
             void loadOpportunityState();
-            if (donePayload?.material_change === undefined && sentenceQueue.length === 0) void playTts(assistantText);
+            if (donePayload?.material_change === undefined && sentenceQueue.length === 0) {
+              if (voice) void playTts(assistantText);
+            }
             if (donePayload?.material_change !== undefined) {
               const savedCategory = cat as CategoryKey;
               setCompletedCategoryKey(savedCategory);
@@ -1086,7 +1090,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               const retryAssistantText = String(retryJson?.assistantText || "").trim();
               if (retryAssistantText) {
                 setCatMessages((prev) => [...prev, { role: "assistant", text: retryAssistantText, at: Date.now() }]);
-                void playTts(retryAssistantText);
+                if (voice) void playTts(retryAssistantText);
               }
               void loadOpportunityState();
               return;
@@ -1097,7 +1101,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           const assistantText = String(json?.assistantText || "").trim();
           if (assistantText) {
             setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
-            await playTts(assistantText);
+            if (voice) await playTts(assistantText);
           }
           void loadOpportunityState();
           if (json?.material_change !== undefined) {
@@ -1370,13 +1374,13 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
       let greeting: string;
       if (isReturning) {
         const base = dealLabel
-          ? `Let's review ${dealLabel}. I'll walk you through the deal components, please provide the details of what you know today.`
-          : "I'll walk you through the deal components, please provide the details of what you know today.";
+          ? `Let's review ${dealLabel}. I'll walk you through the deal components, please provide any details for each category. One moment.`
+          : "I'll walk you through the deal components, please provide any details for each category. One moment.";
         greeting = repName ? `Hi ${repName}, welcome back. ${base}` : `Welcome back. ${base}`;
       } else {
         const base = dealLabel
-          ? `let's review ${dealLabel}. I'll walk you through the deal components, please provide the details of what you know today.`
-          : "Let's review. I'll walk you through the deal components, please provide the details of what you know today.";
+          ? `let's review ${dealLabel}. I'll walk you through the deal components, please provide any details for each category. One moment.`
+          : "Let's review. I'll walk you through the deal components, please provide any details for each category. One moment.";
         greeting = repName ? `Hi ${repName}, ${base}` : base.charAt(0).toUpperCase() + base.slice(1);
       }
       await playTts(greeting);
@@ -1518,7 +1522,9 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             playing = true;
             const sentence = sentenceQueue.shift()!;
             try {
-              await playTts(sentence);
+              if (voice) {
+                await playTts(sentence);
+              }
             } catch {
               /* playTts sets error state */
             }
@@ -1563,7 +1569,9 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           if (assistantText) {
             setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
           }
-          if (donePayload?.material_change === undefined && sentenceQueue.length === 0) void playTts(assistantText);
+          if (donePayload?.material_change === undefined && sentenceQueue.length === 0) {
+            if (voice) void playTts(assistantText);
+          }
           responsePayload = donePayload;
         } else {
           const json = await res.json().catch(() => ({}));
@@ -1574,7 +1582,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             categoryInputMode === "TEXT" ? stripPercentCalloutsForTypedUpdate(rawAssistantText) : rawAssistantText;
           if (assistantText) {
             setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
-            if (categoryInputMode === "VOICE") void playTts(assistantText);
+            if (categoryInputMode === "VOICE" && voice) void playTts(assistantText);
           }
           responsePayload = json;
         }
