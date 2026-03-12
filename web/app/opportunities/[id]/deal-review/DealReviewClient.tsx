@@ -1570,7 +1570,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
           }
           if (donePayload?.material_change === undefined && sentenceQueue.length === 0) {
-            if (voice) void playTts(assistantText);
+            if (voice && categoryInputMode === "VOICE") void playTts(assistantText);
           }
           responsePayload = donePayload;
         } else {
