@@ -158,6 +158,72 @@ export default async function ForecastHygienePage({
     visibleRepIds = [-1];
   }
 
+  // User hierarchy and rep mapping for leader rollups
+  const { rows: userHierarchyRows } = await pool.query<{
+    id: number;
+    manager_user_id: number | null;
+    display_name: string;
+  }>(
+    `
+    SELECT
+      id,
+      manager_user_id,
+      COALESCE(NULLIF(btrim(display_name), ''), email, '(Unknown)') AS display_name
+    FROM users
+    WHERE org_id = $1 AND id = ANY($2::int[])
+    `,
+    [orgId, visibleUserIds]
+  );
+  const { rows: repUserRows } = await pool.query<{ id: number; user_id: number }>(
+    `SELECT r.id, r.user_id FROM reps r WHERE r.user_id = ANY($2::int[]) AND (r.org_id = $1::bigint OR r.organization_id = $1::bigint)`,
+    [orgId, visibleUserIds]
+  );
+
+  const visibleUserIdsSet = new Set(visibleUserIds.filter((id) => id !== -1));
+  const childrenByManager = new Map<number, number[]>();
+  for (const u of userHierarchyRows ?? []) {
+    if (u.manager_user_id != null && visibleUserIdsSet.has(u.manager_user_id)) {
+      let arr = childrenByManager.get(u.manager_user_id);
+      if (!arr) {
+        arr = [];
+        childrenByManager.set(u.manager_user_id, arr);
+      }
+      arr.push(u.id);
+    }
+  }
+  const leaders = (userHierarchyRows ?? [])
+    .filter((u) => (childrenByManager.get(u.id)?.length ?? 0) > 0)
+    .map((u) => ({ id: u.id, display_name: u.display_name }))
+    .sort((a, b) => a.display_name.localeCompare(b.display_name, "en", { sensitivity: "base" }));
+
+  function getSubtree(root: number): number[] {
+    const out: number[] = [root];
+    const queue = [root];
+    const visited = new Set([root]);
+    while (queue.length > 0) {
+      const u = queue.shift()!;
+      const children = childrenByManager.get(u) ?? [];
+      for (const c of children) {
+        if (!visited.has(c)) {
+          visited.add(c);
+          out.push(c);
+          queue.push(c);
+        }
+      }
+    }
+    return out;
+  }
+
+  const repIdByUserId = new Map((repUserRows ?? []).map((r) => [r.user_id, r.id]));
+  const leaderRepIds = new Map<number, number[]>();
+  for (const leader of leaders) {
+    const subtreeUserIds = getSubtree(leader.id);
+    const repIds = subtreeUserIds
+      .map((uid) => repIdByUserId.get(uid))
+      .filter((id): id is number => id != null);
+    if (repIds.length > 0) leaderRepIds.set(leader.id, repIds);
+  }
+
   // Query A — Coverage
   type CoverageRow = {
     rep_id: number;
@@ -183,7 +249,7 @@ export default async function ForecastHygienePage({
             FROM opportunity_audit_events oae
            WHERE oae.opportunity_id = opp.id
              AND oae.org_id = $1
-             AND oae.total_score IS NOT NULL
+             AND (oae.meta->>'score_event_source' = 'agent' OR oae.event_type = 'agent')
         )
       )::int AS reviewed_opps,
       ROUND(
@@ -193,7 +259,7 @@ export default async function ForecastHygienePage({
               FROM opportunity_audit_events oae
              WHERE oae.opportunity_id = opp.id
                AND oae.org_id = $1
-               AND oae.total_score IS NOT NULL
+               AND (oae.meta->>'score_event_source' = 'agent' OR oae.event_type = 'agent')
           )
         )::numeric
         / NULLIF(COUNT(opp.id), 0) * 100
@@ -222,6 +288,30 @@ export default async function ForecastHygienePage({
     `,
     [orgId, startIso, endIso, visibleRepIds]
   );
+
+  const coverageRowsByRepId = new Map((coverageRows ?? []).map((r) => [r.rep_id, r]));
+  const leaderCoverageRows: CoverageRow[] = leaders
+    .filter((l) => leaderRepIds.get(l.id)?.length)
+    .map((leader) => {
+      const repIds = leaderRepIds.get(leader.id)!;
+      let total = 0;
+      let reviewed = 0;
+      for (const repId of repIds) {
+        const row = coverageRowsByRepId.get(repId);
+        if (row) {
+          total += row.total_opps;
+          reviewed += row.reviewed_opps;
+        }
+      }
+      return {
+        rep_id: -leader.id,
+        rep_name: leader.display_name,
+        total_opps: total,
+        reviewed_opps: reviewed,
+        coverage_pct: total > 0 ? Math.round((reviewed / total) * 100) : null,
+      };
+    });
+  const coverageRowsFinal: CoverageRow[] = [...leaderCoverageRows, ...(coverageRows ?? [])];
 
   // Query B — Matthew's Assessment (category heatmap)
   type AssessmentRow = {
@@ -271,7 +361,7 @@ export default async function ForecastHygienePage({
          FROM opportunity_audit_events oae
         WHERE oae.opportunity_id = opp.id
           AND oae.org_id = $1
-          AND oae.total_score IS NOT NULL
+          AND (oae.meta->>'score_event_source' = 'agent' OR oae.event_type = 'agent')
      )
     WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
       AND r.id = ANY($4::bigint[])
@@ -291,6 +381,96 @@ export default async function ForecastHygienePage({
     `,
     [orgId, startIso, endIso, visibleRepIds]
   );
+
+  // Raw agent-reviewed opps for leader assessment rollup (team average of category scores)
+  type AssessmentOppRow = {
+    rep_id: number;
+    pain_score: number | null;
+    metrics_score: number | null;
+    champion_score: number | null;
+    eb_score: number | null;
+    criteria_score: number | null;
+    process_score: number | null;
+    competition_score: number | null;
+    paper_score: number | null;
+    timing_score: number | null;
+    budget_score: number | null;
+    health_score: number | null;
+  };
+  const { rows: assessmentOppRows } = await pool.query<AssessmentOppRow>(
+    `
+    SELECT
+      opp.rep_id,
+      opp.pain_score,
+      opp.metrics_score,
+      opp.champion_score,
+      opp.eb_score,
+      opp.criteria_score,
+      opp.process_score,
+      opp.competition_score,
+      opp.paper_score,
+      opp.timing_score,
+      opp.budget_score,
+      opp.health_score
+    FROM opportunities opp
+    WHERE opp.rep_id = ANY($4::bigint[])
+      AND opp.org_id = $1
+      AND opp.close_date >= $2::timestamptz
+      AND opp.close_date < $3::timestamptz
+      AND EXISTS (
+        SELECT 1 FROM opportunity_audit_events oae
+        WHERE oae.opportunity_id = opp.id AND oae.org_id = $1
+          AND (oae.meta->>'score_event_source' = 'agent' OR oae.event_type = 'agent')
+      )
+    `,
+    [orgId, startIso, endIso, visibleRepIds]
+  );
+
+  const num = (v: number | null | undefined): number => (v != null && Number.isFinite(v) ? Number(v) : 0);
+  const leaderAssessmentRows: AssessmentRow[] = leaders
+    .filter((l) => leaderRepIds.get(l.id)?.length)
+    .map((leader) => {
+      const repIds = new Set(leaderRepIds.get(leader.id)!);
+      const rows = (assessmentOppRows ?? []).filter((r) => repIds.has(r.rep_id));
+      const n = rows.length;
+      if (n === 0) {
+        return {
+          rep_id: -leader.id,
+          rep_name: leader.display_name,
+          pain: null,
+          metrics: null,
+          champion: null,
+          eb: null,
+          criteria: null,
+          process: null,
+          competition: null,
+          paper: null,
+          timing: null,
+          budget: null,
+          avg_total: null,
+        };
+      }
+      const sum = (get: (r: AssessmentOppRow) => number | null) =>
+        rows.reduce((a, r) => a + num(get(r)), 0);
+      const avg = (get: (r: AssessmentOppRow) => number | null) =>
+        Math.round(sum(get) / n);
+      return {
+        rep_id: -leader.id,
+        rep_name: leader.display_name,
+        pain: avg((r) => r.pain_score),
+        metrics: avg((r) => r.metrics_score),
+        champion: avg((r) => r.champion_score),
+        eb: avg((r) => r.eb_score),
+        criteria: avg((r) => r.criteria_score),
+        process: avg((r) => r.process_score),
+        competition: avg((r) => r.competition_score),
+        paper: avg((r) => r.paper_score),
+        timing: avg((r) => r.timing_score),
+        budget: avg((r) => r.budget_score),
+        avg_total: avg((r) => r.health_score),
+      };
+    });
+  const assessmentRowsFinal: AssessmentRow[] = [...leaderAssessmentRows, ...(assessmentRows ?? [])];
 
   // Query C — Score Velocity
   type VelocityRow = {
@@ -326,6 +506,7 @@ export default async function ForecastHygienePage({
       FROM opportunity_audit_events
       WHERE opportunity_id = opp.id
         AND org_id = $1
+        AND (meta->>'score_event_source' = 'agent' OR event_type = 'agent')
       ORDER BY ts ASC
       LIMIT 1
     ) first_event ON true
@@ -333,7 +514,11 @@ export default async function ForecastHygienePage({
       AND opp.org_id = $1
       AND opp.close_date >= $2::timestamptz
       AND opp.close_date < $3::timestamptz
-      AND COALESCE(opp.run_count, 0) > 0
+      AND EXISTS (
+        SELECT 1 FROM opportunity_audit_events oae2
+        WHERE oae2.opportunity_id = opp.id AND oae2.org_id = $1
+          AND (oae2.meta->>'score_event_source' = 'agent' OR oae2.event_type = 'agent')
+      )
     ORDER BY delta ASC NULLS LAST, rep_name ASC, opp_name ASC
     `,
     [orgId, startIso, endIso, visibleRepIds]
@@ -394,6 +579,39 @@ export default async function ForecastHygienePage({
     dealsFlat: agg.dealsFlat,
   }));
 
+  const leaderVelocityRows: VelocityRepSummary[] = leaders
+    .filter((l) => leaderRepIds.get(l.id)?.length)
+    .map((leader) => {
+      const repIds = leaderRepIds.get(leader.id)!;
+      let count = 0;
+      let sumBaseline = 0;
+      let sumCurrent = 0;
+      let sumDelta = 0;
+      let dealsMoving = 0;
+      let dealsFlat = 0;
+      for (const row of velocityRows) {
+        if (!repIds.includes(row.rep_id)) continue;
+        count += 1;
+        const b = num(row.baseline_score);
+        const c = num(row.current_score);
+        const d = (row.delta != null && Number.isFinite(row.delta)) ? Number(row.delta) : c - b;
+        sumBaseline += b;
+        sumCurrent += c;
+        sumDelta += d;
+        if (d > 0) dealsMoving += 1;
+        if (d === 0) dealsFlat += 1;
+      }
+      return {
+        repName: leader.display_name,
+        avgBaseline: count ? sumBaseline / count : 0,
+        avgCurrent: count ? sumCurrent / count : 0,
+        avgDelta: count ? sumDelta / count : 0,
+        dealsMoving,
+        dealsFlat,
+      };
+    });
+  const velocityRepSummariesFinal: VelocityRepSummary[] = [...leaderVelocityRows, ...velocityRepSummaries];
+
   // Query D — Deal Progression
   type ProgressionRow = {
     opportunity_id: number;
@@ -423,6 +641,7 @@ export default async function ForecastHygienePage({
       ON r.id = opp.rep_id
      AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
     WHERE oae.org_id = $1
+      AND (oae.meta->>'score_event_source' = 'agent' OR oae.event_type = 'agent')
       AND opp.org_id = $1
       AND opp.rep_id = ANY($4::bigint[])
       AND opp.close_date >= $2::timestamptz
@@ -436,6 +655,7 @@ export default async function ForecastHygienePage({
   type ProgressionSeries = {
     opportunity_id: number;
     opp_name: string;
+    rep_id: number;
     rep_name: string;
     points: { t: Date; score: number | null }[];
     stalled: boolean;
@@ -450,6 +670,7 @@ export default async function ForecastHygienePage({
       progressionByOpp.set(row.opportunity_id, {
         opportunity_id: row.opportunity_id,
         opp_name: row.opp_name,
+        rep_id: row.rep_id,
         rep_name: row.rep_name,
         points: [{ t, score: row.total_score }],
         stalled: false,
@@ -477,7 +698,7 @@ export default async function ForecastHygienePage({
 
   const progressionSeries = Array.from(progressionByOpp.values());
 
-  // Rep-level progression summary.
+  // Rep-level progression summary (keyed by rep_id for leader rollup).
   type ProgressionRepSummary = {
     repName: string;
     progressing: number;
@@ -486,14 +707,14 @@ export default async function ForecastHygienePage({
     total: number;
   };
 
-  const progressionByRep = new Map<string, ProgressionRepSummary>();
+  const progressionByRepId = new Map<number, ProgressionRepSummary>();
 
   for (const series of progressionSeries) {
-    const key = series.rep_name;
-    let agg = progressionByRep.get(key);
+    const key = series.rep_id;
+    let agg = progressionByRepId.get(key);
     if (!agg) {
       agg = { repName: series.rep_name, progressing: 0, stalled: 0, flat: 0, total: 0 };
-      progressionByRep.set(key, agg);
+      progressionByRepId.set(key, agg);
     }
     const pts = series.points;
     const firstScore = pts.length ? (pts[0].score ?? 0) : 0;
@@ -510,7 +731,37 @@ export default async function ForecastHygienePage({
     }
   }
 
-  const progressionRepSummaries: ProgressionRepSummary[] = Array.from(progressionByRep.values());
+  const progressionRepSummaries: ProgressionRepSummary[] = Array.from(progressionByRepId.values());
+
+  const leaderProgressionRows: ProgressionRepSummary[] = leaders
+    .filter((l) => leaderRepIds.get(l.id)?.length)
+    .map((leader) => {
+      const repIds = leaderRepIds.get(leader.id)!;
+      let progressing = 0;
+      let stalled = 0;
+      let flat = 0;
+      let total = 0;
+      for (const repId of repIds) {
+        const s = progressionByRepId.get(repId);
+        if (s) {
+          progressing += s.progressing;
+          stalled += s.stalled;
+          flat += s.flat;
+          total += s.total;
+        }
+      }
+      return {
+        repName: leader.display_name,
+        progressing,
+        stalled,
+        flat,
+        total,
+      };
+    });
+  const progressionRepSummariesFinal: ProgressionRepSummary[] = [
+    ...leaderProgressionRows,
+    ...progressionRepSummaries,
+  ];
 
   const quarterOptions = quotaPeriods.slice(0, 6).map((p) => {
     const fy = (p.fiscal_year || "").trim();
@@ -573,7 +824,7 @@ export default async function ForecastHygienePage({
                 </tr>
               </thead>
               <tbody>
-                {coverageRows.map((row) => (
+                {coverageRowsFinal.map((row) => (
                   <tr key={row.rep_id} className="border-t border-[color:var(--sf-border)]">
                     <td className="px-3 py-2 text-[color:var(--sf-text-primary)]">{row.rep_name}</td>
                     <td className="px-3 py-2 text-right text-[color:var(--sf-text-primary)]">{row.total_opps}</td>
@@ -583,7 +834,7 @@ export default async function ForecastHygienePage({
                     </td>
                   </tr>
                 ))}
-                {!coverageRows.length && (
+                {!coverageRowsFinal.length && (
                   <tr>
                     <td colSpan={4} className="px-3 py-4 text-center text-sm text-[color:var(--sf-text-secondary)]">
                       No opportunities found for this quarter.
@@ -612,7 +863,7 @@ export default async function ForecastHygienePage({
                 </tr>
               </thead>
               <tbody>
-                {assessmentRows.map((row) => (
+                {assessmentRowsFinal.map((row) => (
                   <tr key={row.rep_id} className="border-t border-[color:var(--sf-border)]">
                     <td className="px-2 py-2 text-[color:var(--sf-text-primary)] whitespace-nowrap">{row.rep_name}</td>
                     {[
@@ -637,7 +888,7 @@ export default async function ForecastHygienePage({
                     ))}
                   </tr>
                 ))}
-                {!assessmentRows.length && (
+                {!assessmentRowsFinal.length && (
                   <tr>
                     <td colSpan={12} className="px-3 py-4 text-center text-sm text-[color:var(--sf-text-secondary)]">
                       No reviewed deals found for this quarter.
@@ -668,7 +919,7 @@ export default async function ForecastHygienePage({
                 </tr>
               </thead>
               <tbody>
-                {velocityRepSummaries.map((row, idx) => (
+                {velocityRepSummariesFinal.map((row, idx) => (
                   <tr key={`${row.repName}:${idx}`} className="border-t border-[color:var(--sf-border)]">
                     <td className="px-3 py-2 text-[color:var(--sf-text-primary)] whitespace-nowrap">{row.repName}</td>
                     <td className="px-3 py-2 text-right text-[color:var(--sf-text-primary)]">
@@ -688,7 +939,7 @@ export default async function ForecastHygienePage({
                     </td>
                   </tr>
                 ))}
-                {!velocityRepSummaries.length && (
+                {!velocityRepSummariesFinal.length && (
                   <tr>
                     <td colSpan={6} className="px-3 py-4 text-center text-sm text-[color:var(--sf-text-secondary)]">
                       No score changes found for this quarter.
@@ -718,7 +969,7 @@ export default async function ForecastHygienePage({
                 </tr>
               </thead>
               <tbody>
-                {progressionRepSummaries.map((row, idx) => (
+                {progressionRepSummariesFinal.map((row, idx) => (
                     <tr key={`${row.repName}:${idx}`} className="border-t border-[color:var(--sf-border)]">
                       <td className="px-3 py-2 text-[color:var(--sf-text-primary)] whitespace-nowrap">
                         {row.repName}
@@ -737,7 +988,7 @@ export default async function ForecastHygienePage({
                       </td>
                     </tr>
                 ))}
-                {!progressionRepSummaries.length && (
+                {!progressionRepSummariesFinal.length && (
                   <tr>
                     <td colSpan={5} className="px-3 py-4 text-center text-sm text-[color:var(--sf-text-secondary)]">
                       No audit history found for this quarter.
