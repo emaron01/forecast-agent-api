@@ -171,6 +171,14 @@ Pain — scoring rules (ingest only):
   an explicit consequence if missed. A project timeline or
   milestone alone does NOT qualify. "They want to get it done
   by May" = score 1 or 2, never 3.
+ - Any sentence describing a business problem, operational issue,
+   risk, or negative consequence — even without quantification —
+   is a rep assertion and MUST score 1 minimum. Do not score 0
+   when a problem statement exists anywhere in the notes.
+   "Troubleshooting issues", "at risk", "will miss", "running out",
+   "need to", "require" in a business context = score 1 minimum.
+   Score 0 ONLY when the notes contain zero mention of any
+   problem, risk, or business need.
 
 Economic Buyer — scoring rules (ingest only):
 - Score 0 only if no person is named and no decision maker
