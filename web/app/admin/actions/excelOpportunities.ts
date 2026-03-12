@@ -698,8 +698,19 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
             rowNum: i + 2,
             crmOppId: String(row?.[crmOppIdSource] ?? "").trim(),
             rawText: String(row?.[commentsSource] ?? "").trim(),
+            closeDate: String(row?.[byTarget.get("close_date") || ""] ?? "").trim(),
           }))
-          .filter((r: { crmOppId: string; rawText: string }) => r.crmOppId && r.rawText);
+          .filter((r: { crmOppId: string; rawText: string; closeDate?: string }) => {
+            if (!r.crmOppId || !r.rawText) return false;
+            const rawClose = r.closeDate;
+            if (!rawClose) return false;
+            const closeDate = new Date(rawClose as any);
+            if (!Number.isFinite(closeDate.getTime())) return false;
+            const now = new Date();
+            const currentQuarterStart = new Date(Date.UTC(now.getUTCFullYear(), Math.floor(now.getUTCMonth() / 3) * 3, 1));
+            const cutoff2q = new Date(Date.UTC(currentQuarterStart.getUTCFullYear(), currentQuarterStart.getUTCMonth() - 6, 1));
+            return closeDate.getTime() >= cutoff2q.getTime();
+          });
 
         if (jobRows.length > 0) {
           const queue = getIngestQueue();
