@@ -98,14 +98,14 @@ export default async function ForecastHygienePage({
       ? new Date(new Date(selectedPeriod.period_end).getTime() + 24 * 60 * 60 * 1000).toISOString()
       : new Date().toISOString();
 
-  // Visible reps: hierarchy-scoped
-  let visibleRepIds: number[] = [];
+  // Visible users: hierarchy-scoped (user_ids first)
+  let visibleUserIds: number[] = [];
   if (user.role === "ADMIN" || user.see_all_visibility) {
     const { rows } = await pool.query<{ id: number }>(
       `SELECT id FROM users WHERE org_id = $1 AND active IS TRUE`,
       [orgId]
     );
-    visibleRepIds = rows.map((r) => Number(r.id)).filter((n) => Number.isFinite(n));
+    visibleUserIds = rows.map((r) => Number(r.id)).filter((n) => Number.isFinite(n));
   } else {
     const { rows } = await pool.query<{ id: number }>(
       `
@@ -136,11 +136,27 @@ export default async function ForecastHygienePage({
       [user.id, orgId]
     );
     const extra = mvRows.map((r) => Number(r.rep_user_id)).filter((n) => Number.isFinite(n));
-    visibleRepIds = Array.from(new Set([...baseIds, ...extra]));
+    visibleUserIds = Array.from(new Set([...baseIds, ...extra]));
   }
 
+  if (!visibleUserIds.length) {
+    visibleUserIds = [-1]; // avoid empty ANY()
+  }
+
+  // Map visible user_ids -> reps.id used by opportunities.rep_id
+  const { rows: repRows } = await pool.query<{ id: number }>(
+    `
+    SELECT r.id
+      FROM reps r
+      JOIN users u ON u.id = r.user_id
+     WHERE u.org_id = $1
+       AND u.id = ANY($2::int[])
+    `,
+    [orgId, visibleUserIds]
+  );
+  let visibleRepIds = repRows.map((r) => Number(r.id)).filter((n) => Number.isFinite(n));
   if (!visibleRepIds.length) {
-    visibleRepIds = [-1]; // avoid empty ANY()
+    visibleRepIds = [-1];
   }
 
   // Query A — Coverage
@@ -155,23 +171,27 @@ export default async function ForecastHygienePage({
   const { rows: coverageRows } = await pool.query<CoverageRow>(
     `
     SELECT
-      u.id AS rep_id,
-      COALESCE(NULLIF(btrim(u.display_name), ''), NULLIF(btrim(u.account_owner_name), ''), u.email) AS rep_name,
+      r.id AS rep_id,
+      COALESCE(
+        NULLIF(btrim(r.display_name), ''),
+        NULLIF(btrim(r.rep_name), ''),
+        '(Unknown rep)'
+      ) AS rep_name,
       COUNT(opp.id)::int AS total_opps,
       COUNT(opp.id) FILTER (WHERE COALESCE(opp.run_count, 0) > 0)::int AS reviewed_opps,
       ROUND(
         COUNT(opp.id) FILTER (WHERE COALESCE(opp.run_count, 0) > 0)::numeric
         / NULLIF(COUNT(opp.id), 0) * 100
       )::int AS coverage_pct
-    FROM users u
+    FROM reps r
     LEFT JOIN opportunities opp
-      ON opp.rep_id = u.id
+      ON opp.rep_id = r.id
      AND opp.org_id = $1
      AND opp.close_date >= $2::timestamptz
      AND opp.close_date < $3::timestamptz
-    WHERE u.org_id = $1
-      AND u.id = ANY($4::int[])
-    GROUP BY u.id, rep_name
+    WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+      AND r.id = ANY($4::bigint[])
+    GROUP BY r.id, rep_name
     ORDER BY coverage_pct ASC NULLS LAST, rep_name ASC
     `,
     [orgId, startIso, endIso, visibleRepIds]
@@ -197,8 +217,12 @@ export default async function ForecastHygienePage({
   const { rows: assessmentRows } = await pool.query<AssessmentRow>(
     `
     SELECT
-      u.id AS rep_id,
-      COALESCE(NULLIF(btrim(u.display_name), ''), NULLIF(btrim(u.account_owner_name), ''), u.email) AS rep_name,
+      r.id AS rep_id,
+      COALESCE(
+        NULLIF(btrim(r.display_name), ''),
+        NULLIF(btrim(r.rep_name), ''),
+        '(Unknown rep)'
+      ) AS rep_name,
       ROUND(AVG(opp.pain_score))        AS pain,
       ROUND(AVG(opp.metrics_score))     AS metrics,
       ROUND(AVG(opp.champion_score))    AS champion,
@@ -210,16 +234,16 @@ export default async function ForecastHygienePage({
       ROUND(AVG(opp.timing_score))      AS timing,
       ROUND(AVG(opp.budget_score))      AS budget,
       ROUND(AVG(opp.health_score))      AS avg_total
-    FROM users u
+    FROM reps r
     LEFT JOIN opportunities opp
-      ON opp.rep_id = u.id
+      ON opp.rep_id = r.id
      AND opp.org_id = $1
      AND opp.close_date >= $2::timestamptz
      AND opp.close_date < $3::timestamptz
      AND COALESCE(opp.run_count, 0) > 0
-    WHERE u.org_id = $1
-      AND u.id = ANY($4::int[])
-    GROUP BY u.id, rep_name
+    WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+      AND r.id = ANY($4::bigint[])
+    GROUP BY r.id, rep_name
     ORDER BY avg_total ASC NULLS LAST, rep_name ASC
     `,
     [orgId, startIso, endIso, visibleRepIds]
@@ -242,12 +266,18 @@ export default async function ForecastHygienePage({
       opp.id AS opp_id,
       COALESCE(NULLIF(btrim(opp.opportunity_name), ''), NULLIF(btrim(opp.account_name), ''), opp.id::text) AS opp_name,
       opp.rep_id,
-      COALESCE(NULLIF(btrim(u.display_name), ''), NULLIF(btrim(u.account_owner_name), ''), u.email) AS rep_name,
+      COALESCE(
+        NULLIF(btrim(r.display_name), ''),
+        NULLIF(btrim(r.rep_name), ''),
+        '(Unknown rep)'
+      ) AS rep_name,
       first_event.total_score AS baseline_score,
       opp.health_score AS current_score,
       (opp.health_score - first_event.total_score) AS delta
     FROM opportunities opp
-    JOIN users u ON u.id = opp.rep_id
+    JOIN reps r
+      ON r.id = opp.rep_id
+     AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
     JOIN LATERAL (
       SELECT total_score
       FROM opportunity_audit_events
@@ -256,7 +286,7 @@ export default async function ForecastHygienePage({
       ORDER BY ts ASC
       LIMIT 1
     ) first_event ON true
-    WHERE opp.rep_id = ANY($4::int[])
+    WHERE opp.rep_id = ANY($4::bigint[])
       AND opp.org_id = $1
       AND opp.close_date >= $2::timestamptz
       AND opp.close_date < $3::timestamptz
@@ -282,15 +312,21 @@ export default async function ForecastHygienePage({
       oae.opportunity_id,
       COALESCE(NULLIF(btrim(opp.opportunity_name), ''), NULLIF(btrim(opp.account_name), ''), opp.id::text) AS opp_name,
       opp.rep_id,
-      COALESCE(NULLIF(btrim(u.display_name), ''), NULLIF(btrim(u.account_owner_name), ''), u.email) AS rep_name,
+      COALESCE(
+        NULLIF(btrim(r.display_name), ''),
+        NULLIF(btrim(r.rep_name), ''),
+        '(Unknown rep)'
+      ) AS rep_name,
       oae.ts::text,
       oae.total_score
     FROM opportunity_audit_events oae
     JOIN opportunities opp ON opp.id = oae.opportunity_id
-    JOIN users u ON u.id = opp.rep_id
+    JOIN reps r
+      ON r.id = opp.rep_id
+     AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
     WHERE oae.org_id = $1
       AND opp.org_id = $1
-      AND opp.rep_id = ANY($4::int[])
+      AND opp.rep_id = ANY($4::bigint[])
       AND opp.close_date >= $2::timestamptz
       AND opp.close_date < $3::timestamptz
     ORDER BY oae.opportunity_id, oae.ts ASC
