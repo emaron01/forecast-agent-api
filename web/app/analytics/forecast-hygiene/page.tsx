@@ -191,8 +191,19 @@ export default async function ForecastHygienePage({
      AND opp.close_date < $3::timestamptz
     WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
       AND r.id = ANY($4::bigint[])
-    GROUP BY r.id, rep_name
-    ORDER BY coverage_pct ASC NULLS LAST, rep_name ASC
+    GROUP BY
+      r.id,
+      COALESCE(
+        NULLIF(btrim(r.display_name), ''),
+        NULLIF(btrim(r.rep_name), ''),
+        '(Unknown rep)'
+      )
+    ORDER BY coverage_pct ASC NULLS LAST,
+      COALESCE(
+        NULLIF(btrim(r.display_name), ''),
+        NULLIF(btrim(r.rep_name), ''),
+        '(Unknown rep)'
+      ) ASC
     `,
     [orgId, startIso, endIso, visibleRepIds]
   );
@@ -243,8 +254,19 @@ export default async function ForecastHygienePage({
      AND COALESCE(opp.run_count, 0) > 0
     WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
       AND r.id = ANY($4::bigint[])
-    GROUP BY r.id, rep_name
-    ORDER BY avg_total ASC NULLS LAST, rep_name ASC
+    GROUP BY
+      r.id,
+      COALESCE(
+        NULLIF(btrim(r.display_name), ''),
+        NULLIF(btrim(r.rep_name), ''),
+        '(Unknown rep)'
+      )
+    ORDER BY avg_total ASC NULLS LAST,
+      COALESCE(
+        NULLIF(btrim(r.display_name), ''),
+        NULLIF(btrim(r.rep_name), ''),
+        '(Unknown rep)'
+      ) ASC
     `,
     [orgId, startIso, endIso, visibleRepIds]
   );
