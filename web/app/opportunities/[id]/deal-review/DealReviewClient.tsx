@@ -887,7 +887,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
         const rawAssistantText = String(json?.assistantText ?? "").trim();
         if (rawAssistantText) {
           setCatMessages((prev) => [...prev, { role: "assistant", text: rawAssistantText, at: Date.now() }]);
-          await playTts(rawAssistantText);
+          if (voice) await playTts(rawAssistantText);
         }
       } catch (e: any) {
         setCatMessages((prev) => [...prev, { role: "system", text: String(e?.message || e), at: Date.now() }]);
