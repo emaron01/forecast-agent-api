@@ -1042,6 +1042,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
             }
             void loadOpportunityState();
+            if (donePayload?.material_change === undefined && sentenceQueue.length === 0) void playTts(assistantText);
             if (donePayload?.material_change !== undefined) {
               const savedCategory = cat as CategoryKey;
               setCompletedCategoryKey(savedCategory);
@@ -1562,6 +1563,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           if (assistantText) {
             setCatMessages((prev) => [...prev, { role: "assistant", text: assistantText, at: Date.now() }]);
           }
+          if (donePayload?.material_change === undefined && sentenceQueue.length === 0) void playTts(assistantText);
           responsePayload = donePayload;
         } else {
           const json = await res.json().catch(() => ({}));
