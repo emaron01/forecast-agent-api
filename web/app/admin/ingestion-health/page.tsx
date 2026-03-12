@@ -45,8 +45,20 @@ export default async function IngestionHealthPage() {
     SELECT
       o.id AS org_id,
       o.name AS organization_name,
-      (SELECT COUNT(*)::bigint FROM opportunities WHERE org_id = o.id)::text AS total_opportunities,
-      (SELECT COUNT(*)::bigint FROM opportunities WHERE org_id = o.id AND COALESCE(run_count, 0) > 0)::text AS reviewed_opportunities,
+      -- Only count opportunities that are in scoring scope (close_date within the last two quarters).
+      (SELECT COUNT(*)::bigint
+         FROM opportunities
+        WHERE org_id = o.id
+          AND close_date IS NOT NULL
+          AND close_date >= (date_trunc('quarter', now()) - interval '6 months')
+      )::text AS total_opportunities,
+      (SELECT COUNT(*)::bigint
+         FROM opportunities
+        WHERE org_id = o.id
+          AND COALESCE(run_count, 0) > 0
+          AND close_date IS NOT NULL
+          AND close_date >= (date_trunc('quarter', now()) - interval '6 months')
+      )::text AS reviewed_opportunities,
       (SELECT COUNT(*)::bigint FROM comment_ingestions WHERE org_id = o.id)::text AS comment_ingestions_count,
       (SELECT COUNT(*)::bigint FROM opportunity_audit_events WHERE org_id = o.id)::text AS audit_events_count,
       (SELECT MAX(created_at)::text FROM comment_ingestions WHERE org_id = o.id) AS last_comment_ingestion_at,
