@@ -125,11 +125,11 @@ export default async function ForecastHygienePage({
     SELECT
       u.id AS rep_id,
       COALESCE(NULLIF(btrim(u.display_name), ''), NULLIF(btrim(u.account_owner_name), ''), u.email) AS rep_name,
-      COUNT(o.id)::int AS total_opps,
-      COUNT(o.id) FILTER (WHERE COALESCE(o.run_count, 0) > 0)::int AS reviewed_opps,
+      COUNT(opp.id)::int AS total_opps,
+      COUNT(opp.id) FILTER (WHERE COALESCE(opp.run_count, 0) > 0)::int AS reviewed_opps,
       ROUND(
-        COUNT(o.id) FILTER (WHERE COALESCE(o.run_count, 0) > 0)::numeric
-        / NULLIF(COUNT(o.id), 0) * 100
+        COUNT(opp.id) FILTER (WHERE COALESCE(opp.run_count, 0) > 0)::numeric
+        / NULLIF(COUNT(opp.id), 0) * 100
       )::int AS coverage_pct
     FROM users u
     LEFT JOIN opportunities opp
