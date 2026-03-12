@@ -45,24 +45,82 @@ export default async function IngestionHealthPage() {
     SELECT
       o.id AS org_id,
       o.name AS organization_name,
-      -- Only count opportunities that are in scoring scope (close_date within the last two quarters).
-      (SELECT COUNT(*)::bigint
-         FROM opportunities
-        WHERE org_id = o.id
-          AND close_date IS NOT NULL
-          AND close_date >= (date_trunc('quarter', now()) - interval '6 months')
+      (SELECT COUNT(DISTINCT ci.opportunity_id)
+         FROM comment_ingestions ci
+        WHERE ci.org_id = o.id
+          AND ci.source_ref = (
+            SELECT source_ref
+              FROM comment_ingestions
+             WHERE org_id = o.id
+               AND source_type = 'excel'
+             ORDER BY created_at DESC
+             LIMIT 1
+          )
       )::text AS total_opportunities,
-      (SELECT COUNT(*)::bigint
-         FROM opportunities
-        WHERE org_id = o.id
-          AND COALESCE(run_count, 0) > 0
-          AND close_date IS NOT NULL
-          AND close_date >= (date_trunc('quarter', now()) - interval '6 months')
+      (SELECT COUNT(DISTINCT ci.opportunity_id)
+         FROM comment_ingestions ci
+         JOIN opportunities op ON op.id = ci.opportunity_id
+        WHERE ci.org_id = o.id
+          AND ci.source_ref = (
+            SELECT source_ref
+              FROM comment_ingestions
+             WHERE org_id = o.id
+               AND source_type = 'excel'
+             ORDER BY created_at DESC
+             LIMIT 1
+          )
+          AND COALESCE(op.run_count, 0) > 0
       )::text AS reviewed_opportunities,
-      (SELECT COUNT(*)::bigint FROM comment_ingestions WHERE org_id = o.id)::text AS comment_ingestions_count,
-      (SELECT COUNT(*)::bigint FROM opportunity_audit_events WHERE org_id = o.id)::text AS audit_events_count,
-      (SELECT MAX(created_at)::text FROM comment_ingestions WHERE org_id = o.id) AS last_comment_ingestion_at,
-      (SELECT MAX(ts)::text FROM opportunity_audit_events WHERE org_id = o.id) AS last_audit_event_at
+      (SELECT COUNT(*)
+         FROM comment_ingestions
+        WHERE org_id = o.id
+          AND source_ref = (
+            SELECT source_ref
+              FROM comment_ingestions
+             WHERE org_id = o.id
+               AND source_type = 'excel'
+             ORDER BY created_at DESC
+             LIMIT 1
+          )
+      )::text AS comment_ingestions_count,
+      (SELECT COUNT(*)
+         FROM opportunity_audit_events oae
+         JOIN comment_ingestions ci ON ci.opportunity_id = oae.opportunity_id
+        WHERE ci.org_id = o.id
+          AND ci.source_ref = (
+            SELECT source_ref
+              FROM comment_ingestions
+             WHERE org_id = o.id
+               AND source_type = 'excel'
+             ORDER BY created_at DESC
+             LIMIT 1
+          )
+      )::text AS audit_events_count,
+      (SELECT MAX(created_at)::text
+         FROM comment_ingestions
+        WHERE org_id = o.id
+          AND source_ref = (
+            SELECT source_ref
+              FROM comment_ingestions
+             WHERE org_id = o.id
+               AND source_type = 'excel'
+             ORDER BY created_at DESC
+             LIMIT 1
+          )
+      ) AS last_comment_ingestion_at,
+      (SELECT MAX(oae.ts)::text
+         FROM opportunity_audit_events oae
+         JOIN comment_ingestions ci ON ci.opportunity_id = oae.opportunity_id
+        WHERE ci.org_id = o.id
+          AND ci.source_ref = (
+            SELECT source_ref
+              FROM comment_ingestions
+             WHERE org_id = o.id
+               AND source_type = 'excel'
+             ORDER BY created_at DESC
+             LIMIT 1
+          )
+      ) AS last_audit_event_at
     FROM organizations o
     ORDER BY o.id ASC
     `
