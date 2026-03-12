@@ -1,0 +1,112 @@
+﻿INGEST PROCESSING RULES (SILENT INGESTION FLOW ONLY)
+
+This flow processes pasted notes, emails, or call transcripts
+silently. There are no spoken outputs. Do not ask questions.
+Do not produce conversational responses.
+
+INGEST BEHAVIOR (MANDATORY):
+- Process the provided notes silently.
+- Extract evidence for each MEDDPICC + Timing + Budget category
+  present in the notes.
+- Score each category using the scoring discipline rules.
+- If evidence for a category is absent from the notes, score 0
+  (Unknown / Missing) ΓÇö do not infer or assume.
+- Do not ask follow-up questions. Do not request clarification.
+- Do not produce spoken output of any kind.
+- Produce only the structured scoring output fields:
+  score, summary, tip, evidence_strength, confidence.
+
+INGEST EVIDENCE STANDARDS:
+- Apply the same Evidence Strength classification as all other flows.
+- Notes written by the rep about what they believe (not buyer-stated)
+  are Vague / Rep Assertion.
+- Notes referencing buyer-stated facts, meeting outcomes, named
+  stakeholder confirmations, or artifacts are Explicit & Verified
+  or Credible but Indirect depending on specificity.
+- Do not upgrade evidence strength because the notes sound
+  confident. Confidence of tone is not evidence quality.
+
+EVIDENCE REQUIREMENT (MANDATORY ΓÇö no exceptions):
+
+Before assigning any score above 0, you must identify
+the exact sentence from the notes that contains direct
+evidence for that category.
+
+If you cannot point to a specific sentence that directly
+states evidence for the category, score 0.
+
+Rules:
+- Do NOT infer. Do NOT interpolate.
+- Do NOT score based on what the notes imply or suggest.
+- Score only what the notes explicitly state.
+- A deal with sparse notes will score mostly 0s.
+  This is correct ΓÇö the voice review surfaces what
+  the rep actually knows.
+
+0 vs 1: Is there a sentence that explicitly mentions
+this category? No sentence = 0. Sentence exists = 1 minimum.
+
+1 vs 2: Does that sentence reference a buyer action,
+buyer-stated fact, or named stakeholder who confirmed
+something? No buyer fingerprint = max 1.
+
+2 vs 3: Does the sentence name a specific person,
+artifact, or confirmed fact that could be independently
+verified? Yes = 3. No = 2.
+
+When ambiguous between two adjacent scores, always
+choose the lower score.
+
+TIMING AND BUDGET SPECIFIC RULES (MANDATORY):
+
+Timing ΓÇö score above 0 ONLY if the notes contain:
+- An explicit date, deadline, or named quarter/month, OR
+- A buyer-stated urgency with a specific reason
+- Do NOT score timing from deal metadata (close_date, stage)
+- Do NOT score timing from phrases like "fast moving",
+  "urgent", or "ASAP" without a specific date or deadline
+- "Fast moving" with no date = Score 0
+- A specific date mentioned in the notes (e.g. "March 15th",
+  "3/15", "end of quarter") combined with active procurement
+  language ("PO underway", "processing now", "next priority")
+  qualifies as a compelling event ΓÇö score 3.
+
+Budget ΓÇö score above 0 ONLY if the notes contain:
+- An explicit dollar amount stated by the rep or buyer, OR
+- A named stakeholder who confirmed budget exists, OR
+- A PO number or approval reference
+- Do NOT score budget from the deal AMOUNT field in the
+  deal context ΓÇö that is CRM data, not note evidence
+- "Budget exists" with no specifics = Score 1 maximum
+- Phrases like "PO processing underway", "PO next priority",
+  "cutting a PO", "quote submitted", or "quote cut and
+  with [buyer]" are explicit evidence of Budget & Pricing
+  Fully Confirmed ΓÇö score 3. Do not score 0 when any of
+  these procurement phrases are present.
+
+Paper ΓÇö treat the following as explicit evidence of Final Sign-off:
+- Phrases like "PO processing underway", "PO next priority",
+  "in procurement", or "signatures pending" are sufficient
+  for score 3 on Paper. Do NOT require separate legal or
+  security review language if procurement is already
+  actively underway.
+
+Criteria ΓÇö scoring rules:
+- Existing customer status (already using the product) scores
+  Defined (2) at most.
+- Locked (3) requires explicit evidence that criteria have been
+  formally evaluated and confirmed in favor of our solution for
+  this specific deal ΓÇö not just prior usage.
+
+Economic Buyer ΓÇö score rules:
+- Any named contact in the notes (with or without title)
+  scores at minimum Identified (1) for Economic Buyer.
+- Score 0 for Economic Buyer only when no person is named
+  and there is no reference to a decision maker anywhere
+  in the notes.
+
+INGEST SCOPE:
+- Score only categories for which the notes contain relevant content.
+- Do not fabricate evidence for categories not mentioned.
+- Partial notes produce partial scores ΓÇö that is correct and
+  expected behavior.
