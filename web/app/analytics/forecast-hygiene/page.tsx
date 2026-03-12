@@ -4,26 +4,7 @@ import { getOrganization } from "../../../lib/db";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { redirect } from "next/navigation";
 
-type SearchParams = { quarter?: string };
-
-function getQuarterWindow(q?: string): { start: Date; end: Date } {
-  const now = new Date();
-  if (!q) {
-    const qStart = new Date(Date.UTC(now.getUTCFullYear(), Math.floor(now.getUTCMonth() / 3) * 3, 1));
-    return { start: qStart, end: now };
-  }
-  const [year, qn] = q.split("-Q");
-  const month = (parseInt(qn, 10) - 1) * 3;
-  const start = new Date(Date.UTC(parseInt(year, 10), month, 1));
-  const end = new Date(Date.UTC(parseInt(year, 10), month + 3, 1));
-  return { start, end };
-}
-
-function currentQuarterString(now: Date = new Date()): string {
-  const year = now.getUTCFullYear();
-  const q = Math.floor(now.getUTCMonth() / 3) + 1;
-  return `${year}-Q${q}`;
-}
+type SearchParams = { quota_period_id?: string };
 
 function coverageRowClass(pct: number | null): string {
   if (pct == null) return "";
@@ -61,10 +42,61 @@ export default async function ForecastHygienePage({
     redirect("/dashboard");
   }
 
-  const quarterParam = typeof searchParams?.quarter === "string" ? searchParams?.quarter : undefined;
-  const { start, end } = getQuarterWindow(quarterParam);
-  const startIso = start.toISOString();
-  const endIso = end.toISOString();
+  // Resolve quota periods for this org and derive date window from selected quarter.
+  const selectedQuotaPeriodId = String(searchParams?.quota_period_id || "").trim();
+  const { rows: qpRows } = await pool.query<{
+    id: string;
+    period_name: string;
+    period_start: string;
+    period_end: string;
+    fiscal_year: string | null;
+    fiscal_quarter: string | null;
+  }>(
+    `
+    SELECT
+      id::text AS id,
+      period_name,
+      period_start::text AS period_start,
+      period_end::text AS period_end,
+      fiscal_year::text AS fiscal_year,
+      fiscal_quarter::text AS fiscal_quarter
+    FROM quota_periods
+    WHERE org_id = $1::bigint
+    ORDER BY period_start DESC, id DESC
+    `,
+    [orgId]
+  );
+  const quotaPeriods = qpRows || [];
+
+  let selectedPeriod = quotaPeriods.find((p) => p.id === selectedQuotaPeriodId) || null;
+  if (!selectedPeriod) {
+    const { rows: currentRows } = await pool.query<{ id: string }>(
+      `
+      SELECT id::text AS id
+        FROM quota_periods
+       WHERE org_id = $1::bigint
+         AND period_start <= CURRENT_DATE
+         AND period_end >= CURRENT_DATE
+       ORDER BY period_start DESC, id DESC
+       LIMIT 1
+      `,
+      [orgId]
+    );
+    const currentId = String(currentRows?.[0]?.id || "").trim();
+    selectedPeriod =
+      (currentId && quotaPeriods.find((p) => p.id === currentId)) ||
+      quotaPeriods[0] ||
+      null;
+  }
+
+  const startIso =
+    selectedPeriod?.period_start != null
+      ? new Date(selectedPeriod.period_start).toISOString()
+      : new Date(0).toISOString();
+  const endIso =
+    selectedPeriod?.period_end != null
+      ? new Date(new Date(selectedPeriod.period_end).getTime() + 24 * 60 * 60 * 1000).toISOString()
+      : new Date().toISOString();
 
   // Visible reps: hierarchy-scoped
   let visibleRepIds: number[] = [];
@@ -311,27 +343,15 @@ export default async function ForecastHygienePage({
 
   const progressionSeries = Array.from(progressionByOpp.values());
 
-  const quarterOptions = (() => {
-    const options: { value: string; label: string }[] = [];
-    const base = new Date();
-    const currentYear = base.getUTCFullYear();
-    const currentQuarter = Math.floor(base.getUTCMonth() / 3) + 1;
-    for (let i = 0; i < 4; i++) {
-      const qIndex = currentQuarter - i;
-      let year = currentYear;
-      let q = qIndex;
-      if (qIndex <= 0) {
-        q = qIndex + 4;
-        year = currentYear - 1;
-      }
-      const value = `${year}-Q${q}`;
-      const label = `Q${q} ${year}`;
-      options.push({ value, label });
-    }
-    return options;
-  })();
+  const quarterOptions = quotaPeriods.slice(0, 6).map((p) => {
+    const fy = (p.fiscal_year || "").trim();
+    const fq = (p.fiscal_quarter || "").trim();
+    const label =
+      fy && fq ? `Q${fq} ${fy}` : String(p.period_name || "").trim() || `${p.period_start} → ${p.period_end}`;
+    return { value: p.id, label };
+  });
 
-  const selectedQuarter = quarterParam || currentQuarterString();
+  const selectedQuarterId = selectedPeriod?.id || "";
 
   const org = await getOrganization({ id: orgId }).catch(() => null);
   const orgName = org?.name || "Organization";
@@ -348,8 +368,8 @@ export default async function ForecastHygienePage({
             </label>
             <select
               id="quarter-select"
-              name="quarter"
-              defaultValue={selectedQuarter}
+              name="quota_period_id"
+              defaultValue={selectedQuarterId}
               className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1 text-sm text-[color:var(--sf-text-primary)]"
             >
               {quarterOptions.map((q) => (
