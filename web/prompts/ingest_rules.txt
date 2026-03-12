@@ -97,6 +97,10 @@ Criteria — scoring rules:
 - Locked (3) requires explicit evidence that criteria have been
   formally evaluated and confirmed in favor of our solution for
   this specific deal — not just prior usage.
+- If notes state the customer is actively consuming the product
+  OR that specific license quantities or SKUs have been
+  proposed, this IS explicit Criteria evidence — score minimum
+  Defined (2).
 
 Economic Buyer — score rules:
 - Any named contact in the notes (with or without title)
