@@ -639,7 +639,7 @@ export default async function ForecastHygienePage({
                     ].map((v, idx) => (
                       <td
                         key={idx}
-                        className={`px-2 py-1 text-center font-mono ${scoreBg(v)}`}
+                        className={`px-2 py-1 text-center font-mono ${scoreColor(v)}`}
                       >
                         {v != null ? v : "—"}
                       </td>
