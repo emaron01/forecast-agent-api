@@ -296,11 +296,12 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
         if (msg.startsWith("OPPORTUNITY_NOT_READY")) {
           notReadyTotal++;
           console.log(
-            "[ingest] comments waiting for opportunity",
+            "[ingest] comments waiting for opportunity — skipping row, will not retry chunk",
             JSON.stringify({ orgId, fileName, crmOppId })
           );
-          // Re-throw so BullMQ can retry this job with backoff according to queue settings.
-          throw e;
+          skippedTotal++;
+          processed++;
+          continue;  // skip this row, keep processing the rest of the chunk
         }
         console.error(
           "[ingest] excel-comments row failed",
