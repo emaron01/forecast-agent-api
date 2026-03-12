@@ -132,11 +132,11 @@ export default async function ForecastHygienePage({
         / NULLIF(COUNT(o.id), 0) * 100
       )::int AS coverage_pct
     FROM users u
-    LEFT JOIN opportunities o
-      ON o.rep_id = u.id
-     AND o.org_id = $1
-     AND o.close_date >= $2::timestamptz
-     AND o.close_date < $3::timestamptz
+    LEFT JOIN opportunities opp
+      ON opp.rep_id = u.id
+     AND opp.org_id = $1
+     AND opp.close_date >= $2::timestamptz
+     AND opp.close_date < $3::timestamptz
     WHERE u.org_id = $1
       AND u.id = ANY($4::int[])
     GROUP BY u.id, rep_name
@@ -167,24 +167,24 @@ export default async function ForecastHygienePage({
     SELECT
       u.id AS rep_id,
       COALESCE(NULLIF(btrim(u.display_name), ''), NULLIF(btrim(u.account_owner_name), ''), u.email) AS rep_name,
-      ROUND(AVG(o.pain_score))        AS pain,
-      ROUND(AVG(o.metrics_score))     AS metrics,
-      ROUND(AVG(o.champion_score))    AS champion,
-      ROUND(AVG(o.eb_score))          AS eb,
-      ROUND(AVG(o.criteria_score))    AS criteria,
-      ROUND(AVG(o.process_score))     AS process,
-      ROUND(AVG(o.competition_score)) AS competition,
-      ROUND(AVG(o.paper_score))       AS paper,
-      ROUND(AVG(o.timing_score))      AS timing,
-      ROUND(AVG(o.budget_score))      AS budget,
-      ROUND(AVG(o.total_score))       AS avg_total
+      ROUND(AVG(opp.pain_score))        AS pain,
+      ROUND(AVG(opp.metrics_score))     AS metrics,
+      ROUND(AVG(opp.champion_score))    AS champion,
+      ROUND(AVG(opp.eb_score))          AS eb,
+      ROUND(AVG(opp.criteria_score))    AS criteria,
+      ROUND(AVG(opp.process_score))     AS process,
+      ROUND(AVG(opp.competition_score)) AS competition,
+      ROUND(AVG(opp.paper_score))       AS paper,
+      ROUND(AVG(opp.timing_score))      AS timing,
+      ROUND(AVG(opp.budget_score))      AS budget,
+      ROUND(AVG(opp.total_score))       AS avg_total
     FROM users u
-    LEFT JOIN opportunities o
-      ON o.rep_id = u.id
-     AND o.org_id = $1
-     AND o.close_date >= $2::timestamptz
-     AND o.close_date < $3::timestamptz
-     AND COALESCE(o.run_count, 0) > 0
+    LEFT JOIN opportunities opp
+      ON opp.rep_id = u.id
+     AND opp.org_id = $1
+     AND opp.close_date >= $2::timestamptz
+     AND opp.close_date < $3::timestamptz
+     AND COALESCE(opp.run_count, 0) > 0
     WHERE u.org_id = $1
       AND u.id = ANY($4::int[])
     GROUP BY u.id, rep_name
@@ -207,28 +207,28 @@ export default async function ForecastHygienePage({
   const { rows: velocityRows } = await pool.query<VelocityRow>(
     `
     SELECT
-      o.id AS opp_id,
-      COALESCE(NULLIF(btrim(o.opportunity_name), ''), NULLIF(btrim(o.account_name), ''), o.id::text) AS opp_name,
-      o.rep_id,
+      opp.id AS opp_id,
+      COALESCE(NULLIF(btrim(opp.opportunity_name), ''), NULLIF(btrim(opp.account_name), ''), opp.id::text) AS opp_name,
+      opp.rep_id,
       COALESCE(NULLIF(btrim(u.display_name), ''), NULLIF(btrim(u.account_owner_name), ''), u.email) AS rep_name,
       first_event.total_score AS baseline_score,
-      o.total_score AS current_score,
-      (o.total_score - first_event.total_score) AS delta
-    FROM opportunities o
-    JOIN users u ON u.id = o.rep_id
+      opp.total_score AS current_score,
+      (opp.total_score - first_event.total_score) AS delta
+    FROM opportunities opp
+    JOIN users u ON u.id = opp.rep_id
     JOIN LATERAL (
       SELECT total_score
-        FROM opportunity_audit_events
-       WHERE opportunity_id = o.id
-         AND org_id = $1
-       ORDER BY ts ASC
-       LIMIT 1
+      FROM opportunity_audit_events
+      WHERE opportunity_id = opp.id
+        AND org_id = $1
+      ORDER BY ts ASC
+      LIMIT 1
     ) first_event ON true
-    WHERE o.rep_id = ANY($4::int[])
-      AND o.org_id = $1
-      AND o.close_date >= $2::timestamptz
-      AND o.close_date < $3::timestamptz
-      AND COALESCE(o.run_count, 0) > 0
+    WHERE opp.rep_id = ANY($4::int[])
+      AND opp.org_id = $1
+      AND opp.close_date >= $2::timestamptz
+      AND opp.close_date < $3::timestamptz
+      AND COALESCE(opp.run_count, 0) > 0
     ORDER BY delta ASC NULLS LAST, rep_name ASC, opp_name ASC
     `,
     [orgId, startIso, endIso, visibleRepIds]
@@ -248,19 +248,19 @@ export default async function ForecastHygienePage({
     `
     SELECT
       oae.opportunity_id,
-      COALESCE(NULLIF(btrim(o.opportunity_name), ''), NULLIF(btrim(o.account_name), ''), o.id::text) AS opp_name,
-      o.rep_id,
+      COALESCE(NULLIF(btrim(opp.opportunity_name), ''), NULLIF(btrim(opp.account_name), ''), opp.id::text) AS opp_name,
+      opp.rep_id,
       COALESCE(NULLIF(btrim(u.display_name), ''), NULLIF(btrim(u.account_owner_name), ''), u.email) AS rep_name,
       oae.ts::text,
       oae.total_score
     FROM opportunity_audit_events oae
-    JOIN opportunities o ON o.id = oae.opportunity_id
-    JOIN users u ON u.id = o.rep_id
+    JOIN opportunities opp ON opp.id = oae.opportunity_id
+    JOIN users u ON u.id = opp.rep_id
     WHERE oae.org_id = $1
-      AND o.org_id = $1
-      AND o.rep_id = ANY($4::int[])
-      AND o.close_date >= $2::timestamptz
-      AND o.close_date < $3::timestamptz
+      AND opp.org_id = $1
+      AND opp.rep_id = ANY($4::int[])
+      AND opp.close_date >= $2::timestamptz
+      AND opp.close_date < $3::timestamptz
     ORDER BY oae.opportunity_id, oae.ts ASC
     `,
     [orgId, startIso, endIso, visibleRepIds]
