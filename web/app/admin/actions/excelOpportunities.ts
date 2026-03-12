@@ -712,7 +712,26 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
             return closeDate.getTime() >= cutoff2q.getTime();
           });
 
-        if (jobRows.length > 0) {
+        // Bulk-fetch normalized CRM opportunity IDs that already have a baseline score for this org.
+        const existingCrmOppIds = new Set(
+          (
+            await pool.query<{ crm_opp_id: string | null }>(
+              `
+              SELECT NULLIF(btrim(COALESCE(crm_opp_id, '')), '') AS crm_opp_id
+                FROM opportunities
+               WHERE org_id = $1
+                 AND COALESCE(run_count, 0) > 0
+              `,
+              [orgId]
+            )
+          ).rows
+            .map((r) => String(r.crm_opp_id || "").trim())
+            .filter(Boolean)
+        );
+
+        const newJobRows = jobRows.filter((r) => !existingCrmOppIds.has(r.crmOppId));
+
+        if (newJobRows.length > 0) {
           const queue = getIngestQueue();
           if (!queue) {
             return err(intent, "Comment scoring requires Redis. Set REDIS_URL and redeploy.", [
@@ -724,7 +743,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
           }
 
           const CHUNK_SIZE = 5;
-          console.log(`[ingest] enqueue start { count: ${jobRows.length}, queueName: "${QUEUE_NAME}" }`);
+          console.log(`[ingest] enqueue start { count: ${newJobRows.length}, queueName: "${QUEUE_NAME}" }`);
           // Required so OPPORTUNITY_NOT_READY triggers BullMQ retry/backoff for this job.
           // Use a deterministic jobId so overlapping ingests don't drop work; duplicate jobIds are treated as success.
           const deterministicJobIdBase = [
@@ -739,9 +758,9 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
 
           let queuedJobId: string | number | null = null;
           try {
-            const chunks: Array<typeof jobRows> = [];
-            for (let i = 0; i < jobRows.length; i += CHUNK_SIZE) {
-              chunks.push(jobRows.slice(i, i + CHUNK_SIZE));
+            const chunks: Array<typeof newJobRows> = [];
+            for (let i = 0; i < newJobRows.length; i += CHUNK_SIZE) {
+              chunks.push(newJobRows.slice(i, i + CHUNK_SIZE));
             }
             let jobsAdded = 0;
             for (let i = 0; i < chunks.length; i++) {
@@ -774,14 +793,14 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
                   jobId_deterministic: deterministicJobIdBase,
                   org_id: orgId,
                   file_name: file.name,
-                  rows: jobRows.length,
+                  rows: newJobRows.length,
                   jobsAdded,
                 })
               );
             } else {
               console.log(`[ingest] enqueue success { jobsAdded: ${jobsAdded} }`);
             }
-            commentsQueued = jobRows.length;
+            commentsQueued = newJobRows.length;
           } catch (enqErr: any) {
             const msg = String(enqErr?.message || enqErr || "");
             if (msg.includes("jobId") && msg.includes("already exists")) {
@@ -796,7 +815,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
                     jobId_deterministic: deterministicJobIdBase,
                     org_id: orgId,
                     file_name: file.name,
-                    rows: jobRows.length,
+                  rows: newJobRows.length,
                     error: msg,
                   })
                 );
@@ -805,7 +824,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
                   `[ingest] enqueue duplicate ignored { queueName: "${QUEUE_NAME}", reason: "jobId already exists" }`
                 );
               }
-              commentsQueued = jobRows.length;
+              commentsQueued = newJobRows.length;
             } else {
               console.error("[ingest] enqueue FAILED", enqErr?.stack || enqErr);
               return err(intent, "Failed to queue comment scoring.", [
