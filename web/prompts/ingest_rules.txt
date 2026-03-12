@@ -1,3 +1,8 @@
+ZERO EVIDENCE RULE: If a category has no supporting text in the
+notes, score it 0. Do not infer or generate evidence that is not
+explicitly present in the input. A score above 0 requires explicit
+text evidence.
+
 INGEST PROCESSING RULES (SILENT INGESTION FLOW ONLY)
 
 This flow processes pasted notes, emails, or call transcripts
