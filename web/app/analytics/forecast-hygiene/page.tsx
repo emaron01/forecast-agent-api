@@ -289,7 +289,9 @@ export default async function ForecastHygienePage({
     [orgId, startIso, endIso, visibleRepIds]
   );
 
-  const coverageRowsByRepId = new Map((coverageRows ?? []).map((r) => [r.rep_id, r]));
+  const coverageRowsByRepId = new Map<number, CoverageRow>(
+    (coverageRows ?? []).map((r) => [r.rep_id, r])
+  );
   const leaderCoverageRows: CoverageRow[] = leaders
     .filter((l) => leaderRepIds.get(l.id)?.length)
     .map((leader) => {
