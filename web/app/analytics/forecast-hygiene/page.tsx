@@ -13,11 +13,10 @@ function coveragePctTextClass(pct: number | null): string {
   return "text-[color:var(--sf-text-primary)]";
 }
 
-/** Text-only colors for Matthew's Assessment: no cell highlight, keep red/orange/yellow/green */
+/** Text-only colors for Matthew's Assessment: red 0–1, yellow 2, green 3+ */
 function assessmentScoreTextClass(score: number | null | undefined): string {
   if (score === null || score === undefined) return "text-gray-400";
-  if (score === 0) return "text-red-600";
-  if (score === 1) return "text-orange-600";
+  if (score <= 1) return "text-red-600";
   if (score === 2) return "text-yellow-600";
   return "text-green-600";
 }
