@@ -261,6 +261,15 @@ function extractHealthPercentFromAssistant(text: string) {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`TIMEOUT: ${label} exceeded ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 export type RunResponsesTurnResult = {
   assistantText: string;
   done: boolean;
@@ -1002,21 +1011,25 @@ export async function callResponsesApiSingleTurn(args: { instructions: string; u
     model: model
   }));
 
-  const resp = await fetch(`${baseUrl}/responses`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      instructions: args.instructions,
-      tool_choice: "none",
-      input: [userMsg(args.userMessage)],
-      temperature: 0,
-      max_output_tokens: 2000,
+  const resp = await withTimeout(
+    fetch(`${baseUrl}/responses`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        instructions: args.instructions,
+        tool_choice: "none",
+        input: [userMsg(args.userMessage)],
+        temperature: 0,
+        max_output_tokens: 2000,
+      }),
     }),
-  });
+    30000,  // 30 second timeout per category call
+    `ingest category call`
+  );
 
   const json = await resp.json().catch(async () => ({ error: { message: await resp.text() } }));
   if (!resp.ok) {
