@@ -1958,6 +1958,30 @@ export function ExecutiveGapInsightsClient(props: {
           />
         </div>
 
+        <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+          <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quarter Performance</div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className={heroCard}>
+              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Health Closed Loss</div>
+              <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
+                <span className={["num-tabular", healthColorClass(avgHealthLost)].join(" ")}>{avgHealthLost == null ? "—" : `${avgHealthLost}%`}</span>
+              </div>
+            </div>
+            <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
+              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
+              <div className="mt-1 text-tableLabel">Closed Won</div>
+              <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">{fmtDays(props.quarterKpis?.wonAvgDays ?? null)}</div>
+            </div>
+            <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
+              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
+              <div className="mt-1 text-tableLabel">Remaining Pipeline</div>
+              <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
+                {fmtDays(props.quarterKpis?.agingAvgDays ?? null)}
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section className="mt-4">
           <DataReadinessCard
             quotaPeriodId={quotaPeriodId}
@@ -2275,6 +2299,81 @@ export function ExecutiveGapInsightsClient(props: {
                 </div>
               );
             })()}
+            <div className="mt-4 grid grid-cols-7 gap-3">
+              <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">AI Forecast Outlook</div>
+                <div className="mt-2 text-kpiValue text-[color:var(--sf-text-primary)]">{fmtMoney(props.aiForecast)}</div>
+                <div className="mt-1 text-meta">SalesForecast.io AI‑weighted</div>
+              </div>
+              <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">CRM Forecast Outlook</div>
+                <div className="mt-2 text-kpiValue text-[color:var(--sf-text-primary)]">{fmtMoney(props.crmForecast)}</div>
+                <div className="mt-1 text-meta">Your organization's probabilities</div>
+              </div>
+              <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">AI Adjustment vs CRM</div>
+                <div className={`mt-2 text-kpiValue ${props.gap > 0 ? "text-[#2ECC71]" : props.gap < 0 ? "text-[#E74C3C]" : "text-[color:var(--sf-text-secondary)]"}`}>{fmtMoney(props.gap)}</div>
+                <div className="mt-1 text-meta">Outlook delta (AI − CRM)</div>
+                {dealsAtRisk != null ? <div className="mt-1 text-meta">Deals at risk: {dealsAtRisk}</div> : null}
+              </div>
+              {(() => {
+                const ord = productDelta(curOrders, prevOrders);
+                const acv = productDelta(curAcv, prevAcv);
+                const fmtSignedInt = (n: number) => {
+                  const v = Number(n || 0);
+                  if (!Number.isFinite(v)) return "—";
+                  if (v === 0) return "0";
+                  const abs = Math.abs(Math.trunc(v));
+                  return `${v > 0 ? "+" : "-"}${abs.toLocaleString("en-US")}`;
+                };
+                return (
+                  <>
+                    <div className={heroCard}>
+                      <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Total Orders</div>
+                      <div className={heroVal}>{curOrders.toLocaleString("en-US")}</div>
+                      <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
+                        <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", ord.tone].join(" ")}>
+                          <div>{prevProd ? fmtSignedInt(ord.d) : "—"}</div>
+                          <div aria-hidden="true" className="text-base leading-none">
+                            {ord.arrow}
+                          </div>
+                        </div>
+                        <div className="min-w-0 truncate text-right text-meta">
+                          Last Quarter{" "}
+                          <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? prevOrders.toLocaleString("en-US") : "—"}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className={heroCard}>
+                      <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Blended ACV</div>
+                      <div className={heroVal}>{fmtMoney(curAcv)}</div>
+                      <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
+                        <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", acv.tone].join(" ")}>
+                          <div>{prevProd ? fmtMoney(acv.d) : "—"}</div>
+                          <div aria-hidden="true" className="text-base leading-none">
+                            {acv.arrow}
+                          </div>
+                        </div>
+                        <div className="min-w-0 truncate text-right text-meta">
+                          Last Quarter{" "}
+                          <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? fmtMoney(prevAcv) : "—"}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className={[heroCard, "h-auto"].join(" ")}>
+                      <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Health Closed Won</div>
+                      <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
+                        <span className={["num-tabular", healthColorClass(avgHealthWon)].join(" ")}>{avgHealthWon == null ? "—" : `${avgHealthWon}%`}</span>
+                      </div>
+                    </div>
+                    <div className={heroCard}>
+                      <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
+                      <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">{fmtPct(oppToWin)}</div>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
             <div className="mt-4">
               <ExecutiveRemainingQuarterlyForecastBlock crmTotals={props.crmTotals} quota={props.quota} pipelineMomentum={props.pipelineMomentum} />
             </div>
@@ -2282,23 +2381,6 @@ export function ExecutiveGapInsightsClient(props: {
         </div>
 
       </section>
-
-      <div className="mt-5">
-        <KpiCardsRow
-          quota={props.quota}
-          aiForecast={props.aiForecast}
-          crmForecast={props.crmForecast}
-          gap={props.gap}
-          bucketDeltas={props.bucketDeltas}
-          dealsAtRisk={dealsAtRisk}
-          topN={topN}
-          usingFullRiskSet={quarterDrivers.usingFullRiskSet}
-          productKpis={productViz.summary}
-          productKpisPrev={productKpiPrev}
-          commitAdmission={props.commitAdmission}
-          variant="forecast_only"
-        />
-      </div>
 
       {props.commitAdmission && (props.commitAdmission.totalCommitCrmAmount > 0 || props.commitAdmission.unsupportedCommitAmount > 0 || props.commitAdmission.commitNeedsReviewAmount > 0 || props.commitAdmission.aiSupportedCommitAmount > 0) ? (
         <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
@@ -2451,106 +2533,25 @@ export function ExecutiveGapInsightsClient(props: {
           <div className="contents">
             {(() => {
               const rev = productDelta(curRev, prevRev);
-              const ord = productDelta(curOrders, prevOrders);
-              const acv = productDelta(curAcv, prevAcv);
-              const fmtSignedInt = (n: number) => {
-                const v = Number(n || 0);
-                if (!Number.isFinite(v)) return "—";
-                if (v === 0) return "0";
-                const abs = Math.abs(Math.trunc(v));
-                return `${v > 0 ? "+" : "-"}${abs.toLocaleString("en-US")}`;
-              };
-
               return (
-                <>
-                  <div className={heroCard}>
-                    <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Closed Won (QTD)</div>
-                    <div className={heroVal}>{fmtMoney(curRev)}</div>
-                    <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
-                      <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", rev.tone].join(" ")}>
-                        <div>{prevProd ? fmtMoney(rev.d) : "—"}</div>
-                        <div aria-hidden="true" className="text-base leading-none">
-                          {rev.arrow}
-                        </div>
-                      </div>
-                      <div className="min-w-0 truncate text-right text-meta">
-                        Last Quarter{" "}
-                        <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? fmtMoney(prevRev) : "—"}</span>
+                <div className={heroCard}>
+                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Closed Won (QTD)</div>
+                  <div className={heroVal}>{fmtMoney(curRev)}</div>
+                  <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
+                    <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", rev.tone].join(" ")}>
+                      <div>{prevProd ? fmtMoney(rev.d) : "—"}</div>
+                      <div aria-hidden="true" className="text-base leading-none">
+                        {rev.arrow}
                       </div>
                     </div>
-                  </div>
-
-                  <div className={heroCard}>
-                    <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Total Orders</div>
-                    <div className={heroVal}>{curOrders.toLocaleString("en-US")}</div>
-                    <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
-                      <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", ord.tone].join(" ")}>
-                        <div>{prevProd ? fmtSignedInt(ord.d) : "—"}</div>
-                        <div aria-hidden="true" className="text-base leading-none">
-                          {ord.arrow}
-                        </div>
-                      </div>
-                      <div className="min-w-0 truncate text-right text-meta">
-                        Last Quarter{" "}
-                        <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? prevOrders.toLocaleString("en-US") : "—"}</span>
-                      </div>
+                    <div className="min-w-0 truncate text-right text-meta">
+                      Last Quarter{" "}
+                      <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? fmtMoney(prevRev) : "—"}</span>
                     </div>
                   </div>
-
-                  <div className={heroCard}>
-                    <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Blended ACV</div>
-                    <div className={heroVal}>{fmtMoney(curAcv)}</div>
-                    <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
-                      <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", acv.tone].join(" ")}>
-                        <div>{prevProd ? fmtMoney(acv.d) : "—"}</div>
-                        <div aria-hidden="true" className="text-base leading-none">
-                          {acv.arrow}
-                        </div>
-                      </div>
-                      <div className="min-w-0 truncate text-right text-meta">
-                        Last Quarter{" "}
-                        <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? fmtMoney(prevAcv) : "—"}</span>
-                      </div>
-                    </div>
-                  </div>
-                </>
+                </div>
               );
             })()}
-          </div>
-
-          <div className="contents">
-            <div className={[heroCard, "h-auto"].join(" ")}>
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Health Closed Won</div>
-              <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
-                <span className={["num-tabular", healthColorClass(avgHealthWon)].join(" ")}>{avgHealthWon == null ? "—" : `${avgHealthWon}%`}</span>
-              </div>
-            </div>
-            <div className={heroCard}>
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
-              <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">{fmtPct(oppToWin)}</div>
-            </div>
-            <div className={heroCard}>
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Health Closed Loss</div>
-              <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
-                <span className={["num-tabular", healthColorClass(avgHealthLost)].join(" ")}>{avgHealthLost == null ? "—" : `${avgHealthLost}%`}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
-            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
-            <div className="mt-1 text-tableLabel">Closed Won</div>
-            <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">{fmtDays(props.quarterKpis?.wonAvgDays ?? null)}</div>
-          </div>
-
-          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
-            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
-            <div className="mt-1 text-tableLabel">Remaining Pipeline</div>
-            <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
-              {fmtDays(props.quarterKpis?.agingAvgDays ?? null)}
-            </div>
           </div>
         </div>
       </section>
