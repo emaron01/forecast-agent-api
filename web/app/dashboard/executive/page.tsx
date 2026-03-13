@@ -122,6 +122,15 @@ export default async function ExecutiveDashboardPage({
     coverage_pct: number | null;
   };
 
+  type VelocityRepSummary = {
+    repName: string;
+    avgBaseline: number;
+    avgCurrent: number;
+    avgDelta: number;
+    dealsMoving: number;
+    dealsFlat: number;
+  };
+
   let coverageRowsFinal: CoverageRow[] = [];
   try {
     const { rows: coverageRows } = await pool.query<CoverageRow>(
