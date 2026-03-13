@@ -164,9 +164,6 @@ export async function setExecDefaultTabAction(tab: ExecTabKey) {
   );
 }
 
-const EXEC_TABS = ["forecast", "pipeline", "team", "revenue", "reports"] as const;
-type ExecTabKey = (typeof EXEC_TABS)[number];
-
 async function listQuotaPeriodsForOrg(orgId: number): Promise<QuotaPeriodLite[]> {
   const { rows } = await pool.query<QuotaPeriodLite>(
     `
