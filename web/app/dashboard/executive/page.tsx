@@ -436,15 +436,6 @@ export default async function ExecutiveDashboardPage({
       [orgId, startIso, endIso, visibleRepIdsForQuery]
     );
 
-    type VelocityRepSummary = {
-      repName: string;
-      avgBaseline: number;
-      avgCurrent: number;
-      avgDelta: number;
-      dealsMoving: number;
-      dealsFlat: number;
-    };
-
     const velocityByRep = new Map<string, {
       repName: string;
       count: number;
