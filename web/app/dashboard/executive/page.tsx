@@ -394,6 +394,11 @@ export default async function ExecutiveDashboardPage({
     delta: number | null;
   };
 
+  function num(v: unknown): number {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+
   let velocityRepSummariesFinal: VelocityRepSummary[] = [];
   try {
     const { rows: velocityRows } = await pool.query<VelocityRow>(
