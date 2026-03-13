@@ -295,9 +295,9 @@ export function SimpleForecastDashboardClient(props: {
               <th className="px-4 py-3">Opp Name</th>
               <th className="px-4 py-3">Revenue</th>
               <th className="px-4 py-3">Close Date</th>
-              <th className="px-4 py-3">Forecast Stage</th>
-              <th className="px-4 py-3">Health Score %</th>
-              <th className="px-4 py-3 text-right">{showDealReviewWorkflow ? "Review" : "Deal Score Card"}</th>
+              <th className="px-4 py-3">Forecast</th>
+              <th className="px-4 py-3">Health %</th>
+              <th className="px-4 py-3 text-right"></th>
             </tr>
           </thead>
               <tbody>
@@ -318,7 +318,9 @@ export function SimpleForecastDashboardClient(props: {
                       </div>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3">{d.opportunity_name || "—"}</td>
+                  <td className="px-4 py-3 whitespace-normal leading-snug">
+                    {d.opportunity_name || "—"}
+                  </td>
                   <td className="px-4 py-3">{fmtMoney(d.amount)}</td>
                   <td className="px-4 py-3 whitespace-nowrap">{dateOnly(d.close_date) || "—"}</td>
                   <td className="px-4 py-3">{bucket}</td>
@@ -330,7 +332,7 @@ export function SimpleForecastDashboardClient(props: {
                       className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-xs font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
                       href={`/opportunities/${encodeURIComponent(id)}/deal-review`}
                     >
-                      {showDealReviewWorkflow ? "Review" : "View"}
+                      View
                     </Link>
                   </td>
                 </tr>
