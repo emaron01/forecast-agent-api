@@ -267,7 +267,7 @@ export function ExecutiveTabsShellClient(props: {
   const updateUrl = (tab: ExecTabKey) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", tab);
-    router.push(`${pathname}?${params.toString()}`);
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
   };
 
   const handleTabClick = (tab: ExecTabKey) => {
