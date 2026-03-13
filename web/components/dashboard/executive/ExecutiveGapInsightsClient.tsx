@@ -1899,18 +1899,6 @@ export function ExecutiveGapInsightsClient(props: {
           />
         </div>
 
-        {props.commitAdmission &&
-        props.commitAdmission.totalCommitCrmAmount > 0 &&
-        ((props.commitAdmission.commitEvidenceCoveragePct ?? 100) < 40 ||
-          (props.commitAdmission.verifiedCommitAmount ?? 0) === 0) ? (
-          <section className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
-            <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Reporting is catching up</div>
-            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-              AI-supported Commit requires at least one full forecast review this quarter. After the first pass, weekly updates are quick.
-            </div>
-          </section>
-        ) : null}
-
         <section className="mt-4">
           <DataReadinessCard
             quotaPeriodId={quotaPeriodId}
@@ -2387,23 +2375,6 @@ export function ExecutiveGapInsightsClient(props: {
           variant="forecast_only"
         />
       </div>
-
-      {props.commitAdmission && props.commitAdmission.totalCommitCrmAmount > 0 && ((props.commitAdmission.commitEvidenceCoveragePct ?? 100) < 40 || (props.commitAdmission.verifiedCommitAmount ?? 0) === 0) ? (
-        <section className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
-          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Reporting is catching up</div>
-          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-            AI-supported Commit requires at least one full forecast review this quarter. After the first pass, weekly updates are quick.
-          </div>
-        </section>
-      ) : null}
-
-      <section className="mt-4">
-        <DataReadinessCard
-          quotaPeriodId={quotaPeriodId}
-          snapshotOffsetDays={90}
-          isAdmin={false}
-        />
-      </section>
 
       {props.commitAdmission && (props.commitAdmission.totalCommitCrmAmount > 0 || props.commitAdmission.unsupportedCommitAmount > 0 || props.commitAdmission.commitNeedsReviewAmount > 0 || props.commitAdmission.aiSupportedCommitAmount > 0) ? (
         <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
@@ -3107,15 +3078,6 @@ export function ExecutiveGapInsightsClient(props: {
           variant="forecast_only"
         />
       </div>
-
-      {props.commitAdmission && props.commitAdmission.totalCommitCrmAmount > 0 && ((props.commitAdmission.commitEvidenceCoveragePct ?? 100) < 40 || (props.commitAdmission.verifiedCommitAmount ?? 0) === 0) ? (
-        <section className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
-          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Reporting is catching up</div>
-          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-            AI-supported Commit requires at least one full forecast review this quarter. After the first pass, weekly updates are quick.
-          </div>
-        </section>
-      ) : null}
 
       <section className="mt-4">
         <DataReadinessCard
