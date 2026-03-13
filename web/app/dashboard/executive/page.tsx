@@ -12,6 +12,8 @@ import { EXEC_TABS, setExecDefaultTabAction, type ExecTabKey } from "../../actio
 
 export const runtime = "nodejs";
 
+console.log("[ExecutiveDashboardPage module loaded]");
+
 function normalizeExecTab(raw: string | null | undefined): ExecTabKey | null {
   const v = String(raw || "").trim().toLowerCase();
   return EXEC_TABS.includes(v as ExecTabKey) ? (v as ExecTabKey) : null;
@@ -846,7 +848,12 @@ export default async function ExecutiveDashboardPage({
     </div>
   );
   } catch (e) {
-    console.error("[ExecutiveDashboardPage crash]", e);
+    const fs = await import("fs");
+    const msg = e instanceof Error ? e.stack || e.message : String(e);
+    console.error("[ExecutiveDashboardPage crash]", msg);
+    try {
+      fs.writeFileSync("/tmp/exec-dashboard-error.txt", msg);
+    } catch {}
     throw e;
   }
 }
