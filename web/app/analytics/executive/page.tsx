@@ -9,6 +9,7 @@ import { UserTopNav } from "../../_components/UserTopNav";
 import { ExportToExcelButton } from "../../_components/ExportToExcelButton";
 import { ExecutiveKpisFiltersClient } from "./ExecutiveKpisFiltersClient";
 import { getScopedRepDirectory } from "../../../lib/repScope";
+import { ExecutiveTabsShellClient } from "./ExecutiveTabsShellClient";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -138,6 +139,33 @@ type RepPeriodKpisRow = {
 type CreatedByRepRow = { quota_period_id: string; rep_id: string; created_amount: number; created_count: number };
 
 export const runtime = "nodejs";
+
+const EXEC_TABS = ["forecast", "pipeline", "team", "revenue", "reports"] as const;
+type ExecTabKey = (typeof EXEC_TABS)[number];
+
+function normalizeExecTab(raw: string | null | undefined): ExecTabKey | null {
+  const v = String(raw || "").trim().toLowerCase();
+  return EXEC_TABS.includes(v as ExecTabKey) ? (v as ExecTabKey) : null;
+}
+
+export async function setExecDefaultTabAction(tab: ExecTabKey) {
+  "use server";
+  const ctx = await requireAuth();
+  if (ctx.kind !== "user") {
+    throw new Error("Unauthorized");
+  }
+  await pool.query(
+    `
+    UPDATE users
+       SET user_preferences = COALESCE(user_preferences, '{}'::jsonb) || jsonb_build_object('exec_default_tab', $2::text)
+     WHERE id = $1::bigint
+    `,
+    [ctx.user.id, tab]
+  );
+}
+
+const EXEC_TABS = ["forecast", "pipeline", "team", "revenue", "reports"] as const;
+type ExecTabKey = (typeof EXEC_TABS)[number];
 
 async function listQuotaPeriodsForOrg(orgId: number): Promise<QuotaPeriodLite[]> {
   const { rows } = await pool.query<QuotaPeriodLite>(
@@ -564,6 +592,21 @@ export default async function ExecutiveAnalyticsKpisPage({
   const selectedPeriodId = selectedPeriod ? String(selectedPeriod.id) : "";
   const prevPeriodId = prevPeriod ? String(prevPeriod.id) : "";
   const comparePeriodIds = [selectedPeriodId, prevPeriodId].filter(Boolean);
+
+  // Determine active tab: URL param > user preference > forecast
+  const tabParam = normalizeExecTab(sp(searchParams.tab));
+  let prefTab: ExecTabKey | null = null;
+  try {
+    const prefRows = await pool.query<{ user_preferences: any }>(
+      `SELECT user_preferences FROM users WHERE id = $1::bigint`,
+      [ctx.user.id]
+    );
+    const prefs = (prefRows.rows?.[0]?.user_preferences as any) || {};
+    prefTab = normalizeExecTab(prefs.exec_default_tab);
+  } catch {
+    prefTab = null;
+  }
+  const activeTab: ExecTabKey = tabParam || prefTab || "forecast";
 
   const [kpiRows, quotaTotals, repKpisRows, createdByRepRows, quotaByRepPeriod, healthAvgRows] = selectedPeriodId
     ? await Promise.all([
