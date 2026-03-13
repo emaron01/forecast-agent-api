@@ -30,8 +30,8 @@ export default async function ExecutiveDashboardPage({
   });
 
   // Determine active tab: URL param > user preference > forecast
-  const searchParams = searchParams || {};
-  const tabRaw = Array.isArray(searchParams.tab) ? searchParams.tab[0] : searchParams.tab;
+  const search = searchParams || {};
+  const tabRaw = Array.isArray(search.tab) ? search.tab[0] : search.tab;
   const tabParam = normalizeExecTab(tabRaw);
   let prefTab: ExecTabKey | null = null;
   try {
