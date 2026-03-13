@@ -17,6 +17,9 @@ function resolveBaseUrl() {
   return noTrail.endsWith("/v1") ? noTrail : `${noTrail}/v1`;
 }
 
+const EXECUTIVE_BRIEFING_SYSTEM_PROMPT =
+  "You are Matthew, a skeptical CRO-level revenue intelligence advisor. Brief the executive on their quarter in plain paragraphs, no bullets, no closing summary. Four sections with bold headings: Quarter Outlook, Commit Integrity, Pipeline Risk, Channel Performance. Lead every section with the problem, not the positive. Be clinical and direct — not dramatic. Format all dollar amounts as currency with $ and commas. Maximum 300 words.";
+
 const BodySchema = z.object({
   max_tokens: z.number().int().min(1).max(8192).optional(),
   system: z.string(),
@@ -57,7 +60,7 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         model,
-        instructions: body.system,
+        instructions: EXECUTIVE_BRIEFING_SYSTEM_PROMPT,
         tool_choice: "none",
         input: [{ role: "user", content: userContent }],
         temperature: 0,

@@ -2174,6 +2174,7 @@ export function ExecutiveGapInsightsClient(props: {
     return (
       <>
     <div className="grid gap-4">
+      {/* heroOnly section order: 1–3 hero, then 12, 14, 15, 17–24, 13, 4–11 */}
       <section className="w-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(360px,620px)] lg:items-start">
           <div className="min-w-0">
@@ -2241,179 +2242,10 @@ export function ExecutiveGapInsightsClient(props: {
               })()}
             </div>
           </div>
-
-          <div className="min-w-0 lg:pt-1">
-            <div className="ml-auto grid max-w-[560px] gap-3 sm:grid-cols-2">
-              <div className="contents">
-                {(() => {
-                  const rev = productDelta(curRev, prevRev);
-                  const ord = productDelta(curOrders, prevOrders);
-                  const acv = productDelta(curAcv, prevAcv);
-                  const fmtSignedInt = (n: number) => {
-                    const v = Number(n || 0);
-                    if (!Number.isFinite(v)) return "—";
-                    if (v === 0) return "0";
-                    const abs = Math.abs(Math.trunc(v));
-                    return `${v > 0 ? "+" : "-"}${abs.toLocaleString("en-US")}`;
-                  };
-
-                  return (
-                    <>
-                      <div className={heroCard}>
-                        <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Closed Won (QTD)</div>
-                        <div className={heroVal}>{fmtMoney(curRev)}</div>
-                        <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
-                          <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", rev.tone].join(" ")}>
-                            <div>{prevProd ? fmtMoney(rev.d) : "—"}</div>
-                            <div aria-hidden="true" className="text-base leading-none">
-                              {rev.arrow}
-                            </div>
-                          </div>
-                          <div className="min-w-0 truncate text-right text-meta">
-                            Last Quarter{" "}
-                            <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? fmtMoney(prevRev) : "—"}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className={heroCard}>
-                        <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Total Orders</div>
-                        <div className={heroVal}>{curOrders.toLocaleString("en-US")}</div>
-                        <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
-                          <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", ord.tone].join(" ")}>
-                            <div>{prevProd ? fmtSignedInt(ord.d) : "—"}</div>
-                            <div aria-hidden="true" className="text-base leading-none">
-                              {ord.arrow}
-                            </div>
-                          </div>
-                          <div className="min-w-0 truncate text-right text-meta">
-                            Last Quarter{" "}
-                            <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? prevOrders.toLocaleString("en-US") : "—"}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className={heroCard}>
-                        <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Blended ACV</div>
-                        <div className={heroVal}>{fmtMoney(curAcv)}</div>
-                        <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
-                          <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", acv.tone].join(" ")}>
-                            <div>{prevProd ? fmtMoney(acv.d) : "—"}</div>
-                            <div aria-hidden="true" className="text-base leading-none">
-                              {acv.arrow}
-                            </div>
-                          </div>
-                          <div className="min-w-0 truncate text-right text-meta">
-                            Last Quarter{" "}
-                            <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? fmtMoney(prevAcv) : "—"}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-
-              <div className="contents">
-                <div className={[heroCard, "h-auto"].join(" ")}>
-                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Health Closed Won</div>
-                  <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
-                    <span className={["num-tabular", healthColorClass(avgHealthWon)].join(" ")}>{avgHealthWon == null ? "—" : `${avgHealthWon}%`}</span>
-                  </div>
-                </div>
-                <div className={heroCard}>
-                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
-                  <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">{fmtPct(oppToWin)}</div>
-                </div>
-                <div className={heroCard}>
-                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Health Closed Loss</div>
-                  <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
-                    <span className={["num-tabular", healthColorClass(avgHealthLost)].join(" ")}>{avgHealthLost == null ? "—" : `${avgHealthLost}%`}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
 
         <div className="mt-4 grid gap-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
-              <div className="mt-1 text-tableLabel">Closed Won</div>
-              <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">{fmtDays(props.quarterKpis?.wonAvgDays ?? null)}</div>
-            </div>
-
-            <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
-              <div className="mt-1 text-tableLabel">Remaining Pipeline</div>
-              <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
-                {fmtDays(props.quarterKpis?.agingAvgDays ?? null)}
-              </div>
-            </div>
-          </div>
-
           <ExecutiveRemainingQuarterlyForecastBlock crmTotals={props.crmTotals} quota={props.quota} pipelineMomentum={props.pipelineMomentum} />
-
-          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="inline-flex items-center gap-2 text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
-                <Image
-                  src="/brand/salesforecast-logo-white.png"
-                  alt="SalesForecast.io"
-                  width={258}
-                  height={47}
-                  className="h-[1.95rem] w-auto opacity-90"
-                />
-                <span>✨ Strategic Takeaway</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void runHeroAi({ force: true, showNoChangeToast: true })}
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
-                >
-                  Reanalyze
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void copyHeroAi()}
-                  className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
-                  disabled={!heroAiSummary && !heroAiExtended}
-                  title={heroAiSummary || heroAiExtended ? "Copy summary + extended" : "No summary to copy yet"}
-                >
-                  <span aria-hidden="true">⧉</span>
-                  Copy
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHeroAiExpanded((v) => !v)}
-                  className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
-                >
-                  {heroAiExpanded ? "Hide extended analysis" : "Extended analysis"}
-                </button>
-              </div>
-            </div>
-
-            {heroAiToast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroAiToast}</div> : null}
-            {heroAiCopied ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
-            {heroAiLoading ? (
-              <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating a CRO-grade takeaway…</div>
-            ) : heroAiSummary || heroAiExtended ? (
-              <div className="mt-3 grid gap-3">
-                {heroAiSummary ? (
-                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
-                    {renderCategorizedText(heroAiSummary) || <div className="whitespace-pre-wrap">{heroAiSummary}</div>}
-                  </div>
-                ) : null}
-                {heroAiExpanded && heroAiExtended ? (
-                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black whitespace-pre-wrap">
-                    {renderCategorizedText(heroAiExtended) || <div className="whitespace-pre-wrap">{heroAiExtended}</div>}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
         </div>
 
       </section>
@@ -2518,6 +2350,177 @@ export function ExecutiveGapInsightsClient(props: {
           ) : null}
         </section>
       ) : null}
+
+      {/* heroOnly order: Strategic Takeaway (13) then Closed Won / … / Avg Days (4–11) */}
+      <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="inline-flex items-center gap-2 text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
+            <Image
+              src="/brand/salesforecast-logo-white.png"
+              alt="SalesForecast.io"
+              width={258}
+              height={47}
+              className="h-[1.95rem] w-auto opacity-90"
+            />
+            <span>✨ Strategic Takeaway</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void runHeroAi({ force: true, showNoChangeToast: true })}
+              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
+            >
+              Reanalyze
+            </button>
+            <button
+              type="button"
+              onClick={() => void copyHeroAi()}
+              className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
+              disabled={!heroAiSummary && !heroAiExtended}
+              title={heroAiSummary || heroAiExtended ? "Copy summary + extended" : "No summary to copy yet"}
+            >
+              <span aria-hidden="true">⧉</span>
+              Copy
+            </button>
+            <button
+              type="button"
+              onClick={() => setHeroAiExpanded((v) => !v)}
+              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
+            >
+              {heroAiExpanded ? "Hide extended analysis" : "Extended analysis"}
+            </button>
+          </div>
+        </div>
+
+        {heroAiToast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroAiToast}</div> : null}
+        {heroAiCopied ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
+        {heroAiLoading ? (
+          <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating a CRO-grade takeaway…</div>
+        ) : heroAiSummary || heroAiExtended ? (
+          <div className="mt-3 grid gap-3">
+            {heroAiSummary ? (
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
+                {renderCategorizedText(heroAiSummary) || <div className="whitespace-pre-wrap">{heroAiSummary}</div>}
+              </div>
+            ) : null}
+            {heroAiExpanded && heroAiExtended ? (
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black whitespace-pre-wrap">
+                {renderCategorizedText(heroAiExtended) || <div className="whitespace-pre-wrap">{heroAiExtended}</div>}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+        <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quarter performance (historical)</div>
+        <div className="mt-4 grid max-w-[560px] gap-3 sm:grid-cols-2">
+          <div className="contents">
+            {(() => {
+              const rev = productDelta(curRev, prevRev);
+              const ord = productDelta(curOrders, prevOrders);
+              const acv = productDelta(curAcv, prevAcv);
+              const fmtSignedInt = (n: number) => {
+                const v = Number(n || 0);
+                if (!Number.isFinite(v)) return "—";
+                if (v === 0) return "0";
+                const abs = Math.abs(Math.trunc(v));
+                return `${v > 0 ? "+" : "-"}${abs.toLocaleString("en-US")}`;
+              };
+
+              return (
+                <>
+                  <div className={heroCard}>
+                    <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Closed Won (QTD)</div>
+                    <div className={heroVal}>{fmtMoney(curRev)}</div>
+                    <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
+                      <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", rev.tone].join(" ")}>
+                        <div>{prevProd ? fmtMoney(rev.d) : "—"}</div>
+                        <div aria-hidden="true" className="text-base leading-none">
+                          {rev.arrow}
+                        </div>
+                      </div>
+                      <div className="min-w-0 truncate text-right text-meta">
+                        Last Quarter{" "}
+                        <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? fmtMoney(prevRev) : "—"}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={heroCard}>
+                    <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Total Orders</div>
+                    <div className={heroVal}>{curOrders.toLocaleString("en-US")}</div>
+                    <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
+                      <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", ord.tone].join(" ")}>
+                        <div>{prevProd ? fmtSignedInt(ord.d) : "—"}</div>
+                        <div aria-hidden="true" className="text-base leading-none">
+                          {ord.arrow}
+                        </div>
+                      </div>
+                      <div className="min-w-0 truncate text-right text-meta">
+                        Last Quarter{" "}
+                        <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? prevOrders.toLocaleString("en-US") : "—"}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={heroCard}>
+                    <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Blended ACV</div>
+                    <div className={heroVal}>{fmtMoney(curAcv)}</div>
+                    <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
+                      <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", acv.tone].join(" ")}>
+                        <div>{prevProd ? fmtMoney(acv.d) : "—"}</div>
+                        <div aria-hidden="true" className="text-base leading-none">
+                          {acv.arrow}
+                        </div>
+                      </div>
+                      <div className="min-w-0 truncate text-right text-meta">
+                        Last Quarter{" "}
+                        <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? fmtMoney(prevAcv) : "—"}</span>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+
+          <div className="contents">
+            <div className={[heroCard, "h-auto"].join(" ")}>
+              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Health Closed Won</div>
+              <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
+                <span className={["num-tabular", healthColorClass(avgHealthWon)].join(" ")}>{avgHealthWon == null ? "—" : `${avgHealthWon}%`}</span>
+              </div>
+            </div>
+            <div className={heroCard}>
+              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
+              <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">{fmtPct(oppToWin)}</div>
+            </div>
+            <div className={heroCard}>
+              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Health Closed Loss</div>
+              <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
+                <span className={["num-tabular", healthColorClass(avgHealthLost)].join(" ")}>{avgHealthLost == null ? "—" : `${avgHealthLost}%`}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
+            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
+            <div className="mt-1 text-tableLabel">Closed Won</div>
+            <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">{fmtDays(props.quarterKpis?.wonAvgDays ?? null)}</div>
+          </div>
+
+          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
+            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
+            <div className="mt-1 text-tableLabel">Remaining Pipeline</div>
+            <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
+              {fmtDays(props.quarterKpis?.agingAvgDays ?? null)}
+            </div>
+          </div>
+        </div>
+      </section>
 
     </div>
       </>
