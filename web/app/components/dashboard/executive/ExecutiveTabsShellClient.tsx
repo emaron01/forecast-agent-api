@@ -3,6 +3,11 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, useTransition, type ComponentProps } from "react";
 import { ExecutiveGapInsightsClient } from "../../../../components/dashboard/executive/ExecutiveGapInsightsClient";
+import {
+  RepManagerComparisonPanel,
+  type RepManagerManagerRow,
+  type RepManagerRepRow,
+} from "./RepManagerComparisonPanel";
 
 type ExecTabKey = "forecast" | "pipeline" | "team" | "revenue" | "reports";
 
@@ -84,6 +89,12 @@ const TABS: { key: ExecTabKey; label: string }[] = [
   { key: "reports", label: "Reports" },
 ];
 
+export type TeamRepManagerPayload = {
+  repRows: RepManagerRepRow[];
+  managerRows: RepManagerManagerRow[];
+  periodName?: string;
+};
+
 export function ExecutiveTabsShellClient(props: {
   basePath: string;
   initialTab: ExecTabKey;
@@ -91,6 +102,8 @@ export function ExecutiveTabsShellClient(props: {
   forecastTabProps: ExecutiveGapInsightsClientProps;
   pipelineTabProps: ExecutiveGapInsightsClientProps;
   pipelineHygiene: PipelineHygienePayload;
+  teamTabProps: ExecutiveGapInsightsClientProps;
+  teamRepManagerPayload: TeamRepManagerPayload;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -386,7 +399,32 @@ export function ExecutiveTabsShellClient(props: {
             </section>
           </div>
         )}
-        {activeTab === "team" && <div>Tab content coming soon</div>}
+        {activeTab === "team" && (
+          <div className="space-y-8">
+            <section>
+              <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Coaching Insights</h2>
+              <div className="mt-3">
+                <ExecutiveGapInsightsClient {...props.teamTabProps} teamTabOnly={true} />
+              </div>
+            </section>
+
+            <hr className="border-[color:var(--sf-border)]" aria-hidden="true" />
+
+            <section>
+              <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Rep & Manager Performance</h2>
+              <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                Quarter-scoped rep comparison and manager rollup by attainment.
+              </p>
+              <div className="mt-3">
+                <RepManagerComparisonPanel
+                  repRows={props.teamRepManagerPayload.repRows}
+                  managerRows={props.teamRepManagerPayload.managerRows}
+                  periodName={props.teamRepManagerPayload.periodName}
+                />
+              </div>
+            </section>
+          </div>
+        )}
         {activeTab === "revenue" && <div>Tab content coming soon</div>}
         {activeTab === "reports" && <div>Tab content coming soon</div>}
       </div>
