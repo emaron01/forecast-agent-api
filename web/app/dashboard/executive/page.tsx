@@ -990,6 +990,7 @@ export default async function ExecutiveDashboardPage({
             commitAdmission={summary.commitAdmission}
             commitDealPanels={summary.commitDealPanels}
             defaultTopN={5}
+            heroOnly={true}
           />
         </div>
 
@@ -1109,6 +1110,40 @@ export default async function ExecutiveDashboardPage({
             repRows: teamRepRows,
             managerRows: teamManagerRows,
             periodName: summary.selectedPeriod?.period_name ?? "",
+          }}
+          revenueTabProps={{
+            basePath: "/dashboard/executive",
+            periods: summary.periods,
+            quotaPeriodId: summary.selectedQuotaPeriodId,
+            reps: summary.reps,
+            fiscalYear: String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "—",
+            fiscalQuarter: String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—",
+            stageProbabilities: summary.stageProbabilities,
+            healthModifiers: summary.healthModifiers,
+            repDirectory: summary.repDirectory,
+            myRepId: summary.myRepId,
+            repRollups: summary.repRollups,
+            productsClosedWon: summary.productsClosedWon,
+            productsClosedWonPrevSummary: summary.productsClosedWonPrevSummary,
+            productsClosedWonByRep: summary.productsClosedWonByRep,
+            quarterKpis: summary.quarterKpis,
+            pipelineMomentum: summary.pipelineMomentum,
+            crmTotals: summary.crmForecast,
+            partnersExecutive: summary.partnersExecutive,
+            quota: summary.quota,
+            aiForecast: summary.aiForecast.weighted_forecast,
+            crmForecast: summary.crmForecast.weighted_forecast,
+            gap: summary.forecastGap,
+            bucketDeltas: {
+              commit: summary.bucketDeltas.commit,
+              best_case: summary.bucketDeltas.best_case,
+              pipeline: summary.bucketDeltas.pipeline,
+            },
+            aiPctToGoal: summary.pctToGoal,
+            leftToGo: summary.leftToGo,
+            commitAdmission: summary.commitAdmission,
+            commitDealPanels: summary.commitDealPanels,
+            defaultTopN: 5,
           }}
         />
       </main>

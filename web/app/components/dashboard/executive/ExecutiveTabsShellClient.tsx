@@ -104,6 +104,7 @@ export function ExecutiveTabsShellClient(props: {
   pipelineHygiene: PipelineHygienePayload;
   teamTabProps: ExecutiveGapInsightsClientProps;
   teamRepManagerPayload: TeamRepManagerPayload;
+  revenueTabProps: ExecutiveGapInsightsClientProps;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -425,7 +426,9 @@ export function ExecutiveTabsShellClient(props: {
             </section>
           </div>
         )}
-        {activeTab === "revenue" && <div>Tab content coming soon</div>}
+        {activeTab === "revenue" && (
+          <ExecutiveGapInsightsClient {...props.revenueTabProps} revenueTabOnly={true} />
+        )}
         {activeTab === "reports" && <div>Tab content coming soon</div>}
       </div>
     </section>
