@@ -2,14 +2,7 @@
 
 import { requireAuth } from "../../lib/auth";
 import { pool } from "../../lib/pool";
-
-export const EXEC_TABS = ["forecast", "pipeline", "team", "revenue", "reports"] as const;
-export type ExecTabKey = (typeof EXEC_TABS)[number];
-
-function normalizeExecTab(raw: string | null | undefined): ExecTabKey | null {
-  const v = String(raw || "").trim().toLowerCase();
-  return EXEC_TABS.includes(v as ExecTabKey) ? (v as ExecTabKey) : null;
-}
+import type { ExecTabKey } from "./execTabConstants";
 
 export async function setExecDefaultTabAction(tab: ExecTabKey) {
   const ctx = await requireAuth();
@@ -25,4 +18,3 @@ export async function setExecDefaultTabAction(tab: ExecTabKey) {
     [ctx.user.id, tab]
   );
 }
-

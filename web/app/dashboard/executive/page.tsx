@@ -8,16 +8,12 @@ import { ForecastPeriodFiltersClient } from "../../forecast/_components/Forecast
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
 import { ExecutiveTabsShellClient } from "../../components/dashboard/executive/ExecutiveTabsShellClient";
-import { EXEC_TABS, setExecDefaultTabAction, type ExecTabKey } from "../../actions/execTabPreferences";
+import { EXEC_TABS, normalizeExecTab, type ExecTabKey } from "../../actions/execTabConstants";
+import { setExecDefaultTabAction } from "../../actions/execTabPreferences";
 
 export const runtime = "nodejs";
 
 console.log("[ExecutiveDashboardPage module loaded]");
-
-function normalizeExecTab(raw: string | null | undefined): ExecTabKey | null {
-  const v = String(raw || "").trim().toLowerCase();
-  return EXEC_TABS.includes(v as ExecTabKey) ? (v as ExecTabKey) : null;
-}
 
 export default async function ExecutiveDashboardPage({
   searchParams,
