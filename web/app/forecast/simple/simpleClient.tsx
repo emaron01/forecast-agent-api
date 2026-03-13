@@ -234,17 +234,6 @@ export function SimpleForecastDashboardClient(props: {
             >
               Sync CRM
             </button>
-            {showDealReviewWorkflow ? (
-              <button
-                type="button"
-                onClick={() => void startQueueReview()}
-                className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)] disabled:opacity-60"
-                disabled={busy || !selectedIds.length}
-                title="Run the agent through selected deals, one-by-one."
-              >
-                Review Queue ({selectedIds.length})
-              </button>
-            ) : null}
           </div>
         </div>
 
@@ -316,7 +305,6 @@ export function SimpleForecastDashboardClient(props: {
               <th className="px-4 py-3">Revenue</th>
               <th className="px-4 py-3">Close Date</th>
               <th className="px-4 py-3">Forecast Stage</th>
-              <th className="px-4 py-3">AI Forecast Stage</th>
               <th className="px-4 py-3">Health Score %</th>
               <th className="px-4 py-3 text-right">{showDealReviewWorkflow ? "Review" : "Deal Score Card"}</th>
             </tr>
@@ -326,15 +314,17 @@ export function SimpleForecastDashboardClient(props: {
               const id = String(d.id || "");
               const checked = !!selected[id];
               const bucket = normalizeForecastBucket(d.forecast_stage);
+              const hp = healthPctFrom30(d.health_score);
               return (
                 <tr key={id} className="border-t border-[color:var(--sf-border)]">
                   <td className="px-4 py-3">{d.account_name || "—"}</td>
                   <td className="px-4 py-3">{d.opportunity_name || "—"}</td>
                   <td className="px-4 py-3">{fmtMoney(d.amount)}</td>
-                  <td className="px-4 py-3">{dateOnly(d.close_date) || "—"}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{dateOnly(d.close_date) || "—"}</td>
                   <td className="px-4 py-3">{bucket}</td>
-                  <td className="px-4 py-3">{d.ai_verdict || d.ai_forecast || "—"}</td>
-                  <td className="px-4 py-3">{healthPct(d)}</td>
+                  <td className={`px-4 py-3 ${healthColorClass(hp)}`}>
+                    {hp == null ? "—" : `${hp}%`}
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <Link
                       className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-xs font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
@@ -348,7 +338,7 @@ export function SimpleForecastDashboardClient(props: {
             })}
             {!filtered.length ? (
               <tr>
-                <td className="px-4 py-8 text-center text-[color:var(--sf-text-disabled)]" colSpan={showDealReviewWorkflow ? 9 : 8}>
+                <td className="px-4 py-8 text-center text-[color:var(--sf-text-disabled)]" colSpan={7}>
                   No deals found.
                 </td>
               </tr>
