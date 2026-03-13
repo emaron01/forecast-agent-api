@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 
 function normalizeExecTab(raw: string | null | undefined): ExecTabKey | null {
   const v = String(raw || "").trim().toLowerCase();
-  return (EXEC_TABS as ExecTabKey[]).includes(v as ExecTabKey) ? (v as ExecTabKey) : null;
+  return EXEC_TABS.includes(v as ExecTabKey) ? (v as ExecTabKey) : null;
 }
 
 export default async function ExecutiveDashboardPage({
