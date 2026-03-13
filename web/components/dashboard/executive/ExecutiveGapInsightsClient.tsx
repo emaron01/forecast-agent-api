@@ -484,6 +484,7 @@ export function ExecutiveGapInsightsClient(props: {
   commitAdmission?: CommitAdmissionAggregates | null;
   commitDealPanels?: { topPainDeals: CommitDealPanelItem[]; topVerifiedDeals: CommitDealPanelItem[] } | null;
   defaultTopN?: number;
+  forecastTabOnly?: boolean;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -1445,6 +1446,250 @@ export function ExecutiveGapInsightsClient(props: {
     const arrow = up ? "↑" : down ? "↓" : "→";
     return { d, tone, arrow };
   };
+
+  if (props.forecastTabOnly) {
+    return (
+      <div className="grid gap-4">
+        <div className="mt-5">
+          <KpiCardsRow
+            quota={props.quota}
+            aiForecast={props.aiForecast}
+            crmForecast={props.crmForecast}
+            gap={props.gap}
+            bucketDeltas={props.bucketDeltas}
+            dealsAtRisk={dealsAtRisk}
+            topN={topN}
+            usingFullRiskSet={quarterDrivers.usingFullRiskSet}
+            productKpis={productViz.summary}
+            productKpisPrev={productKpiPrev}
+            commitAdmission={props.commitAdmission}
+            variant="forecast_only"
+          />
+        </div>
+
+        {props.commitAdmission &&
+        props.commitAdmission.totalCommitCrmAmount > 0 &&
+        ((props.commitAdmission.commitEvidenceCoveragePct ?? 100) < 40 ||
+          (props.commitAdmission.verifiedCommitAmount ?? 0) === 0) ? (
+          <section className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+            <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Reporting is catching up</div>
+            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+              AI-supported Commit requires at least one full forecast review this quarter. After the first pass, weekly updates are quick.
+            </div>
+          </section>
+        ) : null}
+
+        <section className="mt-4">
+          <DataReadinessCard
+            quotaPeriodId={quotaPeriodId}
+            snapshotOffsetDays={90}
+            isAdmin={false}
+          />
+        </section>
+
+        {props.commitAdmission &&
+        (props.commitAdmission.totalCommitCrmAmount > 0 ||
+          props.commitAdmission.unsupportedCommitAmount > 0 ||
+          props.commitAdmission.commitNeedsReviewAmount > 0 ||
+          props.commitAdmission.aiSupportedCommitAmount > 0) ? (
+          <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Commit Integrity</div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                <div className="text-xs text-[color:var(--sf-text-secondary)]">Total Commit (CRM) $</div>
+                <div className="mt-1 text-lg font-semibold text-[color:var(--sf-text-primary)]">
+                  {props.commitAdmission.totalCommitCrmAmount.toLocaleString("en-US", {
+                    style: "currency",
+                    currency: "USD",
+                    maximumFractionDigits: 0,
+                  })}
+                </div>
+              </div>
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                <div className="text-xs text-[color:var(--sf-text-secondary)]">AI-Supported Commit $</div>
+                <div className="mt-1 text-lg font-semibold text-[#2ECC71]">
+                  {props.commitAdmission.aiSupportedCommitAmount.toLocaleString("en-US", {
+                    style: "currency",
+                    currency: "USD",
+                    maximumFractionDigits: 0,
+                  })}
+                </div>
+              </div>
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                <div className="text-xs text-[color:var(--sf-text-secondary)]">Unsupported Commit $</div>
+                <div
+                  className={`mt-1 text-lg font-semibold ${
+                    props.commitAdmission.unsupportedCommitAmount > 0
+                      ? "text-[#E74C3C]"
+                      : "text-[color:var(--sf-text-primary)]"
+                  }`}
+                >
+                  {props.commitAdmission.unsupportedCommitAmount.toLocaleString("en-US", {
+                    style: "currency",
+                    currency: "USD",
+                    maximumFractionDigits: 0,
+                  })}
+                </div>
+              </div>
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                <div className="text-xs text-[color:var(--sf-text-secondary)]">Needs Review $</div>
+                <div
+                  className={`mt-1 text-lg font-semibold ${
+                    props.commitAdmission.commitNeedsReviewAmount > 0
+                      ? "text-[#F1C40F]"
+                      : "text-[color:var(--sf-text-primary)]"
+                  }`}
+                >
+                  {props.commitAdmission.commitNeedsReviewAmount.toLocaleString("en-US", {
+                    style: "currency",
+                    currency: "USD",
+                    maximumFractionDigits: 0,
+                  })}
+                </div>
+              </div>
+            </div>
+            {(props.commitAdmission.commitEvidenceCoveragePct != null ||
+              (props.commitAdmission.verifiedCommitAmount != null &&
+                props.commitAdmission.verifiedCommitAmount > 0)) && (
+              <div
+                className="mt-2 text-xs text-[color:var(--sf-text-secondary)]"
+                title="% of Commit deals backed by verified evidence (≥2 of Timing, Paper, Decision, Budget)."
+              >
+                Commit Evidence Coverage:{" "}
+                {props.commitAdmission.commitEvidenceCoveragePct != null
+                  ? `${Math.round(props.commitAdmission.commitEvidenceCoveragePct)}%`
+                  : "—"}
+                {props.commitAdmission.verifiedCommitAmount != null &&
+                props.commitAdmission.verifiedCommitAmount > 0 ? (
+                  <span className="ml-2">
+                    · Verified Commit:{" "}
+                    {props.commitAdmission.verifiedCommitAmount.toLocaleString("en-US", {
+                      style: "currency",
+                      currency: "USD",
+                      maximumFractionDigits: 0,
+                    })}
+                  </span>
+                ) : null}
+              </div>
+            )}
+            {props.commitDealPanels &&
+            (props.commitDealPanels.topPainDeals.length > 0 ||
+              props.commitDealPanels.topVerifiedDeals.length > 0) ? (
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                {props.commitDealPanels.topPainDeals.length > 0 ? (
+                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                    <div className="text-xs font-semibold uppercase text-[color:var(--sf-text-secondary)]">
+                      Top Commit Risks
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {props.commitDealPanels.topPainDeals.map((d) => (
+                        <Link
+                          key={d.id}
+                          href={`/opportunities/${encodeURIComponent(d.id)}/deal-review`}
+                          className="block rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+                          title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="min-w-0 truncate font-medium text-[color:var(--sf-text-primary)]">
+                              {[d.account, d.name].filter(Boolean).join(" — ") || "(Untitled)"}
+                            </span>
+                            <span className="shrink-0 text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                              {d.amount.toLocaleString("en-US", {
+                                style: "currency",
+                                currency: "USD",
+                                maximumFractionDigits: 0,
+                              })}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex items-center gap-1.5">
+                            <span
+                              className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                                d.commit_admission_status === "not_admitted"
+                                  ? "bg-[#E74C3C]/20 text-[#E74C3C]"
+                                  : "bg-[#F1C40F]/20 text-[#F1C40F]"
+                              }`}
+                            >
+                              {d.commit_admission_status === "not_admitted"
+                                ? "NOT ADMITTED"
+                                : "NEEDS REVIEW"}
+                            </span>
+                            <span className="min-w-0 truncate text-xs text-[color:var(--sf-text-secondary)]">
+                              {d.commit_admission_status === "not_admitted"
+                                ? d.commit_admission_reasons[0] || "Paper Process weak"
+                                : `Low-confidence evidence${
+                                    d.low_conf_categories?.length
+                                      ? ` (${d.low_conf_categories.join(", ")})`
+                                      : ""
+                                  }`}
+                            </span>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {props.commitDealPanels.topVerifiedDeals.length > 0 ? (
+                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                    <div className="text-xs font-semibold uppercase text-[color:var(--sf-text-secondary)]">
+                      Top Verified Commit
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {props.commitDealPanels.topVerifiedDeals.map((d) => (
+                        <Link
+                          key={d.id}
+                          href={`/opportunities/${encodeURIComponent(d.id)}/deal-review`}
+                          className="block rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+                          title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="min-w-0 truncate font-medium text-[color:var(--sf-text-primary)]">
+                              {[d.account, d.name].filter(Boolean).join(" — ") || "(Untitled)"}
+                            </span>
+                            <span className="shrink-0 text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                              {d.amount.toLocaleString("en-US", {
+                                style: "currency",
+                                currency: "USD",
+                                maximumFractionDigits: 0,
+                              })}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            <span className="shrink-0 rounded bg-[#2ECC71]/20 px-1.5 py-0.5 text-[10px] font-semibold text-[#2ECC71]">
+                              VERIFIED
+                            </span>
+                            {(d.high_conf_categories || []).map((cat) => (
+                              <span
+                                key={cat}
+                                className="rounded bg-[color:var(--sf-surface)] px-1.5 py-0.5 text-[10px] text-[color:var(--sf-text-secondary)]"
+                              >
+                                {cat}: High
+                              </span>
+                            ))}
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        <div className="mt-4">
+          <ExecutiveQuarterKpisModule
+            period={activePeriod}
+            quota={props.quota}
+            pipelineMomentum={props.pipelineMomentum}
+            crmTotals={props.crmTotals}
+            quarterKpis={props.quarterKpis}
+            repRollups={props.repRollups as any}
+            productsClosedWon={props.productsClosedWon as any}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-4">

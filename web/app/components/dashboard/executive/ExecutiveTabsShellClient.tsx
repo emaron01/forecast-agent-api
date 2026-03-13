@@ -1,9 +1,12 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useTransition, type ComponentProps } from "react";
+import { ExecutiveGapInsightsClient } from "./ExecutiveGapInsightsClient";
 
 type ExecTabKey = "forecast" | "pipeline" | "team" | "revenue" | "reports";
+
+type ExecutiveGapInsightsClientProps = ComponentProps<typeof ExecutiveGapInsightsClient>;
 
 const TABS: { key: ExecTabKey; label: string }[] = [
   { key: "forecast", label: "Forecast" },
@@ -17,6 +20,7 @@ export function ExecutiveTabsShellClient(props: {
   basePath: string;
   initialTab: ExecTabKey;
   setDefaultTab: (tab: ExecTabKey) => Promise<void>;
+  forecastTabProps: ExecutiveGapInsightsClientProps;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -80,8 +84,12 @@ export function ExecutiveTabsShellClient(props: {
       </div>
 
       <div className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-6 text-sm text-[color:var(--sf-text-secondary)]">
-        {/* Tab content placeholders for future implementation */}
-        {activeTab === "forecast" && <div>Tab content coming soon</div>}
+        {activeTab === "forecast" && (
+          <ExecutiveGapInsightsClient
+            {...props.forecastTabProps}
+            forecastTabOnly={true}
+          />
+        )}
         {activeTab === "pipeline" && <div>Tab content coming soon</div>}
         {activeTab === "team" && <div>Tab content coming soon</div>}
         {activeTab === "revenue" && <div>Tab content coming soon</div>}
