@@ -543,8 +543,7 @@ export default async function ExecutiveDashboardPage({
   };
 
   type ProgressionRepSummary = {
-    rep_id: number;
-    rep_name: string;
+    repName: string;
     progressing: number;
     stalled: number;
     flat: number;
@@ -626,14 +625,6 @@ export default async function ExecutiveDashboardPage({
     }
 
     const progressionSeries = Array.from(progressionByOpp.values());
-
-    type ProgressionRepSummary = {
-      repName: string;
-      progressing: number;
-      stalled: number;
-      flat: number;
-      total: number;
-    };
 
     const progressionByRepId = new Map<number, ProgressionRepSummary>();
 
