@@ -308,7 +308,16 @@ export function SimpleForecastDashboardClient(props: {
               const hp = healthPctFrom30(d.health_score);
               return (
                 <tr key={id} className="border-t border-[color:var(--sf-border)]">
-                  <td className="px-4 py-3">{d.account_name || "—"}</td>
+                  <td className="px-4 py-3">
+                    <div className="text-[color:var(--sf-text-primary)]">
+                      {d.account_name || "—"}
+                    </div>
+                    {d.rep_name ? (
+                      <div className="text-xs text-[color:var(--sf-text-secondary)]">
+                        {d.rep_name}
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="px-4 py-3">{d.opportunity_name || "—"}</td>
                   <td className="px-4 py-3">{fmtMoney(d.amount)}</td>
                   <td className="px-4 py-3 whitespace-nowrap">{dateOnly(d.close_date) || "—"}</td>
