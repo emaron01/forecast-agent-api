@@ -930,6 +930,12 @@ export default async function ExecutiveAnalyticsKpisPage({
           </section>
         ) : null}
 
+        <ExecutiveTabsShellClient
+          basePath="/analytics/executive"
+          initialTab={activeTab}
+          setDefaultTab={setExecDefaultTabAction}
+        />
+
         {selectedPeriod && curr ? (
           <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-3">
