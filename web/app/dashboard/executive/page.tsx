@@ -5,6 +5,8 @@ import { UserTopNav } from "../../_components/UserTopNav";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
+import { ExecutiveTabsShellClient } from "../../components/dashboard/executive/ExecutiveTabsShellClient";
+import { normalizeExecTab, setExecDefaultTabAction, type ExecTabKey } from "../../actions/execTabPreferences";
 
 export const runtime = "nodejs";
 
@@ -26,6 +28,23 @@ export default async function ExecutiveDashboardPage({
     user: ctx.user,
     searchParams,
   });
+
+  // Determine active tab: URL param > user preference > forecast
+  const searchParams = searchParams || {};
+  const tabRaw = Array.isArray(searchParams.tab) ? searchParams.tab[0] : searchParams.tab;
+  const tabParam = normalizeExecTab(tabRaw);
+  let prefTab: ExecTabKey | null = null;
+  try {
+    const prefRows = await pool.query<{ user_preferences: any }>(
+      `SELECT user_preferences FROM users WHERE id = $1::bigint`,
+      [ctx.user.id]
+    );
+    const prefs = (prefRows.rows?.[0]?.user_preferences as any) || {};
+    prefTab = normalizeExecTab(prefs.exec_default_tab);
+  } catch {
+    prefTab = null;
+  }
+  const activeTab: ExecTabKey = tabParam || prefTab || "forecast";
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -83,6 +102,12 @@ export default async function ExecutiveDashboardPage({
             defaultTopN={5}
           />
         </div>
+
+        <ExecutiveTabsShellClient
+          basePath="/dashboard/executive"
+          initialTab={activeTab}
+          setDefaultTab={setExecDefaultTabAction}
+        />
       </main>
     </div>
   );

@@ -9,8 +9,6 @@ import { UserTopNav } from "../../_components/UserTopNav";
 import { ExportToExcelButton } from "../../_components/ExportToExcelButton";
 import { ExecutiveKpisFiltersClient } from "./ExecutiveKpisFiltersClient";
 import { getScopedRepDirectory } from "../../../lib/repScope";
-import { ExecutiveTabsShellClient } from "./ExecutiveTabsShellClient";
-import { setExecDefaultTabAction, ExecTabKey } from "./actions";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -140,13 +138,6 @@ type RepPeriodKpisRow = {
 type CreatedByRepRow = { quota_period_id: string; rep_id: string; created_amount: number; created_count: number };
 
 export const runtime = "nodejs";
-
-function normalizeExecTab(raw: string | null | undefined): ExecTabKey | null {
-  const v = String(raw || "").trim().toLowerCase();
-  return (["forecast", "pipeline", "team", "revenue", "reports"] as ExecTabKey[]).includes(v as ExecTabKey)
-    ? (v as ExecTabKey)
-    : null;
-}
 
 async function listQuotaPeriodsForOrg(orgId: number): Promise<QuotaPeriodLite[]> {
   const { rows } = await pool.query<QuotaPeriodLite>(
@@ -574,21 +565,6 @@ export default async function ExecutiveAnalyticsKpisPage({
   const prevPeriodId = prevPeriod ? String(prevPeriod.id) : "";
   const comparePeriodIds = [selectedPeriodId, prevPeriodId].filter(Boolean);
 
-  // Determine active tab: URL param > user preference > forecast
-  const tabParam = normalizeExecTab(sp(searchParams.tab));
-  let prefTab: ExecTabKey | null = null;
-  try {
-    const prefRows = await pool.query<{ user_preferences: any }>(
-      `SELECT user_preferences FROM users WHERE id = $1::bigint`,
-      [ctx.user.id]
-    );
-    const prefs = (prefRows.rows?.[0]?.user_preferences as any) || {};
-    prefTab = normalizeExecTab(prefs.exec_default_tab);
-  } catch {
-    prefTab = null;
-  }
-  const activeTab: ExecTabKey = tabParam || prefTab || "forecast";
-
   const [kpiRows, quotaTotals, repKpisRows, createdByRepRows, quotaByRepPeriod, healthAvgRows] = selectedPeriodId
     ? await Promise.all([
         getPeriodKpis({ orgId: ctx.user.org_id, periodIds: comparePeriodIds, repIds: scopeRepIds }),
@@ -929,12 +905,6 @@ export default async function ExecutiveAnalyticsKpisPage({
             <p className="text-sm text-[color:var(--sf-text-secondary)]">Create quota periods to use Executive KPIs.</p>
           </section>
         ) : null}
-
-        <ExecutiveTabsShellClient
-          basePath="/analytics/executive"
-          initialTab={activeTab}
-          setDefaultTab={setExecDefaultTabAction}
-        />
 
         {selectedPeriod && curr ? (
           <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
