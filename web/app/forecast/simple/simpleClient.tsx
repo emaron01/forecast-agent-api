@@ -359,7 +359,7 @@ export function SimpleForecastDashboardClient(props: {
       </section>
 
       <section className="overflow-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm">
-        <table className="w-full min-w-[980px] text-left text-sm">
+        <table className="w-full text-left text-sm">
               <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
             <tr>
               <th className="px-4 py-3">
