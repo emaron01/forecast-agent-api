@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useExecutiveBriefing } from "../dashboard/executive/ExecutiveBriefingContext";
 
 function stripJsonFence(s: string) {
   const t = String(s || "").trim();
@@ -88,6 +89,7 @@ export function PartnersExecutiveAiTakeawayClient(props: { quotaPeriodId: string
   const [toast, setToast] = useState<string>("");
   const [copied, setCopied] = useState(false);
   const lastKey = useRef<string>("");
+  const briefing = useExecutiveBriefing();
 
   const key = useMemo(() => {
     try {
@@ -154,6 +156,11 @@ export function PartnersExecutiveAiTakeawayClient(props: { quotaPeriodId: string
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    const text = [summary ? `Summary:\n${summary}` : "", extended ? `Extended analysis:\n${extended}` : ""].filter(Boolean).join("\n\n").trim();
+    briefing.setDirectVsPartner(text);
+  }, [summary, extended, briefing.setDirectVsPartner]);
 
   useEffect(() => {
     if (!key || key === lastKey.current) return;

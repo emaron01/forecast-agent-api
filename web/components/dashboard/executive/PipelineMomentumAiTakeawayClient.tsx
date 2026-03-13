@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useExecutiveBriefing } from "./ExecutiveBriefingContext";
 
 function stripJsonFence(s: string) {
   const t = String(s || "").trim();
@@ -105,6 +106,7 @@ export function PipelineMomentumAiTakeawayClient(props: { payload: any }) {
   const [toast, setToast] = useState<string>("");
   const [copied, setCopied] = useState(false);
   const lastKey = useRef<string>("");
+  const briefing = useExecutiveBriefing();
 
   const key = useMemo(() => {
     try {
@@ -178,6 +180,11 @@ export function PipelineMomentumAiTakeawayClient(props: { payload: any }) {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    const text = [summary ? `Summary:\n${summary}` : "", extended ? `Extended analysis:\n${extended}` : ""].filter(Boolean).join("\n\n").trim();
+    briefing.setPipelineRisk(text);
+  }, [summary, extended, briefing.setPipelineRisk]);
 
   useEffect(() => {
     if (!key || key === lastKey.current) return;

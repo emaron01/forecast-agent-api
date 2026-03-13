@@ -19,6 +19,7 @@ import { ExecutiveQuarterKpisModule, ExecutiveRemainingQuarterlyForecastBlock } 
 import type { PipelineMomentumData } from "../../../lib/pipelineMomentum";
 import { AiSummaryReportClient } from "../../ai/AiSummaryReportClient";
 import { PartnersExecutiveAiTakeawayClient } from "../../ai/PartnersExecutiveAiTakeawayClient";
+import { useExecutiveBriefing } from "./ExecutiveBriefingContext";
 
 type RiskCategoryKey =
   | "pain"
@@ -512,6 +513,7 @@ export function ExecutiveGapInsightsClient(props: {
   const [radarAiToast, setRadarAiToast] = useState<string>("");
   const [radarAiCopied, setRadarAiCopied] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const briefing = useExecutiveBriefing();
   const adjustRiskSectionRef = useRef<HTMLElement>(null);
   const userChangedFilterRef = useRef(false);
 
@@ -765,6 +767,16 @@ export function ExecutiveGapInsightsClient(props: {
       // ignore
     }
   }
+
+  useEffect(() => {
+    const text = [heroAiSummary ? `Summary:\n${heroAiSummary}` : "", heroAiExtended ? `Extended analysis:\n${heroAiExtended}` : ""].filter(Boolean).join("\n\n").trim();
+    briefing.setQuarterOutlook(text);
+  }, [heroAiSummary, heroAiExtended, briefing.setQuarterOutlook]);
+
+  useEffect(() => {
+    const text = [radarAiSummary ? `Summary:\n${radarAiSummary}` : "", radarAiExtended ? `Extended analysis:\n${radarAiExtended}` : ""].filter(Boolean).join("\n\n").trim();
+    briefing.setForecastCommit(text);
+  }, [radarAiSummary, radarAiExtended, briefing.setForecastCommit]);
 
   useEffect(() => {
     if (!heroTakeawayPayload?.quota_period_id) return;

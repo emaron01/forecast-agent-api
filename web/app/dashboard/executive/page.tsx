@@ -7,6 +7,7 @@ import { UserTopNav } from "../../_components/UserTopNav";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
+import { ExecutiveBriefingProvider } from "../../../components/dashboard/executive/ExecutiveBriefingContext";
 import { ExecutiveTabsShellClient } from "../../components/dashboard/executive/ExecutiveTabsShellClient";
 import type {
   RepManagerManagerRow,
@@ -956,48 +957,50 @@ export default async function ExecutiveDashboardPage({
           />
         </div>
 
-        <div className="mt-4 grid gap-4">
-          <ExecutiveGapInsightsClient
-            basePath="/dashboard/executive"
-            periods={summary.periods}
-            quotaPeriodId={summary.selectedQuotaPeriodId}
-            reps={summary.reps}
-            fiscalYear={String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "—"}
-            fiscalQuarter={String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—"}
-            stageProbabilities={summary.stageProbabilities}
-            healthModifiers={summary.healthModifiers}
-            repDirectory={summary.repDirectory}
-            myRepId={summary.myRepId}
-            repRollups={summary.repRollups}
-            productsClosedWon={summary.productsClosedWon}
-            productsClosedWonPrevSummary={summary.productsClosedWonPrevSummary}
-            productsClosedWonByRep={summary.productsClosedWonByRep}
-            quarterKpis={summary.quarterKpis}
-            pipelineMomentum={summary.pipelineMomentum}
-            crmTotals={summary.crmForecast}
-            partnersExecutive={summary.partnersExecutive}
-            quota={summary.quota}
-            aiForecast={summary.aiForecast.weighted_forecast}
-            crmForecast={summary.crmForecast.weighted_forecast}
-            gap={summary.forecastGap}
-            bucketDeltas={{
-              commit: summary.bucketDeltas.commit,
-              best_case: summary.bucketDeltas.best_case,
-              pipeline: summary.bucketDeltas.pipeline,
-            }}
-            aiPctToGoal={summary.pctToGoal}
-            leftToGo={summary.leftToGo}
-            commitAdmission={summary.commitAdmission}
-            commitDealPanels={summary.commitDealPanels}
-            defaultTopN={5}
-            heroOnly={true}
-          />
-        </div>
+        <ExecutiveBriefingProvider>
+          <div className="mt-4 grid gap-4">
+            <ExecutiveGapInsightsClient
+              basePath="/dashboard/executive"
+              periods={summary.periods}
+              quotaPeriodId={summary.selectedQuotaPeriodId}
+              reps={summary.reps}
+              fiscalYear={String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "—"}
+              fiscalQuarter={String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—"}
+              stageProbabilities={summary.stageProbabilities}
+              healthModifiers={summary.healthModifiers}
+              repDirectory={summary.repDirectory}
+              myRepId={summary.myRepId}
+              repRollups={summary.repRollups}
+              productsClosedWon={summary.productsClosedWon}
+              productsClosedWonPrevSummary={summary.productsClosedWonPrevSummary}
+              productsClosedWonByRep={summary.productsClosedWonByRep}
+              quarterKpis={summary.quarterKpis}
+              pipelineMomentum={summary.pipelineMomentum}
+              crmTotals={summary.crmForecast}
+              partnersExecutive={summary.partnersExecutive}
+              quota={summary.quota}
+              aiForecast={summary.aiForecast.weighted_forecast}
+              crmForecast={summary.crmForecast.weighted_forecast}
+              gap={summary.forecastGap}
+              bucketDeltas={{
+                commit: summary.bucketDeltas.commit,
+                best_case: summary.bucketDeltas.best_case,
+                pipeline: summary.bucketDeltas.pipeline,
+              }}
+              aiPctToGoal={summary.pctToGoal}
+              leftToGo={summary.leftToGo}
+              commitAdmission={summary.commitAdmission}
+              commitDealPanels={summary.commitDealPanels}
+              defaultTopN={5}
+              heroOnly={true}
+            />
+          </div>
 
-        <ExecutiveTabsShellClient
+          <ExecutiveTabsShellClient
           basePath="/dashboard/executive"
           initialTab={activeTab}
           setDefaultTab={setExecDefaultTabAction}
+          orgName={orgName}
           forecastTabProps={{
             basePath: "/dashboard/executive",
             periods: summary.periods,
@@ -1146,6 +1149,7 @@ export default async function ExecutiveDashboardPage({
             defaultTopN: 5,
           }}
         />
+        </ExecutiveBriefingProvider>
       </main>
     </div>
   );
