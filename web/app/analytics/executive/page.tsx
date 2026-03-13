@@ -10,6 +10,7 @@ import { ExportToExcelButton } from "../../_components/ExportToExcelButton";
 import { ExecutiveKpisFiltersClient } from "./ExecutiveKpisFiltersClient";
 import { getScopedRepDirectory } from "../../../lib/repScope";
 import { ExecutiveTabsShellClient } from "./ExecutiveTabsShellClient";
+import { setExecDefaultTabAction, ExecTabKey } from "./actions";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -140,28 +141,11 @@ type CreatedByRepRow = { quota_period_id: string; rep_id: string; created_amount
 
 export const runtime = "nodejs";
 
-const EXEC_TABS = ["forecast", "pipeline", "team", "revenue", "reports"] as const;
-type ExecTabKey = (typeof EXEC_TABS)[number];
-
 function normalizeExecTab(raw: string | null | undefined): ExecTabKey | null {
   const v = String(raw || "").trim().toLowerCase();
-  return EXEC_TABS.includes(v as ExecTabKey) ? (v as ExecTabKey) : null;
-}
-
-export async function setExecDefaultTabAction(tab: ExecTabKey) {
-  "use server";
-  const ctx = await requireAuth();
-  if (ctx.kind !== "user") {
-    throw new Error("Unauthorized");
-  }
-  await pool.query(
-    `
-    UPDATE users
-       SET user_preferences = COALESCE(user_preferences, '{}'::jsonb) || jsonb_build_object('exec_default_tab', $2::text)
-     WHERE id = $1::bigint
-    `,
-    [ctx.user.id, tab]
-  );
+  return (["forecast", "pipeline", "team", "revenue", "reports"] as ExecTabKey[]).includes(v as ExecTabKey)
+    ? (v as ExecTabKey)
+    : null;
 }
 
 async function listQuotaPeriodsForOrg(orgId: number): Promise<QuotaPeriodLite[]> {
