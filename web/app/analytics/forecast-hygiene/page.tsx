@@ -1,6 +1,7 @@
 import { pool } from "../../../lib/pool";
 import { requireOrgContext } from "../../../lib/auth";
 import { getOrganization } from "../../../lib/db";
+import { getScopedRepDirectory, type RepDirectoryRow } from "../../../lib/repScope";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { redirect } from "next/navigation";
 
@@ -97,112 +98,58 @@ export default async function ForecastHygienePage({
       ? new Date(new Date(selectedPeriod.period_end).getTime() + 24 * 60 * 60 * 1000).toISOString()
       : new Date().toISOString();
 
-  // Visible users: hierarchy-scoped (user_ids first)
-  let visibleUserIds: number[] = [];
-  if (user.role === "ADMIN" || user.see_all_visibility) {
-    const { rows } = await pool.query<{ id: number }>(
-      `SELECT id FROM users WHERE org_id = $1 AND active IS TRUE`,
-      [orgId]
-    );
-    visibleUserIds = rows.map((r) => Number(r.id)).filter((n) => Number.isFinite(n));
-  } else {
-    const { rows } = await pool.query<{ id: number }>(
-      `
-      WITH RECURSIVE visible_users AS (
-        SELECT id FROM users WHERE id = $1 AND org_id = $2
-        UNION ALL
-        SELECT u.id
-          FROM users u
-          INNER JOIN visible_users vu ON u.manager_user_id = vu.id
-         WHERE u.org_id = $2
-      )
-      SELECT id FROM visible_users
-      `,
-      [user.id, orgId]
-    );
-    const baseIds = rows.map((r) => Number(r.id)).filter((n) => Number.isFinite(n));
+  // Rep-to-executive schema: same as executive dashboard (getScopedRepDirectory)
+  const scopedRole =
+    user.role === "ADMIN" || user.role === "EXEC_MANAGER" || user.role === "MANAGER" || user.role === "REP"
+      ? user.role
+      : "MANAGER";
+  const scope = await getScopedRepDirectory({
+    orgId,
+    userId: user.id,
+    role: scopedRole,
+  }).catch(() => ({
+    repDirectory: [] as RepDirectoryRow[],
+    allowedRepIds: null as number[] | null,
+    myRepId: null as number | null,
+  }));
 
-    const { rows: mvRows } = await pool.query<{ rep_user_id: number }>(
-      `
-      SELECT mv.visible_user_id AS rep_user_id
-        FROM manager_visibility mv
-        JOIN users mgr ON mgr.id = mv.manager_user_id
-        JOIN users vis ON vis.id = mv.visible_user_id
-       WHERE mv.manager_user_id = $1
-         AND mgr.org_id = $2
-         AND vis.org_id = $2
-      `,
-      [user.id, orgId]
-    );
-    const extra = mvRows.map((r) => Number(r.rep_user_id)).filter((n) => Number.isFinite(n));
-    visibleUserIds = Array.from(new Set([...baseIds, ...extra]));
-  }
+  // Reps to include in the report: scoped list (admin = all in directory, else allowedRepIds)
+  const visibleRepIds: number[] =
+    scope.allowedRepIds !== null && scope.allowedRepIds.length > 0
+      ? scope.allowedRepIds
+      : scope.repDirectory.map((r) => r.id).filter((n) => Number.isFinite(n) && n > 0);
+  const visibleRepIdsForQuery =
+    visibleRepIds.length > 0 ? visibleRepIds : [-1];
 
-  if (!visibleUserIds.length) {
-    visibleUserIds = [-1]; // avoid empty ANY()
-  }
-
-  // Map visible user_ids -> reps.id used by opportunities.rep_id
-  const { rows: repRows } = await pool.query<{ id: number }>(
-    `
-    SELECT r.id
-      FROM reps r
-      JOIN users u ON u.id = r.user_id
-     WHERE u.org_id = $1
-       AND u.id = ANY($2::int[])
-    `,
-    [orgId, visibleUserIds]
-  );
-  let visibleRepIds = repRows.map((r) => Number(r.id)).filter((n) => Number.isFinite(n));
-  if (!visibleRepIds.length) {
-    visibleRepIds = [-1];
-  }
-
-  // User hierarchy and rep mapping for leader rollups
-  const { rows: userHierarchyRows } = await pool.query<{
-    id: number;
-    manager_user_id: number | null;
-    display_name: string;
-  }>(
-    `
-    SELECT
-      id,
-      manager_user_id,
-      COALESCE(NULLIF(btrim(display_name), ''), email, '(Unknown)') AS display_name
-    FROM users
-    WHERE org_id = $1 AND id = ANY($2::int[])
-    `,
-    [orgId, visibleUserIds]
-  );
-  const { rows: repUserRows } = await pool.query<{ id: number; user_id: number }>(
-    `SELECT r.id, r.user_id FROM reps r WHERE r.user_id = ANY($2::int[]) AND (r.org_id = $1::bigint OR r.organization_id = $1::bigint)`,
-    [orgId, visibleUserIds]
-  );
-
-  const visibleUserIdsSet = new Set(visibleUserIds.filter((id) => id !== -1));
-  const childrenByManager = new Map<number, number[]>();
-  for (const u of userHierarchyRows ?? []) {
-    if (u.manager_user_id != null && visibleUserIdsSet.has(u.manager_user_id)) {
-      let arr = childrenByManager.get(u.manager_user_id);
+  // Leaders = reps in directory with role EXEC_MANAGER/MANAGER who have reports (for rollup rows)
+  const repDirectory = scope.repDirectory;
+  const childrenByManagerRepId = new Map<number, number[]>();
+  for (const r of repDirectory) {
+    if (r.manager_rep_id != null && repDirectory.some((x) => x.id === r.manager_rep_id)) {
+      let arr = childrenByManagerRepId.get(r.manager_rep_id);
       if (!arr) {
         arr = [];
-        childrenByManager.set(u.manager_user_id, arr);
+        childrenByManagerRepId.set(r.manager_rep_id, arr);
       }
-      arr.push(u.id);
+      arr.push(r.id);
     }
   }
-  const leaders = (userHierarchyRows ?? [])
-    .filter((u) => (childrenByManager.get(u.id)?.length ?? 0) > 0)
-    .map((u) => ({ id: u.id, display_name: u.display_name }))
+  const leaders = repDirectory
+    .filter(
+      (r) =>
+        (r.role === "EXEC_MANAGER" || r.role === "MANAGER") &&
+        (childrenByManagerRepId.get(r.id)?.length ?? 0) > 0
+    )
+    .map((r) => ({ id: r.id, display_name: r.name }))
     .sort((a, b) => a.display_name.localeCompare(b.display_name, "en", { sensitivity: "base" }));
 
-  function getSubtree(root: number): number[] {
-    const out: number[] = [root];
-    const queue = [root];
-    const visited = new Set([root]);
+  function getSubtreeRepIds(rootRepId: number): number[] {
+    const out: number[] = [rootRepId];
+    const queue = [rootRepId];
+    const visited = new Set([rootRepId]);
     while (queue.length > 0) {
-      const u = queue.shift()!;
-      const children = childrenByManager.get(u) ?? [];
+      const rid = queue.shift()!;
+      const children = childrenByManagerRepId.get(rid) ?? [];
       for (const c of children) {
         if (!visited.has(c)) {
           visited.add(c);
@@ -214,13 +161,9 @@ export default async function ForecastHygienePage({
     return out;
   }
 
-  const repIdByUserId = new Map((repUserRows ?? []).map((r) => [r.user_id, r.id]));
   const leaderRepIds = new Map<number, number[]>();
   for (const leader of leaders) {
-    const subtreeUserIds = getSubtree(leader.id);
-    const repIds = subtreeUserIds
-      .map((uid) => repIdByUserId.get(uid))
-      .filter((id): id is number => id != null);
+    const repIds = getSubtreeRepIds(leader.id);
     if (repIds.length > 0) leaderRepIds.set(leader.id, repIds);
   }
 
@@ -286,7 +229,7 @@ export default async function ForecastHygienePage({
         '(Unknown rep)'
       ) ASC
     `,
-    [orgId, startIso, endIso, visibleRepIds]
+    [orgId, startIso, endIso, visibleRepIdsForQuery]
   );
 
   const coverageRowsByRepId = new Map<number, CoverageRow>(
@@ -381,7 +324,7 @@ export default async function ForecastHygienePage({
         '(Unknown rep)'
       ) ASC
     `,
-    [orgId, startIso, endIso, visibleRepIds]
+    [orgId, startIso, endIso, visibleRepIdsForQuery]
   );
 
   // Raw agent-reviewed opps for leader assessment rollup (team average of category scores)
@@ -425,7 +368,7 @@ export default async function ForecastHygienePage({
           AND (oae.meta->>'score_event_source' = 'agent' OR oae.event_type = 'agent')
       )
     `,
-    [orgId, startIso, endIso, visibleRepIds]
+    [orgId, startIso, endIso, visibleRepIdsForQuery]
   );
 
   const num = (v: number | null | undefined): number => (v != null && Number.isFinite(v) ? Number(v) : 0);
@@ -523,7 +466,7 @@ export default async function ForecastHygienePage({
       )
     ORDER BY delta ASC NULLS LAST, rep_name ASC, opp_name ASC
     `,
-    [orgId, startIso, endIso, visibleRepIds]
+    [orgId, startIso, endIso, visibleRepIdsForQuery]
   );
 
   // Group Query C results by rep for summary.
@@ -650,7 +593,7 @@ export default async function ForecastHygienePage({
       AND opp.close_date < $3::timestamptz
     ORDER BY oae.opportunity_id, oae.ts ASC
     `,
-    [orgId, startIso, endIso, visibleRepIds]
+    [orgId, startIso, endIso, visibleRepIdsForQuery]
   );
 
   // Group progression by opportunity and compute stalled flags.
