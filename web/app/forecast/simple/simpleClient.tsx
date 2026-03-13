@@ -319,7 +319,6 @@ export function SimpleForecastDashboardClient(props: {
                 value={repFilter}
                 onChange={(e) => setRepFilter(e.target.value)}
                 placeholder="Erik M"
-                disabled={busy}
                 className="mt-1 w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)] disabled:opacity-60"
               />
             </div>
