@@ -534,6 +534,23 @@ export default async function ExecutiveDashboardPage({
     total_score: number | null;
   };
 
+  type ProgressionSeries = {
+    opp_id: string;
+    opp_name: string;
+    rep_id: number;
+    rep_name: string;
+    scores: { ts: string; score: number }[];
+  };
+
+  type ProgressionRepSummary = {
+    rep_id: number;
+    rep_name: string;
+    progressing: number;
+    stalled: number;
+    flat: number;
+    total: number;
+  };
+
   let progressionRepSummariesFinal: ProgressionRepSummary[] = [];
   try {
     const { rows: progressionRows } = await pool.query<ProgressionRow>(
