@@ -6,9 +6,14 @@ import { ForecastPeriodFiltersClient } from "../../forecast/_components/Forecast
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
 import { ExecutiveTabsShellClient } from "../../components/dashboard/executive/ExecutiveTabsShellClient";
-import { normalizeExecTab, setExecDefaultTabAction, type ExecTabKey } from "../../actions/execTabPreferences";
+import { EXEC_TABS, setExecDefaultTabAction, type ExecTabKey } from "../../actions/execTabPreferences";
 
 export const runtime = "nodejs";
+
+function normalizeExecTab(raw: string | null | undefined): ExecTabKey | null {
+  const v = String(raw || "").trim().toLowerCase();
+  return (EXEC_TABS as ExecTabKey[]).includes(v as ExecTabKey) ? (v as ExecTabKey) : null;
+}
 
 export default async function ExecutiveDashboardPage({
   searchParams,
