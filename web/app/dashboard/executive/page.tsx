@@ -122,8 +122,10 @@ export default async function ExecutiveDashboardPage({
     coverage_pct: number | null;
   };
 
-  const { rows: coverageRows } = await pool.query<CoverageRow>(
-    `
+  let coverageRowsFinal: CoverageRow[] = [];
+  try {
+    const { rows: coverageRows } = await pool.query<CoverageRow>(
+      `
     SELECT
       r.id AS rep_id,
       COALESCE(
@@ -174,36 +176,39 @@ export default async function ExecutiveDashboardPage({
         NULLIF(btrim(r.rep_name), ''),
         '(Unknown rep)'
       ) ASC
-    `,
-    [orgId, startIso, endIso, visibleRepIdsForQuery]
-  );
+      `,
+      [orgId, startIso, endIso, visibleRepIdsForQuery]
+    );
 
-  const coverageRowsByRepId = new Map<number, CoverageRow>(
-    (coverageRows ?? []).map((r) => [r.rep_id, r])
-  );
-  const leaderCoverageRows: CoverageRow[] = leaders
-    .filter((l) => leaderRepIds.get(l.id)?.length)
-    .map((leader) => {
-      const repIds = leaderRepIds.get(leader.id)!;
-      let total = 0;
-      let reviewed = 0;
-      for (const repId of repIds) {
-        const row = coverageRowsByRepId.get(repId);
-        if (row) {
-          total += row.total_opps;
-          reviewed += row.reviewed_opps;
+    const coverageRowsByRepId = new Map<number, CoverageRow>(
+      (coverageRows ?? []).map((r) => [r.rep_id, r])
+    );
+    const leaderCoverageRows: CoverageRow[] = leaders
+      .filter((l) => leaderRepIds.get(l.id)?.length)
+      .map((leader) => {
+        const repIds = leaderRepIds.get(leader.id)!;
+        let total = 0;
+        let reviewed = 0;
+        for (const repId of repIds) {
+          const row = coverageRowsByRepId.get(repId);
+          if (row) {
+            total += row.total_opps;
+            reviewed += row.reviewed_opps;
+          }
         }
-      }
-      return {
-        rep_id: -leader.id,
-        rep_name: leader.display_name,
-        total_opps: total,
-        reviewed_opps: reviewed,
-        coverage_pct: total > 0 ? Math.round((reviewed / total) * 100) : null,
-      };
-    });
-  const coverageRowsFiltered = (coverageRows ?? []).filter((row) => !leaderRepIdSet.has(row.rep_id));
-  const coverageRowsFinal: CoverageRow[] = [...leaderCoverageRows, ...coverageRowsFiltered];
+        return {
+          rep_id: -leader.id,
+          rep_name: leader.display_name,
+          total_opps: total,
+          reviewed_opps: reviewed,
+          coverage_pct: total > 0 ? Math.round((reviewed / total) * 100) : null,
+        };
+      });
+    const coverageRowsFiltered = (coverageRows ?? []).filter((row) => !leaderRepIdSet.has(row.rep_id));
+    coverageRowsFinal = [...leaderCoverageRows, ...coverageRowsFiltered];
+  } catch (e) {
+    console.error("[hygiene:coverage]", e);
+  }
 
   type AssessmentRow = {
     rep_id: number;
@@ -221,8 +226,10 @@ export default async function ExecutiveDashboardPage({
     avg_total: number | null;
   };
 
-  const { rows: assessmentRows } = await pool.query<AssessmentRow>(
-    `
+  let assessmentRowsFinal: AssessmentRow[] = [];
+  try {
+    const { rows: assessmentRows } = await pool.query<AssessmentRow>(
+      `
     SELECT
       r.id AS rep_id,
       COALESCE(
@@ -269,101 +276,104 @@ export default async function ExecutiveDashboardPage({
         NULLIF(btrim(r.rep_name), ''),
         '(Unknown rep)'
       ) ASC
-    `,
-    [orgId, startIso, endIso, visibleRepIdsForQuery]
-  );
+      `,
+      [orgId, startIso, endIso, visibleRepIdsForQuery]
+    );
 
-  type AssessmentOppRow = {
-    rep_id: number;
-    pain_score: number | null;
-    metrics_score: number | null;
-    champion_score: number | null;
-    eb_score: number | null;
-    criteria_score: number | null;
-    process_score: number | null;
-    competition_score: number | null;
-    paper_score: number | null;
-    timing_score: number | null;
-    budget_score: number | null;
-    health_score: number | null;
-  };
+    type AssessmentOppRow = {
+      rep_id: number;
+      pain_score: number | null;
+      metrics_score: number | null;
+      champion_score: number | null;
+      eb_score: number | null;
+      criteria_score: number | null;
+      process_score: number | null;
+      competition_score: number | null;
+      paper_score: number | null;
+      timing_score: number | null;
+      budget_score: number | null;
+      health_score: number | null;
+    };
 
-  const { rows: assessmentOppRows } = await pool.query<AssessmentOppRow>(
-    `
-    SELECT
-      opp.rep_id,
-      opp.pain_score,
-      opp.metrics_score,
-      opp.champion_score,
-      opp.eb_score,
-      opp.criteria_score,
-      opp.process_score,
-      opp.competition_score,
-      opp.paper_score,
-      opp.timing_score,
-      opp.budget_score,
-      opp.health_score
-    FROM opportunities opp
-    WHERE opp.rep_id = ANY($4::bigint[])
-      AND opp.org_id = $1
-      AND opp.close_date >= $2::timestamptz
-      AND opp.close_date < $3::timestamptz
-      AND EXISTS (
-        SELECT 1 FROM opportunity_audit_events oae
-        WHERE oae.opportunity_id = opp.id AND oae.org_id = $1
-          AND oae.total_score IS NOT NULL
-      )
-    `,
-    [orgId, startIso, endIso, visibleRepIdsForQuery]
-  );
+    const { rows: assessmentOppRows } = await pool.query<AssessmentOppRow>(
+      `
+      SELECT
+        opp.rep_id,
+        opp.pain_score,
+        opp.metrics_score,
+        opp.champion_score,
+        opp.eb_score,
+        opp.criteria_score,
+        opp.process_score,
+        opp.competition_score,
+        opp.paper_score,
+        opp.timing_score,
+        opp.budget_score,
+        opp.health_score
+      FROM opportunities opp
+      WHERE opp.rep_id = ANY($4::bigint[])
+        AND opp.org_id = $1
+        AND opp.close_date >= $2::timestamptz
+        AND opp.close_date < $3::timestamptz
+        AND EXISTS (
+          SELECT 1 FROM opportunity_audit_events oae
+          WHERE oae.opportunity_id = opp.id AND oae.org_id = $1
+            AND oae.total_score IS NOT NULL
+        )
+      `,
+      [orgId, startIso, endIso, visibleRepIdsForQuery]
+    );
 
-  const num = (v: number | null | undefined): number => (v != null && Number.isFinite(v) ? Number(v) : 0);
+    const num = (v: number | null | undefined): number => (v != null && Number.isFinite(v) ? Number(v) : 0);
 
-  const leaderAssessmentRows: AssessmentRow[] = leaders
-    .filter((l) => leaderRepIds.get(l.id)?.length)
-    .map((leader) => {
-      const repIds = new Set(leaderRepIds.get(leader.id)!);
-      const rows = (assessmentOppRows ?? []).filter((r) => repIds.has(r.rep_id));
-      const n = rows.length;
-      if (n === 0) {
+    const leaderAssessmentRows: AssessmentRow[] = leaders
+      .filter((l) => leaderRepIds.get(l.id)?.length)
+      .map((leader) => {
+        const repIds = new Set(leaderRepIds.get(leader.id)!);
+        const rows = (assessmentOppRows ?? []).filter((r) => repIds.has(r.rep_id));
+        const n = rows.length;
+        if (n === 0) {
+          return {
+            rep_id: -leader.id,
+            rep_name: leader.display_name,
+            pain: null,
+            metrics: null,
+            champion: null,
+            eb: null,
+            criteria: null,
+            process: null,
+            competition: null,
+            paper: null,
+            timing: null,
+            budget: null,
+            avg_total: null,
+          };
+        }
+        const sum = (get: (r: AssessmentOppRow) => number | null) =>
+          rows.reduce((a, r) => a + num(get(r)), 0);
+        const avg = (get: (r: AssessmentOppRow) => number | null) =>
+          Math.round(sum(get) / n);
         return {
           rep_id: -leader.id,
           rep_name: leader.display_name,
-          pain: null,
-          metrics: null,
-          champion: null,
-          eb: null,
-          criteria: null,
-          process: null,
-          competition: null,
-          paper: null,
-          timing: null,
-          budget: null,
-          avg_total: null,
+          pain: avg((r) => r.pain_score),
+          metrics: avg((r) => r.metrics_score),
+          champion: avg((r) => r.champion_score),
+          eb: avg((r) => r.eb_score),
+          criteria: avg((r) => r.criteria_score),
+          process: avg((r) => r.process_score),
+          competition: avg((r) => r.competition_score),
+          paper: avg((r) => r.paper_score),
+          timing: avg((r) => r.timing_score),
+          budget: avg((r) => r.budget_score),
+          avg_total: avg((r) => r.health_score),
         };
-      }
-      const sum = (get: (r: AssessmentOppRow) => number | null) =>
-        rows.reduce((a, r) => a + num(get(r)), 0);
-      const avg = (get: (r: AssessmentOppRow) => number | null) =>
-        Math.round(sum(get) / n);
-      return {
-        rep_id: -leader.id,
-        rep_name: leader.display_name,
-        pain: avg((r) => r.pain_score),
-        metrics: avg((r) => r.metrics_score),
-        champion: avg((r) => r.champion_score),
-        eb: avg((r) => r.eb_score),
-        criteria: avg((r) => r.criteria_score),
-        process: avg((r) => r.process_score),
-        competition: avg((r) => r.competition_score),
-        paper: avg((r) => r.paper_score),
-        timing: avg((r) => r.timing_score),
-        budget: avg((r) => r.budget_score),
-        avg_total: avg((r) => r.health_score),
-      };
-    });
-  const assessmentRowsFiltered = (assessmentRows ?? []).filter((row) => !leaderRepIdSet.has(row.rep_id));
-  const assessmentRowsFinal: AssessmentRow[] = [...leaderAssessmentRows, ...assessmentRowsFiltered];
+      });
+    const assessmentRowsFiltered = (assessmentRows ?? []).filter((row) => !leaderRepIdSet.has(row.rep_id));
+    assessmentRowsFinal = [...leaderAssessmentRows, ...assessmentRowsFiltered];
+  } catch (e) {
+    console.error("[hygiene:assessment]", e);
+  }
 
   type VelocityRow = {
     opp_id: number;
@@ -375,8 +385,10 @@ export default async function ExecutiveDashboardPage({
     delta: number | null;
   };
 
-  const { rows: velocityRows } = await pool.query<VelocityRow>(
-    `
+  let velocityRepSummariesFinal: VelocityRepSummary[] = [];
+  try {
+    const { rows: velocityRows } = await pool.query<VelocityRow>(
+      `
     SELECT
       opp.id AS opp_id,
       COALESCE(NULLIF(btrim(opp.opportunity_name), ''), NULLIF(btrim(opp.account_name), ''), opp.id::text) AS opp_name,
@@ -411,99 +423,102 @@ export default async function ExecutiveDashboardPage({
           AND oae2.total_score IS NOT NULL
       )
     ORDER BY delta ASC NULLS LAST, rep_name ASC, opp_name ASC
-    `,
-    [orgId, startIso, endIso, visibleRepIdsForQuery]
-  );
+      `,
+      [orgId, startIso, endIso, visibleRepIdsForQuery]
+    );
 
-  type VelocityRepSummary = {
-    repName: string;
-    avgBaseline: number;
-    avgCurrent: number;
-    avgDelta: number;
-    dealsMoving: number;
-    dealsFlat: number;
-  };
+    type VelocityRepSummary = {
+      repName: string;
+      avgBaseline: number;
+      avgCurrent: number;
+      avgDelta: number;
+      dealsMoving: number;
+      dealsFlat: number;
+    };
 
-  const velocityByRep = new Map<string, {
-    repName: string;
-    count: number;
-    sumBaseline: number;
-    sumCurrent: number;
-    sumDelta: number;
-    dealsMoving: number;
-    dealsFlat: number;
-  }>();
+    const velocityByRep = new Map<string, {
+      repName: string;
+      count: number;
+      sumBaseline: number;
+      sumCurrent: number;
+      sumDelta: number;
+      dealsMoving: number;
+      dealsFlat: number;
+    }>();
 
-  for (const row of velocityRows) {
-    const key = `${row.rep_id}:${row.rep_name}`;
-    let agg = velocityByRep.get(key);
-    if (!agg) {
-      agg = {
-        repName: row.rep_name,
-        count: 0,
-        sumBaseline: 0,
-        sumCurrent: 0,
-        sumDelta: 0,
-        dealsMoving: 0,
-        dealsFlat: 0,
-      };
-      velocityByRep.set(key, agg);
-    }
-    const baseline = Number.isFinite(row.baseline_score as number) && row.baseline_score != null ? Number(row.baseline_score) : 0;
-    const current = Number.isFinite(row.current_score as number) && row.current_score != null ? Number(row.current_score) : 0;
-    const delta = current - baseline;
-    agg.count += 1;
-    agg.sumBaseline += baseline;
-    agg.sumCurrent += current;
-    agg.sumDelta += delta;
-    if (delta > 0) agg.dealsMoving += 1;
-    if (delta === 0) agg.dealsFlat += 1;
-  }
-
-  const velocityRepSummaries: VelocityRepSummary[] = Array.from(velocityByRep.values()).map((agg) => ({
-    repName: agg.repName,
-    avgBaseline: agg.count ? agg.sumBaseline / agg.count : 0,
-    avgCurrent: agg.count ? agg.sumCurrent / agg.count : 0,
-    avgDelta: agg.count ? agg.sumDelta / agg.count : 0,
-    dealsMoving: agg.dealsMoving,
-    dealsFlat: agg.dealsFlat,
-  }));
-
-  const leaderVelocityRows: VelocityRepSummary[] = leaders
-    .filter((l) => leaderRepIds.get(l.id)?.length)
-    .map((leader) => {
-      const repIds = leaderRepIds.get(leader.id)!;
-      let count = 0;
-      let sumBaseline = 0;
-      let sumCurrent = 0;
-      let sumDelta = 0;
-      let dealsMoving = 0;
-      let dealsFlat = 0;
-      for (const row of velocityRows) {
-        if (!repIds.includes(row.rep_id)) continue;
-        count += 1;
-        const b = num(row.baseline_score);
-        const c = num(row.current_score);
-        const d = (row.delta != null && Number.isFinite(row.delta)) ? Number(row.delta) : c - b;
-        sumBaseline += b;
-        sumCurrent += c;
-        sumDelta += d;
-        if (d > 0) dealsMoving += 1;
-        if (d === 0) dealsFlat += 1;
+    for (const row of velocityRows) {
+      const key = `${row.rep_id}:${row.rep_name}`;
+      let agg = velocityByRep.get(key);
+      if (!agg) {
+        agg = {
+          repName: row.rep_name,
+          count: 0,
+          sumBaseline: 0,
+          sumCurrent: 0,
+          sumDelta: 0,
+          dealsMoving: 0,
+          dealsFlat: 0,
+        };
+        velocityByRep.set(key, agg);
       }
-      return {
-        repName: leader.display_name,
-        avgBaseline: count ? sumBaseline / count : 0,
-        avgCurrent: count ? sumCurrent / count : 0,
-        avgDelta: count ? sumDelta / count : 0,
-        dealsMoving,
-        dealsFlat,
-      };
+      const baseline = Number.isFinite(row.baseline_score as number) && row.baseline_score != null ? Number(row.baseline_score) : 0;
+      const current = Number.isFinite(row.current_score as number) && row.current_score != null ? Number(row.current_score) : 0;
+      const delta = current - baseline;
+      agg.count += 1;
+      agg.sumBaseline += baseline;
+      agg.sumCurrent += current;
+      agg.sumDelta += delta;
+      if (delta > 0) agg.dealsMoving += 1;
+      if (delta === 0) agg.dealsFlat += 1;
+    }
+
+    const velocityRepSummaries: VelocityRepSummary[] = Array.from(velocityByRep.values()).map((agg) => ({
+      repName: agg.repName,
+      avgBaseline: agg.count ? agg.sumBaseline / agg.count : 0,
+      avgCurrent: agg.count ? agg.sumCurrent / agg.count : 0,
+      avgDelta: agg.count ? agg.sumDelta / agg.count : 0,
+      dealsMoving: agg.dealsMoving,
+      dealsFlat: agg.dealsFlat,
+    }));
+
+    const leaderVelocityRows: VelocityRepSummary[] = leaders
+      .filter((l) => leaderRepIds.get(l.id)?.length)
+      .map((leader) => {
+        const repIds = leaderRepIds.get(leader.id)!;
+        let count = 0;
+        let sumBaseline = 0;
+        let sumCurrent = 0;
+        let sumDelta = 0;
+        let dealsMoving = 0;
+        let dealsFlat = 0;
+        for (const row of velocityRows) {
+          if (!repIds.includes(row.rep_id)) continue;
+          count += 1;
+          const b = num(row.baseline_score);
+          const c = num(row.current_score);
+          const d = (row.delta != null && Number.isFinite(row.delta)) ? Number(row.delta) : c - b;
+          sumBaseline += b;
+          sumCurrent += c;
+          sumDelta += d;
+          if (d > 0) dealsMoving += 1;
+          if (d === 0) dealsFlat += 1;
+        }
+        return {
+          repName: leader.display_name,
+          avgBaseline: count ? sumBaseline / count : 0,
+          avgCurrent: count ? sumCurrent / count : 0,
+          avgDelta: count ? sumDelta / count : 0,
+          dealsMoving,
+          dealsFlat,
+        };
+      });
+    const velocityRepSummariesFiltered: VelocityRepSummary[] = velocityRepSummaries.filter((row) => {
+      return !leaders.some((l) => row.repName === l.display_name);
     });
-  const velocityRepSummariesFiltered: VelocityRepSummary[] = velocityRepSummaries.filter((row) => {
-    return !leaders.some((l) => row.repName === l.display_name);
-  });
-  const velocityRepSummariesFinal: VelocityRepSummary[] = [...leaderVelocityRows, ...velocityRepSummariesFiltered];
+    velocityRepSummariesFinal = [...leaderVelocityRows, ...velocityRepSummariesFiltered];
+  } catch (e) {
+    console.error("[hygiene:velocity]", e);
+  }
 
   type ProgressionRow = {
     opportunity_id: number;
@@ -514,8 +529,10 @@ export default async function ExecutiveDashboardPage({
     total_score: number | null;
   };
 
-  const { rows: progressionRows } = await pool.query<ProgressionRow>(
-    `
+  let progressionRepSummariesFinal: ProgressionRepSummary[] = [];
+  try {
+    const { rows: progressionRows } = await pool.query<ProgressionRow>(
+      `
     SELECT
       oae.opportunity_id,
       COALESCE(NULLIF(btrim(opp.opportunity_name), ''), NULLIF(btrim(opp.account_name), ''), opp.id::text) AS opp_name,
@@ -538,122 +555,125 @@ export default async function ExecutiveDashboardPage({
       AND opp.close_date >= $2::timestamptz
       AND opp.close_date < $3::timestamptz
     ORDER BY oae.opportunity_id, oae.ts ASC
-    `,
-    [orgId, startIso, endIso, visibleRepIdsForQuery]
-  );
+      `,
+      [orgId, startIso, endIso, visibleRepIdsForQuery]
+    );
 
-  type ProgressionSeries = {
-    opportunity_id: number;
-    opp_name: string;
-    rep_id: number;
-    rep_name: string;
-    points: { t: Date; score: number | null }[];
-    stalled: boolean;
-  };
+    type ProgressionSeries = {
+      opportunity_id: number;
+      opp_name: string;
+      rep_id: number;
+      rep_name: string;
+      points: { t: Date; score: number | null }[];
+      stalled: boolean;
+    };
 
-  const now = new Date();
-  const progressionByOpp = new Map<number, ProgressionSeries>();
-  for (const row of progressionRows) {
-    const t = new Date(row.ts);
-    const existing = progressionByOpp.get(row.opportunity_id);
-    if (!existing) {
-      progressionByOpp.set(row.opportunity_id, {
-        opportunity_id: row.opportunity_id,
-        opp_name: row.opp_name,
-        rep_id: row.rep_id,
-        rep_name: row.rep_name,
-        points: [{ t, score: row.total_score }],
-        stalled: false,
-      });
-    } else {
-      existing.points.push({ t, score: row.total_score });
-    }
-  }
-
-  for (const series of progressionByOpp.values()) {
-    const pts = series.points;
-    if (pts.length < 3) {
-      series.stalled = false;
-      continue;
-    }
-    const lastThree = pts.slice(-3);
-    const allEqual =
-      lastThree[0].score === lastThree[1].score &&
-      lastThree[1].score === lastThree[2].score;
-    const lastTime = lastThree[2].t;
-    const daysSince =
-      (now.getTime() - lastTime.getTime()) / (1000 * 60 * 60 * 24);
-    series.stalled = !!allEqual && daysSince > 14;
-  }
-
-  const progressionSeries = Array.from(progressionByOpp.values());
-
-  type ProgressionRepSummary = {
-    repName: string;
-    progressing: number;
-    stalled: number;
-    flat: number;
-    total: number;
-  };
-
-  const progressionByRepId = new Map<number, ProgressionRepSummary>();
-
-  for (const series of progressionSeries) {
-    const key = series.rep_id;
-    let agg = progressionByRepId.get(key);
-    if (!agg) {
-      agg = { repName: series.rep_name, progressing: 0, stalled: 0, flat: 0, total: 0 };
-      progressionByRepId.set(key, agg);
-    }
-    const pts = series.points;
-    const firstScore = pts.length ? (pts[0].score ?? 0) : 0;
-    const lastScore = pts.length ? (pts[pts.length - 1].score ?? 0) : 0;
-    const isProgressing = lastScore > firstScore;
-
-    agg.total += 1;
-    if (series.stalled) {
-      agg.stalled += 1;
-    } else if (isProgressing) {
-      agg.progressing += 1;
-    } else {
-      agg.flat += 1;
-    }
-  }
-
-  const progressionRepSummaries: ProgressionRepSummary[] = Array.from(progressionByRepId.values());
-
-  const leaderProgressionRows: ProgressionRepSummary[] = leaders
-    .filter((l) => leaderRepIds.get(l.id)?.length)
-    .map((leader) => {
-      const repIds = leaderRepIds.get(leader.id)!;
-      let progressing = 0;
-      let stalled = 0;
-      let flat = 0;
-      let total = 0;
-      for (const repId of repIds) {
-        const s = progressionByRepId.get(repId);
-        if (s) {
-          progressing += s.progressing;
-          stalled += s.stalled;
-          flat += s.flat;
-          total += s.total;
-        }
+    const now = new Date();
+    const progressionByOpp = new Map<number, ProgressionSeries>();
+    for (const row of progressionRows) {
+      const t = new Date(row.ts);
+      const existing = progressionByOpp.get(row.opportunity_id);
+      if (!existing) {
+        progressionByOpp.set(row.opportunity_id, {
+          opportunity_id: row.opportunity_id,
+          opp_name: row.opp_name,
+          rep_id: row.rep_id,
+          rep_name: row.rep_name,
+          points: [{ t, score: row.total_score }],
+          stalled: false,
+        });
+      } else {
+        existing.points.push({ t, score: row.total_score });
       }
-      return {
-        repName: leader.display_name,
-        progressing,
-        stalled,
-        flat,
-        total,
-      };
+    }
+
+    for (const series of progressionByOpp.values()) {
+      const pts = series.points;
+      if (pts.length < 3) {
+        series.stalled = false;
+        continue;
+      }
+      const lastThree = pts.slice(-3);
+      const allEqual =
+        lastThree[0].score === lastThree[1].score &&
+        lastThree[1].score === lastThree[2].score;
+      const lastTime = lastThree[2].t;
+      const daysSince =
+        (now.getTime() - lastTime.getTime()) / (1000 * 60 * 60 * 24);
+      series.stalled = !!allEqual && daysSince > 14;
+    }
+
+    const progressionSeries = Array.from(progressionByOpp.values());
+
+    type ProgressionRepSummary = {
+      repName: string;
+      progressing: number;
+      stalled: number;
+      flat: number;
+      total: number;
+    };
+
+    const progressionByRepId = new Map<number, ProgressionRepSummary>();
+
+    for (const series of progressionSeries) {
+      const key = series.rep_id;
+      let agg = progressionByRepId.get(key);
+      if (!agg) {
+        agg = { repName: series.rep_name, progressing: 0, stalled: 0, flat: 0, total: 0 };
+        progressionByRepId.set(key, agg);
+      }
+      const pts = series.points;
+      const firstScore = pts.length ? (pts[0].score ?? 0) : 0;
+      const lastScore = pts.length ? (pts[pts.length - 1].score ?? 0) : 0;
+      const isProgressing = lastScore > firstScore;
+
+      agg.total += 1;
+      if (series.stalled) {
+        agg.stalled += 1;
+      } else if (isProgressing) {
+        agg.progressing += 1;
+      } else {
+        agg.flat += 1;
+      }
+    }
+
+    const progressionRepSummaries: ProgressionRepSummary[] = Array.from(progressionByRepId.values());
+
+    const leaderProgressionRows: ProgressionRepSummary[] = leaders
+      .filter((l) => leaderRepIds.get(l.id)?.length)
+      .map((leader) => {
+        const repIds = leaderRepIds.get(leader.id)!;
+        let progressing = 0;
+        let stalled = 0;
+        let flat = 0;
+        let total = 0;
+        for (const repId of repIds) {
+          const s = progressionByRepId.get(repId);
+          if (s) {
+            progressing += s.progressing;
+            stalled += s.stalled;
+            flat += s.flat;
+            total += s.total;
+          }
+        }
+        return {
+          repName: leader.display_name,
+          progressing,
+          stalled,
+          flat,
+          total,
+        };
+      });
+    const progressionRepSummariesFiltered: ProgressionRepSummary[] = progressionRepSummaries.filter((row) => {
+      return !leaders.some((l) => row.repName === l.display_name);
     });
-  const progressionRepSummariesFiltered: ProgressionRepSummary[] = progressionRepSummaries.filter((row) => {
-    return !leaders.some((l) => row.repName === l.display_name);
-  });
-  const progressionRepSummariesFinal: ProgressionRepSummary[] = [
-    ...leaderProgressionRows,
-    ...progressionRepSummariesFiltered,
-  ];
+    progressionRepSummariesFinal = [
+      ...leaderProgressionRows,
+      ...progressionRepSummariesFiltered,
+    ];
+  } catch (e) {
+    console.error("[hygiene:progression]", e);
+  }
 
   // Determine active tab: URL param > user preference > forecast
   const search = searchParams || {};
