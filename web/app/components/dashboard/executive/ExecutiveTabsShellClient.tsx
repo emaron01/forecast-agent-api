@@ -169,11 +169,10 @@ function ReportsTabContent(props: {
     };
 
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await fetch("/api/executive-briefing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
           max_tokens: 600,
           system:
             "You are Matthew, a skeptical CRO advisor. Brief the executive on their quarter. Be direct. Lead with verdict, support with data. Plain paragraphs only, no bullets. Four sections with bold headings: Quarter Outlook, Commit Integrity, Pipeline Risk, Channel Performance. Max 350 words.",
@@ -182,6 +181,10 @@ function ReportsTabContent(props: {
       });
 
       const data = await response.json();
+      if (!response.ok) {
+        setBriefingText(data?.error ? `Error: ${data.error}` : "Unable to generate briefing.");
+        return;
+      }
       const text =
         data.content
           ?.filter((b: any) => b.type === "text")
