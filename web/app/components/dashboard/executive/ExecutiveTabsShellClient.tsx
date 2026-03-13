@@ -131,7 +131,6 @@ function ReportsTabContent(props: {
   const fullBriefingText = [
     briefing.quarterOutlook ? `Quarter Outlook\n\n${briefing.quarterOutlook}` : "",
     briefing.forecastCommit ? `Forecast & Commit Integrity\n\n${briefing.forecastCommit}` : "",
-    briefing.pipelineRisk ? `Pipeline & Risk\n\n${briefing.pipelineRisk}` : "",
     briefing.directVsPartner ? `Direct vs Partner Performance\n\n${briefing.directVsPartner}` : "",
   ]
     .filter(Boolean)
@@ -155,7 +154,6 @@ function ReportsTabContent(props: {
   const blocks: { key: string; title: string; text: string; tabToGenerate: ExecTabKey }[] = [
     { key: "quarterOutlook", title: "Quarter Outlook (hero takeaway)", text: briefing.quarterOutlook, tabToGenerate: "forecast" },
     { key: "forecastCommit", title: "Forecast & Commit Integrity", text: briefing.forecastCommit, tabToGenerate: "forecast" },
-    { key: "pipelineRisk", title: "Pipeline & Risk", text: briefing.pipelineRisk, tabToGenerate: "pipeline" },
     { key: "directVsPartner", title: "Direct vs Partner Performance", text: briefing.directVsPartner, tabToGenerate: "revenue" },
   ];
 
