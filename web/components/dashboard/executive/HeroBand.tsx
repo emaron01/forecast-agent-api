@@ -50,7 +50,7 @@ export function HeroBand(props: {
 
   return (
     <section className="w-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-6 shadow-sm">
-      <div className="grid gap-6 md:grid-cols-[minmax(0,1.7fr)_minmax(0,1.3fr)] items-start">
+      <div className="flex flex-wrap items-start justify-between gap-6">
         <div className="min-w-0">
           <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">{props.title}</div>
 
@@ -84,7 +84,7 @@ export function HeroBand(props: {
         </div>
 
         {props.headlineRight ? (
-          <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 text-sm text-[color:var(--sf-text-primary)]">
+          <div className="max-w-[520px] rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 text-sm text-[color:var(--sf-text-primary)]">
             <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Executive headline</div>
             <div className="mt-1 font-semibold">{props.headlineRight}</div>
           </div>

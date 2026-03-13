@@ -154,7 +154,7 @@ export function KpiCardsRow(props: {
   if (variant === "forecast_only") {
     return (
       <section className="grid gap-3">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-9">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
           <div className={card}>
             <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quota</div>
             <div className={val}>{fmtMoney(props.quota)}</div>
