@@ -103,9 +103,9 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
     remainingQuota != null && remainingQuota > 0 && totalPipelineAmt != null && totalPipelineAmt > 0 ? totalPipelineAmt / remainingQuota : null;
   const covStatus = coverageStatus(coverage);
 
-  // Match four-card strip: responsive value that fits in card
-  const heroCard = "h-full min-h-[124px] min-w-0 overflow-hidden rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm";
-  const heroVal = "mt-2 min-w-0 truncate text-[clamp(1rem,2vw,1.5rem)] font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)]";
+  // Full dollar values for forecast (7-figure)
+  const heroCard = "h-full min-h-[124px] min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm";
+  const heroVal = "mt-2 break-all text-kpiValue font-[tabular-nums] text-[color:var(--sf-text-primary)]";
   const mixBar = (
     <div
       className="h-[10px] w-full overflow-hidden rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]"
