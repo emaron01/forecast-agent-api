@@ -8,6 +8,15 @@ function jsonError(status: number, error: string) {
   return NextResponse.json({ ok: false, error }, { status });
 }
 
+function resolveBaseUrl() {
+  const raw = (process.env.OPENAI_BASE_URL || process.env.MODEL_API_URL || process.env.MODEL_URL || "").trim();
+  if (!raw) return "";
+  const wsNormalized = raw.replace(/^wss:\/\//i, "https://").replace(/^ws:\/\//i, "http://");
+  const strippedRealtime = wsNormalized.replace(/\/v1\/realtime(?:\/calls)?$/i, "/v1");
+  const noTrail = strippedRealtime.replace(/\/+$/, "");
+  return noTrail.endsWith("/v1") ? noTrail : `${noTrail}/v1`;
+}
+
 const BodySchema = z.object({
   max_tokens: z.number().int().min(1).max(8192).optional(),
   system: z.string(),
@@ -27,41 +36,53 @@ export async function POST(req: Request) {
 
     const body = BodySchema.parse(await req.json().catch(() => ({})));
 
-    const apiKey = String(
-      process.env.ANTHROPIC_API_KEY ||
-        process.env.MODEL_API_KEY ||
-        process.env.OPENAI_API_KEY ||
-        ""
-    ).trim();
+    const baseUrl = resolveBaseUrl();
+    const apiKey = String(process.env.MODEL_API_KEY || process.env.OPENAI_API_KEY || "").trim();
     const model = String(process.env.MODEL_API_NAME || "").trim();
-    if (!apiKey) return jsonError(500, "Missing ANTHROPIC_API_KEY (or MODEL_API_KEY)");
+    if (!baseUrl) return jsonError(500, "Missing OPENAI_BASE_URL (or MODEL_API_URL or MODEL_URL)");
+    if (!apiKey) return jsonError(500, "Missing MODEL_API_KEY");
     if (!model) return jsonError(500, "Missing MODEL_API_NAME");
 
-    const payload = {
-      model,
-      max_tokens: body.max_tokens ?? 600,
-      system: body.system,
-      messages: body.messages,
-    };
+    const userContent = body.messages?.length
+      ? (typeof body.messages[0].content === "string"
+          ? body.messages[0].content
+          : JSON.stringify(body.messages[0].content))
+      : "";
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch(`${baseUrl}/responses`, {
       method: "POST",
       headers: {
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        model,
+        instructions: body.system,
+        tool_choice: "none",
+        input: [{ role: "user", content: userContent }],
+        temperature: 0,
+        max_output_tokens: body.max_tokens ?? 600,
+      }),
     });
 
-    const data = await response.json().catch(() => ({}));
+    const data = await response.json().catch(async () => ({ error: { message: await response.text() } }));
     if (!response.ok) {
-      const errMsg =
-        data?.error?.message || data?.message || `Anthropic API error: ${response.status}`;
+      const errMsg = data?.error?.message || data?.message || `API error: ${response.status}`;
       return jsonError(response.status >= 400 && response.status < 600 ? response.status : 500, errMsg);
     }
 
-    return NextResponse.json(data);
+    const output = Array.isArray(data?.output) ? data.output : [];
+    const chunks: string[] = [];
+    for (const item of output) {
+      if (item?.type === "message" && item?.role === "assistant") {
+        for (const c of item?.content || []) {
+          if (c?.type === "output_text" && typeof c.text === "string") chunks.push(c.text);
+        }
+      }
+    }
+    const text = chunks.join("\n").trim();
+
+    return NextResponse.json({ content: [{ type: "text", text: text || "Unable to generate briefing." }] });
   } catch (e) {
     if (e instanceof z.ZodError) {
       return jsonError(400, "Invalid request body");
