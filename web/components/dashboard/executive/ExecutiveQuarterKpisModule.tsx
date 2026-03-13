@@ -103,9 +103,9 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
     remainingQuota != null && remainingQuota > 0 && totalPipelineAmt != null && totalPipelineAmt > 0 ? totalPipelineAmt / remainingQuota : null;
   const covStatus = coverageStatus(coverage);
 
-  // Match HERO card styling (ex: "Blended ACV")
-  const heroCard = "h-full min-h-[124px] rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm";
-  const heroVal = "mt-2 text-kpiValue text-[color:var(--sf-text-primary)]";
+  // Match four-card strip: responsive value that fits in card
+  const heroCard = "h-full min-h-[124px] min-w-0 overflow-hidden rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm";
+  const heroVal = "mt-2 min-w-0 truncate text-[clamp(1rem,2vw,1.5rem)] font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)]";
   const mixBar = (
     <div
       className="h-[10px] w-full overflow-hidden rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]"
@@ -144,17 +144,19 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
       <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {cards.map((c) => (
           <div key={c.key} className={heroCard}>
-            <div className="inline-flex items-center gap-2 text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
-              {c.key === "commit" ? <span className="h-2 w-2 rounded-full bg-[#2ECC71]" aria-hidden="true" /> : null}
-              {c.key === "best" ? <span className="h-2 w-2 rounded-full bg-[color:var(--sf-accent-primary)]" aria-hidden="true" /> : null}
-              {c.key === "pipe" ? <span className="h-2 w-2 rounded-full bg-[#E74C3C]/80" aria-hidden="true" /> : null}
-              <span>{c.label}</span>
+            <div className="min-w-0 overflow-hidden text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
+              <span className="inline-flex min-w-0 items-center gap-2 truncate">
+                {c.key === "commit" ? <span className="h-2 w-2 shrink-0 rounded-full bg-[#2ECC71]" aria-hidden="true" /> : null}
+                {c.key === "best" ? <span className="h-2 w-2 shrink-0 rounded-full bg-[color:var(--sf-accent-primary)]" aria-hidden="true" /> : null}
+                {c.key === "pipe" ? <span className="h-2 w-2 shrink-0 rounded-full bg-[#E74C3C]/80" aria-hidden="true" /> : null}
+                <span className="min-w-0 truncate">{c.label}</span>
+              </span>
             </div>
             <div className={heroVal}>{fmtMoney(c.amount)}</div>
-            <div className="mt-2 text-meta">
+            <div className="mt-2 min-w-0 truncate text-meta">
               # Opps: <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{c.count == null ? "—" : fmtNum(c.count)}</span>
             </div>
-            <div className="mt-1 text-meta">
+            <div className="mt-1 min-w-0 truncate text-meta">
               Avg Health:{" "}
               <span className={healthColorClass(c.healthPct)}>
                 {c.healthPct == null ? "—" : `${Math.max(0, Math.min(100, Math.round(Number(c.healthPct) || 0)))}%`}
@@ -166,8 +168,8 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
         <div className={heroCard}>
           <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Pipeline Coverage</div>
           <div className={heroVal}>{fmtCoverageRatio(coverage, { digits: 1 })}</div>
-          <div className="mt-2">
-            <span className={["inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold", covStatus.cls].join(" ")}>{covStatus.label}</span>
+          <div className="mt-2 min-w-0 overflow-hidden">
+            <span className={["inline-flex max-w-full truncate rounded-full border px-2 py-0.5 text-[10px] font-semibold", covStatus.cls].join(" ")}>{covStatus.label}</span>
           </div>
         </div>
       </div>
