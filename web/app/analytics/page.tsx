@@ -70,6 +70,13 @@ export default async function AnalyticsPage() {
           {(ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER") ? (
             <Card href="/analytics/executive" title="KPI Summary" desc="Quarter KPI dashboard with QoQ deltas + team/rep comparisons." />
           ) : null}
+          {(ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER") ? (
+            <Card
+              href="/analytics/executive/sales-opportunities"
+              title="Sales Opportunities (Exec)"
+              desc="Sales Opportunities table scoped to your team, with health and forecast context."
+            />
+          ) : null}
         </section>
       </main>
     </div>
