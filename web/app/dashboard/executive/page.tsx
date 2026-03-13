@@ -22,119 +22,120 @@ export default async function ExecutiveDashboardPage({
 }: {
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
-  const ctx = await requireAuth();
-  if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role === "ADMIN") redirect("/admin");
-  if (ctx.user.role === "REP") redirect("/dashboard");
+  try {
+    const ctx = await requireAuth();
+    if (ctx.kind === "master") redirect("/admin/organizations");
+    if (ctx.user.role === "ADMIN") redirect("/admin");
+    if (ctx.user.role === "REP") redirect("/dashboard");
 
-  const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
-  const orgName = org?.name || "Organization";
+    const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
+    const orgName = org?.name || "Organization";
 
-  const summary = await getExecutiveForecastDashboardSummary({
-    orgId: ctx.user.org_id,
-    user: ctx.user,
-    searchParams,
-  });
+    const summary = await getExecutiveForecastDashboardSummary({
+      orgId: ctx.user.org_id,
+      user: ctx.user,
+      searchParams,
+    });
 
-  // Team Forecast Hygiene (Coverage, Assessment, Velocity, Progression) for Pipeline tab
-  const orgId = ctx.user.org_id;
-  const selectedPeriod = summary.selectedPeriod;
-  const startIso =
-    selectedPeriod?.period_start != null
-      ? new Date(selectedPeriod.period_start).toISOString()
-      : new Date(0).toISOString();
-  const endIso =
-    selectedPeriod?.period_end != null
-      ? new Date(new Date(selectedPeriod.period_end).getTime() + 24 * 60 * 60 * 1000).toISOString()
-      : new Date().toISOString();
+    // Team Forecast Hygiene (Coverage, Assessment, Velocity, Progression) for Pipeline tab
+    const orgId = ctx.user.org_id;
+    const selectedPeriod = summary.selectedPeriod;
+    const startIso =
+      selectedPeriod?.period_start != null
+        ? new Date(selectedPeriod.period_start).toISOString()
+        : new Date(0).toISOString();
+    const endIso =
+      selectedPeriod?.period_end != null
+        ? new Date(new Date(selectedPeriod.period_end).getTime() + 24 * 60 * 60 * 1000).toISOString()
+        : new Date().toISOString();
 
-  const scopedRole =
-    ctx.user.role === "ADMIN" || ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER" || ctx.user.role === "REP"
-      ? ctx.user.role
-      : "MANAGER";
-  const scope = await getScopedRepDirectory({
-    orgId,
-    userId: ctx.user.id,
-    role: scopedRole,
-  }).catch(() => ({
-    repDirectory: [],
-    allowedRepIds: null as number[] | null,
-    myRepId: null as number | null,
-  }));
+    const scopedRole =
+      ctx.user.role === "ADMIN" || ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER" || ctx.user.role === "REP"
+        ? ctx.user.role
+        : "MANAGER";
+    const scope = await getScopedRepDirectory({
+      orgId,
+      userId: ctx.user.id,
+      role: scopedRole,
+    }).catch(() => ({
+      repDirectory: [],
+      allowedRepIds: null as number[] | null,
+      myRepId: null as number | null,
+    }));
 
-  const visibleRepIds: number[] =
-    scope.allowedRepIds !== null && scope.allowedRepIds.length > 0
-      ? scope.allowedRepIds
-      : scope.repDirectory.map((r) => r.id).filter((n) => Number.isFinite(n) && n > 0);
-  const visibleRepIdsForQuery = visibleRepIds.length > 0 ? visibleRepIds : [-1];
+    const visibleRepIds: number[] =
+      scope.allowedRepIds !== null && scope.allowedRepIds.length > 0
+        ? scope.allowedRepIds
+        : scope.repDirectory.map((r) => r.id).filter((n) => Number.isFinite(n) && n > 0);
+    const visibleRepIdsForQuery = visibleRepIds.length > 0 ? visibleRepIds : [-1];
 
-  const repDirectory = scope.repDirectory;
-  const childrenByManagerRepId = new Map<number, number[]>();
-  for (const r of repDirectory) {
-    if (r.manager_rep_id != null && repDirectory.some((x) => x.id === r.manager_rep_id)) {
-      let arr = childrenByManagerRepId.get(r.manager_rep_id);
-      if (!arr) {
-        arr = [];
-        childrenByManagerRepId.set(r.manager_rep_id, arr);
+    const repDirectory = scope.repDirectory;
+    const childrenByManagerRepId = new Map<number, number[]>();
+    for (const r of repDirectory) {
+      if (r.manager_rep_id != null && repDirectory.some((x) => x.id === r.manager_rep_id)) {
+        let arr = childrenByManagerRepId.get(r.manager_rep_id);
+        if (!arr) {
+          arr = [];
+          childrenByManagerRepId.set(r.manager_rep_id, arr);
+        }
+        arr.push(r.id);
       }
-      arr.push(r.id);
     }
-  }
-  const leaders = repDirectory
-    .filter(
-      (r) =>
-        (r.role === "EXEC_MANAGER" || r.role === "MANAGER") &&
-        (childrenByManagerRepId.get(r.id)?.length ?? 0) > 0
-    )
-    .map((r) => ({ id: r.id, display_name: r.name }))
-    .sort((a, b) => a.display_name.localeCompare(b.display_name, "en", { sensitivity: "base" }));
+    const leaders = repDirectory
+      .filter(
+        (r) =>
+          (r.role === "EXEC_MANAGER" || r.role === "MANAGER") &&
+          (childrenByManagerRepId.get(r.id)?.length ?? 0) > 0
+      )
+      .map((r) => ({ id: r.id, display_name: r.name }))
+      .sort((a, b) => a.display_name.localeCompare(b.display_name, "en", { sensitivity: "base" }));
 
-  function getSubtreeRepIds(rootRepId: number): number[] {
-    const out: number[] = [rootRepId];
-    const queue = [rootRepId];
-    const visited = new Set([rootRepId]);
-    while (queue.length > 0) {
-      const rid = queue.shift()!;
-      const children = childrenByManagerRepId.get(rid) ?? [];
-      for (const c of children) {
-        if (!visited.has(c)) {
-          visited.add(c);
-          out.push(c);
-          queue.push(c);
+    function getSubtreeRepIds(rootRepId: number): number[] {
+      const out: number[] = [rootRepId];
+      const queue = [rootRepId];
+      const visited = new Set([rootRepId]);
+      while (queue.length > 0) {
+        const rid = queue.shift()!;
+        const children = childrenByManagerRepId.get(rid) ?? [];
+        for (const c of children) {
+          if (!visited.has(c)) {
+            visited.add(c);
+            out.push(c);
+            queue.push(c);
+          }
         }
       }
+      return out;
     }
-    return out;
-  }
 
-  const leaderRepIds = new Map<number, number[]>();
-  for (const leader of leaders) {
-    const repIds = getSubtreeRepIds(leader.id);
-    if (repIds.length > 0) leaderRepIds.set(leader.id, repIds);
-  }
-  const leaderRepIdSet = new Set(Array.from(leaderRepIds.keys()).map((id) => id));
+    const leaderRepIds = new Map<number, number[]>();
+    for (const leader of leaders) {
+      const repIds = getSubtreeRepIds(leader.id);
+      if (repIds.length > 0) leaderRepIds.set(leader.id, repIds);
+    }
+    const leaderRepIdSet = new Set(Array.from(leaderRepIds.keys()).map((id) => id));
 
-  type CoverageRow = {
-    rep_id: number;
-    rep_name: string;
-    total_opps: number;
-    reviewed_opps: number;
-    coverage_pct: number | null;
-  };
+    type CoverageRow = {
+      rep_id: number;
+      rep_name: string;
+      total_opps: number;
+      reviewed_opps: number;
+      coverage_pct: number | null;
+    };
 
-  type VelocityRepSummary = {
-    repName: string;
-    avgBaseline: number;
-    avgCurrent: number;
-    avgDelta: number;
-    dealsMoving: number;
-    dealsFlat: number;
-  };
+    type VelocityRepSummary = {
+      repName: string;
+      avgBaseline: number;
+      avgCurrent: number;
+      avgDelta: number;
+      dealsMoving: number;
+      dealsFlat: number;
+    };
 
-  let coverageRowsFinal: CoverageRow[] = [];
-  try {
-    const { rows: coverageRows } = await pool.query<CoverageRow>(
-      `
+    let coverageRowsFinal: CoverageRow[] = [];
+    try {
+      const { rows: coverageRows } = await pool.query<CoverageRow>(
+        `
     SELECT
       r.id AS rep_id,
       COALESCE(
@@ -185,39 +186,39 @@ export default async function ExecutiveDashboardPage({
         NULLIF(btrim(r.rep_name), ''),
         '(Unknown rep)'
       ) ASC
-      `,
-      [orgId, startIso, endIso, visibleRepIdsForQuery]
-    );
+        `,
+        [orgId, startIso, endIso, visibleRepIdsForQuery]
+      );
 
-    const coverageRowsByRepId = new Map<number, CoverageRow>(
-      (coverageRows ?? []).map((r) => [r.rep_id, r])
-    );
-    const leaderCoverageRows: CoverageRow[] = leaders
-      .filter((l) => leaderRepIds.get(l.id)?.length)
-      .map((leader) => {
-        const repIds = leaderRepIds.get(leader.id)!;
-        let total = 0;
-        let reviewed = 0;
-        for (const repId of repIds) {
-          const row = coverageRowsByRepId.get(repId);
-          if (row) {
-            total += row.total_opps;
-            reviewed += row.reviewed_opps;
+      const coverageRowsByRepId = new Map<number, CoverageRow>(
+        (coverageRows ?? []).map((r) => [r.rep_id, r])
+      );
+      const leaderCoverageRows: CoverageRow[] = leaders
+        .filter((l) => leaderRepIds.get(l.id)?.length)
+        .map((leader) => {
+          const repIds = leaderRepIds.get(leader.id)!;
+          let total = 0;
+          let reviewed = 0;
+          for (const repId of repIds) {
+            const row = coverageRowsByRepId.get(repId);
+            if (row) {
+              total += row.total_opps;
+              reviewed += row.reviewed_opps;
+            }
           }
-        }
-        return {
-          rep_id: -leader.id,
-          rep_name: leader.display_name,
-          total_opps: total,
-          reviewed_opps: reviewed,
-          coverage_pct: total > 0 ? Math.round((reviewed / total) * 100) : null,
-        };
-      });
-    const coverageRowsFiltered = (coverageRows ?? []).filter((row) => !leaderRepIdSet.has(row.rep_id));
-    coverageRowsFinal = [...leaderCoverageRows, ...coverageRowsFiltered];
-  } catch (e) {
-    console.error("[hygiene:coverage]", e);
-  }
+          return {
+            rep_id: -leader.id,
+            rep_name: leader.display_name,
+            total_opps: total,
+            reviewed_opps: reviewed,
+            coverage_pct: total > 0 ? Math.round((reviewed / total) * 100) : null,
+          };
+        });
+      const coverageRowsFiltered = (coverageRows ?? []).filter((row) => !leaderRepIdSet.has(row.rep_id));
+      coverageRowsFinal = [...leaderCoverageRows, ...coverageRowsFiltered];
+    } catch (e) {
+      console.error("[hygiene:coverage]", e);
+    }
 
   type AssessmentRow = {
     rep_id: number;
