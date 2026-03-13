@@ -2242,10 +2242,10 @@ export function ExecutiveGapInsightsClient(props: {
               })()}
             </div>
           </div>
-        </div>
 
-        <div className="mt-4 grid gap-3">
-          <ExecutiveRemainingQuarterlyForecastBlock crmTotals={props.crmTotals} quota={props.quota} pipelineMomentum={props.pipelineMomentum} />
+          <div className="min-w-0 lg:pt-1">
+            <ExecutiveRemainingQuarterlyForecastBlock crmTotals={props.crmTotals} quota={props.quota} pipelineMomentum={props.pipelineMomentum} />
+          </div>
         </div>
 
       </section>
