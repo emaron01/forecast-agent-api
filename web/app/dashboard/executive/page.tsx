@@ -845,5 +845,9 @@ export default async function ExecutiveDashboardPage({
       </main>
     </div>
   );
+  } catch (e) {
+    console.error("[ExecutiveDashboardPage crash]", e);
+    throw e;
+  }
 }
 
