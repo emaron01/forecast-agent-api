@@ -1,10 +1,10 @@
-"use client";
+\"use client\";
 
-import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState, useTransition, type ComponentProps } from "react";
-import { ExecutiveGapInsightsClient } from "../../../../components/dashboard/executive/ExecutiveGapInsightsClient";
-import { useExecutiveBriefing } from "../../../../components/dashboard/executive/ExecutiveBriefingContext";
+import Link from \"next/link\";
+import Image from \"next/image\";
+import { usePathname, useRouter, useSearchParams } from \"next/navigation\";
+import { useCallback, useEffect, useState, useTransition, type ComponentProps } from \"react\";
+import { ExecutiveGapInsightsClient } from \"../../../../components/dashboard/executive/ExecutiveGapInsightsClient\";
 import {
   RepManagerComparisonPanel,
   type RepManagerManagerRow,
@@ -123,94 +123,187 @@ function ReportsTabContent(props: {
   fiscalYear: string;
   fiscalQuarter: string;
   orgName: string;
-  onSwitchTab: (tab: ExecTabKey) => void;
+  forecastTabProps: ExecutiveGapInsightsClientProps;
+  pipelineHygiene: PipelineHygienePayload;
 }) {
-  const briefing = useExecutiveBriefing();
-  const [copied, setCopied] = useState(false);
+  const [briefingText, setBriefingText] = useState<string | null>(null);
+  const [briefingLoading, setBriefingLoading] = useState(false);
+  const [briefingGeneratedAt, setBriefingGeneratedAt] = useState<string | null>(null);
+  const [briefingDataKey, setBriefingDataKey] = useState<string>("");
+  const [briefingStale, setBriefingStale] = useState(false);
 
-  const fullBriefingText = [
-    briefing.quarterOutlook ? `Quarter Outlook\n\n${briefing.quarterOutlook}` : "",
-    briefing.forecastCommit ? `Forecast & Commit Integrity\n\n${briefing.forecastCommit}` : "",
-    briefing.directVsPartner ? `Direct vs Partner Performance\n\n${briefing.directVsPartner}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n\n———\n\n")
-    .trim();
+  const quarter = `${props.forecastTabProps.fiscalYear} Q${props.forecastTabProps.fiscalQuarter}`;
 
-  const copyFullBriefing = useCallback(async () => {
-    if (!fullBriefingText) return;
+  useEffect(() => {
+    const fy = props.forecastTabProps.fiscalYear;
+    const qp = props.forecastTabProps.quotaPeriodId;
+    const nextKey = `${fy}-${qp}`;
+    if (briefingText && nextKey !== briefingDataKey) {
+      setBriefingStale(true);
+    }
+  }, [props.forecastTabProps.fiscalYear, props.forecastTabProps.quotaPeriodId]);
+
+  const generateBriefing = useCallback(async () => {
+    setBriefingLoading(true);
+    setBriefingStale(false);
+
+    const payload = {
+      quarter,
+      quota: props.forecastTabProps.quota,
+      ai_forecast: props.forecastTabProps.aiForecast,
+      crm_forecast: props.forecastTabProps.crmForecast,
+      gap: props.forecastTabProps.gap,
+      unsupported_commit: props.forecastTabProps.commitAdmission?.unsupportedCommitAmount,
+      needs_review: props.forecastTabProps.commitAdmission?.commitNeedsReviewAmount,
+      evidence_coverage_pct: props.forecastTabProps.commitAdmission?.commitEvidenceCoveragePct,
+      top_risks: props.forecastTabProps.commitDealPanels?.topPainDeals
+        ?.slice(0, 3)
+        .map((d: any) => ({ name: d.title, amount: d.amount })),
+      direct_won: props.forecastTabProps.partnersExecutive?.direct?.won_amount,
+      partner_won: props.forecastTabProps.partnersExecutive?.partner?.won_amount,
+      partner_cei: (props.forecastTabProps.partnersExecutive as any)?.cei?.partner_index,
+      coverage: props.pipelineHygiene.coverageRows.map((r) => ({
+        rep: r.rep_name,
+        pct: r.coverage_pct,
+      })),
+    };
+
     try {
-      await navigator.clipboard.writeText(fullBriefingText);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 600,
+          system:
+            "You are Matthew, a skeptical CRO advisor. Brief the executive on their quarter. Be direct. Lead with verdict, support with data. Plain paragraphs only, no bullets. Four sections with bold headings: Quarter Outlook, Commit Integrity, Pipeline Risk, Channel Performance. Max 350 words.",
+          messages: [{ role: "user", content: JSON.stringify(payload) }],
+        }),
+      });
+
+      const data = await response.json();
+      const text =
+        data.content
+          ?.filter((b: any) => b.type === "text")
+          .map((b: any) => b.text)
+          .join("\n") || "Unable to generate briefing.";
+
+      setBriefingText(text);
+      setBriefingGeneratedAt(new Date().toLocaleTimeString());
+      setBriefingDataKey(`${props.forecastTabProps.fiscalYear}-${props.forecastTabProps.quotaPeriodId}`);
+    } catch {
+      setBriefingText("Unable to generate briefing.");
+    } finally {
+      setBriefingLoading(false);
+    }
+  }, [props.forecastTabProps, props.pipelineHygiene, quarter]);
+
+  const copyBriefing = useCallback(async () => {
+    if (!briefingText) return;
+    try {
+      await navigator.clipboard.writeText(briefingText);
     } catch {
       // ignore
     }
-  }, [fullBriefingText]);
+  }, [briefingText]);
 
   const quarterLabel = [props.fiscalYear, props.fiscalQuarter].filter(Boolean).join(" · ") || "—";
-  const subheading = `${props.orgName} · ${quarterLabel} · Generated by Matthew`;
+  const subheading = `${props.orgName} · ${quarterLabel}`;
 
-  const blocks: { key: string; title: string; text: string; tabToGenerate: ExecTabKey }[] = [
-    { key: "quarterOutlook", title: "Quarter Outlook (hero takeaway)", text: briefing.quarterOutlook, tabToGenerate: "forecast" },
-    { key: "forecastCommit", title: "Forecast & Commit Integrity", text: briefing.forecastCommit, tabToGenerate: "forecast" },
-    { key: "directVsPartner", title: "Direct vs Partner Performance", text: briefing.directVsPartner, tabToGenerate: "revenue" },
-  ];
+  const paragraphs = (briefingText || "").split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+
+  const renderParagraph = (p: string, idx: number) => {
+    const m = p.match(/^(Quarter Outlook|Commit Integrity|Pipeline Risk|Channel Performance)[:\-]?\s*(.*)$/i);
+    if (m) {
+      const heading = m[1];
+      const rest = m[2];
+      return (
+        <p key={idx} className="text-sm text-[color:var(--sf-text-primary)]">
+          <strong>{heading}</strong>
+          {rest ? `: ${rest}` : ""}
+        </p>
+      );
+    }
+    return (
+      <p key={idx} className="text-sm text-[color:var(--sf-text-primary)]">
+        {p}
+      </p>
+    );
+  };
 
   return (
     <div className="space-y-8">
-      {/* Section 1: Executive Briefing */}
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="flex items-center gap-2 text-lg font-semibold text-[color:var(--sf-text-primary)]">
-              <span aria-hidden>✨</span> Executive Briefing
-            </h2>
-            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">{subheading}</p>
+          <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+            <Image
+              src="/brand/salesforecast-logo-white.png"
+              alt="SalesForecast.io"
+              width={258}
+              height={47}
+              className="h-[1.95rem] w-auto opacity-90"
+            />
+            <span>✨ EXECUTIVE BRIEFING</span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={copyFullBriefing}
-              disabled={!fullBriefingText}
-              className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-medium text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-border)] disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={copyBriefing}
+              disabled={!briefingText}
+              className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {copied ? "Copied" : "Copy Full Briefing"}
+              <span aria-hidden="true">⧉</span>
+              Copy
             </button>
             <button
               type="button"
+              onClick={() => void generateBriefing()}
+              disabled={briefingLoading}
+              className="rounded-md border border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] px-3 py-2 text-xs font-semibold text-white hover:bg-[color:var(--sf-accent-secondary)] disabled:opacity-60"
+            >
+              {briefingText ? "Regenerate" : "Generate"}
+            </button>
+          </div>
+        </div>
+
+        <p className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">{subheading}</p>
+
+        {briefingStale ? (
+          <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            Quarter data has changed — regenerate for updated insights.
+          </div>
+        ) : null}
+
+        <div className="mt-4 min-h-[120px] rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+          {briefingLoading ? (
+            <div className="flex items-center gap-2 text-sm text-[color:var(--sf-text-secondary)]">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-[color:var(--sf-border)] border-t-transparent" />
+              <span>Matthew is preparing your briefing...</span>
+            </div>
+          ) : briefingText ? (
+            <div className="space-y-2">{paragraphs.map(renderParagraph)}</div>
+          ) : (
+            <p className="text-sm text-[color:var(--sf-text-secondary)]">
+              Generate a CRO-grade briefing for this quarter.
+            </p>
+          )}
+        </div>
+
+        {briefingText ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-[color:var(--sf-text-secondary)]">
+            <span>Generated at {briefingGeneratedAt}</span>
+            <button
+              type="button"
               disabled
-              className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-medium text-[color:var(--sf-text-secondary)] cursor-not-allowed"
+              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-[10px] font-medium text-[color:var(--sf-text-secondary)] cursor-not-allowed"
               title="Coming soon"
             >
               Export to PDF (coming soon)
             </button>
           </div>
-        </div>
-        <div className="mt-5 space-y-4">
-          {blocks.map((block) => (
-            <div
-              key={block.key}
-              className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4"
-            >
-              <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{block.title}</div>
-              {block.text ? (
-                <div className="mt-2 whitespace-pre-wrap text-sm text-[color:var(--sf-text-primary)]">{block.text}</div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => props.onSwitchTab(block.tabToGenerate)}
-                  className="mt-2 rounded border border-[color:var(--sf-accent-primary)] bg-transparent px-3 py-1.5 text-sm font-medium text-[color:var(--sf-accent-primary)] hover:bg-[color:var(--sf-accent-primary)]/10"
-                >
-                  Generate
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
+        ) : null}
       </section>
 
-      {/* Section 2: Report Links */}
       <section>
         <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Report Links</h2>
         <div className="mt-3 grid gap-4 sm:grid-cols-2">
@@ -224,7 +317,9 @@ function ReportsTabContent(props: {
                 <div className="font-semibold text-[color:var(--sf-text-primary)]">{link.title}</div>
                 <div className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">{link.description}</div>
               </div>
-              <span className="shrink-0 text-[color:var(--sf-accent-primary)]" aria-hidden>→</span>
+              <span className="shrink-0 text-[color:var(--sf-accent-primary)]" aria-hidden>
+                →
+              </span>
             </Link>
           ))}
         </div>
@@ -579,7 +674,8 @@ export function ExecutiveTabsShellClient(props: {
             fiscalYear={props.forecastTabProps.fiscalYear}
             fiscalQuarter={props.forecastTabProps.fiscalQuarter}
             orgName={props.orgName ?? "SalesForecast.io"}
-            onSwitchTab={handleTabClick}
+            forecastTabProps={props.forecastTabProps}
+            pipelineHygiene={props.pipelineHygiene}
           />
         )}
       </div>

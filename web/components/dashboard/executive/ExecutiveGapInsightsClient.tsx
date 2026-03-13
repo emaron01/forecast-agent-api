@@ -1794,24 +1794,7 @@ export function ExecutiveGapInsightsClient(props: {
           />
         </div>
 
-        <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-          <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
-            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Coaching tips (from opportunities)</div>
-            {coachingTips.length ? (
-              <ul className="mt-2 list-disc pl-5 text-sm text-[color:var(--sf-text-primary)]">
-                {coachingTips.map((t) => (
-                  <li key={`${t.key}-${t.rep}-${t.account}`}>
-                    <span className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{t.key}</span>: {t.tip}
-                    <span className="text-[color:var(--sf-text-secondary)]"> · Rep: {t.rep} · Account: {t.account}</span>
-                    {t.evidence ? <span className="text-[color:var(--sf-text-secondary)]"> · Evidence: {t.evidence}</span> : null}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">No coaching tips from opportunities in the current view.</div>
-            )}
-          </div>
-
+      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
           <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
             <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
               <Image
