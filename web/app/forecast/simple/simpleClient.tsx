@@ -57,6 +57,9 @@ function isClosedDeal(d: Deal) {
   return closedOutcomeFromOpportunityRow(d) || null;
 }
 
+type SortKey = "account" | "opportunity" | "revenue" | "close" | "forecast" | "health";
+type SortDir = "asc" | "desc";
+
 export function SimpleForecastDashboardClient(props: {
   defaultRepName?: string;
   repFilterLocked?: boolean;
@@ -75,6 +78,8 @@ export function SimpleForecastDashboardClient(props: {
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("forecast");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   // Deal review workflow is rep-only. Managers/executives can still search and open Deal Score Cards.
   const showDealReviewWorkflow = !!props.repFilterLocked;
@@ -85,15 +90,70 @@ export function SimpleForecastDashboardClient(props: {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const openOnly = deals.filter((d) => !isClosedDeal(d));
-    if (!q) return openOnly;
-    return openOnly.filter((d) => {
-      const hay = [d.account_name, d.opportunity_name, normalizeForecastBucket(d.forecast_stage), d.ai_verdict, d.ai_forecast]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
+    const base = !q
+      ? openOnly
+      : openOnly.filter((d) => {
+          const hay = [d.account_name, d.opportunity_name, normalizeForecastBucket(d.forecast_stage), d.ai_verdict, d.ai_forecast]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return hay.includes(q);
+        });
+
+    const sorted = [...base].sort((a, b) => {
+      const dir = sortDir === "asc" ? 1 : -1;
+      const s = (v: any) => String(v || "").trim().toLowerCase();
+      const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : null);
+
+      let av: any = null;
+      let bv: any = null;
+
+      switch (sortKey) {
+        case "account":
+          av = s(a.account_name);
+          bv = s(b.account_name);
+          break;
+        case "opportunity":
+          av = s(a.opportunity_name);
+          bv = s(b.opportunity_name);
+          break;
+        case "revenue":
+          av = n(a.amount);
+          bv = n(b.amount);
+          break;
+        case "close":
+          av = a.close_date ? new Date(a.close_date).getTime() : null;
+          bv = b.close_date ? new Date(b.close_date).getTime() : null;
+          break;
+        case "forecast":
+          av = normalizeForecastBucket(a.forecast_stage);
+          bv = normalizeForecastBucket(b.forecast_stage);
+          break;
+        case "health":
+          av = healthPctFrom30(a.health_score);
+          bv = healthPctFrom30(b.health_score);
+          break;
+      }
+
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+
+      if (typeof av === "string" || typeof bv === "string") {
+        return av.localeCompare(bv) * dir;
+      }
+
+      const na = Number(av);
+      const nb = Number(bv);
+      if (!Number.isFinite(na) && !Number.isFinite(nb)) return 0;
+      if (!Number.isFinite(na)) return 1;
+      if (!Number.isFinite(nb)) return -1;
+      if (na === nb) return 0;
+      return na < nb ? -1 * dir : 1 * dir;
     });
-  }, [deals, search]);
+
+    return sorted;
+  }, [deals, search, sortKey, sortDir]);
 
   const avgHealthPct = useMemo(() => {
     const scores = filtered
@@ -103,6 +163,17 @@ export function SimpleForecastDashboardClient(props: {
     const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
     return healthPctFrom30(avgScore);
   }, [filtered]);
+
+  const handleSort = (key: SortKey) => {
+    setSortKey((prevKey) => {
+      if (prevKey === key) {
+        setSortDir((prevDir) => (prevDir === "asc" ? "desc" : "asc"));
+        return prevKey;
+      }
+      setSortDir("asc");
+      return key;
+    });
+  };
 
   async function refresh() {
     setBusy(true);
@@ -291,13 +362,79 @@ export function SimpleForecastDashboardClient(props: {
         <table className="w-full min-w-[980px] text-left text-sm">
               <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
             <tr>
-              <th className="px-4 py-3">Account Name</th>
-              <th className="px-4 py-3">Opp Name</th>
-              <th className="px-4 py-3">Revenue</th>
-              <th className="px-4 py-3">Close Date</th>
-              <th className="px-4 py-3">Forecast</th>
-              <th className="px-4 py-3">Health %</th>
-              <th className="px-4 py-3 text-right"></th>
+              <th className="px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => handleSort("account")}
+                  className="flex items-center gap-1 text-left"
+                >
+                  <span>Account Name</span>
+                  {sortKey === "account" ? (
+                    <span className="text-xs">{sortDir === "asc" ? "▲" : "▼"}</span>
+                  ) : null}
+                </button>
+              </th>
+              <th className="px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => handleSort("opportunity")}
+                  className="flex items-center gap-1 text-left"
+                >
+                  <span>Opp Name</span>
+                  {sortKey === "opportunity" ? (
+                    <span className="text-xs">{sortDir === "asc" ? "▲" : "▼"}</span>
+                  ) : null}
+                </button>
+              </th>
+              <th className="px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => handleSort("revenue")}
+                  className="flex items-center gap-1 text-left"
+                >
+                  <span>Revenue</span>
+                  {sortKey === "revenue" ? (
+                    <span className="text-xs">{sortDir === "asc" ? "▲" : "▼"}</span>
+                  ) : null}
+                </button>
+              </th>
+              <th className="px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => handleSort("close")}
+                  className="flex items-center gap-1 text-left"
+                >
+                  <span>Close Date</span>
+                  {sortKey === "close" ? (
+                    <span className="text-xs">{sortDir === "asc" ? "▲" : "▼"}</span>
+                  ) : null}
+                </button>
+              </th>
+              <th className="px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => handleSort("forecast")}
+                  className="flex items-center gap-1 text-left"
+                >
+                  <span>Forecast</span>
+                  {sortKey === "forecast" ? (
+                    <span className="text-xs">{sortDir === "asc" ? "▲" : "▼"}</span>
+                  ) : null}
+                </button>
+              </th>
+              <th className="px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => handleSort("health")}
+                  className="flex items-center gap-1 text-left"
+                >
+                  <span>Health %</span>
+                  {sortKey === "health" ? (
+                    <span className="text-xs">{sortDir === "asc" ? "▲" : "▼"}</span>
+                  ) : null}
+                </button>
+              </th>
+              <th className="px-4 py-3"></th>
             </tr>
           </thead>
               <tbody>
@@ -308,8 +445,8 @@ export function SimpleForecastDashboardClient(props: {
               const hp = healthPctFrom30(d.health_score);
               return (
                 <tr key={id} className="border-t border-[color:var(--sf-border)]">
-                  <td className="px-4 py-3">
-                    <div className="text-[color:var(--sf-text-primary)]">
+                  <td className="px-4 py-3 align-top">
+                    <div className="max-w-[220px] whitespace-normal leading-snug text-[color:var(--sf-text-primary)]">
                       {d.account_name || "—"}
                     </div>
                     {d.rep_name ? (
@@ -318,16 +455,18 @@ export function SimpleForecastDashboardClient(props: {
                       </div>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3 whitespace-normal leading-snug">
-                    {d.opportunity_name || "—"}
+                  <td className="px-4 py-3 align-top">
+                    <div className="max-w-[240px] whitespace-normal leading-snug">
+                      {d.opportunity_name || "—"}
+                    </div>
                   </td>
-                  <td className="px-4 py-3">{fmtMoney(d.amount)}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">{dateOnly(d.close_date) || "—"}</td>
-                  <td className="px-4 py-3">{bucket}</td>
-                  <td className={`px-4 py-3 ${healthColorClass(hp)}`}>
+                  <td className="px-4 py-3 align-top">{fmtMoney(d.amount)}</td>
+                  <td className="px-4 py-3 align-top whitespace-nowrap">{dateOnly(d.close_date) || "—"}</td>
+                  <td className="px-4 py-3 align-top">{bucket}</td>
+                  <td className={`px-4 py-3 align-top whitespace-nowrap ${healthColorClass(hp)}`}>
                     {hp == null ? "—" : `${hp}%`}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 align-top">
                     <Link
                       className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-xs font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
                       href={`/opportunities/${encodeURIComponent(id)}/deal-review`}
