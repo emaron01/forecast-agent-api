@@ -192,7 +192,7 @@ export default async function ForecastHygienePage({
             FROM opportunity_audit_events oae
            WHERE oae.opportunity_id = opp.id
              AND oae.org_id = $1
-             AND (oae.meta->>'score_event_source' = 'agent' OR oae.event_type = 'agent')
+             AND oae.total_score IS NOT NULL
         )
       )::int AS reviewed_opps,
       ROUND(
@@ -202,7 +202,7 @@ export default async function ForecastHygienePage({
               FROM opportunity_audit_events oae
              WHERE oae.opportunity_id = opp.id
                AND oae.org_id = $1
-               AND (oae.meta->>'score_event_source' = 'agent' OR oae.event_type = 'agent')
+               AND oae.total_score IS NOT NULL
           )
         )::numeric
         / NULLIF(COUNT(opp.id), 0) * 100
@@ -256,7 +256,9 @@ export default async function ForecastHygienePage({
         coverage_pct: total > 0 ? Math.round((reviewed / total) * 100) : null,
       };
     });
-  const coverageRowsFinal: CoverageRow[] = [...leaderCoverageRows, ...(coverageRows ?? [])];
+  const leaderRepIdSet = new Set(Array.from(leaderRepIds.keys()).map((id) => id));
+  const coverageRowsFiltered = (coverageRows ?? []).filter((row) => !leaderRepIdSet.has(row.rep_id));
+  const coverageRowsFinal: CoverageRow[] = [...leaderCoverageRows, ...coverageRowsFiltered];
 
   // Query B — Matthew's Assessment (category heatmap)
   type AssessmentRow = {
@@ -306,7 +308,7 @@ export default async function ForecastHygienePage({
          FROM opportunity_audit_events oae
         WHERE oae.opportunity_id = opp.id
           AND oae.org_id = $1
-          AND (oae.meta->>'score_event_source' = 'agent' OR oae.event_type = 'agent')
+          AND oae.total_score IS NOT NULL
      )
     WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
       AND r.id = ANY($4::bigint[])
@@ -365,7 +367,7 @@ export default async function ForecastHygienePage({
       AND EXISTS (
         SELECT 1 FROM opportunity_audit_events oae
         WHERE oae.opportunity_id = opp.id AND oae.org_id = $1
-          AND (oae.meta->>'score_event_source' = 'agent' OR oae.event_type = 'agent')
+          AND oae.total_score IS NOT NULL
       )
     `,
     [orgId, startIso, endIso, visibleRepIdsForQuery]
@@ -415,7 +417,8 @@ export default async function ForecastHygienePage({
         avg_total: avg((r) => r.health_score),
       };
     });
-  const assessmentRowsFinal: AssessmentRow[] = [...leaderAssessmentRows, ...(assessmentRows ?? [])];
+  const assessmentRowsFiltered = (assessmentRows ?? []).filter((row) => !leaderRepIdSet.has(row.rep_id));
+  const assessmentRowsFinal: AssessmentRow[] = [...leaderAssessmentRows, ...assessmentRowsFiltered];
 
   // Query C — Score Velocity
   type VelocityRow = {
@@ -451,7 +454,6 @@ export default async function ForecastHygienePage({
       FROM opportunity_audit_events
       WHERE opportunity_id = opp.id
         AND org_id = $1
-        AND (meta->>'score_event_source' = 'agent' OR event_type = 'agent')
       ORDER BY ts ASC
       LIMIT 1
     ) first_event ON true
@@ -462,7 +464,7 @@ export default async function ForecastHygienePage({
       AND EXISTS (
         SELECT 1 FROM opportunity_audit_events oae2
         WHERE oae2.opportunity_id = opp.id AND oae2.org_id = $1
-          AND (oae2.meta->>'score_event_source' = 'agent' OR oae2.event_type = 'agent')
+          AND oae2.total_score IS NOT NULL
       )
     ORDER BY delta ASC NULLS LAST, rep_name ASC, opp_name ASC
     `,
@@ -555,7 +557,11 @@ export default async function ForecastHygienePage({
         dealsFlat,
       };
     });
-  const velocityRepSummariesFinal: VelocityRepSummary[] = [...leaderVelocityRows, ...velocityRepSummaries];
+  const velocityRepSummariesFiltered: VelocityRepSummary[] = velocityRepSummaries.filter((row) => {
+    // Filter out base rows for leaders; we only want their rollup.
+    return !leaders.some((l) => row.repName === l.display_name);
+  });
+  const velocityRepSummariesFinal: VelocityRepSummary[] = [...leaderVelocityRows, ...velocityRepSummariesFiltered];
 
   // Query D — Deal Progression
   type ProgressionRow = {
@@ -586,7 +592,6 @@ export default async function ForecastHygienePage({
       ON r.id = opp.rep_id
      AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
     WHERE oae.org_id = $1
-      AND (oae.meta->>'score_event_source' = 'agent' OR oae.event_type = 'agent')
       AND opp.org_id = $1
       AND opp.rep_id = ANY($4::bigint[])
       AND opp.close_date >= $2::timestamptz
@@ -703,9 +708,12 @@ export default async function ForecastHygienePage({
         total,
       };
     });
+  const progressionRepSummariesFiltered: ProgressionRepSummary[] = progressionRepSummaries.filter((row) => {
+    return !leaders.some((l) => row.repName === l.display_name);
+  });
   const progressionRepSummariesFinal: ProgressionRepSummary[] = [
     ...leaderProgressionRows,
-    ...progressionRepSummaries,
+    ...progressionRepSummariesFiltered,
   ];
 
   const quarterOptions = quotaPeriods.slice(0, 6).map((p) => {
