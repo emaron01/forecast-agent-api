@@ -2244,7 +2244,40 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
 
           <div className="min-w-0 lg:pt-1">
-            <ExecutiveRemainingQuarterlyForecastBlock crmTotals={props.crmTotals} quota={props.quota} pipelineMomentum={props.pipelineMomentum} />
+            {(() => {
+              const closedWonAmount =
+                props.quarterKpis != null
+                  ? (props.quarterKpis.directVsPartner.directWonAmount + props.quarterKpis.directVsPartner.partnerWonAmount)
+                  : curRev;
+              const quotaNum = Number(props.quota) || 0;
+              const gapToQuota = quotaNum - closedWonAmount;
+              const gapColor = gapToQuota > 0 ? "text-[#E74C3C]" : "text-[#16A34A]";
+              return (
+                <div className="grid grid-cols-4 gap-4">
+                  <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Closed Won</div>
+                    <div className="text-2xl font-bold text-[color:var(--sf-text-primary)]">{fmtMoney(closedWonAmount)}</div>
+                  </div>
+                  <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quota</div>
+                    <div className="text-2xl font-bold text-[color:var(--sf-text-primary)]">{fmtMoney(quotaNum)}</div>
+                  </div>
+                  <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Gap to Quota</div>
+                    <div className={`text-2xl font-bold ${gapColor}`}>{fmtMoney(gapToQuota)}</div>
+                    <div className="text-xs text-[color:var(--sf-text-secondary)] mt-1">Remaining to quota</div>
+                  </div>
+                  <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Landing Zone</div>
+                    <div className="text-2xl font-bold text-[color:var(--sf-text-primary)]">{fmtMoney(props.aiForecast)}</div>
+                    <div className="text-xs text-[color:var(--sf-text-secondary)] mt-1">AI weighted forecast</div>
+                  </div>
+                </div>
+              );
+            })()}
+            <div className="mt-4">
+              <ExecutiveRemainingQuarterlyForecastBlock crmTotals={props.crmTotals} quota={props.quota} pipelineMomentum={props.pipelineMomentum} />
+            </div>
           </div>
         </div>
 
