@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireAuth } from "../../../lib/auth";
 import { getOrganization } from "../../../lib/db";
+import { pool } from "../../../lib/pool";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
