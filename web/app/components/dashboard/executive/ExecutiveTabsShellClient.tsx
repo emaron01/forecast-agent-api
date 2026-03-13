@@ -1,10 +1,10 @@
-\"use client\";
+"use client";
 
-import Link from \"next/link\";
-import Image from \"next/image\";
-import { usePathname, useRouter, useSearchParams } from \"next/navigation\";
-import { useCallback, useEffect, useState, useTransition, type ComponentProps } from \"react\";
-import { ExecutiveGapInsightsClient } from \"../../../../components/dashboard/executive/ExecutiveGapInsightsClient\";
+import Link from "next/link";
+import Image from "next/image";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useState, useTransition, type ComponentProps } from "react";
+import { ExecutiveGapInsightsClient } from "../../../../components/dashboard/executive/ExecutiveGapInsightsClient";
 import {
   RepManagerComparisonPanel,
   type RepManagerManagerRow,
