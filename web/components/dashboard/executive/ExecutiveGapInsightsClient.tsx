@@ -2354,15 +2354,15 @@ export function ExecutiveGapInsightsClient(props: {
               </div>
               <div className={[heroCard, "h-auto"].join(" ")}>
                 <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Health Closed Won</div>
-                <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
+                <div className={heroVal}>
                   <span className={["num-tabular", healthColorClass(avgHealthWon)].join(" ")}>{avgHealthWon == null ? "—" : `${avgHealthWon}%`}</span>
                 </div>
               </div>
               <div className={heroCard}>
                 <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
-                <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">{fmtPct(oppToWin)}</div>
+                <div className={heroVal}>{fmtPct(oppToWin)}</div>
               </div>
-              <div className="col-span-2">
+              <div className="col-span-2 flex h-full min-w-0">
                 {(() => {
                   const bd = props.bucketDeltas;
                   const absMax = Math.max(Math.abs(bd.commit), Math.abs(bd.best_case), Math.abs(bd.pipeline), 1);
@@ -2370,7 +2370,7 @@ export function ExecutiveGapInsightsClient(props: {
                   const deltaTextClass = (v: number) =>
                     !Number.isFinite(v) || v === 0 ? "text-[color:var(--sf-text-secondary)]" : v > 0 ? "text-[#2ECC71]" : "text-[#E74C3C]";
                   return (
-                    <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 shadow-sm min-w-0">
+                    <div className="flex h-full w-full min-w-0 flex-col rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 shadow-sm">
                       <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Gap Attribution</div>
                       <div className="mt-2 grid gap-1.5 text-tableValue text-[color:var(--sf-text-primary)]">
                         {[
