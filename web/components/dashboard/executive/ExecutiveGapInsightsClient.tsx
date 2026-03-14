@@ -514,6 +514,17 @@ export function ExecutiveGapInsightsClient(props: {
   const [radarAiCopied, setRadarAiCopied] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const briefing = useExecutiveBriefing();
+
+  // Extended content often starts with the summary (API repeats executive one-line); strip it so we don't show summary twice.
+  const radarAiExtendedDisplay = useMemo(() => {
+    const s = (radarAiSummary || "").trim();
+    const e = (radarAiExtended || "").trim();
+    if (!s || !e) return e;
+    if (e.startsWith(s)) return e.slice(s.length).trim();
+    const firstLine = s.split("\n")[0]?.trim() || "";
+    if (firstLine && e.startsWith(firstLine)) return e.slice(firstLine.length).trim();
+    return e;
+  }, [radarAiSummary, radarAiExtended]);
   const adjustRiskSectionRef = useRef<HTMLElement>(null);
   const userChangedFilterRef = useRef(false);
 
@@ -1846,7 +1857,7 @@ export function ExecutiveGapInsightsClient(props: {
               ) : null}
               {radarAiExpanded && radarAiExtended ? (
                 <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black whitespace-pre-wrap">
-                  {renderCategorizedText(radarAiExtended) || <div className="whitespace-pre-wrap">{radarAiExtended}</div>}
+                  {renderCategorizedText(radarAiExtendedDisplay) || <div className="whitespace-pre-wrap">{radarAiExtendedDisplay}</div>}
                 </div>
               ) : null}
             </div>
@@ -1928,7 +1939,7 @@ export function ExecutiveGapInsightsClient(props: {
               ) : null}
               {radarAiExpanded && radarAiExtended ? (
                 <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black whitespace-pre-wrap">
-                  {renderCategorizedText(radarAiExtended) || <div className="whitespace-pre-wrap">{radarAiExtended}</div>}
+                  {renderCategorizedText(radarAiExtendedDisplay) || <div className="whitespace-pre-wrap">{radarAiExtendedDisplay}</div>}
                 </div>
               ) : null}
             </div>
@@ -3380,7 +3391,7 @@ export function ExecutiveGapInsightsClient(props: {
             ) : null}
             {radarAiExpanded && radarAiExtended ? (
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black whitespace-pre-wrap">
-                {renderCategorizedText(radarAiExtended) || <div className="whitespace-pre-wrap">{radarAiExtended}</div>}
+                {renderCategorizedText(radarAiExtendedDisplay) || <div className="whitespace-pre-wrap">{radarAiExtendedDisplay}</div>}
               </div>
             ) : null}
           </div>
