@@ -645,7 +645,20 @@ export function ExecutiveTabsShellClient(props: {
           </div>
         )}
         {activeTab === "coaching" && (
-          <div>Coaching tab coming soon</div>
+          <div className="space-y-6">
+            {/* Part 1: Coaching Insights from teamTabOnly */}
+            <ExecutiveGapInsightsClient
+              {...props.teamTabProps}
+              teamTabOnly={true}
+            />
+            {/* Part 2: Manager Review Queue — placeholder */}
+            <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+              <h2 className="text-cardLabel text-[color:var(--sf-text-primary)] mb-4">Manager Review Queue</h2>
+              <p className="text-sm text-[color:var(--sf-text-secondary)]">
+                Coming in Part B
+              </p>
+            </div>
+          </div>
         )}
         {activeTab === "team" && (
           <div className="space-y-6">
