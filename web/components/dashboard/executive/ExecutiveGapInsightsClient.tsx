@@ -2362,7 +2362,7 @@ export function ExecutiveGapInsightsClient(props: {
                 <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
                 <div className={heroVal}>{fmtPct(oppToWin)}</div>
               </div>
-              <div className="col-span-2 flex h-full min-w-0">
+              <div className="col-span-3 flex h-full min-w-0">
                 {(() => {
                   const bd = props.bucketDeltas;
                   const absMax = Math.max(Math.abs(bd.commit), Math.abs(bd.best_case), Math.abs(bd.pipeline), 1);
