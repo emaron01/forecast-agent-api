@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getAuth } from "../../../lib/auth";
-import { pool } from "../../../lib/pool";
+import { getAuth } from "../../../../lib/auth";
+import { pool } from "../../../../lib/pool";
 
 export const runtime = "nodejs";
 

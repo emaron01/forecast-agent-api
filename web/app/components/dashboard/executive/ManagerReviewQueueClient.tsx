@@ -195,6 +195,8 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
               </tr>
             ) : null}
           </tbody>
+        </table>
+      </div>
     </div>
   );
 }
