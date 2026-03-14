@@ -9,6 +9,7 @@ import { getExecutiveForecastDashboardSummary } from "../../lib/executiveForecas
 import { ExecutiveBriefingProvider } from "../../components/dashboard/executive/ExecutiveBriefingContext";
 import { ExecutiveGapInsightsClient } from "../../components/dashboard/executive/ExecutiveGapInsightsClient";
 import { RepCoachingBriefClient } from "./_components/RepCoachingBriefClient";
+import { RepDashboardHeroWrapper } from "./_components/RepDashboardHeroWrapper";
 import { SimpleForecastDashboardClient } from "../forecast/simple/simpleClient";
 
 export const runtime = "nodejs";
@@ -155,6 +156,7 @@ export default async function DashboardPage({
 
         <ExecutiveBriefingProvider>
           <div className="mt-4 grid gap-4">
+            <RepDashboardHeroWrapper>
             <ExecutiveGapInsightsClient
               basePath="/dashboard"
               periods={summary.periods}
@@ -190,6 +192,7 @@ export default async function DashboardPage({
               defaultTopN={5}
               heroOnly={true}
             />
+            </RepDashboardHeroWrapper>
           </div>
 
           <div className="mt-6">
