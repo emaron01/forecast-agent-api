@@ -4,8 +4,8 @@ import { redirect } from "next/navigation";
 import { UserTopNav } from "../_components/UserTopNav";
 import { ForecastPeriodFiltersClient } from "../forecast/_components/ForecastPeriodFiltersClient";
 import { getExecutiveForecastDashboardSummary } from "../../lib/executiveForecastDashboard";
-import { ExecutiveBriefingProvider } from "../../../components/dashboard/executive/ExecutiveBriefingContext";
-import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
+import { ExecutiveBriefingProvider } from "../../components/dashboard/executive/ExecutiveBriefingContext";
+import { ExecutiveGapInsightsClient } from "../../components/dashboard/executive/ExecutiveGapInsightsClient";
 import { SimpleForecastDashboardClient } from "../forecast/simple/simpleClient";
 
 export const runtime = "nodejs";

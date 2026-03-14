@@ -1,0 +1,17 @@
+---
+description: Do not modify executive dashboard files or their import paths when touching rep dashboard
+globs: web/app/dashboard/**/*
+alwaysApply: false
+---
+
+# Standing guard — dashboard and executive
+
+When working on **web/app/dashboard/page.tsx** or any shared dashboard file:
+
+- Do **not** modify, move, rename, or change import paths for any files in:
+  - **web/components/dashboard/executive/**
+  - **web/app/dashboard/executive/**
+  - **web/app/components/dashboard/executive/**
+- Do **not** change any imports that were working before this rule ran.
+
+Apply this constraint to every prompt that touches the rep dashboard or shared dashboard code.
