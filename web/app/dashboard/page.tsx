@@ -197,6 +197,9 @@ export default async function DashboardPage({
 
         <ExecutiveBriefingProvider>
           <div className="mt-4 grid gap-4">
+            {flaggedDeals.length > 0 && (
+              <ReviewRequestBanner deals={flaggedDeals} />
+            )}
             <RepDashboardHeroWrapper>
             <ExecutiveGapInsightsClient
               basePath="/dashboard"
@@ -235,12 +238,6 @@ export default async function DashboardPage({
             />
             </RepDashboardHeroWrapper>
           </div>
-
-          {flaggedDeals.length > 0 && (
-            <div className="mt-4">
-              <ReviewRequestBanner deals={flaggedDeals} />
-            </div>
-          )}
 
           <div className="mt-6">
             <RepCoachingBriefClient

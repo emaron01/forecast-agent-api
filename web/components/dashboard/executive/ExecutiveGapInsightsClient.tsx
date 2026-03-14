@@ -517,13 +517,30 @@ export function ExecutiveGapInsightsClient(props: {
 
   // Extended content often starts with the summary (API repeats executive one-line); strip it so we don't show summary twice.
   const radarAiExtendedDisplay = useMemo(() => {
-    const s = (radarAiSummary || "").trim();
-    const e = (radarAiExtended || "").trim();
-    if (!s || !e) return e;
-    if (e.startsWith(s)) return e.slice(s.length).trim();
-    const firstLine = s.split("\n")[0]?.trim() || "";
-    if (firstLine && e.startsWith(firstLine)) return e.slice(firstLine.length).trim();
-    return e;
+    if (!radarAiExtended) return radarAiExtended;
+    if (!radarAiSummary) return radarAiExtended;
+
+    const summaryTrimmed = radarAiSummary.trim();
+    const extendedTrimmed = radarAiExtended.trim();
+
+    // Split extended into lines
+    const lines = extendedTrimmed.split("\n");
+
+    // Remove all leading lines that appear anywhere in the summary text
+    const summaryLines = summaryTrimmed
+      .split("\n")
+      .map((l) => l.trim().toLowerCase())
+      .filter(Boolean);
+
+    const filtered = lines.filter((line) => {
+      const lineTrimmed = line.trim().toLowerCase();
+      if (!lineTrimmed) return true; // keep blank lines
+      return !summaryLines.some(
+        (sl) => lineTrimmed.includes(sl) || sl.includes(lineTrimmed)
+      );
+    });
+
+    return filtered.join("\n").trim();
   }, [radarAiSummary, radarAiExtended]);
   const adjustRiskSectionRef = useRef<HTMLElement>(null);
   const userChangedFilterRef = useRef(false);

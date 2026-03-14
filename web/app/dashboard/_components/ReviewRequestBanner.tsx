@@ -19,7 +19,10 @@ export function ReviewRequestBanner(props: ReviewRequestBannerProps) {
   const subtext = `${requesterName || "Your manager"} has requested a Matthew review for ${count} deal(s).`;
 
   return (
-    <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-4 text-sm text-[color:var(--sf-text-primary)]">
+    <div
+      className="rounded-xl border-2 border-amber-400 bg-amber-500/10 p-4 text-sm text-[color:var(--sf-text-primary)] ring-2 ring-amber-400/50"
+      role="alert"
+    >
       <div className="flex items-start gap-2">
         <span className="text-lg" aria-hidden="true">
           ⚡
@@ -27,21 +30,21 @@ export function ReviewRequestBanner(props: ReviewRequestBannerProps) {
         <div className="min-w-0">
           <h2 className="font-semibold">Matthew Review Requested</h2>
           <p className="mt-1 text-[color:var(--sf-text-secondary)]">{subtext}</p>
-          <ul className="mt-2 list-inside list-disc space-y-0.5 text-[color:var(--sf-text-primary)]">
+          <ul className="mt-2 list-inside list-disc space-y-1.5 text-[color:var(--sf-text-primary)]">
             {deals.map((d) => (
               <li key={d.id} className="flex flex-wrap items-center gap-2">
                 <span>
+                  &quot;{d.opp_name || "Unnamed deal"}&quot;
                   {d.review_request_note?.trim() ? (
                     <>
-                      &quot;{d.opp_name || "Unnamed deal"}&quot; — &quot;{d.review_request_note}&quot;
+                      {" "}
+                      <span className="font-medium text-amber-700 dark:text-amber-400">Manager note:</span> &quot;{d.review_request_note}&quot;
                     </>
-                  ) : (
-                    <> &quot;{d.opp_name || "Unnamed deal"}&quot;</>
-                  )}
+                  ) : null}
                 </span>
                 <Link
                   href={`/opportunities/${encodeURIComponent(d.id)}/deal-review`}
-                  className="inline-flex items-center gap-1 rounded-md bg-yellow-500/20 border border-yellow-500/40 px-3 py-1 text-xs font-semibold text-yellow-600 hover:bg-yellow-500/30 transition-colors"
+                  className="inline-flex items-center gap-1 rounded-md bg-amber-500/25 border-2 border-amber-500/60 px-3 py-1 text-xs font-semibold text-amber-800 dark:text-amber-200 hover:bg-amber-500/35 transition-colors"
                 >
                   Start Review →
                 </Link>
