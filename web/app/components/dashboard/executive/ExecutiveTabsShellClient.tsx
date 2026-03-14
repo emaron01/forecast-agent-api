@@ -11,7 +11,7 @@ import {
   type RepManagerRepRow,
 } from "./RepManagerComparisonPanel";
 
-type ExecTabKey = "forecast" | "pipeline" | "team" | "revenue" | "reports";
+type ExecTabKey = "forecast" | "pipeline" | "coaching" | "team" | "revenue" | "reports";
 
 type ExecutiveGapInsightsClientProps = ComponentProps<typeof ExecutiveGapInsightsClient>;
 
@@ -86,6 +86,7 @@ function deltaTextClass(delta: number): string {
 const TABS: { key: ExecTabKey; label: string }[] = [
   { key: "forecast", label: "Forecast" },
   { key: "pipeline", label: "Pipeline" },
+  { key: "coaching", label: "Coaching" },
   { key: "team", label: "Team" },
   { key: "revenue", label: "Revenue" },
   { key: "reports", label: "Reports" },
@@ -643,30 +644,21 @@ export function ExecutiveTabsShellClient(props: {
             </section>
           </div>
         )}
+        {activeTab === "coaching" && (
+          <div>Coaching tab coming soon</div>
+        )}
         {activeTab === "team" && (
-          <div className="space-y-8">
-            <section>
-              <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Coaching Insights</h2>
-              <div className="mt-3">
-                <ExecutiveGapInsightsClient {...props.teamTabProps} teamTabOnly={true} />
-              </div>
-            </section>
-
-            <hr className="border-[color:var(--sf-border)]" aria-hidden="true" />
-
-            <section>
-              <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Rep & Manager Performance</h2>
-              <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+          <div className="space-y-6">
+            <div>
+              <p className="text-sm text-[color:var(--sf-text-secondary)] mb-4">
                 Quarter-scoped rep comparison and manager rollup by attainment.
               </p>
-              <div className="mt-3">
-                <RepManagerComparisonPanel
-                  repRows={props.teamRepManagerPayload.repRows}
-                  managerRows={props.teamRepManagerPayload.managerRows}
-                  periodName={props.teamRepManagerPayload.periodName}
-                />
-              </div>
-            </section>
+              <RepManagerComparisonPanel
+                repRows={props.teamRepManagerPayload.repRows}
+                managerRows={props.teamRepManagerPayload.managerRows}
+                periodName={props.teamRepManagerPayload.periodName}
+              />
+            </div>
           </div>
         )}
         {activeTab === "revenue" && (
