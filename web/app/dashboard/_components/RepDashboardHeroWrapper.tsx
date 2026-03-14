@@ -15,23 +15,22 @@ export function RepDashboardHeroWrapper({ children }: { children: React.ReactNod
     if (!container) return;
 
     const hideStrategicTakeaway = () => {
-      const walk = (node: Node): Element | null => {
-        if (node.nodeType === Node.ELEMENT_NODE) {
-          const el = node as Element;
-          if (el.textContent?.includes("Strategic Takeaway") && el.tagName !== "BODY") {
-            const panel = el.closest("[class*='rounded-xl'][class*='p-5']") ?? el.closest("[class*='rounded-xl']");
-            if (panel && container.contains(panel)) return panel as Element;
-            return el as Element;
-          }
-          for (let i = 0; i < el.childNodes.length; i++) {
-            const found = walk(el.childNodes[i]);
-            if (found) return found;
-          }
+      // Find innermost element containing "Strategic Takeaway" (the span), so we don't match the whole hero container.
+      const findInnermostWithText = (node: Node): Element | null => {
+        if (node.nodeType !== Node.ELEMENT_NODE) return null;
+        const el = node as Element;
+        if (!el.textContent?.includes("Strategic Takeaway")) return null;
+        for (let i = 0; i < el.children.length; i++) {
+          const childFound = findInnermostWithText(el.children[i]);
+          if (childFound) return childFound;
         }
-        return null;
+        return el;
       };
-      const panel = walk(container);
-      if (panel) (panel as HTMLElement).style.display = "none";
+      const labelEl = findInnermostWithText(container);
+      if (!labelEl) return;
+      // Panel is the direct wrapper: div with rounded-xl that contains this label (not the whole hero).
+      const panel = labelEl.closest("div[class*='rounded-xl'][class*='p-5']");
+      if (panel && container.contains(panel)) (panel as HTMLElement).style.display = "none";
     };
 
     const raf = requestAnimationFrame(() => {
