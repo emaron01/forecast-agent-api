@@ -2307,23 +2307,7 @@ export function ExecutiveGapInsightsClient(props: {
 
       </section>
 
-      <div className="mt-4 grid grid-cols-7 gap-3">
-        <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-          <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">AI Forecast Outlook</div>
-          <div className="mt-2 text-kpiValue text-[color:var(--sf-text-primary)]">{fmtMoney(props.aiForecast)}</div>
-          <div className="mt-1 text-meta">SalesForecast.io AI‑weighted</div>
-        </div>
-        <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-          <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">CRM Forecast Outlook</div>
-          <div className="mt-2 text-kpiValue text-[color:var(--sf-text-primary)]">{fmtMoney(props.crmForecast)}</div>
-          <div className="mt-1 text-meta">Your organization's probabilities</div>
-        </div>
-        <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-          <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">AI Adjustment vs CRM</div>
-          <div className={`mt-2 text-kpiValue ${props.gap > 0 ? "text-[#2ECC71]" : props.gap < 0 ? "text-[#E74C3C]" : "text-[color:var(--sf-text-secondary)]"}`}>{fmtMoney(props.gap)}</div>
-          <div className="mt-1 text-meta">Outlook delta (AI − CRM)</div>
-          {dealsAtRisk != null ? <div className="mt-1 text-meta">Deals at risk: {dealsAtRisk}</div> : null}
-        </div>
+      <div className="mt-4 grid grid-cols-6 gap-3">
         {(() => {
           const ord = productDelta(curOrders, prevOrders);
           const acv = productDelta(curAcv, prevAcv);
@@ -2334,6 +2318,7 @@ export function ExecutiveGapInsightsClient(props: {
             const abs = Math.abs(Math.trunc(v));
             return `${v > 0 ? "+" : "-"}${abs.toLocaleString("en-US")}`;
           };
+          const ca = props.commitAdmission;
           return (
             <>
               <div className={heroCard}>
@@ -2367,6 +2352,20 @@ export function ExecutiveGapInsightsClient(props: {
                     <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? fmtMoney(prevAcv) : "—"}</span>
                   </div>
                 </div>
+              </div>
+              <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Unsupported Commit</div>
+                <div className={`mt-2 text-kpiValue ${ca && ca.unsupportedCommitAmount > 0 ? "text-[#E74C3C]" : "text-[color:var(--sf-text-primary)]"}`}>
+                  {ca ? fmtMoney(ca.unsupportedCommitAmount) : "—"}
+                </div>
+                <div className="mt-1 text-meta"># Deals: {ca ? ca.unsupportedCommitCount : "—"}</div>
+              </div>
+              <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Commit Needs Review</div>
+                <div className={`mt-2 text-kpiValue ${ca && ca.commitNeedsReviewAmount > 0 ? "text-[#F1C40F]" : "text-[color:var(--sf-text-primary)]"}`}>
+                  {ca ? fmtMoney(ca.commitNeedsReviewAmount) : "—"}
+                </div>
+                <div className="mt-1 text-meta"># Deals: {ca ? ca.commitNeedsReviewCount : "—"}</div>
               </div>
               <div className={[heroCard, "h-auto"].join(" ")}>
                 <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Health Closed Won</div>
