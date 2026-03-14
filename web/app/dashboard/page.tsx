@@ -1,14 +1,24 @@
 import { requireAuth } from "../../lib/auth";
 import { getOrganization } from "../../lib/db";
 import { redirect } from "next/navigation";
+import { pool } from "../../lib/pool";
+import { getMeddpiccAveragesByRepByPeriods } from "../../lib/meddpiccHealth";
 import { UserTopNav } from "../_components/UserTopNav";
 import { ForecastPeriodFiltersClient } from "../forecast/_components/ForecastPeriodFiltersClient";
 import { getExecutiveForecastDashboardSummary } from "../../lib/executiveForecastDashboard";
 import { ExecutiveBriefingProvider } from "../../components/dashboard/executive/ExecutiveBriefingContext";
 import { ExecutiveGapInsightsClient } from "../../components/dashboard/executive/ExecutiveGapInsightsClient";
+import { RepCoachingBriefClient } from "./_components/RepCoachingBriefClient";
 import { SimpleForecastDashboardClient } from "../forecast/simple/simpleClient";
 
 export const runtime = "nodejs";
+
+type WeakestDealRow = {
+  name: string;
+  health_score: number | null;
+  forecast_stage: string | null;
+  weakest_category: string | null;
+};
 
 function periodToOption(p: { id: string; fiscal_year: string; fiscal_quarter: string; period_name: string; period_start: string; period_end: string }) {
   const q = Number.parseInt(String(p.fiscal_quarter || "").trim(), 10);
@@ -44,7 +54,87 @@ export default async function DashboardPage({
   const displayName = String(ctx.user.display_name || ctx.user.email || "").trim() || "Sales Rep";
   const pageTitle = `${displayName} Dashboard`;
 
-  // REP: Executive HERO dashboard (Closed Won, Quota, Gap to Quota, Landing Zone) + Sales Opportunities below (no nav tabs).
+  const repId = summary.myRepId;
+  const selectedPeriod = summary.selectedPeriod;
+  const periodStart = selectedPeriod?.period_start ?? null;
+  const periodEnd = selectedPeriod?.period_end ?? null;
+
+  const weakestDealsRows: WeakestDealRow[] =
+    repId != null && periodStart && periodEnd
+      ? await pool
+          .query<WeakestDealRow>(
+            `
+            SELECT
+              COALESCE(NULLIF(btrim(opportunity_name), ''), NULLIF(btrim(account_name), ''), '(Unnamed)') AS name,
+              health_score,
+              forecast_stage,
+              (CASE
+                WHEN pain_score = LEAST(pain_score, metrics_score, champion_score, eb_score, criteria_score, process_score, competition_score, paper_score, timing_score, budget_score) THEN 'Pain'
+                WHEN metrics_score = LEAST(pain_score, metrics_score, champion_score, eb_score, criteria_score, process_score, competition_score, paper_score, timing_score, budget_score) THEN 'Metrics'
+                WHEN champion_score = LEAST(pain_score, metrics_score, champion_score, eb_score, criteria_score, process_score, competition_score, paper_score, timing_score, budget_score) THEN 'Champion'
+                WHEN eb_score = LEAST(pain_score, metrics_score, champion_score, eb_score, criteria_score, process_score, competition_score, paper_score, timing_score, budget_score) THEN 'Economic Buyer'
+                WHEN criteria_score = LEAST(pain_score, metrics_score, champion_score, eb_score, criteria_score, process_score, competition_score, paper_score, timing_score, budget_score) THEN 'Criteria'
+                WHEN process_score = LEAST(pain_score, metrics_score, champion_score, eb_score, criteria_score, process_score, competition_score, paper_score, timing_score, budget_score) THEN 'Process'
+                WHEN competition_score = LEAST(pain_score, metrics_score, champion_score, eb_score, criteria_score, process_score, competition_score, paper_score, timing_score, budget_score) THEN 'Competition'
+                WHEN paper_score = LEAST(pain_score, metrics_score, champion_score, eb_score, criteria_score, process_score, competition_score, paper_score, timing_score, budget_score) THEN 'Paper'
+                WHEN timing_score = LEAST(pain_score, metrics_score, champion_score, eb_score, criteria_score, process_score, competition_score, paper_score, timing_score, budget_score) THEN 'Timing'
+                ELSE 'Budget'
+              END) AS weakest_category
+            FROM opportunities
+            WHERE org_id = $1::bigint
+              AND rep_id = $2::bigint
+              AND close_date IS NOT NULL
+              AND close_date::date >= $3::date
+              AND close_date::date <= $4::date
+              AND COALESCE(TRIM(lower(sales_stage)), '') NOT IN ('closed won', 'closed lost')
+              AND (COALESCE(TRIM(lower(forecast_stage)), '') NOT LIKE '%won%' AND COALESCE(TRIM(lower(forecast_stage)), '') NOT LIKE '%lost%')
+            ORDER BY health_score ASC NULLS LAST
+            LIMIT 3
+            `,
+            [ctx.user.org_id, repId, periodStart, periodEnd]
+          )
+          .then((r) => r.rows ?? [])
+          .catch(() => [])
+      : [];
+
+  const weakestDeals = weakestDealsRows.map((r) => {
+    const raw = r.health_score != null ? Number(r.health_score) : NaN;
+    const health_pct = Number.isFinite(raw) ? Math.max(0, Math.min(100, Math.round((raw / 30) * 100))) : 0;
+    return {
+      name: String(r.name ?? "").trim() || "(Unnamed)",
+      health_pct,
+      stage: String(r.forecast_stage ?? "").trim() || "—",
+      weakest_category: String(r.weakest_category ?? "").trim() || "—",
+    };
+  });
+
+  const meddpiccRows = await getMeddpiccAveragesByRepByPeriods({
+    orgId: ctx.user.org_id,
+    periodIds: summary.selectedQuotaPeriodId ? [summary.selectedQuotaPeriodId] : [],
+    repIds: repId != null ? [repId] : null,
+    dateStart: periodStart ?? undefined,
+    dateEnd: periodEnd ?? undefined,
+  }).catch(() => []);
+
+  const repAvgRow = repId != null ? meddpiccRows.find((r) => String(r.rep_id) === String(repId)) : null;
+  const categoryAverages = {
+    pain: repAvgRow?.avg_pain ?? null,
+    metrics: repAvgRow?.avg_metrics ?? null,
+    champion: repAvgRow?.avg_champion ?? null,
+    eb: repAvgRow?.avg_eb ?? null,
+    criteria: repAvgRow?.avg_criteria ?? null,
+    process: repAvgRow?.avg_process ?? null,
+    competition: repAvgRow?.avg_competition ?? null,
+    paper: repAvgRow?.avg_paper ?? null,
+    timing: repAvgRow?.avg_timing ?? null,
+    budget: repAvgRow?.avg_budget ?? null,
+  };
+
+  const fiscalYear = String(summary.selectedPeriod?.fiscal_year ?? summary.selectedFiscalYear ?? "").trim() || "—";
+  const quotaPeriodId = String(summary.selectedQuotaPeriodId ?? "").trim();
+  const repNameForBrief = defaultRepName || displayName;
+
+  // REP: Executive HERO dashboard (Closed Won, Quota, Gap to Quota, Landing Zone) + Coaching Brief + Sales Opportunities below (no nav tabs).
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
@@ -99,6 +189,16 @@ export default async function DashboardPage({
               commitDealPanels={summary.commitDealPanels}
               defaultTopN={5}
               heroOnly={true}
+            />
+          </div>
+
+          <div className="mt-6">
+            <RepCoachingBriefClient
+              repName={repNameForBrief}
+              weakestDeals={weakestDeals}
+              categoryAverages={categoryAverages}
+              fiscalYear={fiscalYear}
+              quotaPeriodId={quotaPeriodId}
             />
           </div>
 
