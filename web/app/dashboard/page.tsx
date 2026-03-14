@@ -41,6 +41,8 @@ export default async function DashboardPage({
 
   const quotaPeriodOptions = summary.periods.map(periodToOption);
   const defaultRepName = String(ctx.user.account_owner_name || "").trim();
+  const displayName = String(ctx.user.display_name || ctx.user.email || "").trim() || "Sales Rep";
+  const pageTitle = `${displayName} Dashboard`;
 
   // REP: Executive HERO dashboard (Closed Won, Quota, Gap to Quota, Landing Zone) + Sales Opportunities below (no nav tabs).
   return (
@@ -48,7 +50,7 @@ export default async function DashboardPage({
       <UserTopNav orgName={orgName} user={ctx.user} />
       <main className="mx-auto max-w-7xl p-6 num-tabular">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <h1 className="text-pageTitle text-[color:var(--sf-text-primary)]">Sales Rep Dashboard</h1>
+          <h1 className="text-pageTitle text-[color:var(--sf-text-primary)]">{pageTitle}</h1>
         </div>
 
         <div className="mt-4">
