@@ -776,7 +776,14 @@ export default async function ExecutiveDashboardPage({
           AND o.rep_id = ANY($2::bigint[])
           AND o.close_date >= $3::date
           AND o.close_date < $4::date
-          AND (o.sales_stage IS NULL OR (o.sales_stage NOT IN ('Closed Won', 'Closed Lost', 'Closed Loss')))
+          AND (
+            o.sales_stage IS NULL
+            OR (
+              o.sales_stage NOT ILIKE '%closed%'
+              AND o.sales_stage NOT ILIKE '%won%'
+              AND o.sales_stage NOT ILIKE '%lost%'
+            )
+          )
         GROUP BY o.id, r.id, u.id
         ORDER BY o.review_requested_at DESC NULLS LAST, o.health_score ASC NULLS LAST
         `,
