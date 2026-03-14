@@ -2383,13 +2383,41 @@ export function ExecutiveGapInsightsClient(props: {
         })()}
       </div>
 
+      {(() => {
+        const bd = props.bucketDeltas;
+        const absMax = Math.max(Math.abs(bd.commit), Math.abs(bd.best_case), Math.abs(bd.pipeline), 1);
+        const bar = (v: number) => `${Math.round(clamp01(Math.abs(v) / absMax) * 100)}%`;
+        const deltaTextClass = (v: number) =>
+          !Number.isFinite(v) || v === 0 ? "text-[color:var(--sf-text-secondary)]" : v > 0 ? "text-[#2ECC71]" : "text-[#E74C3C]";
+        return (
+          <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 shadow-sm min-w-0">
+            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Gap Attribution</div>
+            <div className="mt-2 grid gap-1.5 text-tableValue text-[color:var(--sf-text-primary)]">
+              {[
+                { label: "Commit", v: bd.commit },
+                { label: "Best Case", v: bd.best_case },
+                { label: "Pipeline", v: bd.pipeline },
+              ].map((x) => (
+                <div key={x.label} className="grid grid-cols-[70px_minmax(0,1fr)_68px] items-center gap-2">
+                  <div className="text-tableLabel text-xs">{x.label}</div>
+                  <div className="h-1.5 min-w-0 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                    <div className={`h-full rounded-full ${x.v >= 0 ? "bg-[#2ECC71]" : "bg-[#E74C3C]"}`} style={{ width: bar(x.v) }} aria-hidden="true" />
+                  </div>
+                  <div className={`text-right text-xs num-tabular shrink-0 ${deltaTextClass(x.v)}`}>{fmtMoney(x.v)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {props.commitAdmission && (props.commitAdmission.totalCommitCrmAmount > 0 || props.commitAdmission.unsupportedCommitAmount > 0 || props.commitAdmission.commitNeedsReviewAmount > 0 || props.commitAdmission.aiSupportedCommitAmount > 0) ? (
-        <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+        <section className="mt-4 w-full rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
           <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Commit Integrity</div>
           {props.commitDealPanels && (props.commitDealPanels.topPainDeals.length > 0 || props.commitDealPanels.topVerifiedDeals.length > 0) ? (
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div className="mt-4 grid w-full grid-cols-2 gap-4">
               {props.commitDealPanels.topPainDeals.length > 0 ? (
-                <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                <div className={`rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 ${props.commitDealPanels.topVerifiedDeals.length === 0 ? "col-span-2" : ""}`}>
                   <div className="text-xs font-semibold uppercase text-[color:var(--sf-text-secondary)]">Top Commit Risks</div>
                   <div className="mt-2 grid grid-cols-2 gap-3">
                     {props.commitDealPanels.topPainDeals.slice(0, 10).map((d, idx) => (
@@ -2430,7 +2458,7 @@ export function ExecutiveGapInsightsClient(props: {
                 </div>
               ) : null}
               {props.commitDealPanels.topVerifiedDeals.length > 0 ? (
-                <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                <div className={`rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 ${props.commitDealPanels.topPainDeals.length === 0 ? "col-span-2" : ""}`}>
                   <div className="text-xs font-semibold uppercase text-[color:var(--sf-text-secondary)]">Top Verified Commit</div>
                   <div className="mt-2 grid grid-cols-2 gap-3">
                     {props.commitDealPanels.topVerifiedDeals.slice(0, 10).map((d, idx) => (
@@ -2527,35 +2555,6 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
         ) : null}
       </div>
-
-      <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-        <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quarter performance (historical)</div>
-        <div className="mt-4 grid max-w-[560px] gap-3 sm:grid-cols-2">
-          <div className="contents">
-            {(() => {
-              const rev = productDelta(curRev, prevRev);
-              return (
-                <div className={heroCard}>
-                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Closed Won (QTD)</div>
-                  <div className={heroVal}>{fmtMoney(curRev)}</div>
-                  <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
-                    <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", rev.tone].join(" ")}>
-                      <div>{prevProd ? fmtMoney(rev.d) : "—"}</div>
-                      <div aria-hidden="true" className="text-base leading-none">
-                        {rev.arrow}
-                      </div>
-                    </div>
-                    <div className="min-w-0 truncate text-right text-meta">
-                      Last Quarter{" "}
-                      <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? fmtMoney(prevRev) : "—"}</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        </div>
-      </section>
 
     </div>
       </>
