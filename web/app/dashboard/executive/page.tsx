@@ -784,6 +784,10 @@ export default async function ExecutiveDashboardPage({
               AND o.sales_stage NOT ILIKE '%lost%'
             )
           )
+          AND (
+            o.forecast_stage IS NULL
+            OR o.forecast_stage NOT ILIKE '%closed%'
+          )
         GROUP BY o.id, r.id, u.id
         ORDER BY o.review_requested_at DESC NULLS LAST, o.health_score ASC NULLS LAST
         `,
