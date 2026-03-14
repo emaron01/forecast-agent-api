@@ -732,6 +732,62 @@ export default async function ExecutiveDashboardPage({
   let teamRepsByManager = new Map<string, RepManagerRepRow[]>();
   let teamOrderedManagerIds: string[] = [];
 
+  const showManagerReviewQueue =
+    ctx.user.role === "MANAGER" || ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "ADMIN";
+  type ReviewQueueDealRow = {
+    id: string;
+    opp_name: string | null;
+    account_name: string | null;
+    rep_name: string | null;
+    health_score: number | null;
+    forecast_stage: string | null;
+    amount: number | null;
+    last_reviewed_at: string | null;
+    review_requested_by: number | null;
+    review_requested_at: string | null;
+    review_request_note: string | null;
+    requester_name: string | null;
+  };
+  let reviewQueueDeals: ReviewQueueDealRow[] = [];
+  if (showManagerReviewQueue && selectedPeriod && visibleRepIdsForQuery.length > 0) {
+    try {
+      const { rows } = await pool.query<ReviewQueueDealRow>(
+        `
+        SELECT
+          o.id::text AS id,
+          COALESCE(NULLIF(btrim(o.opportunity_name), ''), NULLIF(btrim(o.account_name), '')) AS opp_name,
+          o.account_name,
+          COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), '(Unknown)') AS rep_name,
+          o.health_score,
+          o.forecast_stage,
+          o.amount,
+          o.review_requested_by,
+          o.review_requested_at::text AS review_requested_at,
+          o.review_request_note,
+          u.display_name AS requester_name,
+          MAX(oae.ts)::text AS last_reviewed_at
+        FROM opportunities o
+        JOIN reps r ON r.id = o.rep_id
+        LEFT JOIN users u ON u.id = o.review_requested_by
+        LEFT JOIN opportunity_audit_events oae
+          ON oae.opportunity_id = o.id
+          AND oae.total_score IS NOT NULL
+        WHERE o.org_id = $1::bigint
+          AND o.rep_id = ANY($2::bigint[])
+          AND o.close_date >= $3::date
+          AND o.close_date < $4::date
+          AND (o.sales_stage IS NULL OR (o.sales_stage NOT IN ('Closed Won', 'Closed Lost', 'Closed Loss')))
+        GROUP BY o.id, r.id, u.id
+        ORDER BY o.review_requested_at DESC NULLS LAST, o.health_score ASC NULLS LAST
+        `,
+        [orgId, visibleRepIdsForQuery, selectedPeriod.period_start, selectedPeriod.period_end]
+      );
+      reviewQueueDeals = rows ?? [];
+    } catch {
+      reviewQueueDeals = [];
+    }
+  }
+
   if (selectedPeriodId && comparePeriodIds.length) {
     const [repKpisRows, createdByRepRows, quotaByRepPeriod] = await Promise.all([
       getRepKpisByPeriod({ orgId, periodIds: comparePeriodIds, repIds: scopeRepIdsForTeam }),
@@ -1114,6 +1170,9 @@ export default async function ExecutiveDashboardPage({
             managerRows: teamManagerRows,
             periodName: summary.selectedPeriod?.period_name ?? "",
           }}
+          reviewQueueDeals={reviewQueueDeals}
+          currentUserId={ctx.user.id}
+          showManagerReviewQueue={showManagerReviewQueue}
           revenueTabProps={{
             basePath: "/dashboard/executive",
             periods: summary.periods,

@@ -10,6 +10,7 @@ import {
   type RepManagerManagerRow,
   type RepManagerRepRow,
 } from "./RepManagerComparisonPanel";
+import { ManagerReviewQueueClient, type ManagerReviewQueueProps } from "./ManagerReviewQueueClient";
 
 type ExecTabKey = "forecast" | "pipeline" | "coaching" | "team" | "revenue" | "reports";
 
@@ -347,6 +348,9 @@ export function ExecutiveTabsShellClient(props: {
   pipelineHygiene: PipelineHygienePayload;
   teamTabProps: ExecutiveGapInsightsClientProps;
   teamRepManagerPayload: TeamRepManagerPayload;
+  reviewQueueDeals: ManagerReviewQueueProps["deals"];
+  currentUserId: number;
+  showManagerReviewQueue: boolean;
   revenueTabProps: ExecutiveGapInsightsClientProps;
   orgName?: string;
 }) {
@@ -651,13 +655,13 @@ export function ExecutiveTabsShellClient(props: {
               {...props.teamTabProps}
               teamTabOnly={true}
             />
-            {/* Part 2: Manager Review Queue — placeholder */}
-            <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-              <h2 className="text-cardLabel text-[color:var(--sf-text-primary)] mb-4">Manager Review Queue</h2>
-              <p className="text-sm text-[color:var(--sf-text-secondary)]">
-                Coming in Part B
-              </p>
-            </div>
+            {/* Part 2: Manager Review Queue — only for MANAGER, EXEC_MANAGER, ADMIN */}
+            {props.showManagerReviewQueue ? (
+              <ManagerReviewQueueClient
+                deals={props.reviewQueueDeals}
+                currentUserId={props.currentUserId}
+              />
+            ) : null}
           </div>
         )}
         {activeTab === "team" && (
