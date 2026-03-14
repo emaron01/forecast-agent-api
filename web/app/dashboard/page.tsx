@@ -10,6 +10,7 @@ import { ExecutiveBriefingProvider } from "../../components/dashboard/executive/
 import { ExecutiveGapInsightsClient } from "../../components/dashboard/executive/ExecutiveGapInsightsClient";
 import { RepCoachingBriefClient } from "./_components/RepCoachingBriefClient";
 import { RepDashboardHeroWrapper } from "./_components/RepDashboardHeroWrapper";
+import { ReviewRequestBanner } from "./_components/ReviewRequestBanner";
 import { SimpleForecastDashboardClient } from "../forecast/simple/simpleClient";
 
 export const runtime = "nodejs";
@@ -131,6 +132,43 @@ export default async function DashboardPage({
     budget: repAvgRow?.avg_budget ?? null,
   };
 
+  let flaggedDeals: {
+    id: string;
+    opp_name: string;
+    requester_name: string | null;
+    review_request_note: string | null;
+    review_requested_at: string | null;
+  }[] = [];
+  try {
+    if (repId != null) {
+      const { rows } = await pool.query<{
+        id: string;
+        opp_name: string;
+        requester_name: string | null;
+        review_request_note: string | null;
+        review_requested_at: string | null;
+      }>(
+        `SELECT
+          o.id::text AS id,
+          COALESCE(NULLIF(btrim(o.opportunity_name), ''), NULLIF(btrim(o.account_name), '')) AS opp_name,
+          u.display_name AS requester_name,
+          o.review_request_note,
+          o.review_requested_at::text AS review_requested_at
+        FROM opportunities o
+        LEFT JOIN users u ON u.id = o.review_requested_by
+        WHERE o.org_id = $1::bigint
+          AND o.rep_id = $2::bigint
+          AND o.review_requested_at IS NOT NULL
+          AND (o.sales_stage IS NULL OR o.sales_stage NOT IN ('Closed Won', 'Closed Loss', 'Closed Lost'))
+        ORDER BY o.review_requested_at DESC`,
+        [ctx.user.org_id, repId]
+      );
+      flaggedDeals = rows ?? [];
+    }
+  } catch {
+    flaggedDeals = [];
+  }
+
   const fiscalYear = String(summary.selectedPeriod?.fiscal_year ?? summary.selectedFiscalYear ?? "").trim() || "—";
   const quotaPeriodId = String(summary.selectedQuotaPeriodId ?? "").trim();
   const repNameForBrief = defaultRepName || displayName;
@@ -194,6 +232,12 @@ export default async function DashboardPage({
             />
             </RepDashboardHeroWrapper>
           </div>
+
+          {flaggedDeals.length > 0 && (
+            <div className="mt-4">
+              <ReviewRequestBanner deals={flaggedDeals} />
+            </div>
+          )}
 
           <div className="mt-6">
             <RepCoachingBriefClient
