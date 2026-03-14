@@ -134,6 +134,7 @@ export default async function DashboardPage({
 
   let flaggedDeals: {
     id: string;
+    internal_id: string;
     opp_name: string;
     requester_name: string | null;
     review_request_note: string | null;
@@ -143,13 +144,15 @@ export default async function DashboardPage({
     if (repId != null) {
       const { rows } = await pool.query<{
         id: string;
+        internal_id: string;
         opp_name: string;
         requester_name: string | null;
         review_request_note: string | null;
         review_requested_at: string | null;
       }>(
         `SELECT
-          o.id::text AS id,
+          o.id::text AS internal_id,
+          o.public_id::text AS id,
           COALESCE(NULLIF(btrim(o.opportunity_name), ''), NULLIF(btrim(o.account_name), '')) AS opp_name,
           u.display_name AS requester_name,
           o.review_request_note,

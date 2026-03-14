@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export type ReviewRequestBannerProps = {
   deals: {
     id: string;
@@ -27,20 +29,25 @@ export function ReviewRequestBanner(props: ReviewRequestBannerProps) {
           <p className="mt-1 text-[color:var(--sf-text-secondary)]">{subtext}</p>
           <ul className="mt-2 list-inside list-disc space-y-0.5 text-[color:var(--sf-text-primary)]">
             {deals.map((d) => (
-              <li key={d.id}>
-                {d.review_request_note?.trim() ? (
-                  <>
-                    &quot;{d.opp_name || "Unnamed deal"}&quot; — &quot;{d.review_request_note}&quot;
-                  </>
-                ) : (
-                  <> &quot;{d.opp_name || "Unnamed deal"}&quot;</>
-                )}
+              <li key={d.id} className="flex flex-wrap items-center gap-2">
+                <span>
+                  {d.review_request_note?.trim() ? (
+                    <>
+                      &quot;{d.opp_name || "Unnamed deal"}&quot; — &quot;{d.review_request_note}&quot;
+                    </>
+                  ) : (
+                    <> &quot;{d.opp_name || "Unnamed deal"}&quot;</>
+                  )}
+                </span>
+                <Link
+                  href={`/opportunities/${encodeURIComponent(d.id)}/deal-review`}
+                  className="inline-flex items-center gap-1 rounded-md bg-yellow-500/20 border border-yellow-500/40 px-3 py-1 text-xs font-semibold text-yellow-600 hover:bg-yellow-500/30 transition-colors"
+                >
+                  Start Review →
+                </Link>
               </li>
             ))}
           </ul>
-          <p className="mt-3 text-[color:var(--sf-text-secondary)]">
-            Find these deals below and click View to start your Matthew review.
-          </p>
         </div>
       </div>
     </div>
