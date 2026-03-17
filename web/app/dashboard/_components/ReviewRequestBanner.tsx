@@ -44,7 +44,7 @@ export function ReviewRequestBanner(props: ReviewRequestBannerProps) {
                 </span>
                 <Link
                   href={`/opportunities/${encodeURIComponent(d.id)}/deal-review`}
-                  className="inline-flex items-center gap-1 rounded-md bg-amber-500/25 border-2 border-amber-500/60 px-3 py-1 text-xs font-semibold text-amber-800 dark:text-amber-200 hover:bg-amber-500/35 transition-colors"
+                  className="inline-flex items-center gap-1 rounded-md bg-amber-500/25 border-2 border-amber-500/60 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-500/35 transition-colors"
                 >
                   Start Review →
                 </Link>
