@@ -72,21 +72,35 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
 
   async function fetchDealCoachingCard(dealId: string) {
     const quotaPeriodId = props.quotaPeriodId;
+    console.log("[CoachingCard] fetching", { dealId, quotaPeriodId });
     if (!quotaPeriodId) return null;
+    if (!quotaPeriodId) {
+      console.log("[CoachingCard] no quotaPeriodId");
+      return null;
+    }
 
     // NOTE: /api/forecast/gap-driving-deals does NOT accept opportunity_id; fetch full list and find by id.
     const url = `/api/forecast/gap-driving-deals?quota_period_id=${encodeURIComponent(quotaPeriodId)}&mode=risk&limit=2000`;
+    console.log("[CoachingCard] url", url);
     const res = await fetch(url, { method: "GET" });
+    console.log("[CoachingCard] status", res.status);
     if (!res.ok) return null;
+    if (!res.ok) {
+      console.log("[CoachingCard] fetch failed", res.status, res.statusText);
+      return null;
+    }
     const j = (await res.json()) as any;
     if (!j || j.ok !== true) return null;
+    console.log("[CoachingCard] ok", j?.ok, "groups keys", Object.keys(j?.groups || {}));
     const groups = j.groups || {};
     const all: any[] = [
       ...((groups.commit?.deals as any[]) || []),
       ...((groups.best_case?.deals as any[]) || []),
       ...((groups.pipeline?.deals as any[]) || []),
     ];
+    console.log("[CoachingCard] total deals", all.length, "looking for id", dealId);
     const found = all.find((d) => String(d?.id) === String(dealId)) || null;
+    console.log("[CoachingCard] found", !!found);
     return found as DealCoachingCardDeal | null;
   }
 
