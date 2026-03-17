@@ -27,7 +27,7 @@ export async function POST(req: Request) {
         review_requested_by = $1,
         review_requested_at = NOW(),
         review_request_note = $2
-      WHERE id = $3::bigint
+      WHERE public_id = $3::uuid
         AND org_id = $4::bigint
       `,
       [auth.user.id, note || null, opportunityId, auth.user.org_id]
@@ -38,7 +38,8 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (e) {
+    console.error("[request-review] error:", e);
     return NextResponse.json({ ok: false, error: "Server error" }, { status: 500 });
   }
 }
