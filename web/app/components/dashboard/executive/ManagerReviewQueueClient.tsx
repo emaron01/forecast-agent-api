@@ -306,9 +306,21 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                           <DealCoachingCard
                             deal={dealCache[d.id]}
                             showRequestReview={true}
-                            onRequestReview={(dealId) => {
-                              setRequestingDealId(dealId);
-                              setExpandedDealId(null);
+                            onRequestReview={async (dealId) => {
+                              try {
+                                const res = await fetch("/api/coaching/request-review", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    opportunityId: dealId,
+                                    note: "",
+                                  }),
+                                });
+                                if (res.ok) {
+                                  setSuccessDealIds((prev) => new Set(prev).add(dealId));
+                                  setExpandedDealId(null);
+                                }
+                              } catch {}
                             }}
                           />
                         ) : (
