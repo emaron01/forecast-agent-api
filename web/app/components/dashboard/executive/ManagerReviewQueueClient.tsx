@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
+import { DealCoachingCard, type DealCoachingCardDeal } from "../coaching/DealCoachingCard";
 
 export type ManagerReviewQueueProps = {
   deals: {
@@ -18,6 +19,7 @@ export type ManagerReviewQueueProps = {
     requester_name: string | null;
   }[];
   currentUserId: number;
+  quotaPeriodId: string;
 };
 
 function fmtMoney(n: number | null) {
@@ -58,12 +60,52 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
   const [submitting, setSubmitting] = useState(false);
   const [successDealIds, setSuccessDealIds] = useState<Set<string>>(new Set());
   const [errorDealId, setErrorDealId] = useState<string | null>(null);
+  const [expandedDealId, setExpandedDealId] = useState<string | null>(null);
+  const [dealCache, setDealCache] = useState<Record<string, DealCoachingCardDeal>>({});
+  const [dealLoading, setDealLoading] = useState<string | null>(null);
   const [activeFilters, setActiveFilters] = useState<{ repName: string; reviewRequestedOnly: boolean }>({
     repName: "",
     reviewRequestedOnly: false,
   });
   const [sortKey, setSortKey] = useState<SortKey>("lastReview");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  async function fetchDealCoachingCard(dealId: string) {
+    const quotaPeriodId = props.quotaPeriodId;
+    if (!quotaPeriodId) return null;
+
+    // NOTE: /api/forecast/gap-driving-deals does NOT accept opportunity_id; fetch full list and find by id.
+    const url = `/api/forecast/gap-driving-deals?quota_period_id=${encodeURIComponent(quotaPeriodId)}&mode=risk&limit=2000`;
+    const res = await fetch(url, { method: "GET" });
+    if (!res.ok) return null;
+    const j = (await res.json()) as any;
+    if (!j || j.ok !== true) return null;
+    const groups = j.groups || {};
+    const all: any[] = [
+      ...((groups.commit?.deals as any[]) || []),
+      ...((groups.best_case?.deals as any[]) || []),
+      ...((groups.pipeline?.deals as any[]) || []),
+    ];
+    const found = all.find((d) => String(d?.id) === String(dealId)) || null;
+    return found as DealCoachingCardDeal | null;
+  }
+
+  async function toggleDealExpand(dealId: string) {
+    setErrorDealId(null);
+    setExpandedDealId((prev) => (prev === dealId ? null : dealId));
+    if (expandedDealId === dealId) return;
+    if (dealCache[dealId]) return;
+
+    setDealLoading(dealId);
+    try {
+      const found = await fetchDealCoachingCard(dealId);
+      if (found) {
+        setDealCache((prev) => ({ ...prev, [dealId]: found }));
+      }
+    } finally {
+      setDealLoading(null);
+    }
+  }
 
   async function handleSendRequest(dealId: string) {
     setSubmitting(true);
@@ -222,7 +264,15 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                 <Fragment key={d.id}>
                   <tr className="border-t border-[color:var(--sf-border)]">
                     <td className="px-3 py-2">{d.account_name ?? "—"}</td>
-                    <td className="px-3 py-2">{d.opp_name ?? "—"}</td>
+                    <td
+                      className="px-3 py-2 cursor-pointer hover:text-[color:var(--sf-accent-primary)]"
+                      onClick={() => toggleDealExpand(d.id)}
+                    >
+                      <span className="flex items-center gap-1">
+                        {d.opp_name ?? "—"}
+                        <span className="text-xs">{expandedDealId === d.id ? "▲" : "▼"}</span>
+                      </span>
+                    </td>
                     <td className="px-3 py-2">{d.rep_name ?? "—"}</td>
                     <td className={`px-3 py-2 text-right font-mono ${healthColorClass(pct)}`}>
                       {pct != null ? `${pct}%` : "—"}
@@ -260,6 +310,26 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                       ) : null}
                     </td>
                   </tr>
+                  {expandedDealId === d.id && (
+                    <tr>
+                      <td colSpan={8} className="px-3 py-2">
+                        {dealLoading === d.id ? (
+                          <div className="text-sm text-[color:var(--sf-text-secondary)] py-4 text-center">Loading coaching card...</div>
+                        ) : dealCache[d.id] ? (
+                          <DealCoachingCard
+                            deal={dealCache[d.id]}
+                            showRequestReview={true}
+                            onRequestReview={(dealId) => {
+                              setRequestingDealId(dealId);
+                              setExpandedDealId(null);
+                            }}
+                          />
+                        ) : (
+                          <div className="text-sm text-red-500 py-2">Unable to load coaching card.</div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
                   {isOpen ? (
                     <tr key={`${d.id}-form`} className="border-t border-[color:var(--sf-border)]">
                       <td colSpan={8} className="px-3 py-2 align-top">

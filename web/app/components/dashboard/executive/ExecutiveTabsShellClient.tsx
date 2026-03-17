@@ -660,6 +660,7 @@ export function ExecutiveTabsShellClient(props: {
               <ManagerReviewQueueClient
                 deals={props.reviewQueueDeals}
                 currentUserId={props.currentUserId}
+                quotaPeriodId={props.forecastTabProps.quotaPeriodId}
               />
             ) : null}
           </div>
