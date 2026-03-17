@@ -754,7 +754,7 @@ export default async function ExecutiveDashboardPage({
       const { rows } = await pool.query<ReviewQueueDealRow>(
         `
         SELECT
-          o.id::text AS id,
+          o.public_id::text AS id,
           COALESCE(NULLIF(btrim(o.opportunity_name), ''), NULLIF(btrim(o.account_name), '')) AS opp_name,
           o.account_name,
           COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), '(Unknown)') AS rep_name,
