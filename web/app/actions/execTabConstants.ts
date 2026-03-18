@@ -1,4 +1,4 @@
-export const EXEC_TABS = ["forecast", "pipeline", "coaching", "team", "revenue", "reports"] as const;
+export const EXEC_TABS = ["forecast", "pipeline", "coaching", "team", "channel", "revenue", "reports"] as const;
 export type ExecTabKey = (typeof EXEC_TABS)[number];
 
 export function normalizeExecTab(raw: string | null | undefined): ExecTabKey | null {

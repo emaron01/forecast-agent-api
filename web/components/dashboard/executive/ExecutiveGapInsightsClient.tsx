@@ -488,6 +488,7 @@ export function ExecutiveGapInsightsClient(props: {
   forecastTabOnly?: boolean;
   pipelineTabOnly?: boolean;
   teamTabOnly?: boolean;
+  channelTabOnly?: boolean;
   revenueTabOnly?: boolean;
   heroOnly?: boolean;
 }) {
@@ -2571,6 +2572,286 @@ export function ExecutiveGapInsightsClient(props: {
 
     </div>
       </>
+    );
+  }
+
+  if (props.channelTabOnly) {
+    return (
+      <div className="grid gap-4">
+        {partnersDecisionEngine ? (
+          <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">Direct vs. Indirect Performance</div>
+              </div>
+            </div>
+
+            {(() => {
+              const direct = partnersDecisionEngine.direct;
+              const partner = partnersDecisionEngine.partner;
+
+              const directWin = direct.win_rate == null ? null : Number(direct.win_rate);
+              const partnerWin = partner.win_rate == null ? null : Number(partner.win_rate);
+
+              const directHealth01 = direct.avg_health_score == null ? null : Number(direct.avg_health_score) / 30;
+              const partnerHealth01 = partner.avg_health_score == null ? null : Number(partner.avg_health_score) / 30;
+
+              const directRev = direct.won_amount == null ? null : Number(direct.won_amount);
+              const partnerRev = partner.won_amount == null ? null : Number(partner.won_amount);
+
+              const directMix = partnersDecisionEngine.directMix == null ? null : Number(partnersDecisionEngine.directMix);
+              const partnerMix = partnersDecisionEngine.partnerMix == null ? null : Number(partnersDecisionEngine.partnerMix);
+
+              function fmtMoneyK(n: any) {
+                const v = Number(n || 0);
+                if (!Number.isFinite(v)) return "—";
+                const k = Math.round(v / 1000);
+                return `$${k.toLocaleString("en-US")}K`;
+              }
+
+              function highlightClass(value: number | null, a: number | null, b: number | null) {
+                if (value == null || a == null || b == null) return "";
+                const aa = Number(a);
+                const bb = Number(b);
+                if (!Number.isFinite(aa) || !Number.isFinite(bb)) return "";
+                const denom = Math.max(Math.abs(aa), Math.abs(bb));
+                if (denom <= 0) return "";
+                const relDiffPct = (Math.abs(aa - bb) / denom) * 100;
+                if (relDiffPct <= 5) return "";
+                if (aa === bb) return "";
+                const max = Math.max(aa, bb);
+                const min = Math.min(aa, bb);
+                if (value === max) return "text-[#16A34A]";
+                if (value === min) return "text-[#E74C3C]";
+                return "";
+              }
+
+              const rows = [
+                { k: "Direct", win: directWin, health: directHealth01, rev: directRev, mix: directMix },
+                { k: "Partner", win: partnerWin, health: partnerHealth01, rev: partnerRev, mix: partnerMix },
+              ] as const;
+
+              return (
+                <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Motion Performance Snapshot</div>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {rows.map((row) => (
+                      <div key={row.k} className="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+                        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{row.k}</div>
+                        <div className="mt-3 grid gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                            <span>Win Rate</span>
+                            <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.win, directWin, partnerWin)].join(" ")}>{row.win == null ? "—" : fmtPct01(row.win)}</span>
+                          </div>
+                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                            <span>Avg Health</span>
+                            <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.health, directHealth01, partnerHealth01)].join(" ")}>{row.health == null ? "—" : `${Math.round(row.health * 100)}%`}</span>
+                          </div>
+                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                            <span>Revenue</span>
+                            <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.rev, directRev, partnerRev)].join(" ")}>{row.rev == null ? "—" : fmtMoneyK(row.rev)}</span>
+                          </div>
+                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                            <span>Mix</span>
+                            <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.mix, directMix, partnerMix)].join(" ")}>{row.mix == null ? "—" : fmtPct01(row.mix)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {(() => {
+                      const deltaTone = (d: number | null) => (d == null || !Number.isFinite(d) ? "text-[color:var(--sf-text-disabled)]" : d > 0 ? "text-[#16A34A]" : d < 0 ? "text-[#E74C3C]" : "text-[color:var(--sf-text-primary)]");
+                      const fmtPp = (d01: number | null) => {
+                        if (d01 == null || !Number.isFinite(d01)) return "—";
+                        const pp = d01 * 100;
+                        const abs = Math.abs(pp);
+                        const txt = `${Math.round(abs)}pp`;
+                        return `${pp > 0 ? "+" : pp < 0 ? "-" : ""}${txt}`;
+                      };
+                      const fmtMoneyKSigned = (d: number | null) => {
+                        if (d == null || !Number.isFinite(d)) return "—";
+                        const k = Math.round(Math.abs(d) / 1000);
+                        const txt = `$${k.toLocaleString("en-US")}K`;
+                        return `${d > 0 ? "+" : d < 0 ? "-" : ""}${txt}`;
+                      };
+                      const dWin = directWin == null || partnerWin == null ? null : directWin - partnerWin;
+                      const dHealth = directHealth01 == null || partnerHealth01 == null ? null : directHealth01 - partnerHealth01;
+                      const dRev = directRev == null || partnerRev == null ? null : directRev - partnerRev;
+                      const dMix = directMix == null || partnerMix == null ? null : directMix - partnerMix;
+                      return (
+                        <div className="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+                          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct Vs. Indirect Performance</div>
+                          <div className="mt-3 grid gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                            <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                              <span>Win Rate</span>
+                              <span className={["font-mono text-xs font-semibold", deltaTone(dWin)].join(" ")}>{fmtPp(dWin)}</span>
+                            </div>
+                            <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                              <span>Avg Health</span>
+                              <span className={["font-mono text-xs font-semibold", deltaTone(dHealth)].join(" ")}>{fmtPp(dHealth)}</span>
+                            </div>
+                            <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                              <span>Revenue</span>
+                              <span className={["font-mono text-xs font-semibold", deltaTone(dRev)].join(" ")}>{fmtMoneyKSigned(dRev)}</span>
+                            </div>
+                            <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                              <span>Mix</span>
+                              <span className={["font-mono text-xs font-semibold", deltaTone(dMix)].join(" ")}>{fmtPp(dMix)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    <div className="h-fit self-start rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+                      {(() => {
+                        const ceiCur = partnersDecisionEngine.cei.partner_index;
+                        const ceiPrev = partnersDecisionEngine.cei_prev_partner_index;
+                        const ceiCurN = ceiCur == null ? null : Number(ceiCur);
+                        const ceiPrevN = ceiPrev == null ? null : Number(ceiPrev);
+                        const delta = ceiCurN != null && ceiPrevN != null ? ceiCurN - ceiPrevN : null;
+                        const status =
+                          ceiCurN == null
+                            ? { label: "—", tone: "muted" as const }
+                            : ceiCurN >= 120
+                              ? { label: "HIGH", tone: "good" as const }
+                              : ceiCurN >= 90
+                                ? { label: "MEDIUM", tone: "warn" as const }
+                                : ceiCurN >= 70
+                                  ? { label: "LOW", tone: "bad" as const }
+                                  : { label: "CRITICAL", tone: "bad" as const };
+                        const partnerWon = Number(partnersDecisionEngine.partner.won_opps || 0) || 0;
+                        const sampleFactor = Math.min(1, partnerWon / 12);
+                        const revenueShare = partnersDecisionEngine.partnerMix == null ? 0 : Number(partnersDecisionEngine.partnerMix);
+                        const revenueFactor = Math.min(1, revenueShare / 0.4);
+                        const volatilityFactor = delta != null ? 1 - normalize(Math.abs(delta), 0, 100) : 0.6;
+                        const conf01 = sampleFactor * 0.5 + revenueFactor * 0.3 + volatilityFactor * 0.2;
+                        const conf = clampScore100(conf01 * 100);
+                        const confBand =
+                          conf >= 75 ? "HIGH CONFIDENCE" : conf >= 50 ? "MODERATE CONFIDENCE" : conf >= 30 ? "LOW CONFIDENCE" : "PRELIMINARY";
+                        const trend =
+                          delta == null
+                            ? { label: "—", arrow: "→", tone: "muted" as const }
+                            : delta >= 15
+                              ? { label: "Improving", arrow: "↑", tone: "good" as const }
+                              : delta <= -15
+                                ? { label: "Declining", arrow: "↓", tone: "bad" as const }
+                                : { label: "Stable", arrow: "→", tone: "muted" as const };
+                        return (
+                          <>
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CEI Performance</div>
+                            <div className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="text-[color:var(--sf-text-secondary)]">CEI Status</span>
+                                <span className={["inline-flex min-w-[110px] items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold", pillToneClass(status.tone)].join(" ")}>{status.label}</span>
+                              </div>
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="text-[color:var(--sf-text-secondary)]">Partner CEI</span>
+                                <span className="font-mono font-semibold">{ceiCurN == null ? "—" : `${Math.round(ceiCurN).toLocaleString("en-US")} (Direct = 100)`}</span>
+                              </div>
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="text-[color:var(--sf-text-secondary)]">Confidence</span>
+                                <span className="font-mono font-semibold">{confBand}</span>
+                              </div>
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="text-[color:var(--sf-text-secondary)]">Trend</span>
+                                <span className={["flex items-center gap-1 font-mono font-semibold", trend.tone === "good" ? "text-[#16A34A]" : trend.tone === "bad" ? "text-[#E74C3C]" : "text-[color:var(--sf-text-secondary)]"].join(" ")}>
+                                  <span aria-hidden="true">{trend.arrow}</span>
+                                  <span>{trend.label}</span>
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Based on {partnerWon.toLocaleString("en-US")} partner closed-won deal(s).</div>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Canonical Scoring Engine (WIC / PQS / CEI)</div>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-3">
+                <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC + PQS (top partners)</div>
+                  <div className="mt-3 flex flex-wrap gap-3">
+                    {partnersDecisionEngine.scored
+                      .slice(0, 1 + Math.min(15, Math.max(0, partnersDecisionEngine.scored.length - 1)))
+                      .map((r) => {
+                        const pill = r.wic_band;
+                        const bandTone = (() => {
+                          const s = String(pill.label || "").toLowerCase();
+                          if (s.includes("scale")) return "good" as const;
+                          if (s.includes("deprior")) return "bad" as const;
+                          if (s.includes("maintain")) return "warn" as const;
+                          return pill.tone;
+                        })();
+                        const trendArrow = (() => {
+                          const cur = Number(r.wic);
+                          const prev = r.wic_prev == null ? null : Number(r.wic_prev);
+                          if (!Number.isFinite(cur) || prev == null || !Number.isFinite(prev)) return "—";
+                          const d = cur - prev;
+                          if (d >= 5) return "↑";
+                          if (d <= -5) return "↓";
+                          return "→";
+                        })();
+                        const trendTone = trendArrow === "↑" ? "up" : trendArrow === "↓" ? "down" : "flat";
+                        const trendCls = trendTone === "up" ? "text-[#16A34A]" : trendTone === "down" ? "text-[#E74C3C]" : "text-[#F1C40F]";
+                        return (
+                          <div key={r.key} className="flex w-full flex-col rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 shadow-sm sm:w-[220px]">
+                            <div className="flex min-w-0 items-start justify-between gap-3">
+                              <div className="min-w-0 truncate text-sm font-semibold text-[color:var(--sf-text-primary)]">{r.label}</div>
+                              <span className={["shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase", pillToneClass(bandTone)].join(" ")}>{pill.label}</span>
+                            </div>
+                            <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
+                              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">WIC:</span>{" "}
+                              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{Math.round(r.wic).toLocaleString("en-US")}</span>{" "}
+                              <span className="text-[color:var(--sf-text-secondary)]">|</span>{" "}
+                              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">PQS:</span>{" "}
+                              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{r.pqs == null ? "—" : Math.round(r.pqs).toLocaleString("en-US")}</span>{" "}
+                              <span className="text-[color:var(--sf-text-secondary)]">|</span>{" "}
+                              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">Trend:</span>{" "}
+                              <span className={["font-mono text-base font-bold leading-none", trendCls].join(" ")}>{trendArrow}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                  <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">WIC computed for Direct + each partner. PQS computed per partner only. Scores are clamped 0–100.</div>
+                </div>
+              </div>
+            </section>
+
+            <div className="mt-4">
+              <PartnersExecutiveAiTakeawayClient
+                quotaPeriodId={quotaPeriodId}
+                payload={{
+                  page: "dashboard/executive",
+                  quota_period_id: quotaPeriodId,
+                  fiscal_year: props.fiscalYear,
+                  fiscal_quarter: props.fiscalQuarter,
+                  direct: partnersDecisionEngine.direct,
+                  partner: partnersDecisionEngine.partner,
+                  revenue_mix_partner_pct: partnersDecisionEngine.partnerMix,
+                  decision_engine: {
+                    executive_narrative: partnersDecisionEngine.narrative,
+                    cei_index: partnersDecisionEngine.cei,
+                    wic: partnersDecisionEngine.scored.map((r) => ({ label: r.label, wic: r.wic, band: r.wic_band.label, open_pipeline: r.open_pipeline })),
+                    pqs: partnersDecisionEngine.scored.filter((r) => String(r.key).startsWith("partner:")).map((r) => ({ label: r.label, pqs: r.pqs })),
+                  },
+                  top_partners: (props.partnersExecutive?.top_partners || []).slice(0, 20),
+                }}
+              />
+            </div>
+          </section>
+        ) : null}
+      </div>
     );
   }
 

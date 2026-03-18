@@ -12,7 +12,7 @@ import {
 } from "./RepManagerComparisonPanel";
 import { ManagerReviewQueueClient, type ManagerReviewQueueProps } from "./ManagerReviewQueueClient";
 
-type ExecTabKey = "forecast" | "pipeline" | "coaching" | "team" | "revenue" | "reports";
+type ExecTabKey = "forecast" | "pipeline" | "coaching" | "team" | "channel" | "revenue" | "reports";
 
 type ExecutiveGapInsightsClientProps = ComponentProps<typeof ExecutiveGapInsightsClient>;
 
@@ -89,6 +89,7 @@ const TABS: { key: ExecTabKey; label: string }[] = [
   { key: "pipeline", label: "Pipeline" },
   { key: "coaching", label: "Coaching" },
   { key: "team", label: "Team" },
+  { key: "channel", label: "Channel" },
   { key: "revenue", label: "Revenue" },
   { key: "reports", label: "Reports" },
 ];
@@ -677,6 +678,9 @@ export function ExecutiveTabsShellClient(props: {
               />
             </div>
           </div>
+        )}
+        {"channel" === activeTab && (
+          <ExecutiveGapInsightsClient {...props.revenueTabProps} channelTabOnly={true} />
         )}
         {activeTab === "revenue" && (
           <ExecutiveGapInsightsClient {...props.revenueTabProps} revenueTabOnly={true} />
