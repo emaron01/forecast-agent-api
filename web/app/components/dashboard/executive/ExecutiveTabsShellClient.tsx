@@ -353,6 +353,8 @@ export function ExecutiveTabsShellClient(props: {
   currentUserId: number;
   showManagerReviewQueue: boolean;
   revenueTabProps: ExecutiveGapInsightsClientProps;
+  topPartnerWon: any[];
+  topPartnerLost: any[];
   orgName?: string;
 }) {
   const router = useRouter();
@@ -680,7 +682,12 @@ export function ExecutiveTabsShellClient(props: {
           </div>
         )}
         {"channel" === activeTab && (
-          <ExecutiveGapInsightsClient {...props.revenueTabProps} channelTabOnly={true} />
+          <ExecutiveGapInsightsClient
+            {...props.revenueTabProps}
+            channelTabOnly={true}
+            topPartnerWon={props.topPartnerWon}
+            topPartnerLost={props.topPartnerLost}
+          />
         )}
         {activeTab === "revenue" && (
           <ExecutiveGapInsightsClient {...props.revenueTabProps} revenueTabOnly={true} />

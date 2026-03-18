@@ -489,6 +489,8 @@ export function ExecutiveGapInsightsClient(props: {
   pipelineTabOnly?: boolean;
   teamTabOnly?: boolean;
   channelTabOnly?: boolean;
+  topPartnerWon?: any[];
+  topPartnerLost?: any[];
   revenueTabOnly?: boolean;
   heroOnly?: boolean;
 }) {
@@ -2576,6 +2578,42 @@ export function ExecutiveGapInsightsClient(props: {
   }
 
   if (props.channelTabOnly) {
+    const topPartnerWonRows = (props.topPartnerWon ?? [])
+      .slice()
+      .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0));
+    const topPartnerLostRows = (props.topPartnerLost ?? [])
+      .slice()
+      .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0));
+
+    // Data is fetched ordered by revenue (amount desc), so we highlight that default ordering.
+    const wonSortKey = "amount";
+    const lostSortKey = "amount";
+
+    const sortLabelClass = (active: boolean) => (active ? "text-yellow-600" : "");
+    const sortCellClass = (active: boolean) => (active ? "bg-yellow-50/5" : "");
+
+    function dateOnly(s: string | null | undefined) {
+      return s ? String(s).slice(0, 10) : "—";
+    }
+
+    function daysBetween(a: string | null, b: string | null): number | null {
+      if (!a || !b) return null;
+      const d = Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
+      return Number.isFinite(d) ? d : null;
+    }
+
+    function HealthScorePill(props: { score: any }) {
+      const s = Number(props.score);
+      const pct = healthPctFrom30(s);
+      const color = healthColorClass(pct);
+      return (
+        <span className="rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-1">
+          <span className={color}>{pct == null ? "—" : `${pct}%`}</span>{" "}
+          <span className="text-[color:var(--sf-text-secondary)]">{Number.isFinite(s) && s > 0 ? `(${Math.round(s)}/30)` : "(—)"}</span>
+        </span>
+      );
+    }
+
     return (
       <div className="grid gap-4">
         {partnersDecisionEngine ? (
@@ -2849,6 +2887,122 @@ export function ExecutiveGapInsightsClient(props: {
                 }}
               />
             </div>
+
+            <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Top partner deals won (top 10 by revenue)</h2>
+                  <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+                    Period: <span className="font-mono text-xs">{dateOnly(activePeriod?.period_start)}</span> →{" "}
+                    <span className="font-mono text-xs">{dateOnly(activePeriod?.period_end)}</span>
+                  </p>
+                  <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Sorted by revenue descending</p>
+                </div>
+              </div>
+
+              <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
+                <table className="w-full min-w-[1200px] text-left text-sm">
+                  <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                    <tr>
+                      <th className={`px-4 py-3 ${sortLabelClass(wonSortKey === "partner")}`}>partner</th>
+                      <th className={`px-4 py-3 ${sortLabelClass(wonSortKey === "account")}`}>account</th>
+                      <th className={`px-4 py-3 ${sortLabelClass(wonSortKey === "opportunity")}`}>opportunity</th>
+                      <th className={`px-4 py-3 ${sortLabelClass(wonSortKey === "product")}`}>product</th>
+                      <th className={`px-4 py-3 text-right ${sortLabelClass(wonSortKey === "amount")}`}>revenue</th>
+                      <th className={`px-4 py-3 text-right ${sortLabelClass(wonSortKey === "age")}`}>age</th>
+                      <th className={`px-4 py-3 text-right ${sortLabelClass(wonSortKey === "initial_health")}`}>initial health</th>
+                      <th className={`px-4 py-3 text-right ${sortLabelClass(wonSortKey === "final_health")}`}>final health</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topPartnerWonRows.length ? (
+                      topPartnerWonRows.map((d) => (
+                        <tr key={d.opportunity_public_id} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
+                          <td className={`px-4 py-3 font-medium ${sortCellClass(wonSortKey === "partner")}`}>{d.partner_name}</td>
+                          <td className={`px-4 py-3 ${sortCellClass(wonSortKey === "account")}`}>{d.account_name || ""}</td>
+                          <td className={`px-4 py-3 ${sortCellClass(wonSortKey === "opportunity")}`}>{d.opportunity_name || ""}</td>
+                          <td className={`px-4 py-3 ${sortCellClass(wonSortKey === "product")}`}>{d.product || ""}</td>
+                          <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(wonSortKey === "amount")}`}>{fmtMoney(d.amount)}</td>
+                          <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(wonSortKey === "age")}`}>
+                            {daysBetween(d.create_date, d.close_date) == null ? "—" : String(daysBetween(d.create_date, d.close_date))}
+                          </td>
+                          <td className={`px-4 py-3 text-right ${sortCellClass(wonSortKey === "initial_health")}`}>
+                            <HealthScorePill score={d.baseline_health_score} />
+                          </td>
+                          <td className={`px-4 py-3 text-right ${sortCellClass(wonSortKey === "final_health")}`}>
+                            <HealthScorePill score={d.health_score} />
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={8} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                          No partner Won deals found for this quarter.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Closed Loss (top 10 by revenue)</h2>
+                  <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+                    Period: <span className="font-mono text-xs">{dateOnly(activePeriod?.period_start)}</span> →{" "}
+                    <span className="font-mono text-xs">{dateOnly(activePeriod?.period_end)}</span>
+                  </p>
+                  <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Sorted by revenue descending</p>
+                </div>
+              </div>
+
+              <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
+                <table className="w-full min-w-[1200px] text-left text-sm">
+                  <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                    <tr>
+                      <th className={`px-4 py-3 ${sortLabelClass(lostSortKey === "partner")}`}>partner</th>
+                      <th className={`px-4 py-3 ${sortLabelClass(lostSortKey === "account")}`}>account</th>
+                      <th className={`px-4 py-3 ${sortLabelClass(lostSortKey === "opportunity")}`}>opportunity</th>
+                      <th className={`px-4 py-3 ${sortLabelClass(lostSortKey === "product")}`}>product</th>
+                      <th className={`px-4 py-3 text-right ${sortLabelClass(lostSortKey === "amount")}`}>revenue</th>
+                      <th className={`px-4 py-3 text-right ${sortLabelClass(lostSortKey === "age")}`}>age</th>
+                      <th className={`px-4 py-3 text-right ${sortLabelClass(lostSortKey === "initial_health")}`}>initial health</th>
+                      <th className={`px-4 py-3 text-right ${sortLabelClass(lostSortKey === "final_health")}`}>final health</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topPartnerLostRows.length ? (
+                      topPartnerLostRows.map((d) => (
+                        <tr key={d.opportunity_public_id} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
+                          <td className={`px-4 py-3 font-medium ${sortCellClass(lostSortKey === "partner")}`}>{d.partner_name}</td>
+                          <td className={`px-4 py-3 ${sortCellClass(lostSortKey === "account")}`}>{d.account_name || ""}</td>
+                          <td className={`px-4 py-3 ${sortCellClass(lostSortKey === "opportunity")}`}>{d.opportunity_name || ""}</td>
+                          <td className={`px-4 py-3 ${sortCellClass(lostSortKey === "product")}`}>{d.product || ""}</td>
+                          <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(lostSortKey === "amount")}`}>{fmtMoney(d.amount)}</td>
+                          <td className={`px-4 py-3 text-right font-mono text-xs ${sortCellClass(lostSortKey === "age")}`}>
+                            {daysBetween(d.create_date, d.close_date) == null ? "—" : String(daysBetween(d.create_date, d.close_date))}
+                          </td>
+                          <td className={`px-4 py-3 text-right ${sortCellClass(lostSortKey === "initial_health")}`}>
+                            <HealthScorePill score={d.baseline_health_score} />
+                          </td>
+                          <td className={`px-4 py-3 text-right ${sortCellClass(lostSortKey === "final_health")}`}>
+                            <HealthScorePill score={d.health_score} />
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={8} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                          No partner Closed Loss deals found for this quarter.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
           </section>
         ) : null}
       </div>
