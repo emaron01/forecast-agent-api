@@ -13,6 +13,9 @@ export type ManagerReviewQueueProps = {
     forecast_stage: string | null;
     amount: number | null;
     last_reviewed_at: string | null;
+    score_before_request: number | null;
+    score_after_request: number | null;
+    reviewed_after_at: string | null;
     review_requested_by: number | null;
     review_requested_at: string | null;
     review_request_note: string | null;
@@ -247,6 +250,10 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
               const hasRequest = !!d.review_requested_at;
               const justSent = successDealIds.has(d.id);
               const isOpen = requestingDealId === d.id;
+                const scoreBefore = d.score_before_request != null ? Math.max(0, Math.min(100, Math.round((d.score_before_request / 30) * 100))) : null;
+                const scoreAfter = d.score_after_request != null ? Math.max(0, Math.min(100, Math.round((d.score_after_request / 30) * 100))) : null;
+                const delta =
+                  scoreBefore != null && scoreAfter != null ? Math.round(scoreAfter - scoreBefore) : null;
               return (
                 <Fragment key={d.id}>
                   <tr className="border-t border-[color:var(--sf-border)]">
@@ -267,7 +274,7 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                     <td className="px-3 py-2">{d.forecast_stage ?? "—"}</td>
                     <td className="px-3 py-2">{formatDate(d.last_reviewed_at)}</td>
                     <td className="px-3 py-2">
-                      {hasRequest ? (
+                      {hasRequest && d.score_after_request == null ? (
                         <span className="inline-flex items-center rounded-full bg-yellow-500/10 px-2 py-0.5 text-xs text-yellow-500">
                           Review Requested
                           {d.review_request_note ? (
@@ -276,6 +283,24 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                               {d.review_request_note.length > 20 ? "…" : ""}
                             </span>
                           ) : null}
+                        </span>
+                      ) : delta != null ? (
+                        delta > 0 ? (
+                          <span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-0.5 text-xs text-green-600">
+                            Score +{delta}pp after review
+                          </span>
+                        ) : delta === 0 ? (
+                          <span className="inline-flex items-center rounded-full bg-yellow-500/10 px-2 py-0.5 text-xs text-yellow-600">
+                            No change after review
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 text-xs text-red-600">
+                            Score -{Math.abs(delta)}pp after review
+                          </span>
+                        )
+                      ) : d.score_after_request != null && d.score_before_request == null ? (
+                        <span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-0.5 text-xs text-green-600">
+                          Reviewed — no baseline
                         </span>
                       ) : justSent ? (
                         <span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-0.5 text-xs text-green-500">

@@ -743,6 +743,9 @@ export default async function ExecutiveDashboardPage({
     forecast_stage: string | null;
     amount: number | null;
     last_reviewed_at: string | null;
+    score_before_request: number | null;
+    score_after_request: number | null;
+    reviewed_after_at: string | null;
     review_requested_by: number | null;
     review_requested_at: string | null;
     review_request_note: string | null;
@@ -761,6 +764,9 @@ export default async function ExecutiveDashboardPage({
           o.health_score,
           o.forecast_stage,
           o.amount,
+          score_before.total_score AS score_before_request,
+          score_after.total_score AS score_after_request,
+          score_after.reviewed_at AS reviewed_after_at,
           o.review_requested_by,
           o.review_requested_at::text AS review_requested_at,
           o.review_request_note,
@@ -772,6 +778,26 @@ export default async function ExecutiveDashboardPage({
         LEFT JOIN opportunity_audit_events oae
           ON oae.opportunity_id = o.id
           AND oae.total_score IS NOT NULL
+        LEFT JOIN LATERAL (
+          SELECT oae.total_score
+          FROM opportunity_audit_events oae
+          WHERE oae.opportunity_id = o.id
+            AND oae.org_id = $1::bigint
+            AND oae.total_score IS NOT NULL
+            AND oae.ts <= o.review_requested_at
+          ORDER BY oae.ts DESC, oae.id DESC
+          LIMIT 1
+        ) score_before ON true
+        LEFT JOIN LATERAL (
+          SELECT oae.total_score, oae.ts::text AS reviewed_at
+          FROM opportunity_audit_events oae
+          WHERE oae.opportunity_id = o.id
+            AND oae.org_id = $1::bigint
+            AND oae.total_score IS NOT NULL
+            AND oae.ts > o.review_requested_at
+          ORDER BY oae.ts DESC, oae.id DESC
+          LIMIT 1
+        ) score_after ON true
         WHERE o.org_id = $1::bigint
           AND o.rep_id = ANY($2::bigint[])
           AND o.close_date >= $3::date
