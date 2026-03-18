@@ -420,17 +420,15 @@ export function ExecutiveTabsShellClient(props: {
 
       <div className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-6 text-sm text-[color:var(--sf-text-secondary)]">
         {activeTab === "forecast" && (
-          <ExecutiveGapInsightsClient
-            {...props.forecastTabProps}
-            forecastTabOnly={true}
-          />
+          <div className="-mx-4 -mt-4">
+            <ExecutiveGapInsightsClient {...props.forecastTabProps} forecastTabOnly={true} />
+          </div>
         )}
         {activeTab === "pipeline" && (
           <div className="space-y-6">
-            <ExecutiveGapInsightsClient
-              {...props.pipelineTabProps}
-              pipelineTabOnly={true}
-            />
+            <div className="-mx-4 -mt-4">
+              <ExecutiveGapInsightsClient {...props.pipelineTabProps} pipelineTabOnly={true} />
+            </div>
 
             <section className="mt-4 space-y-4">
               <header>
@@ -682,15 +680,19 @@ export function ExecutiveTabsShellClient(props: {
           </div>
         )}
         {"channel" === activeTab && (
-          <ExecutiveGapInsightsClient
-            {...props.revenueTabProps}
-            channelTabOnly={true}
-            topPartnerWon={props.topPartnerWon}
-            topPartnerLost={props.topPartnerLost}
-          />
+          <div className="-mx-4 -mt-4">
+            <ExecutiveGapInsightsClient
+              {...props.revenueTabProps}
+              channelTabOnly={true}
+              topPartnerWon={props.topPartnerWon}
+              topPartnerLost={props.topPartnerLost}
+            />
+          </div>
         )}
         {activeTab === "revenue" && (
-          <ExecutiveGapInsightsClient {...props.revenueTabProps} revenueTabOnly={true} />
+          <div className="-mx-4 -mt-4">
+            <ExecutiveGapInsightsClient {...props.revenueTabProps} revenueTabOnly={true} />
+          </div>
         )}
         {activeTab === "reports" && (
           <ReportsTabContent
