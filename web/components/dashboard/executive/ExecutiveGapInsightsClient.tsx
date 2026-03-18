@@ -2586,8 +2586,8 @@ export function ExecutiveGapInsightsClient(props: {
       .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0));
 
     // Data is fetched ordered by revenue (amount desc), so we highlight that default ordering.
-    const wonSortKey = "amount";
-    const lostSortKey = "amount";
+    const wonSortKey: string = "amount";
+    const lostSortKey: string = "amount";
 
     const sortLabelClass = (active: boolean) => (active ? "text-yellow-600" : "");
     const sortCellClass = (active: boolean) => (active ? "bg-yellow-50/5" : "");
