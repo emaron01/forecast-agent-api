@@ -785,18 +785,18 @@ export default async function ExecutiveDashboardPage({
           WHERE sb.opportunity_id = o.id
             AND sb.org_id = $1::bigint
             AND sb.total_score IS NOT NULL
-            AND COALESCE(sb.ts, sb.created_at) <= o.review_requested_at
-          ORDER BY COALESCE(sb.ts, sb.created_at) DESC, sb.id DESC
+            AND sb.ts <= o.review_requested_at
+          ORDER BY sb.ts DESC, sb.id DESC
           LIMIT 1
         ) score_before ON true
         LEFT JOIN LATERAL (
-          SELECT sa.total_score, COALESCE(sa.ts, sa.created_at)::text AS reviewed_at
+          SELECT sa.total_score, sa.ts::text AS reviewed_at
           FROM opportunity_audit_events sa
           WHERE sa.opportunity_id = o.id
             AND sa.org_id = $1::bigint
             AND sa.total_score IS NOT NULL
-            AND COALESCE(sa.ts, sa.created_at) > o.review_requested_at
-          ORDER BY COALESCE(sa.ts, sa.created_at) DESC, sa.id DESC
+            AND sa.ts > o.review_requested_at
+          ORDER BY sa.ts DESC, sa.id DESC
           LIMIT 1
         ) score_after ON true
         WHERE o.org_id = $1::bigint
