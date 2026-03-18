@@ -777,25 +777,26 @@ export default async function ExecutiveDashboardPage({
         LEFT JOIN users u ON u.id = o.review_requested_by
         LEFT JOIN opportunity_audit_events oae
           ON oae.opportunity_id = o.id
+          AND oae.org_id = $1::bigint
           AND oae.total_score IS NOT NULL
         LEFT JOIN LATERAL (
-          SELECT oae.total_score
-          FROM opportunity_audit_events oae
-          WHERE oae.opportunity_id = o.id
-            AND oae.org_id = $1::bigint
-            AND oae.total_score IS NOT NULL
-            AND oae.ts <= o.review_requested_at
-          ORDER BY oae.ts DESC, oae.id DESC
+          SELECT sb.total_score
+          FROM opportunity_audit_events sb
+          WHERE sb.opportunity_id = o.id
+            AND sb.org_id = $1::bigint
+            AND sb.total_score IS NOT NULL
+            AND COALESCE(sb.ts, sb.created_at) <= o.review_requested_at
+          ORDER BY COALESCE(sb.ts, sb.created_at) DESC, sb.id DESC
           LIMIT 1
         ) score_before ON true
         LEFT JOIN LATERAL (
-          SELECT oae.total_score, oae.ts::text AS reviewed_at
-          FROM opportunity_audit_events oae
-          WHERE oae.opportunity_id = o.id
-            AND oae.org_id = $1::bigint
-            AND oae.total_score IS NOT NULL
-            AND oae.ts > o.review_requested_at
-          ORDER BY oae.ts DESC, oae.id DESC
+          SELECT sa.total_score, COALESCE(sa.ts, sa.created_at)::text AS reviewed_at
+          FROM opportunity_audit_events sa
+          WHERE sa.opportunity_id = o.id
+            AND sa.org_id = $1::bigint
+            AND sa.total_score IS NOT NULL
+            AND COALESCE(sa.ts, sa.created_at) > o.review_requested_at
+          ORDER BY COALESCE(sa.ts, sa.created_at) DESC, sa.id DESC
           LIMIT 1
         ) score_after ON true
         WHERE o.org_id = $1::bigint
