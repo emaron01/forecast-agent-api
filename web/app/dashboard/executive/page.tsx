@@ -815,7 +815,11 @@ export default async function ExecutiveDashboardPage({
             o.forecast_stage IS NULL
             OR o.forecast_stage NOT ILIKE '%closed%'
           )
-        GROUP BY o.id, r.id, u.id
+        GROUP BY 
+          o.id, r.id, u.id,
+          score_before.total_score,
+          score_after.total_score,
+          score_after.reviewed_at
         ORDER BY o.review_requested_at DESC NULLS LAST, o.health_score ASC NULLS LAST
         `,
         [orgId, visibleRepIdsForQuery, selectedPeriod.period_start, selectedPeriod.period_end]
