@@ -275,15 +275,21 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                     <td className="px-3 py-2">{formatDate(d.last_reviewed_at)}</td>
                     <td className="px-3 py-2">
                       {hasRequest && d.score_after_request == null ? (
-                        <span className="inline-flex items-center rounded-full bg-yellow-500/10 px-2 py-0.5 text-xs text-yellow-500">
-                          Review Requested
-                          {d.review_request_note ? (
-                            <span className="ml-1 truncate max-w-[120px]" title={d.review_request_note}>
-                              · {d.review_request_note.slice(0, 20)}
-                              {d.review_request_note.length > 20 ? "…" : ""}
-                            </span>
-                          ) : null}
-                        </span>
+                        d.last_reviewed_at != null ? (
+                          <span className="inline-flex items-center rounded-full bg-[color:var(--sf-surface-alt)] px-2 py-0.5 text-xs text-[color:var(--sf-text-secondary)]">
+                            Reviewed — check score
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-yellow-500/10 px-2 py-0.5 text-xs text-yellow-500">
+                            Review Requested
+                            {d.review_request_note ? (
+                              <span className="ml-1 truncate max-w-[120px]" title={d.review_request_note}>
+                                · {d.review_request_note.slice(0, 20)}
+                                {d.review_request_note.length > 20 ? "…" : ""}
+                              </span>
+                            ) : null}
+                          </span>
+                        )
                       ) : delta != null ? (
                         delta > 0 ? (
                           <span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-0.5 text-xs text-green-600">
@@ -304,7 +310,7 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                         </span>
                       ) : justSent ? (
                         <span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-0.5 text-xs text-green-500">
-                          Request Sent
+                          Review Requested
                         </span>
                       ) : (
                         <span className="text-xs text-[color:var(--sf-text-secondary)]">—</span>
