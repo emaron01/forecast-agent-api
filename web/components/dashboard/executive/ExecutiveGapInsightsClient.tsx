@@ -2682,7 +2682,7 @@ export function ExecutiveGapInsightsClient(props: {
     }
 
     return (
-      <div className="grid gap-4">
+      <div className="w-full max-w-7xl mx-auto space-y-5">
         {partnersDecisionEngine ? (
           <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-3">
@@ -2737,26 +2737,26 @@ export function ExecutiveGapInsightsClient(props: {
               ] as const;
 
               return (
-                <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
+                <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5 w-fit">
                   <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Motion Performance Snapshot</div>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-2">
+                  <div className="mt-3 grid grid-cols-2 gap-4">
                     {rows.map((row) => (
-                      <div key={row.k} className="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+                      <div key={row.k} className="w-fit max-w-[240px] h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
                         <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{row.k}</div>
-                        <div className="mt-3 grid gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
-                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                        <div className="mt-3 flex flex-col gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                          <div className="flex items-center justify-between gap-4">
                             <span>Win Rate</span>
                             <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.win, directWin, partnerWin)].join(" ")}>{row.win == null ? "—" : fmtPct01(row.win)}</span>
                           </div>
-                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                          <div className="flex items-center justify-between gap-4">
                             <span>Avg Health</span>
                             <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.health, directHealth01, partnerHealth01)].join(" ")}>{row.health == null ? "—" : `${Math.round(row.health * 100)}%`}</span>
                           </div>
-                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                          <div className="flex items-center justify-between gap-4">
                             <span>Revenue</span>
                             <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.rev, directRev, partnerRev)].join(" ")}>{row.rev == null ? "—" : fmtMoneyK(row.rev)}</span>
                           </div>
-                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                          <div className="flex items-center justify-between gap-4">
                             <span>Mix</span>
                             <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.mix, directMix, partnerMix)].join(" ")}>{row.mix == null ? "—" : fmtPct01(row.mix)}</span>
                           </div>
@@ -2784,22 +2784,22 @@ export function ExecutiveGapInsightsClient(props: {
                       const dRev = directRev == null || partnerRev == null ? null : directRev - partnerRev;
                       const dMix = directMix == null || partnerMix == null ? null : directMix - partnerMix;
                       return (
-                        <div className="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+                        <div className="w-fit max-w-[240px] h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
                           <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct Vs. Indirect Performance</div>
-                          <div className="mt-3 grid gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
-                            <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                          <div className="mt-3 flex flex-col gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                            <div className="flex items-center justify-between gap-4">
                               <span>Win Rate</span>
                               <span className={["font-mono text-xs font-semibold", deltaTone(dWin)].join(" ")}>{fmtPp(dWin)}</span>
                             </div>
-                            <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                            <div className="flex items-center justify-between gap-4">
                               <span>Avg Health</span>
                               <span className={["font-mono text-xs font-semibold", deltaTone(dHealth)].join(" ")}>{fmtPp(dHealth)}</span>
                             </div>
-                            <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                            <div className="flex items-center justify-between gap-4">
                               <span>Revenue</span>
                               <span className={["font-mono text-xs font-semibold", deltaTone(dRev)].join(" ")}>{fmtMoneyKSigned(dRev)}</span>
                             </div>
-                            <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                            <div className="flex items-center justify-between gap-4">
                               <span>Mix</span>
                               <span className={["font-mono text-xs font-semibold", deltaTone(dMix)].join(" ")}>{fmtPp(dMix)}</span>
                             </div>
@@ -2808,7 +2808,7 @@ export function ExecutiveGapInsightsClient(props: {
                       );
                     })()}
 
-                    <div className="h-fit self-start rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+                    <div className="h-fit self-start rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 w-fit max-w-[240px]">
                       {(() => {
                         const ceiCur = partnersDecisionEngine.cei.partner_index;
                         const ceiPrev = partnersDecisionEngine.cei_prev_partner_index;
