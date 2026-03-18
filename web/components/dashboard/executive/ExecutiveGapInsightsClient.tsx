@@ -2739,7 +2739,7 @@ export function ExecutiveGapInsightsClient(props: {
               return (
                 <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
                   <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Motion Performance Snapshot</div>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-2">
                     {rows.map((row) => (
                       <div key={row.k} className="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
                         <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{row.k}</div>
