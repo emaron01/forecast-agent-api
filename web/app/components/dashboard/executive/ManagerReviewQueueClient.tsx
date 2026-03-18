@@ -250,18 +250,10 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
               const hasRequest = !!d.review_requested_at;
               const justSent = successDealIds.has(d.id);
               const isOpen = requestingDealId === d.id;
-              console.log("[Queue deal]", {
-                id: d.id,
-                opp: d.opp_name,
-                hasRequest: !!d.review_requested_at,
-                score_before: d.score_before_request,
-                score_after: d.score_after_request,
-                health: d.health_score,
-              });
-                const scoreBefore = d.score_before_request != null ? Math.max(0, Math.min(100, Math.round((d.score_before_request / 30) * 100))) : null;
-                const scoreAfter = d.score_after_request != null ? Math.max(0, Math.min(100, Math.round((d.score_after_request / 30) * 100))) : null;
-                const delta =
-                  scoreBefore != null && scoreAfter != null ? Math.round(scoreAfter - scoreBefore) : null;
+              const scoreBefore = d.score_before_request;
+              const scoreAfter = d.score_after_request;
+              const delta =
+                scoreBefore != null && scoreAfter != null ? Math.round(((scoreAfter - scoreBefore) / 30) * 100) : null;
               return (
                 <Fragment key={d.id}>
                   <tr className="border-t border-[color:var(--sf-border)]">
