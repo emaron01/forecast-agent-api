@@ -250,6 +250,14 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
               const hasRequest = !!d.review_requested_at;
               const justSent = successDealIds.has(d.id);
               const isOpen = requestingDealId === d.id;
+              console.log("[Queue deal]", {
+                id: d.id,
+                opp: d.opp_name,
+                hasRequest: !!d.review_requested_at,
+                score_before: d.score_before_request,
+                score_after: d.score_after_request,
+                health: d.health_score,
+              });
                 const scoreBefore = d.score_before_request != null ? Math.max(0, Math.min(100, Math.round((d.score_before_request / 30) * 100))) : null;
                 const scoreAfter = d.score_after_request != null ? Math.max(0, Math.min(100, Math.round((d.score_after_request / 30) * 100))) : null;
                 const delta =
@@ -274,14 +282,10 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                     <td className="px-3 py-2">{d.forecast_stage ?? "—"}</td>
                     <td className="px-3 py-2">{formatDate(d.last_reviewed_at)}</td>
                     <td className="px-3 py-2">
-                      {hasRequest && d.score_after_request == null ? (
-                        d.last_reviewed_at != null ? (
-                          <span className="inline-flex items-center rounded-full bg-[color:var(--sf-surface-alt)] px-2 py-0.5 text-xs text-[color:var(--sf-text-secondary)]">
-                            Reviewed — check score
-                          </span>
-                        ) : (
+                      {hasRequest ? (
+                        d.score_after_request == null ? (
                           <span className="inline-flex items-center rounded-full bg-yellow-500/10 px-2 py-0.5 text-xs text-yellow-500">
-                            Review Requested
+                            Review Requested — not reviewed yet
                             {d.review_request_note ? (
                               <span className="ml-1 truncate max-w-[120px]" title={d.review_request_note}>
                                 · {d.review_request_note.slice(0, 20)}
@@ -289,25 +293,31 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                               </span>
                             ) : null}
                           </span>
-                        )
-                      ) : delta != null ? (
-                        delta > 0 ? (
-                          <span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-0.5 text-xs text-green-600">
-                            Score +{delta}pp after review
+                        ) : d.score_before_request == null ? (
+                          <span className="inline-flex items-center rounded-full bg-yellow-500/10 px-2 py-0.5 text-xs text-yellow-500">
+                            Review Requested — no baseline yet
+                            {d.review_request_note ? (
+                              <span className="ml-1 truncate max-w-[120px]" title={d.review_request_note}>
+                                · {d.review_request_note.slice(0, 20)}
+                                {d.review_request_note.length > 20 ? "…" : ""}
+                              </span>
+                            ) : null}
                           </span>
-                        ) : delta === 0 ? (
-                          <span className="inline-flex items-center rounded-full bg-yellow-500/10 px-2 py-0.5 text-xs text-yellow-600">
-                            No change after review
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 text-xs text-red-600">
-                            Score -{Math.abs(delta)}pp after review
-                          </span>
-                        )
-                      ) : d.score_after_request != null && d.score_before_request == null ? (
-                        <span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-0.5 text-xs text-green-600">
-                          Reviewed — no baseline
-                        </span>
+                        ) : delta != null ? (
+                          delta > 0 ? (
+                            <span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-0.5 text-xs text-green-600">
+                              Score +{delta}pp after review
+                            </span>
+                          ) : delta === 0 ? (
+                            <span className="inline-flex items-center rounded-full bg-yellow-500/10 px-2 py-0.5 text-xs text-yellow-600">
+                              No change after review
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 text-xs text-red-600">
+                              Score -{Math.abs(delta)}pp after review
+                            </span>
+                          )
+                        ) : null
                       ) : justSent ? (
                         <span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-0.5 text-xs text-green-500">
                           Review Requested
