@@ -2682,7 +2682,7 @@ export function ExecutiveGapInsightsClient(props: {
     }
 
     return (
-      <div className="w-full max-w-7xl mx-auto space-y-5">
+      <div className="space-y-5">
         {partnersDecisionEngine ? (
           <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-3">
@@ -2737,26 +2737,26 @@ export function ExecutiveGapInsightsClient(props: {
               ] as const;
 
               return (
-                <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5 w-fit">
+                <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
                   <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Motion Performance Snapshot</div>
-                  <div className="mt-3 grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                     {rows.map((row) => (
-                      <div key={row.k} className="w-fit max-w-[240px] h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+                      <div key={row.k} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
                         <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{row.k}</div>
-                        <div className="mt-3 flex flex-col gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
-                          <div className="flex items-center justify-between gap-4">
+                        <div className="mt-3 text-[11px] text-[color:var(--sf-text-secondary)]">
+                          <div className="flex items-center justify-between gap-2 mt-1">
                             <span>Win Rate</span>
                             <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.win, directWin, partnerWin)].join(" ")}>{row.win == null ? "—" : fmtPct01(row.win)}</span>
                           </div>
-                          <div className="flex items-center justify-between gap-4">
+                          <div className="flex items-center justify-between gap-2 mt-1">
                             <span>Avg Health</span>
                             <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.health, directHealth01, partnerHealth01)].join(" ")}>{row.health == null ? "—" : `${Math.round(row.health * 100)}%`}</span>
                           </div>
-                          <div className="flex items-center justify-between gap-4">
+                          <div className="flex items-center justify-between gap-2 mt-1">
                             <span>Revenue</span>
                             <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.rev, directRev, partnerRev)].join(" ")}>{row.rev == null ? "—" : fmtMoneyK(row.rev)}</span>
                           </div>
-                          <div className="flex items-center justify-between gap-4">
+                          <div className="flex items-center justify-between gap-2 mt-1">
                             <span>Mix</span>
                             <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.mix, directMix, partnerMix)].join(" ")}>{row.mix == null ? "—" : fmtPct01(row.mix)}</span>
                           </div>
@@ -2784,22 +2784,22 @@ export function ExecutiveGapInsightsClient(props: {
                       const dRev = directRev == null || partnerRev == null ? null : directRev - partnerRev;
                       const dMix = directMix == null || partnerMix == null ? null : directMix - partnerMix;
                       return (
-                        <div className="w-fit max-w-[240px] h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+                        <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
                           <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct Vs. Indirect Performance</div>
-                          <div className="mt-3 flex flex-col gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
-                            <div className="flex items-center justify-between gap-4">
+                          <div className="mt-3 text-[11px] text-[color:var(--sf-text-secondary)]">
+                            <div className="flex items-center justify-between gap-2 mt-1">
                               <span>Win Rate</span>
                               <span className={["font-mono text-xs font-semibold", deltaTone(dWin)].join(" ")}>{fmtPp(dWin)}</span>
                             </div>
-                            <div className="flex items-center justify-between gap-4">
+                            <div className="flex items-center justify-between gap-2 mt-1">
                               <span>Avg Health</span>
                               <span className={["font-mono text-xs font-semibold", deltaTone(dHealth)].join(" ")}>{fmtPp(dHealth)}</span>
                             </div>
-                            <div className="flex items-center justify-between gap-4">
+                            <div className="flex items-center justify-between gap-2 mt-1">
                               <span>Revenue</span>
                               <span className={["font-mono text-xs font-semibold", deltaTone(dRev)].join(" ")}>{fmtMoneyKSigned(dRev)}</span>
                             </div>
-                            <div className="flex items-center justify-between gap-4">
+                            <div className="flex items-center justify-between gap-2 mt-1">
                               <span>Mix</span>
                               <span className={["font-mono text-xs font-semibold", deltaTone(dMix)].join(" ")}>{fmtPp(dMix)}</span>
                             </div>
@@ -2808,7 +2808,7 @@ export function ExecutiveGapInsightsClient(props: {
                       );
                     })()}
 
-                    <div className="h-fit self-start rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 w-fit max-w-[240px]">
+                    <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
                       {(() => {
                         const ceiCur = partnersDecisionEngine.cei.partner_index;
                         const ceiPrev = partnersDecisionEngine.cei_prev_partner_index;
@@ -2845,20 +2845,20 @@ export function ExecutiveGapInsightsClient(props: {
                         return (
                           <>
                             <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CEI Performance</div>
-                            <div className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
-                              <div className="flex items-center justify-between gap-3">
+                            <div className="mt-2 text-sm text-[color:var(--sf-text-primary)]">
+                              <div className="flex items-center justify-between gap-2 mt-1">
                                 <span className="text-[color:var(--sf-text-secondary)]">CEI Status</span>
                                 <span className={["inline-flex min-w-[110px] items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold", pillToneClass(status.tone)].join(" ")}>{status.label}</span>
                               </div>
-                              <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center justify-between gap-2 mt-1">
                                 <span className="text-[color:var(--sf-text-secondary)]">Partner CEI</span>
                                 <span className="font-mono font-semibold">{ceiCurN == null ? "—" : `${Math.round(ceiCurN).toLocaleString("en-US")} (Direct = 100)`}</span>
                               </div>
-                              <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center justify-between gap-2 mt-1">
                                 <span className="text-[color:var(--sf-text-secondary)]">Confidence</span>
                                 <span className="font-mono font-semibold">{confBand}</span>
                               </div>
-                              <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center justify-between gap-2 mt-1">
                                 <span className="text-[color:var(--sf-text-secondary)]">Trend</span>
                                 <span className={["flex items-center gap-1 font-mono font-semibold", trend.tone === "good" ? "text-[#16A34A]" : trend.tone === "bad" ? "text-[#E74C3C]" : "text-[color:var(--sf-text-secondary)]"].join(" ")}>
                                   <span aria-hidden="true">{trend.arrow}</span>
