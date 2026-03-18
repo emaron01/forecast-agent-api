@@ -2015,6 +2015,14 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
               <div className="title">
                 {accountName || "Opportunity"} <span style={{ color: "var(--muted)" }}>· {oppName || ""}</span>
               </div>
+                  {oppState?.opportunity?.review_request_note?.trim() ? (
+                    <div className="mb-3 rounded-lg border border-yellow-500/30 bg-yellow-500/5 px-4 py-3 text-sm">
+                      <span className="font-semibold text-yellow-500">⚡ Manager note:</span>
+                      <span className="ml-2 text-[color:var(--sf-text-primary)]">
+                        {oppState?.opportunity?.review_request_note}
+                      </span>
+                    </div>
+                  ) : null}
               <div className="kv">
                 <b>Rep:</b> {repName || "—"} · <b>Forecast:</b> {forecastStage || "—"} · <b>Close:</b>{" "}
                 {closeDateStr || "—"} · <b>Updated:</b> {safeDate(opportunity?.updated_at)} · <b>Partner:</b>{" "}
