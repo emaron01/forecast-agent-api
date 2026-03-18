@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { Fragment, useMemo, useState } from "react";
 import { DealCoachingCard, type DealCoachingCardDeal } from "../coaching/DealCoachingCard";
 
@@ -57,6 +58,7 @@ type SortDir = "asc" | "desc";
 export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
   const { currentUserId } = props;
   const deals = Array.isArray(props.deals) ? props.deals : [];
+  const router = useRouter();
   const [requestingDealId, setRequestingDealId] = useState<string | null>(null);
   const [noteText, setNoteText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -65,6 +67,7 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
   const [expandedDealId, setExpandedDealId] = useState<string | null>(null);
   const [dealCache, setDealCache] = useState<Record<string, DealCoachingCardDeal>>({});
   const [dealLoading, setDealLoading] = useState<string | null>(null);
+  const [clearedDealIds, setClearedDealIds] = useState<Set<string>>(new Set());
   const [activeFilters, setActiveFilters] = useState<{ repName: string; reviewRequestedOnly: boolean }>({
     repName: "",
     reviewRequestedOnly: false,
@@ -128,6 +131,7 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
         if (!rep.includes(q)) return false;
       }
       if (activeFilters.reviewRequestedOnly && !d.review_requested_at) return false;
+      if (clearedDealIds.has(d.id) && d.review_requested_at) return false;
       return true;
     });
     const dir = sortDir === "asc" ? 1 : -1;
@@ -163,8 +167,9 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
       }
       return cmp * dir;
     });
+    console.log("[filter check]", deals.map((d) => ({ opp: d.opp_name, req: d.review_requested_at })));
     return list;
-  }, [deals, activeFilters.repName, activeFilters.reviewRequestedOnly, sortKey, sortDir]);
+  }, [deals, activeFilters.repName, activeFilters.reviewRequestedOnly, sortKey, sortDir, clearedDealIds]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -319,7 +324,27 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                       )}
                     </td>
                     <td className="px-3 py-2">
-                      {!hasRequest && !justSent ? (
+                      {hasRequest && d.score_after_request != null ? (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const res = await fetch("/api/coaching/request-review", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ opportunityId: d.id, action: "clear" }),
+                              });
+                              if (res.ok) {
+                                setClearedDealIds((prev) => new Set(prev).add(d.id));
+                                router.refresh();
+                              }
+                            } catch {}
+                          }}
+                          className="rounded-md border border-green-500 px-2 py-1 text-xs font-semibold text-green-500 hover:bg-green-500 hover:text-white transition-colors"
+                        >
+                          Mark Done
+                        </button>
+                      ) : !hasRequest && !justSent ? (
                         <button
                           type="button"
                           onClick={() => setRequestingDealId(d.id)}

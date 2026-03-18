@@ -291,29 +291,7 @@ async function insertAuditEvent(pool, {
 
   try {
     const { rows } = await pool.query(q, values);
-    const newAuditId = rows[0]?.id ?? null;
-
-    // Clear any pending manager review request
-    // now that a Matthew review has been completed
-    try {
-      await pool.query(
-        `UPDATE opportunities 
-         SET review_requested_by = NULL,
-             review_requested_at = NULL,
-             review_request_note = NULL
-         WHERE id = $1::bigint
-           AND review_requested_at IS NOT NULL`,
-        [opportunityId]
-      );
-    } catch (clearErr) {
-      // Non-fatal — log but don't fail the review
-      console.error(
-        "[muscle] failed to clear review request:",
-        clearErr
-      );
-    }
-
-    return newAuditId;
+    return rows[0]?.id ?? null;
   } catch (e) {
     // If the table exists but schema differs, do not block deal review saves.
     // Postgres undefined_column is 42703.

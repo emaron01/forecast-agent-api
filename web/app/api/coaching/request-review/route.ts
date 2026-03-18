@@ -16,9 +16,31 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const opportunityId = String(body?.opportunityId ?? "").trim();
+    const action = String(body?.action ?? "").trim();
     const note = typeof body?.note === "string" ? body.note.trim() : "";
 
     if (!opportunityId) return NextResponse.json({ ok: false, error: "opportunityId required" }, { status: 400 });
+
+    if (action === "clear") {
+      const result = await pool.query(
+        `
+        UPDATE opportunities
+        SET
+          review_requested_by = NULL,
+          review_requested_at = NULL,
+          review_request_note = NULL
+        WHERE public_id = $1::uuid
+          AND org_id = $2::bigint
+        `,
+        [opportunityId, auth.user.org_id]
+      );
+
+      if (result.rowCount === 0) {
+        return NextResponse.json({ ok: false, error: "Opportunity not found or access denied" }, { status: 404 });
+      }
+
+      return NextResponse.json({ ok: true });
+    }
 
     const result = await pool.query(
       `
