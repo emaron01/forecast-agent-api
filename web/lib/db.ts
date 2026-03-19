@@ -1121,7 +1121,15 @@ export async function retryFailedStagingRows(args: {
 // -----------------------------
 
 export const zUserId = z.coerce.number().int().positive();
-export const zUserRole = z.enum(["ADMIN", "EXEC_MANAGER", "MANAGER", "REP"]);
+export const zUserRole = z.enum([
+  "ADMIN",
+  "EXEC_MANAGER",
+  "MANAGER",
+  "REP",
+  "CHANNEL_EXEC",
+  "CHANNEL_MANAGER",
+  "CHANNEL_REP",
+]);
 
 export type OrganizationRow = {
   id: number;
@@ -1146,7 +1154,14 @@ export type UserRow = {
   org_id: number;
   email: string;
   password_hash: string;
-  role: "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP";
+  role:
+    | "ADMIN"
+    | "EXEC_MANAGER"
+    | "MANAGER"
+    | "REP"
+    | "CHANNEL_EXEC"
+    | "CHANNEL_MANAGER"
+    | "CHANNEL_REP";
   hierarchy_level: number;
   first_name: string | null;
   last_name: string | null;
@@ -1715,7 +1730,14 @@ export async function listOrganizationDescendantIds(args: { orgId: number }) {
 export async function getVisibleUsers(args: {
   currentUserId: number;
   orgId: number;
-  role: "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP";
+  role:
+    | "ADMIN"
+    | "EXEC_MANAGER"
+    | "MANAGER"
+    | "REP"
+    | "CHANNEL_EXEC"
+    | "CHANNEL_MANAGER"
+    | "CHANNEL_REP";
   hierarchy_level?: number;
   see_all_visibility?: boolean;
 }) {
@@ -1916,7 +1938,14 @@ export async function createUser(args: {
   org_id: number;
   email: string;
   password_hash: string;
-  role: "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP";
+  role:
+    | "ADMIN"
+    | "EXEC_MANAGER"
+    | "MANAGER"
+    | "REP"
+    | "CHANNEL_EXEC"
+    | "CHANNEL_MANAGER"
+    | "CHANNEL_REP";
   hierarchy_level?: number;
   first_name?: string | null;
   last_name?: string | null;
@@ -2011,7 +2040,14 @@ export async function updateUser(args: {
   org_id: number;
   id: number;
   email: string;
-  role: "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP";
+  role:
+    | "ADMIN"
+    | "EXEC_MANAGER"
+    | "MANAGER"
+    | "REP"
+    | "CHANNEL_EXEC"
+    | "CHANNEL_MANAGER"
+    | "CHANNEL_REP";
   hierarchy_level?: number;
   first_name?: string | null;
   last_name?: string | null;

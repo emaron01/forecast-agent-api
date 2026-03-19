@@ -37,6 +37,13 @@ export default async function DashboardPage({
 }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
+  if (
+    ctx.user.role === "CHANNEL_EXEC" ||
+    ctx.user.role === "CHANNEL_MANAGER" ||
+    ctx.user.role === "CHANNEL_REP"
+  ) {
+    redirect("/dashboard/channel");
+  }
   if (ctx.user.role === "ADMIN") redirect("/admin");
   // Make the Executive Dashboard the primary dashboard for leadership roles.
   if (ctx.user.role === "MANAGER" || ctx.user.role === "EXEC_MANAGER") redirect("/dashboard/executive");

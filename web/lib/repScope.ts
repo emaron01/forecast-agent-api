@@ -106,7 +106,14 @@ async function getRepById(orgId: number, repId: number): Promise<RepDirectoryRow
 export async function getScopedRepDirectory(args: {
   orgId: number;
   userId: number;
-  role: "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP";
+  role:
+    | "ADMIN"
+    | "EXEC_MANAGER"
+    | "MANAGER"
+    | "REP"
+    | "CHANNEL_EXEC"
+    | "CHANNEL_MANAGER"
+    | "CHANNEL_REP";
 }): Promise<{
   repDirectory: RepDirectoryRow[];
   allowedRepIds: number[] | null; // null => no filter (admin)
@@ -169,7 +176,7 @@ export async function getScopedRepDirectory(args: {
     return { repDirectory: uniq, allowedRepIds: allowed, myRepId: me.id };
   }
 
-  // EXEC_MANAGER
+  // EXEC_MANAGER and channel leadership/sales roles default to exec-style org visibility.
   // IMPORTANT: exec visibility should include the full descendant tree (not just 1 level of managers → reps),
   // otherwise team dropdowns can miss indirect reports.
   const { rows } = await pool.query(
