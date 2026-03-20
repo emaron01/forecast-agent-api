@@ -10,6 +10,7 @@ import {
   generateResetLinkAction,
   updateUserAction,
 } from "../actions/users";
+import { RoleSelect } from "../../../components/admin/RoleSelect";
 
 export const runtime = "nodejs";
 
@@ -58,6 +59,12 @@ export default async function UsersPage({
   );
   const labelForLevel = (level: number, fallback: string) => hierarchyLabelByLevel.get(level) || fallback;
   const roleToLevel = (role: string) => (role === "ADMIN" ? 0 : role === "EXEC_MANAGER" ? 1 : role === "MANAGER" ? 2 : 3);
+  const roleOptions = [
+    { role: "ADMIN" as const, label: labelForLevel(0, "Admin") },
+    { role: "EXEC_MANAGER" as const, label: labelForLevel(1, "Executive Manager") },
+    { role: "MANAGER" as const, label: labelForLevel(2, "Manager") },
+    { role: "REP" as const, label: labelForLevel(3, "Rep") },
+  ] as const;
 
   const usersRaw = isManager
     ? await listRepUsersForManager({ orgId, managerUserId: ctx.kind === "user" ? ctx.user.id : 0, includeUnassigned: true }).catch(
@@ -188,7 +195,19 @@ export default async function UsersPage({
             {users.length ? (
               users.map((u) => (
                 <tr key={u.public_id} className="border-t border-[color:var(--sf-border)]">
-                  <td className="px-4 py-3">{labelForLevel(roleToLevel(u.role), u.role)}</td>
+                  <td className="px-4 py-3">
+                    {isAdmin ? (
+                      <RoleSelect
+                        userId={String(u.public_id)}
+                        orgId={orgId}
+                        currentRole={u.role}
+                        roleOptions={roleOptions}
+                        disableIfUnknown
+                      />
+                    ) : (
+                      labelForLevel(roleToLevel(u.role), u.role)
+                    )}
+                  </td>
                   <td className="px-4 py-3">{u.display_name}</td>
                   <td className="px-4 py-3">{u.title || ""}</td>
                   <td className="px-4 py-3">{u.account_owner_name}</td>
