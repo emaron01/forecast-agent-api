@@ -20,7 +20,7 @@ export default async function ForecastPage({
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
 
-  const repFilterLocked = ctx.user.role === "REP";
+  const repFilterLocked = ctx.user.role === "REP" || ctx.user.role === "FORECAST_AGENT";
   const defaultRepName = repFilterLocked ? String(ctx.user.account_owner_name || "") : "";
 
   const quotaPeriods =
@@ -84,7 +84,7 @@ export default async function ForecastPage({
     <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
       <main className="mx-auto max-w-6xl p-6">
-        {ctx.user.role !== "REP" ? (
+        {ctx.user.role !== "REP" && ctx.user.role !== "FORECAST_AGENT" ? (
           <QuarterSalesForecastSummary
             orgId={ctx.user.org_id}
             user={ctx.user}

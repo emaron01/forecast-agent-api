@@ -8,7 +8,7 @@ import { hashPassword } from "../../lib/password";
 const UserInputSchema = z.object({
   email: z.string().min(1),
   password: z.string().min(8),
-  role: z.enum(["ADMIN", "MANAGER", "REP"]),
+  role: z.enum(["ADMIN", "MANAGER", "REP", "FORECAST_AGENT"]),
   first_name: z.string().min(1),
   last_name: z.string().min(1),
   account_owner_name: z.string().optional(),
@@ -116,7 +116,7 @@ export async function signupAction(formData: FormData) {
       }
 
       // Create users with manager_user_id initially NULL. We'll update REPs after inserts.
-      const inserted: Array<{ id: number; email: string; role: "ADMIN" | "MANAGER" | "REP" }> = [];
+      const inserted: Array<{ id: number; email: string; role: "ADMIN" | "MANAGER" | "REP" | "FORECAST_AGENT" }> = [];
       for (let i = 0; i < users.length; i++) {
         const u = users[i];
         const password_hash = passwordHashes[i];
@@ -124,7 +124,7 @@ export async function signupAction(formData: FormData) {
         if (!display_name) redirectError("invalid_request");
         const hierarchy_level = u.role === "ADMIN" ? 0 : u.role === "MANAGER" ? 2 : 3;
         const account_owner_name = String(u.account_owner_name || "").trim() || null;
-        if (hierarchy_level === 3 && !account_owner_name) throw new Error("REP account_owner_name is required");
+        if (hierarchy_level === 3 && !account_owner_name) throw new Error("REP/FORECAST_AGENT account_owner_name is required");
         const res = await c.query(
           `
           INSERT INTO users
@@ -142,18 +142,18 @@ export async function signupAction(formData: FormData) {
         });
       }
 
-      const byEmail = new Map<string, { id: number; role: "ADMIN" | "MANAGER" | "REP" }>(
+      const byEmail = new Map<string, { id: number; role: "ADMIN" | "MANAGER" | "REP" | "FORECAST_AGENT" }>(
         inserted.map((r) => [r.email, { id: r.id, role: r.role }])
       );
 
       for (const u of users) {
-        if (u.role !== "REP") continue;
+        if (u.role !== "REP" && u.role !== "FORECAST_AGENT") continue;
         if (!u.manager_email) continue;
 
         const repRow = byEmail.get(u.email);
         const mgrRow = byEmail.get(u.manager_email);
         if (!repRow) throw new Error("Internal error: missing inserted rep user");
-        if (!mgrRow || mgrRow.role !== "MANAGER") throw new Error("REP manager must be a MANAGER user in this signup list");
+        if (!mgrRow || mgrRow.role !== "MANAGER") throw new Error("REP/FORECAST_AGENT manager must be a MANAGER user in this signup list");
 
         await c.query(`UPDATE users SET manager_user_id = $3, updated_at = NOW() WHERE org_id = $1 AND id = $2`, [
           orgId,
@@ -175,7 +175,7 @@ export async function signupAction(formData: FormData) {
       if (String((e as any)?.code || "") === "42P01") redirectError("schema_mismatch"); // undefined_table
       if (msg.includes("ADMIN user is required")) redirectError("invalid_request");
       if (msg.includes("Duplicate email")) redirectError("invalid_request");
-      if (msg.includes("REP manager")) redirectError("invalid_request");
+      if (msg.includes("manager must be a MANAGER")) redirectError("invalid_request");
       redirectError("unknown");
     } finally {
       c.release();

@@ -59,11 +59,13 @@ export default async function UsersPage({
   );
   const labelForLevel = (level: number, fallback: string) => hierarchyLabelByLevel.get(level) || fallback;
   const roleToLevel = (role: string) => (role === "ADMIN" ? 0 : role === "EXEC_MANAGER" ? 1 : role === "MANAGER" ? 2 : 3);
+  const roleLabel = (role: string) => (role === "FORECAST_AGENT" ? "Forecast Agent" : labelForLevel(roleToLevel(role), role));
   const roleOptions = [
     { role: "ADMIN" as const, label: labelForLevel(0, "Admin") },
     { role: "EXEC_MANAGER" as const, label: labelForLevel(1, "Executive Manager") },
     { role: "MANAGER" as const, label: labelForLevel(2, "Manager") },
     { role: "REP" as const, label: labelForLevel(3, "Rep") },
+    { role: "FORECAST_AGENT" as const, label: "Forecast Agent" },
   ] as const;
 
   const usersRaw = isManager
@@ -164,6 +166,7 @@ export default async function UsersPage({
             <option value="EXEC_MANAGER">{labelForLevel(1, "Executive Manager")}</option>
             <option value="MANAGER">{labelForLevel(2, "Manager")}</option>
             <option value="REP">{labelForLevel(3, "Rep")}</option>
+            <option value="FORECAST_AGENT">Forecast Agent</option>
           </select>
         </div>
         <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
@@ -205,7 +208,7 @@ export default async function UsersPage({
                         disableIfUnknown
                       />
                     ) : (
-                      labelForLevel(roleToLevel(u.role), u.role)
+                      roleLabel(u.role)
                     )}
                   </td>
                   <td className="px-4 py-3">{u.display_name}</td>
@@ -337,6 +340,7 @@ export default async function UsersPage({
                     <option value="EXEC_MANAGER">{labelForLevel(1, "Executive Manager")}</option>
                     <option value="MANAGER">{labelForLevel(2, "Manager")}</option>
                     <option value="REP">{labelForLevel(3, "Rep")}</option>
+                    <option value="FORECAST_AGENT">Forecast Agent</option>
                   </select>
                 </div>
 
@@ -396,7 +400,7 @@ export default async function UsersPage({
 
             {isAdmin ? (
               <div className="grid gap-2">
-                <div className="grid gap-1" data-show-roles="REP" hidden>
+                <div className="grid gap-1" data-show-roles="REP,FORECAST_AGENT" hidden>
                   <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
                   <select
                     name="manager_user_public_id"
@@ -604,6 +608,7 @@ export default async function UsersPage({
                     <option value="EXEC_MANAGER">{labelForLevel(1, "Executive Manager")}</option>
                     <option value="MANAGER">{labelForLevel(2, "Manager")}</option>
                     <option value="REP">{labelForLevel(3, "Rep")}</option>
+                    <option value="FORECAST_AGENT">Forecast Agent</option>
                   </select>
                 </div>
 
@@ -679,7 +684,7 @@ export default async function UsersPage({
 
             {isAdmin ? (
               <div className="grid gap-2">
-                <div className="grid gap-1" data-show-roles="REP" hidden>
+                <div className="grid gap-1" data-show-roles="REP,FORECAST_AGENT" hidden>
                   <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
                   <select
                     name="manager_user_public_id"

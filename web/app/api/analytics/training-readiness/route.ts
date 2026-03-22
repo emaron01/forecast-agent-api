@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     if (auth.kind !== "user") return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
     const role = String(auth.user.role || "").trim();
-    if (role === "REP") {
+    if (role === "REP" || role === "FORECAST_AGENT") {
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     }
 
@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
       const scope = await getScopedRepDirectory({
         orgId,
         userId: auth.user.id,
-        role: role as "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP",
+        role: role as "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP" | "FORECAST_AGENT",
       }).catch(() => ({ allowedRepIds: [] }));
       repIds = scope.allowedRepIds ?? undefined;
     }

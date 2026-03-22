@@ -51,7 +51,9 @@ function extractJsonStringValue(buffer: string, key: string): string | null {
     if (c === '"') {
       const rawStr = raw.join("");
       try {
-        const wrapped = '{"_":"' + rawStr.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"}';
+        // `rawStr` is the exact contents of the JSON string (including escape sequences like `\"`, `\\`, `\n`, `\uXXXX`).
+        // Wrap it directly so `JSON.parse` can decode those escapes.
+        const wrapped = '{"_":"' + rawStr + '"}';
         return JSON.parse(wrapped)._ as string;
       } catch {
         return null;

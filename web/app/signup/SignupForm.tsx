@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-type Role = "ADMIN" | "MANAGER" | "REP";
+type Role = "ADMIN" | "MANAGER" | "REP" | "FORECAST_AGENT";
 
 type UserDraft = {
   role: Role;
@@ -176,6 +176,7 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
                       <option value="ADMIN">ADMIN</option>
                       <option value="MANAGER">MANAGER</option>
                       <option value="REP">REP</option>
+                      <option value="FORECAST_AGENT">Forecast Agent</option>
                     </select>
                   </div>
 
@@ -219,7 +220,7 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
                       onChange={(e) => setUser(i, { account_owner_name: e.target.value })}
                       className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none transition placeholder:text-[color:var(--sf-text-disabled)] focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
                       placeholder="Jane Doe"
-                      required={u.role === "REP"}
+                      required={u.role === "REP" || u.role === "FORECAST_AGENT"}
                     />
                     <p className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Required for Reps only.</p>
                   </div>
@@ -236,7 +237,7 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
                     />
                   </div>
 
-                  {u.role === "REP" ? (
+                  {u.role === "REP" || u.role === "FORECAST_AGENT" ? (
                     <div className="grid gap-1.5 md:col-span-2">
                       <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Manager (optional)</label>
                       <select
@@ -292,7 +293,7 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
                       </td>
                       <td className="px-4 py-3">{u.email}</td>
                       <td className="px-4 py-3">{u.account_owner_name}</td>
-                      <td className="px-4 py-3">{u.role === "REP" ? (u.manager_email || "") : ""}</td>
+                      <td className="px-4 py-3">{u.role === "REP" || u.role === "FORECAST_AGENT" ? (u.manager_email || "") : ""}</td>
                       <td className="px-4 py-3 text-right">
                         <div className="inline-flex items-center gap-2">
                           <span className="inline-flex items-center rounded-full border border-[#2ECC71] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-[11px] font-medium text-[#2ECC71]">

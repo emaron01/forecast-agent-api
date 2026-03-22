@@ -24,7 +24,7 @@ export default async function RepDashboardPage({
   if (!userId) redirect("/dashboard");
 
   const repUser = await getUserById({ orgId: ctx.user.org_id, userId });
-  if (!repUser || repUser.role !== "REP") redirect("/dashboard");
+  if (!repUser || (repUser.role !== "REP" && repUser.role !== "FORECAST_AGENT")) redirect("/dashboard");
 
   if (ctx.user.role === "MANAGER" || ctx.user.role === "EXEC_MANAGER") {
     // Managers can only view dashboards for visible reps.
@@ -35,7 +35,7 @@ export default async function RepDashboardPage({
       hierarchy_level: ctx.user.hierarchy_level,
       see_all_visibility: ctx.user.see_all_visibility,
     }).catch(() => []);
-    if (!visible.some((u) => u.id === repUser.id && u.role === "REP")) redirect("/dashboard");
+    if (!visible.some((u) => u.id === repUser.id && u.role === repUser.role)) redirect("/dashboard");
   }
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
@@ -47,7 +47,7 @@ export default async function RepDashboardPage({
     public_id: String((repUser as any).public_id || ""),
     org_id: Number(repUser.org_id),
     email: String(repUser.email || ""),
-    role: "REP" as const,
+    role: repUser.role === "FORECAST_AGENT" ? ("FORECAST_AGENT" as const) : ("REP" as const),
     hierarchy_level: Number((repUser as any).hierarchy_level ?? 3) || 3,
     display_name: String(repUser.display_name || ""),
     account_owner_name: repUser.account_owner_name == null ? null : String(repUser.account_owner_name || ""),

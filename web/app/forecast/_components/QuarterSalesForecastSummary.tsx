@@ -184,7 +184,9 @@ export async function QuarterSalesForecastSummary(props: {
     see_all_visibility: props.user.see_all_visibility,
   }).catch(() => []);
 
-  const visibleRepUsers = (visibleUsers || []).filter((u) => u && u.role === "REP" && u.active);
+  const visibleRepUsers = (visibleUsers || []).filter(
+    (u) => u && (u.role === "REP" || u.role === "FORECAST_AGENT") && u.active
+  );
   const visibleRepUserIds = Array.from(new Set(visibleRepUsers.map((u) => Number(u.id)).filter((n) => Number.isFinite(n) && n > 0)));
   // Improve matching: some orgs store opp rep_name as user display_name (not account_owner_name).
   const visibleRepNameKeys = Array.from(
@@ -227,8 +229,12 @@ export async function QuarterSalesForecastSummary(props: {
     orgId: props.orgId,
     userId: props.user.id,
     role:
-      role === "ADMIN" || role === "EXEC_MANAGER" || role === "MANAGER" || role === "REP"
-        ? (role as "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP")
+      role === "ADMIN" ||
+      role === "EXEC_MANAGER" ||
+      role === "MANAGER" ||
+      role === "REP" ||
+      role === "FORECAST_AGENT"
+        ? (role as "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP" | "FORECAST_AGENT")
         : ("REP" as const),
   }).catch(() => null);
   const allowedRepIds = scope?.allowedRepIds ?? [];
@@ -243,7 +249,7 @@ export async function QuarterSalesForecastSummary(props: {
       FROM reps
       WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
         AND (active IS TRUE OR active IS NULL)
-        AND role = 'REP'
+        AND role IN ('REP', 'FORECAST_AGENT')
         AND (NOT $2::boolean OR id = ANY($3::bigint[]))
       ORDER BY name ASC, id ASC
       `,
@@ -254,7 +260,7 @@ export async function QuarterSalesForecastSummary(props: {
 
   // For REP users, keep a friendly headline; for managers/admins, show a team headline.
   const repNameForHeadline =
-    role === "REP"
+    role === "REP" || role === "FORECAST_AGENT"
       ? (userRepName || String(props.user.display_name || "").trim())
       : String(props.user.display_name || "").trim();
 
@@ -999,7 +1005,7 @@ export async function QuarterSalesForecastSummary(props: {
   // Gap for "Left To Go" is based on the Left To Go values: (CRM Left To Go) − (Verdict Left To Go).
   const gapLeftToGo = leftCrmWeighted - leftVerdictWeighted;
   const headline =
-    role === "REP"
+    role === "REP" || role === "FORECAST_AGENT"
       ? repNameForHeadline
         ? `${repNameForHeadline}'s Quarterly Sales Forecast`
         : "Quarterly Sales Forecast"
@@ -1084,7 +1090,7 @@ export async function QuarterSalesForecastSummary(props: {
             selectedFiscalYear={yearToUse}
             selectedPeriodId={qpId}
           />
-          {role === "REP" && !userRepName ? (
+          {(role === "REP" || role === "FORECAST_AGENT") && !userRepName ? (
             <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
               Rep visibility is restricted to your own records, but your account is missing `account_owner_name`.
             </div>
@@ -1264,11 +1270,11 @@ export async function QuarterSalesForecastSummary(props: {
           reps={repsForGapReport}
           initialQuotaPeriodId={qpId}
           hideQuotaPeriodSelect={true}
-          defaultRepName={role === "REP" ? (userRepName || String(props.user.display_name || "").trim() || null) : null}
+          defaultRepName={role === "REP" || role === "FORECAST_AGENT" ? (userRepName || String(props.user.display_name || "").trim() || null) : null}
         />
       </div>
 
-      {role !== "REP" && repRollups.length ? (
+      {role !== "REP" && role !== "FORECAST_AGENT" && repRollups.length ? (
         <details className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
           <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">
             Rep CRM Actual Forecast Stages with Health Scores ({repRollups.length})
@@ -1354,7 +1360,7 @@ export async function QuarterSalesForecastSummary(props: {
       {products.length ? (
         <section className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
           <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">
-            {role === "REP" ? "Revenue by product (Closed Won)" : "Team revenue by product (Closed Won)"}
+            {role === "REP" || role === "FORECAST_AGENT" ? "Revenue by product (Closed Won)" : "Team revenue by product (Closed Won)"}
           </div>
           <div className="mt-3 overflow-x-auto">
             <table className="min-w-[760px] table-auto border-collapse text-sm">
@@ -1388,7 +1394,7 @@ export async function QuarterSalesForecastSummary(props: {
             </table>
           </div>
 
-          {role !== "REP" ? (
+          {role !== "REP" && role !== "FORECAST_AGENT" ? (
             <details className="mt-3">
               <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">
                 Rep breakdown (by product)

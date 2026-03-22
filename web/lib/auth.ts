@@ -19,7 +19,7 @@ export type AuthUser = {
   public_id: string;
   org_id: number;
   email: string;
-  role: "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP";
+  role: "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP" | "FORECAST_AGENT";
   hierarchy_level: number;
   display_name: string;
   account_owner_name: string | null;

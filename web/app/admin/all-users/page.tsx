@@ -21,6 +21,7 @@ export default async function AllUsersPage() {
     { role: "EXEC_MANAGER" as const, label: labelForLevel(1, "Executive Manager") },
     { role: "MANAGER" as const, label: labelForLevel(2, "Manager") },
     { role: "REP" as const, label: labelForLevel(3, "Rep") },
+    { role: "FORECAST_AGENT" as const, label: "Forecast Agent" },
   ] as const;
 
   const users = await listAllUsersAcrossOrgs({ includeInactive: true, includeSuspendedOrgs: true }).catch(

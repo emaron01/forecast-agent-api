@@ -211,7 +211,7 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
      WHERE COALESCE(r.organization_id, r.org_id::bigint) = u.org_id
        AND r.user_id = u.id
        AND u.org_id = $1
-       AND u.role IN ('REP', 'MANAGER', 'EXEC_MANAGER')
+       AND u.role IN ('REP', 'FORECAST_AGENT', 'MANAGER', 'EXEC_MANAGER')
     `,
     [organizationId]
   );
@@ -248,7 +248,7 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
       u.org_id AS organization_id
     FROM users u
     WHERE u.org_id = $1
-      AND u.role IN ('REP', 'MANAGER', 'EXEC_MANAGER')
+      AND u.role IN ('REP', 'FORECAST_AGENT', 'MANAGER', 'EXEC_MANAGER')
       AND COALESCE(
         NULLIF(btrim(u.display_name), ''),
         NULLIF(btrim(u.account_owner_name), ''),
@@ -274,7 +274,7 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
      WHERE COALESCE(r.organization_id, r.org_id::bigint) = u.org_id
        AND r.user_id = u.id
        AND u.org_id = $1
-       AND u.role IN ('REP', 'MANAGER')
+       AND u.role IN ('REP', 'FORECAST_AGENT', 'MANAGER')
        AND u.manager_user_id IS NOT NULL
        AND (r.manager_rep_id IS DISTINCT FROM mgr.id)
     `,
@@ -1126,6 +1126,7 @@ export const zUserRole = z.enum([
   "EXEC_MANAGER",
   "MANAGER",
   "REP",
+  "FORECAST_AGENT",
   "CHANNEL_EXEC",
   "CHANNEL_MANAGER",
   "CHANNEL_REP",
@@ -1159,6 +1160,7 @@ export type UserRow = {
     | "EXEC_MANAGER"
     | "MANAGER"
     | "REP"
+    | "FORECAST_AGENT"
     | "CHANNEL_EXEC"
     | "CHANNEL_MANAGER"
     | "CHANNEL_REP";
@@ -1735,6 +1737,7 @@ export async function getVisibleUsers(args: {
     | "EXEC_MANAGER"
     | "MANAGER"
     | "REP"
+    | "FORECAST_AGENT"
     | "CHANNEL_EXEC"
     | "CHANNEL_MANAGER"
     | "CHANNEL_REP";
@@ -1748,7 +1751,7 @@ export async function getVisibleUsers(args: {
   const seeAll = !!args.see_all_visibility;
 
   // REP: only themselves.
-  if (role === "REP") {
+  if (role === "REP" || role === "FORECAST_AGENT") {
     const u = await getUserById({ orgId, userId: currentUserId }).catch(() => null);
     return u ? ([u] as UserPublicRow[]) : ([] as UserPublicRow[]);
   }
@@ -1943,6 +1946,7 @@ export async function createUser(args: {
     | "EXEC_MANAGER"
     | "MANAGER"
     | "REP"
+    | "FORECAST_AGENT"
     | "CHANNEL_EXEC"
     | "CHANNEL_MANAGER"
     | "CHANNEL_REP";
@@ -2045,6 +2049,7 @@ export async function updateUser(args: {
     | "EXEC_MANAGER"
     | "MANAGER"
     | "REP"
+    | "FORECAST_AGENT"
     | "CHANNEL_EXEC"
     | "CHANNEL_MANAGER"
     | "CHANNEL_REP";
@@ -2378,7 +2383,7 @@ export async function listRepUsersForManager(args: { orgId: number; managerUserI
       updated_at
     FROM users
     WHERE org_id = $1
-      AND role = 'REP'
+      AND role IN ('REP', 'FORECAST_AGENT')
       AND (
         manager_user_id = $2
         OR ($3::bool IS TRUE AND manager_user_id IS NULL)

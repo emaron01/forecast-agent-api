@@ -90,6 +90,55 @@ test("Happy path — REP (no manager_user_id) -> MANAGER", async () => {
   assert.equal(body.user.see_all_visibility, false);
 });
 
+test("Happy path — REP (no manager_user_id) -> FORECAST_AGENT", async () => {
+  currentAuth = { kind: "user", user: { role: "ADMIN", org_id: 1 } };
+  poolCallCount = 0;
+  currentExistingRes = {
+    rows: [
+      {
+        id: 12,
+        role: "REP",
+        manager_user_id: null,
+        admin_has_full_analytics_access: false,
+        see_all_visibility: false,
+        manager_role: null,
+      },
+    ],
+  };
+  currentUpdateRes = {
+    rowCount: 1,
+    rows: [
+      {
+        id: 12,
+        public_id: "user-forecast-12",
+        role: "FORECAST_AGENT",
+        hierarchy_level: 3,
+        manager_user_id: null,
+        admin_has_full_analytics_access: false,
+        see_all_visibility: false,
+      },
+    ],
+  };
+  syncShouldThrow = false;
+
+  const patch = await getPatchHandler();
+  const res = await patch(
+    mkReq({
+      userId: "00000000-0000-4000-8000-000000000003",
+      role: "FORECAST_AGENT",
+      orgId: 1,
+    })
+  );
+
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.user.role, "FORECAST_AGENT");
+  assert.equal(body.user.hierarchy_level, 3);
+  assert.equal(body.user.admin_has_full_analytics_access, false);
+  assert.equal(body.user.see_all_visibility, false);
+});
+
 test("Happy path — MANAGER (with manager_user_id) -> ADMIN clears manager_user_id", async () => {
   currentAuth = { kind: "user", user: { role: "ADMIN", org_id: 1 } };
   poolCallCount = 0;

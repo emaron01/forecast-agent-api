@@ -66,6 +66,7 @@ async function listActiveRepsForOrg(orgId: number): Promise<RepDirectoryRow[]> {
         WHEN role = 'EXEC_MANAGER' THEN 0
         WHEN role = 'MANAGER' THEN 1
         WHEN role = 'REP' THEN 2
+        WHEN role = 'FORECAST_AGENT' THEN 2
         ELSE 9
       END,
       name ASC,
@@ -1124,7 +1125,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
       FROM reps
       WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
         AND (active IS TRUE OR active IS NULL)
-        AND role = 'REP'
+        AND role IN ('REP', 'FORECAST_AGENT')
         AND (NOT $2::boolean OR id = ANY($3::bigint[]))
       ORDER BY name ASC, id ASC
       `,

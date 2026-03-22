@@ -27,7 +27,7 @@ export default async function AnalyticsDetailDashboardPage({
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
   if (ctx.user.role === "ADMIN") redirect("/admin");
-  if (ctx.user.role === "REP") redirect("/dashboard");
+  if (ctx.user.role === "REP" || ctx.user.role === "FORECAST_AGENT") redirect("/dashboard");
   if (ctx.user.role !== "MANAGER" && ctx.user.role !== "EXEC_MANAGER") redirect("/analytics");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
@@ -43,7 +43,7 @@ export default async function AnalyticsDetailDashboardPage({
             hierarchy_level: ctx.user.hierarchy_level,
             see_all_visibility: ctx.user.see_all_visibility,
           }).catch(() => [])
-        ).filter((u) => u.role === "REP" && u.active)
+        ).filter((u) => (u.role === "REP" || u.role === "FORECAST_AGENT") && u.active)
       : [];
 
   return (
