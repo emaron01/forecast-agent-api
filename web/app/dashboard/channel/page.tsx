@@ -7,6 +7,7 @@ import { UserTopNav } from "../../_components/UserTopNav";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
+import { isChannelRepOnly } from "../../../lib/userRoles";
 
 export const runtime = "nodejs";
 
@@ -101,8 +102,8 @@ export default async function ChannelDashboardPage({
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
   if (
-    ctx.user.role !== "CHANNEL_EXEC" &&
-    ctx.user.role !== "CHANNEL_MANAGER" &&
+    ctx.user.role !== "CHANNEL_EXECUTIVE" &&
+    ctx.user.role !== "CHANNEL_DIRECTOR" &&
     ctx.user.role !== "CHANNEL_REP"
   ) {
     redirect("/dashboard");
@@ -197,7 +198,7 @@ export default async function ChannelDashboardPage({
         <div className="mt-4">
           <ExecutiveGapInsightsClient
             basePath="/dashboard/channel"
-            channelTabOnly={true}
+            channelTabOnly={isChannelRepOnly(ctx.user.role)}
             periods={summary.periods}
             quotaPeriodId={summary.selectedQuotaPeriodId}
             reps={summary.reps}

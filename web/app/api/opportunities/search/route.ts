@@ -36,9 +36,12 @@ export async function GET(req: Request) {
     // - ADMIN/master: unrestricted within org (optionally filter by repName)
     const scope =
       auth.kind === "user"
-        ? auth.user.role === "REP"
+        ? auth.user.role === "REP" || auth.user.role === "CHANNEL_REP"
           ? { kind: "rep" as const, repName: auth.user.account_owner_name || "" }
-          : auth.user.role === "MANAGER" || auth.user.role === "EXEC_MANAGER"
+          : auth.user.role === "MANAGER" ||
+              auth.user.role === "EXEC_MANAGER" ||
+              auth.user.role === "CHANNEL_EXECUTIVE" ||
+              auth.user.role === "CHANNEL_DIRECTOR"
             ? {
                 kind: "scoped" as const,
                 userId: auth.user.id,
@@ -60,7 +63,7 @@ export async function GET(req: Request) {
               see_all_visibility: scope.see_all_visibility,
             }).catch(() => [])
           )
-            .filter((u) => u.role === "REP" && u.active)
+            .filter((u) => (u.role === "REP" || u.role === "CHANNEL_REP") && u.active)
             .map((u) => u.account_owner_name)
             .filter(Boolean)
         : [];

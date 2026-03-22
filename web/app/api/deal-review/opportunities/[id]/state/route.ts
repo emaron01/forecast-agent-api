@@ -53,7 +53,7 @@ function ensureOpportunityVisible(args: {
   const { auth, opportunityRepName } = args;
   if (!auth) return { ok: false as const, status: 401 as const, error: "Unauthorized" };
   if (auth.kind !== "user") return { ok: false as const, status: 403 as const, error: "Forbidden" };
-  if (auth.user.role === "REP") {
+  if (auth.user.role === "REP" || auth.user.role === "CHANNEL_REP") {
     if (!opportunityRepName || opportunityRepName !== auth.user.account_owner_name) {
       return { ok: false as const, status: 403 as const, error: "Forbidden" };
     }
@@ -67,7 +67,7 @@ async function ensureManagerCanSeeRep(args: { orgId: number; managerUserId: numb
     SELECT 1
       FROM users
      WHERE org_id = $1
-       AND role = 'REP'
+       AND role IN ('REP', 'CHANNEL_REP')
        AND active IS TRUE
        AND manager_user_id = $2
        AND account_owner_name = $3

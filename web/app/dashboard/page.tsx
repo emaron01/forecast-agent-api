@@ -38,8 +38,8 @@ export default async function DashboardPage({
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
   if (
-    ctx.user.role === "CHANNEL_EXEC" ||
-    ctx.user.role === "CHANNEL_MANAGER" ||
+    ctx.user.role === "CHANNEL_EXECUTIVE" ||
+    ctx.user.role === "CHANNEL_DIRECTOR" ||
     ctx.user.role === "CHANNEL_REP"
   ) {
     redirect("/dashboard/channel");

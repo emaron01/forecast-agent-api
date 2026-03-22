@@ -38,7 +38,7 @@ export default async function ForecastHygienePage({
     redirect("/admin/organizations");
   }
   const user = ctx.user;
-  if (user.role === "REP") {
+  if (user.role === "REP" || user.role === "CHANNEL_REP") {
     redirect("/dashboard");
   }
 
@@ -100,7 +100,13 @@ export default async function ForecastHygienePage({
 
   // Rep-to-executive schema: same as executive dashboard (getScopedRepDirectory)
   const scopedRole =
-    user.role === "ADMIN" || user.role === "EXEC_MANAGER" || user.role === "MANAGER" || user.role === "REP"
+    user.role === "ADMIN" ||
+    user.role === "EXEC_MANAGER" ||
+    user.role === "MANAGER" ||
+    user.role === "REP" ||
+    user.role === "CHANNEL_EXECUTIVE" ||
+    user.role === "CHANNEL_DIRECTOR" ||
+    user.role === "CHANNEL_REP"
       ? user.role
       : "MANAGER";
   const scope = await getScopedRepDirectory({

@@ -1097,8 +1097,21 @@ export async function getExecutiveForecastDashboardSummary(args: {
 
   const roleRaw = String(args.user.role || "").trim();
   const scopedRole =
-    roleRaw === "ADMIN" || roleRaw === "EXEC_MANAGER" || roleRaw === "MANAGER" || roleRaw === "REP"
-      ? (roleRaw as "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP")
+    roleRaw === "ADMIN" ||
+    roleRaw === "EXEC_MANAGER" ||
+    roleRaw === "MANAGER" ||
+    roleRaw === "REP" ||
+    roleRaw === "CHANNEL_EXECUTIVE" ||
+    roleRaw === "CHANNEL_DIRECTOR" ||
+    roleRaw === "CHANNEL_REP"
+      ? (roleRaw as
+          | "ADMIN"
+          | "EXEC_MANAGER"
+          | "MANAGER"
+          | "REP"
+          | "CHANNEL_EXECUTIVE"
+          | "CHANNEL_DIRECTOR"
+          | "CHANNEL_REP")
       : ("REP" as const);
 
   let scope = await getScopedRepDirectory({ orgId: args.orgId, userId: args.user.id, role: scopedRole }).catch(() => ({

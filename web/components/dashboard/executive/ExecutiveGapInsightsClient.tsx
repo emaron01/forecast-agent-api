@@ -143,7 +143,10 @@ function rankRole(r: RepDirectoryRow) {
   const role = String(r.role || "").trim().toUpperCase();
   if (role === "EXEC_MANAGER") return 0;
   if (role === "MANAGER") return 1;
+  if (role === "CHANNEL_EXECUTIVE") return 1;
+  if (role === "CHANNEL_DIRECTOR") return 1;
   if (role === "REP") return 2;
+  if (role === "CHANNEL_REP") return 2;
   return 9;
 }
 
