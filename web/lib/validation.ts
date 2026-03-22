@@ -52,7 +52,15 @@ export const CreateUserSchema = z
   .object({
     org_public_id: z.string().uuid().optional(),
     email: z.string().min(1),
-    role: z.enum(["ADMIN", "EXEC_MANAGER", "MANAGER", "REP"]),
+    role: z.enum([
+      "ADMIN",
+      "EXEC_MANAGER",
+      "MANAGER",
+      "REP",
+      "CHANNEL_EXECUTIVE",
+      "CHANNEL_DIRECTOR",
+      "CHANNEL_REP",
+    ]),
     hierarchy_level: z.number().int().min(0).max(3).optional(),
     account_owner_name: z.string().optional(),
     first_name: z.string().min(1),
@@ -102,7 +110,15 @@ export const UpdateUserSchema = z
   .object({
     public_id: z.string().uuid(),
     email: z.string().min(1).optional(),
-    role: z.enum(["ADMIN", "EXEC_MANAGER", "MANAGER", "REP"]),
+    role: z.enum([
+      "ADMIN",
+      "EXEC_MANAGER",
+      "MANAGER",
+      "REP",
+      "CHANNEL_EXECUTIVE",
+      "CHANNEL_DIRECTOR",
+      "CHANNEL_REP",
+    ]),
     hierarchy_level: z.number().int().min(0).max(3).optional(),
     account_owner_name: z.string().optional(),
     first_name: z.string().min(1),

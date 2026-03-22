@@ -6,7 +6,15 @@ import { syncRepsFromUsers } from "../../../../../lib/db";
 
 export const runtime = "nodejs";
 
-const roleOptions = ["ADMIN", "EXEC_MANAGER", "MANAGER", "REP"] as const;
+const roleOptions = [
+  "ADMIN",
+  "EXEC_MANAGER",
+  "MANAGER",
+  "REP",
+  "CHANNEL_EXECUTIVE",
+  "CHANNEL_DIRECTOR",
+  "CHANNEL_REP",
+] as const;
 type RoleOption = (typeof roleOptions)[number];
 
 const UpdateUserRoleSchema = z.object({
@@ -15,8 +23,25 @@ const UpdateUserRoleSchema = z.object({
   orgId: z.coerce.number().int().positive().optional(),
 });
 
-function roleToHierarchyLevel(role: RoleOption) {
-  return role === "ADMIN" ? 0 : role === "EXEC_MANAGER" ? 1 : role === "MANAGER" ? 2 : 3;
+function roleToHierarchyLevel(role: RoleOption): number {
+  switch (role) {
+    case "ADMIN":
+      return 0;
+    case "EXEC_MANAGER":
+      return 1;
+    case "MANAGER":
+      return 2;
+    case "REP":
+      return 3;
+    case "CHANNEL_EXECUTIVE":
+      return 6;
+    case "CHANNEL_DIRECTOR":
+      return 7;
+    case "CHANNEL_REP":
+      return 8;
+    default:
+      return 3;
+  }
 }
 
 export async function PATCH(req: Request) {
@@ -117,14 +142,46 @@ export async function PATCH(req: Request) {
           { status: 400 }
         );
       }
-    } else if (nextRole === "EXEC_MANAGER" || nextRole === "ADMIN") {
-      // Manager link should be cleared for ADMIN/EXEC_MANAGER.
+    } else if (nextRole === "EXEC_MANAGER" || nextRole === "ADMIN" || nextRole === "CHANNEL_EXECUTIVE") {
+      // No manager link for top leadership / channel executive.
       nextManagerUserId = null;
+    } else if (nextRole === "CHANNEL_DIRECTOR") {
+      if (currentManagerUserId == null) {
+        nextManagerUserId = null;
+      } else if (currentManagerRole === "MANAGER") {
+        nextManagerUserId = currentManagerUserId;
+      } else {
+        return NextResponse.json(
+          {
+            error: `invalid_manager_user_id_for_role: CHANNEL_DIRECTOR requires manager_role MANAGER or null; got ${currentManagerRole}`,
+          },
+          { status: 400 }
+        );
+      }
+    } else if (nextRole === "CHANNEL_REP") {
+      if (currentManagerUserId == null) {
+        nextManagerUserId = null;
+      } else if (
+        currentManagerRole === "MANAGER" ||
+        currentManagerRole === "EXEC_MANAGER" ||
+        currentManagerRole === "CHANNEL_DIRECTOR"
+      ) {
+        nextManagerUserId = currentManagerUserId;
+      } else {
+        return NextResponse.json(
+          {
+            error: `invalid_manager_user_id_for_role: CHANNEL_REP requires manager_role in (MANAGER, EXEC_MANAGER, CHANNEL_DIRECTOR) or null; got ${currentManagerRole}`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     // Compute the field updates based on the new role.
-    const nextAdminHasFullAnalyticsAccess = nextRole === "ADMIN" || nextRole === "EXEC_MANAGER";
-    const nextSeeAllVisibility = nextRole === "ADMIN" || nextRole === "EXEC_MANAGER";
+    const nextAdminHasFullAnalyticsAccess =
+      nextRole === "ADMIN" || nextRole === "EXEC_MANAGER" || nextRole === "CHANNEL_EXECUTIVE";
+    const nextSeeAllVisibility =
+      nextRole === "ADMIN" || nextRole === "EXEC_MANAGER" || nextRole === "CHANNEL_EXECUTIVE";
 
     // Single UPDATE with all affected columns.
     const result = await pool.query(

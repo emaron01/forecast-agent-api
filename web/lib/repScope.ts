@@ -111,8 +111,8 @@ export async function getScopedRepDirectory(args: {
     | "EXEC_MANAGER"
     | "MANAGER"
     | "REP"
-    | "CHANNEL_EXEC"
-    | "CHANNEL_MANAGER"
+    | "CHANNEL_EXECUTIVE"
+    | "CHANNEL_DIRECTOR"
     | "CHANNEL_REP";
 }): Promise<{
   repDirectory: RepDirectoryRow[];
@@ -131,15 +131,57 @@ export async function getScopedRepDirectory(args: {
     return { repDirectory: all, allowedRepIds: null, myRepId: null };
   }
 
+  // Channel Executive: full org rep directory (analytics / see-all).
+  if (role === "CHANNEL_EXECUTIVE") {
+    const all = await listActiveRepsForOrg(orgId).catch(() => []);
+    const me = await getRepForUser(orgId, userId).catch(() => null);
+    return { repDirectory: all, allowedRepIds: null, myRepId: me?.id ?? null };
+  }
+
   const me = await getRepForUser(orgId, userId).catch(() => null);
   if (!me) return { repDirectory: [], allowedRepIds: [], myRepId: null };
 
-  if (role === "REP") {
+  if (role === "REP" || role === "CHANNEL_REP") {
     const manager = me.manager_rep_id ? await getRepById(orgId, me.manager_rep_id).catch(() => null) : null;
     const exec = manager?.manager_rep_id ? await getRepById(orgId, manager.manager_rep_id).catch(() => null) : null;
     const list = [exec, manager, me].filter(Boolean) as RepDirectoryRow[];
     const uniq = Array.from(new Map(list.map((r) => [r.id, r] as const)).values());
     return { repDirectory: uniq, allowedRepIds: [me.id], myRepId: me.id };
+  }
+
+  // Channel Director: aligned to sales leader — same shape as MANAGER (team under their rep card).
+  if (role === "CHANNEL_DIRECTOR") {
+    const exec = me.manager_rep_id ? await getRepById(orgId, me.manager_rep_id).catch(() => null) : null;
+    const { rows } = await pool.query(
+      `
+      SELECT
+        id,
+        COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), '(Unnamed)') AS name,
+        role,
+        manager_rep_id,
+        user_id,
+        active
+      FROM reps
+      WHERE organization_id = $1::bigint
+        AND role IN ('REP', 'CHANNEL_REP')
+        AND manager_rep_id = $2::bigint
+        AND (active IS TRUE OR active IS NULL)
+      ORDER BY name ASC, id ASC
+      `,
+      [orgId, me.id]
+    );
+    const reps = (rows || []).map((r: any) => ({
+      id: Number(r.id),
+      name: String(r.name || "").trim() || "(Unnamed)",
+      role: r.role == null ? null : String(r.role),
+      manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
+      user_id: r.user_id == null ? null : Number(r.user_id),
+      active: r.active == null ? null : !!r.active,
+    }));
+    const allowed = [me.id, ...reps.map((r) => r.id)];
+    const list = [exec, me, ...reps].filter(Boolean) as RepDirectoryRow[];
+    const uniq = Array.from(new Map(list.map((r) => [r.id, r] as const)).values());
+    return { repDirectory: uniq, allowedRepIds: allowed, myRepId: me.id };
   }
 
   if (role === "MANAGER") {

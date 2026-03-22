@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { Modal } from "../_components/Modal";
 import { requireOrgContext } from "../../../lib/auth";
-import { getUserById, listHierarchyLevels, listManagerVisibility, listRepUsersForManager, listUsers } from "../../../lib/db";
+import { getUserById, listManagerVisibility, listRepUsersForManager, listUsers } from "../../../lib/db";
+import { roleLabel } from "../../../lib/userRoles";
 import { resolvePublicId } from "../../../lib/publicId";
 import {
   assignRepToMeAction,
@@ -53,17 +54,14 @@ export default async function UsersPage({
   const isManager = ctx.kind === "user" && ctx.user.role === "MANAGER";
   const isAdmin = ctx.kind === "master" || (ctx.kind === "user" && ctx.user.role === "ADMIN");
 
-  const hierarchyLevels = await listHierarchyLevels().catch(() => []);
-  const hierarchyLabelByLevel = new Map<number, string>(
-    hierarchyLevels.map((h): [number, string] => [Number(h.level), String(h.label || "").trim()])
-  );
-  const labelForLevel = (level: number, fallback: string) => hierarchyLabelByLevel.get(level) || fallback;
-  const roleToLevel = (role: string) => (role === "ADMIN" ? 0 : role === "EXEC_MANAGER" ? 1 : role === "MANAGER" ? 2 : 3);
   const roleOptions = [
-    { role: "ADMIN" as const, label: labelForLevel(0, "Admin") },
-    { role: "EXEC_MANAGER" as const, label: labelForLevel(1, "Executive Manager") },
-    { role: "MANAGER" as const, label: labelForLevel(2, "Manager") },
-    { role: "REP" as const, label: labelForLevel(3, "Rep") },
+    { role: "ADMIN" as const, label: roleLabel("ADMIN") },
+    { role: "EXEC_MANAGER" as const, label: roleLabel("EXEC_MANAGER") },
+    { role: "MANAGER" as const, label: roleLabel("MANAGER") },
+    { role: "REP" as const, label: roleLabel("REP") },
+    { role: "CHANNEL_EXECUTIVE" as const, label: roleLabel("CHANNEL_EXECUTIVE") },
+    { role: "CHANNEL_DIRECTOR" as const, label: roleLabel("CHANNEL_DIRECTOR") },
+    { role: "CHANNEL_REP" as const, label: roleLabel("CHANNEL_REP") },
   ] as const;
 
   const usersRaw = isManager
@@ -160,10 +158,13 @@ export default async function UsersPage({
             className="mt-1 w-48 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
           >
             <option value="">(all)</option>
-            <option value="ADMIN">{labelForLevel(0, "Admin")}</option>
-            <option value="EXEC_MANAGER">{labelForLevel(1, "Executive Manager")}</option>
-            <option value="MANAGER">{labelForLevel(2, "Manager")}</option>
-            <option value="REP">{labelForLevel(3, "Rep")}</option>
+            <option value="ADMIN">{roleLabel("ADMIN")}</option>
+            <option value="EXEC_MANAGER">{roleLabel("EXEC_MANAGER")}</option>
+            <option value="MANAGER">{roleLabel("MANAGER")}</option>
+            <option value="REP">{roleLabel("REP")}</option>
+            <option value="CHANNEL_EXECUTIVE">{roleLabel("CHANNEL_EXECUTIVE")}</option>
+            <option value="CHANNEL_DIRECTOR">{roleLabel("CHANNEL_DIRECTOR")}</option>
+            <option value="CHANNEL_REP">{roleLabel("CHANNEL_REP")}</option>
           </select>
         </div>
         <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
@@ -205,7 +206,7 @@ export default async function UsersPage({
                         disableIfUnknown
                       />
                     ) : (
-                      labelForLevel(roleToLevel(u.role), u.role)
+                      roleLabel(u.role)
                     )}
                   </td>
                   <td className="px-4 py-3">{u.display_name}</td>
@@ -333,10 +334,13 @@ export default async function UsersPage({
                     defaultValue={prefillRole || "REP"}
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
-                    <option value="ADMIN">{labelForLevel(0, "Admin")}</option>
-                    <option value="EXEC_MANAGER">{labelForLevel(1, "Executive Manager")}</option>
-                    <option value="MANAGER">{labelForLevel(2, "Manager")}</option>
-                    <option value="REP">{labelForLevel(3, "Rep")}</option>
+                    <option value="ADMIN">{roleLabel("ADMIN")}</option>
+                    <option value="EXEC_MANAGER">{roleLabel("EXEC_MANAGER")}</option>
+                    <option value="MANAGER">{roleLabel("MANAGER")}</option>
+                    <option value="REP">{roleLabel("REP")}</option>
+                    <option value="CHANNEL_EXECUTIVE">{roleLabel("CHANNEL_EXECUTIVE")}</option>
+                    <option value="CHANNEL_DIRECTOR">{roleLabel("CHANNEL_DIRECTOR")}</option>
+                    <option value="CHANNEL_REP">{roleLabel("CHANNEL_REP")}</option>
                   </select>
                 </div>
 
@@ -600,10 +604,13 @@ export default async function UsersPage({
                     defaultValue={user.role}
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
-                    <option value="ADMIN">{labelForLevel(0, "Admin")}</option>
-                    <option value="EXEC_MANAGER">{labelForLevel(1, "Executive Manager")}</option>
-                    <option value="MANAGER">{labelForLevel(2, "Manager")}</option>
-                    <option value="REP">{labelForLevel(3, "Rep")}</option>
+                    <option value="ADMIN">{roleLabel("ADMIN")}</option>
+                    <option value="EXEC_MANAGER">{roleLabel("EXEC_MANAGER")}</option>
+                    <option value="MANAGER">{roleLabel("MANAGER")}</option>
+                    <option value="REP">{roleLabel("REP")}</option>
+                    <option value="CHANNEL_EXECUTIVE">{roleLabel("CHANNEL_EXECUTIVE")}</option>
+                    <option value="CHANNEL_DIRECTOR">{roleLabel("CHANNEL_DIRECTOR")}</option>
+                    <option value="CHANNEL_REP">{roleLabel("CHANNEL_REP")}</option>
                   </select>
                 </div>
 

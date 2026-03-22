@@ -211,7 +211,7 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
      WHERE COALESCE(r.organization_id, r.org_id::bigint) = u.org_id
        AND r.user_id = u.id
        AND u.org_id = $1
-       AND u.role IN ('REP', 'MANAGER', 'EXEC_MANAGER')
+       AND u.role IN ('REP', 'MANAGER', 'EXEC_MANAGER', 'CHANNEL_EXECUTIVE', 'CHANNEL_DIRECTOR', 'CHANNEL_REP')
     `,
     [organizationId]
   );
@@ -248,7 +248,7 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
       u.org_id AS organization_id
     FROM users u
     WHERE u.org_id = $1
-      AND u.role IN ('REP', 'MANAGER', 'EXEC_MANAGER')
+      AND u.role IN ('REP', 'MANAGER', 'EXEC_MANAGER', 'CHANNEL_EXECUTIVE', 'CHANNEL_DIRECTOR', 'CHANNEL_REP')
       AND COALESCE(
         NULLIF(btrim(u.display_name), ''),
         NULLIF(btrim(u.account_owner_name), ''),
@@ -274,7 +274,7 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
      WHERE COALESCE(r.organization_id, r.org_id::bigint) = u.org_id
        AND r.user_id = u.id
        AND u.org_id = $1
-       AND u.role IN ('REP', 'MANAGER')
+       AND u.role IN ('REP', 'MANAGER', 'CHANNEL_DIRECTOR', 'CHANNEL_REP')
        AND u.manager_user_id IS NOT NULL
        AND (r.manager_rep_id IS DISTINCT FROM mgr.id)
     `,
@@ -1126,8 +1126,8 @@ export const zUserRole = z.enum([
   "EXEC_MANAGER",
   "MANAGER",
   "REP",
-  "CHANNEL_EXEC",
-  "CHANNEL_MANAGER",
+  "CHANNEL_EXECUTIVE",
+  "CHANNEL_DIRECTOR",
   "CHANNEL_REP",
 ]);
 
@@ -1159,8 +1159,8 @@ export type UserRow = {
     | "EXEC_MANAGER"
     | "MANAGER"
     | "REP"
-    | "CHANNEL_EXEC"
-    | "CHANNEL_MANAGER"
+    | "CHANNEL_EXECUTIVE"
+    | "CHANNEL_DIRECTOR"
     | "CHANNEL_REP";
   hierarchy_level: number;
   first_name: string | null;
@@ -1735,8 +1735,8 @@ export async function getVisibleUsers(args: {
     | "EXEC_MANAGER"
     | "MANAGER"
     | "REP"
-    | "CHANNEL_EXEC"
-    | "CHANNEL_MANAGER"
+    | "CHANNEL_EXECUTIVE"
+    | "CHANNEL_DIRECTOR"
     | "CHANNEL_REP";
   hierarchy_level?: number;
   see_all_visibility?: boolean;
@@ -1747,10 +1747,42 @@ export async function getVisibleUsers(args: {
   const hierarchy_level = Number.isFinite(Number(args.hierarchy_level)) ? Number(args.hierarchy_level) : null;
   const seeAll = !!args.see_all_visibility;
 
-  // REP: only themselves.
-  if (role === "REP") {
+  // REP + channel rep: only themselves.
+  if (role === "REP" || role === "CHANNEL_REP") {
     const u = await getUserById({ orgId, userId: currentUserId }).catch(() => null);
     return u ? ([u] as UserPublicRow[]) : ([] as UserPublicRow[]);
+  }
+
+  // Channel Executive: full-org visibility (see-all / full analytics).
+  if (role === "CHANNEL_EXECUTIVE") {
+    const { rows } = await pool.query(
+      `
+      SELECT
+        id,
+        public_id::text AS public_id,
+        org_id,
+        email,
+        role,
+        hierarchy_level,
+        first_name,
+        last_name,
+        display_name,
+        title,
+        account_owner_name,
+        manager_user_id,
+        admin_has_full_analytics_access,
+        see_all_visibility,
+        active,
+        created_at,
+        updated_at
+      FROM users
+      WHERE org_id = $1
+        AND active IS TRUE
+      ORDER BY hierarchy_level ASC, role ASC, display_name ASC, id ASC
+      `,
+      [orgId]
+    );
+    return rows as UserPublicRow[];
   }
 
   // ADMIN: always sees all (in-org).
@@ -1943,8 +1975,8 @@ export async function createUser(args: {
     | "EXEC_MANAGER"
     | "MANAGER"
     | "REP"
-    | "CHANNEL_EXEC"
-    | "CHANNEL_MANAGER"
+    | "CHANNEL_EXECUTIVE"
+    | "CHANNEL_DIRECTOR"
     | "CHANNEL_REP";
   hierarchy_level?: number;
   first_name?: string | null;
@@ -2045,8 +2077,8 @@ export async function updateUser(args: {
     | "EXEC_MANAGER"
     | "MANAGER"
     | "REP"
-    | "CHANNEL_EXEC"
-    | "CHANNEL_MANAGER"
+    | "CHANNEL_EXECUTIVE"
+    | "CHANNEL_DIRECTOR"
     | "CHANNEL_REP";
   hierarchy_level?: number;
   first_name?: string | null;

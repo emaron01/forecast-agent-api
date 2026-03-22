@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireAuth } from "../../../lib/auth";
-import { listAllUsersAcrossOrgs, listHierarchyLevels } from "../../../lib/db";
+import { listAllUsersAcrossOrgs } from "../../../lib/db";
 import { RoleSelect } from "../../../components/admin/RoleSelect";
+import { roleLabel } from "../../../lib/userRoles";
 
 export const runtime = "nodejs";
 
@@ -10,17 +11,14 @@ export default async function AllUsersPage() {
   const ctx = await requireAuth();
   if (ctx.kind !== "master") redirect("/admin");
 
-  const hierarchyLevels = await listHierarchyLevels().catch(() => []);
-  const hierarchyLabelByLevel = new Map<number, string>(
-    hierarchyLevels.map((h): [number, string] => [Number(h.level), String(h.label || "").trim()])
-  );
-  const labelForLevel = (level: number, fallback: string) => hierarchyLabelByLevel.get(level) || fallback;
-
   const roleOptions = [
-    { role: "ADMIN" as const, label: labelForLevel(0, "Admin") },
-    { role: "EXEC_MANAGER" as const, label: labelForLevel(1, "Executive Manager") },
-    { role: "MANAGER" as const, label: labelForLevel(2, "Manager") },
-    { role: "REP" as const, label: labelForLevel(3, "Rep") },
+    { role: "ADMIN" as const, label: roleLabel("ADMIN") },
+    { role: "EXEC_MANAGER" as const, label: roleLabel("EXEC_MANAGER") },
+    { role: "MANAGER" as const, label: roleLabel("MANAGER") },
+    { role: "REP" as const, label: roleLabel("REP") },
+    { role: "CHANNEL_EXECUTIVE" as const, label: roleLabel("CHANNEL_EXECUTIVE") },
+    { role: "CHANNEL_DIRECTOR" as const, label: roleLabel("CHANNEL_DIRECTOR") },
+    { role: "CHANNEL_REP" as const, label: roleLabel("CHANNEL_REP") },
   ] as const;
 
   const users = await listAllUsersAcrossOrgs({ includeInactive: true, includeSuspendedOrgs: true }).catch(
