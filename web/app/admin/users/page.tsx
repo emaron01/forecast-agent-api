@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Modal } from "../_components/Modal";
+import { UserFormRoleSync } from "../_components/UserFormRoleSync";
 import { requireOrgContext } from "../../../lib/auth";
 import { getUserById, listManagerVisibility, listRepUsersForManager, listUsers } from "../../../lib/db";
 import { roleLabel } from "../../../lib/userRoles";
@@ -575,38 +576,7 @@ export default async function UsersPage({
               </button>
             </div>
 
-            {/* Progressive enhancement: show/hide role-dependent fields */}
-            <script
-              dangerouslySetInnerHTML={{
-                __html: `
-(function () {
-  function sync(form) {
-    var roleEl = form.querySelector('select[name="role"]');
-    var role = roleEl ? String(roleEl.value || "") : "REP";
-    var dep = form.querySelectorAll('[data-show-roles]');
-    for (var i = 0; i < dep.length; i++) {
-      var el = dep[i];
-      var rolesAttr = el.getAttribute('data-show-roles') || "";
-      var roles = rolesAttr.split(',').map(function (s) { return String(s || "").trim(); }).filter(Boolean);
-      var shouldShow = roles.indexOf(role) !== -1;
-      el.hidden = !shouldShow;
-      var fields = el.querySelectorAll('input, select, textarea, button');
-      for (var k = 0; k < fields.length; k++) fields[k].disabled = !shouldShow;
-    }
-  }
-  var forms = document.querySelectorAll('form[data-user-form="1"]');
-  for (var j = 0; j < forms.length; j++) {
-    (function (form) {
-      sync(form);
-      form.addEventListener('change', function (e) {
-        var t = e && e.target;
-        if (t && t.name === 'role') sync(form);
-      });
-    })(forms[j]);
-  }
-})();`,
-              }}
-            />
+            <UserFormRoleSync />
           </form>
         </Modal>
       ) : null}
@@ -872,38 +842,7 @@ export default async function UsersPage({
               </button>
             </div>
 
-            {/* Progressive enhancement: show/hide role-dependent fields */}
-            <script
-              dangerouslySetInnerHTML={{
-                __html: `
-(function () {
-  function sync(form) {
-    var roleEl = form.querySelector('select[name="role"]');
-    var role = roleEl ? String(roleEl.value || "") : "REP";
-    var dep = form.querySelectorAll('[data-show-roles]');
-    for (var i = 0; i < dep.length; i++) {
-      var el = dep[i];
-      var rolesAttr = el.getAttribute('data-show-roles') || "";
-      var roles = rolesAttr.split(',').map(function (s) { return String(s || "").trim(); }).filter(Boolean);
-      var shouldShow = roles.indexOf(role) !== -1;
-      el.hidden = !shouldShow;
-      var fields = el.querySelectorAll('input, select, textarea, button');
-      for (var k = 0; k < fields.length; k++) fields[k].disabled = !shouldShow;
-    }
-  }
-  var forms = document.querySelectorAll('form[data-user-form="1"]');
-  for (var j = 0; j < forms.length; j++) {
-    (function (form) {
-      sync(form);
-      form.addEventListener('change', function (e) {
-        var t = e && e.target;
-        if (t && t.name === 'role') sync(form);
-      });
-    })(forms[j]);
-  }
-})();`,
-              }}
-            />
+            <UserFormRoleSync />
           </form>
         </Modal>
       ) : null}
