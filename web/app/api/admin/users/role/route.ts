@@ -113,10 +113,15 @@ export async function PATCH(req: Request) {
     const currentManagerUserId: number | null = existing.manager_user_id == null ? null : Number(existing.manager_user_id);
     const currentManagerRole: string | null = existing.manager_role == null ? null : String(existing.manager_role);
 
-    // Validate manager_user_id compatibility for incoming role.
+    const isChannelRole =
+      nextRole === "CHANNEL_EXECUTIVE" || nextRole === "CHANNEL_DIRECTOR" || nextRole === "CHANNEL_REP";
+
+    // Validate manager_user_id compatibility for incoming role (sales roles only; channel roles allow free alignment).
     let nextManagerUserId: number | null = currentManagerUserId;
 
-    if (nextRole === "REP") {
+    if (isChannelRole) {
+      // Keep current manager_user_id as-is (no role-based compatibility checks).
+    } else if (nextRole === "REP") {
       if (currentManagerUserId == null) {
         nextManagerUserId = null;
       } else if (currentManagerRole === "MANAGER" || currentManagerRole === "EXEC_MANAGER") {
@@ -142,39 +147,8 @@ export async function PATCH(req: Request) {
           { status: 400 }
         );
       }
-    } else if (nextRole === "EXEC_MANAGER" || nextRole === "ADMIN" || nextRole === "CHANNEL_EXECUTIVE") {
-      // No manager link for top leadership / channel executive.
+    } else if (nextRole === "EXEC_MANAGER" || nextRole === "ADMIN") {
       nextManagerUserId = null;
-    } else if (nextRole === "CHANNEL_DIRECTOR") {
-      if (currentManagerUserId == null) {
-        nextManagerUserId = null;
-      } else if (currentManagerRole === "MANAGER") {
-        nextManagerUserId = currentManagerUserId;
-      } else {
-        return NextResponse.json(
-          {
-            error: `invalid_manager_user_id_for_role: CHANNEL_DIRECTOR requires manager_role MANAGER or null; got ${currentManagerRole}`,
-          },
-          { status: 400 }
-        );
-      }
-    } else if (nextRole === "CHANNEL_REP") {
-      if (currentManagerUserId == null) {
-        nextManagerUserId = null;
-      } else if (
-        currentManagerRole === "MANAGER" ||
-        currentManagerRole === "EXEC_MANAGER" ||
-        currentManagerRole === "CHANNEL_DIRECTOR"
-      ) {
-        nextManagerUserId = currentManagerUserId;
-      } else {
-        return NextResponse.json(
-          {
-            error: `invalid_manager_user_id_for_role: CHANNEL_REP requires manager_role in (MANAGER, EXEC_MANAGER, CHANNEL_DIRECTOR) or null; got ${currentManagerRole}`,
-          },
-          { status: 400 }
-        );
-      }
     }
 
     // Compute the field updates based on the new role.

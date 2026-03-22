@@ -1,4 +1,36 @@
 import { pool } from "./pool";
+import { isChannelRole } from "./userRoles";
+
+function roleStringToScopedRole(
+  role: string
+):
+  | "ADMIN"
+  | "EXEC_MANAGER"
+  | "MANAGER"
+  | "REP"
+  | "CHANNEL_EXECUTIVE"
+  | "CHANNEL_DIRECTOR"
+  | "CHANNEL_REP" {
+  const r = String(role || "").trim();
+  switch (r) {
+    case "ADMIN":
+      return "ADMIN";
+    case "EXEC_MANAGER":
+      return "EXEC_MANAGER";
+    case "MANAGER":
+      return "MANAGER";
+    case "REP":
+      return "REP";
+    case "CHANNEL_EXECUTIVE":
+      return "CHANNEL_EXECUTIVE";
+    case "CHANNEL_DIRECTOR":
+      return "CHANNEL_DIRECTOR";
+    case "CHANNEL_REP":
+      return "CHANNEL_REP";
+    default:
+      return "REP";
+  }
+}
 
 export type RepDirectoryRow = {
   id: number;
@@ -114,6 +146,8 @@ export async function getScopedRepDirectory(args: {
     | "CHANNEL_EXECUTIVE"
     | "CHANNEL_DIRECTOR"
     | "CHANNEL_REP";
+  /** Prevents infinite recursion when following users.manager_user_id alignment chains. */
+  depth?: number;
 }): Promise<{
   repDirectory: RepDirectoryRow[];
   allowedRepIds: number[] | null; // null => no filter (admin)
@@ -122,20 +156,51 @@ export async function getScopedRepDirectory(args: {
   const orgId = Number(args.orgId);
   const userId = Number(args.userId);
   const role = args.role;
+  const depth = args.depth ?? 0;
 
   if (!Number.isFinite(orgId) || orgId <= 0) return { repDirectory: [], allowedRepIds: [], myRepId: null };
   if (!Number.isFinite(userId) || userId <= 0) return { repDirectory: [], allowedRepIds: [], myRepId: null };
+
+  if (depth > 10) {
+    const me = await getRepForUser(orgId, userId).catch(() => null);
+    if (!me) return { repDirectory: [], allowedRepIds: [], myRepId: null };
+    return { repDirectory: [me], allowedRepIds: [me.id], myRepId: me.id };
+  }
 
   if (role === "ADMIN") {
     const all = await listActiveRepsForOrg(orgId).catch(() => []);
     return { repDirectory: all, allowedRepIds: null, myRepId: null };
   }
 
-  // Channel Executive: full org rep directory (analytics / see-all).
-  if (role === "CHANNEL_EXECUTIVE") {
-    const all = await listActiveRepsForOrg(orgId).catch(() => []);
-    const me = await getRepForUser(orgId, userId).catch(() => null);
-    return { repDirectory: all, allowedRepIds: null, myRepId: me?.id ?? null };
+  // Channel roles: optional users.manager_user_id aligns data scope to that user (sales leader / anchor).
+  if (isChannelRole(role)) {
+    const { rows: muRows } = await pool.query(
+      `SELECT manager_user_id FROM users WHERE org_id = $1 AND id = $2 LIMIT 1`,
+      [orgId, userId]
+    );
+    const mid = muRows?.[0]?.manager_user_id;
+    if (mid != null) {
+      const anchorUserId = Number(mid);
+      if (Number.isFinite(anchorUserId) && anchorUserId > 0 && anchorUserId !== userId) {
+        const { rows: arRows } = await pool.query(
+          `SELECT role::text AS role FROM users WHERE org_id = $1 AND id = $2 LIMIT 1`,
+          [orgId, anchorUserId]
+        );
+        const anchorRole = roleStringToScopedRole(String(arRows?.[0]?.role || "REP"));
+        return getScopedRepDirectory({
+          orgId,
+          userId: anchorUserId,
+          role: anchorRole,
+          depth: depth + 1,
+        });
+      }
+    }
+    if (role === "CHANNEL_EXECUTIVE" || role === "CHANNEL_DIRECTOR") {
+      const me = await getRepForUser(orgId, userId).catch(() => null);
+      if (!me) return { repDirectory: [], allowedRepIds: [], myRepId: null };
+      return { repDirectory: [me], allowedRepIds: [me.id], myRepId: me.id };
+    }
+    // CHANNEL_REP without users.manager_user_id: fall through to REP-style scope using reps tree.
   }
 
   const me = await getRepForUser(orgId, userId).catch(() => null);
@@ -147,41 +212,6 @@ export async function getScopedRepDirectory(args: {
     const list = [exec, manager, me].filter(Boolean) as RepDirectoryRow[];
     const uniq = Array.from(new Map(list.map((r) => [r.id, r] as const)).values());
     return { repDirectory: uniq, allowedRepIds: [me.id], myRepId: me.id };
-  }
-
-  // Channel Director: aligned to sales leader — same shape as MANAGER (team under their rep card).
-  if (role === "CHANNEL_DIRECTOR") {
-    const exec = me.manager_rep_id ? await getRepById(orgId, me.manager_rep_id).catch(() => null) : null;
-    const { rows } = await pool.query(
-      `
-      SELECT
-        id,
-        COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), '(Unnamed)') AS name,
-        role,
-        manager_rep_id,
-        user_id,
-        active
-      FROM reps
-      WHERE organization_id = $1::bigint
-        AND role IN ('REP', 'CHANNEL_REP')
-        AND manager_rep_id = $2::bigint
-        AND (active IS TRUE OR active IS NULL)
-      ORDER BY name ASC, id ASC
-      `,
-      [orgId, me.id]
-    );
-    const reps = (rows || []).map((r: any) => ({
-      id: Number(r.id),
-      name: String(r.name || "").trim() || "(Unnamed)",
-      role: r.role == null ? null : String(r.role),
-      manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
-      user_id: r.user_id == null ? null : Number(r.user_id),
-      active: r.active == null ? null : !!r.active,
-    }));
-    const allowed = [me.id, ...reps.map((r) => r.id)];
-    const list = [exec, me, ...reps].filter(Boolean) as RepDirectoryRow[];
-    const uniq = Array.from(new Map(list.map((r) => [r.id, r] as const)).values());
-    return { repDirectory: uniq, allowedRepIds: allowed, myRepId: me.id };
   }
 
   if (role === "MANAGER") {

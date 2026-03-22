@@ -1,6 +1,6 @@
 /**
  * Channel hierarchy (see hierarchy_levels 6–8):
- * - CHANNEL_EXECUTIVE: full analytics, see-all visibility, no manager_user_id
+ * - CHANNEL_EXECUTIVE: full analytics, see-all visibility; optional manager_user_id aligns data scope
  * - CHANNEL_DIRECTOR: aligned to sales leader (manager is MANAGER), no see-all
  * - CHANNEL_REP: channel dashboard only (narrow UI), no see-all
  */

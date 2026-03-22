@@ -18,7 +18,7 @@ import {
 import { hashPassword } from "../../../lib/password";
 import { randomToken, sha256Hex } from "../../../lib/auth";
 import { resolvePublicId } from "../../../lib/publicId";
-import { roleHierarchyLevel } from "../../../lib/userRoles";
+import { isChannelRole, roleHierarchyLevel } from "../../../lib/userRoles";
 
 const CheckboxBool = z.preprocess((v) => v === "on" || v === "true" || v === true, z.boolean());
 
@@ -178,17 +178,16 @@ export async function createUserAction(formData: FormData) {
 
     const hierarchy_level = roleHierarchyLevel(parsed.role);
 
-    // Manager link rules (aligned with PATCH /api/admin/users/role).
+    // Manager link rules (aligned with PATCH /api/admin/users/role). Channel roles: optional alignment to any org user.
     let effectiveManagerId: number | null = null;
-    if (parsed.role === "CHANNEL_EXECUTIVE") {
-      effectiveManagerId = null;
-    } else if (
-      parsed.role === "REP" ||
-      parsed.role === "MANAGER" ||
-      parsed.role === "EXEC_MANAGER" ||
-      parsed.role === "CHANNEL_DIRECTOR" ||
-      parsed.role === "CHANNEL_REP"
-    ) {
+    if (isChannelRole(parsed.role)) {
+      if (parsed.manager_user_public_id) {
+        const id = await resolvePublicId("users", parsed.manager_user_public_id);
+        const mgr = await getUserById({ orgId, userId: id });
+        if (!mgr) throw new Error("manager_user_id must reference a user in this org");
+        effectiveManagerId = id;
+      }
+    } else if (parsed.role === "REP" || parsed.role === "MANAGER" || parsed.role === "EXEC_MANAGER") {
       if (parsed.manager_user_public_id) {
         const id = await resolvePublicId("users", parsed.manager_user_public_id);
         const mgr = await getUserById({ orgId, userId: id });
@@ -201,16 +200,6 @@ export async function createUserAction(formData: FormData) {
         }
         if (parsed.role === "EXEC_MANAGER" && mgr.role !== "ADMIN") {
           throw new Error("EXEC_MANAGER manager must be an ADMIN user in this org");
-        }
-        if (parsed.role === "CHANNEL_DIRECTOR" && mgr.role !== "MANAGER") {
-          throw new Error("CHANNEL_DIRECTOR manager must be a MANAGER user in this org");
-        }
-        if (parsed.role === "CHANNEL_REP") {
-          if (mgr.role !== "MANAGER" && mgr.role !== "EXEC_MANAGER" && mgr.role !== "CHANNEL_DIRECTOR") {
-            throw new Error(
-              "CHANNEL_REP manager must be a MANAGER, EXEC_MANAGER, or CHANNEL_DIRECTOR user in this org"
-            );
-          }
         }
         effectiveManagerId = id;
       }
@@ -350,15 +339,15 @@ export async function updateUserAction(formData: FormData) {
   const hierarchy_level = roleHierarchyLevel(parsed.role);
 
   let effectiveManagerId: number | null = null;
-  if (parsed.role === "CHANNEL_EXECUTIVE") {
-    effectiveManagerId = null;
-  } else if (
-    parsed.role === "REP" ||
-    parsed.role === "MANAGER" ||
-    parsed.role === "EXEC_MANAGER" ||
-    parsed.role === "CHANNEL_DIRECTOR" ||
-    parsed.role === "CHANNEL_REP"
-  ) {
+  if (isChannelRole(parsed.role)) {
+    if (parsed.manager_user_public_id) {
+      const id = await resolvePublicId("users", parsed.manager_user_public_id);
+      if (id === userId) throw new Error("manager_user_id cannot reference the same user");
+      const mgr = await getUserById({ orgId, userId: id });
+      if (!mgr) throw new Error("manager_user_id must reference a user in this org");
+      effectiveManagerId = id;
+    }
+  } else if (parsed.role === "REP" || parsed.role === "MANAGER" || parsed.role === "EXEC_MANAGER") {
     if (parsed.manager_user_public_id) {
       const id = await resolvePublicId("users", parsed.manager_user_public_id);
       if (id === userId) throw new Error("manager_user_id cannot reference the same user");
@@ -372,16 +361,6 @@ export async function updateUserAction(formData: FormData) {
       }
       if (parsed.role === "EXEC_MANAGER" && mgr.role !== "ADMIN") {
         throw new Error("EXEC_MANAGER manager must be an ADMIN user in this org");
-      }
-      if (parsed.role === "CHANNEL_DIRECTOR" && mgr.role !== "MANAGER") {
-        throw new Error("CHANNEL_DIRECTOR manager must be a MANAGER user in this org");
-      }
-      if (parsed.role === "CHANNEL_REP") {
-        if (mgr.role !== "MANAGER" && mgr.role !== "EXEC_MANAGER" && mgr.role !== "CHANNEL_DIRECTOR") {
-          throw new Error(
-            "CHANNEL_REP manager must be a MANAGER, EXEC_MANAGER, or CHANNEL_DIRECTOR user in this org"
-          );
-        }
       }
       effectiveManagerId = id;
     }
