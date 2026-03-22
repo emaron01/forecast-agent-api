@@ -150,7 +150,15 @@ BEGIN
   ) THEN
     ALTER TABLE users
       ADD CONSTRAINT users_role_enum_check
-      CHECK (role IN ('ADMIN','EXEC_MANAGER','MANAGER','REP'));
+      CHECK (role IN (
+        'ADMIN',
+        'EXEC_MANAGER',
+        'MANAGER',
+        'REP',
+        'CHANNEL_EXECUTIVE',
+        'CHANNEL_DIRECTOR',
+        'CHANNEL_REP'
+      ));
   END IF;
 END $$;
 

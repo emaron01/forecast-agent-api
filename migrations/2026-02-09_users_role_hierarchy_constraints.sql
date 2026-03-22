@@ -22,6 +22,9 @@ BEGIN
         OR (role = 'EXEC_MANAGER' AND hierarchy_level = 1)
         OR (role = 'MANAGER' AND hierarchy_level = 2)
         OR (role = 'REP' AND hierarchy_level = 3)
+        OR (role = 'CHANNEL_EXECUTIVE' AND hierarchy_level = 6)
+        OR (role = 'CHANNEL_DIRECTOR' AND hierarchy_level = 7)
+        OR (role = 'CHANNEL_REP' AND hierarchy_level = 8)
       );
   END IF;
 END $$;
@@ -57,7 +60,11 @@ BEGIN
   ) THEN
     ALTER TABLE users
       ADD CONSTRAINT users_see_all_visibility_level_check
-      CHECK (see_all_visibility IS FALSE OR hierarchy_level IN (1,2));
+      CHECK (
+        see_all_visibility IS FALSE
+        OR hierarchy_level IN (1, 2)
+        OR (role = 'CHANNEL_EXECUTIVE' AND hierarchy_level = 6)
+      );
   END IF;
 END $$;
 

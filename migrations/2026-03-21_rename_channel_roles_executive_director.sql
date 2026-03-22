@@ -1,14 +1,36 @@
--- Widen legacy reps.role CHECK (if present) before renaming role text.
-ALTER TABLE reps DROP CONSTRAINT IF EXISTS reps_role_check;
-
--- Rename channel roles to hierarchy-aligned names:
---   CHANNEL_EXEC       -> CHANNEL_EXECUTIVE (level 6)
---   CHANNEL_MANAGER    -> CHANNEL_DIRECTOR (level 7)
---   CHANNEL_REP        -> unchanged (level 8)
+-- Rename channel roles to hierarchy-aligned names and normalize levels / flags.
 --
--- Also normalizes hierarchy_level / see_all / manager for each role.
+-- Run this diagnostic manually on prod BEFORE applying, if the migration fails on
+-- users_role_enum_check — it lists any role values not in the final allow-list:
+--
+--   SELECT DISTINCT role FROM users
+--   WHERE role NOT IN (
+--     'ADMIN','EXEC_MANAGER','MANAGER','REP',
+--     'CHANNEL_EXECUTIVE','CHANNEL_DIRECTOR','CHANNEL_REP'
+--   );
+--
+-- Same for reps (if present):
+--
+--   SELECT DISTINCT role FROM reps
+--   WHERE role NOT IN (
+--     'ADMIN','EXEC_MANAGER','MANAGER','REP',
+--     'CHANNEL_EXECUTIVE','CHANNEL_DIRECTOR','CHANNEL_REP'
+--   );
+--
+-- Order: fix data (UPDATE) → DROP old constraints → ADD new constraints.
 
--- 1) Data backfill (before constraint changes)
+-- ---------------------------------------------------------------------------
+-- 1) users — remap legacy / unexpected role values to supported roles
+-- ---------------------------------------------------------------------------
+
+-- Reverted or experimental role name (same product intent as channel rep).
+UPDATE users
+   SET role = 'CHANNEL_REP',
+       hierarchy_level = 8,
+       see_all_visibility = FALSE
+ WHERE role = 'FORECAST_AGENT';
+
+-- Older channel role strings → new names + levels
 UPDATE users
    SET role = 'CHANNEL_EXECUTIVE',
        hierarchy_level = 6,
@@ -27,7 +49,21 @@ UPDATE users
        see_all_visibility = FALSE
  WHERE role = 'CHANNEL_REP';
 
--- 2) Role allow-list on users
+-- ---------------------------------------------------------------------------
+-- 2) reps — same legacy remaps (must run before reps_role_check is recreated)
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE reps DROP CONSTRAINT IF EXISTS reps_role_check;
+
+UPDATE reps SET role = 'CHANNEL_REP' WHERE role = 'FORECAST_AGENT';
+
+UPDATE reps SET role = 'CHANNEL_EXECUTIVE' WHERE role = 'CHANNEL_EXEC';
+UPDATE reps SET role = 'CHANNEL_DIRECTOR' WHERE role = 'CHANNEL_MANAGER';
+
+-- ---------------------------------------------------------------------------
+-- 3) users — drop old CHECKs, then add new allow-list and related rules
+-- ---------------------------------------------------------------------------
+
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_enum_check;
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
 
@@ -43,7 +79,6 @@ ALTER TABLE users
     'CHANNEL_REP'
   ));
 
--- 3) Role <-> hierarchy_level (replace legacy 4-role-only constraint)
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_hierarchy_match;
 
 ALTER TABLE users
@@ -58,7 +93,6 @@ ALTER TABLE users
     OR (role = 'CHANNEL_REP' AND hierarchy_level = 8)
   );
 
--- 4) see_all_visibility: allow levels 1–2 (sales leadership) and Channel Executive (6)
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_see_all_visibility_level_check;
 
 ALTER TABLE users
@@ -69,7 +103,7 @@ ALTER TABLE users
     OR (role = 'CHANNEL_EXECUTIVE' AND hierarchy_level = 6)
   );
 
--- 5) Channel Executive: no manager link (aligned to org / channel, not a sales rep tree)
+-- Channel Executive: no manager link (aligned to org / channel, not a sales rep tree)
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -81,9 +115,9 @@ BEGIN
   END IF;
 END $$;
 
--- 6) Mirror role rename on reps (if any rows used old enum text)
-UPDATE reps SET role = 'CHANNEL_EXECUTIVE' WHERE role = 'CHANNEL_EXEC';
-UPDATE reps SET role = 'CHANNEL_DIRECTOR' WHERE role = 'CHANNEL_MANAGER';
+-- ---------------------------------------------------------------------------
+-- 4) reps — allow-list (reps_role_check was dropped in step 2)
+-- ---------------------------------------------------------------------------
 
 ALTER TABLE reps
   ADD CONSTRAINT reps_role_check

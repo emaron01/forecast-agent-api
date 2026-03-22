@@ -20,7 +20,15 @@ CREATE TABLE IF NOT EXISTS users (
   org_id integer NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   email text NOT NULL,
   password_hash text NOT NULL,
-  role text NOT NULL CHECK (role IN ('ADMIN','MANAGER','REP')),
+  role text NOT NULL CHECK (role IN (
+    'ADMIN',
+    'EXEC_MANAGER',
+    'MANAGER',
+    'REP',
+    'CHANNEL_EXECUTIVE',
+    'CHANNEL_DIRECTOR',
+    'CHANNEL_REP'
+  )),
   display_name text NOT NULL,
   account_owner_name text NOT NULL,
   manager_user_id integer NULL REFERENCES users(id) ON DELETE SET NULL,

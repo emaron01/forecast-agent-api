@@ -11,10 +11,10 @@ ALTER TABLE users
   ADD CONSTRAINT users_role_enum_check
   CHECK (role IN (
     'ADMIN',
-    'EXEC_MANAGER', 
+    'EXEC_MANAGER',
     'MANAGER',
     'REP',
-    'CHANNEL_EXEC',
-    'CHANNEL_MANAGER',
+    'CHANNEL_EXECUTIVE',
+    'CHANNEL_DIRECTOR',
     'CHANNEL_REP'
   ));
