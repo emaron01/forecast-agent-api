@@ -90,7 +90,7 @@ export const CreateUserSchema = z
     }
 
     const crm = String(v.account_owner_name || "").trim();
-    if ((effectiveLevel === 3 || effectiveLevel === 8) && !crm) {
+    if (effectiveLevel === 3 && !crm) {
       ctx.addIssue({ code: "custom", path: ["account_owner_name"], message: "account_owner_name is required for REPs" });
     }
 
@@ -146,7 +146,7 @@ export const UpdateUserSchema = z
     }
 
     const crm = String(v.account_owner_name || "").trim();
-    if ((effectiveLevel === 3 || effectiveLevel === 8) && !crm) {
+    if (effectiveLevel === 3 && !crm) {
       ctx.addIssue({ code: "custom", path: ["account_owner_name"], message: "account_owner_name is required for REPs" });
     }
 

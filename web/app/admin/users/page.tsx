@@ -283,7 +283,7 @@ export default async function UsersPage({
                 {error === "passwords_do_not_match"
                   ? "Passwords don't match. Please re-enter them."
                   : error === "missing_account_owner_name"
-                    ? "CRM Account Owner Name is required for Reps and Channel Reps. Copy/paste it exactly as it appears in your CRM."
+                    ? "CRM Account Owner Name is required for Reps only. Copy/paste it exactly as it appears in your CRM."
                     : error === "email_in_use"
                       ? "That email is already in use. Choose a different email."
                       : error === "missing_visibility_assignments"
@@ -687,7 +687,7 @@ export default async function UsersPage({
               </div>
             ) : null}
 
-            <div className="grid gap-1">
+            <div className="grid gap-1" data-show-roles="REP" hidden={user.role !== "REP"}>
               <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Name As It Appears In CRM</label>
               <input
                 name="account_owner_name"
@@ -696,7 +696,7 @@ export default async function UsersPage({
               />
               <p className="text-xs font-medium text-[#E74C3C]">
                 This name is used to exactly match the Account Owner for each Opportunity in CRM used for Forecast Reviews. Please COPY and
-                PASTE the name as it appears in CRM. (Required for Reps and Channel Reps)
+                PASTE the name as it appears in CRM. (Required for Reps only)
               </p>
             </div>
 

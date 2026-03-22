@@ -230,9 +230,9 @@ export async function createUserAction(formData: FormData) {
       see_all_visibility = true;
     }
 
-    // Reps and channel reps must have account_owner_name (CRM Account Owner Name).
+    // Reps must have account_owner_name (CRM Account Owner Name). Channel reps do not.
     const account_owner_name = String(parsed.account_owner_name || "").trim();
-    if ((hierarchy_level === 3 || hierarchy_level === 8) && !account_owner_name) {
+    if (hierarchy_level === 3 && !account_owner_name) {
       throw new Error("account_owner_name is required for REPs");
     }
 
@@ -402,7 +402,7 @@ export async function updateUserAction(formData: FormData) {
   }
 
   const account_owner_name = String(parsed.account_owner_name || "").trim();
-  if ((hierarchy_level === 3 || hierarchy_level === 8) && !account_owner_name) {
+  if (hierarchy_level === 3 && !account_owner_name) {
     throw new Error("account_owner_name is required for REPs");
   }
 
