@@ -10,7 +10,7 @@ export const runtime = "nodejs";
 export default async function MeddpiccRiskNextStepsPage() {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role === "REP" || ctx.user.role === "FORECAST_AGENT") redirect("/dashboard");
+  if (ctx.user.role === "REP") redirect("/dashboard");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";

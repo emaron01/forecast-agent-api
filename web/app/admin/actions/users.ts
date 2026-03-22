@@ -38,7 +38,7 @@ const CreateSchema = z.object({
   email: z.string().min(1),
   password: z.string().min(8),
   confirm_password: z.string().min(8),
-  role: z.enum(["ADMIN", "EXEC_MANAGER", "MANAGER", "REP", "FORECAST_AGENT"]),
+  role: z.enum(["ADMIN", "EXEC_MANAGER", "MANAGER", "REP"]),
   first_name: z.string().min(1),
   last_name: z.string().min(1),
   title: z.string().max(100).optional(),
@@ -52,7 +52,7 @@ const CreateSchema = z.object({
 const UpdateSchema = z.object({
   public_id: z.string().uuid(),
   email: z.string().min(1),
-  role: z.enum(["ADMIN", "EXEC_MANAGER", "MANAGER", "REP", "FORECAST_AGENT"]),
+  role: z.enum(["ADMIN", "EXEC_MANAGER", "MANAGER", "REP"]),
   first_name: z.string().min(1),
   last_name: z.string().min(1),
   title: z.string().max(100).optional(),
@@ -92,15 +92,13 @@ async function syncDirectReportsFromVisibility(args: {
     userById.set(Number((u as any)?.id), u);
   }
 
-  // EXEC_MANAGER users report to MANAGER users.
-  // Regular MANAGERS report to REP-like users (REP + FORECAST_AGENT).
-  const targetRoles = args.managerRole === "EXEC_MANAGER" ? ["MANAGER"] : ["REP", "FORECAST_AGENT"];
+  const targetRole = args.managerRole === "EXEC_MANAGER" ? "MANAGER" : "REP";
   const desired = new Set<number>();
 
   for (const id of args.visibleUserIds) {
     const u = userById.get(Number(id));
     if (!u) continue;
-    if (!targetRoles.includes(String(u.role))) continue;
+    if (String(u.role) !== targetRole) continue;
     desired.add(Number(id));
   }
 
@@ -111,7 +109,7 @@ async function syncDirectReportsFromVisibility(args: {
 
   // Unassign any previous direct reports that are no longer selected.
   for (const u of all as any[]) {
-    if (!targetRoles.includes(String(u.role))) continue;
+    if (String(u.role) !== targetRole) continue;
     if (u.manager_user_id == null) continue;
     if (Number(u.manager_user_id) !== args.managerUserId) continue;
     if (desired.has(Number(u.id))) continue;
@@ -174,18 +172,13 @@ export async function createUserAction(formData: FormData) {
 
     // Only REP/MANAGER/EXEC_MANAGER users should have a manager_user_id.
     let effectiveManagerId: number | null = null;
-    if (
-      parsed.role === "REP" ||
-      parsed.role === "FORECAST_AGENT" ||
-      parsed.role === "MANAGER" ||
-      parsed.role === "EXEC_MANAGER"
-    ) {
+    if (parsed.role === "REP" || parsed.role === "MANAGER" || parsed.role === "EXEC_MANAGER") {
       if (parsed.manager_user_public_id) {
         const id = await resolvePublicId("users", parsed.manager_user_public_id);
         const mgr = await getUserById({ orgId, userId: id });
         if (!mgr) throw new Error("manager_user_id must reference a user in this org");
-        if ((parsed.role === "REP" || parsed.role === "FORECAST_AGENT") && mgr.role !== "MANAGER") {
-          throw new Error("REP/FORECAST_AGENT manager must be a MANAGER user in this org");
+        if (parsed.role === "REP" && mgr.role !== "MANAGER") {
+          throw new Error("REP manager must be a MANAGER user in this org");
         }
         if (parsed.role === "MANAGER" && mgr.role !== "EXEC_MANAGER") {
           throw new Error("MANAGER manager must be an EXEC_MANAGER user in this org");
@@ -304,12 +297,11 @@ export async function updateUserAction(formData: FormData) {
   if (!existing) redirect(closeHref());
 
   if (ctx.kind === "user" && ctx.user.role === "MANAGER") {
-    // Managers can only update REP-like users (REP + FORECAST_AGENT).
-    // They can only do so for users they manage (or unassigned users they are claiming).
-    if (existing.role !== "REP" && existing.role !== "FORECAST_AGENT") redirect(closeHref());
+    // Managers can only update REP users, and only for reps they manage (or unassigned reps they are claiming).
+    if (existing.role !== "REP") redirect(closeHref());
     if (existing.manager_user_id != null && existing.manager_user_id !== ctx.user.id) redirect(closeHref());
 
-    parsed.role = existing.role === "FORECAST_AGENT" ? "FORECAST_AGENT" : "REP";
+    parsed.role = "REP";
     parsed.manager_user_public_id = ctx.user.public_id;
     parsed.admin_has_full_analytics_access = false;
     parsed.see_all_visibility = false;
@@ -322,19 +314,14 @@ export async function updateUserAction(formData: FormData) {
   const hierarchy_level = expectedLevel;
 
   let effectiveManagerId: number | null = null;
-  if (
-    parsed.role === "REP" ||
-    parsed.role === "FORECAST_AGENT" ||
-    parsed.role === "MANAGER" ||
-    parsed.role === "EXEC_MANAGER"
-  ) {
+  if (parsed.role === "REP" || parsed.role === "MANAGER" || parsed.role === "EXEC_MANAGER") {
     if (parsed.manager_user_public_id) {
       const id = await resolvePublicId("users", parsed.manager_user_public_id);
       if (id === userId) throw new Error("manager_user_id cannot reference the same user");
       const mgr = await getUserById({ orgId, userId: id });
       if (!mgr) throw new Error("manager_user_id must reference a user in this org");
-      if ((parsed.role === "REP" || parsed.role === "FORECAST_AGENT") && mgr.role !== "MANAGER") {
-        throw new Error("REP/FORECAST_AGENT manager must be a MANAGER user in this org");
+      if (parsed.role === "REP" && mgr.role !== "MANAGER") {
+        throw new Error("REP manager must be a MANAGER user in this org");
       }
       if (parsed.role === "MANAGER" && mgr.role !== "EXEC_MANAGER") {
         throw new Error("MANAGER manager must be an EXEC_MANAGER user in this org");
@@ -411,7 +398,7 @@ export async function deleteUserAction(formData: FormData) {
   if (!existing) redirect(closeHref());
 
   if (ctx.kind === "user" && ctx.user.role === "MANAGER") {
-    if (existing.role !== "REP" && existing.role !== "FORECAST_AGENT") redirect(closeHref());
+    if (existing.role !== "REP") redirect(closeHref());
     if (existing.manager_user_id !== ctx.user.id) redirect(closeHref());
   } else if (ctx.kind === "user" && ctx.user.role !== "ADMIN") {
     redirect("/dashboard");
@@ -448,7 +435,7 @@ export async function assignRepToMeAction(formData: FormData) {
   const parsed = z.object({ public_id: z.string().uuid() }).parse({ public_id: formData.get("public_id") });
   const userId = await resolvePublicId("users", parsed.public_id);
   const existing = await getUserById({ orgId, userId });
-  if (!existing || (existing.role !== "REP" && existing.role !== "FORECAST_AGENT")) redirect(closeHref());
+  if (!existing || existing.role !== "REP") redirect(closeHref());
   if (existing.manager_user_id != null && existing.manager_user_id !== ctx.user.id) redirect(closeHref());
 
   await setUserManagerUserId({ orgId, userId: existing.id, manager_user_id: ctx.user.id });

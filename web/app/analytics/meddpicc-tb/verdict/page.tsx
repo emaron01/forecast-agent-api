@@ -98,7 +98,7 @@ export default async function VerdictForecastPage({
 }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role === "REP" || ctx.user.role === "FORECAST_AGENT") redirect("/dashboard");
+  if (ctx.user.role === "REP") redirect("/dashboard");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
@@ -157,7 +157,7 @@ export default async function VerdictForecastPage({
             AND q.quota_period_id = $2::bigint
             AND q.role_level = 3
             AND q.rep_id IS NOT NULL
-            AND r.role IN ('REP', 'FORECAST_AGENT')
+            AND r.role = 'REP'
             AND (NOT $3::boolean OR q.rep_id = ANY($4::bigint[]))
           `,
           [ctx.user.org_id, qpId, useScopedRepIds, scopedRepIds]

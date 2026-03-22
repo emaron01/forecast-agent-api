@@ -233,7 +233,7 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
   const repOptions: RepOption[] = repDirectoryFull.map((r) => ({ id: r.id, name: r.name, manager_rep_id: r.manager_rep_id }));
 
   // REP users should see the page, but only for themselves.
-  if ((ctx.user.role === "REP" || ctx.user.role === "FORECAST_AGENT") && !repOptions.length) redirect("/dashboard");
+  if (ctx.user.role === "REP" && !repOptions.length) redirect("/dashboard");
 
   const repIdToManagerId = new Map<string, string>();
   const managerNameById = new Map<string, string>();

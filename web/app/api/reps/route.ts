@@ -10,7 +10,7 @@ export async function GET(req: Request) {
     const auth = await getAuth();
     if (!auth) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-    if (auth.kind === "user" && (auth.user.role === "REP" || auth.user.role === "FORECAST_AGENT")) {
+    if (auth.kind === "user" && auth.user.role === "REP") {
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     }
 

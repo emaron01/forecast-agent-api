@@ -31,7 +31,7 @@ export default async function GapDrivingDealsReportPage({
 }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role === "REP" || ctx.user.role === "FORECAST_AGENT") redirect("/dashboard");
+  if (ctx.user.role === "REP") redirect("/dashboard");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
@@ -85,7 +85,7 @@ export default async function GapDrivingDealsReportPage({
       FROM reps
       WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
         AND (active IS TRUE OR active IS NULL)
-        AND role IN ('REP', 'FORECAST_AGENT')
+        AND role = 'REP'
         AND (NOT $2::boolean OR id = ANY($3::bigint[]))
       ORDER BY name ASC, id ASC
       `,

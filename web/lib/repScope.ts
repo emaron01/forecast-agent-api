@@ -27,7 +27,6 @@ async function listActiveRepsForOrg(orgId: number): Promise<RepDirectoryRow[]> {
         WHEN role = 'EXEC_MANAGER' THEN 0
         WHEN role = 'MANAGER' THEN 1
         WHEN role = 'REP' THEN 2
-        WHEN role = 'FORECAST_AGENT' THEN 2
         ELSE 9
       END,
       name ASC,
@@ -112,7 +111,6 @@ export async function getScopedRepDirectory(args: {
     | "EXEC_MANAGER"
     | "MANAGER"
     | "REP"
-    | "FORECAST_AGENT"
     | "CHANNEL_EXEC"
     | "CHANNEL_MANAGER"
     | "CHANNEL_REP";
@@ -136,7 +134,7 @@ export async function getScopedRepDirectory(args: {
   const me = await getRepForUser(orgId, userId).catch(() => null);
   if (!me) return { repDirectory: [], allowedRepIds: [], myRepId: null };
 
-  if (role === "REP" || role === "FORECAST_AGENT") {
+  if (role === "REP") {
     const manager = me.manager_rep_id ? await getRepById(orgId, me.manager_rep_id).catch(() => null) : null;
     const exec = manager?.manager_rep_id ? await getRepById(orgId, manager.manager_rep_id).catch(() => null) : null;
     const list = [exec, manager, me].filter(Boolean) as RepDirectoryRow[];
@@ -157,7 +155,7 @@ export async function getScopedRepDirectory(args: {
         active
       FROM reps
       WHERE organization_id = $1::bigint
-        AND role IN ('REP', 'FORECAST_AGENT')
+        AND role = 'REP'
         AND manager_rep_id = $2::bigint
         AND (active IS TRUE OR active IS NULL)
       ORDER BY name ASC, id ASC
@@ -227,7 +225,6 @@ export async function getScopedRepDirectory(args: {
         WHEN role = 'EXEC_MANAGER' THEN 0
         WHEN role = 'MANAGER' THEN 1
         WHEN role = 'REP' THEN 2
-        WHEN role = 'FORECAST_AGENT' THEN 2
         ELSE 9
       END,
       name ASC
@@ -246,7 +243,7 @@ export async function getScopedRepDirectory(args: {
 
   // Keep stable ordering: exec → managers → reps, alphabetical.
   list.sort((a, b) => {
-    const rank = (x: RepDirectoryRow) => (x.role === "EXEC_MANAGER" ? 0 : x.role === "MANAGER" ? 1 : x.role === "REP" || x.role === "FORECAST_AGENT" ? 2 : 9);
+    const rank = (x: RepDirectoryRow) => (x.role === "EXEC_MANAGER" ? 0 : x.role === "MANAGER" ? 1 : x.role === "REP" ? 2 : 9);
     const dr = rank(a) - rank(b);
     if (dr !== 0) return dr;
     const dn = a.name.localeCompare(b.name);

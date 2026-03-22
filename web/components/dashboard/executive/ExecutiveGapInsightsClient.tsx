@@ -143,7 +143,7 @@ function rankRole(r: RepDirectoryRow) {
   const role = String(r.role || "").trim().toUpperCase();
   if (role === "EXEC_MANAGER") return 0;
   if (role === "MANAGER") return 1;
-  if (role === "REP" || role === "FORECAST_AGENT") return 2;
+  if (role === "REP") return 2;
   return 9;
 }
 

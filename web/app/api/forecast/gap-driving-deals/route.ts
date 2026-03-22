@@ -436,12 +436,8 @@ export async function GET(req: Request) {
 
     const roleRaw = String(auth.user.role || "").trim();
     const scopedRole =
-      roleRaw === "ADMIN" ||
-      roleRaw === "EXEC_MANAGER" ||
-      roleRaw === "MANAGER" ||
-      roleRaw === "REP" ||
-      roleRaw === "FORECAST_AGENT"
-        ? (roleRaw as "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP" | "FORECAST_AGENT")
+      roleRaw === "ADMIN" || roleRaw === "EXEC_MANAGER" || roleRaw === "MANAGER" || roleRaw === "REP"
+        ? (roleRaw as "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP")
         : ("REP" as const);
 
     // IMPORTANT: Forecast summary uses getVisibleUsers() to determine visibility. To avoid mismatches
@@ -454,9 +450,7 @@ export async function GET(req: Request) {
       see_all_visibility: (auth.user as any).see_all_visibility,
     }).catch(() => []);
 
-    const visibleRepUsers = (visibleUsers || []).filter(
-      (u: any) => u && (u.role === "REP" || u.role === "FORECAST_AGENT") && u.active
-    );
+    const visibleRepUsers = (visibleUsers || []).filter((u: any) => u && u.role === "REP" && u.active);
     const visibleRepUserIds = Array.from(
       new Set(visibleRepUsers.map((u: any) => Number(u.id)).filter((n: number) => Number.isFinite(n) && n > 0))
     );

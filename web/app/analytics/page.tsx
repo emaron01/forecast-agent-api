@@ -21,7 +21,7 @@ function Card({ href, title, desc }: { href: string; title: string; desc: string
 export default async function AnalyticsPage() {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role === "REP" || ctx.user.role === "FORECAST_AGENT") redirect("/dashboard");
+  if (ctx.user.role === "REP") redirect("/dashboard");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";

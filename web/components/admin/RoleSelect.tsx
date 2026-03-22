@@ -3,7 +3,7 @@
 import type { ChangeEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-type Role = "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP" | "FORECAST_AGENT";
+type Role = "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP";
 
 export type RoleOption = {
   role: Role;

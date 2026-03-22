@@ -6,7 +6,7 @@ import { syncRepsFromUsers } from "../../../../../lib/db";
 
 export const runtime = "nodejs";
 
-const roleOptions = ["ADMIN", "EXEC_MANAGER", "MANAGER", "REP", "FORECAST_AGENT"] as const;
+const roleOptions = ["ADMIN", "EXEC_MANAGER", "MANAGER", "REP"] as const;
 type RoleOption = (typeof roleOptions)[number];
 
 const UpdateUserRoleSchema = z.object({
@@ -91,7 +91,7 @@ export async function PATCH(req: Request) {
     // Validate manager_user_id compatibility for incoming role.
     let nextManagerUserId: number | null = currentManagerUserId;
 
-    if (nextRole === "REP" || nextRole === "FORECAST_AGENT") {
+    if (nextRole === "REP") {
       if (currentManagerUserId == null) {
         nextManagerUserId = null;
       } else if (currentManagerRole === "MANAGER" || currentManagerRole === "EXEC_MANAGER") {
@@ -99,7 +99,7 @@ export async function PATCH(req: Request) {
       } else {
         return NextResponse.json(
           {
-            error: `invalid_manager_user_id_for_role: ${nextRole} requires manager_role in (MANAGER, EXEC_MANAGER) or null; got ${currentManagerRole}`,
+            error: `invalid_manager_user_id_for_role: REP requires manager_role in (MANAGER, EXEC_MANAGER) or null; got ${currentManagerRole}`,
           },
           { status: 400 }
         );

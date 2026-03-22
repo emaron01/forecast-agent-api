@@ -29,7 +29,7 @@ async function assertOpportunityVisible(args: {
 
   const role = auth.user.role;
 
-  if (role === "REP" || role === "FORECAST_AGENT") {
+  if (role === "REP") {
     if (!opportunityRepName || opportunityRepName !== auth.user.account_owner_name) {
       return { ok: false as const, status: 403 as const, error: "Forbidden" };
     }
@@ -42,7 +42,7 @@ async function assertOpportunityVisible(args: {
       SELECT 1
         FROM users
        WHERE org_id = $1
-         AND role IN ('REP', 'FORECAST_AGENT')
+         AND role = 'REP'
          AND active IS TRUE
          AND manager_user_id = $2
          AND account_owner_name = $3

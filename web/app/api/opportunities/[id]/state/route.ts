@@ -25,7 +25,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
 
     // Role scoping
     if (auth.kind === "user") {
-        if (auth.user.role === "REP" || auth.user.role === "FORECAST_AGENT") {
+      if (auth.user.role === "REP") {
         if (!opportunity.rep_name || opportunity.rep_name !== auth.user.account_owner_name) {
           return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
         }
@@ -36,7 +36,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
           SELECT 1
             FROM users
            WHERE org_id = $1
-             AND role IN ('REP', 'FORECAST_AGENT')
+             AND role = 'REP'
              AND active IS TRUE
              AND manager_user_id = $2
              AND account_owner_name = $3

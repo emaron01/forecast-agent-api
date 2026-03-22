@@ -34,7 +34,7 @@ export default async function ExecutiveDashboardPage({
     const ctx = await requireAuth();
     if (ctx.kind === "master") redirect("/admin/organizations");
     if (ctx.user.role === "ADMIN") redirect("/admin");
-    if (ctx.user.role === "REP" || ctx.user.role === "FORECAST_AGENT") redirect("/dashboard");
+    if (ctx.user.role === "REP") redirect("/dashboard");
 
     const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
     const orgName = org?.name || "Organization";
@@ -58,11 +58,7 @@ export default async function ExecutiveDashboardPage({
         : new Date().toISOString();
 
     const scopedRole =
-      ctx.user.role === "ADMIN" ||
-      ctx.user.role === "EXEC_MANAGER" ||
-      ctx.user.role === "MANAGER" ||
-      ctx.user.role === "REP" ||
-      ctx.user.role === "FORECAST_AGENT"
+      ctx.user.role === "ADMIN" || ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER" || ctx.user.role === "REP"
         ? ctx.user.role
         : "MANAGER";
     const scope = await getScopedRepDirectory({

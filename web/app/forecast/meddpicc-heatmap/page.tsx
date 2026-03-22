@@ -20,7 +20,7 @@ export default async function MeddpiccHeatmapPage({
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
 
-  const repFilterLocked = ctx.user.role === "REP" || ctx.user.role === "FORECAST_AGENT";
+  const repFilterLocked = ctx.user.role === "REP";
   const defaultRepName = repFilterLocked ? String(ctx.user.account_owner_name || "") : "";
 
   const quotaPeriods =
