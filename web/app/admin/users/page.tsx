@@ -27,6 +27,15 @@ function YesNoPill(props: { value: any }) {
   return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${cls}`}>{v ? "Yes" : "No"}</span>;
 }
 
+function salesLeaderOptionLabel(u: { display_name?: string | null; first_name?: string | null; last_name?: string | null; email?: string | null; role: string | null }) {
+  const name =
+    String(u.display_name || "").trim() ||
+    `${String(u.first_name || "").trim()} ${String(u.last_name || "").trim()}`.trim() ||
+    String(u.email || "").trim() ||
+    "User";
+  return `${name} (${roleLabel(String(u.role || ""))})`;
+}
+
 export default async function UsersPage({
   searchParams,
 }: {
@@ -81,9 +90,20 @@ export default async function UsersPage({
   const execManagers = isAdmin ? usersRaw.filter((u) => u.role === "EXEC_MANAGER" && u.active) : [];
   const managers = isAdmin ? usersRaw.filter((u) => u.role === "MANAGER" && u.active) : [];
   const admins = isAdmin ? usersRaw.filter((u) => u.role === "ADMIN" && u.active) : [];
-  /** All active org users — optional “Align to Sales Leader” for channel roles (no role filter). */
-  const alignToSalesLeaderUsersNew = isAdmin ? usersRaw.filter((u) => u.active) : [];
+
+  /** Active org users only — dedicated query so the alignment dropdown is always populated for admins (not derived from filtered usersRaw). */
+  const salesLeaderAlignmentCandidates = isAdmin
+    ? (await listUsers({ orgId, includeInactive: false }).catch(() => [])).slice().sort((a, b) => {
+        const an = String(a.display_name || a.email || "").toLocaleLowerCase();
+        const bn = String(b.display_name || b.email || "").toLocaleLowerCase();
+        return an.localeCompare(bn);
+      })
+    : [];
+  const alignToSalesLeaderUsersNew = salesLeaderAlignmentCandidates;
   const userById = new Map<number, (typeof usersRaw)[number]>(usersRaw.map((u) => [u.id, u]));
+  for (const u of salesLeaderAlignmentCandidates) {
+    if (!userById.has(u.id)) userById.set(u.id, u as any);
+  }
   // When a MANAGER views their REP list, `usersRaw` intentionally only contains REPs.
   // Ensure we can still render the Manager name (the current user) in the Manager column.
   if (ctx.kind === "user" && !userById.has(ctx.user.id)) {
@@ -102,7 +122,17 @@ export default async function UsersPage({
       : [];
 
   const alignToSalesLeaderUsersEdit =
-    isAdmin && user ? usersRaw.filter((u) => u.active && u.id !== user.id) : [];
+    isAdmin && user
+      ? (() => {
+          const base = salesLeaderAlignmentCandidates.filter((u) => u.id !== user.id);
+          const mid = user.manager_user_id;
+          if (mid != null && !base.some((u) => u.id === mid)) {
+            const mgr = userById.get(Number(mid));
+            if (mgr) base.unshift(mgr as (typeof base)[number]);
+          }
+          return base;
+        })()
+      : [];
 
   function closeHref() {
     return "/admin/users";
@@ -463,11 +493,10 @@ export default async function UsersPage({
                     defaultValue={prefillManagerUserPublicId || ""}
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
-                    <option value="">(none)</option>
+                    <option value="">-- Select Sales Leader --</option>
                     {alignToSalesLeaderUsersNew.map((u) => (
                       <option key={u.public_id} value={String(u.public_id)}>
-                        {u.display_name}
-                        {u.title ? ` — ${u.title}` : ""} ({u.role})
+                        {salesLeaderOptionLabel(u)}
                       </option>
                     ))}
                   </select>
@@ -779,15 +808,15 @@ export default async function UsersPage({
                 <div className="grid gap-1" data-show-roles="CHANNEL_EXECUTIVE,CHANNEL_DIRECTOR,CHANNEL_REP" hidden>
                   <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Align to Sales Leader (optional)</label>
                   <select
+                    key={`channel-align-${user.public_id}`}
                     name="manager_user_public_id"
                     defaultValue={user.manager_user_id == null ? "" : String(userById.get(user.manager_user_id)?.public_id || "")}
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
-                    <option value="">(none)</option>
+                    <option value="">-- Select Sales Leader --</option>
                     {alignToSalesLeaderUsersEdit.map((u) => (
                       <option key={u.public_id} value={String(u.public_id)}>
-                        {u.display_name}
-                        {u.title ? ` — ${u.title}` : ""} ({u.role})
+                        {salesLeaderOptionLabel(u)}
                       </option>
                     ))}
                   </select>
