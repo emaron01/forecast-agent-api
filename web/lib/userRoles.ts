@@ -41,6 +41,28 @@ export function channelRoleHierarchyLevel(role: ChannelRole): number {
   return 8;
 }
 
+/** DB `users.hierarchy_level` for each `users.role` (includes channel 6–8). */
+export function roleHierarchyLevel(role: string): number {
+  switch (String(role || "").trim()) {
+    case "ADMIN":
+      return 0;
+    case "EXEC_MANAGER":
+      return 1;
+    case "MANAGER":
+      return 2;
+    case "REP":
+      return 3;
+    case "CHANNEL_EXECUTIVE":
+      return 6;
+    case "CHANNEL_DIRECTOR":
+      return 7;
+    case "CHANNEL_REP":
+      return 8;
+    default:
+      return 3;
+  }
+}
+
 /** Human-readable role labels for UI (admin, selects, etc.). */
 export function roleLabel(role: string): string {
   switch (role) {

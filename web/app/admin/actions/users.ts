@@ -18,8 +18,19 @@ import {
 import { hashPassword } from "../../../lib/password";
 import { randomToken, sha256Hex } from "../../../lib/auth";
 import { resolvePublicId } from "../../../lib/publicId";
+import { roleHierarchyLevel } from "../../../lib/userRoles";
 
 const CheckboxBool = z.preprocess((v) => v === "on" || v === "true" || v === true, z.boolean());
+
+const RoleEnum = z.enum([
+  "ADMIN",
+  "EXEC_MANAGER",
+  "MANAGER",
+  "REP",
+  "CHANNEL_EXECUTIVE",
+  "CHANNEL_DIRECTOR",
+  "CHANNEL_REP",
+]);
 
 function isNextRedirectError(e: unknown) {
   return typeof (e as any)?.digest === "string" && String((e as any).digest).startsWith("NEXT_REDIRECT");
@@ -38,7 +49,7 @@ const CreateSchema = z.object({
   email: z.string().min(1),
   password: z.string().min(8),
   confirm_password: z.string().min(8),
-  role: z.enum(["ADMIN", "EXEC_MANAGER", "MANAGER", "REP"]),
+  role: RoleEnum,
   first_name: z.string().min(1),
   last_name: z.string().min(1),
   title: z.string().max(100).optional(),
@@ -52,7 +63,7 @@ const CreateSchema = z.object({
 const UpdateSchema = z.object({
   public_id: z.string().uuid(),
   email: z.string().min(1),
-  role: z.enum(["ADMIN", "EXEC_MANAGER", "MANAGER", "REP"]),
+  role: RoleEnum,
   first_name: z.string().min(1),
   last_name: z.string().min(1),
   title: z.string().max(100).optional(),
@@ -165,14 +176,19 @@ export async function createUserAction(formData: FormData) {
       redirect(buildErrorRedirect({ ...prefill, error: "passwords_do_not_match" }));
     }
 
-    // Deterministic mapping: role -> hierarchy_level
-    const expectedLevel =
-      parsed.role === "ADMIN" ? 0 : parsed.role === "EXEC_MANAGER" ? 1 : parsed.role === "MANAGER" ? 2 : 3;
-    const hierarchy_level = expectedLevel;
+    const hierarchy_level = roleHierarchyLevel(parsed.role);
 
-    // Only REP/MANAGER/EXEC_MANAGER users should have a manager_user_id.
+    // Manager link rules (aligned with PATCH /api/admin/users/role).
     let effectiveManagerId: number | null = null;
-    if (parsed.role === "REP" || parsed.role === "MANAGER" || parsed.role === "EXEC_MANAGER") {
+    if (parsed.role === "CHANNEL_EXECUTIVE") {
+      effectiveManagerId = null;
+    } else if (
+      parsed.role === "REP" ||
+      parsed.role === "MANAGER" ||
+      parsed.role === "EXEC_MANAGER" ||
+      parsed.role === "CHANNEL_DIRECTOR" ||
+      parsed.role === "CHANNEL_REP"
+    ) {
       if (parsed.manager_user_public_id) {
         const id = await resolvePublicId("users", parsed.manager_user_public_id);
         const mgr = await getUserById({ orgId, userId: id });
@@ -186,21 +202,39 @@ export async function createUserAction(formData: FormData) {
         if (parsed.role === "EXEC_MANAGER" && mgr.role !== "ADMIN") {
           throw new Error("EXEC_MANAGER manager must be an ADMIN user in this org");
         }
+        if (parsed.role === "CHANNEL_DIRECTOR" && mgr.role !== "MANAGER") {
+          throw new Error("CHANNEL_DIRECTOR manager must be a MANAGER user in this org");
+        }
+        if (parsed.role === "CHANNEL_REP") {
+          if (mgr.role !== "MANAGER" && mgr.role !== "EXEC_MANAGER" && mgr.role !== "CHANNEL_DIRECTOR") {
+            throw new Error(
+              "CHANNEL_REP manager must be a MANAGER, EXEC_MANAGER, or CHANNEL_DIRECTOR user in this org"
+            );
+          }
+        }
         effectiveManagerId = id;
       }
     }
 
-    // Only ADMIN users can have admin_has_full_analytics_access.
-    if (parsed.role !== "ADMIN") parsed.admin_has_full_analytics_access = false;
+    let admin_has_full_analytics_access = false;
+    if (parsed.role === "ADMIN") {
+      admin_has_full_analytics_access = !!(parsed.admin_has_full_analytics_access ?? false);
+    } else if (parsed.role === "EXEC_MANAGER" || parsed.role === "CHANNEL_EXECUTIVE") {
+      admin_has_full_analytics_access = true;
+    }
 
-    // Only MANAGER/EXEC_MANAGER can have see_all_visibility.
-    if (parsed.role !== "MANAGER" && parsed.role !== "EXEC_MANAGER") parsed.see_all_visibility = false;
+    let see_all_visibility = false;
+    if (parsed.role === "MANAGER" || parsed.role === "EXEC_MANAGER") {
+      see_all_visibility = !!(parsed.see_all_visibility ?? false);
+    } else if (parsed.role === "CHANNEL_EXECUTIVE") {
+      see_all_visibility = true;
+    }
 
-    // manager_user_id validity already checked above (if provided).
-
-    // Reps must have account_owner_name (CRM Account Owner Name).
+    // Reps and channel reps must have account_owner_name (CRM Account Owner Name).
     const account_owner_name = String(parsed.account_owner_name || "").trim();
-    if (hierarchy_level === 3 && !account_owner_name) throw new Error("account_owner_name is required for REPs");
+    if ((hierarchy_level === 3 || hierarchy_level === 8) && !account_owner_name) {
+      throw new Error("account_owner_name is required for REPs");
+    }
 
     const password_hash = await hashPassword(String(parsed.password));
 
@@ -216,8 +250,8 @@ export async function createUserAction(formData: FormData) {
       title: String(parsed.title || "").trim() || null,
       account_owner_name: account_owner_name || null,
       manager_user_id: effectiveManagerId,
-      admin_has_full_analytics_access: parsed.admin_has_full_analytics_access ?? false,
-      see_all_visibility: parsed.see_all_visibility ?? false,
+      admin_has_full_analytics_access,
+      see_all_visibility,
       active: parsed.active ?? true,
     });
 
@@ -227,7 +261,7 @@ export async function createUserAction(formData: FormData) {
     for (const pid of visiblePublicIds) {
       visibleIds.push(await resolvePublicId("users", pid));
     }
-    if (hierarchy_level === 2 && !(parsed.see_all_visibility ?? false) && visibleIds.length === 0) {
+    if (hierarchy_level === 2 && !see_all_visibility && visibleIds.length === 0) {
       throw new Error("MANAGER must have visibility assignments unless see_all_visibility is enabled");
     }
     if (hierarchy_level === 1 || hierarchy_level === 2) {
@@ -237,7 +271,7 @@ export async function createUserAction(formData: FormData) {
         orgId,
         managerUserId: created.id,
         visibleUserIds: visibleIds,
-        see_all_visibility: !!(parsed.see_all_visibility ?? false),
+        see_all_visibility: !!see_all_visibility,
       });
       // Treat visibility selections as direct-report assignments (role-specific).
       await syncDirectReportsFromVisibility({
@@ -255,12 +289,16 @@ export async function createUserAction(formData: FormData) {
     redirect(buildSuccessRedirect({ created: created.public_id }));
   } catch (e) {
     if (isNextRedirectError(e)) throw e;
+    console.error("[createUser error]", e);
     const msg = String((e as any)?.message || "");
     if (msg.toLowerCase().includes("passwords do not match")) {
       redirect(buildErrorRedirect({ ...prefill, error: "passwords_do_not_match" }));
     }
     if (msg.toLowerCase().includes("account_owner_name is required")) {
       redirect(buildErrorRedirect({ ...prefill, error: "missing_account_owner_name" }));
+    }
+    if (msg.toLowerCase().includes("channel_rep manager")) {
+      redirect(buildErrorRedirect({ ...prefill, error: "invalid_manager" }));
     }
     if (msg.toLowerCase().includes("visibility assignments")) {
       redirect(buildErrorRedirect({ ...prefill, error: "missing_visibility_assignments" }));
@@ -309,12 +347,18 @@ export async function updateUserAction(formData: FormData) {
     redirect("/dashboard");
   }
 
-  const expectedLevel =
-    parsed.role === "ADMIN" ? 0 : parsed.role === "EXEC_MANAGER" ? 1 : parsed.role === "MANAGER" ? 2 : 3;
-  const hierarchy_level = expectedLevel;
+  const hierarchy_level = roleHierarchyLevel(parsed.role);
 
   let effectiveManagerId: number | null = null;
-  if (parsed.role === "REP" || parsed.role === "MANAGER" || parsed.role === "EXEC_MANAGER") {
+  if (parsed.role === "CHANNEL_EXECUTIVE") {
+    effectiveManagerId = null;
+  } else if (
+    parsed.role === "REP" ||
+    parsed.role === "MANAGER" ||
+    parsed.role === "EXEC_MANAGER" ||
+    parsed.role === "CHANNEL_DIRECTOR" ||
+    parsed.role === "CHANNEL_REP"
+  ) {
     if (parsed.manager_user_public_id) {
       const id = await resolvePublicId("users", parsed.manager_user_public_id);
       if (id === userId) throw new Error("manager_user_id cannot reference the same user");
@@ -329,15 +373,38 @@ export async function updateUserAction(formData: FormData) {
       if (parsed.role === "EXEC_MANAGER" && mgr.role !== "ADMIN") {
         throw new Error("EXEC_MANAGER manager must be an ADMIN user in this org");
       }
+      if (parsed.role === "CHANNEL_DIRECTOR" && mgr.role !== "MANAGER") {
+        throw new Error("CHANNEL_DIRECTOR manager must be a MANAGER user in this org");
+      }
+      if (parsed.role === "CHANNEL_REP") {
+        if (mgr.role !== "MANAGER" && mgr.role !== "EXEC_MANAGER" && mgr.role !== "CHANNEL_DIRECTOR") {
+          throw new Error(
+            "CHANNEL_REP manager must be a MANAGER, EXEC_MANAGER, or CHANNEL_DIRECTOR user in this org"
+          );
+        }
+      }
       effectiveManagerId = id;
     }
   }
-  if (parsed.role !== "ADMIN") parsed.admin_has_full_analytics_access = false;
-  if (parsed.role !== "MANAGER" && parsed.role !== "EXEC_MANAGER") parsed.see_all_visibility = false;
-  // manager_user_id validity already checked above (if provided).
+
+  let admin_has_full_analytics_access = false;
+  if (parsed.role === "ADMIN") {
+    admin_has_full_analytics_access = !!(parsed.admin_has_full_analytics_access ?? false);
+  } else if (parsed.role === "EXEC_MANAGER" || parsed.role === "CHANNEL_EXECUTIVE") {
+    admin_has_full_analytics_access = true;
+  }
+
+  let see_all_visibility = false;
+  if (parsed.role === "MANAGER" || parsed.role === "EXEC_MANAGER") {
+    see_all_visibility = !!(parsed.see_all_visibility ?? false);
+  } else if (parsed.role === "CHANNEL_EXECUTIVE") {
+    see_all_visibility = true;
+  }
 
   const account_owner_name = String(parsed.account_owner_name || "").trim();
-  if (hierarchy_level === 3 && !account_owner_name) throw new Error("account_owner_name is required for REPs");
+  if ((hierarchy_level === 3 || hierarchy_level === 8) && !account_owner_name) {
+    throw new Error("account_owner_name is required for REPs");
+  }
 
   await updateUser({
     org_id: orgId,
@@ -351,8 +418,8 @@ export async function updateUserAction(formData: FormData) {
     title: String(parsed.title || "").trim() || null,
     account_owner_name: account_owner_name || null,
     manager_user_id: effectiveManagerId,
-    admin_has_full_analytics_access: parsed.admin_has_full_analytics_access ?? existing.admin_has_full_analytics_access ?? false,
-    see_all_visibility: parsed.see_all_visibility ?? existing.see_all_visibility ?? false,
+    admin_has_full_analytics_access,
+    see_all_visibility,
     active: parsed.active ?? true,
   });
 
@@ -361,7 +428,7 @@ export async function updateUserAction(formData: FormData) {
   for (const pid of visiblePublicIds) {
     visibleIds.push(await resolvePublicId("users", pid));
   }
-  if (hierarchy_level === 2 && !(parsed.see_all_visibility ?? false) && visibleIds.length === 0) {
+  if (hierarchy_level === 2 && !see_all_visibility && visibleIds.length === 0) {
     throw new Error("MANAGER must have visibility assignments unless see_all_visibility is enabled");
   }
   if (hierarchy_level === 1 || hierarchy_level === 2) {
@@ -369,7 +436,7 @@ export async function updateUserAction(formData: FormData) {
       orgId,
       managerUserId: userId,
       visibleUserIds: visibleIds,
-      see_all_visibility: !!(parsed.see_all_visibility ?? false),
+      see_all_visibility: !!see_all_visibility,
     });
     await syncDirectReportsFromVisibility({
       orgId,

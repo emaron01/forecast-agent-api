@@ -80,6 +80,7 @@ export default async function UsersPage({
 
   const execManagers = isAdmin ? usersRaw.filter((u) => u.role === "EXEC_MANAGER" && u.active) : [];
   const managers = isAdmin ? usersRaw.filter((u) => u.role === "MANAGER" && u.active) : [];
+  const channelDirectors = isAdmin ? usersRaw.filter((u) => u.role === "CHANNEL_DIRECTOR" && u.active) : [];
   const admins = isAdmin ? usersRaw.filter((u) => u.role === "ADMIN" && u.active) : [];
   const userById = new Map<number, (typeof usersRaw)[number]>(usersRaw.map((u) => [u.id, u]));
   // When a MANAGER views their REP list, `usersRaw` intentionally only contains REPs.
@@ -282,7 +283,7 @@ export default async function UsersPage({
                 {error === "passwords_do_not_match"
                   ? "Passwords don't match. Please re-enter them."
                   : error === "missing_account_owner_name"
-                    ? "CRM Account Owner Name is required for REPs. Copy/paste it exactly as it appears in your CRM."
+                    ? "CRM Account Owner Name is required for Reps and Channel Reps. Copy/paste it exactly as it appears in your CRM."
                     : error === "email_in_use"
                       ? "That email is already in use. Choose a different email."
                       : error === "missing_visibility_assignments"
@@ -368,7 +369,7 @@ export default async function UsersPage({
               />
               <p className="text-xs font-medium text-[#E74C3C]">
                 This name is used to exactly match the Account Owner for each Opportunity in CRM used for Forecast Reviews. Please COPY and
-                PASTE the name as it appears in CRM. (Required for Reps)
+                PASTE the name as it appears in CRM. (Required for Reps and Channel Reps)
               </p>
             </div>
 
@@ -449,6 +450,58 @@ export default async function UsersPage({
                     ))}
                   </select>
                   <p className="text-xs text-[color:var(--sf-text-disabled)]">For executive managers, this must be an Admin.</p>
+                </div>
+
+                <div className="grid gap-1" data-show-roles="CHANNEL_DIRECTOR" hidden>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
+                  <select
+                    name="manager_user_public_id"
+                    defaultValue={prefillManagerUserPublicId || ""}
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                  >
+                    <option value="">(none)</option>
+                    {managers.map((m) => (
+                      <option key={m.public_id} value={String(m.public_id)}>
+                        {m.display_name} (Manager)
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">Channel Director reports to a sales Manager (optional).</p>
+                </div>
+
+                <div className="grid gap-1" data-show-roles="CHANNEL_REP" hidden>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
+                  <select
+                    name="manager_user_public_id"
+                    defaultValue={prefillManagerUserPublicId || ""}
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                  >
+                    <option value="">(none)</option>
+                    <optgroup label="Managers">
+                      {managers.map((m) => (
+                        <option key={m.public_id} value={String(m.public_id)}>
+                          {m.display_name}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Executive managers">
+                      {execManagers.map((m) => (
+                        <option key={m.public_id} value={String(m.public_id)}>
+                          {m.display_name}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Channel directors">
+                      {channelDirectors.map((m) => (
+                        <option key={m.public_id} value={String(m.public_id)}>
+                          {m.display_name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  </select>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">
+                    Manager may be a Manager, Executive Manager, or Channel Director (optional).
+                  </p>
                 </div>
               </div>
             ) : null}
@@ -643,7 +696,7 @@ export default async function UsersPage({
               />
               <p className="text-xs font-medium text-[#E74C3C]">
                 This name is used to exactly match the Account Owner for each Opportunity in CRM used for Forecast Reviews. Please COPY and
-                PASTE the name as it appears in CRM. (Required for Reps)
+                PASTE the name as it appears in CRM. (Required for Reps and Channel Reps)
               </p>
             </div>
 
@@ -749,6 +802,66 @@ export default async function UsersPage({
                       ))}
                   </select>
                   <p className="text-xs text-[color:var(--sf-text-disabled)]">For executive managers, this must be an Admin.</p>
+                </div>
+
+                <div className="grid gap-1" data-show-roles="CHANNEL_DIRECTOR" hidden>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
+                  <select
+                    name="manager_user_public_id"
+                    defaultValue={user.manager_user_id == null ? "" : String(userById.get(user.manager_user_id)?.public_id || "")}
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                  >
+                    <option value="">(none)</option>
+                    {managers
+                      .filter((m) => m.id !== user.id)
+                      .map((m) => (
+                        <option key={m.public_id} value={String(m.public_id)}>
+                          {m.display_name} (Manager)
+                        </option>
+                      ))}
+                  </select>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">Channel Director reports to a sales Manager (optional).</p>
+                </div>
+
+                <div className="grid gap-1" data-show-roles="CHANNEL_REP" hidden>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
+                  <select
+                    name="manager_user_public_id"
+                    defaultValue={user.manager_user_id == null ? "" : String(userById.get(user.manager_user_id)?.public_id || "")}
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                  >
+                    <option value="">(none)</option>
+                    <optgroup label="Managers">
+                      {managers
+                        .filter((m) => m.id !== user.id)
+                        .map((m) => (
+                          <option key={m.public_id} value={String(m.public_id)}>
+                            {m.display_name}
+                          </option>
+                        ))}
+                    </optgroup>
+                    <optgroup label="Executive managers">
+                      {execManagers
+                        .filter((m) => m.id !== user.id)
+                        .map((m) => (
+                          <option key={m.public_id} value={String(m.public_id)}>
+                            {m.display_name}
+                          </option>
+                        ))}
+                    </optgroup>
+                    <optgroup label="Channel directors">
+                      {channelDirectors
+                        .filter((m) => m.id !== user.id)
+                        .map((m) => (
+                          <option key={m.public_id} value={String(m.public_id)}>
+                            {m.display_name}
+                          </option>
+                        ))}
+                    </optgroup>
+                  </select>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">
+                    Manager may be a Manager, Executive Manager, or Channel Director (optional).
+                  </p>
                 </div>
               </div>
             ) : null}

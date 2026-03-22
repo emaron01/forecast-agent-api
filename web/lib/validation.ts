@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { roleHierarchyLevel } from "./userRoles";
 
 /**
  * External request validation schemas (PUBLIC surfaces).
@@ -61,7 +62,7 @@ export const CreateUserSchema = z
       "CHANNEL_DIRECTOR",
       "CHANNEL_REP",
     ]),
-    hierarchy_level: z.number().int().min(0).max(3).optional(),
+    hierarchy_level: z.number().int().min(0).max(8).optional(),
     account_owner_name: z.string().optional(),
     first_name: z.string().min(1),
     last_name: z.string().min(1),
@@ -78,7 +79,7 @@ export const CreateUserSchema = z
       ctx.addIssue({ code: "custom", path: ["confirm_password"], message: "passwords do not match" });
     }
 
-    const expectedLevel = v.role === "ADMIN" ? 0 : v.role === "EXEC_MANAGER" ? 1 : v.role === "MANAGER" ? 2 : 3;
+    const expectedLevel = roleHierarchyLevel(v.role);
     const effectiveLevel = v.hierarchy_level == null ? expectedLevel : v.hierarchy_level;
     if (v.hierarchy_level != null && v.hierarchy_level !== expectedLevel) {
       ctx.addIssue({
@@ -89,7 +90,7 @@ export const CreateUserSchema = z
     }
 
     const crm = String(v.account_owner_name || "").trim();
-    if (effectiveLevel === 3 && !crm) {
+    if ((effectiveLevel === 3 || effectiveLevel === 8) && !crm) {
       ctx.addIssue({ code: "custom", path: ["account_owner_name"], message: "account_owner_name is required for REPs" });
     }
 
@@ -101,8 +102,12 @@ export const CreateUserSchema = z
       });
     }
 
-    if (v.role !== "MANAGER" && v.role !== "EXEC_MANAGER" && v.see_all_visibility) {
-      ctx.addIssue({ code: "custom", path: ["see_all_visibility"], message: "see_all_visibility is only valid for MANAGER/EXEC_MANAGER" });
+    if (v.role !== "MANAGER" && v.role !== "EXEC_MANAGER" && v.role !== "CHANNEL_EXECUTIVE" && v.see_all_visibility) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["see_all_visibility"],
+        message: "see_all_visibility is only valid for MANAGER/EXEC_MANAGER/CHANNEL_EXECUTIVE",
+      });
     }
   });
 
@@ -119,7 +124,7 @@ export const UpdateUserSchema = z
       "CHANNEL_DIRECTOR",
       "CHANNEL_REP",
     ]),
-    hierarchy_level: z.number().int().min(0).max(3).optional(),
+    hierarchy_level: z.number().int().min(0).max(8).optional(),
     account_owner_name: z.string().optional(),
     first_name: z.string().min(1),
     last_name: z.string().min(1),
@@ -130,7 +135,7 @@ export const UpdateUserSchema = z
     manager_user_public_id: z.string().uuid().nullable().optional(),
   })
   .superRefine((v, ctx) => {
-    const expectedLevel = v.role === "ADMIN" ? 0 : v.role === "EXEC_MANAGER" ? 1 : v.role === "MANAGER" ? 2 : 3;
+    const expectedLevel = roleHierarchyLevel(v.role);
     const effectiveLevel = v.hierarchy_level == null ? expectedLevel : v.hierarchy_level;
     if (v.hierarchy_level != null && v.hierarchy_level !== expectedLevel) {
       ctx.addIssue({
@@ -141,7 +146,7 @@ export const UpdateUserSchema = z
     }
 
     const crm = String(v.account_owner_name || "").trim();
-    if (effectiveLevel === 3 && !crm) {
+    if ((effectiveLevel === 3 || effectiveLevel === 8) && !crm) {
       ctx.addIssue({ code: "custom", path: ["account_owner_name"], message: "account_owner_name is required for REPs" });
     }
 
