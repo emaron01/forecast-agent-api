@@ -103,17 +103,12 @@ ALTER TABLE users
     OR (role = 'CHANNEL_EXECUTIVE' AND hierarchy_level = 6)
   );
 
--- Channel Executive: no manager link (aligned to org / channel, not a sales rep tree)
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'users_channel_executive_no_manager'
-  ) THEN
-    ALTER TABLE users
-      ADD CONSTRAINT users_channel_executive_no_manager
-      CHECK (role <> 'CHANNEL_EXECUTIVE' OR manager_user_id IS NULL);
-  END IF;
-END $$;
+-- NOTE:
+-- The `users_channel_executive_no_manager` constraint was later removed
+-- (see 2026-03-23_drop_users_channel_executive_no_manager.sql) to allow
+-- CHANNEL_EXECUTIVE users to align to a manager like other channel roles.
+-- Keep this migration re-runnable by ensuring that constraint is not present.
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_channel_executive_no_manager;
 
 -- ---------------------------------------------------------------------------
 -- 4) reps — allow-list (reps_role_check was dropped in step 2)
