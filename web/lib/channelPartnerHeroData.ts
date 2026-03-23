@@ -625,28 +625,30 @@ export async function loadChannelPartnerHeroProps(args: {
           quota_target: Math.max(0, quota - (Number(curStage.won_amount || 0) || 0)),
           current_quarter: {
             total_pipeline: Number(curStage.total_active_amount || 0) || 0,
-            total_opps: Number(curStage.total_active_count || 0) || 0,
-            avg_health_pct: healthPctFrom30((curStage as StageSnap).total_active_avg_health_score),
+            // Use totals-derived counts/health so it matches the same deal set
+            // that drives the card amounts (totals do not require predictive_eligible).
+            total_opps: Number(totals.total_active_count || 0) || 0,
+            avg_health_pct: healthPctFrom30(totals.total_active_avg_health_score),
             mix: {
               commit: {
                 value: Number(curStage.commit_amount || 0) || 0,
-                opps: Number(curStage.commit_count || 0) || 0,
+                opps: Number(totals.commit_count || 0) || 0,
                 qoq_change_pct: prevStage ? qoqPct(Number(curStage.commit_amount || 0) || 0, Number(prevStage.commit_amount || 0) || 0) : null,
-                health_pct: healthPctFrom30((curStage as StageSnap).commit_avg_health_score),
+                health_pct: healthPctFrom30(totals.commit_avg_health_score),
               },
               best_case: {
                 value: Number(curStage.best_case_amount || 0) || 0,
-                opps: Number(curStage.best_case_count || 0) || 0,
+                opps: Number(totals.best_case_count || 0) || 0,
                 qoq_change_pct: prevStage
                   ? qoqPct(Number(curStage.best_case_amount || 0) || 0, Number(prevStage.best_case_amount || 0) || 0)
                   : null,
-                health_pct: healthPctFrom30((curStage as StageSnap).best_case_avg_health_score),
+                health_pct: healthPctFrom30(totals.best_case_avg_health_score),
               },
               pipeline: {
                 value: Number(curStage.pipeline_amount || 0) || 0,
                 opps: Number(totals.pipeline_count || 0) || 0,
                 qoq_change_pct: prevStage ? qoqPct(Number(curStage.pipeline_amount || 0) || 0, Number(prevStage.pipeline_amount || 0) || 0) : null,
-                health_pct: healthPctFrom30((totals as TotalsRow).pipeline_avg_health_score),
+                health_pct: healthPctFrom30(totals.pipeline_avg_health_score),
               },
             },
           },
