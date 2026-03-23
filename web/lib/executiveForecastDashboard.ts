@@ -1269,8 +1269,11 @@ export async function getExecutiveForecastDashboardSummary(args: {
               COALESCE(SUM(CASE WHEN fs LIKE '%commit%' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
               COALESCE(SUM(CASE WHEN fs LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
               COALESCE(SUM(CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
-              COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN amount ELSE 0 END), 0)::float8 AS won_amount
-            FROM deals_in_qtr
+              (
+                SELECT COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN amount ELSE 0 END), 0)::float8
+                  FROM deals_in_qtr
+              ) AS won_amount
+            FROM open_deals
             `,
             [args.orgId, qpId, allowedRepIds, useScoped]
           )
