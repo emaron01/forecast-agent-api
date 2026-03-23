@@ -41,16 +41,86 @@ function hygieneRepIndentClass(row: { rowKind?: "team" | "rep" }): string {
   return row.rowKind === "rep" ? "pl-8" : "";
 }
 
-/** Individual contributor rows (not sales managers) for team grouping. */
-function isLeafRepRole(role: string | null | undefined): boolean {
-  return role === "REP" || role === "CHANNEL_REP";
+/**
+ * Exclude hierarchy levels 6–8 (channel) from hygiene metrics. `reps` has no hierarchy_level column here;
+ * we filter via linked `users` (equivalent to AND r.hierarchy_level <= 3 when reps mirror users).
+ */
+const SALES_REP_USER_JOIN_SQL = `INNER JOIN users u ON u.org_id = $1::bigint AND u.id = r.user_id AND u.hierarchy_level <= 3`;
+
+type AssessmentOppRowLike = {
+  rep_id: number;
+  pain_score: number | null;
+  metrics_score: number | null;
+  champion_score: number | null;
+  eb_score: number | null;
+  criteria_score: number | null;
+  process_score: number | null;
+  competition_score: number | null;
+  paper_score: number | null;
+  timing_score: number | null;
+  budget_score: number | null;
+  health_score: number | null;
+};
+
+/** Direct reports grouped by manager_rep_id (manager must exist in directory). */
+function collectDirectManagerGroups(
+  repDirectory: RepDirectoryRow[],
+  visibleRepIds: number[]
+): Array<{ managerId: number; managerName: string; repIds: number[] }> {
+  const repById = new Map(repDirectory.map((r) => [r.id, r]));
+  const byMgr = new Map<number, number[]>();
+  for (const rid of visibleRepIds) {
+    const r = repById.get(rid);
+    if (!r) continue;
+    const mgrId = r.manager_rep_id;
+    if (mgrId != null && repById.has(mgrId)) {
+      let arr = byMgr.get(mgrId);
+      if (!arr) {
+        arr = [];
+        byMgr.set(mgrId, arr);
+      }
+      arr.push(rid);
+    }
+  }
+  return Array.from(byMgr.entries())
+    .map(([managerId, repIds]) => {
+      const sorted = [...repIds].sort((a, b) => {
+        const na = repById.get(a)?.name ?? "";
+        const nb = repById.get(b)?.name ?? "";
+        return na.localeCompare(nb, "en", { sensitivity: "base" });
+      });
+      return {
+        managerId,
+        managerName: repById.get(managerId)!.name,
+        repIds: sorted,
+      };
+    })
+    .sort((a, b) =>
+      a.managerName.localeCompare(b.managerName, "en", { sensitivity: "base" })
+    );
 }
 
-function isManagerRepRole(role: string | null | undefined): boolean {
-  return role === "EXEC_MANAGER" || role === "MANAGER";
+function collectUnassignedRepIds(
+  repDirectory: RepDirectoryRow[],
+  visibleRepIds: number[]
+): number[] {
+  const repById = new Map(repDirectory.map((r) => [r.id, r]));
+  const out: number[] = [];
+  for (const rid of visibleRepIds) {
+    const r = repById.get(rid);
+    if (!r) continue;
+    const mgrId = r.manager_rep_id;
+    if (mgrId == null || !repById.has(mgrId)) out.push(rid);
+  }
+  out.sort((a, b) => {
+    const na = repById.get(a)?.name ?? "";
+    const nb = repById.get(b)?.name ?? "";
+    return na.localeCompare(nb, "en", { sensitivity: "base" });
+  });
+  return out;
 }
 
-function buildManagerTeamCoverageDisplay(
+function buildTeamCoverageRows(
   coverageRows: Array<{
     rep_id: number;
     rep_name: string;
@@ -68,48 +138,9 @@ function buildManagerTeamCoverageDisplay(
   coverage_pct: number | null;
   rowKind: "team" | "rep";
 }> {
-  const repById = new Map(repDirectory.map((r) => [r.id, r]));
   const byId = new Map(coverageRows.map((r) => [r.rep_id, r]));
-  const leafRepIds = visibleRepIds.filter((id) => {
-    const row = repById.get(id);
-    return row && isLeafRepRole(row.role);
-  });
-
-  type GroupKey = number | "unassigned";
-  const groupToLeafIds = new Map<GroupKey, number[]>();
-
-  for (const rid of leafRepIds) {
-    const row = repById.get(rid);
-    if (!row) continue;
-    const mgrId = row.manager_rep_id;
-    const mgr = mgrId != null ? repById.get(mgrId) : null;
-    const key: GroupKey =
-      mgrId != null && mgr && isManagerRepRole(mgr.role) ? mgrId : "unassigned";
-    let arr = groupToLeafIds.get(key);
-    if (!arr) {
-      arr = [];
-      groupToLeafIds.set(key, arr);
-    }
-    arr.push(rid);
-  }
-
-  for (const ids of groupToLeafIds.values()) {
-    ids.sort((a, b) => {
-      const na = byId.get(a)?.rep_name ?? "";
-      const nb = byId.get(b)?.rep_name ?? "";
-      return na.localeCompare(nb, "en", { sensitivity: "base" });
-    });
-  }
-
-  const managerKeys = Array.from(groupToLeafIds.keys()).filter(
-    (k): k is number => typeof k === "number"
-  );
-  managerKeys.sort((a, b) => {
-    const na = repById.get(a)?.name ?? "";
-    const nb = repById.get(b)?.name ?? "";
-    return na.localeCompare(nb, "en", { sensitivity: "base" });
-  });
-
+  const groups = collectDirectManagerGroups(repDirectory, visibleRepIds);
+  const unassigned = collectUnassignedRepIds(repDirectory, visibleRepIds);
   const out: Array<{
     rep_id: number;
     rep_name: string;
@@ -119,14 +150,10 @@ function buildManagerTeamCoverageDisplay(
     rowKind: "team" | "rep";
   }> = [];
 
-  for (const mgrId of managerKeys) {
-    const leafIds = groupToLeafIds.get(mgrId) ?? [];
-    if (leafIds.length === 0) continue;
-    const mgr = repById.get(mgrId);
-    if (!mgr) continue;
+  for (const g of groups) {
     let total = 0;
     let reviewed = 0;
-    for (const id of leafIds) {
+    for (const id of g.repIds) {
       const row = byId.get(id);
       if (row) {
         total += row.total_opps;
@@ -134,24 +161,23 @@ function buildManagerTeamCoverageDisplay(
       }
     }
     out.push({
-      rep_id: -(mgrId + 1_000_000),
-      rep_name: `${mgr.name} Team Total`,
+      rep_id: -(g.managerId + 1_000_000),
+      rep_name: `${g.managerName} Team Total`,
       total_opps: total,
       reviewed_opps: reviewed,
       coverage_pct: total > 0 ? Math.round((reviewed / total) * 100) : null,
       rowKind: "team",
     });
-    for (const id of leafIds) {
+    for (const id of g.repIds) {
       const row = byId.get(id);
       if (row) out.push({ ...row, rowKind: "rep" });
     }
   }
 
-  const unassignedLeaves = groupToLeafIds.get("unassigned") ?? [];
-  if (unassignedLeaves.length > 0) {
+  if (unassigned.length > 0) {
     let total = 0;
     let reviewed = 0;
-    for (const id of unassignedLeaves) {
+    for (const id of unassigned) {
       const row = byId.get(id);
       if (row) {
         total += row.total_opps;
@@ -166,7 +192,7 @@ function buildManagerTeamCoverageDisplay(
       coverage_pct: total > 0 ? Math.round((reviewed / total) * 100) : null,
       rowKind: "team",
     });
-    for (const id of unassignedLeaves) {
+    for (const id of unassigned) {
       const row = byId.get(id);
       if (row) out.push({ ...row, rowKind: "rep" });
     }
@@ -175,22 +201,7 @@ function buildManagerTeamCoverageDisplay(
   return out;
 }
 
-type AssessmentOppRowLike = {
-  rep_id: number;
-  pain_score: number | null;
-  metrics_score: number | null;
-  champion_score: number | null;
-  eb_score: number | null;
-  criteria_score: number | null;
-  process_score: number | null;
-  competition_score: number | null;
-  paper_score: number | null;
-  timing_score: number | null;
-  budget_score: number | null;
-  health_score: number | null;
-};
-
-function buildManagerTeamAssessmentDisplay(
+function buildTeamAssessmentRows(
   assessmentRows: Array<{
     rep_id: number;
     rep_name: string;
@@ -225,47 +236,9 @@ function buildManagerTeamAssessmentDisplay(
   avg_total: number | null;
   rowKind: "team" | "rep";
 }> {
-  const repById = new Map(repDirectory.map((r) => [r.id, r]));
   const byId = new Map(assessmentRows.map((r) => [r.rep_id, r]));
-  const leafRepIds = visibleRepIds.filter((id) => {
-    const row = repById.get(id);
-    return row && isLeafRepRole(row.role);
-  });
-
-  type GroupKey = number | "unassigned";
-  const groupToLeafIds = new Map<GroupKey, number[]>();
-
-  for (const rid of leafRepIds) {
-    const row = repById.get(rid);
-    if (!row) continue;
-    const mgrId = row.manager_rep_id;
-    const mgr = mgrId != null ? repById.get(mgrId) : null;
-    const key: GroupKey =
-      mgrId != null && mgr && isManagerRepRole(mgr.role) ? mgrId : "unassigned";
-    let arr = groupToLeafIds.get(key);
-    if (!arr) {
-      arr = [];
-      groupToLeafIds.set(key, arr);
-    }
-    arr.push(rid);
-  }
-
-  for (const ids of groupToLeafIds.values()) {
-    ids.sort((a, b) => {
-      const na = byId.get(a)?.rep_name ?? "";
-      const nb = byId.get(b)?.rep_name ?? "";
-      return na.localeCompare(nb, "en", { sensitivity: "base" });
-    });
-  }
-
-  const managerKeys = Array.from(groupToLeafIds.keys()).filter(
-    (k): k is number => typeof k === "number"
-  );
-  managerKeys.sort((a, b) => {
-    const na = repById.get(a)?.name ?? "";
-    const nb = repById.get(b)?.name ?? "";
-    return na.localeCompare(nb, "en", { sensitivity: "base" });
-  });
+  const groups = collectDirectManagerGroups(repDirectory, visibleRepIds);
+  const unassigned = collectUnassignedRepIds(repDirectory, visibleRepIds);
 
   const num = (v: number | null | undefined): number =>
     v != null && Number.isFinite(v) ? Number(v) : 0;
@@ -324,34 +297,29 @@ function buildManagerTeamAssessmentDisplay(
     rowKind: "team" | "rep";
   }> = [];
 
-  for (const mgrId of managerKeys) {
-    const leafIds = groupToLeafIds.get(mgrId) ?? [];
-    if (leafIds.length === 0) continue;
-    const mgr = repById.get(mgrId);
-    if (!mgr) continue;
-    const rolled = rollupFromOpps(new Set(leafIds));
+  for (const g of groups) {
+    const rolled = rollupFromOpps(new Set(g.repIds));
     out.push({
-      rep_id: -(mgrId + 1_000_000),
-      rep_name: `${mgr.name} Team Total`,
+      rep_id: -(g.managerId + 1_000_000),
+      rep_name: `${g.managerName} Team Total`,
       ...rolled,
       rowKind: "team",
     });
-    for (const id of leafIds) {
+    for (const id of g.repIds) {
       const row = byId.get(id);
       if (row) out.push({ ...row, rowKind: "rep" });
     }
   }
 
-  const unassignedLeaves = groupToLeafIds.get("unassigned") ?? [];
-  if (unassignedLeaves.length > 0) {
-    const rolled = rollupFromOpps(new Set(unassignedLeaves));
+  if (unassigned.length > 0) {
+    const rolled = rollupFromOpps(new Set(unassigned));
     out.push({
       rep_id: -1,
       rep_name: "Unassigned Team Total",
       ...rolled,
       rowKind: "team",
     });
-    for (const id of unassignedLeaves) {
+    for (const id of unassigned) {
       const row = byId.get(id);
       if (row) out.push({ ...row, rowKind: "rep" });
     }
@@ -360,7 +328,7 @@ function buildManagerTeamAssessmentDisplay(
   return out;
 }
 
-function buildManagerTeamVelocityDisplay(
+function buildTeamVelocityRows(
   velocityRows: Array<{
     rep_id: number;
     rep_name: string;
@@ -380,45 +348,8 @@ function buildManagerTeamVelocityDisplay(
   rowKind: "team" | "rep";
 }> {
   const repById = new Map(repDirectory.map((r) => [r.id, r]));
-  const leafRepIds = visibleRepIds.filter((id) => {
-    const row = repById.get(id);
-    return row && isLeafRepRole(row.role);
-  });
-
-  type GroupKey = number | "unassigned";
-  const groupToLeafIds = new Map<GroupKey, number[]>();
-
-  for (const rid of leafRepIds) {
-    const row = repById.get(rid);
-    if (!row) continue;
-    const mgrId = row.manager_rep_id;
-    const mgr = mgrId != null ? repById.get(mgrId) : null;
-    const key: GroupKey =
-      mgrId != null && mgr && isManagerRepRole(mgr.role) ? mgrId : "unassigned";
-    let arr = groupToLeafIds.get(key);
-    if (!arr) {
-      arr = [];
-      groupToLeafIds.set(key, arr);
-    }
-    arr.push(rid);
-  }
-
-  for (const ids of groupToLeafIds.values()) {
-    ids.sort((a, b) => {
-      const na = repById.get(a)?.name ?? "";
-      const nb = repById.get(b)?.name ?? "";
-      return na.localeCompare(nb, "en", { sensitivity: "base" });
-    });
-  }
-
-  const managerKeys = Array.from(groupToLeafIds.keys()).filter(
-    (k): k is number => typeof k === "number"
-  );
-  managerKeys.sort((a, b) => {
-    const na = repById.get(a)?.name ?? "";
-    const nb = repById.get(b)?.name ?? "";
-    return na.localeCompare(nb, "en", { sensitivity: "base" });
-  });
+  const groups = collectDirectManagerGroups(repDirectory, visibleRepIds);
+  const unassigned = collectUnassignedRepIds(repDirectory, visibleRepIds);
 
   const num = (v: number | null | undefined): number =>
     v != null && Number.isFinite(v) ? Number(v) : 0;
@@ -452,6 +383,37 @@ function buildManagerTeamVelocityDisplay(
     };
   };
 
+  const repVelocitySummary = (repId: number) => {
+    const name = repById.get(repId)?.name ?? "";
+    const leafRows = velocityRows.filter((r) => r.rep_id === repId);
+    let count = 0;
+    let sumBaseline = 0;
+    let sumCurrent = 0;
+    let sumDelta = 0;
+    let dealsMoving = 0;
+    let dealsFlat = 0;
+    for (const row of leafRows) {
+      count += 1;
+      const b = num(row.baseline_score);
+      const c = num(row.current_score);
+      const d =
+        row.delta != null && Number.isFinite(row.delta) ? Number(row.delta) : c - b;
+      sumBaseline += b;
+      sumCurrent += c;
+      sumDelta += d;
+      if (d > 0) dealsMoving += 1;
+      if (d === 0) dealsFlat += 1;
+    }
+    return {
+      repName: name,
+      avgBaseline: count ? sumBaseline / count : 0,
+      avgCurrent: count ? sumCurrent / count : 0,
+      avgDelta: count ? sumDelta / count : 0,
+      dealsMoving,
+      dealsFlat,
+    };
+  };
+
   const out: Array<{
     repName: string;
     avgBaseline: number;
@@ -462,95 +424,34 @@ function buildManagerTeamVelocityDisplay(
     rowKind: "team" | "rep";
   }> = [];
 
-  for (const mgrId of managerKeys) {
-    const leafIds = groupToLeafIds.get(mgrId) ?? [];
-    if (leafIds.length === 0) continue;
-    const mgr = repById.get(mgrId);
-    if (!mgr) continue;
-    const agg = rollupVelocity(leafIds);
+  for (const g of groups) {
+    const agg = rollupVelocity(g.repIds);
     out.push({
-      repName: `${mgr.name} Team Total`,
+      repName: `${g.managerName} Team Total`,
       ...agg,
       rowKind: "team",
     });
-    for (const id of leafIds) {
-      const name = repById.get(id)?.name ?? "";
-      const leafRows = velocityRows.filter((r) => r.rep_id === id);
-      let count = 0;
-      let sumBaseline = 0;
-      let sumCurrent = 0;
-      let sumDelta = 0;
-      let dealsMoving = 0;
-      let dealsFlat = 0;
-      for (const row of leafRows) {
-        count += 1;
-        const b = num(row.baseline_score);
-        const c = num(row.current_score);
-        const d =
-          row.delta != null && Number.isFinite(row.delta) ? Number(row.delta) : c - b;
-        sumBaseline += b;
-        sumCurrent += c;
-        sumDelta += d;
-        if (d > 0) dealsMoving += 1;
-        if (d === 0) dealsFlat += 1;
-      }
-      out.push({
-        repName: name,
-        avgBaseline: count ? sumBaseline / count : 0,
-        avgCurrent: count ? sumCurrent / count : 0,
-        avgDelta: count ? sumDelta / count : 0,
-        dealsMoving,
-        dealsFlat,
-        rowKind: "rep",
-      });
+    for (const id of g.repIds) {
+      out.push({ ...repVelocitySummary(id), rowKind: "rep" });
     }
   }
 
-  const unassignedLeaves = groupToLeafIds.get("unassigned") ?? [];
-  if (unassignedLeaves.length > 0) {
-    const agg = rollupVelocity(unassignedLeaves);
+  if (unassigned.length > 0) {
+    const agg = rollupVelocity(unassigned);
     out.push({
       repName: "Unassigned Team Total",
       ...agg,
       rowKind: "team",
     });
-    for (const id of unassignedLeaves) {
-      const name = repById.get(id)?.name ?? "";
-      const leafRows = velocityRows.filter((r) => r.rep_id === id);
-      let count = 0;
-      let sumBaseline = 0;
-      let sumCurrent = 0;
-      let sumDelta = 0;
-      let dealsMoving = 0;
-      let dealsFlat = 0;
-      for (const row of leafRows) {
-        count += 1;
-        const b = num(row.baseline_score);
-        const c = num(row.current_score);
-        const d =
-          row.delta != null && Number.isFinite(row.delta) ? Number(row.delta) : c - b;
-        sumBaseline += b;
-        sumCurrent += c;
-        sumDelta += d;
-        if (d > 0) dealsMoving += 1;
-        if (d === 0) dealsFlat += 1;
-      }
-      out.push({
-        repName: name,
-        avgBaseline: count ? sumBaseline / count : 0,
-        avgCurrent: count ? sumCurrent / count : 0,
-        avgDelta: count ? sumDelta / count : 0,
-        dealsMoving,
-        dealsFlat,
-        rowKind: "rep",
-      });
+    for (const id of unassigned) {
+      out.push({ ...repVelocitySummary(id), rowKind: "rep" });
     }
   }
 
   return out;
 }
 
-function buildManagerTeamProgressionDisplay(
+function buildTeamProgressionRows(
   progressionByRepId: Map<
     number,
     { repName: string; progressing: number; stalled: number; flat: number; total: number }
@@ -566,45 +467,8 @@ function buildManagerTeamProgressionDisplay(
   rowKind: "team" | "rep";
 }> {
   const repById = new Map(repDirectory.map((r) => [r.id, r]));
-  const leafRepIds = visibleRepIds.filter((id) => {
-    const row = repById.get(id);
-    return row && isLeafRepRole(row.role);
-  });
-
-  type GroupKey = number | "unassigned";
-  const groupToLeafIds = new Map<GroupKey, number[]>();
-
-  for (const rid of leafRepIds) {
-    const row = repById.get(rid);
-    if (!row) continue;
-    const mgrId = row.manager_rep_id;
-    const mgr = mgrId != null ? repById.get(mgrId) : null;
-    const key: GroupKey =
-      mgrId != null && mgr && isManagerRepRole(mgr.role) ? mgrId : "unassigned";
-    let arr = groupToLeafIds.get(key);
-    if (!arr) {
-      arr = [];
-      groupToLeafIds.set(key, arr);
-    }
-    arr.push(rid);
-  }
-
-  for (const ids of groupToLeafIds.values()) {
-    ids.sort((a, b) => {
-      const na = progressionByRepId.get(a)?.repName ?? repById.get(a)?.name ?? "";
-      const nb = progressionByRepId.get(b)?.repName ?? repById.get(b)?.name ?? "";
-      return na.localeCompare(nb, "en", { sensitivity: "base" });
-    });
-  }
-
-  const managerKeys = Array.from(groupToLeafIds.keys()).filter(
-    (k): k is number => typeof k === "number"
-  );
-  managerKeys.sort((a, b) => {
-    const na = repById.get(a)?.name ?? "";
-    const nb = repById.get(b)?.name ?? "";
-    return na.localeCompare(nb, "en", { sensitivity: "base" });
-  });
+  const groups = collectDirectManagerGroups(repDirectory, visibleRepIds);
+  const unassigned = collectUnassignedRepIds(repDirectory, visibleRepIds);
 
   const rollupProg = (repIds: number[]) => {
     let progressing = 0;
@@ -632,32 +496,27 @@ function buildManagerTeamProgressionDisplay(
     rowKind: "team" | "rep";
   }> = [];
 
-  for (const mgrId of managerKeys) {
-    const leafIds = groupToLeafIds.get(mgrId) ?? [];
-    if (leafIds.length === 0) continue;
-    const mgr = repById.get(mgrId);
-    if (!mgr) continue;
-    const agg = rollupProg(leafIds);
+  for (const g of groups) {
+    const agg = rollupProg(g.repIds);
     out.push({
-      repName: `${mgr.name} Team Total`,
+      repName: `${g.managerName} Team Total`,
       ...agg,
       rowKind: "team",
     });
-    for (const id of leafIds) {
+    for (const id of g.repIds) {
       const s = progressionByRepId.get(id);
       if (s) out.push({ ...s, rowKind: "rep" });
     }
   }
 
-  const unassignedLeaves = groupToLeafIds.get("unassigned") ?? [];
-  if (unassignedLeaves.length > 0) {
-    const agg = rollupProg(unassignedLeaves);
+  if (unassigned.length > 0) {
+    const agg = rollupProg(unassigned);
     out.push({
       repName: "Unassigned Team Total",
       ...agg,
       rowKind: "team",
     });
-    for (const id of unassignedLeaves) {
+    for (const id of unassigned) {
       const s = progressionByRepId.get(id);
       if (s) out.push({ ...s, rowKind: "rep" });
     }
@@ -765,59 +624,7 @@ export default async function ForecastHygienePage({
   const visibleRepIdsForQuery =
     visibleRepIds.length > 0 ? visibleRepIds : [-1];
 
-  const excludeChannelRepsInHygiene = user.hierarchy_level <= 3;
-  const channelRepJoinSql = `LEFT JOIN users u ON u.org_id = $1::bigint AND u.id = r.user_id`;
-  const channelRepWhereSql = excludeChannelRepsInHygiene
-    ? `AND COALESCE(u.role::text, r.role::text) NOT IN ('CHANNEL_EXECUTIVE', 'CHANNEL_DIRECTOR', 'CHANNEL_REP')`
-    : "";
-  const useManagerTeamTotals =
-    user.role === "EXEC_MANAGER" || user.role === "MANAGER";
-
-  // Leaders = reps in directory with role EXEC_MANAGER/MANAGER who have reports (for rollup rows)
   const repDirectory = scope.repDirectory;
-  const childrenByManagerRepId = new Map<number, number[]>();
-  for (const r of repDirectory) {
-    if (r.manager_rep_id != null && repDirectory.some((x) => x.id === r.manager_rep_id)) {
-      let arr = childrenByManagerRepId.get(r.manager_rep_id);
-      if (!arr) {
-        arr = [];
-        childrenByManagerRepId.set(r.manager_rep_id, arr);
-      }
-      arr.push(r.id);
-    }
-  }
-  const leaders = repDirectory
-    .filter(
-      (r) =>
-        (r.role === "EXEC_MANAGER" || r.role === "MANAGER") &&
-        (childrenByManagerRepId.get(r.id)?.length ?? 0) > 0
-    )
-    .map((r) => ({ id: r.id, display_name: r.name }))
-    .sort((a, b) => a.display_name.localeCompare(b.display_name, "en", { sensitivity: "base" }));
-
-  function getSubtreeRepIds(rootRepId: number): number[] {
-    const out: number[] = [rootRepId];
-    const queue = [rootRepId];
-    const visited = new Set([rootRepId]);
-    while (queue.length > 0) {
-      const rid = queue.shift()!;
-      const children = childrenByManagerRepId.get(rid) ?? [];
-      for (const c of children) {
-        if (!visited.has(c)) {
-          visited.add(c);
-          out.push(c);
-          queue.push(c);
-        }
-      }
-    }
-    return out;
-  }
-
-  const leaderRepIds = new Map<number, number[]>();
-  for (const leader of leaders) {
-    const repIds = getSubtreeRepIds(leader.id);
-    if (repIds.length > 0) leaderRepIds.set(leader.id, repIds);
-  }
 
   // Query A — Coverage
   type CoverageRow = {
@@ -860,7 +667,7 @@ export default async function ForecastHygienePage({
         / NULLIF(COUNT(opp.id), 0) * 100
       )::int AS coverage_pct
     FROM reps r
-    ${channelRepJoinSql}
+    ${SALES_REP_USER_JOIN_SQL}
     LEFT JOIN opportunities opp
       ON opp.rep_id = r.id
      AND opp.org_id = $1
@@ -868,7 +675,6 @@ export default async function ForecastHygienePage({
      AND opp.close_date < $3::timestamptz
     WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
       AND r.id = ANY($4::bigint[])
-      ${channelRepWhereSql}
     GROUP BY
       r.id,
       COALESCE(
@@ -886,43 +692,11 @@ export default async function ForecastHygienePage({
     [orgId, startIso, endIso, visibleRepIdsForQuery]
   );
 
-  const coverageRowsByRepId = new Map<number, CoverageRow>(
-    (coverageRows ?? []).map((r) => [r.rep_id, r])
+  const coverageRowsFinal = buildTeamCoverageRows(
+    coverageRows ?? [],
+    repDirectory,
+    visibleRepIds
   );
-  const leaderRepIdSet = new Set(Array.from(leaderRepIds.keys()).map((id) => id));
-
-  let coverageRowsFinal: Array<CoverageRow & { rowKind?: "team" | "rep" }>;
-  if (useManagerTeamTotals) {
-    coverageRowsFinal = buildManagerTeamCoverageDisplay(
-      coverageRows ?? [],
-      repDirectory,
-      visibleRepIds
-    );
-  } else {
-    const leaderCoverageRows: CoverageRow[] = leaders
-      .filter((l) => leaderRepIds.get(l.id)?.length)
-      .map((leader) => {
-        const repIds = leaderRepIds.get(leader.id)!;
-        let total = 0;
-        let reviewed = 0;
-        for (const repId of repIds) {
-          const row = coverageRowsByRepId.get(repId);
-          if (row) {
-            total += row.total_opps;
-            reviewed += row.reviewed_opps;
-          }
-        }
-        return {
-          rep_id: -leader.id,
-          rep_name: leader.display_name,
-          total_opps: total,
-          reviewed_opps: reviewed,
-          coverage_pct: total > 0 ? Math.round((reviewed / total) * 100) : null,
-        };
-      });
-    const coverageRowsFiltered = (coverageRows ?? []).filter((row) => !leaderRepIdSet.has(row.rep_id));
-    coverageRowsFinal = [...leaderCoverageRows, ...coverageRowsFiltered];
-  }
 
   // Query B — Matthew's Assessment (category heatmap)
   type AssessmentRow = {
@@ -962,7 +736,7 @@ export default async function ForecastHygienePage({
       ROUND(AVG(opp.budget_score))      AS budget,
       ROUND(AVG(opp.health_score))      AS avg_total
     FROM reps r
-    ${channelRepJoinSql}
+    ${SALES_REP_USER_JOIN_SQL}
     LEFT JOIN opportunities opp
       ON opp.rep_id = r.id
      AND opp.org_id = $1
@@ -977,7 +751,6 @@ export default async function ForecastHygienePage({
      )
     WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
       AND r.id = ANY($4::bigint[])
-      ${channelRepWhereSql}
     GROUP BY
       r.id,
       COALESCE(
@@ -995,7 +768,7 @@ export default async function ForecastHygienePage({
     [orgId, startIso, endIso, visibleRepIdsForQuery]
   );
 
-  // Raw agent-reviewed opps for leader assessment rollup (team average of category scores)
+  // Raw agent-reviewed opps for team rollup (average of category scores)
   type AssessmentOppRow = {
     rep_id: number;
     pain_score: number | null;
@@ -1029,7 +802,7 @@ export default async function ForecastHygienePage({
     JOIN reps r
       ON r.id = opp.rep_id
      AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
-    ${channelRepJoinSql}
+    ${SALES_REP_USER_JOIN_SQL}
     WHERE opp.rep_id = ANY($4::bigint[])
       AND opp.org_id = $1
       AND opp.close_date >= $2::timestamptz
@@ -1039,68 +812,16 @@ export default async function ForecastHygienePage({
         WHERE oae.opportunity_id = opp.id AND oae.org_id = $1
           AND oae.total_score IS NOT NULL
       )
-      ${channelRepWhereSql}
     `,
     [orgId, startIso, endIso, visibleRepIdsForQuery]
   );
 
-  const num = (v: number | null | undefined): number => (v != null && Number.isFinite(v) ? Number(v) : 0);
-
-  let assessmentRowsFinal: Array<AssessmentRow & { rowKind?: "team" | "rep" }>;
-  if (useManagerTeamTotals) {
-    assessmentRowsFinal = buildManagerTeamAssessmentDisplay(
-      assessmentRows ?? [],
-      assessmentOppRows ?? [],
-      repDirectory,
-      visibleRepIds
-    );
-  } else {
-    const leaderAssessmentRows: AssessmentRow[] = leaders
-      .filter((l) => leaderRepIds.get(l.id)?.length)
-      .map((leader) => {
-        const repIds = new Set(leaderRepIds.get(leader.id)!);
-        const rows = (assessmentOppRows ?? []).filter((r) => repIds.has(r.rep_id));
-        const n = rows.length;
-        if (n === 0) {
-          return {
-            rep_id: -leader.id,
-            rep_name: leader.display_name,
-            pain: null,
-            metrics: null,
-            champion: null,
-            eb: null,
-            criteria: null,
-            process: null,
-            competition: null,
-            paper: null,
-            timing: null,
-            budget: null,
-            avg_total: null,
-          };
-        }
-        const sum = (get: (r: AssessmentOppRow) => number | null) =>
-          rows.reduce((a, r) => a + num(get(r)), 0);
-        const avg = (get: (r: AssessmentOppRow) => number | null) =>
-          Math.round(sum(get) / n);
-        return {
-          rep_id: -leader.id,
-          rep_name: leader.display_name,
-          pain: avg((r) => r.pain_score),
-          metrics: avg((r) => r.metrics_score),
-          champion: avg((r) => r.champion_score),
-          eb: avg((r) => r.eb_score),
-          criteria: avg((r) => r.criteria_score),
-          process: avg((r) => r.process_score),
-          competition: avg((r) => r.competition_score),
-          paper: avg((r) => r.paper_score),
-          timing: avg((r) => r.timing_score),
-          budget: avg((r) => r.budget_score),
-          avg_total: avg((r) => r.health_score),
-        };
-      });
-    const assessmentRowsFiltered = (assessmentRows ?? []).filter((row) => !leaderRepIdSet.has(row.rep_id));
-    assessmentRowsFinal = [...leaderAssessmentRows, ...assessmentRowsFiltered];
-  }
+  const assessmentRowsFinal = buildTeamAssessmentRows(
+    assessmentRows ?? [],
+    assessmentOppRows ?? [],
+    repDirectory,
+    visibleRepIds
+  );
 
   // Query C — Score Velocity
   type VelocityRow = {
@@ -1131,7 +852,7 @@ export default async function ForecastHygienePage({
     JOIN reps r
       ON r.id = opp.rep_id
      AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
-    ${channelRepJoinSql}
+    ${SALES_REP_USER_JOIN_SQL}
     JOIN LATERAL (
       SELECT total_score
       FROM opportunity_audit_events
@@ -1149,7 +870,6 @@ export default async function ForecastHygienePage({
         WHERE oae2.opportunity_id = opp.id AND oae2.org_id = $1
           AND oae2.total_score IS NOT NULL
       )
-      ${channelRepWhereSql}
     ORDER BY delta ASC NULLS LAST, rep_name ASC, opp_name ASC
     `,
     [orgId, startIso, endIso, visibleRepIdsForQuery]
@@ -1165,95 +885,11 @@ export default async function ForecastHygienePage({
     dealsFlat: number;
   };
 
-  let velocityRepSummariesFinal: Array<VelocityRepSummary & { rowKind?: "team" | "rep" }>;
-  if (useManagerTeamTotals) {
-    velocityRepSummariesFinal = buildManagerTeamVelocityDisplay(
-      velocityRows ?? [],
-      repDirectory,
-      visibleRepIds
-    );
-  } else {
-    const velocityByRep = new Map<string, {
-      repName: string;
-      count: number;
-      sumBaseline: number;
-      sumCurrent: number;
-      sumDelta: number;
-      dealsMoving: number;
-      dealsFlat: number;
-    }>();
-
-    for (const row of velocityRows) {
-      const key = `${row.rep_id}:${row.rep_name}`;
-      let agg = velocityByRep.get(key);
-      if (!agg) {
-        agg = {
-          repName: row.rep_name,
-          count: 0,
-          sumBaseline: 0,
-          sumCurrent: 0,
-          sumDelta: 0,
-          dealsMoving: 0,
-          dealsFlat: 0,
-        };
-        velocityByRep.set(key, agg);
-      }
-      const baseline = Number.isFinite(row.baseline_score as number) && row.baseline_score != null ? Number(row.baseline_score) : 0;
-      const current = Number.isFinite(row.current_score as number) && row.current_score != null ? Number(row.current_score) : 0;
-      const delta = current - baseline;
-      agg.count += 1;
-      agg.sumBaseline += baseline;
-      agg.sumCurrent += current;
-      agg.sumDelta += delta;
-      if (delta > 0) agg.dealsMoving += 1;
-      if (delta === 0) agg.dealsFlat += 1;
-    }
-
-    const velocityRepSummaries: VelocityRepSummary[] = Array.from(velocityByRep.values()).map((agg) => ({
-      repName: agg.repName,
-      avgBaseline: agg.count ? agg.sumBaseline / agg.count : 0,
-      avgCurrent: agg.count ? agg.sumCurrent / agg.count : 0,
-      avgDelta: agg.count ? agg.sumDelta / agg.count : 0,
-      dealsMoving: agg.dealsMoving,
-      dealsFlat: agg.dealsFlat,
-    }));
-
-    const leaderVelocityRows: VelocityRepSummary[] = leaders
-      .filter((l) => leaderRepIds.get(l.id)?.length)
-      .map((leader) => {
-        const repIds = leaderRepIds.get(leader.id)!;
-        let count = 0;
-        let sumBaseline = 0;
-        let sumCurrent = 0;
-        let sumDelta = 0;
-        let dealsMoving = 0;
-        let dealsFlat = 0;
-        for (const row of velocityRows) {
-          if (!repIds.includes(row.rep_id)) continue;
-          count += 1;
-          const b = num(row.baseline_score);
-          const c = num(row.current_score);
-          const d = (row.delta != null && Number.isFinite(row.delta)) ? Number(row.delta) : c - b;
-          sumBaseline += b;
-          sumCurrent += c;
-          sumDelta += d;
-          if (d > 0) dealsMoving += 1;
-          if (d === 0) dealsFlat += 1;
-        }
-        return {
-          repName: leader.display_name,
-          avgBaseline: count ? sumBaseline / count : 0,
-          avgCurrent: count ? sumCurrent / count : 0,
-          avgDelta: count ? sumDelta / count : 0,
-          dealsMoving,
-          dealsFlat,
-        };
-      });
-    const velocityRepSummariesFiltered: VelocityRepSummary[] = velocityRepSummaries.filter((row) => {
-      return !leaders.some((l) => row.repName === l.display_name);
-    });
-    velocityRepSummariesFinal = [...leaderVelocityRows, ...velocityRepSummariesFiltered];
-  }
+  const velocityRepSummariesFinal = buildTeamVelocityRows(
+    velocityRows ?? [],
+    repDirectory,
+    visibleRepIds
+  );
 
   // Query D — Deal Progression
   type ProgressionRow = {
@@ -1283,13 +919,12 @@ export default async function ForecastHygienePage({
     JOIN reps r
       ON r.id = opp.rep_id
      AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
-    ${channelRepJoinSql}
+    ${SALES_REP_USER_JOIN_SQL}
     WHERE oae.org_id = $1
       AND opp.org_id = $1
       AND opp.rep_id = ANY($4::bigint[])
       AND opp.close_date >= $2::timestamptz
       AND opp.close_date < $3::timestamptz
-      ${channelRepWhereSql}
     ORDER BY oae.opportunity_id, oae.ts ASC
     `,
     [orgId, startIso, endIso, visibleRepIdsForQuery]
@@ -1342,7 +977,7 @@ export default async function ForecastHygienePage({
 
   const progressionSeries = Array.from(progressionByOpp.values());
 
-  // Rep-level progression summary (keyed by rep_id for leader rollup).
+  // Rep-level progression summary (keyed by rep_id).
   type ProgressionRepSummary = {
     repName: string;
     progressing: number;
@@ -1375,49 +1010,11 @@ export default async function ForecastHygienePage({
     }
   }
 
-  let progressionRepSummariesFinal: Array<ProgressionRepSummary & { rowKind?: "team" | "rep" }>;
-  if (useManagerTeamTotals) {
-    progressionRepSummariesFinal = buildManagerTeamProgressionDisplay(
-      progressionByRepId,
-      repDirectory,
-      visibleRepIds
-    );
-  } else {
-    const progressionRepSummaries: ProgressionRepSummary[] = Array.from(progressionByRepId.values());
-
-    const leaderProgressionRows: ProgressionRepSummary[] = leaders
-      .filter((l) => leaderRepIds.get(l.id)?.length)
-      .map((leader) => {
-        const repIds = leaderRepIds.get(leader.id)!;
-        let progressing = 0;
-        let stalled = 0;
-        let flat = 0;
-        let total = 0;
-        for (const repId of repIds) {
-          const s = progressionByRepId.get(repId);
-          if (s) {
-            progressing += s.progressing;
-            stalled += s.stalled;
-            flat += s.flat;
-            total += s.total;
-          }
-        }
-        return {
-          repName: leader.display_name,
-          progressing,
-          stalled,
-          flat,
-          total,
-        };
-      });
-    const progressionRepSummariesFiltered: ProgressionRepSummary[] = progressionRepSummaries.filter((row) => {
-      return !leaders.some((l) => row.repName === l.display_name);
-    });
-    progressionRepSummariesFinal = [
-      ...leaderProgressionRows,
-      ...progressionRepSummariesFiltered,
-    ];
-  }
+  const progressionRepSummariesFinal = buildTeamProgressionRows(
+    progressionByRepId,
+    repDirectory,
+    visibleRepIds
+  );
 
   const quarterOptions = quotaPeriods.slice(0, 6).map((p) => {
     const fy = (p.fiscal_year || "").trim();
