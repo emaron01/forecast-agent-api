@@ -478,6 +478,15 @@ export async function GET(req: Request) {
       )
     );
 
+    const viewHierarchyLevel = Number((auth.user as any).hierarchy_level ?? 0);
+    const excludeChannelRepsFromForecastScope = viewHierarchyLevel <= 3;
+    const channelRepScopeJoinSql = excludeChannelRepsFromForecastScope
+      ? `LEFT JOIN users u ON u.org_id = $1::bigint AND u.id = r.user_id`
+      : "";
+    const channelRepScopeWhereSql = excludeChannelRepsFromForecastScope
+      ? `AND COALESCE(u.role::text, r.role::text) NOT IN ('CHANNEL_EXECUTIVE', 'CHANNEL_DIRECTOR', 'CHANNEL_REP')`
+      : "";
+
     // Map visible REP users -> rep ids when possible (opportunities.rep_id is reps.id).
     const repIdsToUse =
       visibleRepUserIds.length || visibleRepNameKeys.length
@@ -486,6 +495,7 @@ export async function GET(req: Request) {
               `
               SELECT DISTINCT r.id
                 FROM reps r
+                ${channelRepScopeJoinSql}
                WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
                  AND (
                    (COALESCE(array_length($2::int[], 1), 0) > 0 AND r.user_id = ANY($2::int[]))
@@ -498,6 +508,7 @@ export async function GET(req: Request) {
                      )
                    )
                  )
+                 ${channelRepScopeWhereSql}
               `,
               [auth.user.org_id, visibleRepUserIds, visibleRepNameKeys]
             )
