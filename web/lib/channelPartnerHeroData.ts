@@ -99,7 +99,6 @@ async function loadPartnerTotals(orgId: number, qpId: string, repIds: number[], 
       deals AS (
         SELECT
           COALESCE(o.amount, 0)::float8 AS amount,
-          o.id::bigint AS opp_id,
           lower(
             regexp_replace(
               COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -142,15 +141,15 @@ async function loadPartnerTotals(orgId: number, qpId: string, repIds: number[], 
       )
       SELECT
         COALESCE(SUM(CASE WHEN fs LIKE '%commit%' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
-        COALESCE(COUNT(DISTINCT CASE WHEN fs LIKE '%commit%' THEN opp_id ELSE NULL END), 0)::int AS commit_count,
+        COALESCE(SUM(CASE WHEN fs LIKE '%commit%' THEN 1 ELSE 0 END), 0)::int AS commit_count,
         AVG(CASE WHEN fs LIKE '%commit%' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS commit_avg_health_score,
 
         COALESCE(SUM(CASE WHEN fs LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
-        COALESCE(COUNT(DISTINCT CASE WHEN fs LIKE '%best%' THEN opp_id ELSE NULL END), 0)::int AS best_case_count,
+        COALESCE(SUM(CASE WHEN fs LIKE '%best%' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
         AVG(CASE WHEN fs LIKE '%best%' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS best_case_avg_health_score,
 
         COALESCE(SUM(CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
-        COALESCE(COUNT(DISTINCT CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN opp_id ELSE NULL END), 0)::int AS pipeline_count,
+        COALESCE(SUM(CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
         AVG(CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS pipeline_avg_health_score,
 
         (
@@ -161,7 +160,7 @@ async function loadPartnerTotals(orgId: number, qpId: string, repIds: number[], 
           FROM deals_in_qtr d2
         ) AS won_amount,
 
-        COALESCE(COUNT(DISTINCT opp_id), 0)::int AS total_active_count,
+        COALESCE(COUNT(*), 0)::int AS total_active_count,
         AVG(NULLIF(health_score, 0))::float8 AS total_active_avg_health_score
       FROM open_deals
       `,
