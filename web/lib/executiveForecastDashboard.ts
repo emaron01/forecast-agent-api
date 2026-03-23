@@ -531,7 +531,7 @@ async function getPipelineStageSnapshotForPeriod(args: {
   const repIds = args.repIds === null ? [] : Array.isArray(args.repIds) ? args.repIds : [];
   const useRepFilter = !!(args.repIds && Array.isArray(args.repIds) && args.repIds.length);
 
-  const rows = await pool
+  const result = await pool
     .query<ExecPipelineStageSnapshot>(
       `
       WITH qp AS (
@@ -541,11 +541,13 @@ async function getPipelineStageSnapshotForPeriod(args: {
            AND id = $2::bigint
          LIMIT 1
       ),
-      base AS (
+      close_parse AS (
         SELECT
+          o.id,
           COALESCE(o.amount, 0)::float8 AS amount,
           o.health_score::float8 AS health_score,
-          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
+          COALESCE(lower(btrim(o.forecast_category)), '') AS fc,
+          COALESCE(lower(btrim(COALESCE(o.stage, o.forecast_stage, o.sales_stage, ''))), '') AS st,
           CASE
             WHEN o.close_date IS NULL THEN NULL
             WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
@@ -557,74 +559,88 @@ async function getPipelineStageSnapshotForPeriod(args: {
         JOIN qp ON TRUE
         WHERE o.org_id = $1
           AND o.close_date IS NOT NULL
-          AND (
-            CASE
-              WHEN o.close_date IS NULL THEN NULL
-              WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
-              WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-                to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
-              ELSE NULL
-            END
-          ) IS NOT NULL
-          AND (
-            CASE
-              WHEN o.close_date IS NULL THEN NULL
-              WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
-              WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-                to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
-              ELSE NULL
-            END
-          ) >= qp.period_start
-          AND (
-            CASE
-              WHEN o.close_date IS NULL THEN NULL
-              WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
-              WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-                to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
-              ELSE NULL
-            END
-          ) <= qp.period_end
           AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
       ),
-      classified AS (
-        SELECT
-          *,
-          ((' ' || fs || ' ') LIKE '% won %') AS is_won,
-          (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
-          (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AS is_active,
+      in_quarter AS (
+        SELECT c.*
+          FROM close_parse c
+          JOIN qp ON TRUE
+         WHERE c.close_d IS NOT NULL
+           AND c.close_d >= qp.period_start
+           AND c.close_d <= qp.period_end
+      ),
+      per_opp AS (
+        SELECT DISTINCT ON (iq.id)
+          iq.id,
+          iq.amount,
+          iq.health_score,
           CASE
-            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AND fs LIKE '%commit%' THEN 'commit'
-            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AND fs LIKE '%best%' THEN 'best'
-            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) THEN 'pipeline'
-            ELSE 'other'
+            WHEN iq.fc = 'closed won'
+              OR iq.st LIKE '%won%'
+              THEN 'won'
+
+            WHEN iq.fc IN ('omitted', 'excluded')
+              OR iq.fc LIKE '%lost%'
+              OR iq.st LIKE '%lost%'
+              OR iq.st LIKE '%loss%'
+              OR iq.st LIKE '%duplicate%'
+              OR iq.st LIKE '%dead%'
+              OR iq.st LIKE '%disqualified%'
+              OR iq.st LIKE '%cancelled%'
+              OR iq.st LIKE '%no decision%'
+              THEN 'excluded'
+
+            WHEN iq.fc LIKE '%commit%'
+              OR iq.st LIKE '%commit%'
+              OR iq.st LIKE '%closed%'
+              OR iq.fc LIKE '%closed%'
+              THEN 'commit'
+
+            WHEN iq.fc LIKE '%best%'
+              OR iq.st LIKE '%best%'
+              THEN 'best_case'
+
+            ELSE 'pipeline'
           END AS bucket
-        FROM base
+        FROM in_quarter iq
+        ORDER BY iq.id
       )
       SELECT
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
-        AVG(CASE WHEN is_active AND bucket = 'commit' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS commit_avg_health_score,
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'best' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'best' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
-        AVG(CASE WHEN is_active AND bucket = 'best' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS best_case_avg_health_score,
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
-        COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
-        AVG(CASE WHEN is_active AND bucket = 'pipeline' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS pipeline_avg_health_score,
-        COALESCE(SUM(CASE WHEN is_active THEN amount ELSE 0 END), 0)::float8 AS total_active_amount,
-        COALESCE(SUM(CASE WHEN is_active THEN 1 ELSE 0 END), 0)::int AS total_active_count,
-        AVG(CASE WHEN is_active THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS total_active_avg_health_score,
-        COALESCE(SUM(CASE WHEN is_won THEN amount ELSE 0 END), 0)::float8 AS won_amount,
-        COALESCE(SUM(CASE WHEN is_won THEN 1 ELSE 0 END), 0)::int AS won_count,
-        COALESCE(SUM(CASE WHEN is_lost THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
-        COALESCE(SUM(CASE WHEN is_lost THEN 1 ELSE 0 END), 0)::int AS lost_count
-      FROM classified
+        COALESCE(SUM(CASE WHEN bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
+        COALESCE(SUM(CASE WHEN bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
+        AVG(CASE WHEN bucket = 'commit' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS commit_avg_health_score,
+        COALESCE(SUM(CASE WHEN bucket = 'best_case' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
+        COALESCE(SUM(CASE WHEN bucket = 'best_case' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
+        AVG(CASE WHEN bucket = 'best_case' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS best_case_avg_health_score,
+        COALESCE(SUM(CASE WHEN bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+        COALESCE(SUM(CASE WHEN bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
+        AVG(CASE WHEN bucket = 'pipeline' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS pipeline_avg_health_score,
+        COALESCE(SUM(CASE WHEN bucket NOT IN ('won', 'excluded') THEN amount ELSE 0 END), 0)::float8 AS total_active_amount,
+        COALESCE(SUM(CASE WHEN bucket NOT IN ('won', 'excluded') THEN 1 ELSE 0 END), 0)::int AS total_active_count,
+        AVG(CASE WHEN bucket NOT IN ('won', 'excluded') THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS total_active_avg_health_score,
+        COALESCE(SUM(CASE WHEN bucket = 'won' THEN amount ELSE 0 END), 0)::float8 AS won_amount,
+        COALESCE(SUM(CASE WHEN bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS won_count,
+        COALESCE(SUM(CASE WHEN bucket = 'excluded' THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
+        COALESCE(SUM(CASE WHEN bucket = 'excluded' THEN 1 ELSE 0 END), 0)::int AS lost_count
+      FROM per_opp
       `,
       [args.orgId, qpId, repIds, useRepFilter]
     )
-    .then((r) => r.rows || [])
-    .catch(() => []);
+    .catch(() => ({ rows: [] as ExecPipelineStageSnapshot[] }));
 
-  return (rows?.[0] as any) || empty;
+  const rows = Array.isArray(result.rows) ? result.rows : [];
+  const row0 = rows[0] as any;
+  if (row0) {
+    console.log("[stageSnapshot new counts]", {
+      commit: row0?.commit_count,
+      best_case: row0?.best_case_count,
+      pipeline: row0?.pipeline_count,
+      total_active: row0?.total_active_count,
+      won: row0?.won_count,
+    });
+  }
+
+  return row0 || empty;
 }
 
 async function getPipelineStageSnapshotForPeriodWithNameFallback(args: {
