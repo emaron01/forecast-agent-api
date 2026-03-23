@@ -16,7 +16,15 @@ type TotalsRow = {
   commit_amount: number;
   best_case_amount: number;
   pipeline_amount: number;
+  commit_count: number;
+  best_case_count: number;
+  pipeline_count: number;
+  commit_avg_health_score: number | null;
+  best_case_avg_health_score: number | null;
+  pipeline_avg_health_score: number | null;
   won_amount: number;
+  total_active_count: number;
+  total_active_avg_health_score: number | null;
 };
 
 type VerdictAggRow = {
@@ -91,6 +99,7 @@ async function loadPartnerTotals(orgId: number, qpId: string, repIds: number[], 
       deals AS (
         SELECT
           COALESCE(o.amount, 0)::float8 AS amount,
+          o.id::bigint AS opp_id,
           lower(
             regexp_replace(
               COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -99,6 +108,7 @@ async function loadPartnerTotals(orgId: number, qpId: string, repIds: number[], 
               'g'
             )
           ) AS fs,
+          o.health_score::float8 AS health_score,
           CASE
             WHEN o.close_date IS NULL THEN NULL
             WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
@@ -120,17 +130,60 @@ async function loadPartnerTotals(orgId: number, qpId: string, repIds: number[], 
            AND d.close_d >= qp.period_start
            AND d.close_d <= qp.period_end
       )
+      ,
+      open_deals AS (
+        -- Active forecast stages only (exclude closed won/lost and generic closed rows),
+        -- to match executive forecast dashboard totals semantics.
+        SELECT d.*
+          FROM deals_in_qtr d
+         WHERE NOT ((' ' || d.fs || ' ') LIKE '% won %')
+           AND NOT ((' ' || d.fs || ' ') LIKE '% lost %')
+           AND NOT ((' ' || d.fs || ' ') LIKE '% closed %')
+      )
       SELECT
         COALESCE(SUM(CASE WHEN fs LIKE '%commit%' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
+        COALESCE(COUNT(DISTINCT CASE WHEN fs LIKE '%commit%' THEN opp_id ELSE NULL END), 0)::int AS commit_count,
+        AVG(CASE WHEN fs LIKE '%commit%' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS commit_avg_health_score,
+
         COALESCE(SUM(CASE WHEN fs LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
+        COALESCE(COUNT(DISTINCT CASE WHEN fs LIKE '%best%' THEN opp_id ELSE NULL END), 0)::int AS best_case_count,
+        AVG(CASE WHEN fs LIKE '%best%' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS best_case_avg_health_score,
+
         COALESCE(SUM(CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
-        COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN amount ELSE 0 END), 0)::float8 AS won_amount
-      FROM deals_in_qtr
+        COALESCE(COUNT(DISTINCT CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN opp_id ELSE NULL END), 0)::int AS pipeline_count,
+        AVG(CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS pipeline_avg_health_score,
+
+        (
+          SELECT COALESCE(
+            SUM(CASE WHEN ((' ' || d2.fs || ' ') LIKE '% won %') THEN d2.amount ELSE 0 END),
+            0
+          )::float8
+          FROM deals_in_qtr d2
+        ) AS won_amount,
+
+        COALESCE(COUNT(DISTINCT opp_id), 0)::int AS total_active_count,
+        AVG(NULLIF(health_score, 0))::float8 AS total_active_avg_health_score
+      FROM open_deals
       `,
       [orgId, qpId, repIds, useScoped]
     )
     .catch(() => ({ rows: [] }));
-  return (rows?.[0] as TotalsRow) || { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0 };
+  return (
+    (rows?.[0] as TotalsRow) || {
+      commit_amount: 0,
+      best_case_amount: 0,
+      pipeline_amount: 0,
+      commit_count: 0,
+      best_case_count: 0,
+      pipeline_count: 0,
+      commit_avg_health_score: null,
+      best_case_avg_health_score: null,
+      pipeline_avg_health_score: null,
+      won_amount: 0,
+      total_active_count: 0,
+      total_active_avg_health_score: null,
+    }
+  );
 }
 
 async function loadPartnerVerdictAgg(orgId: number, qpId: string, repIds: number[], useScoped: boolean): Promise<VerdictAggRow> {
@@ -591,9 +644,9 @@ export async function loadChannelPartnerHeroProps(args: {
               },
               pipeline: {
                 value: Number(curStage.pipeline_amount || 0) || 0,
-                opps: Number(curStage.pipeline_count || 0) || 0,
+                opps: Number(totals.pipeline_count || 0) || 0,
                 qoq_change_pct: prevStage ? qoqPct(Number(curStage.pipeline_amount || 0) || 0, Number(prevStage.pipeline_amount || 0) || 0) : null,
-                health_pct: healthPctFrom30((curStage as StageSnap).pipeline_avg_health_score),
+                health_pct: healthPctFrom30((totals as TotalsRow).pipeline_avg_health_score),
               },
             },
           },
