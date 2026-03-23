@@ -8,6 +8,7 @@ import { ForecastPeriodFiltersClient } from "../../forecast/_components/Forecast
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
 import { isChannelRepOnly } from "../../../lib/userRoles";
+import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
 
 export const runtime = "nodejs";
 
@@ -141,11 +142,17 @@ export default async function ChannelDashboardPage({
           .map((r) => r.id)
           .filter((n) => Number.isFinite(n) && n > 0);
 
+  const periodIdx = summary.periods.findIndex((p) => String(p.id) === String(selectedPeriodId));
+  const prevPeriod = periodIdx >= 0 ? summary.periods[periodIdx + 1] : null;
+  const prevQpId = prevPeriod ? String(prevPeriod.id) : "";
+
   let topPartnerWon: TopPartnerDealRow[] = [];
   let topPartnerLost: TopPartnerDealRow[] = [];
+  let partnerHero: Awaited<ReturnType<typeof loadChannelPartnerHeroProps>> = null;
+  let ledFedRows: Awaited<ReturnType<typeof loadChannelLedFedRows>> = [];
   try {
     if (selectedPeriod && visibleRepIds.length > 0 && selectedPeriodId) {
-      const [won, lost] = await Promise.all([
+      const [won, lost, ph, lf] = await Promise.all([
         listTopPartnerDealsChannel({
           orgId: ctx.user.org_id,
           quotaPeriodId: selectedPeriodId,
@@ -164,13 +171,28 @@ export default async function ChannelDashboardPage({
           dateEnd: selectedPeriod.period_end,
           repIds: visibleRepIds,
         }),
+        loadChannelPartnerHeroProps({
+          orgId: ctx.user.org_id,
+          quotaPeriodId: selectedPeriodId,
+          prevQuotaPeriodId: prevQpId,
+          repIds: visibleRepIds,
+        }),
+        loadChannelLedFedRows({
+          orgId: ctx.user.org_id,
+          quotaPeriodId: selectedPeriodId,
+          repIds: visibleRepIds,
+        }),
       ]);
       topPartnerWon = won ?? [];
       topPartnerLost = lost ?? [];
+      partnerHero = ph;
+      ledFedRows = lf ?? [];
     }
   } catch {
     topPartnerWon = [];
     topPartnerLost = [];
+    partnerHero = null;
+    ledFedRows = [];
   }
 
   const fiscalYear =
@@ -195,6 +217,99 @@ export default async function ChannelDashboardPage({
           selectedFiscalYear={summary.selectedFiscalYear}
           selectedPeriodId={summary.selectedQuotaPeriodId}
         />
+        {partnerHero ? (
+          <div className="mt-4">
+            <ExecutiveGapInsightsClient
+              heroOnly
+              basePath="/dashboard/channel"
+              channelTabOnly={isChannelRepOnly(ctx.user.role)}
+              periods={summary.periods}
+              quotaPeriodId={summary.selectedQuotaPeriodId}
+              reps={summary.reps}
+              fiscalYear={fiscalYear}
+              fiscalQuarter={fiscalQuarter}
+              stageProbabilities={summary.stageProbabilities}
+              healthModifiers={partnerHero.healthModifiers}
+              repDirectory={summary.repDirectory}
+              myRepId={summary.myRepId}
+              repRollups={summary.repRollups}
+              productsClosedWon={partnerHero.productsClosedWon}
+              productsClosedWonPrevSummary={partnerHero.productsClosedWonPrevSummary}
+              productsClosedWonByRep={summary.productsClosedWonByRep}
+              quarterKpis={partnerHero.quarterKpis}
+              pipelineMomentum={partnerHero.pipelineMomentum}
+              crmTotals={{
+                commit_amount: partnerHero.crmForecast.commit_amount,
+                best_case_amount: partnerHero.crmForecast.best_case_amount,
+                pipeline_amount: partnerHero.crmForecast.pipeline_amount,
+                won_amount: partnerHero.crmForecast.won_amount,
+              }}
+              partnersExecutive={summary.partnersExecutive}
+              quota={partnerHero.quota}
+              aiForecast={partnerHero.aiForecast}
+              crmForecast={partnerHero.crmForecastWeighted}
+              gap={partnerHero.forecastGap}
+              bucketDeltas={{
+                commit: partnerHero.bucketDeltas.commit,
+                best_case: partnerHero.bucketDeltas.best_case,
+                pipeline: partnerHero.bucketDeltas.pipeline,
+              }}
+              aiPctToGoal={partnerHero.pctToGoal}
+              leftToGo={partnerHero.leftToGo}
+              commitAdmission={partnerHero.commitAdmission}
+              commitDealPanels={partnerHero.commitDealPanels}
+              defaultTopN={5}
+            />
+          </div>
+        ) : null}
+        {ledFedRows.length > 0 ? (
+          <div className="mt-4 w-full overflow-x-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm">
+            <table className="w-full min-w-[640px] border-collapse text-sm">
+              <thead>
+                <tr className="bg-[color:var(--sf-surface-alt)] text-left text-cardLabel font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                  <th className="border-b border-[color:var(--sf-border)] px-4 py-3">Metric</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-4 py-3 text-right">Channel Led (Deal Reg)</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-4 py-3 text-right">Channel Fed (No Deal Reg)</th>
+                  <th className="border-b border-[color:var(--sf-border)] px-4 py-3 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody className="text-[color:var(--sf-text-primary)]">
+                {ledFedRows.map((row) => (
+                  <tr key={row.metric} className="border-b border-[color:var(--sf-border)] last:border-b-0">
+                    <td className="px-4 py-3 font-medium">{row.metric}</td>
+                    <td className="px-4 py-3 text-right font-[tabular-nums]">
+                      {row.isCurrency
+                        ? row.channelLed.toLocaleString("en-US", {
+                            style: "currency",
+                            currency: "USD",
+                            maximumFractionDigits: 0,
+                          })
+                        : row.channelLed.toLocaleString("en-US")}
+                    </td>
+                    <td className="px-4 py-3 text-right font-[tabular-nums]">
+                      {row.isCurrency
+                        ? row.channelFed.toLocaleString("en-US", {
+                            style: "currency",
+                            currency: "USD",
+                            maximumFractionDigits: 0,
+                          })
+                        : row.channelFed.toLocaleString("en-US")}
+                    </td>
+                    <td className="px-4 py-3 text-right font-[tabular-nums] font-semibold">
+                      {row.isCurrency
+                        ? row.total.toLocaleString("en-US", {
+                            style: "currency",
+                            currency: "USD",
+                            maximumFractionDigits: 0,
+                          })
+                        : row.total.toLocaleString("en-US")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
         <div className="mt-4">
           <ExecutiveGapInsightsClient
             basePath="/dashboard/channel"

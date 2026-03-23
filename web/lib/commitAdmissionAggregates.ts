@@ -36,6 +36,8 @@ export async function getCommitAdmissionAggregates(args: {
   orgId: number;
   quotaPeriodId: string;
   repIds: number[] | null;
+  /** When true, restrict to opportunities with partner_name set (channel partner scope). */
+  requirePartnerName?: boolean;
 }): Promise<CommitAdmissionAggregates> {
   const qpId = String(args.quotaPeriodId || "").trim();
   if (!qpId) {
@@ -54,6 +56,7 @@ export async function getCommitAdmissionAggregates(args: {
 
   const repFilter = args.repIds;
   const useScoped = Array.isArray(repFilter) && repFilter.length > 0;
+  const requirePartner = !!args.requirePartnerName;
 
   const { rows } = await pool
     .query(
@@ -93,6 +96,7 @@ export async function getCommitAdmissionAggregates(args: {
           AND NOT ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
           AND NOT ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% closed %')
           AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+          AND (NOT $5::boolean OR (o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''))
       )
       SELECT
         amount,
@@ -103,7 +107,7 @@ export async function getCommitAdmissionAggregates(args: {
         paper_confidence, process_confidence, timing_confidence, budget_confidence
       FROM base
       `,
-      [args.orgId, qpId, repFilter || [], useScoped]
+      [args.orgId, qpId, repFilter || [], useScoped, requirePartner]
     )
     .catch(() => ({ rows: [] }));
 
@@ -193,6 +197,7 @@ export async function getCommitAdmissionDealPanels(args: {
   orgId: number;
   quotaPeriodId: string;
   repIds: number[] | null;
+  requirePartnerName?: boolean;
 }): Promise<CommitAdmissionDealPanels> {
   const qpId = String(args.quotaPeriodId || "").trim();
   if (!qpId) {
@@ -201,6 +206,7 @@ export async function getCommitAdmissionDealPanels(args: {
 
   const repFilter = args.repIds;
   const useScoped = Array.isArray(repFilter) && repFilter.length > 0;
+  const requirePartner = !!args.requirePartnerName;
 
   const { rows } = await pool
     .query(
@@ -243,6 +249,7 @@ export async function getCommitAdmissionDealPanels(args: {
           AND NOT ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
           AND NOT ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% closed %')
           AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+          AND (NOT $5::boolean OR (o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''))
       )
       SELECT
         id,
@@ -256,7 +263,7 @@ export async function getCommitAdmissionDealPanels(args: {
         paper_confidence, process_confidence, timing_confidence, budget_confidence
       FROM base
       `,
-      [args.orgId, qpId, repFilter || [], useScoped]
+      [args.orgId, qpId, repFilter || [], useScoped, requirePartner]
     )
     .catch(() => ({ rows: [] }));
 

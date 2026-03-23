@@ -96,8 +96,15 @@ type RepPeriodKpisRow = {
   avg_days_active: number | null;
 };
 
-async function getRepKpisByPeriods(args: { orgId: number; periodIds: string[]; repIds: number[] | null }) {
+async function getRepKpisByPeriods(args: {
+  orgId: number;
+  periodIds: string[];
+  repIds: number[] | null;
+  /** When true, only opportunities with a non-empty partner_name are included (channel partner scope). */
+  requirePartnerName?: boolean;
+}) {
   const useRepFilter = !!(args.repIds && args.repIds.length);
+  const requirePartner = !!args.requirePartnerName;
   const { rows } = await pool.query<RepPeriodKpisRow>(
     `
     WITH periods AS (
@@ -134,6 +141,7 @@ async function getRepKpisByPeriods(args: { orgId: number; periodIds: string[]; r
        AND o.close_date >= p.period_start
        AND o.close_date <= p.period_end
        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+       AND (NOT $5::boolean OR (o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''))
     ),
     classified AS (
       SELECT
@@ -204,7 +212,7 @@ async function getRepKpisByPeriods(args: { orgId: number; periodIds: string[]; r
     GROUP BY quota_period_id, rep_id
     ORDER BY quota_period_id DESC, rep_id ASC
     `,
-    [args.orgId, args.periodIds, args.repIds || [], useRepFilter]
+    [args.orgId, args.periodIds, args.repIds || [], useRepFilter, requirePartner]
   );
   return (rows || []) as any[];
 }
@@ -223,8 +231,14 @@ type CreatedPipelineAggRow = {
   total_pipeline_health_score: number | null;
 };
 
-async function getCreatedPipelineAggByPeriods(args: { orgId: number; periodIds: string[]; repIds: number[] | null }) {
+async function getCreatedPipelineAggByPeriods(args: {
+  orgId: number;
+  periodIds: string[];
+  repIds: number[] | null;
+  requirePartnerName?: boolean;
+}) {
   const useRepFilter = !!(args.repIds && args.repIds.length);
+  const requirePartner = !!args.requirePartnerName;
   const { rows } = await pool.query<CreatedPipelineAggRow>(
     `
     WITH periods AS (
@@ -266,6 +280,7 @@ async function getCreatedPipelineAggByPeriods(args: { orgId: number; periodIds: 
        AND o.create_date::date >= p.period_start
        AND o.create_date::date <= p.period_end
        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+       AND (NOT $5::boolean OR (o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''))
     ),
     classified AS (
       SELECT
@@ -296,7 +311,7 @@ async function getCreatedPipelineAggByPeriods(args: { orgId: number; periodIds: 
     GROUP BY quota_period_id
     ORDER BY quota_period_id DESC
     `,
-    [args.orgId, args.periodIds, args.repIds || [], useRepFilter]
+    [args.orgId, args.periodIds, args.repIds || [], useRepFilter, requirePartner]
   );
   return (rows || []) as any[];
 }
@@ -319,8 +334,14 @@ type CreatedPipelineByRepRow = {
   lost_count: number;
 };
 
-async function getCreatedPipelineByRepByPeriods(args: { orgId: number; periodIds: string[]; repIds: number[] | null }) {
+async function getCreatedPipelineByRepByPeriods(args: {
+  orgId: number;
+  periodIds: string[];
+  repIds: number[] | null;
+  requirePartnerName?: boolean;
+}) {
   const useRepFilter = !!(args.repIds && args.repIds.length);
+  const requirePartner = !!args.requirePartnerName;
   const { rows } = await pool.query<CreatedPipelineByRepRow>(
     `
     WITH periods AS (
@@ -365,6 +386,7 @@ async function getCreatedPipelineByRepByPeriods(args: { orgId: number; periodIds
        AND o.create_date::date >= p.period_start
        AND o.create_date::date <= p.period_end
        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+       AND (NOT $5::boolean OR (o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''))
       LEFT JOIN reps r
         ON r.organization_id = $1
        AND r.id = o.rep_id
@@ -405,12 +427,17 @@ async function getCreatedPipelineByRepByPeriods(args: { orgId: number; periodIds
       manager_name
     ORDER BY quota_period_id DESC, manager_name ASC, rep_name ASC
     `,
-    [args.orgId, args.periodIds, args.repIds || [], useRepFilter]
+    [args.orgId, args.periodIds, args.repIds || [], useRepFilter, requirePartner]
   );
   return (rows || []) as any[];
 }
 
-export async function getQuarterKpisSnapshot(args: { orgId: number; quotaPeriodId: string; repIds: number[] | null }): Promise<QuarterKpisSnapshot> {
+export async function getQuarterKpisSnapshot(args: {
+  orgId: number;
+  quotaPeriodId: string;
+  repIds: number[] | null;
+  requirePartnerName?: boolean;
+}): Promise<QuarterKpisSnapshot> {
   const periodIds = [String(args.quotaPeriodId || "").trim()].filter(Boolean);
   if (!periodIds.length) {
     return {
@@ -456,11 +483,12 @@ export async function getQuarterKpisSnapshot(args: { orgId: number; quotaPeriodI
     };
   }
 
+  const rp = !!args.requirePartnerName;
   const [repRows, createdAggRows, createdByRepRows, healthRows] = await Promise.all([
-    getRepKpisByPeriods({ orgId: args.orgId, periodIds, repIds: args.repIds }),
-    getCreatedPipelineAggByPeriods({ orgId: args.orgId, periodIds, repIds: args.repIds }),
-    getCreatedPipelineByRepByPeriods({ orgId: args.orgId, periodIds, repIds: args.repIds }),
-    getHealthAveragesByPeriods({ orgId: args.orgId, periodIds, repIds: args.repIds }).catch(() => []),
+    getRepKpisByPeriods({ orgId: args.orgId, periodIds, repIds: args.repIds, requirePartnerName: rp }),
+    getCreatedPipelineAggByPeriods({ orgId: args.orgId, periodIds, repIds: args.repIds, requirePartnerName: rp }),
+    getCreatedPipelineByRepByPeriods({ orgId: args.orgId, periodIds, repIds: args.repIds, requirePartnerName: rp }),
+    getHealthAveragesByPeriods({ orgId: args.orgId, periodIds, repIds: args.repIds, requirePartnerName: rp }).catch(() => []),
   ]);
 
   const wonAmountTotal = repRows.reduce((acc, r) => acc + (Number(r.won_amount || 0) || 0), 0);

@@ -21,9 +21,12 @@ export async function getHealthAveragesByPeriods(args: {
   repIds: number[] | null;
   dateStart?: string | null;
   dateEnd?: string | null;
+  /** When true, only opportunities with a non-empty partner_name are included. */
+  requirePartnerName?: boolean;
 }) {
   if (!args.periodIds.length) return [] as HealthAveragesRow[];
   const useRepFilter = !!(args.repIds && args.repIds.length);
+  const requirePartner = !!args.requirePartnerName;
   const { rows } = await pool.query<HealthAveragesRow>(
     `
     WITH periods AS (
@@ -49,6 +52,7 @@ export async function getHealthAveragesByPeriods(args: {
        AND o.close_date >= p.range_start
        AND o.close_date <= p.range_end
        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+       AND (NOT $7::boolean OR (o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''))
     ),
     classified AS (
       SELECT
@@ -79,7 +83,7 @@ export async function getHealthAveragesByPeriods(args: {
     GROUP BY quota_period_id
     ORDER BY quota_period_id DESC
     `,
-    [args.orgId, args.periodIds, args.repIds || [], useRepFilter, args.dateStart || null, args.dateEnd || null]
+    [args.orgId, args.periodIds, args.repIds || [], useRepFilter, args.dateStart || null, args.dateEnd || null, requirePartner]
   );
   return (rows || []) as any[];
 }
