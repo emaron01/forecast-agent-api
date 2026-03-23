@@ -595,13 +595,62 @@ async function getPipelineStageSnapshotForPeriod(args: {
           *,
           ((' ' || fs || ' ') LIKE '% won %') AS is_won,
           (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
-          (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AS is_active,
+          (
+            NOT ((' ' || fs || ' ') LIKE '% won %')
+            AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))
+            AND NOT (
+              ((' ' || fs || ' ') LIKE '% duplicate %')
+              OR ((' ' || fs || ' ') LIKE '% dead %')
+              OR ((' ' || fs || ' ') LIKE '% disqualified %')
+              OR ((' ' || fs || ' ') LIKE '% cancelled %')
+              OR ((' ' || fs || ' ') LIKE '% omitted %')
+            )
+          ) AS is_active,
           CASE
-            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')))
-              AND (fs LIKE '%commit%' OR fs LIKE '%closed%')
+            WHEN
+              NOT ((' ' || fs || ' ') LIKE '% won %')
+              AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))
+              AND NOT (
+                ((' ' || fs || ' ') LIKE '% duplicate %')
+                OR ((' ' || fs || ' ') LIKE '% dead %')
+                OR ((' ' || fs || ' ') LIKE '% disqualified %')
+                OR ((' ' || fs || ' ') LIKE '% cancelled %')
+                OR ((' ' || fs || ' ') LIKE '% omitted %')
+              )
+              AND (
+                fs LIKE '%commit%'
+                OR (
+                  ((' ' || fs || ' ') LIKE '% closed %')
+                  AND fs NOT LIKE '%won%'
+                  AND fs NOT LIKE '%lost%'
+                  AND fs NOT LIKE '%loss%'
+                  AND fs NOT LIKE '%duplicate%'
+                )
+              )
               THEN 'commit'
-            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AND fs LIKE '%best%' THEN 'best'
-            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) THEN 'pipeline'
+            WHEN
+              NOT ((' ' || fs || ' ') LIKE '% won %')
+              AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))
+              AND NOT (
+                ((' ' || fs || ' ') LIKE '% duplicate %')
+                OR ((' ' || fs || ' ') LIKE '% dead %')
+                OR ((' ' || fs || ' ') LIKE '% disqualified %')
+                OR ((' ' || fs || ' ') LIKE '% cancelled %')
+                OR ((' ' || fs || ' ') LIKE '% omitted %')
+              )
+              AND fs LIKE '%best%'
+              THEN 'best'
+            WHEN
+              NOT ((' ' || fs || ' ') LIKE '% won %')
+              AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))
+              AND NOT (
+                ((' ' || fs || ' ') LIKE '% duplicate %')
+                OR ((' ' || fs || ' ') LIKE '% dead %')
+                OR ((' ' || fs || ' ') LIKE '% disqualified %')
+                OR ((' ' || fs || ' ') LIKE '% cancelled %')
+                OR ((' ' || fs || ' ') LIKE '% omitted %')
+              )
+              THEN 'pipeline'
             ELSE 'other'
           END AS bucket
         FROM base
@@ -711,11 +760,62 @@ async function getPipelineStageSnapshotForPeriodWithNameFallback(args: {
           *,
           ((' ' || fs || ' ') LIKE '% won %') AS is_won,
           (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
-          (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AS is_active,
+          (
+            NOT ((' ' || fs || ' ') LIKE '% won %')
+            AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))
+            AND NOT (
+              ((' ' || fs || ' ') LIKE '% duplicate %')
+              OR ((' ' || fs || ' ') LIKE '% dead %')
+              OR ((' ' || fs || ' ') LIKE '% disqualified %')
+              OR ((' ' || fs || ' ') LIKE '% cancelled %')
+              OR ((' ' || fs || ' ') LIKE '% omitted %')
+            )
+          ) AS is_active,
           CASE
-            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AND fs LIKE '%commit%' THEN 'commit'
-            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AND fs LIKE '%best%' THEN 'best'
-            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) THEN 'pipeline'
+            WHEN
+              NOT ((' ' || fs || ' ') LIKE '% won %')
+              AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))
+              AND NOT (
+                ((' ' || fs || ' ') LIKE '% duplicate %')
+                OR ((' ' || fs || ' ') LIKE '% dead %')
+                OR ((' ' || fs || ' ') LIKE '% disqualified %')
+                OR ((' ' || fs || ' ') LIKE '% cancelled %')
+                OR ((' ' || fs || ' ') LIKE '% omitted %')
+              )
+              AND (
+                fs LIKE '%commit%'
+                OR (
+                  ((' ' || fs || ' ') LIKE '% closed %')
+                  AND fs NOT LIKE '%won%'
+                  AND fs NOT LIKE '%lost%'
+                  AND fs NOT LIKE '%loss%'
+                  AND fs NOT LIKE '%duplicate%'
+                )
+              )
+              THEN 'commit'
+            WHEN
+              NOT ((' ' || fs || ' ') LIKE '% won %')
+              AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))
+              AND NOT (
+                ((' ' || fs || ' ') LIKE '% duplicate %')
+                OR ((' ' || fs || ' ') LIKE '% dead %')
+                OR ((' ' || fs || ' ') LIKE '% disqualified %')
+                OR ((' ' || fs || ' ') LIKE '% cancelled %')
+                OR ((' ' || fs || ' ') LIKE '% omitted %')
+              )
+              AND fs LIKE '%best%'
+              THEN 'best'
+            WHEN
+              NOT ((' ' || fs || ' ') LIKE '% won %')
+              AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))
+              AND NOT (
+                ((' ' || fs || ' ') LIKE '% duplicate %')
+                OR ((' ' || fs || ' ') LIKE '% dead %')
+                OR ((' ' || fs || ' ') LIKE '% disqualified %')
+                OR ((' ' || fs || ' ') LIKE '% cancelled %')
+                OR ((' ' || fs || ' ') LIKE '% omitted %')
+              )
+              THEN 'pipeline'
             ELSE 'other'
           END AS bucket
         FROM base
@@ -1263,12 +1363,38 @@ export async function getExecutiveForecastDashboardSummary(args: {
                 FROM deals_in_qtr d
                WHERE NOT ((' ' || d.fs || ' ') LIKE '% won %')
                  AND NOT ((' ' || d.fs || ' ') LIKE '% lost %')
-                 AND NOT ((' ' || d.fs || ' ') LIKE '% closed %')
+                 AND NOT ((' ' || d.fs || ' ') LIKE '% loss %')
+                 AND NOT ((' ' || d.fs || ' ') LIKE '% duplicate %')
+                 AND NOT ((' ' || d.fs || ' ') LIKE '% dead %')
+                 AND NOT ((' ' || d.fs || ' ') LIKE '% disqualified %')
+                 AND NOT ((' ' || d.fs || ' ') LIKE '% cancelled %')
+                 AND NOT ((' ' || d.fs || ' ') LIKE '% omitted %')
             )
             SELECT
-              COALESCE(SUM(CASE WHEN fs LIKE '%commit%' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
+              COALESCE(SUM(CASE
+                WHEN fs LIKE '%commit%'
+                  OR (
+                    ((' ' || fs || ' ') LIKE '% closed %')
+                    AND fs NOT LIKE '%won%'
+                    AND fs NOT LIKE '%lost%'
+                    AND fs NOT LIKE '%loss%'
+                    AND fs NOT LIKE '%duplicate%'
+                  )
+                THEN amount ELSE 0
+              END), 0)::float8 AS commit_amount,
               COALESCE(SUM(CASE WHEN fs LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
-              COALESCE(SUM(CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+              COALESCE(SUM(CASE
+                WHEN fs NOT LIKE '%commit%'
+                  AND fs NOT LIKE '%best%'
+                  AND NOT (
+                    ((' ' || fs || ' ') LIKE '% closed %')
+                    AND fs NOT LIKE '%won%'
+                    AND fs NOT LIKE '%lost%'
+                    AND fs NOT LIKE '%loss%'
+                    AND fs NOT LIKE '%duplicate%'
+                  )
+                THEN amount ELSE 0
+              END), 0)::float8 AS pipeline_amount,
               (
                 SELECT COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN amount ELSE 0 END), 0)::float8
                   FROM deals_in_qtr
@@ -1348,15 +1474,33 @@ export async function getExecutiveForecastDashboardSummary(args: {
             COALESCE(SUM(CASE
               WHEN ((' ' || d.fs || ' ') LIKE '% won %')
                 OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% closed %')
+                OR ((' ' || d.fs || ' ') LIKE '% loss %')
+                OR ((' ' || d.fs || ' ') LIKE '% duplicate %')
+                OR ((' ' || d.fs || ' ') LIKE '% dead %')
+                OR ((' ' || d.fs || ' ') LIKE '% disqualified %')
+                OR ((' ' || d.fs || ' ') LIKE '% cancelled %')
+                OR ((' ' || d.fs || ' ') LIKE '% omitted %')
               THEN 0
-              WHEN d.fs LIKE '%commit%' THEN d.amount
+              WHEN d.fs LIKE '%commit%'
+                OR (
+                  ((' ' || d.fs || ' ') LIKE '% closed %')
+                  AND d.fs NOT LIKE '%won%'
+                  AND d.fs NOT LIKE '%lost%'
+                  AND d.fs NOT LIKE '%loss%'
+                  AND d.fs NOT LIKE '%duplicate%'
+                )
+              THEN d.amount
               ELSE 0
             END), 0)::float8 AS commit_amount,
             COALESCE(SUM(CASE
               WHEN ((' ' || d.fs || ' ') LIKE '% won %')
                 OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% closed %')
+                OR ((' ' || d.fs || ' ') LIKE '% loss %')
+                OR ((' ' || d.fs || ' ') LIKE '% duplicate %')
+                OR ((' ' || d.fs || ' ') LIKE '% dead %')
+                OR ((' ' || d.fs || ' ') LIKE '% disqualified %')
+                OR ((' ' || d.fs || ' ') LIKE '% cancelled %')
+                OR ((' ' || d.fs || ' ') LIKE '% omitted %')
               THEN 0
               WHEN d.fs LIKE '%best%' THEN d.amount
               ELSE 0
@@ -1364,9 +1508,22 @@ export async function getExecutiveForecastDashboardSummary(args: {
             COALESCE(SUM(CASE
               WHEN ((' ' || d.fs || ' ') LIKE '% won %')
                 OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% closed %')
+                OR ((' ' || d.fs || ' ') LIKE '% loss %')
+                OR ((' ' || d.fs || ' ') LIKE '% duplicate %')
+                OR ((' ' || d.fs || ' ') LIKE '% dead %')
+                OR ((' ' || d.fs || ' ') LIKE '% disqualified %')
+                OR ((' ' || d.fs || ' ') LIKE '% cancelled %')
+                OR ((' ' || d.fs || ' ') LIKE '% omitted %')
               THEN 0
-              WHEN d.fs LIKE '%commit%' THEN 0
+              WHEN d.fs LIKE '%commit%'
+                OR (
+                  ((' ' || d.fs || ' ') LIKE '% closed %')
+                  AND d.fs NOT LIKE '%won%'
+                  AND d.fs NOT LIKE '%lost%'
+                  AND d.fs NOT LIKE '%loss%'
+                  AND d.fs NOT LIKE '%duplicate%'
+                )
+              THEN 0
               WHEN d.fs LIKE '%best%' THEN 0
               ELSE d.amount
             END), 0)::float8 AS pipeline_amount,
@@ -1658,13 +1815,26 @@ export async function getExecutiveForecastDashboardSummary(args: {
                     FROM deals_in_qtr d
                    WHERE NOT ((' ' || d.fs || ' ') LIKE '% won %')
                      AND NOT ((' ' || d.fs || ' ') LIKE '% lost %')
-                     AND NOT ((' ' || d.fs || ' ') LIKE '% closed %')
+                     AND NOT ((' ' || d.fs || ' ') LIKE '% loss %')
+                     AND NOT ((' ' || d.fs || ' ') LIKE '% duplicate %')
+                     AND NOT ((' ' || d.fs || ' ') LIKE '% dead %')
+                     AND NOT ((' ' || d.fs || ' ') LIKE '% disqualified %')
+                     AND NOT ((' ' || d.fs || ' ') LIKE '% cancelled %')
+                     AND NOT ((' ' || d.fs || ' ') LIKE '% omitted %')
                 ),
                 classified AS (
                   SELECT
                     *,
                     CASE
-                      WHEN fs LIKE '%commit%' THEN 'commit'
+                      WHEN fs LIKE '%commit%'
+                        OR (
+                          ((' ' || fs || ' ') LIKE '% closed %')
+                          AND fs NOT LIKE '%won%'
+                          AND fs NOT LIKE '%lost%'
+                          AND fs NOT LIKE '%loss%'
+                          AND fs NOT LIKE '%duplicate%'
+                        )
+                        THEN 'commit'
                       WHEN fs LIKE '%best%' THEN 'best_case'
                       ELSE 'pipeline'
                     END AS crm_bucket
