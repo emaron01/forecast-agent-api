@@ -531,7 +531,7 @@ async function getPipelineStageSnapshotForPeriod(args: {
   const repIds = args.repIds === null ? [] : Array.isArray(args.repIds) ? args.repIds : [];
   const useRepFilter = !!(args.repIds && Array.isArray(args.repIds) && args.repIds.length);
 
-  const { rows } = await pool
+  const result = await pool
     .query<ExecPipelineStageSnapshot>(
       `
       WITH qp AS (
@@ -621,8 +621,12 @@ async function getPipelineStageSnapshotForPeriod(args: {
       `,
       [args.orgId, qpId, repIds, useRepFilter]
     )
-    .then((r) => r.rows || [])
+    .then((r) => r)
     .catch(() => []);
+  const rows = Array.isArray((result as any)?.rows) ? (result as any).rows : [];
+  console.log("[stageSnapshot raw rows]", JSON.stringify(rows, null, 2));
+  console.log("[stageSnapshot repIds]", repIds);
+  console.log("[stageSnapshot periodId]", qpId);
 
   return (rows?.[0] as any) || empty;
 }
@@ -1790,6 +1794,16 @@ export async function getExecutiveForecastDashboardSummary(args: {
         repIds: repIdsForMomentum,
       }).catch(() => null)
     : null;
+  if (curStage) {
+    console.log("[stageSnapshot counts]", {
+      commit_count: (curStage as any).commit_count,
+      best_case_count: (curStage as any).best_case_count,
+      pipeline_count: (curStage as any).pipeline_count,
+      total_active_count: (curStage as any).total_active_count,
+      commit_avg_health: (curStage as any).commit_avg_health_score,
+      total_active_avg_health: (curStage as any).total_active_avg_health_score,
+    });
+  }
 
   const qoqPct = (cur: number, prev: number) => {
     if (!Number.isFinite(cur) || !Number.isFinite(prev) || prev <= 0) return null;
