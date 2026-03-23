@@ -11,6 +11,7 @@ import {
   type RepManagerRepRow,
 } from "./RepManagerComparisonPanel";
 import { ManagerReviewQueueClient, type ManagerReviewQueueProps } from "./ManagerReviewQueueClient";
+import type { ChannelLedFedRow } from "../../../../lib/channelPartnerHeroData";
 
 type ExecTabKey = "forecast" | "pipeline" | "coaching" | "team" | "channel" | "revenue" | "reports";
 
@@ -355,6 +356,9 @@ export function ExecutiveTabsShellClient(props: {
   revenueTabProps: ExecutiveGapInsightsClientProps;
   topPartnerWon: any[];
   topPartnerLost: any[];
+  /** Channel tab: Led/Fed table for hierarchy levels 0–2 only */
+  showChannelContribution?: boolean;
+  channelContributionRows?: ChannelLedFedRow[];
   orgName?: string;
 }) {
   const router = useRouter();
@@ -680,7 +684,62 @@ export function ExecutiveTabsShellClient(props: {
           </div>
         )}
         {"channel" === activeTab && (
-          <div className="-mx-4 -mt-4">
+          <div className="-mx-4 -mt-4 space-y-5">
+            {props.showChannelContribution && (props.channelContributionRows?.length ?? 0) > 0 ? (
+              <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+                <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Channel Contribution</h3>
+                <div className="mt-4 overflow-x-auto">
+                  <table className="w-full min-w-[640px] border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-[color:var(--sf-surface-alt)] text-left text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                        <th className="border-b border-[color:var(--sf-border)] px-4 py-3">Metric</th>
+                        <th className="border-b border-[color:var(--sf-border)] px-4 py-3 text-right">
+                          Channel Led (Deal Reg)
+                        </th>
+                        <th className="border-b border-[color:var(--sf-border)] px-4 py-3 text-right">
+                          Channel Fed (No Deal Reg)
+                        </th>
+                        <th className="border-b border-[color:var(--sf-border)] px-4 py-3 text-right">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-[color:var(--sf-text-primary)]">
+                      {(props.channelContributionRows ?? []).map((row) => (
+                        <tr key={row.metric} className="border-b border-[color:var(--sf-border)] last:border-b-0">
+                          <td className="px-4 py-3 font-medium">{row.metric}</td>
+                          <td className="px-4 py-3 text-right font-[tabular-nums]">
+                            {row.isCurrency
+                              ? row.channelLed.toLocaleString("en-US", {
+                                  style: "currency",
+                                  currency: "USD",
+                                  maximumFractionDigits: 0,
+                                })
+                              : row.channelLed.toLocaleString("en-US")}
+                          </td>
+                          <td className="px-4 py-3 text-right font-[tabular-nums]">
+                            {row.isCurrency
+                              ? row.channelFed.toLocaleString("en-US", {
+                                  style: "currency",
+                                  currency: "USD",
+                                  maximumFractionDigits: 0,
+                                })
+                              : row.channelFed.toLocaleString("en-US")}
+                          </td>
+                          <td className="px-4 py-3 text-right font-[tabular-nums] font-semibold">
+                            {row.isCurrency
+                              ? row.total.toLocaleString("en-US", {
+                                  style: "currency",
+                                  currency: "USD",
+                                  maximumFractionDigits: 0,
+                                })
+                              : row.total.toLocaleString("en-US")}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ) : null}
             <ExecutiveGapInsightsClient
               {...props.revenueTabProps}
               channelTabOnly={true}

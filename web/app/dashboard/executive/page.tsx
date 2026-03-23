@@ -20,6 +20,7 @@ import {
   getQuotaByRepPeriod,
   getRepKpisByPeriod,
 } from "../../../lib/executiveRepKpis";
+import { loadChannelLedFedRows, type ChannelLedFedRow } from "../../../lib/channelPartnerHeroData";
 
 export const runtime = "nodejs";
 
@@ -941,6 +942,21 @@ export default async function ExecutiveDashboardPage({
     topPartnerLost = [];
   }
 
+  const showChannelContribution = Number(ctx.user.hierarchy_level ?? 99) <= 2;
+
+  let channelContributionRows: ChannelLedFedRow[] = [];
+  try {
+    if (showChannelContribution && selectedPeriod && visibleRepIds.length > 0 && selectedPeriodId) {
+      channelContributionRows = await loadChannelLedFedRows({
+        orgId: ctx.user.org_id,
+        quotaPeriodId: selectedPeriodId,
+        repIds: visibleRepIds,
+      });
+    }
+  } catch {
+    channelContributionRows = [];
+  }
+
   if (selectedPeriodId && comparePeriodIds.length) {
     const [repKpisRows, createdByRepRows, quotaByRepPeriod] = await Promise.all([
       getRepKpisByPeriod({ orgId, periodIds: comparePeriodIds, repIds: scopeRepIdsForTeam }),
@@ -1328,6 +1344,8 @@ export default async function ExecutiveDashboardPage({
           showManagerReviewQueue={showManagerReviewQueue}
           topPartnerWon={topPartnerWon}
           topPartnerLost={topPartnerLost}
+          showChannelContribution={showChannelContribution}
+          channelContributionRows={channelContributionRows}
           revenueTabProps={{
             basePath: "/dashboard/executive",
             periods: summary.periods,
