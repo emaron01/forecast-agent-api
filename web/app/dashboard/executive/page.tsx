@@ -20,7 +20,12 @@ import {
   getQuotaByRepPeriod,
   getRepKpisByPeriod,
 } from "../../../lib/executiveRepKpis";
-import { loadChannelLedFedRows, type ChannelLedFedRow } from "../../../lib/channelPartnerHeroData";
+import {
+  loadChannelLedFedRows,
+  loadChannelPartnerHeroProps,
+  type ChannelLedFedRow,
+  type ChannelPartnerHeroProps,
+} from "../../../lib/channelPartnerHeroData";
 
 export const runtime = "nodejs";
 
@@ -912,9 +917,10 @@ export default async function ExecutiveDashboardPage({
 
   let topPartnerWon: any[] = [];
   let topPartnerLost: any[] = [];
+  let channelContributionHero: ChannelPartnerHeroProps | null = null;
   try {
     if (selectedPeriod && visibleRepIds.length > 0 && selectedPeriodId) {
-      const [won, lost] = await Promise.all([
+      const [won, lost, hero] = await Promise.all([
         listTopPartnerDealsExec({
           orgId: ctx.user.org_id,
           quotaPeriodId: selectedPeriodId,
@@ -933,13 +939,21 @@ export default async function ExecutiveDashboardPage({
           dateEnd: selectedPeriod.period_end,
           repIds: visibleRepIds,
         }),
+        loadChannelPartnerHeroProps({
+          orgId: ctx.user.org_id,
+          quotaPeriodId: selectedPeriodId,
+          prevQuotaPeriodId: prevPeriodId,
+          repIds: visibleRepIds,
+        }),
       ]);
       topPartnerWon = won ?? [];
       topPartnerLost = lost ?? [];
+      channelContributionHero = hero ?? null;
     }
   } catch {
     topPartnerWon = [];
     topPartnerLost = [];
+    channelContributionHero = null;
   }
 
   const showChannelContribution = Number(ctx.user.hierarchy_level ?? 99) <= 2;
@@ -1345,6 +1359,7 @@ export default async function ExecutiveDashboardPage({
           topPartnerWon={topPartnerWon}
           topPartnerLost={topPartnerLost}
           showChannelContribution={showChannelContribution}
+          channelContributionHero={channelContributionHero}
           channelContributionRows={channelContributionRows}
           revenueTabProps={{
             basePath: "/dashboard/executive",
