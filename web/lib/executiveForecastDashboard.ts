@@ -530,36 +530,8 @@ async function getPipelineStageSnapshotForPeriod(args: {
 
   const repIds = args.repIds === null ? [] : Array.isArray(args.repIds) ? args.repIds : [];
   const useRepFilter = !!(args.repIds && Array.isArray(args.repIds) && args.repIds.length);
-  const periodId = qpId;
 
-  const diagResult = await pool
-    .query<{
-      forecast_category: string | null;
-      stage: string | null;
-      fc_lower: string | null;
-      stage_lower: string | null;
-      cnt: number;
-    }>(
-      `
-      SELECT DISTINCT
-        o.forecast_category,
-        o.stage,
-        lower(o.forecast_category) AS fc_lower,
-        lower(o.stage) AS stage_lower,
-        COUNT(*)::int AS cnt
-      FROM opportunities o
-      WHERE o.rep_id = ANY($1::bigint[])
-        AND o.quota_period_id = $2::bigint
-      GROUP BY o.forecast_category, o.stage
-      ORDER BY cnt DESC
-      `,
-      [repIds, periodId]
-    )
-    .then((r) => r)
-    .catch(() => ({ rows: [] as any[] } as any));
-  console.log("[stageSnapshot diag - actual stage values]", JSON.stringify(diagResult.rows, null, 2));
-
-  const result = await pool
+  const rows = await pool
     .query<ExecPipelineStageSnapshot>(
       `
       WITH qp AS (
@@ -649,12 +621,8 @@ async function getPipelineStageSnapshotForPeriod(args: {
       `,
       [args.orgId, qpId, repIds, useRepFilter]
     )
-    .then((r) => r)
+    .then((r) => r.rows || [])
     .catch(() => []);
-  const rows = Array.isArray((result as any)?.rows) ? (result as any).rows : [];
-  console.log("[stageSnapshot raw rows]", JSON.stringify(rows, null, 2));
-  console.log("[stageSnapshot repIds]", repIds);
-  console.log("[stageSnapshot periodId]", qpId);
 
   return (rows?.[0] as any) || empty;
 }
@@ -1815,30 +1783,23 @@ export async function getExecutiveForecastDashboardSummary(args: {
         }).catch(() => null)
       : null;
 
-  const curStage = qpId
-    ? await getPipelineStageSnapshotForPeriod({
-        orgId: args.orgId,
-        quotaPeriodId: qpId,
-        repIds: repIdsForMomentum,
-      }).catch(() => null)
-    : null;
-  const prevStage = prevQpId
-    ? await getPipelineStageSnapshotForPeriod({
-        orgId: args.orgId,
-        quotaPeriodId: prevQpId,
-        repIds: repIdsForMomentum,
-      }).catch(() => null)
-    : null;
-  if (curStage) {
-    console.log("[stageSnapshot counts]", {
-      commit_count: (curStage as any).commit_count,
-      best_case_count: (curStage as any).best_case_count,
-      pipeline_count: (curStage as any).pipeline_count,
-      total_active_count: (curStage as any).total_active_count,
-      commit_avg_health: (curStage as any).commit_avg_health_score,
-      total_active_avg_health: (curStage as any).total_active_avg_health_score,
-    });
-  }
+  // Current quarter snapshot → pipelineMomentum. Previous quarter → QoQ only (never substitute for current).
+  const [curStage, prevStage] = await Promise.all([
+    qpId
+      ? getPipelineStageSnapshotForPeriod({
+          orgId: args.orgId,
+          quotaPeriodId: qpId,
+          repIds: repIdsForMomentum,
+        }).catch(() => null)
+      : Promise.resolve(null),
+    prevQpId
+      ? getPipelineStageSnapshotForPeriod({
+          orgId: args.orgId,
+          quotaPeriodId: prevQpId,
+          repIds: repIdsForMomentum,
+        }).catch(() => null)
+      : Promise.resolve(null),
+  ]);
 
   const qoqPct = (cur: number, prev: number) => {
     if (!Number.isFinite(cur) || !Number.isFinite(prev) || prev <= 0) return null;
@@ -2079,11 +2040,6 @@ export async function getExecutiveForecastDashboardSummary(args: {
           })(),
         }
       : null;
-  console.log(
-    "[pipelineMomentum period used]",
-    qpId,
-    JSON.stringify(pipelineMomentum?.current_quarter?.mix?.commit ?? null)
-  );
 
   const partnersExecutive: ExecutiveForecastSummary["partnersExecutive"] = qpId
     ? await (async () => {

@@ -167,7 +167,6 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
       }
       return cmp * dir;
     });
-    console.log("[filter check]", deals.map((d) => ({ opp: d.opp_name, req: d.review_requested_at })));
     return list;
   }, [deals, activeFilters.repName, activeFilters.reviewRequestedOnly, sortKey, sortDir, clearedDealIds]);
 
