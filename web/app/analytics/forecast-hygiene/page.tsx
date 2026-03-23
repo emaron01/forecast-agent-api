@@ -28,7 +28,7 @@ function deltaTextClass(delta: number): string {
   return "text-gray-500";
 }
 
-/** Manager team total vs rep row styling (EXEC_MANAGER / MANAGER hygiene view). */
+/** Team total vs indented rep row styling. */
 function hygieneRowClass(row: { rowKind?: "team" | "rep" }): string {
   const base = "border-t border-[color:var(--sf-border)]";
   if (row.rowKind === "team") {
