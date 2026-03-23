@@ -530,6 +530,34 @@ async function getPipelineStageSnapshotForPeriod(args: {
 
   const repIds = args.repIds === null ? [] : Array.isArray(args.repIds) ? args.repIds : [];
   const useRepFilter = !!(args.repIds && Array.isArray(args.repIds) && args.repIds.length);
+  const periodId = qpId;
+
+  const diagResult = await pool
+    .query<{
+      forecast_category: string | null;
+      stage: string | null;
+      fc_lower: string | null;
+      stage_lower: string | null;
+      cnt: number;
+    }>(
+      `
+      SELECT DISTINCT
+        o.forecast_category,
+        o.stage,
+        lower(o.forecast_category) AS fc_lower,
+        lower(o.stage) AS stage_lower,
+        COUNT(*)::int AS cnt
+      FROM opportunities o
+      WHERE o.rep_id = ANY($1::bigint[])
+        AND o.quota_period_id = $2::bigint
+      GROUP BY o.forecast_category, o.stage
+      ORDER BY cnt DESC
+      `,
+      [repIds, periodId]
+    )
+    .then((r) => r)
+    .catch(() => ({ rows: [] as any[] } as any));
+  console.log("[stageSnapshot diag - actual stage values]", JSON.stringify(diagResult.rows, null, 2));
 
   const result = await pool
     .query<ExecPipelineStageSnapshot>(
