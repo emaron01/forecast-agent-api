@@ -1088,7 +1088,11 @@ export async function getExecutiveForecastDashboardSummary(args: {
   user: AuthUser;
   searchParams?: Record<string, string | string[] | undefined>;
 }): Promise<ExecutiveForecastSummary> {
-  const selectedQuotaPeriodIdParam = String(sp(args.searchParams?.quota_period_id) || "").trim();
+  const selectedQuotaPeriodIdParam = String(
+    Array.isArray(args.searchParams?.quota_period_id)
+      ? args.searchParams?.quota_period_id[args.searchParams.quota_period_id.length - 1]
+      : args.searchParams?.quota_period_id || ""
+  ).trim();
   const selectedFiscalYearParam = String(sp(args.searchParams?.fiscal_year) || "").trim();
 
   const periods: ExecQuotaPeriodLite[] = await pool
@@ -1116,7 +1120,10 @@ export async function getExecutiveForecastDashboardSummary(args: {
   const containingToday = periods.find((p) => String(p.period_start) <= todayIso && String(p.period_end) >= todayIso) || null;
   const defaultQuotaPeriodId = String(containingToday?.id || periods?.[0]?.id || "").trim();
 
-  const selectedQuotaPeriodId = selectedQuotaPeriodIdParam || defaultQuotaPeriodId;
+  const selectedQuotaPeriodIdCandidate = selectedQuotaPeriodIdParam || defaultQuotaPeriodId;
+  const selectedQuotaPeriodId = periods.some((p) => String(p.id) === selectedQuotaPeriodIdCandidate)
+    ? selectedQuotaPeriodIdCandidate
+    : defaultQuotaPeriodId;
   const selectedPeriod = selectedQuotaPeriodId ? periods.find((p) => String(p.id) === selectedQuotaPeriodId) || null : null;
 
   const selectedFiscalYear =
@@ -2072,6 +2079,11 @@ export async function getExecutiveForecastDashboardSummary(args: {
           })(),
         }
       : null;
+  console.log(
+    "[pipelineMomentum period used]",
+    qpId,
+    JSON.stringify(pipelineMomentum?.current_quarter?.mix?.commit ?? null)
+  );
 
   const partnersExecutive: ExecutiveForecastSummary["partnersExecutive"] = qpId
     ? await (async () => {
