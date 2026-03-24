@@ -14,7 +14,7 @@ import {
   type CommitAdmissionAggregates,
   type CommitAdmissionDealPanels,
 } from "./commitAdmissionAggregates";
-import { partnerMotionCaseSql, type PartnerDealMotion } from "./partnerMotion";
+import { partnerMotionCaseSql, partnerMotionPredicatesSql, type PartnerDealMotion } from "./partnerMotion";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -451,6 +451,7 @@ async function listPartnerRollupForExecutive(args: { orgId: number; quotaPeriodI
         AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
         AND o.partner_name IS NOT NULL
         AND btrim(o.partner_name) <> ''
+        AND (${partnerMotionPredicatesSql.isDirect} OR ${partnerMotionPredicatesSql.isPartnerSourced})
         AND o.close_date IS NOT NULL
         AND o.close_date >= qp.period_start
         AND o.close_date <= qp.period_end
@@ -555,6 +556,7 @@ async function listOpenPipelineByPartnerForExecutive(args: { orgId: number; quot
         AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
         AND o.partner_name IS NOT NULL
         AND btrim(o.partner_name) <> ''
+        AND (${partnerMotionPredicatesSql.isDirect} OR ${partnerMotionPredicatesSql.isPartnerSourced})
         AND o.close_date IS NOT NULL
         AND o.close_date >= qp.period_start
         AND o.close_date <= qp.period_end

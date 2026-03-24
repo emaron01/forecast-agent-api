@@ -728,7 +728,7 @@ export function TestExecutiveDashboard() {
               />
 
               <div className="text-xs text-[color:var(--sf-text-secondary)]">
-                Canonical Scoring Engine (WIC / PQS / CEI) · Scores clamped 0–100. WIC computed for Direct + each partner. PQS computed per partner only.
+                Canonical Scoring Engine: WIC & PQS · Scores clamped 0–100. WIC computed for Direct + each partner. PQS computed per partner only.
               </div>
             </div>
           </Card>

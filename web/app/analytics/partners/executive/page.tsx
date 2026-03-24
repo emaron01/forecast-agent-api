@@ -13,6 +13,7 @@ import { AverageHealthScorePanel } from "../../../_components/AverageHealthScore
 import { getScopedRepDirectory } from "../../../../lib/repScope";
 import { PartnerAiStrategicTakeawayClient } from "./ui/PartnerAiStrategicTakeawayClient";
 import { AiSummaryReportClient } from "../../../../components/ai/AiSummaryReportClient";
+import { partnerMotionPredicatesSql } from "../../../../lib/partnerMotion";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -282,6 +283,7 @@ async function listPartnerRollup(args: {
         AND (NOT $6::boolean OR o.rep_id = ANY($3::bigint[]))
         AND o.partner_name IS NOT NULL
         AND btrim(o.partner_name) <> ''
+        AND (${partnerMotionPredicatesSql.isDirect} OR ${partnerMotionPredicatesSql.isPartnerSourced})
         AND o.close_date IS NOT NULL
         AND o.close_date >= qp.range_start
         AND o.close_date <= qp.range_end
@@ -412,6 +414,7 @@ async function listOpenPipelineByPartner(args: {
         AND (NOT $6::boolean OR o.rep_id = ANY($3::bigint[]))
         AND o.partner_name IS NOT NULL
         AND btrim(o.partner_name) <> ''
+        AND (${partnerMotionPredicatesSql.isDirect} OR ${partnerMotionPredicatesSql.isPartnerSourced})
         AND o.close_date IS NOT NULL
         AND o.close_date >= qp.range_start
         AND o.close_date <= qp.range_end

@@ -2971,7 +2971,7 @@ export function ExecutiveGapInsightsClient(props: {
             <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Canonical Scoring Engine (WIC / PQS / CEI)</div>
+                  <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Canonical Scoring Engine: WIC & PQS</div>
                 </div>
               </div>
               <div className="mt-4 grid gap-3">
@@ -3283,7 +3283,7 @@ export function ExecutiveGapInsightsClient(props: {
             <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Canonical Scoring Engine (WIC / PQS / CEI)</div>
+                  <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Canonical Scoring Engine: WIC & PQS</div>
                 </div>
               </div>
               <div className="mt-4 grid gap-3">
@@ -4318,7 +4318,7 @@ export function ExecutiveGapInsightsClient(props: {
           <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Canonical Scoring Engine (WIC / PQS / CEI)</div>
+                <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Canonical Scoring Engine: WIC & PQS</div>
               </div>
             </div>
 
