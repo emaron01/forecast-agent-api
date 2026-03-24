@@ -62,32 +62,37 @@ export async function getOrgStageMappings(orgId: number): Promise<Map<string, st
   return new Map((result.rows || []).map((r) => [r.key, r.bucket]));
 }
 
-/** SQL fragment: expects `fs`, LEFT JOIN aliases `fcm` and `stm` on opportunities row `o`. */
-const CRM_BUCKET_CASE_SQL = `
+/**
+ * Pattern bucket after org_stage_mappings (fcm/stm). Pass a row-qualified fs expression (e.g. r.fs);
+ * must not be in the same SELECT list as fs — Postgres does not allow alias forward references.
+ */
+function crmBucketCaseSql(fsExpr: string) {
+  return `
 CASE
   WHEN fcm.bucket IS NOT NULL THEN fcm.bucket
   WHEN stm.bucket IS NOT NULL THEN stm.bucket
-  WHEN (' ' || fs || ' ') LIKE '% won %' THEN 'won'
-  WHEN ((' ' || fs || ' ') LIKE '% lost %')
-    OR ((' ' || fs || ' ') LIKE '% loss %')
-    OR ((' ' || fs || ' ') LIKE '% duplicate %')
-    OR ((' ' || fs || ' ') LIKE '% dead %')
-    OR ((' ' || fs || ' ') LIKE '% disqualified %')
-    OR ((' ' || fs || ' ') LIKE '% cancelled %')
-    OR ((' ' || fs || ' ') LIKE '% omitted %')
+  WHEN (' ' || ${fsExpr} || ' ') LIKE '% won %' THEN 'won'
+  WHEN ((' ' || ${fsExpr} || ' ') LIKE '% lost %')
+    OR ((' ' || ${fsExpr} || ' ') LIKE '% loss %')
+    OR ((' ' || ${fsExpr} || ' ') LIKE '% duplicate %')
+    OR ((' ' || ${fsExpr} || ' ') LIKE '% dead %')
+    OR ((' ' || ${fsExpr} || ' ') LIKE '% disqualified %')
+    OR ((' ' || ${fsExpr} || ' ') LIKE '% cancelled %')
+    OR ((' ' || ${fsExpr} || ' ') LIKE '% omitted %')
     THEN 'excluded'
-  WHEN fs LIKE '%commit%'
+  WHEN ${fsExpr} LIKE '%commit%'
     OR (
-      ((' ' || fs || ' ') LIKE '% closed %')
-      AND fs NOT LIKE '%won%'
-      AND fs NOT LIKE '%lost%'
-      AND fs NOT LIKE '%loss%'
-      AND fs NOT LIKE '%duplicate%'
+      ((' ' || ${fsExpr} || ' ') LIKE '% closed %')
+      AND ${fsExpr} NOT LIKE '%won%'
+      AND ${fsExpr} NOT LIKE '%lost%'
+      AND ${fsExpr} NOT LIKE '%loss%'
+      AND ${fsExpr} NOT LIKE '%duplicate%'
     )
     THEN 'commit'
-  WHEN fs LIKE '%best%' THEN 'best_case'
+  WHEN ${fsExpr} LIKE '%best%' THEN 'best_case'
   ELSE 'pipeline'
 END`.trim();
+}
 
 async function listActiveRepsForOrg(orgId: number): Promise<RepDirectoryRow[]> {
   const { rows } = await pool.query(
@@ -582,12 +587,13 @@ async function getPipelineStageSnapshotForPeriod(args: {
            AND id = $2::bigint
          LIMIT 1
       ),
-      base AS (
+      base_row AS (
         SELECT
           COALESCE(o.amount, 0)::float8 AS amount,
           o.health_score::float8 AS health_score,
           lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
-          (${CRM_BUCKET_CASE_SQL}) AS crm_bucket,
+          o.forecast_stage,
+          o.sales_stage,
           CASE
             WHEN o.close_date IS NULL THEN NULL
             WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
@@ -602,14 +608,6 @@ async function getPipelineStageSnapshotForPeriod(args: {
              AND (NOT $4::boolean OR o2.rep_id = ANY($3::bigint[]))
            ORDER BY o2.id
         ) o
-        LEFT JOIN org_stage_mappings fcm
-          ON fcm.org_id = $1::bigint
-         AND fcm.field = 'forecast_category'
-         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
-        LEFT JOIN org_stage_mappings stm
-          ON stm.org_id = $1::bigint
-         AND stm.field = 'stage'
-         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
         JOIN qp ON TRUE
         WHERE o.close_date IS NOT NULL
           AND (
@@ -639,6 +637,23 @@ async function getPipelineStageSnapshotForPeriod(args: {
               ELSE NULL
             END
           ) <= qp.period_end
+      ),
+      base AS (
+        SELECT
+          r.amount,
+          r.health_score,
+          r.fs,
+          r.close_d,
+          (${crmBucketCaseSql("r.fs")}) AS crm_bucket
+        FROM base_row r
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = $1::bigint
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(r.forecast_stage::text, '')))
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = $1::bigint
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(r.sales_stage::text, '')))
       ),
       classified AS (
         SELECT
@@ -735,21 +750,14 @@ async function getPipelineStageSnapshotForPeriodWithNameFallback(args: {
            AND id = $2::bigint
          LIMIT 1
       ),
-      base AS (
+      base_row AS (
         SELECT
           COALESCE(o.amount, 0)::float8 AS amount,
           o.predictive_eligible,
           lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
-          (${CRM_BUCKET_CASE_SQL}) AS crm_bucket
+          o.forecast_stage,
+          o.sales_stage
         FROM opportunities o
-        LEFT JOIN org_stage_mappings fcm
-          ON fcm.org_id = $1::bigint
-         AND fcm.field = 'forecast_category'
-         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
-        LEFT JOIN org_stage_mappings stm
-          ON stm.org_id = $1::bigint
-         AND stm.field = 'stage'
-         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
         JOIN qp ON TRUE
         WHERE o.org_id = $1
           AND o.close_date IS NOT NULL
@@ -762,6 +770,22 @@ async function getPipelineStageSnapshotForPeriodWithNameFallback(args: {
               AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
             )
           )
+      ),
+      base AS (
+        SELECT
+          r.amount,
+          r.predictive_eligible,
+          r.fs,
+          (${crmBucketCaseSql("r.fs")}) AS crm_bucket
+        FROM base_row r
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = $1::bigint
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(r.forecast_stage::text, '')))
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = $1::bigint
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(r.sales_stage::text, '')))
       ),
       classified AS (
         SELECT
@@ -1285,7 +1309,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
                  AND id = $2::bigint
                LIMIT 1
             ),
-            deals AS (
+            deals_row AS (
               SELECT
                 COALESCE(o.amount, 0)::float8 AS amount,
                 lower(
@@ -1296,7 +1320,8 @@ export async function getExecutiveForecastDashboardSummary(args: {
                     'g'
                   )
                 ) AS fs,
-                (${CRM_BUCKET_CASE_SQL}) AS crm_bucket,
+                o.forecast_stage,
+                o.sales_stage,
                 CASE
                   WHEN o.close_date IS NULL THEN NULL
                   WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
@@ -1305,16 +1330,24 @@ export async function getExecutiveForecastDashboardSummary(args: {
                   ELSE NULL
                 END AS close_d
               FROM opportunities o
+              WHERE o.org_id = $1
+                AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+            ),
+            deals AS (
+              SELECT
+                r.amount,
+                r.fs,
+                r.close_d,
+                (${crmBucketCaseSql("r.fs")}) AS crm_bucket
+              FROM deals_row r
               LEFT JOIN org_stage_mappings fcm
                 ON fcm.org_id = $1::bigint
                AND fcm.field = 'forecast_category'
-               AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+               AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(r.forecast_stage::text, '')))
               LEFT JOIN org_stage_mappings stm
                 ON stm.org_id = $1::bigint
                AND stm.field = 'stage'
-               AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
-              WHERE o.org_id = $1
-                AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+               AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(r.sales_stage::text, '')))
             ),
             deals_in_qtr AS (
               SELECT d.*
@@ -1717,7 +1750,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
                      AND id = $2::bigint
                    LIMIT 1
                 ),
-                deals AS (
+                deals_row AS (
                   SELECT
                     COALESCE(o.amount, 0)::float8 AS amount,
                     o.health_score,
@@ -1729,7 +1762,8 @@ export async function getExecutiveForecastDashboardSummary(args: {
                         'g'
                       )
                     ) AS fs,
-                    (${CRM_BUCKET_CASE_SQL}) AS crm_bucket,
+                    o.forecast_stage,
+                    o.sales_stage,
                     CASE
                       WHEN o.close_date IS NULL THEN NULL
                       WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
@@ -1738,16 +1772,25 @@ export async function getExecutiveForecastDashboardSummary(args: {
                       ELSE NULL
                     END AS close_d
                   FROM opportunities o
+                  WHERE o.org_id = $1
+                    AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+                ),
+                deals AS (
+                  SELECT
+                    r.amount,
+                    r.health_score,
+                    r.fs,
+                    r.close_d,
+                    (${crmBucketCaseSql("r.fs")}) AS crm_bucket
+                  FROM deals_row r
                   LEFT JOIN org_stage_mappings fcm
                     ON fcm.org_id = $1::bigint
                    AND fcm.field = 'forecast_category'
-                   AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+                   AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(r.forecast_stage::text, '')))
                   LEFT JOIN org_stage_mappings stm
                     ON stm.org_id = $1::bigint
                    AND stm.field = 'stage'
-                   AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
-                  WHERE o.org_id = $1
-                    AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+                   AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(r.sales_stage::text, '')))
                 ),
                 deals_in_qtr AS (
                   SELECT d.*
