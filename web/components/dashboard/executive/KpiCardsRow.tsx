@@ -138,7 +138,7 @@ export function KpiCardsRow(props: {
             delta={prev ? curOrders - prevOrders : null}
           />
           <ProductTile
-            label="Blended ACV"
+            label="ACV Won"
             curText={fmtMoney(curAcv)}
             prevText={prev ? fmtMoney(prevAcv) : "—"}
             deltaText={prev ? fmtMoney(curAcv - prevAcv) : "—"}
@@ -258,7 +258,7 @@ export function KpiCardsRow(props: {
           delta={prev ? curOrders - prevOrders : null}
         />
         <ProductTile
-          label="Blended ACV"
+          label="ACV Won"
           curText={fmtMoney(curAcv)}
           prevText={prev ? fmtMoney(prevAcv) : "—"}
           deltaText={prev ? fmtMoney(curAcv - prevAcv) : "—"}

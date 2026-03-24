@@ -156,7 +156,13 @@ export type ExecutiveForecastSummary = {
     avg_order_value: number;
     avg_health_score: number | null;
   }>;
-  productsClosedWonPrevSummary: { total_revenue: number; total_orders: number; blended_acv: number } | null;
+  productsClosedWonPrevSummary: {
+    total_revenue: number;
+    total_orders: number;
+    blended_acv: number;
+    lost_count: number;
+    lost_amount: number;
+  } | null;
   productsClosedWonByRep: Array<{
     rep_name: string;
     product: string;
@@ -1294,22 +1300,23 @@ export async function getExecutiveForecastDashboardSummary(args: {
     lost_avg_health_score: number | null;
   };
 
-  const totals: TotalsRow =
-    qpId
-      ? await (async (): Promise<TotalsRow> => {
-          const empty: TotalsRow = {
-            commit_amount: 0,
-            best_case_amount: 0,
-            pipeline_amount: 0,
-            won_amount: 0,
-            won_count: 0,
-            lost_amount: 0,
-            lost_count: 0,
-            lost_avg_health_score: null,
-          };
-          try {
-            const totalsRes = await pool.query(
-              `
+  const emptyTotalsRow: TotalsRow = {
+    commit_amount: 0,
+    best_case_amount: 0,
+    pipeline_amount: 0,
+    won_amount: 0,
+    won_count: 0,
+    lost_amount: 0,
+    lost_count: 0,
+    lost_avg_health_score: null,
+  };
+
+  async function loadTotalsForQuotaPeriod(periodId: string): Promise<TotalsRow> {
+    const pid = String(periodId || "").trim();
+    if (!pid) return { ...emptyTotalsRow };
+    try {
+      const totalsRes = await pool.query(
+        `
             WITH qp AS (
               SELECT period_start::date AS period_start, period_end::date AS period_end
                 FROM quota_periods
@@ -1398,39 +1405,34 @@ export async function getExecutiveForecastDashboardSummary(args: {
               ) AS lost_avg_health_score
             FROM open_deals
             `,
-              [args.orgId, qpId, allowedRepIds, useScoped]
-            );
-            const row0 = totalsRes.rows?.[0] as any;
+        [args.orgId, pid, allowedRepIds, useScoped]
+      );
+      const row0 = totalsRes.rows?.[0] as any;
 
-            return {
-              commit_amount: Number(row0?.commit_amount || 0) || 0,
-              best_case_amount: Number(row0?.best_case_amount || 0) || 0,
-              pipeline_amount: Number(row0?.pipeline_amount || 0) || 0,
-              won_amount: Number(row0?.won_amount || 0) || 0,
-              won_count: Number(row0?.won_count || 0) || 0,
-              lost_amount: Number(row0?.lost_amount || 0) || 0,
-              lost_count: Number(row0?.lost_count || 0) || 0,
-              lost_avg_health_score:
-                row0?.lost_avg_health_score == null || !Number.isFinite(Number(row0.lost_avg_health_score))
-                  ? null
-                  : Number(row0.lost_avg_health_score),
-            };
-          } catch {
-            return empty;
-          }
-        })()
-      : {
-          commit_amount: 0,
-          best_case_amount: 0,
-          pipeline_amount: 0,
-          won_amount: 0,
-          won_count: 0,
-          lost_amount: 0,
-          lost_count: 0,
-          lost_avg_health_score: null,
-        };
+      return {
+        commit_amount: Number(row0?.commit_amount || 0) || 0,
+        best_case_amount: Number(row0?.best_case_amount || 0) || 0,
+        pipeline_amount: Number(row0?.pipeline_amount || 0) || 0,
+        won_amount: Number(row0?.won_amount || 0) || 0,
+        won_count: Number(row0?.won_count || 0) || 0,
+        lost_amount: Number(row0?.lost_amount || 0) || 0,
+        lost_count: Number(row0?.lost_count || 0) || 0,
+        lost_avg_health_score:
+          row0?.lost_avg_health_score == null || !Number.isFinite(Number(row0.lost_avg_health_score))
+            ? null
+            : Number(row0.lost_avg_health_score),
+      };
+    } catch {
+      return { ...emptyTotalsRow };
+    }
+  }
+
+  const totals: TotalsRow = qpId ? await loadTotalsForQuotaPeriod(qpId) : { ...emptyTotalsRow };
 
   const canCompute = !!qpId && (!useScoped || (Array.isArray(allowedRepIds) && allowedRepIds.length > 0));
+
+  const prevPeriodTotals: TotalsRow =
+    prevQpId && canCompute ? await loadTotalsForQuotaPeriod(prevQpId) : { ...emptyTotalsRow };
 
   type RepQuarterRollupRow = {
     rep_id: string; // may be '' when unknown
@@ -1664,10 +1666,22 @@ export async function getExecutiveForecastDashboardSummary(args: {
           const totalRevenue = prevProductsClosedWonRows.reduce((acc, r) => acc + (Number((r as any).won_amount || 0) || 0), 0);
           const totalOrders = prevProductsClosedWonRows.reduce((acc, r) => acc + (Number((r as any).won_count || 0) || 0), 0);
           const blendedAcv = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-          return { total_revenue: totalRevenue, total_orders: totalOrders, blended_acv: blendedAcv };
+          return {
+            total_revenue: totalRevenue,
+            total_orders: totalOrders,
+            blended_acv: blendedAcv,
+            lost_count: Number(prevPeriodTotals.lost_count || 0) || 0,
+            lost_amount: Number(prevPeriodTotals.lost_amount || 0) || 0,
+          };
         })()
       : prevQpId
-        ? { total_revenue: 0, total_orders: 0, blended_acv: 0 }
+        ? {
+            total_revenue: 0,
+            total_orders: 0,
+            blended_acv: 0,
+            lost_count: Number(prevPeriodTotals.lost_count || 0) || 0,
+            lost_amount: Number(prevPeriodTotals.lost_amount || 0) || 0,
+          }
         : null;
 
   type ProductWonByRepRow = {

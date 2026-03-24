@@ -289,7 +289,7 @@ export function TestExecutiveDashboard() {
                 {[
                   { label: "Closed Won (QTD)", cur: fmtMoney0(mock.productKpis.total_revenue), prev: fmtMoney0(mock.productKpisPrev.total_revenue) },
                   { label: "Total Orders", cur: String(mock.productKpis.total_orders), prev: String(mock.productKpisPrev.total_orders) },
-                  { label: "Blended ACV", cur: fmtMoney0(mock.productKpis.blended_acv), prev: fmtMoney0(mock.productKpisPrev.blended_acv) },
+                  { label: "ACV Won", cur: fmtMoney0(mock.productKpis.blended_acv), prev: fmtMoney0(mock.productKpisPrev.blended_acv) },
                   { label: "Avg Health Closed Won", cur: `${mock.quarterHealthKpis.avgHealthWonPct}%`, prev: "" },
                   { label: "Opp→Win Conversion", cur: `${mock.quarterHealthKpis.oppToWinPct}%`, prev: "" },
                   { label: "Avg Health Closed Loss", cur: `${mock.quarterHealthKpis.avgHealthLostPct}%`, prev: "" },

@@ -480,7 +480,13 @@ async function loadProductsClosedWonPartner(orgId: number, qpId: string, repIds:
 export type ChannelPartnerHeroProps = {
   quarterKpis: QuarterKpisSnapshot | null;
   productsClosedWon: ProductWonRow[];
-  productsClosedWonPrevSummary: { total_revenue: number; total_orders: number; blended_acv: number } | null;
+  productsClosedWonPrevSummary: {
+    total_revenue: number;
+    total_orders: number;
+    blended_acv: number;
+    lost_count: number;
+    lost_amount: number;
+  } | null;
   pipelineMomentum: PipelineMomentumData | null;
   crmForecast: {
     commit_amount: number;
@@ -616,10 +622,22 @@ export async function loadChannelPartnerHeroProps(args: {
           const totalRevenue = prevProductsRows.reduce((acc, r) => acc + (Number(r.won_amount || 0) || 0), 0);
           const totalOrders = prevProductsRows.reduce((acc, r) => acc + (Number(r.won_count || 0) || 0), 0);
           const blendedAcv = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-          return { total_revenue: totalRevenue, total_orders: totalOrders, blended_acv: blendedAcv };
+          return {
+            total_revenue: totalRevenue,
+            total_orders: totalOrders,
+            blended_acv: blendedAcv,
+            lost_count: Number(prevStage?.lost_count ?? 0) || 0,
+            lost_amount: Number(prevStage?.lost_amount ?? 0) || 0,
+          };
         })()
       : prevQpId
-        ? { total_revenue: 0, total_orders: 0, blended_acv: 0 }
+        ? {
+            total_revenue: 0,
+            total_orders: 0,
+            blended_acv: 0,
+            lost_count: Number(prevStage?.lost_count ?? 0) || 0,
+            lost_amount: Number(prevStage?.lost_amount ?? 0) || 0,
+          }
         : null;
 
   const pipelineMomentum: PipelineMomentumData | null =

@@ -518,7 +518,13 @@ export function ExecutiveGapInsightsClient(props: {
     avg_order_value: number;
     avg_health_score: number | null;
   }>;
-  productsClosedWonPrevSummary: { total_revenue: number; total_orders: number; blended_acv: number } | null;
+  productsClosedWonPrevSummary: {
+    total_revenue: number;
+    total_orders: number;
+    blended_acv: number;
+    lost_count: number;
+    lost_amount: number;
+  } | null;
   productsClosedWonByRep: Array<{
     rep_name: string;
     product: string;
@@ -1652,6 +1658,13 @@ export function ExecutiveGapInsightsClient(props: {
   const prevOrders = prevProd ? Number(prevProd.total_orders || 0) || 0 : 0;
   const prevAcv = prevProd ? Number(prevProd.blended_acv || 0) || 0 : 0;
 
+  const crmLostCnt = Number(props.crmTotals?.lost_count ?? 0) || 0;
+  const crmLostAmt = Number(props.crmTotals?.lost_amount ?? 0) || 0;
+  const prevLostCntKpi = prevProd ? Number(prevProd.lost_count ?? 0) || 0 : 0;
+  const prevLostAmtKpi = prevProd ? Number(prevProd.lost_amount ?? 0) || 0 : 0;
+  const curAcvLost = crmLostCnt > 0 ? crmLostAmt / crmLostCnt : 0;
+  const prevAcvLost = prevLostCntKpi > 0 ? prevLostAmtKpi / prevLostCntKpi : 0;
+
   const fmtPct = (p01: number | null) => {
     if (p01 == null || !Number.isFinite(p01)) return "—";
     return `${Math.round(p01 * 100)}%`;
@@ -2375,7 +2388,7 @@ export function ExecutiveGapInsightsClient(props: {
     return (
       <>
     <div className="grid gap-4">
-      {/* heroOnly: row1 Closed Won/Quota/Gap/Landing; row2 Remaining Quarterly Forecast (Commit…Coverage); row3 Closed Lost / Win·Loss / Avg Health Lost / Blended ACV Lost; then grid 7, … */}
+      {/* heroOnly: row1 Closed Won/Quota/Gap/Landing/Closed Lost; row2 Remaining Quarterly Forecast; KPI row (8 cards) */}
       <section className="w-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,320px)_1fr] lg:items-start">
           <div className="min-w-0">
@@ -2449,8 +2462,10 @@ export function ExecutiveGapInsightsClient(props: {
               const quotaNum = Number(props.quota) || 0;
               const gapToQuota = quotaNum - wonAmount;
               const gapColor = gapToQuota > 0 ? "text-[#E74C3C]" : "text-[#16A34A]";
+              const lostAmt = Number(props.crmTotals?.lost_amount ?? 0) || 0;
+              const lostCnt = Number(props.crmTotals?.lost_count ?? 0) || 0;
               return (
-                <div className="grid grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
                   <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
                     <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-primary)]">Closed Won</div>
                     <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-green-400 sm:text-2xl">{fmtMoney(wonAmount)}</div>
@@ -2469,6 +2484,14 @@ export function ExecutiveGapInsightsClient(props: {
                     <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{fmtMoney(props.aiForecast)}</div>
                     <div className="text-xs text-[color:var(--sf-text-secondary)] mt-1">AI weighted forecast</div>
                   </div>
+                  <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Closed Lost</div>
+                    <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-red-400 sm:text-2xl">{fmtMoney(lostAmt)}</div>
+                    <div className="text-xs text-[color:var(--sf-text-secondary)] mt-1">
+                      # Opps:{" "}
+                      <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{lostCnt.toLocaleString("en-US")}</span>
+                    </div>
+                  </div>
                 </div>
               );
             })()}
@@ -2480,67 +2503,22 @@ export function ExecutiveGapInsightsClient(props: {
                 heroBucketAmounts={heroBucketAmounts}
               />
             </div>
-            <div className="mt-4 grid grid-cols-4 gap-4">
-              {(() => {
-                // Match ExecutiveRemainingQuarterlyForecastBlock heroCard + heroVal + text-cardLabel + text-meta
-                const heroRow3Card =
-                  "h-full min-h-[124px] min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm";
-                const heroRow3Val = "mt-2 break-all text-kpiValue font-[tabular-nums]";
-                const lostAmt = Number(props.crmTotals?.lost_amount ?? 0) || 0;
-                const lostCnt = Number(props.crmTotals?.lost_count ?? 0) || 0;
-                const wonCnt = Number(props.crmTotals?.won_count ?? 0) || 0;
-                const lostHealthRaw = props.crmTotals?.lost_avg_health_score ?? null;
-                const lostHealthPct =
-                  lostHealthRaw == null || !Number.isFinite(Number(lostHealthRaw))
-                    ? null
-                    : Math.max(0, Math.min(100, Math.round((Number(lostHealthRaw) / 30) * 100)));
-                const wlDenom = wonCnt + lostCnt;
-                const winRatePct = wlDenom > 0 ? Math.round((wonCnt / wlDenom) * 100) : null;
-                const closedWonAov = wonCnt > 0 ? wonAmount / wonCnt : null;
-                return (
-                  <>
-                    <div className={heroRow3Card}>
-                      <div className="min-w-0 overflow-hidden text-cardLabel uppercase text-[color:var(--sf-text-primary)]">Closed Lost</div>
-                      <div className={`${heroRow3Val} text-red-400`}>{fmtMoney(lostAmt)}</div>
-                      <div className="mt-2 min-w-0 truncate text-meta">
-                        # Opps:{" "}
-                        <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{lostCnt.toLocaleString("en-US")}</span>
-                      </div>
-                    </div>
-                    <div className={heroRow3Card}>
-                      <div className="min-w-0 overflow-hidden text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Win / Loss</div>
-                      <div className={`${heroRow3Val} text-[color:var(--sf-text-primary)]`}>
-                        {wonCnt.toLocaleString("en-US")} / {lostCnt.toLocaleString("en-US")}
-                      </div>
-                      <div className="mt-2 min-w-0 truncate text-meta">
-                        Win Rate:{" "}
-                        <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{winRatePct == null ? "—" : `${winRatePct}%`}</span>
-                      </div>
-                    </div>
-                    <div className={heroRow3Card}>
-                      <div className="min-w-0 overflow-hidden text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Health Lost</div>
-                      <div className={`${heroRow3Val} ${healthLostHeroColorClass(lostHealthPct)}`}>
-                        {lostHealthPct == null ? "—" : `${lostHealthPct}%`}
-                      </div>
-                    </div>
-                    <div className={heroRow3Card}>
-                      <div className="min-w-0 overflow-hidden text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Blended ACV Lost</div>
-                      <div className={`${heroRow3Val} text-red-400`}>{closedWonAov == null ? "—" : fmtMoney(closedWonAov)}</div>
-                      <div className="mt-2 min-w-0 truncate text-meta">Closed won deals only</div>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
           </div>
         </div>
 
       </section>
 
-      <div className="mt-4 grid grid-cols-7 gap-3">
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
         {(() => {
           const ord = productDelta(curOrders, prevOrders);
           const acv = productDelta(curAcv, prevAcv);
+          const lostOpps = productDelta(crmLostCnt, prevLostCntKpi);
+          const acvLostD = productDelta(curAcvLost, prevAcvLost);
+          const lostHealthRaw = props.crmTotals?.lost_avg_health_score ?? null;
+          const lostHealthPct =
+            lostHealthRaw == null || !Number.isFinite(Number(lostHealthRaw))
+              ? null
+              : Math.max(0, Math.min(100, Math.round((Number(lostHealthRaw) / 30) * 100)));
           const fmtSignedInt = (n: number) => {
             const v = Number(n || 0);
             if (!Number.isFinite(v)) return "—";
@@ -2567,7 +2545,23 @@ export function ExecutiveGapInsightsClient(props: {
                 </div>
               </div>
               <div className={heroCard}>
-                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Blended ACV</div>
+                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Lost Opps</div>
+                <div className={heroVal}>{crmLostCnt.toLocaleString("en-US")}</div>
+                <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
+                  <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", lostOpps.tone].join(" ")}>
+                    <div>{prevProd ? fmtSignedInt(lostOpps.d) : "—"}</div>
+                    <div aria-hidden="true" className="text-base leading-none">
+                      {lostOpps.arrow}
+                    </div>
+                  </div>
+                  <div className="min-w-0 truncate text-right text-meta">
+                    Last Quarter{" "}
+                    <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? prevLostCntKpi.toLocaleString("en-US") : "—"}</span>
+                  </div>
+                </div>
+              </div>
+              <div className={heroCard}>
+                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">ACV Won</div>
                 <div className={heroVal}>{fmtMoney(curAcv)}</div>
                 <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
                   <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", acv.tone].join(" ")}>
@@ -2582,17 +2576,41 @@ export function ExecutiveGapInsightsClient(props: {
                   </div>
                 </div>
               </div>
+              <div className={heroCard}>
+                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">ACV Lost</div>
+                <div className={heroVal}>{crmLostCnt > 0 ? fmtMoney(curAcvLost) : "—"}</div>
+                <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
+                  <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", acvLostD.tone].join(" ")}>
+                    <div>{prevProd ? fmtMoney(acvLostD.d) : "—"}</div>
+                    <div aria-hidden="true" className="text-base leading-none">
+                      {acvLostD.arrow}
+                    </div>
+                  </div>
+                  <div className="min-w-0 truncate text-right text-meta">
+                    Last Quarter{" "}
+                    <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{prevProd ? (prevLostCntKpi > 0 ? fmtMoney(prevAcvLost) : "—") : "—"}</span>
+                  </div>
+                </div>
+              </div>
               <div className={[heroCard, "h-auto"].join(" ")}>
                 <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Health Closed Won</div>
                 <div className={heroVal}>
                   <span className={["num-tabular", healthColorClass(avgHealthWon)].join(" ")}>{avgHealthWon == null ? "—" : `${avgHealthWon}%`}</span>
                 </div>
               </div>
+              <div className={[heroCard, "h-auto"].join(" ")}>
+                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Health Lost</div>
+                <div className={heroVal}>
+                  <span className={["num-tabular", healthLostHeroColorClass(lostHealthPct)].join(" ")}>
+                    {lostHealthPct == null ? "—" : `${lostHealthPct}%`}
+                  </span>
+                </div>
+              </div>
               <div className={heroCard}>
                 <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
                 <div className={heroVal}>{fmtPct(oppToWin)}</div>
               </div>
-              <div className="col-span-3 flex h-full min-w-0">
+              <div className={[heroCard, "flex min-h-0 min-w-0 flex-col p-3"].join(" ")}>
                 {(() => {
                   const bd = props.bucketDeltas;
                   const absMax = Math.max(Math.abs(bd.commit), Math.abs(bd.best_case), Math.abs(bd.pipeline), 1);
@@ -2600,7 +2618,7 @@ export function ExecutiveGapInsightsClient(props: {
                   const deltaTextClass = (v: number) =>
                     !Number.isFinite(v) || v === 0 ? "text-[color:var(--sf-text-secondary)]" : v > 0 ? "text-[#2ECC71]" : "text-[#E74C3C]";
                   return (
-                    <div className="flex h-full w-full min-w-0 flex-col rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 shadow-sm">
+                    <>
                       <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Gap Attribution</div>
                       <div className="mt-2 grid gap-1.5 text-tableValue text-[color:var(--sf-text-primary)]">
                         {[
@@ -2608,16 +2626,16 @@ export function ExecutiveGapInsightsClient(props: {
                           { label: "Best Case", v: bd.best_case },
                           { label: "Pipeline", v: bd.pipeline },
                         ].map((x) => (
-                          <div key={x.label} className="grid grid-cols-[70px_minmax(0,1fr)_68px] items-center gap-2">
+                          <div key={x.label} className="grid grid-cols-[56px_minmax(0,1fr)_60px] items-center gap-1.5 sm:grid-cols-[70px_minmax(0,1fr)_68px] sm:gap-2">
                             <div className="text-tableLabel text-xs">{x.label}</div>
                             <div className="h-1.5 min-w-0 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
                               <div className={`h-full rounded-full ${x.v >= 0 ? "bg-[#2ECC71]" : "bg-[#E74C3C]"}`} style={{ width: bar(x.v) }} aria-hidden="true" />
                             </div>
-                            <div className={`text-right text-xs num-tabular shrink-0 ${deltaTextClass(x.v)}`}>{fmtMoney(x.v)}</div>
+                            <div className={`text-right text-[10px] num-tabular shrink-0 sm:text-xs ${deltaTextClass(x.v)}`}>{fmtMoney(x.v)}</div>
                           </div>
                         ))}
                       </div>
-                    </div>
+                    </>
                   );
                 })()}
               </div>
@@ -3766,7 +3784,7 @@ export function ExecutiveGapInsightsClient(props: {
                       </div>
 
                       <div className={heroCard}>
-                        <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Blended ACV</div>
+                        <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">ACV Won</div>
                         <div className={heroVal}>{fmtMoney(curAcv)}</div>
                         <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
                           <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", acv.tone].join(" ")}>

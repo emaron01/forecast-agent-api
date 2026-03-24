@@ -823,7 +823,7 @@ export function ExecutiveTabsShellClient(props: {
                           </div>
                         </div>
                         <div className={card}>
-                          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Blended ACV</div>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">ACV Won</div>
                           <div className={value}>{fmtMoney(curAcv)}</div>
                           <div className={`mt-2 text-xs font-[tabular-nums] ${acvTone}`}>
                             {prevProd ? `${acvDelta >= 0 ? "+" : ""}${fmtMoney(acvDelta)} vs last quarter` : "—"}
