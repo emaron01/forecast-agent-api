@@ -48,6 +48,47 @@ function healthPctFrom30(score: any) {
   return Math.max(0, Math.min(100, Math.round((n / 30) * 100)));
 }
 
+/**
+ * Org-configured stage → bucket mappings (forecast_category → forecast_stage, stage → sales_stage).
+ * Keys are `field:normalized_stage_value` per org_stage_mappings.key shape.
+ */
+export async function getOrgStageMappings(orgId: number): Promise<Map<string, string>> {
+  const result = await pool.query<{ key: string; bucket: string }>(
+    `SELECT field || ':' || lower(btrim(stage_value)) AS key, bucket
+       FROM org_stage_mappings
+      WHERE org_id = $1::bigint`,
+    [orgId]
+  );
+  return new Map((result.rows || []).map((r) => [r.key, r.bucket]));
+}
+
+/** SQL fragment: expects `fs`, LEFT JOIN aliases `fcm` and `stm` on opportunities row `o`. */
+const CRM_BUCKET_CASE_SQL = `
+CASE
+  WHEN fcm.bucket IS NOT NULL THEN fcm.bucket
+  WHEN stm.bucket IS NOT NULL THEN stm.bucket
+  WHEN (' ' || fs || ' ') LIKE '% won %' THEN 'won'
+  WHEN ((' ' || fs || ' ') LIKE '% lost %')
+    OR ((' ' || fs || ' ') LIKE '% loss %')
+    OR ((' ' || fs || ' ') LIKE '% duplicate %')
+    OR ((' ' || fs || ' ') LIKE '% dead %')
+    OR ((' ' || fs || ' ') LIKE '% disqualified %')
+    OR ((' ' || fs || ' ') LIKE '% cancelled %')
+    OR ((' ' || fs || ' ') LIKE '% omitted %')
+    THEN 'excluded'
+  WHEN fs LIKE '%commit%'
+    OR (
+      ((' ' || fs || ' ') LIKE '% closed %')
+      AND fs NOT LIKE '%won%'
+      AND fs NOT LIKE '%lost%'
+      AND fs NOT LIKE '%loss%'
+      AND fs NOT LIKE '%duplicate%'
+    )
+    THEN 'commit'
+  WHEN fs LIKE '%best%' THEN 'best_case'
+  ELSE 'pipeline'
+END`.trim();
+
 async function listActiveRepsForOrg(orgId: number): Promise<RepDirectoryRow[]> {
   const { rows } = await pool.query(
     `
@@ -546,6 +587,7 @@ async function getPipelineStageSnapshotForPeriod(args: {
           COALESCE(o.amount, 0)::float8 AS amount,
           o.health_score::float8 AS health_score,
           lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
+          (${CRM_BUCKET_CASE_SQL}) AS crm_bucket,
           CASE
             WHEN o.close_date IS NULL THEN NULL
             WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
@@ -560,6 +602,14 @@ async function getPipelineStageSnapshotForPeriod(args: {
              AND (NOT $4::boolean OR o2.rep_id = ANY($3::bigint[]))
            ORDER BY o2.id
         ) o
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = $1::bigint
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = $1::bigint
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
         JOIN qp ON TRUE
         WHERE o.close_date IS NOT NULL
           AND (
@@ -593,64 +643,13 @@ async function getPipelineStageSnapshotForPeriod(args: {
       classified AS (
         SELECT
           *,
-          ((' ' || fs || ' ') LIKE '% won %') AS is_won,
+          (crm_bucket = 'won') AS is_won,
           (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
-          (
-            NOT ((' ' || fs || ' ') LIKE '% won %')
-            AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))
-            AND NOT (
-              ((' ' || fs || ' ') LIKE '% duplicate %')
-              OR ((' ' || fs || ' ') LIKE '% dead %')
-              OR ((' ' || fs || ' ') LIKE '% disqualified %')
-              OR ((' ' || fs || ' ') LIKE '% cancelled %')
-              OR ((' ' || fs || ' ') LIKE '% omitted %')
-            )
-          ) AS is_active,
-          CASE
-            WHEN
-              NOT ((' ' || fs || ' ') LIKE '% won %')
-              AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))
-              AND NOT (
-                ((' ' || fs || ' ') LIKE '% duplicate %')
-                OR ((' ' || fs || ' ') LIKE '% dead %')
-                OR ((' ' || fs || ' ') LIKE '% disqualified %')
-                OR ((' ' || fs || ' ') LIKE '% cancelled %')
-                OR ((' ' || fs || ' ') LIKE '% omitted %')
-              )
-              AND (
-                fs LIKE '%commit%'
-                OR (
-                  ((' ' || fs || ' ') LIKE '% closed %')
-                  AND fs NOT LIKE '%won%'
-                  AND fs NOT LIKE '%lost%'
-                  AND fs NOT LIKE '%loss%'
-                  AND fs NOT LIKE '%duplicate%'
-                )
-              )
-              THEN 'commit'
-            WHEN
-              NOT ((' ' || fs || ' ') LIKE '% won %')
-              AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))
-              AND NOT (
-                ((' ' || fs || ' ') LIKE '% duplicate %')
-                OR ((' ' || fs || ' ') LIKE '% dead %')
-                OR ((' ' || fs || ' ') LIKE '% disqualified %')
-                OR ((' ' || fs || ' ') LIKE '% cancelled %')
-                OR ((' ' || fs || ' ') LIKE '% omitted %')
-              )
-              AND fs LIKE '%best%'
-              THEN 'best'
-            WHEN
-              NOT ((' ' || fs || ' ') LIKE '% won %')
-              AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))
-              AND NOT (
-                ((' ' || fs || ' ') LIKE '% duplicate %')
-                OR ((' ' || fs || ' ') LIKE '% dead %')
-                OR ((' ' || fs || ' ') LIKE '% disqualified %')
-                OR ((' ' || fs || ' ') LIKE '% cancelled %')
-                OR ((' ' || fs || ' ') LIKE '% omitted %')
-              )
-              THEN 'pipeline'
+          (crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active,
+          CASE crm_bucket
+            WHEN 'commit' THEN 'commit'
+            WHEN 'best_case' THEN 'best'
+            WHEN 'pipeline' THEN 'pipeline'
             ELSE 'other'
           END AS bucket
         FROM base
@@ -740,8 +739,17 @@ async function getPipelineStageSnapshotForPeriodWithNameFallback(args: {
         SELECT
           COALESCE(o.amount, 0)::float8 AS amount,
           o.predictive_eligible,
-          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
+          (${CRM_BUCKET_CASE_SQL}) AS crm_bucket
         FROM opportunities o
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = $1::bigint
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = $1::bigint
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
         JOIN qp ON TRUE
         WHERE o.org_id = $1
           AND o.close_date IS NOT NULL
@@ -758,64 +766,13 @@ async function getPipelineStageSnapshotForPeriodWithNameFallback(args: {
       classified AS (
         SELECT
           *,
-          ((' ' || fs || ' ') LIKE '% won %') AS is_won,
+          (crm_bucket = 'won') AS is_won,
           (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
-          (
-            NOT ((' ' || fs || ' ') LIKE '% won %')
-            AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))
-            AND NOT (
-              ((' ' || fs || ' ') LIKE '% duplicate %')
-              OR ((' ' || fs || ' ') LIKE '% dead %')
-              OR ((' ' || fs || ' ') LIKE '% disqualified %')
-              OR ((' ' || fs || ' ') LIKE '% cancelled %')
-              OR ((' ' || fs || ' ') LIKE '% omitted %')
-            )
-          ) AS is_active,
-          CASE
-            WHEN
-              NOT ((' ' || fs || ' ') LIKE '% won %')
-              AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))
-              AND NOT (
-                ((' ' || fs || ' ') LIKE '% duplicate %')
-                OR ((' ' || fs || ' ') LIKE '% dead %')
-                OR ((' ' || fs || ' ') LIKE '% disqualified %')
-                OR ((' ' || fs || ' ') LIKE '% cancelled %')
-                OR ((' ' || fs || ' ') LIKE '% omitted %')
-              )
-              AND (
-                fs LIKE '%commit%'
-                OR (
-                  ((' ' || fs || ' ') LIKE '% closed %')
-                  AND fs NOT LIKE '%won%'
-                  AND fs NOT LIKE '%lost%'
-                  AND fs NOT LIKE '%loss%'
-                  AND fs NOT LIKE '%duplicate%'
-                )
-              )
-              THEN 'commit'
-            WHEN
-              NOT ((' ' || fs || ' ') LIKE '% won %')
-              AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))
-              AND NOT (
-                ((' ' || fs || ' ') LIKE '% duplicate %')
-                OR ((' ' || fs || ' ') LIKE '% dead %')
-                OR ((' ' || fs || ' ') LIKE '% disqualified %')
-                OR ((' ' || fs || ' ') LIKE '% cancelled %')
-                OR ((' ' || fs || ' ') LIKE '% omitted %')
-              )
-              AND fs LIKE '%best%'
-              THEN 'best'
-            WHEN
-              NOT ((' ' || fs || ' ') LIKE '% won %')
-              AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))
-              AND NOT (
-                ((' ' || fs || ' ') LIKE '% duplicate %')
-                OR ((' ' || fs || ' ') LIKE '% dead %')
-                OR ((' ' || fs || ' ') LIKE '% disqualified %')
-                OR ((' ' || fs || ' ') LIKE '% cancelled %')
-                OR ((' ' || fs || ' ') LIKE '% omitted %')
-              )
-              THEN 'pipeline'
+          (crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active,
+          CASE crm_bucket
+            WHEN 'commit' THEN 'commit'
+            WHEN 'best_case' THEN 'best'
+            WHEN 'pipeline' THEN 'pipeline'
             ELSE 'other'
           END AS bucket
         FROM base
@@ -1339,6 +1296,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
                     'g'
                   )
                 ) AS fs,
+                (${CRM_BUCKET_CASE_SQL}) AS crm_bucket,
                 CASE
                   WHEN o.close_date IS NULL THEN NULL
                   WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
@@ -1347,6 +1305,14 @@ export async function getExecutiveForecastDashboardSummary(args: {
                   ELSE NULL
                 END AS close_d
               FROM opportunities o
+              LEFT JOIN org_stage_mappings fcm
+                ON fcm.org_id = $1::bigint
+               AND fcm.field = 'forecast_category'
+               AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+              LEFT JOIN org_stage_mappings stm
+                ON stm.org_id = $1::bigint
+               AND stm.field = 'stage'
+               AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
               WHERE o.org_id = $1
                 AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
             ),
@@ -1361,42 +1327,14 @@ export async function getExecutiveForecastDashboardSummary(args: {
             open_deals AS (
               SELECT *
                 FROM deals_in_qtr d
-               WHERE NOT ((' ' || d.fs || ' ') LIKE '% won %')
-                 AND NOT ((' ' || d.fs || ' ') LIKE '% lost %')
-                 AND NOT ((' ' || d.fs || ' ') LIKE '% loss %')
-                 AND NOT ((' ' || d.fs || ' ') LIKE '% duplicate %')
-                 AND NOT ((' ' || d.fs || ' ') LIKE '% dead %')
-                 AND NOT ((' ' || d.fs || ' ') LIKE '% disqualified %')
-                 AND NOT ((' ' || d.fs || ' ') LIKE '% cancelled %')
-                 AND NOT ((' ' || d.fs || ' ') LIKE '% omitted %')
+               WHERE d.crm_bucket IN ('commit', 'best_case', 'pipeline')
             )
             SELECT
-              COALESCE(SUM(CASE
-                WHEN fs LIKE '%commit%'
-                  OR (
-                    ((' ' || fs || ' ') LIKE '% closed %')
-                    AND fs NOT LIKE '%won%'
-                    AND fs NOT LIKE '%lost%'
-                    AND fs NOT LIKE '%loss%'
-                    AND fs NOT LIKE '%duplicate%'
-                  )
-                THEN amount ELSE 0
-              END), 0)::float8 AS commit_amount,
-              COALESCE(SUM(CASE WHEN fs LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
-              COALESCE(SUM(CASE
-                WHEN fs NOT LIKE '%commit%'
-                  AND fs NOT LIKE '%best%'
-                  AND NOT (
-                    ((' ' || fs || ' ') LIKE '% closed %')
-                    AND fs NOT LIKE '%won%'
-                    AND fs NOT LIKE '%lost%'
-                    AND fs NOT LIKE '%loss%'
-                    AND fs NOT LIKE '%duplicate%'
-                  )
-                THEN amount ELSE 0
-              END), 0)::float8 AS pipeline_amount,
+              COALESCE(SUM(CASE WHEN crm_bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
+              COALESCE(SUM(CASE WHEN crm_bucket = 'best_case' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
+              COALESCE(SUM(CASE WHEN crm_bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
               (
-                SELECT COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN amount ELSE 0 END), 0)::float8
+                SELECT COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN amount ELSE 0 END), 0)::float8
                   FROM deals_in_qtr
               ) AS won_amount
             FROM open_deals
@@ -1791,6 +1729,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
                         'g'
                       )
                     ) AS fs,
+                    (${CRM_BUCKET_CASE_SQL}) AS crm_bucket,
                     CASE
                       WHEN o.close_date IS NULL THEN NULL
                       WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
@@ -1799,6 +1738,14 @@ export async function getExecutiveForecastDashboardSummary(args: {
                       ELSE NULL
                     END AS close_d
                   FROM opportunities o
+                  LEFT JOIN org_stage_mappings fcm
+                    ON fcm.org_id = $1::bigint
+                   AND fcm.field = 'forecast_category'
+                   AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+                  LEFT JOIN org_stage_mappings stm
+                    ON stm.org_id = $1::bigint
+                   AND stm.field = 'stage'
+                   AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
                   WHERE o.org_id = $1
                     AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
                 ),
@@ -1813,32 +1760,11 @@ export async function getExecutiveForecastDashboardSummary(args: {
                 open_deals AS (
                   SELECT *
                     FROM deals_in_qtr d
-                   WHERE NOT ((' ' || d.fs || ' ') LIKE '% won %')
-                     AND NOT ((' ' || d.fs || ' ') LIKE '% lost %')
-                     AND NOT ((' ' || d.fs || ' ') LIKE '% loss %')
-                     AND NOT ((' ' || d.fs || ' ') LIKE '% duplicate %')
-                     AND NOT ((' ' || d.fs || ' ') LIKE '% dead %')
-                     AND NOT ((' ' || d.fs || ' ') LIKE '% disqualified %')
-                     AND NOT ((' ' || d.fs || ' ') LIKE '% cancelled %')
-                     AND NOT ((' ' || d.fs || ' ') LIKE '% omitted %')
+                   WHERE d.crm_bucket IN ('commit', 'best_case', 'pipeline')
                 ),
                 classified AS (
-                  SELECT
-                    *,
-                    CASE
-                      WHEN fs LIKE '%commit%'
-                        OR (
-                          ((' ' || fs || ' ') LIKE '% closed %')
-                          AND fs NOT LIKE '%won%'
-                          AND fs NOT LIKE '%lost%'
-                          AND fs NOT LIKE '%loss%'
-                          AND fs NOT LIKE '%duplicate%'
-                        )
-                        THEN 'commit'
-                      WHEN fs LIKE '%best%' THEN 'best_case'
-                      ELSE 'pipeline'
-                    END AS crm_bucket
-                  FROM open_deals
+                  SELECT *
+                    FROM open_deals
                 ),
                 with_rules AS (
                   SELECT
