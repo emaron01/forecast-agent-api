@@ -668,6 +668,13 @@ export function ExecutiveGapInsightsClient(props: {
     [props.viewerRole]
   );
 
+  /** Inline coaching card on Commit Integrity click: channel roles + executive dashboard (`/dashboard/executive`). */
+  const inlineCommitIntegrityCards = useMemo(
+    () =>
+      isChannelViewerRole || String(props.basePath || "").trim() === "/dashboard/executive",
+    [isChannelViewerRole, props.basePath]
+  );
+
   // Extended content often starts with the summary (API repeats executive one-line); strip it so we don't show summary twice.
   const radarAiExtendedDisplay = useMemo(() => {
     if (!radarAiExtended) return radarAiExtended;
@@ -2297,7 +2304,7 @@ export function ExecutiveGapInsightsClient(props: {
                         <CommitIntegrityDealCard
                           key={d.id}
                           d={d}
-                          channelInline={isChannelViewerRole}
+                          channelInline={inlineCommitIntegrityCards}
                           expanded={commitIntegrityExpandedId === d.id}
                           loading={commitDealLoadingId === d.id}
                           deal={commitDealCache[d.id]}
@@ -2321,7 +2328,7 @@ export function ExecutiveGapInsightsClient(props: {
                         <CommitIntegrityDealCard
                           key={d.id}
                           d={d}
-                          channelInline={isChannelViewerRole}
+                          channelInline={inlineCommitIntegrityCards}
                           expanded={commitIntegrityExpandedId === d.id}
                           loading={commitDealLoadingId === d.id}
                           deal={commitDealCache[d.id]}
@@ -2623,7 +2630,7 @@ export function ExecutiveGapInsightsClient(props: {
                       <CommitIntegrityDealCard
                         key={d.id}
                         d={d}
-                        channelInline={isChannelViewerRole}
+                        channelInline={inlineCommitIntegrityCards}
                         expanded={commitIntegrityExpandedId === d.id}
                         loading={commitDealLoadingId === d.id}
                         deal={commitDealCache[d.id]}
@@ -2646,7 +2653,7 @@ export function ExecutiveGapInsightsClient(props: {
                       <CommitIntegrityDealCard
                         key={d.id}
                         d={d}
-                        channelInline={isChannelViewerRole}
+                        channelInline={inlineCommitIntegrityCards}
                         expanded={commitIntegrityExpandedId === d.id}
                         loading={commitDealLoadingId === d.id}
                         deal={commitDealCache[d.id]}
@@ -3949,7 +3956,7 @@ export function ExecutiveGapInsightsClient(props: {
                       <CommitIntegrityDealCard
                         key={d.id}
                         d={d}
-                        channelInline={isChannelViewerRole}
+                        channelInline={inlineCommitIntegrityCards}
                         expanded={commitIntegrityExpandedId === d.id}
                         loading={commitDealLoadingId === d.id}
                         deal={commitDealCache[d.id]}
@@ -3971,7 +3978,7 @@ export function ExecutiveGapInsightsClient(props: {
                       <CommitIntegrityDealCard
                         key={d.id}
                         d={d}
-                        channelInline={isChannelViewerRole}
+                        channelInline={inlineCommitIntegrityCards}
                         expanded={commitIntegrityExpandedId === d.id}
                         loading={commitDealLoadingId === d.id}
                         deal={commitDealCache[d.id]}
