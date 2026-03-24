@@ -1295,6 +1295,80 @@ export async function getExecutiveForecastDashboardSummary(args: {
       ? await (async (): Promise<TotalsRow> => {
           const empty: TotalsRow = { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0 };
           try {
+            // Diagnostics only: verify org_stage_mappings JOIN keys vs opportunity columns (same JOINs as totals `deals` CTE).
+            try {
+              const diagMaps = await pool.query(
+                `SELECT field, stage_value, bucket FROM org_stage_mappings WHERE org_id = $1::bigint ORDER BY field, stage_value`,
+                [args.orgId]
+              );
+              console.log("[diagMaps]", JSON.stringify(diagMaps.rows, null, 2));
+
+              const diagOppCols = await pool.query(
+                `SELECT EXISTS (
+                  SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'opportunities' AND column_name = 'stage'
+                ) AS opportunities_has_stage_column`
+              );
+              console.log("[diagOppStageColumn]", JSON.stringify(diagOppCols.rows?.[0] ?? null, null, 2));
+
+              const diagJoinCheck = await pool.query(
+                `
+                WITH qp AS (
+                  SELECT period_start::date AS period_start, period_end::date AS period_end
+                    FROM quota_periods
+                   WHERE org_id = $1::bigint
+                     AND id = $2::bigint
+                   LIMIT 1
+                ),
+                base AS (
+                  SELECT
+                    o.id,
+                    o.forecast_stage,
+                    o.sales_stage,
+                    CASE
+                      WHEN o.close_date IS NULL THEN NULL
+                      WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+                      WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                        to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
+                      ELSE NULL
+                    END AS close_d
+                  FROM opportunities o
+                  WHERE o.org_id = $1::bigint
+                    AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+                ),
+                in_qtr AS (
+                  SELECT b.*
+                    FROM base b
+                    JOIN qp ON TRUE
+                   WHERE b.close_d IS NOT NULL
+                     AND b.close_d >= qp.period_start
+                     AND b.close_d <= qp.period_end
+                )
+                SELECT
+                  q.id,
+                  q.forecast_stage,
+                  q.sales_stage,
+                  fcm.bucket AS fc_mapped,
+                  stm.bucket AS st_mapped
+                FROM in_qtr q
+                LEFT JOIN org_stage_mappings fcm
+                  ON fcm.org_id = $1::bigint
+                 AND fcm.field = 'forecast_category'
+                 AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(q.forecast_stage::text, '')))
+                LEFT JOIN org_stage_mappings stm
+                  ON stm.org_id = $1::bigint
+                 AND stm.field = 'stage'
+                 AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(q.sales_stage::text, '')))
+                ORDER BY q.id ASC
+                LIMIT 5
+                `,
+                [args.orgId, qpId, allowedRepIds, useScoped]
+              );
+              console.log("[diagJoinCheck]", JSON.stringify(diagJoinCheck.rows, null, 2));
+            } catch (diagErr) {
+              console.error("[diagJoinCheck error]", diagErr);
+            }
+
             const totalsRes = await pool.query(
               `
             WITH qp AS (
@@ -1382,6 +1456,10 @@ export async function getExecutiveForecastDashboardSummary(args: {
           }
         })()
       : { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0 };
+
+  // Diagnostic: if stage mappings affect CRM bucket resolution, these should move when mappings change (reload dashboard).
+  console.log("[totals commit_amount]", totals.commit_amount);
+  console.log("[totals won_amount]", totals.won_amount);
 
   const canCompute = !!qpId && (!useScoped || (Array.isArray(allowedRepIds) && allowedRepIds.length > 0));
 
