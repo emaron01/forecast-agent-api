@@ -52,6 +52,8 @@ export type DealCoachingCardDeal = {
   commit_admission_reasons?: string[];
   verdict_note?: string | null;
   _commit_high_conf_count?: number;
+  /** CRM channel / partner field (opportunities.partner_name) */
+  partner_name?: string | null;
 };
 
 function fmtMoney(n: any) {
@@ -162,6 +164,8 @@ export type DealCoachingCardProps = {
   deal: DealCoachingCardDeal;
   onRequestReview?: (dealId: string) => void;
   showRequestReview?: boolean;
+  /** Channel dashboard: hide deal-review / Matthew actions; show partner after AI Verdict Stage. */
+  channelDashboard?: boolean;
 };
 
 export function DealCoachingCard(props: DealCoachingCardProps) {
@@ -176,6 +180,8 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
   const crmStageLabel = String(props.deal.crm_stage.label || "").trim() || "—";
   const aiStageLabel = String(props.deal.ai_verdict_stage || "").trim() || "—";
   const repLabel = String(props.deal.rep?.rep_name || "").trim() || "—";
+  const partnerLabel = String(props.deal.partner_name || "").trim();
+  const channelDash = !!props.channelDashboard;
 
   return (
     <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
@@ -187,6 +193,13 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
               Sales Rep {repLabel} · Close {fmtDateMmddyyyy(props.deal.close_date)} · CRM Forecast Stage{" "}
               <span className="font-semibold text-[color:var(--sf-text-primary)]">{crmStageLabel}</span> · AI Verdict Stage{" "}
               <span className={["font-semibold", stageDeltaClass(crmStageLabel, aiStageLabel)].join(" ")}>{aiStageLabel}</span>
+              {channelDash && partnerLabel ? (
+                <>
+                  {" "}
+                  · Channel Partner{" "}
+                  <span className="font-semibold text-[color:var(--sf-text-primary)]">{partnerLabel}</span>
+                </>
+              ) : null}
               {props.deal.health.suppression ? " · Suppressed Best Case (low score)" : ""}
             </span>
             {(props.deal.crm_stage.bucket === "commit" || props.deal.ai_verdict_stage === "Commit") && props.deal.commit_admission_status === "not_admitted" ? (
@@ -222,14 +235,16 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
               {props.deal.verdict_note}
             </div>
           ) : null}
-          <div className="mt-2">
-            <Link
-              href={`/opportunities/${encodeURIComponent(props.deal.id)}/deal-review`}
-              className="inline-flex h-[34px] items-center justify-center rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 text-sm font-medium text-[color:var(--sf-accent-primary)] hover:bg-[color:var(--sf-surface-alt)]"
-            >
-              View Full Deal
-            </Link>
-          </div>
+          {!channelDash ? (
+            <div className="mt-2">
+              <Link
+                href={`/opportunities/${encodeURIComponent(props.deal.id)}/deal-review`}
+                className="inline-flex h-[34px] items-center justify-center rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 text-sm font-medium text-[color:var(--sf-accent-primary)] hover:bg-[color:var(--sf-surface-alt)]"
+              >
+                View Full Deal
+              </Link>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -360,7 +375,7 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
         </div>
       ) : null}
 
-      {props.showRequestReview && (
+      {props.showRequestReview && !channelDash ? (
         <button
           onClick={() => props.onRequestReview?.(
             props.deal.id
@@ -374,7 +389,7 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
         >
           Request Matthew Review
         </button>
-      )}
+      ) : null}
     </div>
   );
 }

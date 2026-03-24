@@ -386,12 +386,14 @@ function CommitIntegrityDealCard(props: {
   deal: DealCoachingCardDeal | undefined;
   onToggle: () => void;
   showRequestReview: boolean;
+  /** `/dashboard/channel` only — hide review CTAs; show partner on coaching card */
+  channelDashboard?: boolean;
   kind: "pain" | "verified";
   cardClassName: string;
   title?: string;
   style?: CSSProperties;
 }) {
-  const { d, channelInline, expanded, loading, deal, onToggle, showRequestReview, kind, cardClassName, title, style } = props;
+  const { d, channelInline, expanded, loading, deal, onToggle, showRequestReview, channelDashboard = false, kind, cardClassName, title, style } = props;
   const sharedInner =
     kind === "pain" ? (
       <>
@@ -479,7 +481,7 @@ function CommitIntegrityDealCard(props: {
           {loading ? (
             <div className="py-4 text-center text-sm text-[color:var(--sf-text-secondary)]">Loading coaching card...</div>
           ) : deal ? (
-            <DealCoachingCard deal={deal} showRequestReview={showRequestReview} />
+            <DealCoachingCard deal={deal} showRequestReview={showRequestReview} channelDashboard={channelDashboard} />
           ) : (
             <div className="text-sm text-[#E74C3C]">Unable to load coaching card.</div>
           )}
@@ -673,6 +675,11 @@ export function ExecutiveGapInsightsClient(props: {
     () =>
       isChannelViewerRole || String(props.basePath || "").trim() === "/dashboard/executive",
     [isChannelViewerRole, props.basePath]
+  );
+
+  const isChannelDashboard = useMemo(
+    () => String(props.basePath || "").trim() === "/dashboard/channel",
+    [props.basePath]
   );
 
   // Extended content often starts with the summary (API repeats executive one-line); strip it so we don't show summary twice.
@@ -2310,6 +2317,7 @@ export function ExecutiveGapInsightsClient(props: {
                           deal={commitDealCache[d.id]}
                           onToggle={() => void toggleCommitIntegrityDeal(d.id)}
                           showRequestReview={!isChannelViewerRole}
+                          channelDashboard={isChannelDashboard}
                           kind="pain"
                           cardClassName={commitIntegrityCardClass}
                           title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
@@ -2334,6 +2342,7 @@ export function ExecutiveGapInsightsClient(props: {
                           deal={commitDealCache[d.id]}
                           onToggle={() => void toggleCommitIntegrityDeal(d.id)}
                           showRequestReview={!isChannelViewerRole}
+                          channelDashboard={isChannelDashboard}
                           kind="verified"
                           cardClassName={commitIntegrityCardClass}
                           title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
@@ -2636,6 +2645,7 @@ export function ExecutiveGapInsightsClient(props: {
                         deal={commitDealCache[d.id]}
                         onToggle={() => void toggleCommitIntegrityDeal(d.id)}
                         showRequestReview={!isChannelViewerRole}
+                        channelDashboard={isChannelDashboard}
                         kind="pain"
                         cardClassName={commitIntegrityCardClass}
                         title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
@@ -2659,6 +2669,7 @@ export function ExecutiveGapInsightsClient(props: {
                         deal={commitDealCache[d.id]}
                         onToggle={() => void toggleCommitIntegrityDeal(d.id)}
                         showRequestReview={!isChannelViewerRole}
+                        channelDashboard={isChannelDashboard}
                         kind="verified"
                         cardClassName={commitIntegrityCardClass}
                         title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
@@ -3962,6 +3973,7 @@ export function ExecutiveGapInsightsClient(props: {
                         deal={commitDealCache[d.id]}
                         onToggle={() => void toggleCommitIntegrityDeal(d.id)}
                         showRequestReview={!isChannelViewerRole}
+                        channelDashboard={isChannelDashboard}
                         kind="pain"
                         cardClassName={commitIntegrityCardClass}
                         title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
@@ -3984,6 +3996,7 @@ export function ExecutiveGapInsightsClient(props: {
                         deal={commitDealCache[d.id]}
                         onToggle={() => void toggleCommitIntegrityDeal(d.id)}
                         showRequestReview={!isChannelViewerRole}
+                        channelDashboard={isChannelDashboard}
                         kind="verified"
                         cardClassName={commitIntegrityCardClass}
                         title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}

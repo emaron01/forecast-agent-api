@@ -123,6 +123,7 @@ type DealCoachingCardDeal = {
   commit_admission_reasons?: string[];
   verdict_note?: string | null;
   _commit_high_conf_count?: number;
+  partner_name?: string | null;
 };
 
 export async function GET(req: Request) {
@@ -187,6 +188,7 @@ export async function GET(req: Request) {
       budget_confidence: string | null;
       rep_public_id: string | null;
       rep_name: string | null;
+      partner_name: string | null;
     }>(
       `
       SELECT
@@ -218,7 +220,8 @@ export async function GET(req: Request) {
         COALESCE(
           NULLIF(btrim(r.display_name), ''),
           NULLIF(btrim(r.rep_name), '')
-        ) AS rep_name
+        ) AS rep_name,
+        NULLIF(btrim(o.partner_name), '') AS partner_name
       FROM opportunities o
       LEFT JOIN reps r ON r.id = o.rep_id
       WHERE o.public_id = $1::uuid
@@ -303,6 +306,7 @@ export async function GET(req: Request) {
       },
       risk_flags: riskFlags,
       coaching_insights: uniqueNonEmpty(riskFlags.map((r) => r.tip)),
+      partner_name: row.partner_name ?? null,
     };
 
     return NextResponse.json({ ok: true, deal });
