@@ -2365,8 +2365,12 @@ export function ExecutiveGapInsightsClient(props: {
                 heroBucketAmounts={heroBucketAmounts}
               />
             </div>
-            <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="mt-4 grid grid-cols-4 gap-4">
               {(() => {
+                // Match ExecutiveRemainingQuarterlyForecastBlock heroCard + heroVal + text-cardLabel + text-meta
+                const heroRow3Card =
+                  "h-full min-h-[124px] min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm";
+                const heroRow3Val = "mt-2 break-all text-kpiValue font-[tabular-nums]";
                 const lostAmt = Number(props.crmTotals?.lost_amount ?? 0) || 0;
                 const lostCnt = Number(props.crmTotals?.lost_count ?? 0) || 0;
                 const wonCnt = Number(props.crmTotals?.won_count ?? 0) || 0;
@@ -2378,44 +2382,36 @@ export function ExecutiveGapInsightsClient(props: {
                 const wlDenom = wonCnt + lostCnt;
                 const winRatePct = wlDenom > 0 ? Math.round((wonCnt / wlDenom) * 100) : null;
                 const closedWonAov = wonCnt > 0 ? wonAmount / wonCnt : null;
-                const subCard =
-                  "min-w-0 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]/80 p-3 shadow-sm";
                 return (
                   <>
-                    <div className={subCard}>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-primary)]">Closed Lost</div>
-                      <div className="mt-0.5 break-all text-lg font-bold font-[tabular-nums] text-red-400">
-                        {fmtMoney(lostAmt)}
-                      </div>
-                      <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">
+                    <div className={heroRow3Card}>
+                      <div className="min-w-0 overflow-hidden text-cardLabel uppercase text-[color:var(--sf-text-primary)]">Closed Lost</div>
+                      <div className={`${heroRow3Val} text-red-400`}>{fmtMoney(lostAmt)}</div>
+                      <div className="mt-2 min-w-0 truncate text-meta">
                         # Opps:{" "}
-                        <span className="font-[500] text-[color:var(--sf-text-primary)]">{lostCnt.toLocaleString("en-US")}</span>
+                        <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{lostCnt.toLocaleString("en-US")}</span>
                       </div>
                     </div>
-                    <div className={subCard}>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Win / Loss</div>
-                      <div className="mt-0.5 text-lg font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)]">
+                    <div className={heroRow3Card}>
+                      <div className="min-w-0 overflow-hidden text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Win / Loss</div>
+                      <div className={`${heroRow3Val} text-[color:var(--sf-text-primary)]`}>
                         {wonCnt.toLocaleString("en-US")} / {lostCnt.toLocaleString("en-US")}
                       </div>
-                      <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">
+                      <div className="mt-2 min-w-0 truncate text-meta">
                         Win Rate:{" "}
-                        <span className="font-[500] text-[color:var(--sf-text-primary)]">{winRatePct == null ? "—" : `${winRatePct}%`}</span>
+                        <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{winRatePct == null ? "—" : `${winRatePct}%`}</span>
                       </div>
                     </div>
-                    <div className={subCard}>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Avg Health Lost</div>
-                      <div
-                        className={`mt-0.5 text-lg font-bold font-[tabular-nums] ${healthLostHeroColorClass(lostHealthPct)}`}
-                      >
+                    <div className={heroRow3Card}>
+                      <div className="min-w-0 overflow-hidden text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Health Lost</div>
+                      <div className={`${heroRow3Val} ${healthLostHeroColorClass(lostHealthPct)}`}>
                         {lostHealthPct == null ? "—" : `${lostHealthPct}%`}
                       </div>
                     </div>
-                    <div className={subCard}>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Blended ACV Lost</div>
-                      <div className="mt-0.5 text-lg font-bold font-[tabular-nums] text-red-400">
-                        {closedWonAov == null ? "—" : fmtMoney(closedWonAov)}
-                      </div>
-                      <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">Closed won deals only</div>
+                    <div className={heroRow3Card}>
+                      <div className="min-w-0 overflow-hidden text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Blended ACV Lost</div>
+                      <div className={`${heroRow3Val} text-red-400`}>{closedWonAov == null ? "—" : fmtMoney(closedWonAov)}</div>
+                      <div className="mt-2 min-w-0 truncate text-meta">Closed won deals only</div>
                     </div>
                   </>
                 );
