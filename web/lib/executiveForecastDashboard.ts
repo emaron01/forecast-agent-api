@@ -69,6 +69,8 @@ export async function getOrgStageMappings(orgId: number): Promise<Map<string, st
 function crmBucketCaseSql(fsExpr: string) {
   return `
 CASE
+  WHEN fcm.bucket = 'won' OR stm.bucket = 'won' THEN 'won'
+  WHEN fcm.bucket = 'excluded' OR stm.bucket = 'excluded' THEN 'excluded'
   WHEN fcm.bucket IS NOT NULL THEN fcm.bucket
   WHEN stm.bucket IS NOT NULL THEN stm.bucket
   WHEN (' ' || ${fsExpr} || ' ') LIKE '% won %' THEN 'won'
