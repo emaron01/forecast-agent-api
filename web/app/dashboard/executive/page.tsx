@@ -1232,6 +1232,7 @@ export default async function ExecutiveDashboardPage({
               commitDealPanels={summary.commitDealPanels}
               defaultTopN={5}
               heroOnly={true}
+              heroAgingCards
               viewerRole={ctx.user.role}
             />
           </div>

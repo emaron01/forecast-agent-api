@@ -641,6 +641,8 @@ export function ExecutiveGapInsightsClient(props: {
   topPartnerLost?: any[];
   revenueTabOnly?: boolean;
   heroOnly?: boolean;
+  /** When using heroOnly, show Avg Days Aging (Closed Won / Remaining Pipeline) below Gap Attribution (e.g. executive dashboard only). */
+  heroAgingCards?: boolean;
   /** Channel dashboard: second block below Fed/Led uses the same hero as executive (5-card row, KPIs, Gap Attribution). */
   salesHeroLayout?: boolean;
   /** When set, channel roles get inline Commit Integrity cards + no Request Review on coaching card. */
@@ -2646,6 +2648,23 @@ export function ExecutiveGapInsightsClient(props: {
     <div className="grid gap-4">
       {renderCurrentExecutiveHeroSectionAndKpis()}
 
+      {props.heroAgingCards ? (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
+            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
+            <div className="mt-1 text-tableLabel">Closed Won</div>
+            <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">{fmtDays(props.quarterKpis?.wonAvgDays ?? null)}</div>
+          </div>
+          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
+            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
+            <div className="mt-1 text-tableLabel">Remaining Pipeline</div>
+            <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
+              {fmtDays(props.quarterKpis?.agingAvgDays ?? null)}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {props.commitAdmission && (props.commitAdmission.totalCommitCrmAmount > 0 || props.commitAdmission.unsupportedCommitAmount > 0 || props.commitAdmission.commitNeedsReviewAmount > 0 || props.commitAdmission.aiSupportedCommitAmount > 0) ? (
         <section className="mt-4 w-full rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
           <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Commit Integrity</div>
@@ -2704,7 +2723,7 @@ export function ExecutiveGapInsightsClient(props: {
         </section>
       ) : null}
 
-      {/* heroOnly order: Strategic Takeaway (13) then Closed Won / … / Avg Days (4–11) */}
+      {/* heroOnly order: Commit Integrity (optional) → Strategic Takeaway */}
       <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="inline-flex items-center gap-2 text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
