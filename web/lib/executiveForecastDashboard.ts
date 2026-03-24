@@ -696,15 +696,6 @@ async function getPipelineStageSnapshotForPeriod(args: {
     .catch(() => []);
 
   const row0 = rows[0] as any;
-  if (row0) {
-    console.log("[stageSnapshot new counts]", {
-      commit: row0?.commit_count,
-      best_case: row0?.best_case_count,
-      pipeline: row0?.pipeline_count,
-      total_active: row0?.total_active_count,
-      won: row0?.won_count,
-    });
-  }
 
   return row0 || empty;
 }
@@ -1299,85 +1290,6 @@ export async function getExecutiveForecastDashboardSummary(args: {
     won_amount: number;
   };
 
-  // Diagnostic: trace org_stage_mappings JOIN + crm_bucket resolution for executive totals (same scoping as deals_row / deals_in_qtr).
-  if (qpId) {
-    try {
-      const diagStageMaps = await pool.query(
-        `SELECT * FROM org_stage_mappings WHERE org_id = $1::bigint ORDER BY field, stage_value`,
-        [args.orgId]
-      );
-      console.log("[diagStageMaps]", JSON.stringify(diagStageMaps.rows, null, 2));
-
-      const diagMappings = await pool.query(
-        `
-        WITH qp AS (
-          SELECT period_start::date AS period_start, period_end::date AS period_end
-            FROM quota_periods
-           WHERE org_id = $1::bigint
-             AND id = $2::bigint
-           LIMIT 1
-        ),
-        base AS (
-          SELECT
-            o.id,
-            COALESCE(o.opportunity_name, '') AS opportunity_name,
-            o.forecast_stage,
-            o.sales_stage,
-            lower(
-              regexp_replace(
-                COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
-                '[^a-zA-Z]+',
-                ' ',
-                'g'
-              )
-            ) AS fs,
-            CASE
-              WHEN o.close_date IS NULL THEN NULL
-              WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
-              WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-                to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
-              ELSE NULL
-            END AS close_d
-          FROM opportunities o
-          WHERE o.org_id = $1::bigint
-            AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
-        ),
-        in_qtr AS (
-          SELECT b.*
-            FROM base b
-            JOIN qp ON TRUE
-           WHERE b.close_d IS NOT NULL
-             AND b.close_d >= qp.period_start
-             AND b.close_d <= qp.period_end
-        )
-        SELECT
-          q.id,
-          q.opportunity_name,
-          q.forecast_stage,
-          q.sales_stage,
-          q.fs,
-          fcm.bucket AS fc_mapped,
-          stm.bucket AS st_mapped,
-          (${crmBucketCaseSql("q.fs")}) AS crm_bucket_resolved
-        FROM in_qtr q
-        LEFT JOIN org_stage_mappings fcm
-          ON fcm.org_id = $1::bigint
-         AND fcm.field = 'forecast_category'
-         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(q.forecast_stage::text, '')))
-        LEFT JOIN org_stage_mappings stm
-          ON stm.org_id = $1::bigint
-         AND stm.field = 'stage'
-         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(q.sales_stage::text, '')))
-        ORDER BY q.opportunity_name ASC NULLS LAST, q.id ASC
-        `,
-        [args.orgId, qpId, allowedRepIds, useScoped]
-      );
-      console.log("[diagMappings]", JSON.stringify(diagMappings.rows, null, 2));
-    } catch (e) {
-      console.error("[diagStageMapping]", e);
-    }
-  }
-
   const totals: TotalsRow =
     qpId
       ? await (async (): Promise<TotalsRow> => {
@@ -1452,99 +1364,12 @@ export async function getExecutiveForecastDashboardSummary(args: {
               (
                 SELECT COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN amount ELSE 0 END), 0)::float8
                   FROM deals_in_qtr
-              ) AS won_amount,
-              (
-                SELECT COALESCE(SUM(amount), 0)::float8
-                  FROM deals_in_qtr d
-                 WHERE d.crm_bucket = 'won'
-              ) AS won_debug_sum,
-              (
-                SELECT COALESCE(COUNT(*)::int, 0)
-                  FROM deals_in_qtr d
-                 WHERE d.crm_bucket = 'won'
-              ) AS won_count_debug
+              ) AS won_amount
             FROM open_deals
             `,
               [args.orgId, qpId, allowedRepIds, useScoped]
             );
             const row0 = totalsRes.rows?.[0] as any;
-            console.log(
-              "[totals result]",
-              JSON.stringify(
-                {
-                  won_amount: row0?.won_amount,
-                  won_count: row0?.won_count_debug,
-                  won_debug_sum: row0?.won_debug_sum,
-                  commit_amount: row0?.commit_amount,
-                  best_case_amount: row0?.best_case_amount,
-                  pipeline_amount: row0?.pipeline_amount,
-                },
-                null,
-                2
-              )
-            );
-
-            try {
-              const diagWon = await pool.query(
-                `
-                WITH qp AS (
-                  SELECT period_start::date AS period_start, period_end::date AS period_end
-                    FROM quota_periods
-                   WHERE org_id = $1::bigint
-                     AND id = $2::bigint
-                   LIMIT 1
-                ),
-                base AS (
-                  SELECT
-                    o.id,
-                    COALESCE(o.opportunity_name, '') AS opportunity_name,
-                    o.forecast_stage,
-                    o.sales_stage,
-                    COALESCE(o.amount, 0)::float8 AS amount,
-                    CASE
-                      WHEN o.close_date IS NULL THEN NULL
-                      WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
-                      WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-                        to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
-                      ELSE NULL
-                    END AS close_d
-                  FROM opportunities o
-                  WHERE o.org_id = $1::bigint
-                    AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
-                ),
-                in_qtr AS (
-                  SELECT b.*
-                    FROM base b
-                    JOIN qp ON TRUE
-                   WHERE b.close_d IS NOT NULL
-                     AND b.close_d >= qp.period_start
-                     AND b.close_d <= qp.period_end
-                )
-                SELECT
-                  o.id,
-                  o.opportunity_name,
-                  o.amount,
-                  osm_fc.bucket AS fc_mapped,
-                  osm_st.bucket AS st_mapped
-                FROM in_qtr o
-                LEFT JOIN org_stage_mappings osm_fc
-                  ON osm_fc.org_id = $1::bigint
-                 AND osm_fc.field = 'forecast_category'
-                 AND lower(btrim(osm_fc.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
-                LEFT JOIN org_stage_mappings osm_st
-                  ON osm_st.org_id = $1::bigint
-                 AND osm_st.field = 'stage'
-                 AND lower(btrim(osm_st.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
-                WHERE osm_fc.bucket = 'won'
-                   OR osm_st.bucket = 'won'
-                ORDER BY o.opportunity_name ASC NULLS LAST, o.id ASC
-                `,
-                [args.orgId, qpId, allowedRepIds, useScoped]
-              );
-              console.log("[diagWon deals]", JSON.stringify(diagWon.rows, null, 2));
-            } catch (e) {
-              console.error("[diagWon]", e);
-            }
 
             return {
               commit_amount: Number(row0?.commit_amount || 0) || 0,

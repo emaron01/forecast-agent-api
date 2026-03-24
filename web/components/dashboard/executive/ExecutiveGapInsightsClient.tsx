@@ -2307,10 +2307,7 @@ export function ExecutiveGapInsightsClient(props: {
 
           <div className="min-w-0 lg:pt-1">
             {(() => {
-              const closedWonAmount =
-                props.quarterKpis != null
-                  ? (props.quarterKpis.directVsPartner.directWonAmount + props.quarterKpis.directVsPartner.partnerWonAmount)
-                  : curRev;
+              const closedWonAmount = Number(props.crmTotals?.won_amount ?? 0) || 0;
               const quotaNum = Number(props.quota) || 0;
               const gapToQuota = quotaNum - closedWonAmount;
               const gapColor = gapToQuota > 0 ? "text-[#E74C3C]" : "text-[#16A34A]";
