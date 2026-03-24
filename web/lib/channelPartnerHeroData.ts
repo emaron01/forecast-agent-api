@@ -487,6 +487,10 @@ export type ChannelPartnerHeroProps = {
     best_case_amount: number;
     pipeline_amount: number;
     won_amount: number;
+    won_count: number;
+    lost_amount: number;
+    lost_count: number;
+    lost_avg_health_score: number | null;
     weighted_forecast: number;
   };
   aiForecast: number;
@@ -667,6 +671,10 @@ export async function loadChannelPartnerHeroProps(args: {
       best_case_amount: Number(totals.best_case_amount || 0) || 0,
       pipeline_amount: Number(totals.pipeline_amount || 0) || 0,
       won_amount: Number(totals.won_amount || 0) || 0,
+      won_count: 0,
+      lost_amount: 0,
+      lost_count: 0,
+      lost_avg_health_score: null,
       weighted_forecast: weightedCrm,
     },
     aiForecast: weightedAi,

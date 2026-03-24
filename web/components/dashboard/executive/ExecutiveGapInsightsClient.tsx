@@ -399,7 +399,16 @@ export function ExecutiveGapInsightsClient(props: {
   }>;
   quarterKpis: QuarterKpisSnapshot | null;
   pipelineMomentum: PipelineMomentumData | null;
-  crmTotals: { commit_amount: number; best_case_amount: number; pipeline_amount: number; won_amount: number };
+  crmTotals: {
+    commit_amount: number;
+    best_case_amount: number;
+    pipeline_amount: number;
+    won_amount: number;
+    won_count?: number;
+    lost_amount?: number;
+    lost_count?: number;
+    lost_avg_health_score?: number | null;
+  };
   partnersExecutive: {
     direct: {
       opps: number;
@@ -2340,6 +2349,60 @@ export function ExecutiveGapInsightsClient(props: {
                 </div>
               );
             })()}
+            <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+              {(() => {
+                const lostAmt = Number(props.crmTotals?.lost_amount ?? 0) || 0;
+                const lostCnt = Number(props.crmTotals?.lost_count ?? 0) || 0;
+                const wonCnt = Number(props.crmTotals?.won_count ?? 0) || 0;
+                const lostHealthRaw = props.crmTotals?.lost_avg_health_score ?? null;
+                const lostHealthPct =
+                  lostHealthRaw == null || !Number.isFinite(Number(lostHealthRaw))
+                    ? null
+                    : Math.max(0, Math.min(100, Math.round((Number(lostHealthRaw) / 30) * 100)));
+                const wlDenom = wonCnt + lostCnt;
+                const winRatePct = wlDenom > 0 ? Math.round((wonCnt / wlDenom) * 100) : null;
+                const closedWonAov = wonCnt > 0 ? wonAmount / wonCnt : null;
+                const subCard =
+                  "min-w-0 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]/80 p-3 shadow-sm";
+                return (
+                  <>
+                    <div className={[subCard, "border-[#E74C3C]/35 bg-[#E74C3C]/8"].join(" ")}>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[#E74C3C]">Closed Lost</div>
+                      <div className="mt-0.5 break-all text-lg font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)]">
+                        {fmtMoney(lostAmt)}
+                      </div>
+                      <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">
+                        # Opps:{" "}
+                        <span className="font-[500] text-[color:var(--sf-text-primary)]">{lostCnt.toLocaleString("en-US")}</span>
+                      </div>
+                    </div>
+                    <div className={subCard}>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Win / Loss</div>
+                      <div className="mt-0.5 text-lg font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)]">
+                        {wonCnt.toLocaleString("en-US")} / {lostCnt.toLocaleString("en-US")}
+                      </div>
+                      <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">
+                        Win Rate:{" "}
+                        <span className="font-[500] text-[color:var(--sf-text-primary)]">{winRatePct == null ? "—" : `${winRatePct}%`}</span>
+                      </div>
+                    </div>
+                    <div className={subCard}>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Avg Health Lost</div>
+                      <div className="mt-0.5 text-lg font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)]">
+                        {lostHealthPct == null ? "—" : `${lostHealthPct}%`}
+                      </div>
+                    </div>
+                    <div className={subCard}>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Avg Order Value</div>
+                      <div className="mt-0.5 text-lg font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)]">
+                        {closedWonAov == null ? "—" : fmtMoney(closedWonAov)}
+                      </div>
+                      <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">Closed won deals only</div>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
             <div className="mt-4">
               <ExecutiveRemainingQuarterlyForecastBlock
                 crmTotals={props.crmTotals}

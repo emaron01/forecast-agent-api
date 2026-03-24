@@ -67,7 +67,6 @@ export async function getOrgStageMappings(orgId: number): Promise<Map<string, st
  * Pass the deals row alias (e.g. `r`) that has forecast_stage, sales_stage, and fs.
  */
 function crmBucketCaseSql(rowAlias: string) {
-  const fs = `${rowAlias}.fs`;
   const fc = `lower(btrim(COALESCE(${rowAlias}.forecast_stage::text, '')))`;
   const st = `lower(btrim(COALESCE(${rowAlias}.sales_stage::text, '')))`;
   return `
@@ -75,18 +74,8 @@ CASE
   WHEN stm.bucket IS NOT NULL THEN stm.bucket
   WHEN fcm.bucket IS NOT NULL THEN fcm.bucket
   WHEN ${fc} = 'closed won' OR ${st} LIKE '%won%' THEN 'won'
-  WHEN ${st} LIKE '%lost%' OR ${st} LIKE '%loss%' OR ${st} LIKE '%duplicate%' OR ${st} LIKE '%dead%' OR ${st} LIKE '%disqualified%' OR ${st} LIKE '%cancelled%' OR ${st} LIKE '%omitted%'
-    OR ${fc} LIKE '%lost%' OR ${fc} LIKE '%loss%' OR ${fc} LIKE '%duplicate%' OR ${fc} LIKE '%dead%' OR ${fc} LIKE '%disqualified%' OR ${fc} LIKE '%cancelled%' OR ${fc} LIKE '%omitted%'
-    THEN 'excluded'
-  WHEN ${fc} LIKE '%commit%'
-    OR (
-      ((' ' || ${fs} || ' ') LIKE '% closed %')
-      AND ${fs} NOT LIKE '%won%'
-      AND ${fs} NOT LIKE '%lost%'
-      AND ${fs} NOT LIKE '%loss%'
-      AND ${fs} NOT LIKE '%duplicate%'
-    )
-    THEN 'commit'
+  WHEN ${st} LIKE '%lost%' OR ${st} LIKE '%loss%' OR ${st} LIKE '%duplicate%' OR ${st} LIKE '%dead%' OR ${st} LIKE '%disqualified%' OR ${st} LIKE '%cancelled%' OR ${st} LIKE '%omitted%' THEN 'excluded'
+  WHEN ${fc} LIKE '%commit%' THEN 'commit'
   WHEN ${fc} LIKE '%best%' THEN 'best_case'
   ELSE 'pipeline'
 END`.trim();
@@ -183,6 +172,10 @@ export type ExecutiveForecastSummary = {
     best_case_amount: number;
     pipeline_amount: number;
     won_amount: number;
+    won_count: number;
+    lost_amount: number;
+    lost_count: number;
+    lost_avg_health_score: number | null;
     weighted_forecast: number;
   };
   aiForecast: {
@@ -1266,7 +1259,17 @@ export async function getExecutiveForecastDashboardSummary(args: {
       quarterKpis: null,
       pipelineMomentum: null,
       quota: 0,
-      crmForecast: { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0, weighted_forecast: 0 },
+      crmForecast: {
+        commit_amount: 0,
+        best_case_amount: 0,
+        pipeline_amount: 0,
+        won_amount: 0,
+        won_count: 0,
+        lost_amount: 0,
+        lost_count: 0,
+        lost_avg_health_score: null,
+        weighted_forecast: 0,
+      },
       aiForecast: { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, weighted_forecast: 0 },
       forecastGap: 0,
       pctToGoal: null,
@@ -1284,12 +1287,25 @@ export async function getExecutiveForecastDashboardSummary(args: {
     best_case_amount: number;
     pipeline_amount: number;
     won_amount: number;
+    won_count: number;
+    lost_amount: number;
+    lost_count: number;
+    lost_avg_health_score: number | null;
   };
 
   const totals: TotalsRow =
     qpId
       ? await (async (): Promise<TotalsRow> => {
-          const empty: TotalsRow = { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0 };
+          const empty: TotalsRow = {
+            commit_amount: 0,
+            best_case_amount: 0,
+            pipeline_amount: 0,
+            won_amount: 0,
+            won_count: 0,
+            lost_amount: 0,
+            lost_count: 0,
+            lost_avg_health_score: null,
+          };
           try {
             const totalsRes = await pool.query(
               `
@@ -1303,6 +1319,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
             deals_row AS (
               SELECT
                 COALESCE(o.amount, 0)::float8 AS amount,
+                o.health_score::float8 AS health_score,
                 lower(
                   regexp_replace(
                     COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -1327,6 +1344,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
             deals AS (
               SELECT
                 r.amount,
+                r.health_score,
                 r.fs,
                 r.close_d,
                 (${crmBucketCaseSql("r")}) AS crm_bucket
@@ -1360,7 +1378,23 @@ export async function getExecutiveForecastDashboardSummary(args: {
               (
                 SELECT COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN amount ELSE 0 END), 0)::float8
                   FROM deals_in_qtr
-              ) AS won_amount
+              ) AS won_amount,
+              (
+                SELECT COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::int
+                  FROM deals_in_qtr
+              ) AS won_count,
+              (
+                SELECT COALESCE(SUM(CASE WHEN crm_bucket = 'excluded' THEN amount ELSE 0 END), 0)::float8
+                  FROM deals_in_qtr
+              ) AS lost_amount,
+              (
+                SELECT COALESCE(SUM(CASE WHEN crm_bucket = 'excluded' THEN 1 ELSE 0 END), 0)::int
+                  FROM deals_in_qtr
+              ) AS lost_count,
+              (
+                SELECT AVG(CASE WHEN crm_bucket = 'excluded' THEN NULLIF(health_score, 0)::float8 ELSE NULL END)::float8
+                  FROM deals_in_qtr
+              ) AS lost_avg_health_score
             FROM open_deals
             `,
               [args.orgId, qpId, allowedRepIds, useScoped]
@@ -1372,12 +1406,28 @@ export async function getExecutiveForecastDashboardSummary(args: {
               best_case_amount: Number(row0?.best_case_amount || 0) || 0,
               pipeline_amount: Number(row0?.pipeline_amount || 0) || 0,
               won_amount: Number(row0?.won_amount || 0) || 0,
+              won_count: Number(row0?.won_count || 0) || 0,
+              lost_amount: Number(row0?.lost_amount || 0) || 0,
+              lost_count: Number(row0?.lost_count || 0) || 0,
+              lost_avg_health_score:
+                row0?.lost_avg_health_score == null || !Number.isFinite(Number(row0.lost_avg_health_score))
+                  ? null
+                  : Number(row0.lost_avg_health_score),
             };
           } catch {
             return empty;
           }
         })()
-      : { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0 };
+      : {
+          commit_amount: 0,
+          best_case_amount: 0,
+          pipeline_amount: 0,
+          won_amount: 0,
+          won_count: 0,
+          lost_amount: 0,
+          lost_count: 0,
+          lost_avg_health_score: null,
+        };
 
   const canCompute = !!qpId && (!useScoped || (Array.isArray(allowedRepIds) && allowedRepIds.length > 0));
 
@@ -2368,6 +2418,10 @@ export async function getExecutiveForecastDashboardSummary(args: {
       best_case_amount: Number(totals.best_case_amount || 0) || 0,
       pipeline_amount: Number(totals.pipeline_amount || 0) || 0,
       won_amount: Number(totals.won_amount || 0) || 0,
+      won_count: Number(totals.won_count || 0) || 0,
+      lost_amount: Number(totals.lost_amount || 0) || 0,
+      lost_count: Number(totals.lost_count || 0) || 0,
+      lost_avg_health_score: totals.lost_avg_health_score,
       weighted_forecast: weightedCrm,
     },
     aiForecast: {

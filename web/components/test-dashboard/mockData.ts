@@ -32,6 +32,10 @@ export type TestExecutiveDashboardMock = {
     best_case_amount: number;
     pipeline_amount: number;
     won_amount: number;
+    won_count: number;
+    lost_amount: number;
+    lost_count: number;
+    lost_avg_health_score: number | null;
   };
 
   pipelineMomentum: {
@@ -161,6 +165,10 @@ export const testExecutiveDashboardMock: TestExecutiveDashboardMock = {
     best_case_amount: 684_212,
     pipeline_amount: 5_449_386,
     won_amount: 1_468_000,
+    won_count: 13,
+    lost_amount: 42_000,
+    lost_count: 1,
+    lost_avg_health_score: 9,
   },
 
   pipelineMomentum: {
