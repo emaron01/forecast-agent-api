@@ -453,13 +453,13 @@ export function ExecutiveTabsShellClient(props: {
       <div className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-6 text-sm text-[color:var(--sf-text-secondary)]">
         {activeTab === "forecast" && (
           <div className="-mx-4 -mt-4">
-            <ExecutiveGapInsightsClient {...props.forecastTabProps} forecastTabOnly={true} />
+            <ExecutiveGapInsightsClient {...props.forecastTabProps} forecastTabOnly={true} viewerRole={props.viewerRole} />
           </div>
         )}
         {activeTab === "pipeline" && (
           <div className="space-y-6">
             <div className="-mx-4 -mt-4">
-              <ExecutiveGapInsightsClient {...props.pipelineTabProps} pipelineTabOnly={true} />
+              <ExecutiveGapInsightsClient {...props.pipelineTabProps} pipelineTabOnly={true} viewerRole={props.viewerRole} />
             </div>
 
             <section className="mt-4 space-y-4">
@@ -687,6 +687,7 @@ export function ExecutiveTabsShellClient(props: {
             <ExecutiveGapInsightsClient
               {...props.teamTabProps}
               teamTabOnly={true}
+              viewerRole={props.viewerRole}
             />
             {/* Part 2: Manager Review Queue — only for MANAGER, EXEC_MANAGER, ADMIN */}
             {props.showManagerReviewQueue ? (
@@ -930,7 +931,7 @@ export function ExecutiveTabsShellClient(props: {
         )}
         {activeTab === "revenue" && (
           <div className="-mx-4 -mt-4">
-            <ExecutiveGapInsightsClient {...props.revenueTabProps} revenueTabOnly={true} />
+            <ExecutiveGapInsightsClient {...props.revenueTabProps} revenueTabOnly={true} viewerRole={props.viewerRole} />
           </div>
         )}
         {activeTab === "reports" && (
