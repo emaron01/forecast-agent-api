@@ -16,6 +16,7 @@ const BUCKET_OPTIONS: { value: string; label: string }[] = [
   { value: "commit", label: "Commit" },
   { value: "best_case", label: "Best Case" },
   { value: "pipeline", label: "Pipeline" },
+  { value: "lost", label: "Lost" },
   { value: "excluded", label: "Excluded" },
 ];
 

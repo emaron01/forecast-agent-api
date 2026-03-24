@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 const FieldSchema = z.enum(["forecast_category", "stage"]);
 
-const BucketSchema = z.enum(["won", "commit", "best_case", "pipeline", "excluded"]).nullable();
+const BucketSchema = z.enum(["won", "commit", "best_case", "pipeline", "excluded", "lost"]).nullable();
 
 const PatchSchema = z.object({
   field: FieldSchema,

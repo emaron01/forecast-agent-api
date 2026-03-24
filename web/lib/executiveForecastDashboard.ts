@@ -64,7 +64,7 @@ export async function getOrgStageMappings(orgId: number): Promise<Map<string, st
 
 /**
  * CRM bucket: org_stage_mappings first (stage `stm` beats forecast_category `fcm`), then text fallbacks.
- * Pass the deals row alias (e.g. `r`) that has forecast_stage, sales_stage, and fs.
+ * `lost` = closed-loss semantics; `excluded` = ignore (duplicates/spam). Pass row alias (e.g. `r`) with forecast_stage, sales_stage, fs.
  */
 function crmBucketCaseSql(rowAlias: string) {
   const fc = `lower(btrim(COALESCE(${rowAlias}.forecast_stage::text, '')))`;
@@ -74,7 +74,8 @@ CASE
   WHEN stm.bucket IS NOT NULL THEN stm.bucket
   WHEN fcm.bucket IS NOT NULL THEN fcm.bucket
   WHEN ${fc} = 'closed won' OR ${st} LIKE '%won%' THEN 'won'
-  WHEN ${st} LIKE '%lost%' OR ${st} LIKE '%loss%' OR ${st} LIKE '%duplicate%' OR ${st} LIKE '%dead%' OR ${st} LIKE '%disqualified%' OR ${st} LIKE '%cancelled%' OR ${st} LIKE '%omitted%' THEN 'excluded'
+  WHEN ${st} LIKE '%lost%' OR ${st} LIKE '%loss%' THEN 'lost'
+  WHEN ${st} LIKE '%duplicate%' OR ${st} LIKE '%dead%' OR ${st} LIKE '%disqualified%' OR ${st} LIKE '%cancelled%' OR ${st} LIKE '%omitted%' THEN 'excluded'
   WHEN ${fc} LIKE '%commit%' THEN 'commit'
   WHEN ${fc} LIKE '%best%' THEN 'best_case'
   ELSE 'pipeline'
@@ -650,7 +651,7 @@ async function getPipelineStageSnapshotForPeriod(args: {
         SELECT
           *,
           (crm_bucket = 'won') AS is_won,
-          (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
+          (crm_bucket IN ('lost', 'excluded')) AS is_lost,
           (crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active,
           CASE crm_bucket
             WHEN 'commit' THEN 'commit'
@@ -773,7 +774,7 @@ async function getPipelineStageSnapshotForPeriodWithNameFallback(args: {
         SELECT
           *,
           (crm_bucket = 'won') AS is_won,
-          (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
+          (crm_bucket IN ('lost', 'excluded')) AS is_lost,
           (crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active,
           CASE crm_bucket
             WHEN 'commit' THEN 'commit'
@@ -1369,7 +1370,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
             open_deals AS (
               SELECT *
                 FROM deals_in_qtr d
-               WHERE d.crm_bucket IN ('commit', 'best_case', 'pipeline')
+               WHERE d.crm_bucket NOT IN ('won', 'lost', 'excluded')
             )
             SELECT
               COALESCE(SUM(CASE WHEN crm_bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
@@ -1384,15 +1385,15 @@ export async function getExecutiveForecastDashboardSummary(args: {
                   FROM deals_in_qtr
               ) AS won_count,
               (
-                SELECT COALESCE(SUM(CASE WHEN crm_bucket = 'excluded' THEN amount ELSE 0 END), 0)::float8
+                SELECT COALESCE(SUM(CASE WHEN crm_bucket IN ('lost', 'excluded') THEN amount ELSE 0 END), 0)::float8
                   FROM deals_in_qtr
               ) AS lost_amount,
               (
-                SELECT COALESCE(SUM(CASE WHEN crm_bucket = 'excluded' THEN 1 ELSE 0 END), 0)::int
+                SELECT COALESCE(SUM(CASE WHEN crm_bucket IN ('lost', 'excluded') THEN 1 ELSE 0 END), 0)::int
                   FROM deals_in_qtr
               ) AS lost_count,
               (
-                SELECT AVG(CASE WHEN crm_bucket = 'excluded' THEN NULLIF(health_score, 0)::float8 ELSE NULL END)::float8
+                SELECT AVG(CASE WHEN crm_bucket IN ('lost', 'excluded') THEN NULLIF(health_score, 0)::float8 ELSE NULL END)::float8
                   FROM deals_in_qtr
               ) AS lost_avg_health_score
             FROM open_deals
