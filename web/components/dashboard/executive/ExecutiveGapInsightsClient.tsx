@@ -1475,6 +1475,13 @@ export function ExecutiveGapInsightsClient(props: {
   const oppToWin = kpis?.oppToWin ?? null; // 0..1
   const agingAvgDays = kpis?.agingAvgDays ?? null;
 
+  const commitAmount = Number(props.crmTotals?.commit_amount ?? 0) || 0;
+  const bestCaseAmount = Number(props.crmTotals?.best_case_amount ?? 0) || 0;
+  const pipelineAmount = Number(props.crmTotals?.pipeline_amount ?? 0) || 0;
+  const totalPipeline = commitAmount + bestCaseAmount + pipelineAmount;
+  const wonAmount = Number(props.crmTotals?.won_amount ?? 0) || 0;
+  const heroBucketAmounts = { commitAmount, bestCaseAmount, pipelineAmount, totalPipeline, wonAmount };
+
   const curProd = productViz.summary;
   const prevProd = productKpiPrev;
   const curRev = curProd ? Number(curProd.total_revenue || 0) || 0 : 0;
@@ -2307,15 +2314,14 @@ export function ExecutiveGapInsightsClient(props: {
 
           <div className="min-w-0 lg:pt-1">
             {(() => {
-              const closedWonAmount = Number(props.crmTotals?.won_amount ?? 0) || 0;
               const quotaNum = Number(props.quota) || 0;
-              const gapToQuota = quotaNum - closedWonAmount;
+              const gapToQuota = quotaNum - wonAmount;
               const gapColor = gapToQuota > 0 ? "text-[#E74C3C]" : "text-[#16A34A]";
               return (
                 <div className="grid grid-cols-4 gap-4">
                   <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
                     <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Closed Won</div>
-                    <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{fmtMoney(closedWonAmount)}</div>
+                    <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{fmtMoney(wonAmount)}</div>
                   </div>
                   <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
                     <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quota</div>
@@ -2335,7 +2341,12 @@ export function ExecutiveGapInsightsClient(props: {
               );
             })()}
             <div className="mt-4">
-              <ExecutiveRemainingQuarterlyForecastBlock crmTotals={props.crmTotals} quota={props.quota} pipelineMomentum={props.pipelineMomentum} />
+              <ExecutiveRemainingQuarterlyForecastBlock
+                crmTotals={props.crmTotals}
+                quota={props.quota}
+                pipelineMomentum={props.pipelineMomentum}
+                heroBucketAmounts={heroBucketAmounts}
+              />
             </div>
           </div>
         </div>
@@ -3564,7 +3575,7 @@ export function ExecutiveGapInsightsClient(props: {
                     <>
                       <div className={heroCard}>
                         <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Closed Won (QTD)</div>
-                        <div className={heroVal}>{fmtMoney(curRev)}</div>
+                        <div className={heroVal}>{fmtMoney(wonAmount)}</div>
                         <div className="mt-2 grid grid-cols-[auto_1fr] items-start gap-3">
                           <div className={["flex items-center gap-2 text-meta font-[500] leading-none num-tabular", rev.tone].join(" ")}>
                             <div>{prevProd ? fmtMoney(rev.d) : "—"}</div>
@@ -3656,7 +3667,12 @@ export function ExecutiveGapInsightsClient(props: {
             </div>
           </div>
 
-          <ExecutiveRemainingQuarterlyForecastBlock crmTotals={props.crmTotals} quota={props.quota} pipelineMomentum={props.pipelineMomentum} />
+          <ExecutiveRemainingQuarterlyForecastBlock
+            crmTotals={props.crmTotals}
+            quota={props.quota}
+            pipelineMomentum={props.pipelineMomentum}
+            heroBucketAmounts={heroBucketAmounts}
+          />
 
           <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">

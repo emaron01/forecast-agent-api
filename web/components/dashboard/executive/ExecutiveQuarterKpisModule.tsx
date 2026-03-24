@@ -67,21 +67,35 @@ function coverageStatus(r: number | null) {
   return { label: "PIPELINE COVERED", cls: "border-[#2ECC71]/40 bg-[#2ECC71]/10 text-[#2ECC71]" };
 }
 
+export type CrmHeroBucketAmounts = {
+  commitAmount: number;
+  bestCaseAmount: number;
+  pipelineAmount: number;
+  totalPipeline: number;
+  wonAmount: number;
+};
+
 export function ExecutiveRemainingQuarterlyForecastBlock(props: {
   crmTotals: { commit_amount: number; best_case_amount: number; pipeline_amount: number; won_amount: number };
   quota: number;
   pipelineMomentum: PipelineMomentumData | null;
+  /** When set (e.g. executive hero), all $ amounts use these mapping-aware totals instead of re-reading crmTotals. */
+  heroBucketAmounts?: CrmHeroBucketAmounts | null;
 }) {
   const km = props.pipelineMomentum;
 
-  const commitAmt = Number(props.crmTotals?.commit_amount ?? NaN);
-  const bestAmt = Number(props.crmTotals?.best_case_amount ?? NaN);
-  const pipeAmt = Number(props.crmTotals?.pipeline_amount ?? NaN);
-  const totalPipelineAmt = Number.isFinite(commitAmt) && Number.isFinite(bestAmt) && Number.isFinite(pipeAmt) ? commitAmt + bestAmt + pipeAmt : null;
-  const mixTotal = totalPipelineAmt != null && Number.isFinite(totalPipelineAmt) && totalPipelineAmt > 0 ? totalPipelineAmt : null;
-  const mixCommitPct01 = mixTotal ? Math.max(0, Math.min(1, commitAmt / mixTotal)) : null;
-  const mixBestPct01 = mixTotal ? Math.max(0, Math.min(1, bestAmt / mixTotal)) : null;
-  const mixPipePct01 = mixTotal ? Math.max(0, Math.min(1, pipeAmt / mixTotal)) : null;
+  const fromHero = props.heroBucketAmounts;
+  const commitAmount = fromHero?.commitAmount ?? (Number(props.crmTotals?.commit_amount ?? 0) || 0);
+  const bestCaseAmount = fromHero?.bestCaseAmount ?? (Number(props.crmTotals?.best_case_amount ?? 0) || 0);
+  const pipelineAmount = fromHero?.pipelineAmount ?? (Number(props.crmTotals?.pipeline_amount ?? 0) || 0);
+  const totalPipeline = fromHero?.totalPipeline ?? commitAmount + bestCaseAmount + pipelineAmount;
+  const wonAmount = fromHero?.wonAmount ?? (Number(props.crmTotals?.won_amount ?? 0) || 0);
+
+  const totalPipelineAmt = totalPipeline;
+  const mixTotal = totalPipelineAmt > 0 ? totalPipelineAmt : null;
+  const mixCommitPct01 = mixTotal ? Math.max(0, Math.min(1, commitAmount / mixTotal)) : null;
+  const mixBestPct01 = mixTotal ? Math.max(0, Math.min(1, bestCaseAmount / mixTotal)) : null;
+  const mixPipePct01 = mixTotal ? Math.max(0, Math.min(1, pipelineAmount / mixTotal)) : null;
   const fmtMixPct = (p01: number | null) => (p01 == null || !Number.isFinite(p01) ? "—" : `${Math.round(p01 * 100)}%`);
 
   const commitCount = km?.current_quarter?.mix?.commit?.opps ?? null;
@@ -96,11 +110,10 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
   const pipeHealthPct = km?.current_quarter?.mix?.pipeline?.health_pct ?? null;
   const totalHealthPct = km?.current_quarter?.avg_health_pct ?? null;
 
-  const closedWonAmt = Number(props.crmTotals?.won_amount ?? NaN);
   const quota = Number(props.quota || 0) || 0;
-  const remainingQuota = quota > 0 && Number.isFinite(closedWonAmt) ? Math.max(0, quota - closedWonAmt) : null;
+  const remainingQuota = quota > 0 ? Math.max(0, quota - wonAmount) : null;
   const coverage =
-    remainingQuota != null && remainingQuota > 0 && totalPipelineAmt != null && totalPipelineAmt > 0 ? totalPipelineAmt / remainingQuota : null;
+    remainingQuota != null && remainingQuota > 0 && totalPipelineAmt > 0 ? totalPipelineAmt / remainingQuota : null;
   const covStatus = coverageStatus(coverage);
 
   // Full dollar values for forecast (7-figure)
@@ -130,9 +143,9 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
   );
 
   const cards = [
-    { key: "commit", label: "Commit", amount: commitAmt, count: commitCount, healthPct: commitHealthPct },
-    { key: "best", label: "Best Case", amount: bestAmt, count: bestCount, healthPct: bestHealthPct },
-    { key: "pipe", label: "Pipeline", amount: pipeAmt, count: pipeCount, healthPct: pipeHealthPct },
+    { key: "commit", label: "Commit", amount: commitAmount, count: commitCount, healthPct: commitHealthPct },
+    { key: "best", label: "Best Case", amount: bestCaseAmount, count: bestCount, healthPct: bestHealthPct },
+    { key: "pipe", label: "Pipeline", amount: pipelineAmount, count: pipeCount, healthPct: pipeHealthPct },
     { key: "total", label: "Total Pipeline", amount: totalPipelineAmt, count: totalPipelineCount, healthPct: totalHealthPct },
   ];
 
