@@ -274,10 +274,13 @@ export default async function ChannelDashboardPage({
                 </tr>
               </thead>
               <tbody className="text-[color:var(--sf-text-primary)]">
-                {ledFedRows.map((row) => (
+                {ledFedRows.map((row) => {
+                  const tone =
+                    row.valueTone === "won" ? "text-green-400" : row.valueTone === "lost" ? "text-red-400" : "";
+                  return (
                   <tr key={row.metric} className="border-b border-[color:var(--sf-border)] last:border-b-0">
                     <td className="px-4 py-3 font-medium">{row.metric}</td>
-                    <td className="px-4 py-3 text-right font-[tabular-nums]">
+                    <td className={["px-4 py-3 text-right font-[tabular-nums]", tone].filter(Boolean).join(" ")}>
                       {row.isCurrency
                         ? row.channelLed.toLocaleString("en-US", {
                             style: "currency",
@@ -286,7 +289,7 @@ export default async function ChannelDashboardPage({
                           })
                         : row.channelLed.toLocaleString("en-US")}
                     </td>
-                    <td className="px-4 py-3 text-right font-[tabular-nums]">
+                    <td className={["px-4 py-3 text-right font-[tabular-nums]", tone].filter(Boolean).join(" ")}>
                       {row.isCurrency
                         ? row.channelFed.toLocaleString("en-US", {
                             style: "currency",
@@ -295,7 +298,7 @@ export default async function ChannelDashboardPage({
                           })
                         : row.channelFed.toLocaleString("en-US")}
                     </td>
-                    <td className="px-4 py-3 text-right font-[tabular-nums] font-semibold">
+                    <td className={["px-4 py-3 text-right font-[tabular-nums] font-semibold", tone].filter(Boolean).join(" ")}>
                       {row.isCurrency
                         ? row.total.toLocaleString("en-US", {
                             style: "currency",
@@ -305,7 +308,8 @@ export default async function ChannelDashboardPage({
                         : row.total.toLocaleString("en-US")}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

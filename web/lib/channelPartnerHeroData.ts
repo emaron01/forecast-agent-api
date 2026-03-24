@@ -700,6 +700,8 @@ export type ChannelLedFedRow = {
   channelFed: number;
   total: number;
   isCurrency: boolean;
+  /** Optional: green/red styling for Closed Won / Closed Lost rows */
+  valueTone?: "won" | "lost";
 };
 
 export async function loadChannelLedFedRows(args: {
@@ -711,7 +713,7 @@ export async function loadChannelLedFedRows(args: {
   if (!qpId || !args.repIds.length) return [];
 
   const useScoped = true;
-  const { rows } = await pool
+  const result = await pool
     .query<{
       led_total_pipeline: string | null;
       fed_total_pipeline: string | null;
@@ -721,6 +723,10 @@ export async function loadChannelLedFedRows(args: {
       fed_best: string | null;
       led_won: string | null;
       fed_won: string | null;
+      lost_led: string | null;
+      lost_fed: string | null;
+      lost_count_led: string | null;
+      lost_count_fed: string | null;
       led_deal_count: string | null;
       fed_deal_count: string | null;
     }>(
@@ -737,6 +743,8 @@ export async function loadChannelLedFedRows(args: {
           COALESCE(o.amount, 0)::float8 AS amount,
           o.deal_registration,
           o.predictive_eligible,
+          o.forecast_stage,
+          o.sales_stage,
           lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
           CASE
             WHEN o.close_date IS NULL THEN NULL
@@ -780,20 +788,45 @@ export async function loadChannelLedFedRows(args: {
           ) <= qp.period_end
           AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
       ),
+      mapped AS (
+        SELECT
+          b.*,
+          (
+            CASE
+              WHEN stm.bucket IS NOT NULL THEN stm.bucket
+              WHEN fcm.bucket IS NOT NULL THEN fcm.bucket
+              WHEN lower(btrim(COALESCE(b.forecast_stage::text, ''))) = 'closed won' OR lower(btrim(COALESCE(b.sales_stage::text, ''))) LIKE '%won%' THEN 'won'
+              WHEN lower(btrim(COALESCE(b.sales_stage::text, ''))) LIKE '%lost%' OR lower(btrim(COALESCE(b.sales_stage::text, ''))) LIKE '%loss%' THEN 'lost'
+              WHEN lower(btrim(COALESCE(b.sales_stage::text, ''))) LIKE '%duplicate%' OR lower(btrim(COALESCE(b.sales_stage::text, ''))) LIKE '%dead%' OR lower(btrim(COALESCE(b.sales_stage::text, ''))) LIKE '%disqualified%' OR lower(btrim(COALESCE(b.sales_stage::text, ''))) LIKE '%cancelled%' OR lower(btrim(COALESCE(b.sales_stage::text, ''))) LIKE '%omitted%' THEN 'excluded'
+              WHEN lower(btrim(COALESCE(b.forecast_stage::text, ''))) LIKE '%commit%' THEN 'commit'
+              WHEN lower(btrim(COALESCE(b.forecast_stage::text, ''))) LIKE '%best%' THEN 'best_case'
+              ELSE 'pipeline'
+            END
+          )::text AS crm_bucket
+        FROM base b
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = $1::bigint
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(b.forecast_stage::text, '')))
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = $1::bigint
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(b.sales_stage::text, '')))
+      ),
       classified AS (
         SELECT
-          *,
-          ((' ' || fs || ' ') LIKE '% won %') AS is_won,
-          (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
-          (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AS is_active,
+          m.*,
+          ((' ' || m.fs || ' ') LIKE '% won %') AS is_won,
+          (((' ' || m.fs || ' ') LIKE '% lost %') OR ((' ' || m.fs || ' ') LIKE '% loss %')) AS is_lost,
+          (NOT ((' ' || m.fs || ' ') LIKE '% won %') AND NOT (((' ' || m.fs || ' ') LIKE '% lost %') OR ((' ' || m.fs || ' ') LIKE '% loss %'))) AS is_active,
           CASE
-            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AND fs LIKE '%commit%' THEN 'commit'
-            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AND fs LIKE '%best%' THEN 'best'
-            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) THEN 'pipeline'
+            WHEN (NOT ((' ' || m.fs || ' ') LIKE '% won %') AND NOT (((' ' || m.fs || ' ') LIKE '% lost %') OR ((' ' || m.fs || ' ') LIKE '% loss %'))) AND m.fs LIKE '%commit%' THEN 'commit'
+            WHEN (NOT ((' ' || m.fs || ' ') LIKE '% won %') AND NOT (((' ' || m.fs || ' ') LIKE '% lost %') OR ((' ' || m.fs || ' ') LIKE '% loss %'))) AND m.fs LIKE '%best%' THEN 'best'
+            WHEN (NOT ((' ' || m.fs || ' ') LIKE '% won %') AND NOT (((' ' || m.fs || ' ') LIKE '% lost %') OR ((' ' || m.fs || ' ') LIKE '% loss %'))) THEN 'pipeline'
             ELSE 'other'
           END AS bucket,
-          CASE WHEN deal_registration IS NOT NULL THEN TRUE ELSE FALSE END AS is_led
-        FROM base
+          (m.deal_registration IS TRUE) AS is_led
+        FROM mapped m
       )
       SELECT
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND is_led THEN amount ELSE 0 END), 0)::float8 AS led_total_pipeline,
@@ -802,8 +835,12 @@ export async function loadChannelLedFedRows(args: {
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'commit' AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_commit,
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best' AND is_led THEN amount ELSE 0 END), 0)::float8 AS led_best,
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best' AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_best,
-        COALESCE(SUM(CASE WHEN is_won AND is_led THEN amount ELSE 0 END), 0)::float8 AS led_won,
-        COALESCE(SUM(CASE WHEN is_won AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_won,
+        COALESCE(SUM(CASE WHEN crm_bucket = 'won' AND is_led THEN amount ELSE 0 END), 0)::float8 AS led_won,
+        COALESCE(SUM(CASE WHEN crm_bucket = 'won' AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_won,
+        COALESCE(SUM(CASE WHEN crm_bucket IN ('lost', 'excluded') AND is_led THEN amount ELSE 0 END), 0)::float8 AS lost_led,
+        COALESCE(SUM(CASE WHEN crm_bucket IN ('lost', 'excluded') AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS lost_fed,
+        COALESCE(SUM(CASE WHEN crm_bucket IN ('lost', 'excluded') AND is_led THEN 1 ELSE 0 END), 0)::int AS lost_count_led,
+        COALESCE(SUM(CASE WHEN crm_bucket IN ('lost', 'excluded') AND NOT is_led THEN 1 ELSE 0 END), 0)::int AS lost_count_fed,
         COALESCE(COUNT(*) FILTER (WHERE is_led), 0)::float8 AS led_deal_count,
         COALESCE(COUNT(*) FILTER (WHERE NOT is_led), 0)::float8 AS fed_deal_count
       FROM classified
@@ -812,6 +849,9 @@ export async function loadChannelLedFedRows(args: {
     )
     .catch(() => ({ rows: [] }));
 
+  console.log("[channelLedFed raw]", JSON.stringify(result.rows, null, 2));
+
+  const rows = result.rows;
   const r = rows?.[0];
   if (!r) return [];
 
@@ -825,6 +865,8 @@ export async function loadChannelLedFedRows(args: {
   const fedBest = n(r.fed_best);
   const ledWon = n(r.led_won);
   const fedWon = n(r.fed_won);
+  const ledLost = n(r.lost_led);
+  const fedLost = n(r.lost_fed);
   const ledCnt = Math.round(n(r.led_deal_count));
   const fedCnt = Math.round(n(r.fed_deal_count));
 
@@ -851,11 +893,20 @@ export async function loadChannelLedFedRows(args: {
       isCurrency: true,
     },
     {
-      metric: "Won Revenue",
+      metric: "Closed Won",
       channelLed: ledWon,
       channelFed: fedWon,
       total: ledWon + fedWon,
       isCurrency: true,
+      valueTone: "won",
+    },
+    {
+      metric: "Closed Lost",
+      channelLed: ledLost,
+      channelFed: fedLost,
+      total: ledLost + fedLost,
+      isCurrency: true,
+      valueTone: "lost",
     },
     {
       metric: "Deal Count",
