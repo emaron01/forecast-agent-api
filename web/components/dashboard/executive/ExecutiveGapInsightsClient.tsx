@@ -2508,26 +2508,31 @@ export function ExecutiveGapInsightsClient(props: {
 
       </section>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
-        {(() => {
-          const ord = productDelta(curOrders, prevOrders);
-          const acv = productDelta(curAcv, prevAcv);
-          const lostOpps = productDelta(crmLostCnt, prevLostCntKpi);
-          const acvLostD = productDelta(curAcvLost, prevAcvLost);
-          const lostHealthRaw = props.crmTotals?.lost_avg_health_score ?? null;
-          const lostHealthPct =
-            lostHealthRaw == null || !Number.isFinite(Number(lostHealthRaw))
-              ? null
-              : Math.max(0, Math.min(100, Math.round((Number(lostHealthRaw) / 30) * 100)));
-          const fmtSignedInt = (n: number) => {
-            const v = Number(n || 0);
-            if (!Number.isFinite(v)) return "—";
-            if (v === 0) return "0";
-            const abs = Math.abs(Math.trunc(v));
-            return `${v > 0 ? "+" : "-"}${abs.toLocaleString("en-US")}`;
-          };
-          return (
-            <>
+      {(() => {
+        const ord = productDelta(curOrders, prevOrders);
+        const acv = productDelta(curAcv, prevAcv);
+        const lostOpps = productDelta(crmLostCnt, prevLostCntKpi);
+        const acvLostD = productDelta(curAcvLost, prevAcvLost);
+        const lostHealthRaw = props.crmTotals?.lost_avg_health_score ?? null;
+        const lostHealthPct =
+          lostHealthRaw == null || !Number.isFinite(Number(lostHealthRaw))
+            ? null
+            : Math.max(0, Math.min(100, Math.round((Number(lostHealthRaw) / 30) * 100)));
+        const fmtSignedInt = (n: number) => {
+          const v = Number(n || 0);
+          if (!Number.isFinite(v)) return "—";
+          if (v === 0) return "0";
+          const abs = Math.abs(Math.trunc(v));
+          return `${v > 0 ? "+" : "-"}${abs.toLocaleString("en-US")}`;
+        };
+        const bd = props.bucketDeltas;
+        const absMax = Math.max(Math.abs(bd.commit), Math.abs(bd.best_case), Math.abs(bd.pipeline), 1);
+        const gapBar = (v: number) => `${Math.round(clamp01(Math.abs(v) / absMax) * 100)}%`;
+        const gapDeltaTextClass = (v: number) =>
+          !Number.isFinite(v) || v === 0 ? "text-[color:var(--sf-text-secondary)]" : v > 0 ? "text-[#2ECC71]" : "text-[#E74C3C]";
+        return (
+          <div className="mt-4 space-y-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
               <div className={heroCard}>
                 <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Total Orders</div>
                 <div className={heroVal}>{curOrders.toLocaleString("en-US")}</div>
@@ -2610,39 +2615,29 @@ export function ExecutiveGapInsightsClient(props: {
                 <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
                 <div className={heroVal}>{fmtPct(oppToWin)}</div>
               </div>
-              <div className={[heroCard, "flex min-h-0 min-w-0 flex-col p-3"].join(" ")}>
-                {(() => {
-                  const bd = props.bucketDeltas;
-                  const absMax = Math.max(Math.abs(bd.commit), Math.abs(bd.best_case), Math.abs(bd.pipeline), 1);
-                  const bar = (v: number) => `${Math.round(clamp01(Math.abs(v) / absMax) * 100)}%`;
-                  const deltaTextClass = (v: number) =>
-                    !Number.isFinite(v) || v === 0 ? "text-[color:var(--sf-text-secondary)]" : v > 0 ? "text-[#2ECC71]" : "text-[#E74C3C]";
-                  return (
-                    <>
-                      <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Gap Attribution</div>
-                      <div className="mt-2 grid gap-1.5 text-tableValue text-[color:var(--sf-text-primary)]">
-                        {[
-                          { label: "Commit", v: bd.commit },
-                          { label: "Best Case", v: bd.best_case },
-                          { label: "Pipeline", v: bd.pipeline },
-                        ].map((x) => (
-                          <div key={x.label} className="grid grid-cols-[56px_minmax(0,1fr)_60px] items-center gap-1.5 sm:grid-cols-[70px_minmax(0,1fr)_68px] sm:gap-2">
-                            <div className="text-tableLabel text-xs">{x.label}</div>
-                            <div className="h-1.5 min-w-0 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
-                              <div className={`h-full rounded-full ${x.v >= 0 ? "bg-[#2ECC71]" : "bg-[#E74C3C]"}`} style={{ width: bar(x.v) }} aria-hidden="true" />
-                            </div>
-                            <div className={`text-right text-[10px] num-tabular shrink-0 sm:text-xs ${deltaTextClass(x.v)}`}>{fmtMoney(x.v)}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  );
-                })()}
+            </div>
+
+            <div className="w-full rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Gap Attribution</div>
+              <div className="mt-2 grid grid-cols-1 gap-3 text-tableValue text-[color:var(--sf-text-primary)] sm:grid-cols-3">
+                {[
+                  { label: "Commit", v: bd.commit },
+                  { label: "Best Case", v: bd.best_case },
+                  { label: "Pipeline", v: bd.pipeline },
+                ].map((x) => (
+                  <div key={x.label} className="grid grid-cols-[70px_minmax(0,1fr)_68px] items-center gap-2">
+                    <div className="text-tableLabel text-xs">{x.label}</div>
+                    <div className="h-1.5 min-w-0 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                      <div className={`h-full rounded-full ${x.v >= 0 ? "bg-[#2ECC71]" : "bg-[#E74C3C]"}`} style={{ width: gapBar(x.v) }} aria-hidden="true" />
+                    </div>
+                    <div className={`text-right text-xs num-tabular shrink-0 ${gapDeltaTextClass(x.v)}`}>{fmtMoney(x.v)}</div>
+                  </div>
+                ))}
               </div>
-            </>
-          );
-        })()}
-      </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {props.commitAdmission && (props.commitAdmission.totalCommitCrmAmount > 0 || props.commitAdmission.unsupportedCommitAmount > 0 || props.commitAdmission.commitNeedsReviewAmount > 0 || props.commitAdmission.aiSupportedCommitAmount > 0) ? (
         <section className="mt-4 w-full rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
