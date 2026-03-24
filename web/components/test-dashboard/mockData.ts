@@ -121,7 +121,8 @@ export type TestExecutiveDashboardMock = {
 
   motionPerformance: {
     direct: { win_rate_pct: number; avg_health_pct: number; revenue: number; mix_pct: number };
-    partner: { win_rate_pct: number; avg_health_pct: number; revenue: number; mix_pct: number };
+    partner_influenced: { win_rate_pct: number; avg_health_pct: number; revenue: number; mix_pct: number };
+    partner_sourced: { win_rate_pct: number; avg_health_pct: number; revenue: number; mix_pct: number };
   };
 
   cei: {
@@ -375,7 +376,8 @@ export const testExecutiveDashboardMock: TestExecutiveDashboardMock = {
 
   motionPerformance: {
     direct: { win_rate_pct: 47, avg_health_pct: 30, revenue: 757_000, mix_pct: 52 },
-    partner: { win_rate_pct: 83, avg_health_pct: 77, revenue: 711_000, mix_pct: 48 },
+    partner_influenced: { win_rate_pct: 78, avg_health_pct: 72, revenue: 400_000, mix_pct: 27 },
+    partner_sourced: { win_rate_pct: 88, avg_health_pct: 82, revenue: 311_000, mix_pct: 21 },
   },
 
   cei: {

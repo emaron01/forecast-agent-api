@@ -432,7 +432,10 @@ export function TestExecutiveDashboard() {
               agingAvgDays: mock.quarterHealthKpis.agingAvgDays,
               directVsPartner: {
                 directWonAmount: mock.motionPerformance.direct.revenue,
-                partnerWonAmount: mock.motionPerformance.partner.revenue,
+                partnerWonAmount:
+                  mock.motionPerformance.partner_influenced.revenue + mock.motionPerformance.partner_sourced.revenue,
+                partnerInfluencedWonAmount: mock.motionPerformance.partner_influenced.revenue,
+                partnerSourcedWonAmount: mock.motionPerformance.partner_sourced.revenue,
                 directClosedDeals: 8,
                 directAov: 94_625,
                 directAvgAgeDays: 132,
@@ -676,23 +679,32 @@ export function TestExecutiveDashboard() {
               columns={["Motion", "Win Rate", "Avg Health", "Revenue", "Mix"]}
               rows={[
                 ["Direct", `${mock.motionPerformance.direct.win_rate_pct}%`, `${mock.motionPerformance.direct.avg_health_pct}%`, fmtMoney0(mock.motionPerformance.direct.revenue), `${mock.motionPerformance.direct.mix_pct}%`],
-                ["Partner", `${mock.motionPerformance.partner.win_rate_pct}%`, `${mock.motionPerformance.partner.avg_health_pct}%`, fmtMoney0(mock.motionPerformance.partner.revenue), `${mock.motionPerformance.partner.mix_pct}%`],
+                [
+                  "Partner Influenced",
+                  `${mock.motionPerformance.partner_influenced.win_rate_pct}%`,
+                  `${mock.motionPerformance.partner_influenced.avg_health_pct}%`,
+                  fmtMoney0(mock.motionPerformance.partner_influenced.revenue),
+                  `${mock.motionPerformance.partner_influenced.mix_pct}%`,
+                ],
+                [
+                  "Partner Sourced",
+                  `${mock.motionPerformance.partner_sourced.win_rate_pct}%`,
+                  `${mock.motionPerformance.partner_sourced.avg_health_pct}%`,
+                  fmtMoney0(mock.motionPerformance.partner_sourced.revenue),
+                  `${mock.motionPerformance.partner_sourced.mix_pct}%`,
+                ],
               ]}
             />
             <div className="mt-3 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3 text-sm text-[color:var(--sf-text-primary)]">
-              <div className="font-semibold">Direct Vs. Indirect Performance (delta)</div>
+              <div className="font-semibold">Partner Sourced vs Direct (delta)</div>
               <div className="mt-1 text-meta">
                 Win Rate{" "}
                 <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
-                  {mock.motionPerformance.direct.win_rate_pct - mock.motionPerformance.partner.win_rate_pct}pp
-                </span>{" "}
-                · Avg Health{" "}
-                <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
-                  {mock.motionPerformance.direct.avg_health_pct - mock.motionPerformance.partner.avg_health_pct}pp
+                  {mock.motionPerformance.direct.win_rate_pct - mock.motionPerformance.partner_sourced.win_rate_pct}pp
                 </span>{" "}
                 · Revenue{" "}
                 <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
-                  {fmtSignedMoney0(mock.motionPerformance.direct.revenue - mock.motionPerformance.partner.revenue)}
+                  {fmtSignedMoney0(mock.motionPerformance.direct.revenue - mock.motionPerformance.partner_sourced.revenue)}
                 </span>
               </div>
             </div>
@@ -704,8 +716,9 @@ export function TestExecutiveDashboard() {
                 <div className="text-tableLabel">CEI Status</div>
                 <div className="mt-1 font-mono text-tableValue text-[color:var(--sf-text-primary)]">{mock.cei.status}</div>
                 <div className="mt-1 text-meta">
-                  Partner CEI <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{mock.cei.partner_index}</span> (Direct = 100) ·{" "}
-                  <span className="font-semibold">{mock.cei.confidence}</span> · Based on {mock.cei.based_on_deals} partner closed-won deal(s)
+                  Partner Sourced CEI index{" "}
+                  <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{mock.cei.partner_index}</span> (Direct = 100) ·{" "}
+                  <span className="font-semibold">{mock.cei.confidence}</span> · Based on {mock.cei.based_on_deals} partner sourced closed-won deal(s)
                 </div>
               </div>
 

@@ -164,8 +164,10 @@ function ReportsTabContent(props: {
         ?.slice(0, 3)
         .map((d: any) => ({ name: d.title, amount: d.amount })),
       direct_won: props.forecastTabProps.partnersExecutive?.direct?.won_amount,
-      partner_won: props.forecastTabProps.partnersExecutive?.partner?.won_amount,
-      partner_cei: (props.forecastTabProps.partnersExecutive as any)?.cei?.partner_index,
+      partner_won:
+        Number(props.forecastTabProps.partnersExecutive?.partner_influenced?.won_amount || 0) +
+        Number(props.forecastTabProps.partnersExecutive?.partner_sourced?.won_amount || 0),
+      partner_cei: (props.forecastTabProps.partnersExecutive as any)?.cei?.partner_sourced_index,
       coverage: props.pipelineHygiene.coverageRows.map((r) => ({
         rep: r.rep_name,
         pct: r.coverage_pct,

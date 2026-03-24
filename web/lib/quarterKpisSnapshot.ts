@@ -2,6 +2,7 @@ import "server-only";
 
 import { pool } from "./pool";
 import { getHealthAveragesByPeriods } from "./analyticsHealth";
+import { partnerMotionBarePredicatesSql } from "./partnerMotion";
 
 function safeDiv(n: number, d: number) {
   if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) return null;
@@ -26,7 +27,10 @@ export type QuarterKpisSnapshot = {
   agingAvgDays: number | null;
   directVsPartner: {
     directWonAmount: number;
+    /** Influenced + sourced closed-won (all non-direct motions). */
     partnerWonAmount: number;
+    partnerInfluencedWonAmount: number;
+    partnerSourcedWonAmount: number;
     directClosedDeals: number;
     directAov: number | null;
     directAvgAgeDays: number | null;
@@ -85,9 +89,13 @@ type RepPeriodKpisRow = {
   active_amount: number;
   partner_closed_amount: number;
   partner_won_amount: number;
+  partner_influenced_won_amount: number;
+  partner_sourced_won_amount: number;
   closed_amount: number;
   partner_won_count: number;
   partner_closed_count: number;
+  partner_influenced_won_count: number;
+  partner_sourced_won_count: number;
   partner_closed_days_sum: number;
   partner_closed_days_count: number;
   direct_closed_days_sum: number;
@@ -122,6 +130,7 @@ async function getRepKpisByPeriods(args: {
         o.rep_id::text AS rep_id,
         COALESCE(o.amount, 0)::float8 AS amount,
         o.partner_name,
+        o.deal_registration,
         o.create_date,
         o.close_date,
         lower(
@@ -148,7 +157,10 @@ async function getRepKpisByPeriods(args: {
         *,
         ((' ' || fs || ' ') LIKE '% won %') AS is_won,
         ((' ' || fs || ' ') LIKE '% lost %') AS is_lost,
-        (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) AS is_active
+        (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) AS is_active,
+        (${partnerMotionBarePredicatesSql.isPartnerSourced}) AS motion_sourced,
+        (${partnerMotionBarePredicatesSql.isPartnerInfluenced}) AS motion_influenced,
+        (${partnerMotionBarePredicatesSql.isDirect}) AS motion_direct
       FROM base
     )
     SELECT
@@ -161,35 +173,39 @@ async function getRepKpisByPeriods(args: {
       COALESCE(SUM(CASE WHEN is_won THEN amount ELSE 0 END), 0)::float8 AS won_amount,
       COALESCE(SUM(CASE WHEN is_lost THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
       COALESCE(SUM(CASE WHEN is_active THEN amount ELSE 0 END), 0)::float8 AS active_amount,
-      COALESCE(SUM(CASE WHEN (is_won OR is_lost) AND partner_name IS NOT NULL AND btrim(partner_name) <> '' THEN amount ELSE 0 END), 0)::float8 AS partner_closed_amount,
-      COALESCE(SUM(CASE WHEN is_won AND partner_name IS NOT NULL AND btrim(partner_name) <> '' THEN amount ELSE 0 END), 0)::float8 AS partner_won_amount,
+      COALESCE(SUM(CASE WHEN (is_won OR is_lost) AND (motion_influenced OR motion_sourced) THEN amount ELSE 0 END), 0)::float8 AS partner_closed_amount,
+      COALESCE(SUM(CASE WHEN is_won AND (motion_influenced OR motion_sourced) THEN amount ELSE 0 END), 0)::float8 AS partner_won_amount,
+      COALESCE(SUM(CASE WHEN is_won AND motion_influenced THEN amount ELSE 0 END), 0)::float8 AS partner_influenced_won_amount,
+      COALESCE(SUM(CASE WHEN is_won AND motion_sourced THEN amount ELSE 0 END), 0)::float8 AS partner_sourced_won_amount,
       COALESCE(SUM(CASE WHEN (is_won OR is_lost) THEN amount ELSE 0 END), 0)::float8 AS closed_amount,
-      COALESCE(SUM(CASE WHEN is_won AND partner_name IS NOT NULL AND btrim(partner_name) <> '' THEN 1 ELSE 0 END), 0)::int AS partner_won_count,
-      COALESCE(SUM(CASE WHEN (is_won OR is_lost) AND partner_name IS NOT NULL AND btrim(partner_name) <> '' THEN 1 ELSE 0 END), 0)::int AS partner_closed_count,
+      COALESCE(SUM(CASE WHEN is_won AND (motion_influenced OR motion_sourced) THEN 1 ELSE 0 END), 0)::int AS partner_won_count,
+      COALESCE(SUM(CASE WHEN (is_won OR is_lost) AND (motion_influenced OR motion_sourced) THEN 1 ELSE 0 END), 0)::int AS partner_closed_count,
+      COALESCE(SUM(CASE WHEN is_won AND motion_influenced THEN 1 ELSE 0 END), 0)::int AS partner_influenced_won_count,
+      COALESCE(SUM(CASE WHEN is_won AND motion_sourced THEN 1 ELSE 0 END), 0)::int AS partner_sourced_won_count,
       COALESCE(SUM(
         CASE
-          WHEN (is_won OR is_lost) AND partner_name IS NOT NULL AND btrim(partner_name) <> '' AND create_date IS NOT NULL AND close_date IS NOT NULL
+          WHEN (is_won OR is_lost) AND (motion_influenced OR motion_sourced) AND create_date IS NOT NULL AND close_date IS NOT NULL
           THEN EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0
           ELSE 0
         END
       ), 0)::float8 AS partner_closed_days_sum,
       COALESCE(SUM(
         CASE
-          WHEN (is_won OR is_lost) AND partner_name IS NOT NULL AND btrim(partner_name) <> '' AND create_date IS NOT NULL AND close_date IS NOT NULL
+          WHEN (is_won OR is_lost) AND (motion_influenced OR motion_sourced) AND create_date IS NOT NULL AND close_date IS NOT NULL
           THEN 1
           ELSE 0
         END
       ), 0)::int AS partner_closed_days_count,
       COALESCE(SUM(
         CASE
-          WHEN (is_won OR is_lost) AND (partner_name IS NULL OR btrim(partner_name) = '') AND create_date IS NOT NULL AND close_date IS NOT NULL
+          WHEN (is_won OR is_lost) AND motion_direct AND create_date IS NOT NULL AND close_date IS NOT NULL
           THEN EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0
           ELSE 0
         END
       ), 0)::float8 AS direct_closed_days_sum,
       COALESCE(SUM(
         CASE
-          WHEN (is_won OR is_lost) AND (partner_name IS NULL OR btrim(partner_name) = '') AND create_date IS NOT NULL AND close_date IS NOT NULL
+          WHEN (is_won OR is_lost) AND motion_direct AND create_date IS NOT NULL AND close_date IS NOT NULL
           THEN 1
           ELSE 0
         END
@@ -453,6 +469,8 @@ export async function getQuarterKpisSnapshot(args: {
       directVsPartner: {
         directWonAmount: 0,
         partnerWonAmount: 0,
+        partnerInfluencedWonAmount: 0,
+        partnerSourcedWonAmount: 0,
         directClosedDeals: 0,
         directAov: null,
         directAvgAgeDays: null,
@@ -497,6 +515,8 @@ export async function getQuarterKpisSnapshot(args: {
   const totalCountTotal = repRows.reduce((acc, r) => acc + (Number(r.total_count || 0) || 0), 0);
 
   const partnerWonAmount = repRows.reduce((acc, r) => acc + (Number(r.partner_won_amount || 0) || 0), 0);
+  const partnerInfluencedWonAmount = repRows.reduce((acc, r) => acc + (Number(r.partner_influenced_won_amount || 0) || 0), 0);
+  const partnerSourcedWonAmount = repRows.reduce((acc, r) => acc + (Number(r.partner_sourced_won_amount || 0) || 0), 0);
   const partnerWonCount = repRows.reduce((acc, r) => acc + (Number(r.partner_won_count || 0) || 0), 0);
   const partnerClosedAmount = repRows.reduce((acc, r) => acc + (Number(r.partner_closed_amount || 0) || 0), 0);
   const closedAmount = repRows.reduce((acc, r) => acc + (Number(r.closed_amount || 0) || 0), 0);
@@ -623,6 +643,8 @@ export async function getQuarterKpisSnapshot(args: {
     directVsPartner: {
       directWonAmount,
       partnerWonAmount,
+      partnerInfluencedWonAmount,
+      partnerSourcedWonAmount,
       directClosedDeals: directClosedDaysCnt,
       directAov,
       directAvgAgeDays,

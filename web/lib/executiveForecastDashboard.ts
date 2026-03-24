@@ -14,6 +14,7 @@ import {
   type CommitAdmissionAggregates,
   type CommitAdmissionDealPanels,
 } from "./commitAdmissionAggregates";
+import { partnerMotionCaseSql, type PartnerDealMotion } from "./partnerMotion";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -209,8 +210,8 @@ export type ExecutiveForecastSummary = {
       won_amount: number;
       lost_amount: number;
       open_pipeline: number;
-    } | null;
-    partner: {
+    };
+    partner_influenced: {
       opps: number;
       won_opps: number;
       lost_opps: number;
@@ -221,9 +222,27 @@ export type ExecutiveForecastSummary = {
       won_amount: number;
       lost_amount: number;
       open_pipeline: number;
-    } | null;
-    revenue_mix_partner_pct01: number | null; // closed-won only
-    cei_prev_partner_index: number | null; // partner CEI index in previous quarter (Direct=100), if available
+    };
+    partner_sourced: {
+      opps: number;
+      won_opps: number;
+      lost_opps: number;
+      win_rate: number | null;
+      aov: number | null;
+      avg_days: number | null;
+      avg_health_score: number | null; // raw 0..30
+      won_amount: number;
+      lost_amount: number;
+      open_pipeline: number;
+    };
+    /** Closed-won revenue share by motion (sums to 1 when all motions have defined won revenue). */
+    revenue_mix_motion_pct01: {
+      direct: number | null;
+      partner_influenced: number | null;
+      partner_sourced: number | null;
+    };
+    /** Partner Sourced CEI / Direct CEI × 100 (prior quarter), if available */
+    cei_prev_partner_sourced_index: number | null;
     top_partners: Array<{
       partner_name: string;
       opps: number;
@@ -248,8 +267,8 @@ export type ExecutiveForecastSummary = {
         won_amount: number;
         lost_amount: number;
         open_pipeline: number;
-      } | null;
-      partner: {
+      };
+      partner_influenced: {
         opps: number;
         won_opps: number;
         lost_opps: number;
@@ -260,7 +279,19 @@ export type ExecutiveForecastSummary = {
         won_amount: number;
         lost_amount: number;
         open_pipeline: number;
-      } | null;
+      };
+      partner_sourced: {
+        opps: number;
+        won_opps: number;
+        lost_opps: number;
+        win_rate: number | null;
+        aov: number | null;
+        avg_days: number | null;
+        avg_health_score: number | null; // raw 0..30
+        won_amount: number;
+        lost_amount: number;
+        open_pipeline: number;
+      };
       top_partners: Array<{
         partner_name: string;
         opps: number;
@@ -278,7 +309,7 @@ export type ExecutiveForecastSummary = {
 };
 
 type MotionStatsRow = {
-  motion: "direct" | "partner";
+  motion: PartnerDealMotion;
   opps: number;
   won_opps: number;
   lost_opps: number;
@@ -302,8 +333,35 @@ type PartnerRollupRow = {
   won_amount: number;
 };
 
-type OpenPipelineMotionRow = { motion: "direct" | "partner"; open_opps: number; open_amount: number };
+type OpenPipelineMotionRow = { motion: PartnerDealMotion; open_opps: number; open_amount: number };
 type OpenPipelinePartnerRow = { partner_name: string; open_opps: number; open_amount: number };
+
+function emptyMotionStatsRow(motion: PartnerDealMotion): MotionStatsRow {
+  return {
+    motion,
+    opps: 0,
+    won_opps: 0,
+    lost_opps: 0,
+    win_rate: null,
+    aov: null,
+    avg_days: null,
+    avg_health_score: null,
+    won_amount: 0,
+    lost_amount: 0,
+  };
+}
+
+function motionStatsByKey(rows: MotionStatsRow[]): Map<PartnerDealMotion, MotionStatsRow> {
+  const m = new Map<PartnerDealMotion, MotionStatsRow>();
+  for (const motion of ["direct", "partner_influenced", "partner_sourced"] as PartnerDealMotion[]) {
+    m.set(motion, emptyMotionStatsRow(motion));
+  }
+  for (const r of rows || []) {
+    const key = String(r.motion) as PartnerDealMotion;
+    if (m.has(key)) m.set(key, { ...r, motion: key });
+  }
+  return m;
+}
 
 async function loadMotionStatsForPartners(args: { orgId: number; quotaPeriodId: string; repIds: number[] | null }): Promise<MotionStatsRow[]> {
   const useRepFilter = !!(args.repIds && args.repIds.length);
@@ -318,10 +376,7 @@ async function loadMotionStatsForPartners(args: { orgId: number; quotaPeriodId: 
     ),
     base AS (
       SELECT
-        CASE
-          WHEN o.partner_name IS NOT NULL AND btrim(o.partner_name) <> '' THEN 'partner'
-          ELSE 'direct'
-        END AS motion,
+        (${partnerMotionCaseSql("o")})::text AS motion,
         COALESCE(o.amount, 0)::float8 AS amount,
         o.health_score::float8 AS health_score,
         o.create_date::timestamptz AS create_date,
@@ -448,10 +503,7 @@ async function loadOpenPipelineByMotionForExecutive(args: { orgId: number; quota
     ),
     base AS (
       SELECT
-        CASE
-          WHEN o.partner_name IS NOT NULL AND btrim(o.partner_name) <> '' THEN 'partner'
-          ELSE 'direct'
-        END AS motion,
+        (${partnerMotionCaseSql("o")})::text AS motion,
         COALESCE(o.amount, 0)::float8 AS amount,
         lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
       FROM opportunities o
@@ -1052,10 +1104,7 @@ async function getPartnerSpeedSignals(args: {
       ),
       base AS (
         SELECT
-          CASE
-            WHEN o.partner_name IS NOT NULL AND btrim(o.partner_name) <> '' THEN 'partner'
-            ELSE 'direct'
-          END AS motion,
+          (${partnerMotionCaseSql("o")})::text AS motion,
           NULLIF(btrim(o.partner_name), '') AS partner_name,
           COALESCE(o.amount, 0)::float8 AS amount,
           o.create_date::timestamptz AS create_ts,
@@ -1091,23 +1140,43 @@ async function getPartnerSpeedSignals(args: {
           CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 1 ELSE 0 END AS is_won,
           CASE WHEN create_ts IS NOT NULL AND close_ts IS NOT NULL THEN GREATEST(0, ROUND(EXTRACT(EPOCH FROM (close_ts - create_ts)) / 86400.0))::int ELSE NULL END AS age_days
         FROM base
+      ),
+      direct_agg AS (
+        SELECT
+          'direct'::text AS motion,
+          NULL::text AS partner_name,
+          COUNT(*)::int AS closed_opps,
+          SUM(is_won)::int AS won_opps,
+          CASE WHEN COUNT(*) > 0 THEN (SUM(is_won)::float8 / COUNT(*)::float8) ELSE NULL END AS win_rate,
+          AVG(age_days)::float8 AS avg_days,
+          SUM(CASE WHEN is_won = 1 THEN amount ELSE 0 END)::float8 AS won_amount,
+          CASE WHEN SUM(is_won) > 0 THEN (SUM(CASE WHEN is_won = 1 THEN amount ELSE 0 END)::float8 / SUM(is_won)::float8) ELSE NULL END AS aov
+        FROM scored
+        WHERE motion = 'direct'
+      ),
+      partner_named_agg AS (
+        SELECT
+          'partner'::text AS motion,
+          partner_name,
+          COUNT(*)::int AS closed_opps,
+          SUM(is_won)::int AS won_opps,
+          CASE WHEN COUNT(*) > 0 THEN (SUM(is_won)::float8 / COUNT(*)::float8) ELSE NULL END AS win_rate,
+          AVG(age_days)::float8 AS avg_days,
+          SUM(CASE WHEN is_won = 1 THEN amount ELSE 0 END)::float8 AS won_amount,
+          CASE WHEN SUM(is_won) > 0 THEN (SUM(CASE WHEN is_won = 1 THEN amount ELSE 0 END)::float8 / SUM(is_won)::float8) ELSE NULL END AS aov
+        FROM scored
+        WHERE motion IN ('partner_influenced', 'partner_sourced')
+          AND partner_name IS NOT NULL
+        GROUP BY partner_name
       )
-      SELECT
-        motion,
-        CASE WHEN motion = 'partner' THEN partner_name ELSE NULL END AS partner_name,
-        COUNT(*)::int AS closed_opps,
-        SUM(is_won)::int AS won_opps,
-        CASE WHEN COUNT(*) > 0 THEN (SUM(is_won)::float8 / COUNT(*)::float8) ELSE NULL END AS win_rate,
-        AVG(age_days)::float8 AS avg_days,
-        SUM(CASE WHEN is_won = 1 THEN amount ELSE 0 END)::float8 AS won_amount,
-        CASE WHEN SUM(is_won) > 0 THEN (SUM(CASE WHEN is_won = 1 THEN amount ELSE 0 END)::float8 / SUM(is_won)::float8) ELSE NULL END AS aov
-      FROM scored
-      GROUP BY motion, CASE WHEN motion = 'partner' THEN partner_name ELSE NULL END
+      SELECT * FROM direct_agg
+      UNION ALL
+      SELECT * FROM partner_named_agg
       ORDER BY
         CASE WHEN motion = 'direct' THEN 0 ELSE 1 END ASC,
         won_amount DESC NULLS LAST,
         closed_opps DESC,
-        partner_name ASC
+        partner_name ASC NULLS FIRST
       `,
       [args.orgId, qpId, repIds, repNameKeys, args.useRepFilter]
     )
@@ -2276,48 +2345,57 @@ export async function getExecutiveForecastDashboardSummary(args: {
             listOpenPipelineByPartnerForExecutive({ orgId: args.orgId, quotaPeriodId: qpId, repIds: scope.allowedRepIds, limit: 120 }),
           ]);
 
-          const statsByMotion = new Map<string, MotionStatsRow>();
-          for (const r of motionStats || []) statsByMotion.set(String(r.motion), r);
-          const direct = statsByMotion.get("direct") || null;
-          const partner = statsByMotion.get("partner") || null;
+          const curM = motionStatsByKey(motionStats || []);
+          const direct = curM.get("direct")!;
+          const partner_influenced = curM.get("partner_influenced")!;
+          const partner_sourced = curM.get("partner_sourced")!;
 
           const openByMotionMap = new Map<string, OpenPipelineMotionRow>();
           for (const r of openByMotion || []) openByMotionMap.set(String(r.motion), r);
           const directOpen = Number(openByMotionMap.get("direct")?.open_amount || 0) || 0;
-          const partnerOpen = Number(openByMotionMap.get("partner")?.open_amount || 0) || 0;
+          const influencedOpen = Number(openByMotionMap.get("partner_influenced")?.open_amount || 0) || 0;
+          const sourcedOpen = Number(openByMotionMap.get("partner_sourced")?.open_amount || 0) || 0;
 
           const openPartnerMap = new Map<string, number>();
           for (const r of openByPartner || []) openPartnerMap.set(String(r.partner_name || "").trim(), Number(r.open_amount || 0) || 0);
 
-          const denom = (direct ? Number(direct.won_amount || 0) || 0 : 0) + (partner ? Number(partner.won_amount || 0) || 0 : 0);
-          const revenue_mix_partner_pct01 = denom > 0 && partner ? (Number(partner.won_amount || 0) || 0) / denom : null;
+          const wonD = Number(direct.won_amount || 0) || 0;
+          const wonI = Number(partner_influenced.won_amount || 0) || 0;
+          const wonS = Number(partner_sourced.won_amount || 0) || 0;
+          const denom = wonD + wonI + wonS;
+          const revenue_mix_motion_pct01 =
+            denom > 0
+              ? {
+                  direct: wonD / denom,
+                  partner_influenced: wonI / denom,
+                  partner_sourced: wonS / denom,
+                }
+              : { direct: null, partner_influenced: null, partner_sourced: null };
 
-          const ceiPrevPartnerIndex = await (async () => {
+          const ceiPrevPartnerSourcedIndex = await (async () => {
             if (!prevQpId) return null;
             const prevRows = await loadMotionStatsForPartners({ orgId: args.orgId, quotaPeriodId: prevQpId, repIds: scope.allowedRepIds }).catch(() => []);
-            const prevByMotion = new Map<string, MotionStatsRow>();
-            for (const r of prevRows || []) prevByMotion.set(String(r.motion), r);
-            const d0 = prevByMotion.get("direct") || null;
-            const p0 = prevByMotion.get("partner") || null;
-            if (!d0 || !p0) return null;
+            const prevM = motionStatsByKey(prevRows || []);
+            const d0 = prevM.get("direct")!;
+            const s0 = prevM.get("partner_sourced")!;
 
             const directDays = d0.avg_days == null ? null : Number(d0.avg_days);
-            const partnerDays = p0.avg_days == null ? null : Number(p0.avg_days);
+            const sourcedDays = s0.avg_days == null ? null : Number(s0.avg_days);
             const directWon = Number(d0.won_amount || 0) || 0;
-            const partnerWon = Number(p0.won_amount || 0) || 0;
+            const sourcedWon = Number(s0.won_amount || 0) || 0;
             const directWin = d0.win_rate == null ? null : Number(d0.win_rate);
-            const partnerWin = p0.win_rate == null ? null : Number(p0.win_rate);
+            const sourcedWin = s0.win_rate == null ? null : Number(s0.win_rate);
             const directH = d0.avg_health_score == null ? null : Number(d0.avg_health_score) / 30;
-            const partnerH = p0.avg_health_score == null ? null : Number(p0.avg_health_score) / 30;
+            const sourcedH = s0.avg_health_score == null ? null : Number(s0.avg_health_score) / 30;
 
             const RV_direct = directDays && directDays > 0 ? directWon / directDays : 0;
-            const RV_partner = partnerDays && partnerDays > 0 ? partnerWon / partnerDays : 0;
+            const RV_sourced = sourcedDays && sourcedDays > 0 ? sourcedWon / sourcedDays : 0;
             const QM_direct = directWin == null ? 0 : directH == null ? directWin : directWin * directH;
-            const QM_partner = partnerWin == null ? 0 : partnerH == null ? partnerWin : partnerWin * partnerH;
+            const QM_sourced = sourcedWin == null ? 0 : sourcedH == null ? sourcedWin : sourcedWin * sourcedH;
             const CEI_raw_direct = RV_direct * QM_direct;
-            const CEI_raw_partner = RV_partner * QM_partner;
+            const CEI_raw_sourced = RV_sourced * QM_sourced;
             if (!(CEI_raw_direct > 0)) return null;
-            return (CEI_raw_partner / CEI_raw_direct) * 100;
+            return (CEI_raw_sourced / CEI_raw_direct) * 100;
           })();
 
           const previous = await (async () => {
@@ -2330,32 +2408,24 @@ export async function getExecutiveForecastDashboardSummary(args: {
                 listOpenPipelineByPartnerForExecutive({ orgId: args.orgId, quotaPeriodId: prevQpId, repIds: scope.allowedRepIds, limit: 120 }),
               ]);
 
-              const statsByMotion0 = new Map<string, MotionStatsRow>();
-              for (const r of motionStats0 || []) statsByMotion0.set(String(r.motion), r);
-              const direct0 = statsByMotion0.get("direct") || null;
-              const partner0 = statsByMotion0.get("partner") || null;
+              const prevM0 = motionStatsByKey(motionStats0 || []);
+              const direct0 = prevM0.get("direct")!;
+              const influenced0 = prevM0.get("partner_influenced")!;
+              const sourced0 = prevM0.get("partner_sourced")!;
 
               const openByMotionMap0 = new Map<string, OpenPipelineMotionRow>();
               for (const r of openByMotion0 || []) openByMotionMap0.set(String(r.motion), r);
               const directOpen0 = Number(openByMotionMap0.get("direct")?.open_amount || 0) || 0;
-              const partnerOpen0 = Number(openByMotionMap0.get("partner")?.open_amount || 0) || 0;
+              const influencedOpen0 = Number(openByMotionMap0.get("partner_influenced")?.open_amount || 0) || 0;
+              const sourcedOpen0 = Number(openByMotionMap0.get("partner_sourced")?.open_amount || 0) || 0;
 
               const openPartnerMap0 = new Map<string, number>();
               for (const r of openByPartner0 || []) openPartnerMap0.set(String(r.partner_name || "").trim(), Number(r.open_amount || 0) || 0);
 
               return {
-                direct: direct0
-                  ? {
-                      ...direct0,
-                      open_pipeline: directOpen0,
-                    }
-                  : null,
-                partner: partner0
-                  ? {
-                      ...partner0,
-                      open_pipeline: partnerOpen0,
-                    }
-                  : null,
+                direct: { ...direct0, open_pipeline: directOpen0 },
+                partner_influenced: { ...influenced0, open_pipeline: influencedOpen0 },
+                partner_sourced: { ...sourced0, open_pipeline: sourcedOpen0 },
                 top_partners: (topPartners0 || []).map((p) => ({
                   ...p,
                   open_pipeline: Number(openPartnerMap0.get(String(p.partner_name || "").trim()) || 0) || 0,
@@ -2367,20 +2437,11 @@ export async function getExecutiveForecastDashboardSummary(args: {
           })();
 
           return {
-            direct: direct
-              ? {
-                  ...direct,
-                  open_pipeline: directOpen,
-                }
-              : null,
-            partner: partner
-              ? {
-                  ...partner,
-                  open_pipeline: partnerOpen,
-                }
-              : null,
-            revenue_mix_partner_pct01,
-            cei_prev_partner_index: ceiPrevPartnerIndex,
+            direct: { ...direct, open_pipeline: directOpen },
+            partner_influenced: { ...partner_influenced, open_pipeline: influencedOpen },
+            partner_sourced: { ...partner_sourced, open_pipeline: sourcedOpen },
+            revenue_mix_motion_pct01,
+            cei_prev_partner_sourced_index: ceiPrevPartnerSourcedIndex,
             top_partners: (topPartners || []).map((p) => ({
               ...p,
               open_pipeline: Number(openPartnerMap.get(String(p.partner_name || "").trim()) || 0) || 0,

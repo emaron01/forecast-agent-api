@@ -21,6 +21,7 @@ import { AiSummaryReportClient } from "../../ai/AiSummaryReportClient";
 import { PartnersExecutiveAiTakeawayClient } from "../../ai/PartnersExecutiveAiTakeawayClient";
 import { useExecutiveBriefing } from "./ExecutiveBriefingContext";
 import { DealCoachingCard, type DealCoachingCardDeal } from "../../../app/components/dashboard/coaching/DealCoachingCard";
+import { PartnerMotionPerformanceSection } from "./PartnerMotionPerformanceSection";
 
 type RiskCategoryKey =
   | "pain"
@@ -557,8 +558,8 @@ export function ExecutiveGapInsightsClient(props: {
       won_amount: number;
       lost_amount: number;
       open_pipeline: number;
-    } | null;
-    partner: {
+    };
+    partner_influenced: {
       opps: number;
       won_opps: number;
       lost_opps: number;
@@ -569,9 +570,25 @@ export function ExecutiveGapInsightsClient(props: {
       won_amount: number;
       lost_amount: number;
       open_pipeline: number;
-    } | null;
-    revenue_mix_partner_pct01: number | null;
-    cei_prev_partner_index: number | null;
+    };
+    partner_sourced: {
+      opps: number;
+      won_opps: number;
+      lost_opps: number;
+      win_rate: number | null;
+      aov: number | null;
+      avg_days: number | null;
+      avg_health_score: number | null;
+      won_amount: number;
+      lost_amount: number;
+      open_pipeline: number;
+    };
+    revenue_mix_motion_pct01: {
+      direct: number | null;
+      partner_influenced: number | null;
+      partner_sourced: number | null;
+    };
+    cei_prev_partner_sourced_index: number | null;
     top_partners: Array<{
       partner_name: string;
       opps: number;
@@ -596,8 +613,8 @@ export function ExecutiveGapInsightsClient(props: {
         won_amount: number;
         lost_amount: number;
         open_pipeline: number;
-      } | null;
-      partner: {
+      };
+      partner_influenced: {
         opps: number;
         won_opps: number;
         lost_opps: number;
@@ -608,7 +625,19 @@ export function ExecutiveGapInsightsClient(props: {
         won_amount: number;
         lost_amount: number;
         open_pipeline: number;
-      } | null;
+      };
+      partner_sourced: {
+        opps: number;
+        won_opps: number;
+        lost_opps: number;
+        win_rate: number | null;
+        aov: number | null;
+        avg_days: number | null;
+        avg_health_score: number | null;
+        won_amount: number;
+        lost_amount: number;
+        open_pipeline: number;
+      };
       top_partners: Array<{
         partner_name: string;
         opps: number;
@@ -1461,21 +1490,39 @@ export function ExecutiveGapInsightsClient(props: {
 
   const partnersDecisionEngine = useMemo(() => {
     const pe = props.partnersExecutive;
-    if (!pe?.direct || !pe?.partner) return null;
+    if (!pe?.direct) return null;
 
     const direct = pe.direct;
-    const partner = pe.partner;
+    const partner_influenced = pe.partner_influenced;
+    const partner_sourced = pe.partner_sourced;
     const prev = pe.previous || null;
 
-    const denom = Number(direct.won_amount || 0) + Number(partner.won_amount || 0);
-    const partnerMix = denom > 0 ? Number(partner.won_amount || 0) / denom : null;
-    const directMix = partnerMix == null ? null : Math.max(0, Math.min(1, 1 - partnerMix));
+    const wonD = Number(direct.won_amount || 0) || 0;
+    const wonI = Number(partner_influenced.won_amount || 0) || 0;
+    const wonS = Number(partner_sourced.won_amount || 0) || 0;
+    const denom = wonD + wonI + wonS;
+    const directMix = denom > 0 ? wonD / denom : null;
+    const partnerInfluencedMix = denom > 0 ? wonI / denom : null;
+    const partnerSourcedMix = denom > 0 ? wonS / denom : null;
+    const partnerMix = denom > 0 ? (wonI + wonS) / denom : null;
 
     const narrative = (() => {
       const aovD = direct.aov == null ? null : Number(direct.aov);
-      const aovP = partner.aov == null ? null : Number(partner.aov);
+      const wI = Number(partner_influenced.won_opps || 0) || 0;
+      const wS = Number(partner_sourced.won_opps || 0) || 0;
+      const wInd = wI + wS;
+      const indirectAov =
+        wInd > 0
+          ? (Number(partner_influenced.won_amount || 0) + Number(partner_sourced.won_amount || 0)) / wInd
+          : null;
+      const aovP = indirectAov == null || !Number.isFinite(indirectAov) ? null : indirectAov;
       const daysD = direct.avg_days == null ? null : Number(direct.avg_days);
-      const daysP = partner.avg_days == null ? null : Number(partner.avg_days);
+      const daysI = partner_influenced.avg_days == null ? null : Number(partner_influenced.avg_days);
+      const daysS = partner_sourced.avg_days == null ? null : Number(partner_sourced.avg_days);
+      const daysP =
+        daysI != null && daysS != null && wonI + wonS > 0
+          ? (daysI * wonI + daysS * wonS) / (wonI + wonS)
+          : daysI ?? daysS;
       const mix = partnerMix == null ? null : Math.round(partnerMix * 100);
       const sizeDeltaPct = aovD != null && aovP != null && aovD > 0 ? Math.round(((aovP - aovD) / aovD) * 100) : null;
       const velDeltaDays = daysD != null && daysP != null ? Math.round(daysP - daysD) : null;
@@ -1484,10 +1531,10 @@ export function ExecutiveGapInsightsClient(props: {
         sizeDeltaPct == null
           ? "Deal size is mixed across motions"
           : sizeDeltaPct === 0
-            ? "Partners and Direct are similar in deal size"
+            ? "Partner-engaged and Direct are similar in deal size"
             : sizeDeltaPct > 0
-              ? `Partners run ~${Math.abs(sizeDeltaPct)}% larger than Direct`
-              : `Partners run ~${Math.abs(sizeDeltaPct)}% smaller than Direct`;
+              ? `Partner-engaged deals run ~${Math.abs(sizeDeltaPct)}% larger than Direct`
+              : `Partner-engaged deals run ~${Math.abs(sizeDeltaPct)}% smaller than Direct`;
 
       const velPhrase =
         velDeltaDays == null
@@ -1498,7 +1545,7 @@ export function ExecutiveGapInsightsClient(props: {
               ? `but are ~${Math.abs(velDeltaDays)} days slower`
               : `but are ~${Math.abs(velDeltaDays)} days faster`;
 
-      const mixPhrase = mix == null ? "with unclear channel contribution" : `and contribute ~${mix}% of closed-won`;
+      const mixPhrase = mix == null ? "with unclear channel contribution" : `and partner-engaged motions contribute ~${mix}% of closed-won`;
       return `${sizePhrase} ${velPhrase} ${mixPhrase} in this period.`;
     })();
 
@@ -1604,26 +1651,34 @@ export function ExecutiveGapInsightsClient(props: {
     });
 
     const cei = (() => {
-      const directDays = direct.avg_days == null ? null : Number(direct.avg_days);
-      const partnerDays = partner.avg_days == null ? null : Number(partner.avg_days);
-      const directWon = Number(direct.won_amount || 0) || 0;
-      const partnerWon = Number(partner.won_amount || 0) || 0;
-      const directWin = direct.win_rate == null ? null : clamp01(Number(direct.win_rate));
-      const partnerWin = partner.win_rate == null ? null : clamp01(Number(partner.win_rate));
-      const directH = health01FromScore30(direct.avg_health_score);
-      const partnerH = health01FromScore30(partner.avg_health_score);
-
-      const RV_direct = directDays && directDays > 0 ? directWon / directDays : 0;
-      const RV_partner = partnerDays && partnerDays > 0 ? partnerWon / partnerDays : 0;
-      const QM_direct = directWin == null ? 0 : directH == null ? directWin : directWin * directH;
-      const QM_partner = partnerWin == null ? 0 : partnerH == null ? partnerWin : partnerWin * partnerH;
-      const CEI_raw_direct = RV_direct * QM_direct;
-      const CEI_raw_partner = RV_partner * QM_partner;
-      const partner_index = CEI_raw_direct > 0 ? (CEI_raw_partner / CEI_raw_direct) * 100 : null;
-      return { direct_index: 100, partner_index };
+      const ceiRaw = (m: typeof direct) => {
+        const directDays = m.avg_days == null ? null : Number(m.avg_days);
+        const w = Number(m.won_amount || 0) || 0;
+        const win = m.win_rate == null ? null : clamp01(Number(m.win_rate));
+        const h = health01FromScore30(m.avg_health_score);
+        const RV = directDays && directDays > 0 ? w / directDays : 0;
+        const QM = win == null ? 0 : h == null ? win : win * h;
+        return RV * QM;
+      };
+      const direct_raw = ceiRaw(direct);
+      const sourced_raw = ceiRaw(partner_sourced);
+      const partner_sourced_index = direct_raw > 0 ? (sourced_raw / direct_raw) * 100 : null;
+      return { direct_raw, sourced_raw, partner_sourced_index };
     })();
 
-    return { narrative, directMix, partnerMix, direct, partner, scored, cei, cei_prev_partner_index: pe.cei_prev_partner_index ?? null };
+    return {
+      narrative,
+      directMix,
+      partnerMix,
+      partnerInfluencedMix,
+      partnerSourcedMix,
+      direct,
+      partner_influenced,
+      partner_sourced,
+      scored,
+      cei,
+      cei_prev_partner_sourced_index: pe.cei_prev_partner_sourced_index ?? null,
+    };
   }, [props.partnersExecutive]);
 
   function updateUrl(mut: (p: URLSearchParams) => void) {
@@ -2899,190 +2954,19 @@ export function ExecutiveGapInsightsClient(props: {
               </div>
             </div>
 
-            {(() => {
-              const direct = partnersDecisionEngine.direct;
-              const partner = partnersDecisionEngine.partner;
-
-              const directWin = direct.win_rate == null ? null : Number(direct.win_rate);
-              const partnerWin = partner.win_rate == null ? null : Number(partner.win_rate);
-
-              const directHealth01 = direct.avg_health_score == null ? null : Number(direct.avg_health_score) / 30;
-              const partnerHealth01 = partner.avg_health_score == null ? null : Number(partner.avg_health_score) / 30;
-
-              const directRev = direct.won_amount == null ? null : Number(direct.won_amount);
-              const partnerRev = partner.won_amount == null ? null : Number(partner.won_amount);
-
-              const directMix = partnersDecisionEngine.directMix == null ? null : Number(partnersDecisionEngine.directMix);
-              const partnerMix = partnersDecisionEngine.partnerMix == null ? null : Number(partnersDecisionEngine.partnerMix);
-
-              function fmtMoneyK(n: any) {
-                const v = Number(n || 0);
-                if (!Number.isFinite(v)) return "—";
-                const k = Math.round(v / 1000);
-                return `$${k.toLocaleString("en-US")}K`;
-              }
-
-              function highlightClass(value: number | null, a: number | null, b: number | null) {
-                if (value == null || a == null || b == null) return "";
-                const aa = Number(a);
-                const bb = Number(b);
-                if (!Number.isFinite(aa) || !Number.isFinite(bb)) return "";
-                const denom = Math.max(Math.abs(aa), Math.abs(bb));
-                if (denom <= 0) return "";
-                const relDiffPct = (Math.abs(aa - bb) / denom) * 100;
-                if (relDiffPct <= 5) return "";
-                if (aa === bb) return "";
-                const max = Math.max(aa, bb);
-                const min = Math.min(aa, bb);
-                if (value === max) return "text-[#16A34A]";
-                if (value === min) return "text-[#E74C3C]";
-                return "";
-              }
-
-              const rows = [
-                { k: "Direct", win: directWin, health: directHealth01, rev: directRev, mix: directMix },
-                { k: "Partner", win: partnerWin, health: partnerHealth01, rev: partnerRev, mix: partnerMix },
-              ] as const;
-
-              return (
-                <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Motion Performance Snapshot</div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
-                    {rows.map((row) => (
-                      <div key={row.k} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
-                        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{row.k}</div>
-                        <div className="mt-3 text-[11px] text-[color:var(--sf-text-secondary)]">
-                          <div className="flex items-center justify-between gap-2 mt-1">
-                            <span>Win Rate</span>
-                            <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.win, directWin, partnerWin)].join(" ")}>{row.win == null ? "—" : fmtPct01(row.win)}</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2 mt-1">
-                            <span>Avg Health</span>
-                            <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.health, directHealth01, partnerHealth01)].join(" ")}>{row.health == null ? "—" : `${Math.round(row.health * 100)}%`}</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2 mt-1">
-                            <span>Revenue</span>
-                            <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.rev, directRev, partnerRev)].join(" ")}>{row.rev == null ? "—" : fmtMoneyK(row.rev)}</span>
-                          </div>
-                          <div className="flex items-center justify-between gap-2 mt-1">
-                            <span>Mix</span>
-                            <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.mix, directMix, partnerMix)].join(" ")}>{row.mix == null ? "—" : fmtPct01(row.mix)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-
-                    {(() => {
-                      const deltaTone = (d: number | null) => (d == null || !Number.isFinite(d) ? "text-[color:var(--sf-text-disabled)]" : d > 0 ? "text-[#16A34A]" : d < 0 ? "text-[#E74C3C]" : "text-[color:var(--sf-text-primary)]");
-                      const fmtPp = (d01: number | null) => {
-                        if (d01 == null || !Number.isFinite(d01)) return "—";
-                        const pp = d01 * 100;
-                        const abs = Math.abs(pp);
-                        const txt = `${Math.round(abs)}pp`;
-                        return `${pp > 0 ? "+" : pp < 0 ? "-" : ""}${txt}`;
-                      };
-                      const fmtMoneyKSigned = (d: number | null) => {
-                        if (d == null || !Number.isFinite(d)) return "—";
-                        const k = Math.round(Math.abs(d) / 1000);
-                        const txt = `$${k.toLocaleString("en-US")}K`;
-                        return `${d > 0 ? "+" : d < 0 ? "-" : ""}${txt}`;
-                      };
-                      const dWin = directWin == null || partnerWin == null ? null : directWin - partnerWin;
-                      const dHealth = directHealth01 == null || partnerHealth01 == null ? null : directHealth01 - partnerHealth01;
-                      const dRev = directRev == null || partnerRev == null ? null : directRev - partnerRev;
-                      const dMix = directMix == null || partnerMix == null ? null : directMix - partnerMix;
-                      return (
-                        <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
-                          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct Vs. Indirect Performance</div>
-                          <div className="mt-3 text-[11px] text-[color:var(--sf-text-secondary)]">
-                            <div className="flex items-center justify-between gap-2 mt-1">
-                              <span>Win Rate</span>
-                              <span className={["font-mono text-xs font-semibold", deltaTone(dWin)].join(" ")}>{fmtPp(dWin)}</span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2 mt-1">
-                              <span>Avg Health</span>
-                              <span className={["font-mono text-xs font-semibold", deltaTone(dHealth)].join(" ")}>{fmtPp(dHealth)}</span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2 mt-1">
-                              <span>Revenue</span>
-                              <span className={["font-mono text-xs font-semibold", deltaTone(dRev)].join(" ")}>{fmtMoneyKSigned(dRev)}</span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2 mt-1">
-                              <span>Mix</span>
-                              <span className={["font-mono text-xs font-semibold", deltaTone(dMix)].join(" ")}>{fmtPp(dMix)}</span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
-                      {(() => {
-                        const ceiCur = partnersDecisionEngine.cei.partner_index;
-                        const ceiPrev = partnersDecisionEngine.cei_prev_partner_index;
-                        const ceiCurN = ceiCur == null ? null : Number(ceiCur);
-                        const ceiPrevN = ceiPrev == null ? null : Number(ceiPrev);
-                        const delta = ceiCurN != null && ceiPrevN != null ? ceiCurN - ceiPrevN : null;
-                        const status =
-                          ceiCurN == null
-                            ? { label: "—", tone: "muted" as const }
-                            : ceiCurN >= 120
-                              ? { label: "HIGH", tone: "good" as const }
-                              : ceiCurN >= 90
-                                ? { label: "MEDIUM", tone: "warn" as const }
-                                : ceiCurN >= 70
-                                  ? { label: "LOW", tone: "bad" as const }
-                                  : { label: "CRITICAL", tone: "bad" as const };
-                        const partnerWon = Number(partnersDecisionEngine.partner.won_opps || 0) || 0;
-                        const sampleFactor = Math.min(1, partnerWon / 12);
-                        const revenueShare = partnersDecisionEngine.partnerMix == null ? 0 : Number(partnersDecisionEngine.partnerMix);
-                        const revenueFactor = Math.min(1, revenueShare / 0.4);
-                        const volatilityFactor = delta != null ? 1 - normalize(Math.abs(delta), 0, 100) : 0.6;
-                        const conf01 = sampleFactor * 0.5 + revenueFactor * 0.3 + volatilityFactor * 0.2;
-                        const conf = clampScore100(conf01 * 100);
-                        const confBand =
-                          conf >= 75 ? "HIGH CONFIDENCE" : conf >= 50 ? "MODERATE CONFIDENCE" : conf >= 30 ? "LOW CONFIDENCE" : "PRELIMINARY";
-                        const trend =
-                          delta == null
-                            ? { label: "—", arrow: "→", tone: "muted" as const }
-                            : delta >= 15
-                              ? { label: "Improving", arrow: "↑", tone: "good" as const }
-                              : delta <= -15
-                                ? { label: "Declining", arrow: "↓", tone: "bad" as const }
-                                : { label: "Stable", arrow: "→", tone: "muted" as const };
-                        return (
-                          <>
-                            <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CEI Performance</div>
-                            <div className="mt-2 text-sm text-[color:var(--sf-text-primary)]">
-                              <div className="flex items-center justify-between gap-2 mt-1">
-                                <span className="text-[color:var(--sf-text-secondary)]">CEI Status</span>
-                                <span className={["inline-flex min-w-[110px] items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold", pillToneClass(status.tone)].join(" ")}>{status.label}</span>
-                              </div>
-                              <div className="flex items-center justify-between gap-2 mt-1">
-                                <span className="text-[color:var(--sf-text-secondary)]">Partner CEI</span>
-                                <span className="font-mono font-semibold">{ceiCurN == null ? "—" : `${Math.round(ceiCurN).toLocaleString("en-US")} (Direct = 100)`}</span>
-                              </div>
-                              <div className="flex items-center justify-between gap-2 mt-1">
-                                <span className="text-[color:var(--sf-text-secondary)]">Confidence</span>
-                                <span className="font-mono font-semibold">{confBand}</span>
-                              </div>
-                              <div className="flex items-center justify-between gap-2 mt-1">
-                                <span className="text-[color:var(--sf-text-secondary)]">Trend</span>
-                                <span className={["flex items-center gap-1 font-mono font-semibold", trend.tone === "good" ? "text-[#16A34A]" : trend.tone === "bad" ? "text-[#E74C3C]" : "text-[color:var(--sf-text-secondary)]"].join(" ")}>
-                                  <span aria-hidden="true">{trend.arrow}</span>
-                                  <span>{trend.label}</span>
-                                </span>
-                              </div>
-                              <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Based on {partnerWon.toLocaleString("en-US")} partner closed-won deal(s).</div>
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
+            <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
+              <PartnerMotionPerformanceSection
+                engine={partnersDecisionEngine}
+                outerClass=""
+                motionGridClass="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4"
+                motionCardClass="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3"
+                comparisonRowClass="mt-4 grid gap-3 lg:grid-cols-2"
+                comparisonCardClass="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4"
+                ceiRowClass="mt-4 grid gap-3 lg:grid-cols-3"
+                ceiCardClass="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4"
+                ratioCardClass="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4"
+              />
+            </div>
 
             <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
               <div className="flex flex-wrap items-end justify-between gap-3">
@@ -3150,8 +3034,14 @@ export function ExecutiveGapInsightsClient(props: {
                   fiscal_year: props.fiscalYear,
                   fiscal_quarter: props.fiscalQuarter,
                   direct: partnersDecisionEngine.direct,
-                  partner: partnersDecisionEngine.partner,
+                  partner_influenced: partnersDecisionEngine.partner_influenced,
+                  partner_sourced: partnersDecisionEngine.partner_sourced,
                   revenue_mix_partner_pct: partnersDecisionEngine.partnerMix,
+                  revenue_mix_motion_pct01: {
+                    direct: partnersDecisionEngine.directMix,
+                    partner_influenced: partnersDecisionEngine.partnerInfluencedMix,
+                    partner_sourced: partnersDecisionEngine.partnerSourcedMix,
+                  },
                   decision_engine: {
                     executive_narrative: partnersDecisionEngine.narrative,
                     cei_index: partnersDecisionEngine.cei,
@@ -3376,190 +3266,19 @@ export function ExecutiveGapInsightsClient(props: {
               </div>
             </div>
 
-            {(() => {
-              const direct = partnersDecisionEngine.direct;
-              const partner = partnersDecisionEngine.partner;
-
-              const directWin = direct.win_rate == null ? null : Number(direct.win_rate);
-              const partnerWin = partner.win_rate == null ? null : Number(partner.win_rate);
-
-              const directHealth01 = direct.avg_health_score == null ? null : Number(direct.avg_health_score) / 30;
-              const partnerHealth01 = partner.avg_health_score == null ? null : Number(partner.avg_health_score) / 30;
-
-              const directRev = direct.won_amount == null ? null : Number(direct.won_amount);
-              const partnerRev = partner.won_amount == null ? null : Number(partner.won_amount);
-
-              const directMix = partnersDecisionEngine.directMix == null ? null : Number(partnersDecisionEngine.directMix);
-              const partnerMix = partnersDecisionEngine.partnerMix == null ? null : Number(partnersDecisionEngine.partnerMix);
-
-              function fmtMoneyK(n: any) {
-                const v = Number(n || 0);
-                if (!Number.isFinite(v)) return "—";
-                const k = Math.round(v / 1000);
-                return `$${k.toLocaleString("en-US")}K`;
-              }
-
-              function highlightClass(value: number | null, a: number | null, b: number | null) {
-                if (value == null || a == null || b == null) return "";
-                const aa = Number(a);
-                const bb = Number(b);
-                if (!Number.isFinite(aa) || !Number.isFinite(bb)) return "";
-                const denom = Math.max(Math.abs(aa), Math.abs(bb));
-                if (denom <= 0) return "";
-                const relDiffPct = (Math.abs(aa - bb) / denom) * 100;
-                if (relDiffPct <= 5) return "";
-                if (aa === bb) return "";
-                const max = Math.max(aa, bb);
-                const min = Math.min(aa, bb);
-                if (value === max) return "text-[#16A34A]";
-                if (value === min) return "text-[#E74C3C]";
-                return "";
-              }
-
-              const rows = [
-                { k: "Direct", win: directWin, health: directHealth01, rev: directRev, mix: directMix },
-                { k: "Partner", win: partnerWin, health: partnerHealth01, rev: partnerRev, mix: partnerMix },
-              ] as const;
-
-              return (
-                <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Motion Performance Snapshot</div>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    {rows.map((row) => (
-                      <div key={row.k} className="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-                        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{row.k}</div>
-                        <div className="mt-3 grid gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
-                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-                            <span>Win Rate</span>
-                            <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.win, directWin, partnerWin)].join(" ")}>{row.win == null ? "—" : fmtPct01(row.win)}</span>
-                          </div>
-                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-                            <span>Avg Health</span>
-                            <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.health, directHealth01, partnerHealth01)].join(" ")}>{row.health == null ? "—" : `${Math.round(row.health * 100)}%`}</span>
-                          </div>
-                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-                            <span>Revenue</span>
-                            <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.rev, directRev, partnerRev)].join(" ")}>{row.rev == null ? "—" : fmtMoneyK(row.rev)}</span>
-                          </div>
-                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-                            <span>Mix</span>
-                            <span className={["font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]", highlightClass(row.mix, directMix, partnerMix)].join(" ")}>{row.mix == null ? "—" : fmtPct01(row.mix)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-
-                    {(() => {
-                      const deltaTone = (d: number | null) => (d == null || !Number.isFinite(d) ? "text-[color:var(--sf-text-disabled)]" : d > 0 ? "text-[#16A34A]" : d < 0 ? "text-[#E74C3C]" : "text-[color:var(--sf-text-primary)]");
-                      const fmtPp = (d01: number | null) => {
-                        if (d01 == null || !Number.isFinite(d01)) return "—";
-                        const pp = d01 * 100;
-                        const abs = Math.abs(pp);
-                        const txt = `${Math.round(abs)}pp`;
-                        return `${pp > 0 ? "+" : pp < 0 ? "-" : ""}${txt}`;
-                      };
-                      const fmtMoneyKSigned = (d: number | null) => {
-                        if (d == null || !Number.isFinite(d)) return "—";
-                        const k = Math.round(Math.abs(d) / 1000);
-                        const txt = `$${k.toLocaleString("en-US")}K`;
-                        return `${d > 0 ? "+" : d < 0 ? "-" : ""}${txt}`;
-                      };
-                      const dWin = directWin == null || partnerWin == null ? null : directWin - partnerWin;
-                      const dHealth = directHealth01 == null || partnerHealth01 == null ? null : directHealth01 - partnerHealth01;
-                      const dRev = directRev == null || partnerRev == null ? null : directRev - partnerRev;
-                      const dMix = directMix == null || partnerMix == null ? null : directMix - partnerMix;
-                      return (
-                        <div className="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-                          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct Vs. Indirect Performance</div>
-                          <div className="mt-3 grid gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
-                            <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-                              <span>Win Rate</span>
-                              <span className={["font-mono text-xs font-semibold", deltaTone(dWin)].join(" ")}>{fmtPp(dWin)}</span>
-                            </div>
-                            <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-                              <span>Avg Health</span>
-                              <span className={["font-mono text-xs font-semibold", deltaTone(dHealth)].join(" ")}>{fmtPp(dHealth)}</span>
-                            </div>
-                            <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-                              <span>Revenue</span>
-                              <span className={["font-mono text-xs font-semibold", deltaTone(dRev)].join(" ")}>{fmtMoneyKSigned(dRev)}</span>
-                            </div>
-                            <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-                              <span>Mix</span>
-                              <span className={["font-mono text-xs font-semibold", deltaTone(dMix)].join(" ")}>{fmtPp(dMix)}</span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    <div className="h-fit self-start rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-                      {(() => {
-                        const ceiCur = partnersDecisionEngine.cei.partner_index;
-                        const ceiPrev = partnersDecisionEngine.cei_prev_partner_index;
-                        const ceiCurN = ceiCur == null ? null : Number(ceiCur);
-                        const ceiPrevN = ceiPrev == null ? null : Number(ceiPrev);
-                        const delta = ceiCurN != null && ceiPrevN != null ? ceiCurN - ceiPrevN : null;
-                        const status =
-                          ceiCurN == null
-                            ? { label: "—", tone: "muted" as const }
-                            : ceiCurN >= 120
-                              ? { label: "HIGH", tone: "good" as const }
-                              : ceiCurN >= 90
-                                ? { label: "MEDIUM", tone: "warn" as const }
-                                : ceiCurN >= 70
-                                  ? { label: "LOW", tone: "bad" as const }
-                                  : { label: "CRITICAL", tone: "bad" as const };
-                        const partnerWon = Number(partnersDecisionEngine.partner.won_opps || 0) || 0;
-                        const sampleFactor = Math.min(1, partnerWon / 12);
-                        const revenueShare = partnersDecisionEngine.partnerMix == null ? 0 : Number(partnersDecisionEngine.partnerMix);
-                        const revenueFactor = Math.min(1, revenueShare / 0.4);
-                        const volatilityFactor = delta != null ? 1 - normalize(Math.abs(delta), 0, 100) : 0.6;
-                        const conf01 = sampleFactor * 0.5 + revenueFactor * 0.3 + volatilityFactor * 0.2;
-                        const conf = clampScore100(conf01 * 100);
-                        const confBand =
-                          conf >= 75 ? "HIGH CONFIDENCE" : conf >= 50 ? "MODERATE CONFIDENCE" : conf >= 30 ? "LOW CONFIDENCE" : "PRELIMINARY";
-                        const trend =
-                          delta == null
-                            ? { label: "—", arrow: "→", tone: "muted" as const }
-                            : delta >= 15
-                              ? { label: "Improving", arrow: "↑", tone: "good" as const }
-                              : delta <= -15
-                                ? { label: "Declining", arrow: "↓", tone: "bad" as const }
-                                : { label: "Stable", arrow: "→", tone: "muted" as const };
-                        return (
-                          <>
-                            <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CEI Performance</div>
-                            <div className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
-                              <div className="flex items-center justify-between gap-3">
-                                <span className="text-[color:var(--sf-text-secondary)]">CEI Status</span>
-                                <span className={["inline-flex min-w-[110px] items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold", pillToneClass(status.tone)].join(" ")}>{status.label}</span>
-                              </div>
-                              <div className="flex items-center justify-between gap-3">
-                                <span className="text-[color:var(--sf-text-secondary)]">Partner CEI</span>
-                                <span className="font-mono font-semibold">{ceiCurN == null ? "—" : `${Math.round(ceiCurN).toLocaleString("en-US")} (Direct = 100)`}</span>
-                              </div>
-                              <div className="flex items-center justify-between gap-3">
-                                <span className="text-[color:var(--sf-text-secondary)]">Confidence</span>
-                                <span className="font-mono font-semibold">{confBand}</span>
-                              </div>
-                              <div className="flex items-center justify-between gap-3">
-                                <span className="text-[color:var(--sf-text-secondary)]">Trend</span>
-                                <span className={["flex items-center gap-1 font-mono font-semibold", trend.tone === "good" ? "text-[#16A34A]" : trend.tone === "bad" ? "text-[#E74C3C]" : "text-[color:var(--sf-text-secondary)]"].join(" ")}>
-                                  <span aria-hidden="true">{trend.arrow}</span>
-                                  <span>{trend.label}</span>
-                                </span>
-                              </div>
-                              <div className="text-[11px] text-[color:var(--sf-text-secondary)]">Based on {partnerWon.toLocaleString("en-US")} partner closed-won deal(s).</div>
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
+            <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
+              <PartnerMotionPerformanceSection
+                engine={partnersDecisionEngine}
+                outerClass=""
+                motionGridClass="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+                motionCardClass="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
+                comparisonRowClass="mt-4 grid gap-3 lg:grid-cols-2"
+                comparisonCardClass="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
+                ceiRowClass="mt-4 grid gap-3 lg:grid-cols-3"
+                ceiCardClass="rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
+                ratioCardClass="h-fit self-start rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4"
+              />
+            </div>
 
             <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
               <div className="flex flex-wrap items-end justify-between gap-3">
@@ -3627,8 +3346,14 @@ export function ExecutiveGapInsightsClient(props: {
                   fiscal_year: props.fiscalYear,
                   fiscal_quarter: props.fiscalQuarter,
                   direct: partnersDecisionEngine.direct,
-                  partner: partnersDecisionEngine.partner,
+                  partner_influenced: partnersDecisionEngine.partner_influenced,
+                  partner_sourced: partnersDecisionEngine.partner_sourced,
                   revenue_mix_partner_pct: partnersDecisionEngine.partnerMix,
+                  revenue_mix_motion_pct01: {
+                    direct: partnersDecisionEngine.directMix,
+                    partner_influenced: partnersDecisionEngine.partnerInfluencedMix,
+                    partner_sourced: partnersDecisionEngine.partnerSourcedMix,
+                  },
                   decision_engine: {
                     executive_narrative: partnersDecisionEngine.narrative,
                     cei_index: partnersDecisionEngine.cei,
@@ -4576,252 +4301,19 @@ export function ExecutiveGapInsightsClient(props: {
             </div>
           </div>
 
-          {(() => {
-            const direct = partnersDecisionEngine.direct;
-            const partner = partnersDecisionEngine.partner;
-
-            const directWin = direct.win_rate == null ? null : Number(direct.win_rate);
-            const partnerWin = partner.win_rate == null ? null : Number(partner.win_rate);
-
-            const directHealth01 = direct.avg_health_score == null ? null : Number(direct.avg_health_score) / 30;
-            const partnerHealth01 = partner.avg_health_score == null ? null : Number(partner.avg_health_score) / 30;
-
-            const directRev = direct.won_amount == null ? null : Number(direct.won_amount);
-            const partnerRev = partner.won_amount == null ? null : Number(partner.won_amount);
-
-            const directMix = partnersDecisionEngine.directMix == null ? null : Number(partnersDecisionEngine.directMix);
-            const partnerMix = partnersDecisionEngine.partnerMix == null ? null : Number(partnersDecisionEngine.partnerMix);
-
-            function fmtMoneyK(n: any) {
-              const v = Number(n || 0);
-              if (!Number.isFinite(v)) return "—";
-              const k = Math.round(v / 1000);
-              return `$${k.toLocaleString("en-US")}K`;
-            }
-
-            function highlightClass(value: number | null, a: number | null, b: number | null) {
-              if (value == null || a == null || b == null) return "";
-              const aa = Number(a);
-              const bb = Number(b);
-              if (!Number.isFinite(aa) || !Number.isFinite(bb)) return "";
-              const denom = Math.max(Math.abs(aa), Math.abs(bb));
-              if (denom <= 0) return "";
-              const relDiffPct = (Math.abs(aa - bb) / denom) * 100;
-              if (relDiffPct <= 5) return "";
-              if (aa === bb) return "";
-              const max = Math.max(aa, bb);
-              const min = Math.min(aa, bb);
-              if (value === max) return "text-[#16A34A]";
-              if (value === min) return "text-[#E74C3C]";
-              return "";
-            }
-
-            const rows = [
-              {
-                k: "Direct",
-                win: directWin,
-                health: directHealth01,
-                rev: directRev,
-                mix: directMix,
-              },
-              {
-                k: "Partner",
-                win: partnerWin,
-                health: partnerHealth01,
-                rev: partnerRev,
-                mix: partnerMix,
-              },
-            ] as const;
-
-            return (
-              <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
-                <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Motion Performance Snapshot</div>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  {rows.map((row) => (
-                    <div key={row.k} className="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-                      <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{row.k}</div>
-                      <div className="mt-3 grid gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
-                        <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-                          <span>Win Rate</span>
-                          <span
-                            className={[
-                              "font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]",
-                              highlightClass(row.win, directWin, partnerWin),
-                            ].join(" ")}
-                          >
-                            {row.win == null ? "—" : fmtPct01(row.win)}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-                          <span>Avg Health</span>
-                          <span
-                            className={[
-                              "font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]",
-                              highlightClass(row.health, directHealth01, partnerHealth01),
-                            ].join(" ")}
-                          >
-                            {row.health == null ? "—" : `${Math.round(row.health * 100)}%`}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-                          <span>Revenue</span>
-                          <span
-                            className={[
-                              "font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]",
-                              highlightClass(row.rev, directRev, partnerRev),
-                            ].join(" ")}
-                          >
-                            {row.rev == null ? "—" : fmtMoneyK(row.rev)}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-                          <span>Mix</span>
-                          <span
-                            className={[
-                              "font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]",
-                              highlightClass(row.mix, directMix, partnerMix),
-                            ].join(" ")}
-                          >
-                            {row.mix == null ? "—" : fmtPct01(row.mix)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
-                  {(() => {
-                    const deltaTone = (d: number | null) => (d == null || !Number.isFinite(d) ? "text-[color:var(--sf-text-disabled)]" : d > 0 ? "text-[#16A34A]" : d < 0 ? "text-[#E74C3C]" : "text-[color:var(--sf-text-primary)]");
-                    const fmtPp = (d01: number | null) => {
-                      if (d01 == null || !Number.isFinite(d01)) return "—";
-                      const pp = d01 * 100;
-                      const abs = Math.abs(pp);
-                      const txt = `${Math.round(abs)}pp`;
-                      return `${pp > 0 ? "+" : pp < 0 ? "-" : ""}${txt}`;
-                    };
-                    const fmtMoneyKSigned = (d: number | null) => {
-                      if (d == null || !Number.isFinite(d)) return "—";
-                      const k = Math.round(Math.abs(d) / 1000);
-                      const txt = `$${k.toLocaleString("en-US")}K`;
-                      return `${d > 0 ? "+" : d < 0 ? "-" : ""}${txt}`;
-                    };
-
-                    const dWin = directWin == null || partnerWin == null ? null : directWin - partnerWin;
-                    const dHealth = directHealth01 == null || partnerHealth01 == null ? null : directHealth01 - partnerHealth01;
-                    const dRev = directRev == null || partnerRev == null ? null : directRev - partnerRev;
-                    const dMix = directMix == null || partnerMix == null ? null : directMix - partnerMix;
-
-                    return (
-                      <div className="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-                        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct Vs. Indirect Performance</div>
-                        <div className="mt-3 grid gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
-                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-                            <span>Win Rate</span>
-                            <span className={["font-mono text-xs font-semibold", deltaTone(dWin)].join(" ")}>{fmtPp(dWin)}</span>
-                          </div>
-                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-                            <span>Avg Health</span>
-                            <span className={["font-mono text-xs font-semibold", deltaTone(dHealth)].join(" ")}>{fmtPp(dHealth)}</span>
-                          </div>
-                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-                            <span>Revenue</span>
-                            <span className={["font-mono text-xs font-semibold", deltaTone(dRev)].join(" ")}>{fmtMoneyKSigned(dRev)}</span>
-                          </div>
-                          <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-                            <span>Mix</span>
-                            <span className={["font-mono text-xs font-semibold", deltaTone(dMix)].join(" ")}>{fmtPp(dMix)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  <div className="h-fit self-start rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-                    {(() => {
-                      const ceiCur = partnersDecisionEngine.cei.partner_index;
-                      const ceiPrev = partnersDecisionEngine.cei_prev_partner_index;
-                      const ceiCurN = ceiCur == null ? null : Number(ceiCur);
-                      const ceiPrevN = ceiPrev == null ? null : Number(ceiPrev);
-                      const delta = ceiCurN != null && ceiPrevN != null ? ceiCurN - ceiPrevN : null;
-
-                      const status =
-                        ceiCurN == null
-                          ? { label: "—", tone: "muted" as const }
-                          : ceiCurN >= 120
-                            ? { label: "HIGH", tone: "good" as const }
-                            : ceiCurN >= 90
-                              ? { label: "MEDIUM", tone: "warn" as const }
-                              : ceiCurN >= 70
-                                ? { label: "LOW", tone: "bad" as const }
-                                : { label: "CRITICAL", tone: "bad" as const };
-
-                      const partnerWon = Number(partnersDecisionEngine.partner.won_opps || 0) || 0;
-                      const sampleFactor = Math.min(1, partnerWon / 12);
-                      const revenueShare = partnersDecisionEngine.partnerMix == null ? 0 : Number(partnersDecisionEngine.partnerMix);
-                      const revenueFactor = Math.min(1, revenueShare / 0.4);
-                      const volatilityFactor = delta != null ? 1 - normalize(Math.abs(delta), 0, 100) : 0.6;
-                      const conf01 = sampleFactor * 0.5 + revenueFactor * 0.3 + volatilityFactor * 0.2;
-                      const conf = clampScore100(conf01 * 100);
-                      const confBand =
-                        conf >= 75 ? "HIGH CONFIDENCE" : conf >= 50 ? "MODERATE CONFIDENCE" : conf >= 30 ? "LOW CONFIDENCE" : "PRELIMINARY";
-
-                      const trend =
-                        delta == null
-                          ? { label: "—", arrow: "→", tone: "muted" as const }
-                          : delta >= 15
-                            ? { label: "Improving", arrow: "↑", tone: "good" as const }
-                            : delta <= -15
-                              ? { label: "Declining", arrow: "↓", tone: "bad" as const }
-                              : { label: "Stable", arrow: "→", tone: "muted" as const };
-
-                      return (
-                        <>
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CEI Performance</div>
-                          <div className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="text-[color:var(--sf-text-secondary)]">CEI Status</span>
-                              <span
-                                className={[
-                                  "inline-flex min-w-[110px] items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold",
-                                  pillToneClass(status.tone),
-                                ].join(" ")}
-                              >
-                                {status.label}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="text-[color:var(--sf-text-secondary)]">Partner CEI</span>
-                              <span className="font-mono font-semibold">
-                                {ceiCurN == null ? "—" : `${Math.round(ceiCurN).toLocaleString("en-US")} (Direct = 100)`}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="text-[color:var(--sf-text-secondary)]">Confidence</span>
-                              <span className="font-mono font-semibold">{confBand}</span>
-                            </div>
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="text-[color:var(--sf-text-secondary)]">Trend</span>
-                              <span
-                                className={[
-                                  "flex items-center gap-1 font-mono font-semibold",
-                                  trend.tone === "good" ? "text-[#16A34A]" : trend.tone === "bad" ? "text-[#E74C3C]" : "text-[color:var(--sf-text-secondary)]",
-                                ].join(" ")}
-                              >
-                                <span aria-hidden="true">{trend.arrow}</span>
-                                <span>{trend.label}</span>
-                              </span>
-                            </div>
-                            <div className="text-[11px] text-[color:var(--sf-text-secondary)]">
-                              Based on {partnerWon.toLocaleString("en-US")} partner closed-won deal(s).
-                            </div>
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
+          <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
+            <PartnerMotionPerformanceSection
+              engine={partnersDecisionEngine}
+              outerClass=""
+              motionGridClass="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
+              motionCardClass="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
+              comparisonRowClass="mt-4 grid gap-3 lg:grid-cols-2"
+              comparisonCardClass="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
+              ceiRowClass="mt-4 grid gap-3 lg:grid-cols-3"
+              ceiCardClass="rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
+              ratioCardClass="h-fit self-start rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4"
+            />
+          </div>
 
           <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-3">
@@ -4912,8 +4404,14 @@ export function ExecutiveGapInsightsClient(props: {
                 fiscal_year: props.fiscalYear,
                 fiscal_quarter: props.fiscalQuarter,
                 direct: partnersDecisionEngine.direct,
-                partner: partnersDecisionEngine.partner,
+                partner_influenced: partnersDecisionEngine.partner_influenced,
+                partner_sourced: partnersDecisionEngine.partner_sourced,
                 revenue_mix_partner_pct: partnersDecisionEngine.partnerMix,
+                revenue_mix_motion_pct01: {
+                  direct: partnersDecisionEngine.directMix,
+                  partner_influenced: partnersDecisionEngine.partnerInfluencedMix,
+                  partner_sourced: partnersDecisionEngine.partnerSourcedMix,
+                },
                 decision_engine: {
                   executive_narrative: partnersDecisionEngine.narrative,
                   cei_index: partnersDecisionEngine.cei,
@@ -5059,6 +4557,38 @@ export function ExecutiveGapInsightsClient(props: {
                       const p = Number(props.quarterKpis.directVsPartner.partnerWonAmount || 0) || 0;
                       const denom = d + p;
                       return denom > 0 ? fmtPct01(p / denom) : "—";
+                    })()
+                  }
+                />
+                <Chip
+                  label="Closed won (Partner Influenced)"
+                  value={fmtMoney(props.quarterKpis.directVsPartner.partnerInfluencedWonAmount)}
+                />
+                <Chip
+                  label="Closed won (Partner Sourced)"
+                  value={fmtMoney(props.quarterKpis.directVsPartner.partnerSourcedWonAmount)}
+                />
+                <Chip
+                  label="Revenue Mix (Influenced)"
+                  value={
+                    (() => {
+                      const d = Number(props.quarterKpis.directVsPartner.directWonAmount || 0) || 0;
+                      const i = Number(props.quarterKpis.directVsPartner.partnerInfluencedWonAmount || 0) || 0;
+                      const s = Number(props.quarterKpis.directVsPartner.partnerSourcedWonAmount || 0) || 0;
+                      const denom = d + i + s;
+                      return denom > 0 ? fmtPct01(i / denom) : "—";
+                    })()
+                  }
+                />
+                <Chip
+                  label="Revenue Mix (Sourced)"
+                  value={
+                    (() => {
+                      const d = Number(props.quarterKpis.directVsPartner.directWonAmount || 0) || 0;
+                      const i = Number(props.quarterKpis.directVsPartner.partnerInfluencedWonAmount || 0) || 0;
+                      const s = Number(props.quarterKpis.directVsPartner.partnerSourcedWonAmount || 0) || 0;
+                      const denom = d + i + s;
+                      return denom > 0 ? fmtPct01(s / denom) : "—";
                     })()
                   }
                 />
