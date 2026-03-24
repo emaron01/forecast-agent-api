@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ExecRepOption } from "../../../lib/executiveForecastDashboard";
@@ -20,6 +20,7 @@ import type { PipelineMomentumData } from "../../../lib/pipelineMomentum";
 import { AiSummaryReportClient } from "../../ai/AiSummaryReportClient";
 import { PartnersExecutiveAiTakeawayClient } from "../../ai/PartnersExecutiveAiTakeawayClient";
 import { useExecutiveBriefing } from "./ExecutiveBriefingContext";
+import { DealCoachingCard, type DealCoachingCardDeal } from "../../../app/components/dashboard/coaching/DealCoachingCard";
 
 type RiskCategoryKey =
   | "pain"
@@ -369,6 +370,125 @@ function colorForDealId(id: string) {
   return `color-mix(in srgb, ${base[idx]} ${mixPct}%, white)`;
 }
 
+async function fetchCommitDealCoachingCard(dealId: string): Promise<DealCoachingCardDeal | null> {
+  const res = await fetch(`/api/coaching/deal-card?id=${encodeURIComponent(dealId)}`, { method: "GET" });
+  if (!res.ok) return null;
+  const j = await res.json();
+  if (!j?.ok || !j?.deal) return null;
+  return j.deal as DealCoachingCardDeal;
+}
+
+function CommitIntegrityDealCard(props: {
+  d: CommitDealPanelItem;
+  channelInline: boolean;
+  expanded: boolean;
+  loading: boolean;
+  deal: DealCoachingCardDeal | undefined;
+  onToggle: () => void;
+  showRequestReview: boolean;
+  kind: "pain" | "verified";
+  cardClassName: string;
+  title?: string;
+  style?: CSSProperties;
+}) {
+  const { d, channelInline, expanded, loading, deal, onToggle, showRequestReview, kind, cardClassName, title, style } = props;
+  const sharedInner =
+    kind === "pain" ? (
+      <>
+        <div className="flex items-center justify-between gap-2">
+          <span className="min-w-0 truncate font-medium text-[color:var(--sf-text-primary)]">
+            {[d.account, d.name].filter(Boolean).join(" — ") || "(Untitled)"}
+          </span>
+          <span className="shrink-0 text-xs font-semibold text-[color:var(--sf-text-primary)]">
+            {d.amount.toLocaleString("en-US", {
+              style: "currency",
+              currency: "USD",
+              maximumFractionDigits: 0,
+            })}
+          </span>
+        </div>
+        <div className="mt-1 flex items-center gap-1.5">
+          <span
+            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+              d.commit_admission_status === "not_admitted"
+                ? "bg-[#E74C3C]/20 text-[#E74C3C]"
+                : "bg-[#F1C40F]/20 text-[#F1C40F]"
+            }`}
+          >
+            {d.commit_admission_status === "not_admitted" ? "NOT ADMITTED" : "NEEDS REVIEW"}
+          </span>
+          <span className="min-w-0 truncate text-xs text-[color:var(--sf-text-secondary)]">
+            {d.commit_admission_status === "not_admitted"
+              ? d.commit_admission_reasons[0] || "Paper Process weak"
+              : `Low-confidence evidence${
+                  d.low_conf_categories?.length ? ` (${d.low_conf_categories.join(", ")})` : ""
+                }`}
+          </span>
+        </div>
+      </>
+    ) : (
+      <>
+        <div className="flex items-center justify-between gap-2">
+          <span className="min-w-0 truncate font-medium text-[color:var(--sf-text-primary)]">
+            {[d.account, d.name].filter(Boolean).join(" — ") || "(Untitled)"}
+          </span>
+          <span className="shrink-0 text-xs font-semibold text-[color:var(--sf-text-primary)]">
+            {d.amount.toLocaleString("en-US", {
+              style: "currency",
+              currency: "USD",
+              maximumFractionDigits: 0,
+            })}
+          </span>
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-1">
+          <span className="shrink-0 rounded bg-[#2ECC71]/20 px-1.5 py-0.5 text-[10px] font-semibold text-[#2ECC71]">
+            VERIFIED
+          </span>
+          {(d.high_conf_categories || []).map((cat) => (
+            <span
+              key={cat}
+              className="rounded bg-[color:var(--sf-surface)] px-1.5 py-0.5 text-[10px] text-[color:var(--sf-text-secondary)]"
+            >
+              {cat}: High
+            </span>
+          ))}
+        </div>
+      </>
+    );
+
+  if (!channelInline) {
+    return (
+      <Link
+        href={`/opportunities/${encodeURIComponent(d.id)}/deal-review`}
+        className={cardClassName}
+        title={title}
+        style={style}
+      >
+        {sharedInner}
+      </Link>
+    );
+  }
+
+  return (
+    <div className="min-w-0 space-y-2" style={style}>
+      <button type="button" onClick={onToggle} className={`${cardClassName} w-full cursor-pointer text-left`} title={title}>
+        {sharedInner}
+      </button>
+      {expanded ? (
+        <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3 shadow-sm">
+          {loading ? (
+            <div className="py-4 text-center text-sm text-[color:var(--sf-text-secondary)]">Loading coaching card...</div>
+          ) : deal ? (
+            <DealCoachingCard deal={deal} showRequestReview={showRequestReview} />
+          ) : (
+            <div className="text-sm text-[#E74C3C]">Unable to load coaching card.</div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ExecutiveGapInsightsClient(props: {
   basePath: string;
   periods: Array<{ id: string; fiscal_year: string; fiscal_quarter: string; period_name: string; period_start: string; period_end: string }>;
@@ -513,6 +633,8 @@ export function ExecutiveGapInsightsClient(props: {
   topPartnerLost?: any[];
   revenueTabOnly?: boolean;
   heroOnly?: boolean;
+  /** When set, channel roles get inline Commit Integrity cards + no Request Review on coaching card. */
+  viewerRole?: string | null;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -536,7 +658,15 @@ export function ExecutiveGapInsightsClient(props: {
   const [radarAiToast, setRadarAiToast] = useState<string>("");
   const [radarAiCopied, setRadarAiCopied] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [commitIntegrityExpandedId, setCommitIntegrityExpandedId] = useState<string | null>(null);
+  const [commitDealCache, setCommitDealCache] = useState<Record<string, DealCoachingCardDeal>>({});
+  const [commitDealLoadingId, setCommitDealLoadingId] = useState<string | null>(null);
   const briefing = useExecutiveBriefing();
+
+  const isChannelViewerRole = useMemo(
+    () => ["CHANNEL_EXECUTIVE", "CHANNEL_DIRECTOR", "CHANNEL_REP"].includes(String(props.viewerRole || "").trim()),
+    [props.viewerRole]
+  );
 
   // Extended content often starts with the summary (API repeats executive one-line); strip it so we don't show summary twice.
   const radarAiExtendedDisplay = useMemo(() => {
@@ -1525,6 +1655,22 @@ export function ExecutiveGapInsightsClient(props: {
     return { d, tone, arrow };
   };
 
+  const commitIntegrityCardClass =
+    "block rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2 text-sm hover:bg-[color:var(--sf-surface-alt)]";
+
+  async function toggleCommitIntegrityDeal(dealId: string) {
+    setCommitIntegrityExpandedId((prev) => (prev === dealId ? null : dealId));
+    if (commitIntegrityExpandedId === dealId) return;
+    if (commitDealCache[dealId]) return;
+    setCommitDealLoadingId(dealId);
+    try {
+      const found = await fetchCommitDealCoachingCard(dealId);
+      if (found) setCommitDealCache((prev) => ({ ...prev, [dealId]: found }));
+    } finally {
+      setCommitDealLoadingId(null);
+    }
+  }
+
   if (props.pipelineTabOnly) {
     const stageLabel =
       stageView === "commit"
@@ -2148,47 +2294,19 @@ export function ExecutiveGapInsightsClient(props: {
                     </div>
                     <div className="mt-2 space-y-2">
                       {props.commitDealPanels.topPainDeals.map((d) => (
-                        <Link
+                        <CommitIntegrityDealCard
                           key={d.id}
-                          href={`/opportunities/${encodeURIComponent(d.id)}/deal-review`}
-                          className="block rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+                          d={d}
+                          channelInline={isChannelViewerRole}
+                          expanded={commitIntegrityExpandedId === d.id}
+                          loading={commitDealLoadingId === d.id}
+                          deal={commitDealCache[d.id]}
+                          onToggle={() => void toggleCommitIntegrityDeal(d.id)}
+                          showRequestReview={!isChannelViewerRole}
+                          kind="pain"
+                          cardClassName={commitIntegrityCardClass}
                           title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="min-w-0 truncate font-medium text-[color:var(--sf-text-primary)]">
-                              {[d.account, d.name].filter(Boolean).join(" — ") || "(Untitled)"}
-                            </span>
-                            <span className="shrink-0 text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                              {d.amount.toLocaleString("en-US", {
-                                style: "currency",
-                                currency: "USD",
-                                maximumFractionDigits: 0,
-                              })}
-                            </span>
-                          </div>
-                          <div className="mt-1 flex items-center gap-1.5">
-                            <span
-                              className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                                d.commit_admission_status === "not_admitted"
-                                  ? "bg-[#E74C3C]/20 text-[#E74C3C]"
-                                  : "bg-[#F1C40F]/20 text-[#F1C40F]"
-                              }`}
-                            >
-                              {d.commit_admission_status === "not_admitted"
-                                ? "NOT ADMITTED"
-                                : "NEEDS REVIEW"}
-                            </span>
-                            <span className="min-w-0 truncate text-xs text-[color:var(--sf-text-secondary)]">
-                              {d.commit_admission_status === "not_admitted"
-                                ? d.commit_admission_reasons[0] || "Paper Process weak"
-                                : `Low-confidence evidence${
-                                    d.low_conf_categories?.length
-                                      ? ` (${d.low_conf_categories.join(", ")})`
-                                      : ""
-                                  }`}
-                            </span>
-                          </div>
-                        </Link>
+                        />
                       ))}
                     </div>
                   </div>
@@ -2200,38 +2318,19 @@ export function ExecutiveGapInsightsClient(props: {
                     </div>
                     <div className="mt-2 space-y-2">
                       {props.commitDealPanels.topVerifiedDeals.map((d) => (
-                        <Link
+                        <CommitIntegrityDealCard
                           key={d.id}
-                          href={`/opportunities/${encodeURIComponent(d.id)}/deal-review`}
-                          className="block rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+                          d={d}
+                          channelInline={isChannelViewerRole}
+                          expanded={commitIntegrityExpandedId === d.id}
+                          loading={commitDealLoadingId === d.id}
+                          deal={commitDealCache[d.id]}
+                          onToggle={() => void toggleCommitIntegrityDeal(d.id)}
+                          showRequestReview={!isChannelViewerRole}
+                          kind="verified"
+                          cardClassName={commitIntegrityCardClass}
                           title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="min-w-0 truncate font-medium text-[color:var(--sf-text-primary)]">
-                              {[d.account, d.name].filter(Boolean).join(" — ") || "(Untitled)"}
-                            </span>
-                            <span className="shrink-0 text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                              {d.amount.toLocaleString("en-US", {
-                                style: "currency",
-                                currency: "USD",
-                                maximumFractionDigits: 0,
-                              })}
-                            </span>
-                          </div>
-                          <div className="mt-1 flex flex-wrap items-center gap-1">
-                            <span className="shrink-0 rounded bg-[#2ECC71]/20 px-1.5 py-0.5 text-[10px] font-semibold text-[#2ECC71]">
-                              VERIFIED
-                            </span>
-                            {(d.high_conf_categories || []).map((cat) => (
-                              <span
-                                key={cat}
-                                className="rounded bg-[color:var(--sf-surface)] px-1.5 py-0.5 text-[10px] text-[color:var(--sf-text-secondary)]"
-                              >
-                                {cat}: High
-                              </span>
-                            ))}
-                          </div>
-                        </Link>
+                        />
                       ))}
                     </div>
                   </div>
@@ -2521,38 +2620,20 @@ export function ExecutiveGapInsightsClient(props: {
                   <div className="text-xs font-semibold uppercase text-[color:var(--sf-text-secondary)]">Top Commit Risks</div>
                   <div className="mt-2 grid grid-cols-2 gap-3">
                     {props.commitDealPanels.topPainDeals.slice(0, 10).map((d, idx) => (
-                      <Link
+                      <CommitIntegrityDealCard
                         key={d.id}
-                        href={`/opportunities/${encodeURIComponent(d.id)}/deal-review`}
-                        className="block rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+                        d={d}
+                        channelInline={isChannelViewerRole}
+                        expanded={commitIntegrityExpandedId === d.id}
+                        loading={commitDealLoadingId === d.id}
+                        deal={commitDealCache[d.id]}
+                        onToggle={() => void toggleCommitIntegrityDeal(d.id)}
+                        showRequestReview={!isChannelViewerRole}
+                        kind="pain"
+                        cardClassName={commitIntegrityCardClass}
                         title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
                         style={{ order: idx < 5 ? 0 : 1 }}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="min-w-0 truncate font-medium text-[color:var(--sf-text-primary)]">
-                            {[d.account, d.name].filter(Boolean).join(" — ") || "(Untitled)"}
-                          </span>
-                          <span className="shrink-0 text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                            {d.amount.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex items-center gap-1.5">
-                          <span
-                            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                              d.commit_admission_status === "not_admitted"
-                                ? "bg-[#E74C3C]/20 text-[#E74C3C]"
-                                : "bg-[#F1C40F]/20 text-[#F1C40F]"
-                            }`}
-                          >
-                            {d.commit_admission_status === "not_admitted" ? "NOT ADMITTED" : "NEEDS REVIEW"}
-                          </span>
-                          <span className="min-w-0 truncate text-xs text-[color:var(--sf-text-secondary)]">
-                            {d.commit_admission_status === "not_admitted"
-                              ? d.commit_admission_reasons[0] || "Paper Process weak"
-                              : `Low-confidence evidence${d.low_conf_categories?.length ? ` (${d.low_conf_categories.join(", ")})` : ""}`}
-                          </span>
-                        </div>
-                      </Link>
+                      />
                     ))}
                   </div>
                 </div>
@@ -2562,30 +2643,20 @@ export function ExecutiveGapInsightsClient(props: {
                   <div className="text-xs font-semibold uppercase text-[color:var(--sf-text-secondary)]">Top Verified Commit</div>
                   <div className="mt-2 grid grid-cols-2 gap-3">
                     {props.commitDealPanels.topVerifiedDeals.slice(0, 10).map((d, idx) => (
-                      <Link
+                      <CommitIntegrityDealCard
                         key={d.id}
-                        href={`/opportunities/${encodeURIComponent(d.id)}/deal-review`}
-                        className="block rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+                        d={d}
+                        channelInline={isChannelViewerRole}
+                        expanded={commitIntegrityExpandedId === d.id}
+                        loading={commitDealLoadingId === d.id}
+                        deal={commitDealCache[d.id]}
+                        onToggle={() => void toggleCommitIntegrityDeal(d.id)}
+                        showRequestReview={!isChannelViewerRole}
+                        kind="verified"
+                        cardClassName={commitIntegrityCardClass}
                         title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
                         style={{ order: idx < 5 ? 0 : 1 }}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="min-w-0 truncate font-medium text-[color:var(--sf-text-primary)]">
-                            {[d.account, d.name].filter(Boolean).join(" — ") || "(Untitled)"}
-                          </span>
-                          <span className="shrink-0 text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                            {d.amount.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-1">
-                          <span className="shrink-0 rounded bg-[#2ECC71]/20 px-1.5 py-0.5 text-[10px] font-semibold text-[#2ECC71]">VERIFIED</span>
-                          {(d.high_conf_categories || []).map((cat) => (
-                            <span key={cat} className="rounded bg-[color:var(--sf-surface)] px-1.5 py-0.5 text-[10px] text-[color:var(--sf-text-secondary)]">
-                              {cat}: High
-                            </span>
-                          ))}
-                        </div>
-                      </Link>
+                      />
                     ))}
                   </div>
                 </div>
@@ -3875,37 +3946,19 @@ export function ExecutiveGapInsightsClient(props: {
                   <div className="text-xs font-semibold uppercase text-[color:var(--sf-text-secondary)]">Top Commit Risks</div>
                   <div className="mt-2 space-y-2">
                     {props.commitDealPanels.topPainDeals.map((d) => (
-                      <Link
+                      <CommitIntegrityDealCard
                         key={d.id}
-                        href={`/opportunities/${encodeURIComponent(d.id)}/deal-review`}
-                        className="block rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+                        d={d}
+                        channelInline={isChannelViewerRole}
+                        expanded={commitIntegrityExpandedId === d.id}
+                        loading={commitDealLoadingId === d.id}
+                        deal={commitDealCache[d.id]}
+                        onToggle={() => void toggleCommitIntegrityDeal(d.id)}
+                        showRequestReview={!isChannelViewerRole}
+                        kind="pain"
+                        cardClassName={commitIntegrityCardClass}
                         title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="min-w-0 truncate font-medium text-[color:var(--sf-text-primary)]">
-                            {[d.account, d.name].filter(Boolean).join(" — ") || "(Untitled)"}
-                          </span>
-                          <span className="shrink-0 text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                            {d.amount.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex items-center gap-1.5">
-                          <span
-                            className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                              d.commit_admission_status === "not_admitted"
-                                ? "bg-[#E74C3C]/20 text-[#E74C3C]"
-                                : "bg-[#F1C40F]/20 text-[#F1C40F]"
-                            }`}
-                          >
-                            {d.commit_admission_status === "not_admitted" ? "NOT ADMITTED" : "NEEDS REVIEW"}
-                          </span>
-                          <span className="min-w-0 truncate text-xs text-[color:var(--sf-text-secondary)]">
-                            {d.commit_admission_status === "not_admitted"
-                              ? d.commit_admission_reasons[0] || "Paper Process weak"
-                              : `Low-confidence evidence${d.low_conf_categories?.length ? ` (${d.low_conf_categories.join(", ")})` : ""}`}
-                          </span>
-                        </div>
-                      </Link>
+                      />
                     ))}
                   </div>
                 </div>
@@ -3915,29 +3968,19 @@ export function ExecutiveGapInsightsClient(props: {
                   <div className="text-xs font-semibold uppercase text-[color:var(--sf-text-secondary)]">Top Verified Commit</div>
                   <div className="mt-2 space-y-2">
                     {props.commitDealPanels.topVerifiedDeals.map((d) => (
-                      <Link
+                      <CommitIntegrityDealCard
                         key={d.id}
-                        href={`/opportunities/${encodeURIComponent(d.id)}/deal-review`}
-                        className="block rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+                        d={d}
+                        channelInline={isChannelViewerRole}
+                        expanded={commitIntegrityExpandedId === d.id}
+                        loading={commitDealLoadingId === d.id}
+                        deal={commitDealCache[d.id]}
+                        onToggle={() => void toggleCommitIntegrityDeal(d.id)}
+                        showRequestReview={!isChannelViewerRole}
+                        kind="verified"
+                        cardClassName={commitIntegrityCardClass}
                         title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="min-w-0 truncate font-medium text-[color:var(--sf-text-primary)]">
-                            {[d.account, d.name].filter(Boolean).join(" — ") || "(Untitled)"}
-                          </span>
-                          <span className="shrink-0 text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                            {d.amount.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
-                          </span>
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-1">
-                          <span className="shrink-0 rounded bg-[#2ECC71]/20 px-1.5 py-0.5 text-[10px] font-semibold text-[#2ECC71]">VERIFIED</span>
-                          {(d.high_conf_categories || []).map((cat) => (
-                            <span key={cat} className="rounded bg-[color:var(--sf-surface)] px-1.5 py-0.5 text-[10px] text-[color:var(--sf-text-secondary)]">
-                              {cat}: High
-                            </span>
-                          ))}
-                        </div>
-                      </Link>
+                      />
                     ))}
                   </div>
                 </div>

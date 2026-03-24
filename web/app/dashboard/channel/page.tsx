@@ -223,6 +223,7 @@ export default async function ChannelDashboardPage({
               heroOnly
               basePath="/dashboard/channel"
               channelTabOnly={isChannelRepOnly(ctx.user.role)}
+              viewerRole={ctx.user.role}
               periods={summary.periods}
               quotaPeriodId={summary.selectedQuotaPeriodId}
               reps={summary.reps}
@@ -318,6 +319,7 @@ export default async function ChannelDashboardPage({
           <ExecutiveGapInsightsClient
             basePath="/dashboard/channel"
             channelTabOnly={isChannelRepOnly(ctx.user.role)}
+            viewerRole={ctx.user.role}
             periods={summary.periods}
             quotaPeriodId={summary.selectedQuotaPeriodId}
             reps={summary.reps}

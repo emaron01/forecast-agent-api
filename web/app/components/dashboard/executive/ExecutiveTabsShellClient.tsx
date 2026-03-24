@@ -387,6 +387,7 @@ export function ExecutiveTabsShellClient(props: {
   channelContributionHero?: ChannelPartnerHeroProps | null;
   channelContributionRows?: ChannelLedFedRow[];
   orgName?: string;
+  viewerRole?: string | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -921,6 +922,7 @@ export function ExecutiveTabsShellClient(props: {
             <ExecutiveGapInsightsClient
               {...props.revenueTabProps}
               channelTabOnly={true}
+              viewerRole={props.viewerRole}
               topPartnerWon={props.topPartnerWon}
               topPartnerLost={props.topPartnerLost}
             />

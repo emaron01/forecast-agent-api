@@ -849,6 +849,7 @@ export async function loadChannelLedFedRows(args: {
     )
     .catch(() => ({ rows: [] }));
 
+  // Temporary diagnostic — remove after validating Channel Fed / Led splits in staging
   console.log("[channelLedFed raw]", JSON.stringify(result.rows, null, 2));
 
   const rows = result.rows;
