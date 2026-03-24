@@ -318,6 +318,7 @@ export default async function ChannelDashboardPage({
         <div className="mt-4">
           <ExecutiveGapInsightsClient
             basePath="/dashboard/channel"
+            salesHeroLayout
             channelTabOnly={isChannelRepOnly(ctx.user.role)}
             viewerRole={ctx.user.role}
             periods={summary.periods}
