@@ -1380,9 +1380,11 @@ export async function getExecutiveForecastDashboardSummary(args: {
 
   const totals: TotalsRow =
     qpId
-      ? await pool
-          .query<TotalsRow>(
-            `
+      ? await (async (): Promise<TotalsRow> => {
+          const empty: TotalsRow = { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0 };
+          try {
+            const totalsRes = await pool.query(
+              `
             WITH qp AS (
               SELECT period_start::date AS period_start, period_end::date AS period_end
                 FROM quota_periods
@@ -1450,13 +1452,110 @@ export async function getExecutiveForecastDashboardSummary(args: {
               (
                 SELECT COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN amount ELSE 0 END), 0)::float8
                   FROM deals_in_qtr
-              ) AS won_amount
+              ) AS won_amount,
+              (
+                SELECT COALESCE(SUM(amount), 0)::float8
+                  FROM deals_in_qtr d
+                 WHERE d.crm_bucket = 'won'
+              ) AS won_debug_sum,
+              (
+                SELECT COALESCE(COUNT(*)::int, 0)
+                  FROM deals_in_qtr d
+                 WHERE d.crm_bucket = 'won'
+              ) AS won_count_debug
             FROM open_deals
             `,
-            [args.orgId, qpId, allowedRepIds, useScoped]
-          )
-          .then((r) => (r.rows?.[0] as any) || { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0 })
-          .catch(() => ({ commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0 }))
+              [args.orgId, qpId, allowedRepIds, useScoped]
+            );
+            const row0 = totalsRes.rows?.[0] as any;
+            console.log(
+              "[totals result]",
+              JSON.stringify(
+                {
+                  won_amount: row0?.won_amount,
+                  won_count: row0?.won_count_debug,
+                  won_debug_sum: row0?.won_debug_sum,
+                  commit_amount: row0?.commit_amount,
+                  best_case_amount: row0?.best_case_amount,
+                  pipeline_amount: row0?.pipeline_amount,
+                },
+                null,
+                2
+              )
+            );
+
+            try {
+              const diagWon = await pool.query(
+                `
+                WITH qp AS (
+                  SELECT period_start::date AS period_start, period_end::date AS period_end
+                    FROM quota_periods
+                   WHERE org_id = $1::bigint
+                     AND id = $2::bigint
+                   LIMIT 1
+                ),
+                base AS (
+                  SELECT
+                    o.id,
+                    COALESCE(o.opportunity_name, '') AS opportunity_name,
+                    o.forecast_stage,
+                    o.sales_stage,
+                    COALESCE(o.amount, 0)::float8 AS amount,
+                    CASE
+                      WHEN o.close_date IS NULL THEN NULL
+                      WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+                      WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                        to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
+                      ELSE NULL
+                    END AS close_d
+                  FROM opportunities o
+                  WHERE o.org_id = $1::bigint
+                    AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+                ),
+                in_qtr AS (
+                  SELECT b.*
+                    FROM base b
+                    JOIN qp ON TRUE
+                   WHERE b.close_d IS NOT NULL
+                     AND b.close_d >= qp.period_start
+                     AND b.close_d <= qp.period_end
+                )
+                SELECT
+                  o.id,
+                  o.opportunity_name,
+                  o.amount,
+                  osm_fc.bucket AS fc_mapped,
+                  osm_st.bucket AS st_mapped
+                FROM in_qtr o
+                LEFT JOIN org_stage_mappings osm_fc
+                  ON osm_fc.org_id = $1::bigint
+                 AND osm_fc.field = 'forecast_category'
+                 AND lower(btrim(osm_fc.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+                LEFT JOIN org_stage_mappings osm_st
+                  ON osm_st.org_id = $1::bigint
+                 AND osm_st.field = 'stage'
+                 AND lower(btrim(osm_st.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+                WHERE osm_fc.bucket = 'won'
+                   OR osm_st.bucket = 'won'
+                ORDER BY o.opportunity_name ASC NULLS LAST, o.id ASC
+                `,
+                [args.orgId, qpId, allowedRepIds, useScoped]
+              );
+              console.log("[diagWon deals]", JSON.stringify(diagWon.rows, null, 2));
+            } catch (e) {
+              console.error("[diagWon]", e);
+            }
+
+            return {
+              commit_amount: Number(row0?.commit_amount || 0) || 0,
+              best_case_amount: Number(row0?.best_case_amount || 0) || 0,
+              pipeline_amount: Number(row0?.pipeline_amount || 0) || 0,
+              won_amount: Number(row0?.won_amount || 0) || 0,
+            };
+          } catch {
+            return empty;
+          }
+        })()
       : { commit_amount: 0, best_case_amount: 0, pipeline_amount: 0, won_amount: 0 };
 
   const canCompute = !!qpId && (!useScoped || (Array.isArray(allowedRepIds) && allowedRepIds.length > 0));
