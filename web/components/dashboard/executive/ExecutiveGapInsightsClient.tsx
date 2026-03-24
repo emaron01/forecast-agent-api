@@ -139,6 +139,14 @@ function healthColorClass(pct: number | null) {
   return "text-[#E74C3C]";
 }
 
+/** HERO Avg Health Lost: green ≥70%, yellow ≥40% & <70%, red <40%, null = muted */
+function healthLostHeroColorClass(pct: number | null) {
+  if (pct == null) return "text-[color:var(--sf-text-disabled)]";
+  if (pct >= 70) return "text-[#2ECC71]";
+  if (pct >= 40) return "text-[#F1C40F]";
+  return "text-[#E74C3C]";
+}
+
 function rankRole(r: RepDirectoryRow) {
   const role = String(r.role || "").trim().toUpperCase();
   if (role === "EXEC_MANAGER") return 0;
@@ -2252,7 +2260,7 @@ export function ExecutiveGapInsightsClient(props: {
     return (
       <>
     <div className="grid gap-4">
-      {/* heroOnly section order: 1–3 hero, then 12, 14, 15, 17–24, 13, 4–11 */}
+      {/* heroOnly: row1 Closed Won/Quota/Gap/Landing; row2 Remaining Quarterly Forecast (Commit…Coverage); row3 Closed Lost / Win·Loss / Avg Health Lost / Blended ACV Lost; then grid 7, … */}
       <section className="w-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,320px)_1fr] lg:items-start">
           <div className="min-w-0">
@@ -2329,8 +2337,8 @@ export function ExecutiveGapInsightsClient(props: {
               return (
                 <div className="grid grid-cols-4 gap-4">
                   <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Closed Won</div>
-                    <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{fmtMoney(wonAmount)}</div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-primary)]">Closed Won</div>
+                    <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-green-400 sm:text-2xl">{fmtMoney(wonAmount)}</div>
                   </div>
                   <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
                     <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quota</div>
@@ -2349,7 +2357,15 @@ export function ExecutiveGapInsightsClient(props: {
                 </div>
               );
             })()}
-            <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="mt-4">
+              <ExecutiveRemainingQuarterlyForecastBlock
+                crmTotals={props.crmTotals}
+                quota={props.quota}
+                pipelineMomentum={props.pipelineMomentum}
+                heroBucketAmounts={heroBucketAmounts}
+              />
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
               {(() => {
                 const lostAmt = Number(props.crmTotals?.lost_amount ?? 0) || 0;
                 const lostCnt = Number(props.crmTotals?.lost_count ?? 0) || 0;
@@ -2366,9 +2382,9 @@ export function ExecutiveGapInsightsClient(props: {
                   "min-w-0 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]/80 p-3 shadow-sm";
                 return (
                   <>
-                    <div className={[subCard, "border-[#E74C3C]/35 bg-[#E74C3C]/8"].join(" ")}>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[#E74C3C]">Closed Lost</div>
-                      <div className="mt-0.5 break-all text-lg font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)]">
+                    <div className={subCard}>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-primary)]">Closed Lost</div>
+                      <div className="mt-0.5 break-all text-lg font-bold font-[tabular-nums] text-red-400">
                         {fmtMoney(lostAmt)}
                       </div>
                       <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">
@@ -2388,13 +2404,15 @@ export function ExecutiveGapInsightsClient(props: {
                     </div>
                     <div className={subCard}>
                       <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Avg Health Lost</div>
-                      <div className="mt-0.5 text-lg font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)]">
+                      <div
+                        className={`mt-0.5 text-lg font-bold font-[tabular-nums] ${healthLostHeroColorClass(lostHealthPct)}`}
+                      >
                         {lostHealthPct == null ? "—" : `${lostHealthPct}%`}
                       </div>
                     </div>
                     <div className={subCard}>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Avg Order Value</div>
-                      <div className="mt-0.5 text-lg font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)]">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Blended ACV Lost</div>
+                      <div className="mt-0.5 text-lg font-bold font-[tabular-nums] text-red-400">
                         {closedWonAov == null ? "—" : fmtMoney(closedWonAov)}
                       </div>
                       <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">Closed won deals only</div>
@@ -2402,14 +2420,6 @@ export function ExecutiveGapInsightsClient(props: {
                   </>
                 );
               })()}
-            </div>
-            <div className="mt-4">
-              <ExecutiveRemainingQuarterlyForecastBlock
-                crmTotals={props.crmTotals}
-                quota={props.quota}
-                pipelineMomentum={props.pipelineMomentum}
-                heroBucketAmounts={heroBucketAmounts}
-              />
             </div>
           </div>
         </div>
