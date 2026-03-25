@@ -213,7 +213,6 @@ export function ExecutiveQuarterKpisModule(props: {
   const createdMix = created?.current?.mix || null;
   const createdQoq = created?.qoq_total_amount_all_pct01 ?? created?.qoq_total_amount_pct01 ?? null;
   const createdActiveQoq = created?.qoq_total_amount_pct01 ?? null;
-  const boxClass = "min-w-0 overflow-hidden rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3 shadow-sm";
 
   return (
     <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
@@ -228,11 +227,11 @@ export function ExecutiveQuarterKpisModule(props: {
         <div className="mt-3 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <div className="text-sectionTitle text-[color:var(--sf-text-primary)]">Forecast Mix</div>
+              <div className="text-sectionTitle text-[color:var(--sf-text-primary)]">Pipeline Generated In Quarter</div>
             </div>
           </div>
 
-          <div className="mt-3 grid items-start gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
             {(() => {
               const cp = createdFromKpis;
               const wonAmt = Number(created?.current?.created_won_amount ?? NaN);
@@ -247,6 +246,11 @@ export function ExecutiveQuarterKpisModule(props: {
               const mixPipe = denom ? Math.max(0, Math.min(1, cp.pipelineAmount / denom)) : null;
               const mixWon = denom ? Math.max(0, Math.min(1, wonUse / denom)) : null;
               const mixLost = denom ? Math.max(0, Math.min(1, lostUse / denom)) : null;
+
+              const heroCard =
+                "h-full min-h-[124px] min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm";
+              const heroVal =
+                "mt-2 break-all text-kpiValue font-[tabular-nums] text-[color:var(--sf-text-primary)]";
 
               const mixBar = denom ? (
                 <div
@@ -264,24 +268,32 @@ export function ExecutiveQuarterKpisModule(props: {
                 </div>
               ) : null;
 
-              const Card = (p: { label: string; dot?: string; mix: number | null; amount: number; count: number; health: number | null; healthLabel?: string }) => (
-                <div className={boxClass}>
-                  <div className="text-tableLabel leading-tight">
-                    <span className="inline-flex items-center gap-2">
-                      {p.dot ? <span className="h-2 w-2 rounded-full" style={{ background: p.dot }} aria-hidden="true" /> : null}
-                      <span className="whitespace-pre-line">
-                        {p.label} {p.mix == null ? "" : `(${fmtPct(p.mix)})`}
+              const Card = (p: {
+                label: string;
+                dot?: string;
+                mix: number | null;
+                amount: number;
+                count: number;
+                health: number | null;
+                healthLabel?: string;
+              }) => (
+                <div className={heroCard}>
+                  <div className="min-w-0 overflow-hidden text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
+                    <span className="inline-flex min-w-0 items-center gap-2 truncate">
+                      {p.dot ? <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: p.dot }} aria-hidden="true" /> : null}
+                      <span className="min-w-0 truncate">
+                        {p.label}
+                        {p.mix == null ? "" : ` (${fmtPct(p.mix)})`}
                       </span>
                     </span>
                   </div>
-                  <div className="mt-0.5 truncate text-tableValue leading-tight text-[color:var(--sf-text-primary)]">{fmtMoney(p.amount)}</div>
-                  <div className="mt-0.5 text-meta leading-tight">
-                    <div>
-                      # Opps: <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{fmtNum(p.count)}</span>
-                    </div>
-                    <div>
-                      {p.healthLabel || "Health"}: <span className={healthColorClass(p.health)}>{p.health == null ? "—" : `${p.health}%`}</span>
-                    </div>
+                  <div className={heroVal}>{fmtMoney(p.amount)}</div>
+                  <div className="mt-2 min-w-0 truncate text-meta">
+                    # Opps: <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{fmtNum(p.count)}</span>
+                  </div>
+                  <div className="mt-1 min-w-0 truncate text-meta">
+                    {p.healthLabel || "Avg Health"}:{" "}
+                    <span className={healthColorClass(p.health)}>{p.health == null ? "—" : `${p.health}%`}</span>
                   </div>
                 </div>
               );
@@ -290,7 +302,7 @@ export function ExecutiveQuarterKpisModule(props: {
                 <>
                   {mixBar}
                   <Card
-                    label={"Created In Quarter\nCommit"}
+                    label="Commit"
                     dot="#2ECC71"
                     mix={mixCommit ?? cp.mixCommit}
                     amount={cp.commitAmount}
@@ -298,7 +310,7 @@ export function ExecutiveQuarterKpisModule(props: {
                     health={cp.commitHealthPct}
                   />
                   <Card
-                    label={"Created In Quarter\nBest Case"}
+                    label="Best Case"
                     dot="var(--sf-accent-primary)"
                     mix={mixBest ?? cp.mixBest}
                     amount={cp.bestAmount}
@@ -306,32 +318,32 @@ export function ExecutiveQuarterKpisModule(props: {
                     health={cp.bestHealthPct}
                   />
                   <Card
-                    label="Created In Quarter Won"
+                    label="Won"
                     dot="#F1C40F"
                     mix={mixWon}
                     amount={Number.isFinite(wonAmt) ? wonAmt : (created?.current?.created_won_amount ?? 0)}
                     count={Number(created?.current?.created_won_opps ?? 0) || 0}
                     health={null}
-                    healthLabel="Avg health"
+                    healthLabel="Avg Health"
                   />
                   <Card
-                    label="Created In Quarter Lost"
+                    label="Lost"
                     dot="#EC4899"
                     mix={mixLost}
                     amount={Number.isFinite(lostAmt) ? lostAmt : (created?.current?.created_lost_amount ?? 0)}
                     count={Number(created?.current?.created_lost_opps ?? 0) || 0}
                     health={null}
-                    healthLabel="Avg health"
+                    healthLabel="Avg Health"
                   />
                   <Card
-                    label={"Created In Quarter\nPipeline"}
+                    label="Pipeline"
                     dot="#E74C3C"
                     mix={mixPipe ?? cp.mixPipeline}
                     amount={cp.pipelineAmount}
                     count={cp.pipelineCount}
                     health={cp.pipelineHealthPct}
                   />
-                  <Card label={"Created In Quarter\nTotal Pipeline"} mix={null} amount={totalWithWonLost} count={cp.totalCount} health={cp.totalHealthPct} />
+                  <Card label="Total Pipeline" mix={null} amount={totalWithWonLost} count={cp.totalCount} health={cp.totalHealthPct} />
                 </>
               );
             })()}
