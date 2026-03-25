@@ -5,10 +5,7 @@ import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useTransition, type ComponentProps } from "react";
 import { ExecutiveGapInsightsClient } from "../../../../components/dashboard/executive/ExecutiveGapInsightsClient";
-import {
-  TeamForecastHygienePanels,
-  type PipelineHygienePayload,
-} from "../../../../components/dashboard/executive/TeamForecastHygienePanels";
+import type { PipelineHygienePayload } from "../../../../components/dashboard/executive/TeamForecastHygienePanels";
 import type { ExecTabKey } from "../../../actions/execTabConstants";
 import {
   RepManagerComparisonPanel,
@@ -751,8 +748,6 @@ export function ExecutiveTabsShellClient(props: {
             <div className="-mx-4">
               <ExecutiveGapInsightsClient {...props.pipelineTabProps} pipelineKpisTabOnly={true} viewerRole={props.viewerRole} />
             </div>
-
-            <TeamForecastHygienePanels pipelineHygiene={props.pipelineHygiene} />
           </div>
         )}
         {activeTab === "coaching" && (
