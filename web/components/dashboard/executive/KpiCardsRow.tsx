@@ -42,6 +42,8 @@ export function KpiCardsRow(props: {
   productKpisPrev: { total_revenue: number; total_orders: number; blended_acv: number } | null;
   commitAdmission?: CommitAdmissionAggregates | null;
   variant?: "full" | "product_only" | "forecast_only";
+  /** When true (e.g. forecast tab only), omit the Commit/Best Case/Pipeline Gap Attribution card. */
+  hideGapAttribution?: boolean;
 }) {
   const absMax = Math.max(Math.abs(props.bucketDeltas.commit), Math.abs(props.bucketDeltas.best_case), Math.abs(props.bucketDeltas.pipeline), 1);
   const bar = (v: number) => `${Math.round(clamp01(Math.abs(v) / absMax) * 100)}%`;
@@ -209,7 +211,7 @@ export function KpiCardsRow(props: {
           ) : null}
         </div>
 
-        {ForecastStageGapAttributionCard}
+        {!props.hideGapAttribution ? ForecastStageGapAttributionCard : null}
       </section>
     );
   }

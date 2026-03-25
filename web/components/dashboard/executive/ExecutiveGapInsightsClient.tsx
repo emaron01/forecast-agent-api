@@ -2350,40 +2350,9 @@ export function ExecutiveGapInsightsClient(props: {
             productKpisPrev={productKpiPrev}
             commitAdmission={props.commitAdmission}
             variant="forecast_only"
+            hideGapAttribution
           />
         </div>
-
-        <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-          <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quarter Performance</div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <div className={heroCard}>
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Health Closed Loss</div>
-              <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
-                <span className={["num-tabular", healthColorClass(avgHealthLost)].join(" ")}>{avgHealthLost == null ? "—" : `${avgHealthLost}%`}</span>
-              </div>
-            </div>
-            <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
-              <div className="mt-1 text-tableLabel">Closed Won</div>
-              <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">{fmtDays(props.quarterKpis?.wonAvgDays ?? null)}</div>
-            </div>
-            <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
-              <div className="mt-1 text-tableLabel">Remaining Pipeline</div>
-              <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
-                {fmtDays(props.quarterKpis?.agingAvgDays ?? null)}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="mt-4">
-          <DataReadinessCard
-            quotaPeriodId={quotaPeriodId}
-            snapshotOffsetDays={90}
-            isAdmin={false}
-          />
-        </section>
 
         {props.commitAdmission &&
         (props.commitAdmission.totalCommitCrmAmount > 0 ||
