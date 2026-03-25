@@ -748,6 +748,10 @@ export function ExecutiveTabsShellClient(props: {
               <ExecutiveGapInsightsClient {...props.pipelineTabProps} pipelineTabOnly={true} viewerRole={props.viewerRole} />
             </div>
 
+            <div className="-mx-4">
+              <ExecutiveGapInsightsClient {...props.pipelineTabProps} pipelineKpisTabOnly={true} viewerRole={props.viewerRole} />
+            </div>
+
             <TeamForecastHygienePanels pipelineHygiene={props.pipelineHygiene} />
           </div>
         )}

@@ -671,6 +671,8 @@ export function ExecutiveGapInsightsClient(props: {
   defaultTopN?: number;
   forecastTabOnly?: boolean;
   pipelineTabOnly?: boolean;
+  /** Renders only `ExecutiveQuarterKpisModule` (Pipeline Generated / Created sections). */
+  pipelineKpisTabOnly?: boolean;
   teamTabOnly?: boolean;
   channelTabOnly?: boolean;
   /** When true (e.g. `/dashboard/channel` renders deal tables on the server page), hide duplicate won/lost tables in the channel-tab-only partner section. */
@@ -1768,6 +1770,22 @@ export function ExecutiveGapInsightsClient(props: {
     } finally {
       setCommitDealLoadingId(null);
     }
+  }
+
+  if (props.pipelineKpisTabOnly) {
+    return (
+      <div className="mt-4">
+        <ExecutiveQuarterKpisModule
+          period={activePeriod}
+          quota={props.quota}
+          pipelineMomentum={props.pipelineMomentum}
+          crmTotals={props.crmTotals}
+          quarterKpis={props.quarterKpis}
+          repRollups={props.repRollups as any}
+          productsClosedWon={props.productsClosedWon as any}
+        />
+      </div>
+    );
   }
 
   if (props.pipelineTabOnly) {
