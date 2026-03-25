@@ -778,19 +778,47 @@ export function CustomReportDesignerClient(props: {
     execId: string;
     execName: string;
     execRow: RepRow | null;
+    directMembers: RepRow[];
     managers: PickerManagerGroup[];
   };
 
   const repGroupsForPicker = useMemo<PickerExecGroup[]>(() => {
     const execGroups: PickerExecGroup[] = [];
 
+    const managerIds = repDirectory
+      .map((r) => String(r.id))
+      .filter((id) => roleBucketById.get(String(id)) === "MANAGER");
+
+    const execRoleIds = new Set(execOptions.map(String));
+
+    const execAncestorForNode = (nodeId: string) => {
+      let cur = String(nodeId || "");
+      const seen = new Set<string>();
+      while (cur && !seen.has(cur)) {
+        seen.add(cur);
+        const role = roleBucketById.get(String(cur)) || "";
+        if (role === "EXEC_MANAGER") return cur;
+        const mid = managerIdById.get(String(cur)) || "";
+        cur = mid ? String(mid) : "";
+      }
+      return "";
+    };
+
+    const repRowsOnly = reps.filter((r) => roleBucketById.get(String(r.rep_id)) === "REP");
+
     for (const eid of execOptions) {
       const execName = repNameById.get(eid) || `Executive ${eid}`;
       const execRow = reps.find((r) => String(r.rep_id) === String(eid)) || null;
 
-      // Managers that directly report to this exec.
-      const managersForExec = managerCandidateIds
-        .filter((mid) => (managerIdById.get(String(mid)) || "") === eid)
+      // Direct reps for this exec (rep.manager_rep_id points to this EXEC_MANAGER).
+      const directMembers = repRowsOnly
+        .filter((r) => String(managerIdById.get(String(r.rep_id))) === String(eid))
+        .slice()
+        .sort((a, b) => a.rep_name.localeCompare(b.rep_name));
+
+      // Managers that belong under this exec (manager role must exist).
+      const managersForExec = managerIds
+        .filter((mid) => execAncestorForNode(mid) === String(eid))
         .slice()
         .sort((a, b) => (repNameById.get(a) || a).localeCompare(repNameById.get(b) || b));
 
@@ -798,31 +826,24 @@ export function CustomReportDesignerClient(props: {
         .map((mid) => {
           const managerName = repNameById.get(String(mid)) || `Manager ${mid}`;
           const managerRow = reps.find((r) => String(r.rep_id) === String(mid)) || null;
-          const members = reps
-            .filter((r) => roleBucketById.get(String(r.rep_id)) === "REP" && managerIdForRep(String(r.rep_id)) === String(mid))
+          const members = repRowsOnly
+            .filter((r) => String(managerIdById.get(String(r.rep_id))) === String(mid))
             .slice()
             .sort((a, b) => a.rep_name.localeCompare(b.rep_name));
           return { managerId: String(mid), managerName, managerRow, members };
         })
-        .filter((g) => g.managerRow || g.members.length);
+        .filter((g) => g.members.length);
 
-      // If no manager rows found (IC exec or incomplete hierarchy), still show any reps that roll up to this exec.
-      if (!managers.length) {
-        const members = reps
-          .filter((r) => roleBucketById.get(String(r.rep_id)) === "REP" && execIdForRep(String(r.rep_id)) === eid)
-          .slice()
-          .sort((a, b) => a.rep_name.localeCompare(b.rep_name));
-        if (members.length) {
-          managers.push({ managerId: "", managerName: "(Unassigned)", managerRow: null, members });
-        }
-      }
+      // Ensure the exec group is shown only if there is at least one selectable REP underneath it.
+      const anyMembers = directMembers.length > 0 || managers.some((m) => m.members.length > 0);
+      if (!anyMembers) continue;
 
-      execGroups.push({ execId: eid, execName, execRow, managers });
+      execGroups.push({ execId: eid, execName, execRow, directMembers, managers });
     }
 
     execGroups.sort((a, b) => a.execName.localeCompare(b.execName));
     return execGroups;
-  }, [execOptions, managerCandidateIds, managerIdById, repNameById, reps]);
+  }, [execOptions, managerIdById, repDirectory, repNameById, reps, roleBucketById]);
 
   return (
     <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
@@ -930,9 +951,10 @@ export function CustomReportDesignerClient(props: {
         <div className="mt-2 max-h-[420px] overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
           <div className="grid grid-cols-1 gap-2 p-2 sm:grid-cols-2 lg:grid-cols-3">
             {repGroupsForPicker.map((eg) => {
-              const execTeamIds = reps
-                .filter((r) => execIdForRep(String(r.rep_id)) === String(eg.execId))
-                .map((r) => String(r.rep_id));
+              const execTeamIds = [
+                ...eg.directMembers.map((r) => String(r.rep_id)),
+                ...eg.managers.flatMap((m) => m.members.map((r) => String(r.rep_id))),
+              ];
               const execChecked = areAllRepIdsChecked(execTeamIds);
 
               return (
@@ -950,15 +972,32 @@ export function CustomReportDesignerClient(props: {
                   </div>
 
                   <div className="grid gap-2 p-2">
+                    {eg.directMembers.length ? (
+                      <div className="divide-y divide-[color:var(--sf-border)]">
+                        {eg.directMembers.map((r) => (
+                          <div key={`rep:${eg.execId}:direct:${r.rep_id}`} className="flex items-center gap-3 px-3 py-2 pl-4">
+                            <label className="flex min-w-0 items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                              <input
+                                type="checkbox"
+                                checked={selectedRepIds.has(String(r.rep_id))}
+                                onChange={() => toggleRep(String(r.rep_id))}
+                              />
+                              <span className="truncate">{r.rep_name}</span>
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
                     {eg.managers.map((mg) => {
-                      const managerTeamIds = Array.from(
-                        new Set([String(mg.managerId || ""), ...mg.members.map((r) => String(r.rep_id))].filter(Boolean))
-                      );
+                      const managerTeamIds = Array.from(new Set(mg.members.map((r) => String(r.rep_id))));
                       const managerChecked = areAllRepIdsChecked(managerTeamIds);
+
+                      if (!mg.members.length) return null;
 
                       return (
                         <div
-                          key={`mgr:${eg.execId}:${mg.managerId || "unassigned"}`}
+                          key={`mgr:${eg.execId}:${mg.managerId}`}
                           className="ml-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]"
                         >
                           <div className="flex items-center gap-3 border-b border-[color:var(--sf-border)] px-3 py-2">
@@ -969,18 +1008,22 @@ export function CustomReportDesignerClient(props: {
                                 onChange={() => setRepIdsChecked(managerTeamIds, !managerChecked)}
                                 disabled={!managerTeamIds.length}
                               />
-                      <span className="truncate">{`Manager: ${mg.managerName}`}</span>
+                              <span className="truncate">{`Manager: ${mg.managerName}`}</span>
                             </label>
                           </div>
 
                           <div className="divide-y divide-[color:var(--sf-border)]">
                             {mg.members.map((r) => (
-                      <div
-                        key={`rep:${eg.execId}:${mg.managerId || "unassigned"}:${r.rep_id}`}
-                        className="flex items-center gap-3 px-3 py-2 pl-8"
-                      >
+                              <div
+                                key={`rep:${eg.execId}:${mg.managerId}:${r.rep_id}`}
+                                className="flex items-center gap-3 px-3 py-2 pl-8"
+                              >
                                 <label className="flex min-w-0 items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
-                                  <input type="checkbox" checked={selectedRepIds.has(String(r.rep_id))} onChange={() => toggleRep(String(r.rep_id))} />
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedRepIds.has(String(r.rep_id))}
+                                    onChange={() => toggleRep(String(r.rep_id))}
+                                  />
                                   <span className="truncate">{r.rep_name}</span>
                                 </label>
                               </div>

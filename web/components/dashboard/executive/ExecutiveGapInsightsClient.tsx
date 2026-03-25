@@ -2346,12 +2346,6 @@ export function ExecutiveGapInsightsClient(props: {
           <div className="min-w-0 lg:pt-1">
             {props.heroOnly ? (
               <>
-                <ExecutiveRemainingQuarterlyForecastBlock
-                  crmTotals={props.crmTotals}
-                  quota={props.quota}
-                  pipelineMomentum={props.pipelineMomentum}
-                  heroBucketAmounts={heroBucketAmounts}
-                />
                 {(() => {
                   const quotaNum = Number(props.quota) || 0;
                   const gapToQuota = quotaNum - wonAmount;
@@ -2379,6 +2373,12 @@ export function ExecutiveGapInsightsClient(props: {
                     </div>
                   );
                 })()}
+                <ExecutiveRemainingQuarterlyForecastBlock
+                  crmTotals={props.crmTotals}
+                  quota={props.quota}
+                  pipelineMomentum={props.pipelineMomentum}
+                  heroBucketAmounts={heroBucketAmounts}
+                />
               </>
             ) : (
               <>
