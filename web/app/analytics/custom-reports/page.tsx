@@ -230,6 +230,13 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
   const scope = await getScopedRepDirectory({ orgId: ctx.user.org_id, userId: ctx.user.id, role: ctx.user.role as any }).catch(() => null);
   const repDirectoryFull = scope?.repDirectory || [];
   const allowedRepIds = scope?.allowedRepIds ?? null;
+  const executiveRepIdForMyTeam =
+    (ctx.user.role === "EXEC_MANAGER" ||
+      ctx.user.role === "CHANNEL_EXECUTIVE" ||
+      ctx.user.role === "CHANNEL_DIRECTOR") &&
+    scope?.myRepId != null
+      ? String(scope.myRepId)
+      : null;
   const repOptions: RepOption[] = repDirectoryFull.map((r) => ({
     id: r.id,
     name: r.name,
@@ -422,6 +429,7 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
           reportType="rep_comparison_custom_v1"
           repRows={repRows as any}
           repDirectory={repOptions as any}
+          currentExecutiveRepId={executiveRepIdForMyTeam}
           savedReports={(saved || []) as any}
           periodLabel={
             selectedPeriod

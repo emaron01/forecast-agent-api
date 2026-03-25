@@ -444,24 +444,35 @@ function rowsEquivalentForMetrics(metricList: MetricKey[], a: RepRow, b: RepRow)
 
 type ChartType = "table" | "bar" | "line" | "radar";
 
-const CHART_COLORS = ["#00BCD4", "#2ECC71", "#F1C40F", "#E74C3C", "#9B59B6", "#FF9800"];
+const CHART_COLORS = [
+  "#00BCD4",
+  "#2ECC71",
+  "#F1C40F",
+  "#E74C3C",
+  "#9B59B6",
+  "#FF9800",
+  "#00BFA5",
+  "#FF5722",
+  "#607D8B",
+  "#795548",
+];
 
-function normalizeConfig(cfg: any): { repIds: string[]; metrics: MetricKey[]; chartType: ChartType; chartMetric: string } {
+function normalizeConfig(cfg: any): { repIds: string[]; metrics: MetricKey[]; chartType: ChartType } {
   const repIds = Array.isArray(cfg?.repIds) ? cfg.repIds.map((x: any) => String(x)).filter(Boolean) : [];
   const metricsRaw = Array.isArray(cfg?.metrics) ? cfg.metrics.map((x: any) => String(x)).filter(Boolean) : [];
   const metrics = metricsRaw.filter((k) => ALL_METRICS.some((m) => m.key === (k as any))) as MetricKey[];
   const rawType = cfg?.chartType;
   const chartType: ChartType =
     rawType === "bar" || rawType === "line" || rawType === "radar" || rawType === "table" ? rawType : "table";
-  const cm = cfg?.chartMetric != null ? String(cfg.chartMetric) : "";
-  const chartMetric = ALL_METRICS.some((m) => m.key === (cm as MetricKey)) ? cm : "";
-  return { repIds, metrics, chartType, chartMetric };
+  return { repIds, metrics, chartType };
 }
 
 export function CustomReportDesignerClient(props: {
   reportType: string;
   repRows: RepRow[];
   repDirectory: Array<{ id: number; name: string; manager_rep_id: number | null; role: string }>;
+  /** Logged-in executive’s rep id (for “My Team”); REPs with this manager_rep_id are selected. */
+  currentExecutiveRepId?: string | null;
   savedReports: SavedReportRow[];
   periodLabel: string;
 }) {
@@ -545,7 +556,6 @@ export function CustomReportDesignerClient(props: {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string>("");
   const [chartType, setChartType] = useState<ChartType>("table");
-  const [chartMetric, setChartMetric] = useState<string>("");
 
   function execIdForRep(repId: string) {
     let cur = String(repId || "");
@@ -608,28 +618,34 @@ export function CustomReportDesignerClient(props: {
   const chartData = useMemo(
     () =>
       previewRows.map((row) => ({
-        name: row.rep_name,
-        value: Number((row as any)[chartMetric] ?? 0),
+        rep: row.rep_name,
+        ...selectedFields.reduce(
+          (acc, f) => ({
+            ...acc,
+            [f.label]: Number((row as any)[f.key] ?? 0),
+          }),
+          {} as Record<string, number>
+        ),
       })),
-    [previewRows, chartMetric]
+    [previewRows, selectedFields]
   );
 
   const radarData = useMemo(() => {
-    return selectedFields.map((f) => ({
-      metric: f.label,
-      ...previewRows.reduce(
-        (acc, row) => ({
-          ...acc,
-          [row.rep_name]: Number((row as any)[f.key] ?? 0),
-        }),
-        {} as Record<string, number>
-      ),
-    }));
+    return selectedFields.map((f) => {
+      const point: Record<string, any> = { metric: f.label };
+      previewRows.forEach((row) => {
+        point[row.rep_name] = Number((row as any)[f.key] ?? 0);
+      });
+      return point;
+    });
   }, [selectedFields, previewRows]);
 
+  const chartHasFields = selectedFields.length > 0;
+  const showChartPlaceholder =
+    chartType !== "table" && (!chartHasFields || !previewRows.length);
   const showBarLineChart =
-    (chartType === "bar" || chartType === "line") && !!chartMetric && previewRows.length > 0;
-  const showRadarChart = chartType === "radar" && selectedFields.length > 0 && previewRows.length > 0;
+    (chartType === "bar" || chartType === "line") && chartHasFields && previewRows.length > 0;
+  const showRadarChart = chartType === "radar" && chartHasFields && previewRows.length > 0;
 
   function toggleRep(id: string) {
     setSelectedRepIds((prev) => {
@@ -678,7 +694,6 @@ export function CustomReportDesignerClient(props: {
     setSavedPickId("");
     setStatus("");
     setChartType("table");
-    setChartMetric("");
   }
 
   async function save() {
@@ -699,7 +714,6 @@ export function CustomReportDesignerClient(props: {
           repIds: Array.from(selectedRepIds.values()),
           metrics: Array.from(selectedMetrics.values()),
           chartType,
-          chartMetric: chartMetric || undefined,
         },
       };
       const res = await fetch("/api/analytics/saved-reports", {
@@ -752,9 +766,6 @@ export function CustomReportDesignerClient(props: {
     setSelectedRepIds(new Set(cfg.repIds));
     setSelectedMetrics(new Set(effectiveMetrics));
     setChartType(cfg.chartType);
-    setChartMetric(
-      cfg.chartMetric && effectiveMetrics.includes(cfg.chartMetric as MetricKey) ? cfg.chartMetric : ""
-    );
     setReportId(String(r.id || ""));
     setName(String(r.name || ""));
     setDescription(String(r.description || ""));
@@ -920,6 +931,47 @@ export function CustomReportDesignerClient(props: {
     return execGroups;
   }, [execOptions, managerIdById, repDirectory, repNameById, reps, roleBucketById]);
 
+  const repRowIdSet = useMemo(() => new Set(reps.map((r) => String(r.rep_id))), [reps]);
+
+  const allRepRoleIds = useMemo(() => {
+    const out: string[] = [];
+    for (const r of repDirectory) {
+      if (roleBucketById.get(String(r.id)) !== "REP") continue;
+      const id = String(r.id);
+      if (repRowIdSet.has(id)) out.push(id);
+    }
+    return out;
+  }, [repDirectory, roleBucketById, repRowIdSet]);
+
+  const myTeamRepIds = useMemo(() => {
+    const execId = props.currentExecutiveRepId;
+    if (!execId) return [] as string[];
+    const out: string[] = [];
+    for (const r of repDirectory) {
+      if (roleBucketById.get(String(r.id)) !== "REP") continue;
+      const mid = r.manager_rep_id == null ? "" : String(r.manager_rep_id);
+      if (mid !== String(execId)) continue;
+      const id = String(r.id);
+      if (repRowIdSet.has(id)) out.push(id);
+    }
+    return out;
+  }, [repDirectory, roleBucketById, repRowIdSet, props.currentExecutiveRepId]);
+
+  function selectAllReps() {
+    setSelectedRepIds(new Set(allRepRoleIds));
+  }
+
+  function clearAllReps() {
+    setSelectedRepIds(new Set());
+  }
+
+  function selectMyTeam() {
+    setSelectedRepIds(new Set(myTeamRepIds));
+  }
+
+  const outlineQuickBtn =
+    "rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface)]";
+
   return (
     <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -1022,6 +1074,17 @@ export function CustomReportDesignerClient(props: {
               Delete saved
             </button>
           </div>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button type="button" onClick={selectAllReps} className={outlineQuickBtn}>
+            All Reps
+          </button>
+          <button type="button" onClick={clearAllReps} className={outlineQuickBtn}>
+            Clear
+          </button>
+          <button type="button" onClick={selectMyTeam} className={outlineQuickBtn} disabled={!myTeamRepIds.length}>
+            My Team
+          </button>
         </div>
         <div className="mt-2 max-h-[420px] overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
           <div className="grid grid-cols-1 gap-2 p-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -1156,23 +1219,6 @@ export function CustomReportDesignerClient(props: {
           ))}
         </div>
 
-        {chartType !== "table" ? (
-          <div className="mt-2">
-            <label className="text-xs text-[color:var(--sf-text-secondary)]">Metric to chart:</label>
-            <select
-              value={chartMetric}
-              onChange={(e) => setChartMetric(e.target.value)}
-              className="ml-2 rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
-            >
-              <option value="">Select metric...</option>
-              {selectedFields.map((f) => (
-                <option key={f.key} value={f.key}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
       </div>
 
       <div className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
@@ -1201,13 +1247,21 @@ export function CustomReportDesignerClient(props: {
         </div>
       </div>
 
+      {showChartPlaceholder ? (
+        <div className="mt-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-8 text-center text-sm text-[color:var(--sf-text-secondary)]">
+          {!chartHasFields
+            ? "Select report fields above to visualize data."
+            : "Select reps above to visualize data."}
+        </div>
+      ) : null}
+
       {showBarLineChart && chartType === "bar" ? (
         <div className="mt-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
-          <ResponsiveContainer width="100%" height={320}>
+          <ResponsiveContainer width="100%" height={360}>
             <BarChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 60 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
               <XAxis
-                dataKey="name"
+                dataKey="rep"
                 tick={{ fill: "var(--sf-text-secondary)", fontSize: 11 }}
                 angle={-35}
                 textAnchor="end"
@@ -1221,7 +1275,22 @@ export function CustomReportDesignerClient(props: {
                   color: "var(--sf-text-primary)",
                 }}
               />
-              <Bar dataKey="value" fill="var(--sf-accent-primary)" radius={[4, 4, 0, 0]} />
+              <Legend
+                wrapperStyle={{
+                  color: "var(--sf-text-secondary)",
+                  fontSize: 12,
+                  paddingTop: 8,
+                }}
+              />
+              {selectedFields.map((f, i) => (
+                <Bar
+                  key={f.key}
+                  dataKey={f.label}
+                  fill={CHART_COLORS[i % CHART_COLORS.length]}
+                  radius={[4, 4, 0, 0]}
+                  name={f.label}
+                />
+              ))}
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -1229,11 +1298,11 @@ export function CustomReportDesignerClient(props: {
 
       {showBarLineChart && chartType === "line" ? (
         <div className="mt-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
-          <ResponsiveContainer width="100%" height={320}>
+          <ResponsiveContainer width="100%" height={360}>
             <LineChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 60 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
               <XAxis
-                dataKey="name"
+                dataKey="rep"
                 tick={{ fill: "var(--sf-text-secondary)", fontSize: 11 }}
                 angle={-35}
                 textAnchor="end"
@@ -1247,12 +1316,23 @@ export function CustomReportDesignerClient(props: {
                   color: "var(--sf-text-primary)",
                 }}
               />
-              <Line
-                type="monotone"
-                dataKey="value"
-                stroke="var(--sf-accent-primary)"
-                dot={{ fill: "var(--sf-accent-primary)" }}
+              <Legend
+                wrapperStyle={{
+                  color: "var(--sf-text-secondary)",
+                  fontSize: 12,
+                  paddingTop: 8,
+                }}
               />
+              {selectedFields.map((f, i) => (
+                <Line
+                  key={f.key}
+                  type="monotone"
+                  dataKey={f.label}
+                  stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                  dot={{ fill: CHART_COLORS[i % CHART_COLORS.length] }}
+                  name={f.label}
+                />
+              ))}
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -1260,14 +1340,14 @@ export function CustomReportDesignerClient(props: {
 
       {showRadarChart ? (
         <div className="mt-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
-          <ResponsiveContainer width="100%" height={380}>
+          <ResponsiveContainer width="100%" height={400}>
             <RadarChart data={radarData}>
               <PolarGrid stroke="var(--sf-border)" />
               <PolarAngleAxis dataKey="metric" tick={{ fill: "var(--sf-text-secondary)", fontSize: 11 }} />
               <PolarRadiusAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} angle={90} />
               {previewRows.map((row, i) => (
                 <Radar
-                  key={`${row.rep_id}:${row.rep_name}:${i}`}
+                  key={row.rep_name}
                   name={row.rep_name}
                   dataKey={row.rep_name}
                   stroke={CHART_COLORS[i % CHART_COLORS.length]}
