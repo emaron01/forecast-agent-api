@@ -3530,27 +3530,7 @@ export function ExecutiveGapInsightsClient(props: {
         {props.productsClosedWon.length ? <ExecutiveProductPerformance data={productViz} quotaPeriodId={quotaPeriodId} /> : null}
         {partnersDecisionEngine ? (
           <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">Direct vs. Indirect Performance</div>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
-              <PartnerMotionPerformanceSection
-                engine={partnersDecisionEngine}
-                outerClass=""
-                motionGridClass="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
-                motionCardClass="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
-                comparisonRowClass="mt-4 grid gap-3 lg:grid-cols-2"
-                comparisonCardClass="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
-                ceiRowClass="mt-4 grid gap-3 lg:grid-cols-3"
-                ceiCardClass="rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
-                ratioCardClass="h-fit self-start rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4"
-              />
-            </div>
-
-            <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+            <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Canonical Scoring Engine: WIC & PQS</div>

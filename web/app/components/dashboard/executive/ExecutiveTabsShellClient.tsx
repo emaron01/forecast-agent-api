@@ -5,6 +5,7 @@ import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState, useTransition, type ComponentProps } from "react";
 import { ExecutiveGapInsightsClient } from "../../../../components/dashboard/executive/ExecutiveGapInsightsClient";
+import type { ExecTabKey } from "../../../actions/execTabConstants";
 import {
   RepManagerComparisonPanel,
   type RepManagerManagerRow,
@@ -12,8 +13,6 @@ import {
 } from "./RepManagerComparisonPanel";
 import { ManagerReviewQueueClient, type ManagerReviewQueueProps } from "./ManagerReviewQueueClient";
 import type { ChannelLedFedRow, ChannelPartnerHeroProps } from "../../../../lib/channelPartnerHeroData";
-
-type ExecTabKey = "forecast" | "pipeline" | "coaching" | "team" | "channel" | "revenue" | "reports";
 
 type ExecutiveGapInsightsClientProps = ComponentProps<typeof ExecutiveGapInsightsClient>;
 
@@ -91,7 +90,9 @@ const TABS: { key: ExecTabKey; label: string }[] = [
   { key: "coaching", label: "Coaching" },
   { key: "team", label: "Team" },
   { key: "channel", label: "Channel" },
-  { key: "revenue", label: "Revenue" },
+  { key: "revenue_mix", label: "Revenue Mix" },
+  { key: "top_deals", label: "Top Deals" },
+  { key: "report_builder", label: "Report Builder" },
   { key: "reports", label: "Reports" },
 ];
 
@@ -933,11 +934,13 @@ export function ExecutiveTabsShellClient(props: {
             />
           </div>
         )}
-        {activeTab === "revenue" && (
+        {activeTab === "revenue_mix" && (
           <div className="-mx-4 -mt-4">
             <ExecutiveGapInsightsClient {...props.revenueTabProps} revenueTabOnly={true} viewerRole={props.viewerRole} />
           </div>
         )}
+        {activeTab === "top_deals" && <div>Top Deals coming soon</div>}
+        {activeTab === "report_builder" && <div>Report Builder coming soon</div>}
         {activeTab === "reports" && (
           <ReportsTabContent
             fiscalYear={props.forecastTabProps.fiscalYear}
