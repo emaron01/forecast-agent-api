@@ -108,7 +108,7 @@ const REPORT_LINKS = [
   },
   {
     title: "Top Partners",
-    href: "/analytics/partners/executive",
+    href: "/dashboard/executive?tab=channel",
     description: "Partner performance, CEI scoring, and channel investment guidance",
   },
   {

@@ -47,7 +47,11 @@ export default async function AdminHome() {
           {hasFullAnalyticsAccess ? (
             <>
               <Card href="/analytics/executive" title="Executive Analytics" desc="Company + manager + rep KPI views." />
-              <Card href="/analytics/partners/executive" title="Top Partners" desc="Top partner deals by revenue (won + closed loss)." />
+              <Card
+                href="/dashboard/executive?tab=channel"
+                title="Top Partners"
+                desc="Partner performance, CEI scoring, and channel investment guidance (Channel tab on Executive Dashboard)."
+              />
               <Card href="/analytics/quotas/executive" title="Executive Quotas" desc="Quota rollups and attainment (executive view)." />
               <Card href="/analytics/custom-reports" title="Custom Reports" desc="Build and save custom rep comparison reports." />
             </>
