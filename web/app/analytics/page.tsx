@@ -45,9 +45,9 @@ export default async function AnalyticsPage() {
             />
           ) : null}
           <Card
-            href="/analytics/forecast-hygiene"
+            href="/dashboard/executive?tab=forecast"
             title="Forecast Hygiene"
-            desc="Rep and team engagement with Matthew — coverage gaps, score velocity, deal progression, and MEDDPICC assessment by rep and manager."
+            desc="Team forecast hygiene, gap insights, and quarter KPIs on the Executive Dashboard."
           />
           {ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER" ? (
             <Card href="/analytics/detail-dashboard" title="Detail dashboard (report)" desc="The legacy detail dashboard, now housed in Analytics." />

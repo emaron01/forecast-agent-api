@@ -14,6 +14,7 @@ import {
 } from "./RepManagerComparisonPanel";
 import { ManagerReviewQueueClient, type ManagerReviewQueueProps } from "./ManagerReviewQueueClient";
 import type { ChannelLedFedRow, ChannelPartnerHeroProps } from "../../../../lib/channelPartnerHeroData";
+import { CustomReportDesignerClient } from "../../../analytics/custom-reports/CustomReportDesignerClient";
 
 type ExecutiveGapInsightsClientProps = ComponentProps<typeof ExecutiveGapInsightsClient>;
 
@@ -51,9 +52,9 @@ const REPORT_LINKS = [
     description: "Build and save custom rep comparison reports",
   },
   {
-    title: "Forecast Hygiene (full page)",
-    href: "/analytics/forecast-hygiene",
-    description: "Detailed rep engagement and score velocity report",
+    title: "Forecast Hygiene",
+    href: "/dashboard/executive?tab=forecast",
+    description: "Team forecast hygiene, gap insights, and quarter KPIs on the Executive Dashboard",
   },
 ] as const;
 
@@ -671,6 +672,14 @@ export function ExecutiveTabsShellClient(props: {
   channelContributionRows?: ChannelLedFedRow[];
   orgName?: string;
   viewerRole?: string | null;
+  reportBuilderRepRows: any[];
+  reportBuilderSavedReports: any[];
+  reportBuilderPeriodLabel: string;
+  reportBuilderRepDirectory: Array<{
+    id: number;
+    name: string;
+    manager_rep_id: number | null;
+  }>;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -1010,7 +1019,17 @@ export function ExecutiveTabsShellClient(props: {
             activePeriod={props.forecastTabProps.periods.find((p) => String(p.id) === props.forecastTabProps.quotaPeriodId)}
           />
         )}
-        {activeTab === "report_builder" && <div>Report Builder coming soon</div>}
+        {activeTab === "report_builder" && (
+          <div className="space-y-4">
+            <CustomReportDesignerClient
+              reportType="rep_comparison_custom_v1"
+              repRows={props.reportBuilderRepRows}
+              repDirectory={props.reportBuilderRepDirectory}
+              savedReports={props.reportBuilderSavedReports}
+              periodLabel={props.reportBuilderPeriodLabel}
+            />
+          </div>
+        )}
         {activeTab === "reports" && (
           <ReportsTabContent
             fiscalYear={props.forecastTabProps.fiscalYear}

@@ -26,6 +26,8 @@ import {
   type ChannelLedFedRow,
   type ChannelPartnerHeroProps,
 } from "../../../lib/channelPartnerHeroData";
+import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
+import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
 
 export const runtime = "nodejs";
 
@@ -724,6 +726,174 @@ export default async function ExecutiveDashboardPage({
   const prevPeriodId = prevPeriod ? String(prevPeriod.id) : "";
   const comparePeriodIds = [selectedPeriodId, prevPeriodId].filter(Boolean);
   const scopeRepIdsForTeam = visibleRepIds.length > 0 ? visibleRepIds : null;
+
+  const directoryInScope = repDirectory.map((r) => ({
+    id: r.id,
+    name: r.name,
+    manager_rep_id: r.manager_rep_id ?? null,
+  }));
+
+  const periodLabel = selectedPeriodForTeam?.period_name ?? "Current Period";
+
+  let reportBuilderRepRows: any[] = [];
+  try {
+    if (selectedPeriodId && visibleRepIds.length > 0) {
+      const repIdsFilter = visibleRepIds;
+      const periodIds = [String(selectedPeriodId)];
+      const [repKpisRows, quotaByRepPeriod, repHealthRows, meddpiccRows] = await Promise.all([
+        getRepKpisByPeriod({ orgId, periodIds, repIds: repIdsFilter }),
+        getQuotaByRepPeriod({ orgId, quotaPeriodIds: periodIds, repIds: repIdsFilter }),
+        getHealthAveragesByRepByPeriods({
+          orgId,
+          periodIds,
+          repIds: repIdsFilter,
+          dateStart: null,
+          dateEnd: null,
+        }),
+        getMeddpiccAveragesByRepByPeriods({
+          orgId,
+          periodIds,
+          repIds: repIdsFilter,
+          dateStart: null,
+          dateEnd: null,
+        }),
+      ]);
+
+      const quotaByRep = new Map<string, number>();
+      for (const q of quotaByRepPeriod) {
+        if (String(q.quota_period_id) === String(selectedPeriodId)) {
+          quotaByRep.set(String(q.rep_id), Number(q.quota_amount || 0) || 0);
+        }
+      }
+
+      const healthByRepId = new Map<string, any>();
+      for (const r of repHealthRows || []) healthByRepId.set(String((r as any).rep_id), r);
+
+      const meddpiccByRepId = new Map<string, any>();
+      for (const r of meddpiccRows || []) meddpiccByRepId.set(String((r as any).rep_id), r);
+
+      const kpisByRepId = new Map<string, any>();
+      for (const c of repKpisRows || []) {
+        if (String(c.quota_period_id) === String(selectedPeriodId)) {
+          kpisByRepId.set(String((c as any).rep_id), c);
+        }
+      }
+
+      const rbRepIdToManagerId = new Map<string, string>();
+      const rbManagerNameById = new Map<string, string>();
+      for (const r of directoryInScope) {
+        rbRepIdToManagerId.set(String(r.id), r.manager_rep_id == null ? "" : String(r.manager_rep_id));
+      }
+      for (const r of directoryInScope) {
+        if (r.manager_rep_id != null) {
+          const mid = String(r.manager_rep_id);
+          if (!rbManagerNameById.has(mid)) {
+            const m = directoryInScope.find((x) => String(x.id) === mid);
+            rbManagerNameById.set(mid, m ? m.name : `Manager ${mid}`);
+          }
+        }
+      }
+
+      function safeDivRb(n: number, d: number) {
+        if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) return null;
+        return n / d;
+      }
+
+      reportBuilderRepRows = directoryInScope.map((opt: any) => {
+        const rep_id = String(opt.id);
+        const c: any = kpisByRepId.get(rep_id) || null;
+        const quota = quotaByRep.get(rep_id) || 0;
+        const won_amount = Number(c?.won_amount || 0) || 0;
+        const won_count = Number(c?.won_count || 0) || 0;
+        const lost_count = Number(c?.lost_count || 0) || 0;
+        const active_amount = Number(c?.active_amount || 0) || 0;
+        const total_count = Number(c?.total_count || 0) || 0;
+        const manager_id = rbRepIdToManagerId.get(rep_id) || "";
+        const manager_name = manager_id ? rbManagerNameById.get(manager_id) || `Manager ${manager_id}` : "(Unassigned)";
+        const mh: any = meddpiccByRepId.get(rep_id) || null;
+
+        const commit_amount = Number(c?.commit_amount || 0) || 0;
+        const best_amount = Number(c?.best_amount || 0) || 0;
+        const pipeline_amount = Number(c?.pipeline_amount || 0) || 0;
+        const mixDen = pipeline_amount + best_amount + commit_amount + won_amount;
+
+        return {
+          rep_id,
+          rep_name: String(opt?.name || "").trim() || String(c?.rep_name || "").trim() || `Rep ${rep_id}`,
+          manager_id,
+          manager_name,
+          avg_health_all: healthByRepId.get(rep_id)?.avg_health_all ?? null,
+          avg_health_commit: healthByRepId.get(rep_id)?.avg_health_commit ?? null,
+          avg_health_best: healthByRepId.get(rep_id)?.avg_health_best ?? null,
+          avg_health_pipeline: healthByRepId.get(rep_id)?.avg_health_pipeline ?? null,
+          avg_health_won: healthByRepId.get(rep_id)?.avg_health_won ?? null,
+          avg_health_closed: healthByRepId.get(rep_id)?.avg_health_closed ?? null,
+          avg_pain: mh?.avg_pain ?? null,
+          avg_metrics: mh?.avg_metrics ?? null,
+          avg_champion: mh?.avg_champion ?? null,
+          avg_eb: mh?.avg_eb ?? null,
+          avg_competition: mh?.avg_competition ?? null,
+          avg_criteria: mh?.avg_criteria ?? null,
+          avg_process: mh?.avg_process ?? null,
+          avg_paper: mh?.avg_paper ?? null,
+          avg_timing: mh?.avg_timing ?? null,
+          avg_budget: mh?.avg_budget ?? null,
+          quota,
+          total_count,
+          won_amount,
+          won_count,
+          lost_count,
+          active_amount,
+          commit_amount,
+          best_amount,
+          pipeline_amount,
+          created_amount: 0,
+          created_count: 0,
+          win_rate: safeDivRb(won_count, won_count + lost_count),
+          opp_to_win: safeDivRb(won_count, total_count),
+          aov: safeDivRb(won_amount, won_count),
+          attainment: safeDivRb(won_amount, quota),
+          commit_coverage: safeDivRb(commit_amount, quota),
+          best_coverage: safeDivRb(best_amount, quota),
+          partner_contribution: safeDivRb(Number(c?.partner_closed_amount || 0) || 0, Number(c?.closed_amount || 0) || 0),
+          partner_win_rate: safeDivRb(Number(c?.partner_won_count || 0) || 0, Number(c?.partner_closed_count || 0) || 0),
+          avg_days_won: c?.avg_days_won == null ? null : Number(c.avg_days_won),
+          avg_days_lost: c?.avg_days_lost == null ? null : Number(c.avg_days_lost),
+          avg_days_active: c?.avg_days_active == null ? null : Number(c.avg_days_active),
+          mix_pipeline: safeDivRb(pipeline_amount, mixDen),
+          mix_best: safeDivRb(best_amount, mixDen),
+          mix_commit: safeDivRb(commit_amount, mixDen),
+          mix_won: safeDivRb(won_amount, mixDen),
+        };
+      });
+
+      reportBuilderRepRows.sort(
+        (a: any, b: any) =>
+          Number(b.won_amount || 0) - Number(a.won_amount || 0) || String(a.rep_name).localeCompare(String(b.rep_name))
+      );
+    }
+  } catch {
+    reportBuilderRepRows = [];
+  }
+
+  let reportBuilderSavedReports: any[] = [];
+  try {
+    const { rows: saved } = await pool.query(
+      `
+      SELECT id::text AS id, report_type, name, description, config, created_at::text AS created_at, updated_at::text AS updated_at
+      FROM analytics_saved_reports
+      WHERE owner_user_id = $1::bigint
+        AND org_id = $2::bigint
+        AND report_type = 'rep_comparison_custom_v1'
+      ORDER BY updated_at DESC, created_at DESC
+      LIMIT 100
+      `,
+      [ctx.user.id, orgId]
+    );
+    reportBuilderSavedReports = saved || [];
+  } catch {
+    reportBuilderSavedReports = [];
+  }
 
   const repIdToManagerId = new Map<string, string>();
   const managerNameById = new Map<string, string>();
@@ -1463,6 +1633,10 @@ export default async function ExecutiveDashboardPage({
           topPartnerLost={topPartnerLost}
           topDealsWon={topDealsWon}
           topDealsLost={topDealsLost}
+          reportBuilderRepRows={reportBuilderRepRows}
+          reportBuilderSavedReports={reportBuilderSavedReports}
+          reportBuilderPeriodLabel={periodLabel}
+          reportBuilderRepDirectory={directoryInScope}
           showChannelContribution={showChannelContribution}
           channelContributionHero={channelContributionHero}
           channelContributionRows={channelContributionRows}
