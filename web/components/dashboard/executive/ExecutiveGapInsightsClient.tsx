@@ -554,6 +554,7 @@ export function ExecutiveGapInsightsClient(props: {
       win_rate: number | null;
       aov: number | null;
       avg_days: number | null;
+      avg_won_days: number | null;
       avg_health_score: number | null;
       won_amount: number;
       lost_amount: number;
@@ -566,6 +567,7 @@ export function ExecutiveGapInsightsClient(props: {
       win_rate: number | null;
       aov: number | null;
       avg_days: number | null;
+      avg_won_days: number | null;
       avg_health_score: number | null;
       won_amount: number;
       lost_amount: number;
@@ -578,6 +580,7 @@ export function ExecutiveGapInsightsClient(props: {
       win_rate: number | null;
       aov: number | null;
       avg_days: number | null;
+      avg_won_days: number | null;
       avg_health_score: number | null;
       won_amount: number;
       lost_amount: number;
@@ -609,6 +612,7 @@ export function ExecutiveGapInsightsClient(props: {
         win_rate: number | null;
         aov: number | null;
         avg_days: number | null;
+        avg_won_days: number | null;
         avg_health_score: number | null;
         won_amount: number;
         lost_amount: number;
@@ -621,6 +625,7 @@ export function ExecutiveGapInsightsClient(props: {
         win_rate: number | null;
         aov: number | null;
         avg_days: number | null;
+        avg_won_days: number | null;
         avg_health_score: number | null;
         won_amount: number;
         lost_amount: number;
@@ -633,6 +638,7 @@ export function ExecutiveGapInsightsClient(props: {
         win_rate: number | null;
         aov: number | null;
         avg_days: number | null;
+        avg_won_days: number | null;
         avg_health_score: number | null;
         won_amount: number;
         lost_amount: number;

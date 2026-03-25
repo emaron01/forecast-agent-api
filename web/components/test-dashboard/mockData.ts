@@ -120,9 +120,9 @@ export type TestExecutiveDashboardMock = {
   }>;
 
   motionPerformance: {
-    direct: { win_rate_pct: number; avg_health_pct: number; revenue: number; mix_pct: number };
-    partner_influenced: { win_rate_pct: number; avg_health_pct: number; revenue: number; mix_pct: number };
-    partner_sourced: { win_rate_pct: number; avg_health_pct: number; revenue: number; mix_pct: number };
+    direct: { win_rate_pct: number; avg_health_pct: number; avg_age_days: number; revenue: number; mix_pct: number };
+    partner_influenced: { win_rate_pct: number; avg_health_pct: number; avg_age_days: number; revenue: number; mix_pct: number };
+    partner_sourced: { win_rate_pct: number; avg_health_pct: number; avg_age_days: number; revenue: number; mix_pct: number };
   };
 
   cei: {
@@ -375,9 +375,9 @@ export const testExecutiveDashboardMock: TestExecutiveDashboardMock = {
   ],
 
   motionPerformance: {
-    direct: { win_rate_pct: 47, avg_health_pct: 30, revenue: 757_000, mix_pct: 52 },
-    partner_influenced: { win_rate_pct: 78, avg_health_pct: 72, revenue: 400_000, mix_pct: 27 },
-    partner_sourced: { win_rate_pct: 88, avg_health_pct: 82, revenue: 311_000, mix_pct: 21 },
+    direct: { win_rate_pct: 47, avg_health_pct: 30, avg_age_days: 95, revenue: 757_000, mix_pct: 52 },
+    partner_influenced: { win_rate_pct: 78, avg_health_pct: 72, avg_age_days: 118, revenue: 400_000, mix_pct: 27 },
+    partner_sourced: { win_rate_pct: 88, avg_health_pct: 82, avg_age_days: 132, revenue: 311_000, mix_pct: 21 },
   },
 
   cei: {

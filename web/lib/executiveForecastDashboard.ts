@@ -206,6 +206,8 @@ export type ExecutiveForecastSummary = {
       win_rate: number | null;
       aov: number | null;
       avg_days: number | null;
+      /** Avg days create→close on closed-won only (motion snapshot / cycle length). */
+      avg_won_days: number | null;
       avg_health_score: number | null; // raw 0..30
       won_amount: number;
       lost_amount: number;
@@ -218,6 +220,7 @@ export type ExecutiveForecastSummary = {
       win_rate: number | null;
       aov: number | null;
       avg_days: number | null;
+      avg_won_days: number | null;
       avg_health_score: number | null; // raw 0..30
       won_amount: number;
       lost_amount: number;
@@ -230,6 +233,7 @@ export type ExecutiveForecastSummary = {
       win_rate: number | null;
       aov: number | null;
       avg_days: number | null;
+      avg_won_days: number | null;
       avg_health_score: number | null; // raw 0..30
       won_amount: number;
       lost_amount: number;
@@ -263,6 +267,7 @@ export type ExecutiveForecastSummary = {
         win_rate: number | null;
         aov: number | null;
         avg_days: number | null;
+        avg_won_days: number | null;
         avg_health_score: number | null; // raw 0..30
         won_amount: number;
         lost_amount: number;
@@ -275,6 +280,7 @@ export type ExecutiveForecastSummary = {
         win_rate: number | null;
         aov: number | null;
         avg_days: number | null;
+        avg_won_days: number | null;
         avg_health_score: number | null; // raw 0..30
         won_amount: number;
         lost_amount: number;
@@ -287,6 +293,7 @@ export type ExecutiveForecastSummary = {
         win_rate: number | null;
         aov: number | null;
         avg_days: number | null;
+        avg_won_days: number | null;
         avg_health_score: number | null; // raw 0..30
         won_amount: number;
         lost_amount: number;
@@ -316,6 +323,7 @@ type MotionStatsRow = {
   win_rate: number | null;
   aov: number | null;
   avg_days: number | null;
+  avg_won_days: number | null;
   avg_health_score: number | null; // raw 0..30
   won_amount: number;
   lost_amount: number;
@@ -345,6 +353,7 @@ function emptyMotionStatsRow(motion: PartnerDealMotion): MotionStatsRow {
     win_rate: null,
     aov: null,
     avg_days: null,
+    avg_won_days: null,
     avg_health_score: null,
     won_amount: 0,
     lost_amount: 0,
@@ -413,6 +422,7 @@ async function loadMotionStatsForPartners(args: { orgId: number; quotaPeriodId: 
       CASE WHEN COUNT(*) > 0 THEN (SUM(is_won)::float8 / COUNT(*)::float8) ELSE NULL END AS win_rate,
       AVG(NULLIF(amount, 0))::float8 AS aov,
       AVG(age_days)::float8 AS avg_days,
+      AVG(CASE WHEN is_won = 1 THEN age_days ELSE NULL END)::float8 AS avg_won_days,
       AVG(NULLIF(health_score, 0))::float8 AS avg_health_score,
       SUM(CASE WHEN is_won = 1 THEN amount ELSE 0 END)::float8 AS won_amount,
       SUM(CASE WHEN is_lost = 1 THEN amount ELSE 0 END)::float8 AS lost_amount

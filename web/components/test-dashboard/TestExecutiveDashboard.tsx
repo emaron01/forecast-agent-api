@@ -676,13 +676,21 @@ export function TestExecutiveDashboard() {
         <div className="grid gap-4 lg:grid-cols-2">
           <Card title="Direct vs. Indirect Performance" subtitle="Mock snapshot.">
             <SimpleTable
-              columns={["Motion", "Win Rate", "Avg Health", "Revenue", "Mix"]}
+              columns={["Motion", "Win Rate", "Avg Health", "Avg Age", "Revenue", "Mix"]}
               rows={[
-                ["Direct", `${mock.motionPerformance.direct.win_rate_pct}%`, `${mock.motionPerformance.direct.avg_health_pct}%`, fmtMoney0(mock.motionPerformance.direct.revenue), `${mock.motionPerformance.direct.mix_pct}%`],
+                [
+                  "Direct",
+                  `${mock.motionPerformance.direct.win_rate_pct}%`,
+                  `${mock.motionPerformance.direct.avg_health_pct}%`,
+                  `${mock.motionPerformance.direct.avg_age_days} days`,
+                  fmtMoney0(mock.motionPerformance.direct.revenue),
+                  `${mock.motionPerformance.direct.mix_pct}%`,
+                ],
                 [
                   "Partner Influenced",
                   `${mock.motionPerformance.partner_influenced.win_rate_pct}%`,
                   `${mock.motionPerformance.partner_influenced.avg_health_pct}%`,
+                  `${mock.motionPerformance.partner_influenced.avg_age_days} days`,
                   fmtMoney0(mock.motionPerformance.partner_influenced.revenue),
                   `${mock.motionPerformance.partner_influenced.mix_pct}%`,
                 ],
@@ -690,6 +698,7 @@ export function TestExecutiveDashboard() {
                   "Partner Sourced",
                   `${mock.motionPerformance.partner_sourced.win_rate_pct}%`,
                   `${mock.motionPerformance.partner_sourced.avg_health_pct}%`,
+                  `${mock.motionPerformance.partner_sourced.avg_age_days} days`,
                   fmtMoney0(mock.motionPerformance.partner_sourced.revenue),
                   `${mock.motionPerformance.partner_sourced.mix_pct}%`,
                 ],
@@ -701,6 +710,11 @@ export function TestExecutiveDashboard() {
                 Win Rate{" "}
                 <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
                   {mock.motionPerformance.direct.win_rate_pct - mock.motionPerformance.partner_sourced.win_rate_pct}pp
+                </span>{" "}
+                · Avg Age{" "}
+                <span className="font-mono font-semibold text-[#E74C3C]">
+                  +
+                  {mock.motionPerformance.partner_sourced.avg_age_days - mock.motionPerformance.direct.avg_age_days} days
                 </span>{" "}
                 · Revenue{" "}
                 <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">

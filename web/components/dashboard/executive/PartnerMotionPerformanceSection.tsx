@@ -9,6 +9,8 @@ export type PartnerMotionPillar = {
   win_rate: number | null;
   aov: number | null;
   avg_days: number | null;
+  /** Closed-won only: avg days create → close (motion snapshot). */
+  avg_won_days: number | null;
   avg_health_score: number | null;
   won_amount: number;
   lost_amount: number;
@@ -89,12 +91,32 @@ function highlightAmong3(value: number | null, a: number | null, b: number | nul
   return "";
 }
 
+/** Lower is better (e.g. cycle days): best (min) = green, worst (max) = red. */
+function highlightAmong3LowerBetter(value: number | null, a: number | null, b: number | null, c: number | null) {
+  return highlightAmong3(value == null ? null : -value, a == null ? null : -a, b == null ? null : -b, c == null ? null : -c);
+}
+
+function fmtAgeDaysCell(n: number | null) {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return `${Math.round(n)} days`;
+}
+
+function fmtAgeDeltaDays(d: number | null) {
+  if (d == null || !Number.isFinite(d)) return "—";
+  const r = Math.round(Math.abs(d));
+  if (d > 0) return `+${r} days`;
+  if (d < 0) return `-${r} days`;
+  return "0 days";
+}
+
 function ComparisonBlock(props: {
   title: string;
   directWin: number | null;
   otherWin: number | null;
   directHealth01: number | null;
   otherHealth01: number | null;
+  directAvgAgeDays: number | null;
+  otherAvgAgeDays: number | null;
   directRev: number | null;
   otherRev: number | null;
   directMix: number | null;
@@ -108,6 +130,15 @@ function ComparisonBlock(props: {
         ? "text-[#16A34A]"
         : d < 0
           ? "text-[#E74C3C]"
+          : "text-[color:var(--sf-text-primary)]";
+  /** other − direct; positive = partner slower (worse) → red */
+  const deltaAgeTone = (d: number | null) =>
+    d == null || !Number.isFinite(d)
+      ? "text-[color:var(--sf-text-disabled)]"
+      : d > 0
+        ? "text-[#E74C3C]"
+        : d < 0
+          ? "text-[#16A34A]"
           : "text-[color:var(--sf-text-primary)]";
   const fmtPp = (d01: number | null) => {
     if (d01 == null || !Number.isFinite(d01)) return "—";
@@ -124,6 +155,8 @@ function ComparisonBlock(props: {
   };
   const dWin = props.directWin == null || props.otherWin == null ? null : props.otherWin - props.directWin;
   const dHealth = props.directHealth01 == null || props.otherHealth01 == null ? null : props.otherHealth01 - props.directHealth01;
+  const dAge =
+    props.directAvgAgeDays == null || props.otherAvgAgeDays == null ? null : props.otherAvgAgeDays - props.directAvgAgeDays;
   const dRev = props.directRev == null || props.otherRev == null ? null : props.otherRev - props.directRev;
   const dMix = props.directMix == null || props.otherMix == null ? null : props.otherMix - props.directMix;
 
@@ -136,6 +169,10 @@ function ComparisonBlock(props: {
       <div className="grid grid-cols-[1fr_auto] items-center gap-4">
         <span>Avg Health</span>
         <span className={["font-mono text-xs font-semibold", deltaTone(dHealth)].join(" ")}>{fmtPp(dHealth)}</span>
+      </div>
+      <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+        <span>Avg Age</span>
+        <span className={["font-mono text-xs font-semibold", deltaAgeTone(dAge)].join(" ")}>{fmtAgeDeltaDays(dAge)}</span>
       </div>
       <div className="grid grid-cols-[1fr_auto] items-center gap-4">
         <span>Revenue</span>
@@ -189,14 +226,18 @@ export function PartnerMotionPerformanceSection(props: {
   const infRev = Number(inf.won_amount || 0) || 0;
   const srcRev = Number(src.won_amount || 0) || 0;
 
+  const directAge = direct.avg_won_days == null ? null : Number(direct.avg_won_days);
+  const infAge = inf.avg_won_days == null ? null : Number(inf.avg_won_days);
+  const srcAge = src.avg_won_days == null ? null : Number(src.avg_won_days);
+
   const directMix = e.directMix;
   const infMix = e.partnerInfluencedMix;
   const srcMix = e.partnerSourcedMix;
 
   const rows = [
-    { k: "Direct", win: directWin, health: directHealth01, rev: directRev, mix: directMix },
-    { k: "Partner Influenced", win: infWin, health: infHealth01, rev: infRev, mix: infMix },
-    { k: "Partner Sourced", win: srcWin, health: srcHealth01, rev: srcRev, mix: srcMix },
+    { k: "Direct", win: directWin, health: directHealth01, ageDays: directAge, rev: directRev, mix: directMix },
+    { k: "Partner Influenced", win: infWin, health: infHealth01, ageDays: infAge, rev: infRev, mix: infMix },
+    { k: "Partner Sourced", win: srcWin, health: srcHealth01, ageDays: srcAge, rev: srcRev, mix: srcMix },
   ] as const;
 
   const ceiCurN = e.cei.partner_sourced_index == null ? null : Number(e.cei.partner_sourced_index);
@@ -262,6 +303,17 @@ export function PartnerMotionPerformanceSection(props: {
                 </span>
               </div>
               <div className="flex items-center justify-between gap-2 mt-1">
+                <span>Avg Age</span>
+                <span
+                  className={[
+                    "font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]",
+                    highlightAmong3LowerBetter(row.ageDays, directAge, infAge, srcAge),
+                  ].join(" ")}
+                >
+                  {fmtAgeDaysCell(row.ageDays)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2 mt-1">
                 <span>Revenue</span>
                 <span
                   className={[
@@ -296,6 +348,8 @@ export function PartnerMotionPerformanceSection(props: {
             otherWin={srcWin}
             directHealth01={directHealth01}
             otherHealth01={srcHealth01}
+            directAvgAgeDays={directAge}
+            otherAvgAgeDays={srcAge}
             directRev={directRev}
             otherRev={srcRev}
             directMix={directMix}
@@ -309,6 +363,8 @@ export function PartnerMotionPerformanceSection(props: {
             otherWin={infWin}
             directHealth01={directHealth01}
             otherHealth01={infHealth01}
+            directAvgAgeDays={directAge}
+            otherAvgAgeDays={infAge}
             directRev={directRev}
             otherRev={infRev}
             directMix={directMix}
