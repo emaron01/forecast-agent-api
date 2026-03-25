@@ -37,21 +37,11 @@ export default async function AnalyticsPage() {
 
         <section className="mt-6 grid gap-4 md:grid-cols-2">
           <Card href="/analytics/kpis" title="KPIs by quarter" desc="Quarter-by-quarter KPI breakdown with manager + rep expand/collapse." />
-          {ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER" || ctx.user.role === "ADMIN" ? (
-            <Card
-              href="/analytics/meddpicc-tb"
-              title="MEDDPICC+TB"
-              desc="Deal heatmap + risk/next steps report (sortable)."
-            />
-          ) : null}
           <Card
             href="/dashboard/executive?tab=forecast"
             title="Forecast Hygiene"
             desc="Team forecast hygiene, gap insights, and quarter KPIs on the Executive Dashboard."
           />
-          {ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER" ? (
-            <Card href="/analytics/detail-dashboard" title="Detail dashboard (report)" desc="The legacy detail dashboard, now housed in Analytics." />
-          ) : null}
           {ctx.user.role === "ADMIN" ? (
             <Card href="/analytics/quotas/admin" title="Quotas (Admin)" desc="Admin quota management." />
           ) : null}
@@ -70,9 +60,6 @@ export default async function AnalyticsPage() {
           ) : null}
           {ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER" || ctx.user.role === "ADMIN" ? (
             <Card href="/analytics/custom-reports" title="Build Custom Reports" desc="Save/load custom rep comparison reports (fields + selected reps)." />
-          ) : null}
-          {(ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER") ? (
-            <Card href="/analytics/executive" title="KPI Summary" desc="Quarter KPI dashboard with QoQ deltas + team/rep comparisons." />
           ) : null}
           {(ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER") ? (
             <Card

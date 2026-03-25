@@ -409,7 +409,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
       revalidatePath("/forecast/simple");
       revalidatePath("/forecast/opportunity-score-cards");
       revalidatePath("/analytics");
-      revalidatePath("/analytics/meddpicc-tb");
+      revalidatePath("/dashboard/executive");
 
       const msg =
         deleted > 0

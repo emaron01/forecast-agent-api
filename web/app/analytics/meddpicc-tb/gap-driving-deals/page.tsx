@@ -105,12 +105,8 @@ export default async function GapDrivingDealsReportPage({
               Deal-level breakdown of the weighted outlook delta between CRM (rep-weighted) and AI/Verdict (health-modified).
             </p>
             <div className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-              <Link className="text-[color:var(--sf-accent-primary)] hover:underline" href="/analytics/meddpicc-tb">
-                MEDDPICC+TB Reports
-              </Link>
-              {" · "}
-              <Link className="text-[color:var(--sf-accent-primary)] hover:underline" href="/analytics/meddpicc-tb/verdict">
-                Verdict (CRM vs AI Forecast)
+              <Link className="text-[color:var(--sf-accent-primary)] hover:underline" href="/analytics">
+                Analytics home
               </Link>
             </div>
           </div>

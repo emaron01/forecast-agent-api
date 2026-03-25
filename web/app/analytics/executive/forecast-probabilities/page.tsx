@@ -57,8 +57,8 @@ export default async function ExecutiveForecastProbabilitiesPage({ searchParams 
             <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Forecast stage probabilities</h1>
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Set default close probability assumptions by forecast category.</p>
             <div className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-              <Link className="text-[color:var(--sf-accent-primary)] hover:underline" href="/analytics/executive">
-                Executive analytics
+              <Link className="text-[color:var(--sf-accent-primary)] hover:underline" href="/dashboard/executive">
+                Executive dashboard
               </Link>
               {" · "}
               <Link className="text-[color:var(--sf-accent-primary)] hover:underline" href="/analytics">

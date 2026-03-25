@@ -46,7 +46,7 @@ export default async function AdminHome() {
           <Card href="/admin/analytics/quotas" title="Quotas" desc="Assign quotas to reps and manage quota sets." />
           {hasFullAnalyticsAccess ? (
             <>
-              <Card href="/analytics/executive" title="Executive Analytics" desc="Company + manager + rep KPI views." />
+              <Card href="/dashboard/executive" title="Executive Analytics" desc="Company + manager + rep KPI views." />
               <Card
                 href="/dashboard/executive?tab=channel"
                 title="Top Partners"
