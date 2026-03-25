@@ -138,18 +138,18 @@ function ChannelTopPartnerDealTables(props: {
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Sorted by revenue descending</p>
           </div>
         </div>
-        <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-          <table className="w-full min-w-[1200px] text-left text-sm">
-            <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+        <div className="mt-4 overflow-hidden rounded-md border border-[color:var(--sf-border)]">
+          <table className="w-full table-fixed border-collapse text-left text-sm">
+            <thead className="bg-[color:var(--sf-surface-alt)] text-[11px] uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
               <tr>
-                <th className="px-4 py-3">partner</th>
-                <th className="px-4 py-3">account</th>
-                <th className="px-4 py-3">opportunity</th>
-                <th className="px-4 py-3">product</th>
-                <th className="px-4 py-3 text-right">revenue</th>
-                <th className="px-4 py-3 text-right">age</th>
-                <th className="px-4 py-3 text-right">initial health</th>
-                <th className="px-4 py-3 text-right">final health</th>
+                <th className="w-[13%] px-2 py-2.5 text-left">partner</th>
+                <th className="w-[8%] px-2 py-2.5 text-right whitespace-nowrap">initial</th>
+                <th className="w-[8%] px-2 py-2.5 text-right whitespace-nowrap">final</th>
+                <th className="w-[11%] px-2 py-2.5 text-right whitespace-nowrap">revenue</th>
+                <th className="w-[6%] px-2 py-2.5 text-right whitespace-nowrap">age</th>
+                <th className="w-[18%] px-2 py-2.5 text-left">account</th>
+                <th className="w-[22%] px-2 py-2.5 text-left">opportunity</th>
+                <th className="w-[14%] px-2 py-2.5 text-left">product</th>
               </tr>
             </thead>
             <tbody>
@@ -158,16 +158,16 @@ function ChannelTopPartnerDealTables(props: {
                   const ageDays = daysBetweenChannel(d.create_date, d.close_date);
                   return (
                   <tr key={d.opportunity_public_id} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
-                    <td className="px-4 py-3 font-medium">{d.partner_name}</td>
-                    <td className="px-4 py-3">{d.account_name || ""}</td>
-                    <td className="px-4 py-3">{d.opportunity_name || ""}</td>
-                    <td className="px-4 py-3">{d.product || ""}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoneyChannel(d.amount)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">
+                    <td className="px-2 py-2.5 font-medium align-top truncate" title={d.partner_name}>{d.partner_name}</td>
+                    <td className="px-2 py-2.5 text-right font-mono text-xs align-top whitespace-nowrap">{healthPctChannel(d.baseline_health_score)}</td>
+                    <td className="px-2 py-2.5 text-right font-mono text-xs align-top whitespace-nowrap">{healthPctChannel(d.health_score)}</td>
+                    <td className="px-2 py-2.5 text-right font-mono text-xs align-top whitespace-nowrap">{fmtMoneyChannel(d.amount)}</td>
+                    <td className="px-2 py-2.5 text-right font-mono text-xs align-top whitespace-nowrap">
                       {ageDays == null ? "—" : String(ageDays)}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">{healthPctChannel(d.baseline_health_score)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">{healthPctChannel(d.health_score)}</td>
+                    <td className="min-w-0 px-2 py-2.5 align-top truncate" title={d.account_name || undefined}>{d.account_name || ""}</td>
+                    <td className="min-w-0 px-2 py-2.5 align-top truncate" title={d.opportunity_name || undefined}>{d.opportunity_name || ""}</td>
+                    <td className="min-w-0 px-2 py-2.5 align-top truncate" title={d.product || undefined}>{d.product || ""}</td>
                   </tr>
                   );
                 })
@@ -186,7 +186,7 @@ function ChannelTopPartnerDealTables(props: {
       <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Closed Loss (top 10 by revenue)</h2>
+            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Top partner deals loss (top 10 by revenue)</h2>
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
               Period: <span className="font-mono text-xs">{dateOnlyChannel(periodStart)}</span> →{" "}
               <span className="font-mono text-xs">{dateOnlyChannel(periodEnd)}</span>
@@ -194,18 +194,18 @@ function ChannelTopPartnerDealTables(props: {
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Sorted by revenue descending</p>
           </div>
         </div>
-        <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-          <table className="w-full min-w-[1200px] text-left text-sm">
-            <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+        <div className="mt-4 overflow-hidden rounded-md border border-[color:var(--sf-border)]">
+          <table className="w-full table-fixed border-collapse text-left text-sm">
+            <thead className="bg-[color:var(--sf-surface-alt)] text-[11px] uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
               <tr>
-                <th className="px-4 py-3">partner</th>
-                <th className="px-4 py-3">account</th>
-                <th className="px-4 py-3">opportunity</th>
-                <th className="px-4 py-3">product</th>
-                <th className="px-4 py-3 text-right">revenue</th>
-                <th className="px-4 py-3 text-right">age</th>
-                <th className="px-4 py-3 text-right">initial health</th>
-                <th className="px-4 py-3 text-right">final health</th>
+                <th className="w-[13%] px-2 py-2.5 text-left">partner</th>
+                <th className="w-[8%] px-2 py-2.5 text-right whitespace-nowrap">initial</th>
+                <th className="w-[8%] px-2 py-2.5 text-right whitespace-nowrap">final</th>
+                <th className="w-[11%] px-2 py-2.5 text-right whitespace-nowrap">revenue</th>
+                <th className="w-[6%] px-2 py-2.5 text-right whitespace-nowrap">age</th>
+                <th className="w-[18%] px-2 py-2.5 text-left">account</th>
+                <th className="w-[22%] px-2 py-2.5 text-left">opportunity</th>
+                <th className="w-[14%] px-2 py-2.5 text-left">product</th>
               </tr>
             </thead>
             <tbody>
@@ -214,23 +214,23 @@ function ChannelTopPartnerDealTables(props: {
                   const ageDays = daysBetweenChannel(d.create_date, d.close_date);
                   return (
                   <tr key={d.opportunity_public_id} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
-                    <td className="px-4 py-3 font-medium">{d.partner_name}</td>
-                    <td className="px-4 py-3">{d.account_name || ""}</td>
-                    <td className="px-4 py-3">{d.opportunity_name || ""}</td>
-                    <td className="px-4 py-3">{d.product || ""}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoneyChannel(d.amount)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">
+                    <td className="px-2 py-2.5 font-medium align-top truncate" title={d.partner_name}>{d.partner_name}</td>
+                    <td className="px-2 py-2.5 text-right font-mono text-xs align-top whitespace-nowrap">{healthPctChannel(d.baseline_health_score)}</td>
+                    <td className="px-2 py-2.5 text-right font-mono text-xs align-top whitespace-nowrap">{healthPctChannel(d.health_score)}</td>
+                    <td className="px-2 py-2.5 text-right font-mono text-xs align-top whitespace-nowrap">{fmtMoneyChannel(d.amount)}</td>
+                    <td className="px-2 py-2.5 text-right font-mono text-xs align-top whitespace-nowrap">
                       {ageDays == null ? "—" : String(ageDays)}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">{healthPctChannel(d.baseline_health_score)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs">{healthPctChannel(d.health_score)}</td>
+                    <td className="min-w-0 px-2 py-2.5 align-top truncate" title={d.account_name || undefined}>{d.account_name || ""}</td>
+                    <td className="min-w-0 px-2 py-2.5 align-top truncate" title={d.opportunity_name || undefined}>{d.opportunity_name || ""}</td>
+                    <td className="min-w-0 px-2 py-2.5 align-top truncate" title={d.product || undefined}>{d.product || ""}</td>
                   </tr>
                   );
                 })
               ) : (
                 <tr>
                   <td colSpan={8} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
-                    No partner Closed Loss deals found for this quarter.
+                    No partner loss deals found for this quarter.
                   </td>
                 </tr>
               )}
