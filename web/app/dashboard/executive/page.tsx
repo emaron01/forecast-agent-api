@@ -1369,6 +1369,12 @@ export default async function ExecutiveDashboardPage({
             defaultTopN: 5,
             topDealsWon,
             topDealsLost,
+            pipelineHygiene: {
+              coverageRows: coverageRowsFinal,
+              assessmentRows: assessmentRowsFinal,
+              velocitySummaries: velocityRepSummariesFinal,
+              progressionSummaries: progressionRepSummariesFinal,
+            },
           }}
           pipelineTabProps={{
             basePath: "/dashboard/executive",
