@@ -103,8 +103,8 @@ const REPORT_LINKS = [
   },
   {
     title: "Top Deals",
-    href: "/analytics/top-deals",
-    description: "Top won and closed loss deals for the selected quarter",
+    href: "/analytics/quotas/executive",
+    description: "Top 10 won and closed loss deals for the selected quarter, across all motions",
   },
   {
     title: "Top Partners",

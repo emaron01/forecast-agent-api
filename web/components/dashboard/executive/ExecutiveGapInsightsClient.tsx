@@ -2447,6 +2447,19 @@ export function ExecutiveGapInsightsClient(props: {
             productsClosedWon={props.productsClosedWon as any}
           />
         </div>
+
+        <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+          <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Top Deals</h2>
+          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Top 10 won and closed loss deals this quarter.</p>
+          <div className="mt-3">
+            <a
+              href="/analytics/quotas/executive"
+              className="text-sm text-[color:var(--sf-accent-primary)] hover:underline"
+            >
+              View full Top Deals report →
+            </a>
+          </div>
+        </section>
       </div>
     );
   }
