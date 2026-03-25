@@ -63,6 +63,7 @@ export function useAiTakeaway(args: {
   const [stale, setStale] = useState(false);
   const [loading, setLoading] = useState(false);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  const [isFresh, setIsFresh] = useState(true);
   const [toast, setToast] = useState("");
 
   const loadedShaRef = useRef<string | null>(null);
@@ -92,27 +93,38 @@ export function useAiTakeaway(args: {
     }
 
     let cancelled = false;
-    void (async () => {
+
+    /**
+     * Cache GET only: apply state on hit. On miss or error, do nothing (summary stays null until user clicks Generate).
+     * Must never call generate() or POST ai-strategic-takeaway.
+     */
+    async function checkCache(): Promise<boolean> {
       try {
         const res = await fetch(
           `/api/ai-takeaway-cache?org_id=${args.orgId}&surface=${encodeURIComponent(args.surface)}&payload_sha=${encodeURIComponent(payloadSha)}`
         );
         const j = await res.json();
-        if (cancelled) return;
+        if (cancelled) return false;
         if (j?.ok && j?.summary) {
           const rawS = String(j.summary || "").trim();
           const rawE = String(j.extended || "").trim();
           const unwrapped = unwrapIfJsonEnvelope(rawS, rawE);
           setSummary(unwrapped.summary || null);
           setExtended(unwrapped.extended || null);
+          const fresh = Boolean(j?.is_fresh);
+          setIsFresh(fresh);
           setLoadedSha(payloadSha);
-          setGeneratedAt("cached");
+          setGeneratedAt(fresh ? "cached" : "expired");
           setStale(false);
+          return true;
         }
+        return false;
       } catch {
-        // ignore
+        return false;
       }
-    })();
+    }
+
+    void checkCache();
     return () => {
       cancelled = true;
     };
@@ -161,6 +173,7 @@ export function useAiTakeaway(args: {
           setExtended(newExtended);
           setLoadedSha(nextSha || payloadSha);
           setGeneratedAt(new Date().toLocaleTimeString());
+          setIsFresh(true);
           setStale(false);
 
           await fetch("/api/ai-takeaway-cache", {
@@ -191,6 +204,7 @@ export function useAiTakeaway(args: {
     loading,
     stale,
     generatedAt,
+    isFresh,
     generate,
     toast,
   };

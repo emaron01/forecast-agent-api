@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useExecutiveBriefing } from "../dashboard/executive/ExecutiveBriefingContext";
 import { useAiTakeaway } from "../../app/components/ai/useAiTakeaway";
+import { AiTakeawayTimestamp } from "../../app/components/ai/aiTakeawayUiMeta";
 
 function renderCategorizedText(text: string) {
   const t = String(text || "").trim();
@@ -134,6 +135,12 @@ export function PartnersExecutiveAiTakeawayClient(props: { orgId: number; quotaP
         </div>
       </div>
 
+      <AiTakeawayTimestamp
+        hasContent={!!(summary || extended)}
+        isFresh={takeaway.isFresh}
+        generatedAt={takeaway.generatedAt}
+        className="mt-3 text-xs text-[color:var(--sf-text-secondary)]"
+      />
       {takeaway.toast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{takeaway.toast}</div> : null}
       {copied ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
       {takeaway.stale ? (
@@ -160,9 +167,7 @@ export function PartnersExecutiveAiTakeawayClient(props: { orgId: number; quotaP
             </div>
           ) : null}
         </div>
-      ) : (
-        <div className="mt-3 text-sm text-[color:var(--sf-text-secondary)]">Click Generate for strategic takeaways.</div>
-      )}
+      ) : null}
     </section>
   );
 }

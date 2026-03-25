@@ -33,19 +33,34 @@ export async function GET(req: Request) {
   }
 
   try {
-    const r = await pool.query<{ summary: string; extended: string | null }>(
-      `SELECT summary, extended
+    const r = await pool.query<{
+      summary: string;
+      extended: string | null;
+      expires_at: Date;
+      is_fresh: boolean;
+    }>(
+      `SELECT summary, extended, expires_at,
+              (expires_at IS NOT NULL AND expires_at > NOW()) AS is_fresh
        FROM ai_takeaway_cache
        WHERE org_id = $1
          AND surface = $2
          AND payload_sha = $3
-         AND expires_at > NOW()
        LIMIT 1`,
       [auth.user.org_id, surface, payloadSha]
     );
     const row = r.rows?.[0];
     if (row?.summary) {
-      return NextResponse.json({ ok: true, summary: row.summary, extended: row.extended ?? null });
+      const expiresAt =
+        row.expires_at instanceof Date
+          ? row.expires_at.toISOString()
+          : String(row.expires_at ?? "");
+      return NextResponse.json({
+        ok: true,
+        summary: row.summary,
+        extended: row.extended ?? null,
+        is_fresh: !!row.is_fresh,
+        expires_at: expiresAt,
+      });
     }
     return NextResponse.json({ ok: false });
   } catch (e: any) {

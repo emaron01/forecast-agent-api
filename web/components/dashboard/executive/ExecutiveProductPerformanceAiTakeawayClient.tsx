@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useMemo, useState } from "react";
 import { useAiTakeaway } from "../../../app/components/ai/useAiTakeaway";
+import { AiTakeawayTimestamp } from "../../../app/components/ai/aiTakeawayUiMeta";
 
 function renderCategorizedText(text: string) {
   const t = String(text || "").trim();
@@ -98,7 +99,7 @@ export function ExecutiveProductPerformanceAiTakeawayClient(props: Props) {
               disabled={takeaway.loading}
               className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70 disabled:opacity-60"
             >
-              Reanalyze
+              {takeaway.isFresh ? "Reanalyze" : "Refresh"}
             </button>
           ) : (
             <button
@@ -134,6 +135,12 @@ export function ExecutiveProductPerformanceAiTakeawayClient(props: Props) {
         </div>
       </div>
 
+      <AiTakeawayTimestamp
+        hasContent={!!(summary || extended)}
+        isFresh={takeaway.isFresh}
+        generatedAt={takeaway.generatedAt}
+        className="mt-2 text-xs text-[color:var(--sf-text-secondary)]"
+      />
       {takeaway.toast ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{takeaway.toast}</div> : null}
       {copied ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
       {takeaway.stale ? (

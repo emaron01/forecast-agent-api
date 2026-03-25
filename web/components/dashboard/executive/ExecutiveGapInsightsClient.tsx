@@ -24,6 +24,7 @@ import { useExecutiveBriefing } from "./ExecutiveBriefingContext";
 import { DealCoachingCard, type DealCoachingCardDeal } from "../../../app/components/dashboard/coaching/DealCoachingCard";
 import { PartnerMotionPerformanceSection } from "./PartnerMotionPerformanceSection";
 import { useAiTakeaway } from "../../../app/components/ai/useAiTakeaway";
+import { AiTakeawayTimestamp } from "../../../app/components/ai/aiTakeawayUiMeta";
 
 type RiskCategoryKey =
   | "pain"
@@ -2025,7 +2026,7 @@ export function ExecutiveGapInsightsClient(props: {
                   disabled={radarTakeaway.loading}
                   className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70 disabled:opacity-60"
                 >
-                  Reanalyze
+                  {radarTakeaway.isFresh ? "Reanalyze" : "Refresh"}
                 </button>
               ) : (
                 <button
@@ -2060,6 +2061,12 @@ export function ExecutiveGapInsightsClient(props: {
               ) : null}
             </div>
           </div>
+          <AiTakeawayTimestamp
+            hasContent={!!(radarTakeaway.summary || radarTakeaway.extended)}
+            isFresh={radarTakeaway.isFresh}
+            generatedAt={radarTakeaway.generatedAt}
+            className="mt-2 text-xs text-[color:var(--sf-text-secondary)]"
+          />
           {radarTakeaway.toast ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{radarTakeaway.toast}</div> : null}
           {radarAiCopied ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
           {radarTakeaway.stale ? (
@@ -2132,7 +2139,7 @@ export function ExecutiveGapInsightsClient(props: {
                   disabled={radarTakeaway.loading}
                   className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70 disabled:opacity-60"
                 >
-                  Reanalyze
+                  {radarTakeaway.isFresh ? "Reanalyze" : "Refresh"}
                 </button>
               ) : (
                 <button
@@ -2167,6 +2174,12 @@ export function ExecutiveGapInsightsClient(props: {
               ) : null}
             </div>
           </div>
+          <AiTakeawayTimestamp
+            hasContent={!!(radarTakeaway.summary || radarTakeaway.extended)}
+            isFresh={radarTakeaway.isFresh}
+            generatedAt={radarTakeaway.generatedAt}
+            className="mt-2 text-xs text-[color:var(--sf-text-secondary)]"
+          />
           {radarTakeaway.toast ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{radarTakeaway.toast}</div> : null}
           {radarAiCopied ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
           {radarTakeaway.stale ? (
@@ -2676,7 +2689,7 @@ export function ExecutiveGapInsightsClient(props: {
                 disabled={heroTakeaway.loading}
                 className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70 disabled:opacity-60"
               >
-                Reanalyze
+                {heroTakeaway.isFresh ? "Reanalyze" : "Refresh"}
               </button>
             ) : (
               <button
@@ -2712,6 +2725,12 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
         </div>
 
+        <AiTakeawayTimestamp
+          hasContent={!!(heroTakeaway.summary || heroTakeaway.extended)}
+          isFresh={heroTakeaway.isFresh}
+          generatedAt={heroTakeaway.generatedAt}
+          className="mt-3 text-xs text-[color:var(--sf-text-secondary)]"
+        />
         {heroTakeaway.toast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroTakeaway.toast}</div> : null}
         {heroAiCopied ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
         {heroTakeaway.stale ? (
@@ -3246,7 +3265,7 @@ export function ExecutiveGapInsightsClient(props: {
                     disabled={heroTakeaway.loading}
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70 disabled:opacity-60"
                   >
-                    Reanalyze
+                    {heroTakeaway.isFresh ? "Reanalyze" : "Refresh"}
                   </button>
                 ) : (
                   <button
@@ -3281,6 +3300,12 @@ export function ExecutiveGapInsightsClient(props: {
                 ) : null}
               </div>
             </div>
+            <AiTakeawayTimestamp
+              hasContent={!!(heroTakeaway.summary || heroTakeaway.extended)}
+              isFresh={heroTakeaway.isFresh}
+              generatedAt={heroTakeaway.generatedAt}
+              className="mt-3 text-xs text-[color:var(--sf-text-secondary)]"
+            />
             {heroTakeaway.toast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroTakeaway.toast}</div> : null}
             {heroAiCopied ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
             {heroTakeaway.stale ? (
@@ -3517,7 +3542,7 @@ export function ExecutiveGapInsightsClient(props: {
                     disabled={heroTakeaway.loading}
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70 disabled:opacity-60"
                   >
-                    Reanalyze
+                    {heroTakeaway.isFresh ? "Reanalyze" : "Refresh"}
                   </button>
                 ) : (
                   <button
@@ -3553,6 +3578,12 @@ export function ExecutiveGapInsightsClient(props: {
               </div>
             </div>
 
+            <AiTakeawayTimestamp
+              hasContent={!!(heroTakeaway.summary || heroTakeaway.extended)}
+              isFresh={heroTakeaway.isFresh}
+              generatedAt={heroTakeaway.generatedAt}
+              className="mt-3 text-xs text-[color:var(--sf-text-secondary)]"
+            />
             {heroTakeaway.toast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroTakeaway.toast}</div> : null}
             {heroAiCopied ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
             {heroTakeaway.stale ? (
@@ -3799,7 +3830,7 @@ export function ExecutiveGapInsightsClient(props: {
                 disabled={radarTakeaway.loading}
                 className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70 disabled:opacity-60"
               >
-                Reanalyze
+                {radarTakeaway.isFresh ? "Reanalyze" : "Refresh"}
               </button>
             ) : (
               <button
@@ -3834,6 +3865,12 @@ export function ExecutiveGapInsightsClient(props: {
             ) : null}
           </div>
         </div>
+        <AiTakeawayTimestamp
+          hasContent={!!(radarTakeaway.summary || radarTakeaway.extended)}
+          isFresh={radarTakeaway.isFresh}
+          generatedAt={radarTakeaway.generatedAt}
+          className="mt-2 text-xs text-[color:var(--sf-text-secondary)]"
+        />
         {radarTakeaway.toast ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{radarTakeaway.toast}</div> : null}
         {radarAiCopied ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
         {radarTakeaway.stale ? (
