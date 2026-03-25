@@ -95,6 +95,153 @@ async function listTopPartnerDealsChannel(args: {
   return rows || [];
 }
 
+function fmtMoneyChannel(n: number) {
+  const v = Number(n || 0);
+  if (!Number.isFinite(v)) return "—";
+  return v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+}
+
+function dateOnlyChannel(s: string | null | undefined) {
+  return s ? String(s).slice(0, 10) : "—";
+}
+
+function daysBetweenChannel(a: string | null, b: string | null): number | null {
+  if (!a || !b) return null;
+  const d = Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
+  return Number.isFinite(d) ? d : null;
+}
+
+/** Health score 0–30 → display % (matches executive partner tables). */
+function healthPctChannel(score: number | null | undefined): string {
+  const n = Number(score);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  return `${Math.max(0, Math.min(100, Math.round((n / 30) * 100)))}%`;
+}
+
+function ChannelTopPartnerDealTables(props: {
+  won: TopPartnerDealRow[];
+  lost: TopPartnerDealRow[];
+  periodStart: string | null | undefined;
+  periodEnd: string | null | undefined;
+}) {
+  const { won, lost, periodStart, periodEnd } = props;
+  return (
+    <>
+      <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Top partner deals won (top 10 by revenue)</h2>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+              Period: <span className="font-mono text-xs">{dateOnlyChannel(periodStart)}</span> →{" "}
+              <span className="font-mono text-xs">{dateOnlyChannel(periodEnd)}</span>
+            </p>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Sorted by revenue descending</p>
+          </div>
+        </div>
+        <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
+          <table className="w-full min-w-[1200px] text-left text-sm">
+            <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+              <tr>
+                <th className="px-4 py-3">partner</th>
+                <th className="px-4 py-3">account</th>
+                <th className="px-4 py-3">opportunity</th>
+                <th className="px-4 py-3">product</th>
+                <th className="px-4 py-3 text-right">revenue</th>
+                <th className="px-4 py-3 text-right">age</th>
+                <th className="px-4 py-3 text-right">initial health</th>
+                <th className="px-4 py-3 text-right">final health</th>
+              </tr>
+            </thead>
+            <tbody>
+              {won.length ? (
+                won.map((d) => {
+                  const ageDays = daysBetweenChannel(d.create_date, d.close_date);
+                  return (
+                  <tr key={d.opportunity_public_id} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
+                    <td className="px-4 py-3 font-medium">{d.partner_name}</td>
+                    <td className="px-4 py-3">{d.account_name || ""}</td>
+                    <td className="px-4 py-3">{d.opportunity_name || ""}</td>
+                    <td className="px-4 py-3">{d.product || ""}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoneyChannel(d.amount)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">
+                      {ageDays == null ? "—" : String(ageDays)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{healthPctChannel(d.baseline_health_score)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{healthPctChannel(d.health_score)}</td>
+                  </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={8} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                    No partner Won deals found for this quarter.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Closed Loss (top 10 by revenue)</h2>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+              Period: <span className="font-mono text-xs">{dateOnlyChannel(periodStart)}</span> →{" "}
+              <span className="font-mono text-xs">{dateOnlyChannel(periodEnd)}</span>
+            </p>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Sorted by revenue descending</p>
+          </div>
+        </div>
+        <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
+          <table className="w-full min-w-[1200px] text-left text-sm">
+            <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+              <tr>
+                <th className="px-4 py-3">partner</th>
+                <th className="px-4 py-3">account</th>
+                <th className="px-4 py-3">opportunity</th>
+                <th className="px-4 py-3">product</th>
+                <th className="px-4 py-3 text-right">revenue</th>
+                <th className="px-4 py-3 text-right">age</th>
+                <th className="px-4 py-3 text-right">initial health</th>
+                <th className="px-4 py-3 text-right">final health</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lost.length ? (
+                lost.map((d) => {
+                  const ageDays = daysBetweenChannel(d.create_date, d.close_date);
+                  return (
+                  <tr key={d.opportunity_public_id} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
+                    <td className="px-4 py-3 font-medium">{d.partner_name}</td>
+                    <td className="px-4 py-3">{d.account_name || ""}</td>
+                    <td className="px-4 py-3">{d.opportunity_name || ""}</td>
+                    <td className="px-4 py-3">{d.product || ""}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{fmtMoneyChannel(d.amount)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">
+                      {ageDays == null ? "—" : String(ageDays)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{healthPctChannel(d.baseline_health_score)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">{healthPctChannel(d.health_score)}</td>
+                  </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={8} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                    No partner Closed Loss deals found for this quarter.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
+  );
+}
+
 export default async function ChannelDashboardPage({
   searchParams,
 }: {
@@ -315,11 +462,20 @@ export default async function ChannelDashboardPage({
             </table>
           </div>
         ) : null}
+        {selectedPeriod ? (
+          <ChannelTopPartnerDealTables
+            won={topPartnerWon}
+            lost={topPartnerLost}
+            periodStart={selectedPeriod.period_start}
+            periodEnd={selectedPeriod.period_end}
+          />
+        ) : null}
         <div className="mt-4">
           <ExecutiveGapInsightsClient
             basePath="/dashboard/channel"
             salesHeroLayout
             channelTabOnly={isChannelRepOnly(ctx.user.role)}
+            channelTopPartnerDealsOnPage={!!selectedPeriod}
             viewerRole={ctx.user.role}
             periods={summary.periods}
             quotaPeriodId={summary.selectedQuotaPeriodId}

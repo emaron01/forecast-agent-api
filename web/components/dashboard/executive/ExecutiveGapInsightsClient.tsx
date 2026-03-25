@@ -666,6 +666,8 @@ export function ExecutiveGapInsightsClient(props: {
   pipelineTabOnly?: boolean;
   teamTabOnly?: boolean;
   channelTabOnly?: boolean;
+  /** When true (e.g. `/dashboard/channel` renders deal tables on the server page), hide duplicate won/lost tables in the channel-tab-only partner section. */
+  channelTopPartnerDealsOnPage?: boolean;
   topPartnerWon?: any[];
   topPartnerLost?: any[];
   revenueTabOnly?: boolean;
@@ -3053,6 +3055,8 @@ export function ExecutiveGapInsightsClient(props: {
               />
             </div>
 
+            {!props.channelTopPartnerDealsOnPage ? (
+            <>
             <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
@@ -3248,6 +3252,8 @@ export function ExecutiveGapInsightsClient(props: {
                 </table>
               </div>
             </section>
+            </>
+            ) : null}
           </section>
         ) : null}
       </div>
