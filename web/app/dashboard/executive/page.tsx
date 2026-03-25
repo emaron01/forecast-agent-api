@@ -856,7 +856,7 @@ export default async function ExecutiveDashboardPage({
 
   type TopDealRow = {
     opportunity_public_id: string;
-    partner_name: string | null;
+    rep_name: string | null;
     account_name: string | null;
     opportunity_name: string | null;
     product: string | null;
@@ -881,7 +881,7 @@ export default async function ExecutiveDashboardPage({
       `
       SELECT
         o.public_id::text AS opportunity_public_id,
-        NULLIF(btrim(o.partner_name), '') AS partner_name,
+        COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), '') AS rep_name,
         o.account_name,
         o.opportunity_name,
         o.product,
@@ -891,6 +891,7 @@ export default async function ExecutiveDashboardPage({
         o.baseline_health_score::float8 AS baseline_health_score,
         o.health_score::float8 AS health_score
       FROM opportunities o
+      LEFT JOIN reps r ON r.id = o.rep_id
       WHERE o.org_id = $1
         AND (NOT $6::boolean OR o.rep_id = ANY($5::bigint[]))
         AND o.close_date IS NOT NULL

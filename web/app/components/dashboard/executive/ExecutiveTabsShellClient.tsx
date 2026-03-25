@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState, useTransition, type ComponentProps } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition, type ComponentProps } from "react";
 import { ExecutiveGapInsightsClient } from "../../../../components/dashboard/executive/ExecutiveGapInsightsClient";
 import {
   TeamForecastHygienePanels,
@@ -304,6 +304,351 @@ function coverageStatus(r: number | null) {
   if (r < 3.31) return { label: "HIGH RISK", cls: "border-[#E74C3C]/50 bg-[#E74C3C]/10 text-[#E74C3C]" };
   if (r < 3.5) return { label: "MEDIUM RISK", cls: "border-[#F1C40F]/50 bg-[#F1C40F]/10 text-[#F1C40F]" };
   return { label: "PIPELINE COVERED", cls: "border-[#2ECC71]/40 bg-[#2ECC71]/10 text-[#2ECC71]" };
+}
+
+function topDealsDateOnly(s: string | null | undefined) {
+  return s ? String(s).slice(0, 10) : "—";
+}
+
+function topDealsDaysBetween(a: string | null, b: string | null): number | null {
+  if (!a || !b) return null;
+  const d = Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86400000);
+  return Number.isFinite(d) ? d : null;
+}
+
+function healthPctFrom30(score: unknown) {
+  const n = Number(score);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const pct = Math.round((n / 30) * 100);
+  return Math.max(0, Math.min(100, pct));
+}
+
+function healthColorClass(pct: number | null) {
+  if (pct == null) return "text-[color:var(--sf-text-disabled)]";
+  if (pct >= 80) return "text-[#2ECC71]";
+  if (pct >= 50) return "text-[#F1C40F]";
+  return "text-[#E74C3C]";
+}
+
+/** Top Deals tab: same table patterns as Channel tab partner deal tables, with Rep column. */
+function TopDealsTabContent(props: {
+  topDealsWon?: any[];
+  topDealsLost?: any[];
+  activePeriod?: { period_start: string; period_end: string } | null;
+}) {
+  const [wonSortKey, setWonSortKey] = useState<string>("amount");
+  const [wonSortDir, setWonSortDir] = useState<"asc" | "desc">("desc");
+  const [lostSortKey, setLostSortKey] = useState<string>("amount");
+  const [lostSortDir, setLostSortDir] = useState<"asc" | "desc">("desc");
+
+  function toggleSort(
+    key: string,
+    currentKey: string,
+    setKey: (k: string) => void,
+    currentDir: "asc" | "desc",
+    setDir: (d: "asc" | "desc") => void
+  ) {
+    if (currentKey === key) {
+      setDir(currentDir === "asc" ? "desc" : "asc");
+    } else {
+      setKey(key);
+      setDir("desc");
+    }
+  }
+
+  const sortLabelClass = (active: boolean) => (active ? "text-yellow-600" : "");
+  const sortCellClass = (active: boolean) => (active ? "bg-yellow-50/5" : "");
+
+  function HealthScorePill({ score }: { score: unknown }) {
+    const s = Number(score);
+    const pct = healthPctFrom30(s);
+    const color = healthColorClass(pct);
+    return (
+      <span className={`font-mono text-sm ${color}`}>
+        {pct == null ? "—" : `${pct}%`}
+      </span>
+    );
+  }
+
+  const topDealsWonRows = useMemo(() => {
+    const rows = props.topDealsWon ?? [];
+    return [...rows].sort((a, b) => {
+      const dir = wonSortDir === "asc" ? 1 : -1;
+      if (wonSortKey === "rep") return dir * String(a.rep_name || "").localeCompare(String(b.rep_name || ""));
+      if (wonSortKey === "account") return dir * String(a.account_name || "").localeCompare(String(b.account_name || ""));
+      if (wonSortKey === "opportunity") return dir * String(a.opportunity_name || "").localeCompare(String(b.opportunity_name || ""));
+      if (wonSortKey === "product") return dir * String(a.product || "").localeCompare(String(b.product || ""));
+      if (wonSortKey === "age") {
+        const da = topDealsDaysBetween(a.create_date, a.close_date) ?? -1;
+        const db = topDealsDaysBetween(b.create_date, b.close_date) ?? -1;
+        return dir * (da - db);
+      }
+      if (wonSortKey === "initial_health") {
+        const va = Number(a.baseline_health_score ?? -1);
+        const vb = Number(b.baseline_health_score ?? -1);
+        return dir * (va - vb);
+      }
+      if (wonSortKey === "final_health") {
+        const va = Number(a.health_score ?? -1);
+        const vb = Number(b.health_score ?? -1);
+        return dir * (va - vb);
+      }
+      return dir * (Number(b.amount || 0) - Number(a.amount || 0));
+    });
+  }, [props.topDealsWon, wonSortDir, wonSortKey]);
+
+  const topDealsLostRows = useMemo(() => {
+    const rows = props.topDealsLost ?? [];
+    return [...rows].sort((a, b) => {
+      const dir = lostSortDir === "asc" ? 1 : -1;
+      if (lostSortKey === "rep") return dir * String(a.rep_name || "").localeCompare(String(b.rep_name || ""));
+      if (lostSortKey === "account") return dir * String(a.account_name || "").localeCompare(String(b.account_name || ""));
+      if (lostSortKey === "opportunity") return dir * String(a.opportunity_name || "").localeCompare(String(b.opportunity_name || ""));
+      if (lostSortKey === "product") return dir * String(a.product || "").localeCompare(String(b.product || ""));
+      if (lostSortKey === "age") {
+        const da = topDealsDaysBetween(a.create_date, a.close_date) ?? -1;
+        const db = topDealsDaysBetween(b.create_date, b.close_date) ?? -1;
+        return dir * (da - db);
+      }
+      if (lostSortKey === "initial_health") {
+        const va = Number(a.baseline_health_score ?? -1);
+        const vb = Number(b.baseline_health_score ?? -1);
+        return dir * (va - vb);
+      }
+      if (lostSortKey === "final_health") {
+        const va = Number(a.health_score ?? -1);
+        const vb = Number(b.health_score ?? -1);
+        return dir * (va - vb);
+      }
+      return dir * (Number(b.amount || 0) - Number(a.amount || 0));
+    });
+  }, [props.topDealsLost, lostSortDir, lostSortKey]);
+
+  const ap = props.activePeriod;
+
+  return (
+    <div className="space-y-5 text-[color:var(--sf-text-primary)]">
+      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Top Deals Won (top 10 by revenue)</h2>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+              Period: <span className="font-mono text-xs">{topDealsDateOnly(ap?.period_start)}</span> →{" "}
+              <span className="font-mono text-xs">{topDealsDateOnly(ap?.period_end)}</span>
+            </p>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Sorted by revenue descending</p>
+          </div>
+        </div>
+
+        <div className="mt-4 overflow-hidden rounded-md border border-[color:var(--sf-border)]">
+          <table className="w-full table-fixed border-collapse text-left text-sm">
+            <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+              <tr>
+                <th
+                  className={`w-[14%] px-3 py-3 text-left cursor-pointer select-none hover:bg-[color:var(--sf-border)] ${sortLabelClass(wonSortKey === "rep")}`}
+                  onClick={() => toggleSort("rep", wonSortKey, setWonSortKey, wonSortDir, setWonSortDir)}
+                >
+                  rep {wonSortKey === "rep" ? (wonSortDir === "asc" ? "↑" : "↓") : "↕"}
+                </th>
+                <th
+                  className={`w-[16%] px-3 py-3 text-left cursor-pointer select-none hover:bg-[color:var(--sf-border)] ${sortLabelClass(wonSortKey === "account")}`}
+                  onClick={() => toggleSort("account", wonSortKey, setWonSortKey, wonSortDir, setWonSortDir)}
+                >
+                  account {wonSortKey === "account" ? (wonSortDir === "asc" ? "↑" : "↓") : "↕"}
+                </th>
+                <th
+                  className={`w-[22%] px-3 py-3 text-left cursor-pointer select-none hover:bg-[color:var(--sf-border)] ${sortLabelClass(wonSortKey === "opportunity")}`}
+                  onClick={() => toggleSort("opportunity", wonSortKey, setWonSortKey, wonSortDir, setWonSortDir)}
+                >
+                  opportunity {wonSortKey === "opportunity" ? (wonSortDir === "asc" ? "↑" : "↓") : "↕"}
+                </th>
+                <th
+                  className={`w-[12%] px-3 py-3 text-left cursor-pointer select-none hover:bg-[color:var(--sf-border)] ${sortLabelClass(wonSortKey === "product")}`}
+                  onClick={() => toggleSort("product", wonSortKey, setWonSortKey, wonSortDir, setWonSortDir)}
+                >
+                  product {wonSortKey === "product" ? (wonSortDir === "asc" ? "↑" : "↓") : "↕"}
+                </th>
+                <th
+                  className={`w-[12%] px-3 py-3 text-right whitespace-nowrap cursor-pointer select-none hover:bg-[color:var(--sf-border)] ${sortLabelClass(wonSortKey === "amount")}`}
+                  onClick={() => toggleSort("amount", wonSortKey, setWonSortKey, wonSortDir, setWonSortDir)}
+                >
+                  revenue {wonSortKey === "amount" ? (wonSortDir === "asc" ? "↑" : "↓") : "↕"}
+                </th>
+                <th
+                  className={`w-[6%] px-3 py-3 text-right whitespace-nowrap cursor-pointer select-none hover:bg-[color:var(--sf-border)] ${sortLabelClass(wonSortKey === "age")}`}
+                  onClick={() => toggleSort("age", wonSortKey, setWonSortKey, wonSortDir, setWonSortDir)}
+                >
+                  age {wonSortKey === "age" ? (wonSortDir === "asc" ? "↑" : "↓") : "↕"}
+                </th>
+                <th
+                  className={`w-[9%] px-2 py-3 text-right whitespace-nowrap cursor-pointer select-none hover:bg-[color:var(--sf-border)] ${sortLabelClass(wonSortKey === "initial_health")}`}
+                  onClick={() => toggleSort("initial_health", wonSortKey, setWonSortKey, wonSortDir, setWonSortDir)}
+                >
+                  initial health {wonSortKey === "initial_health" ? (wonSortDir === "asc" ? "↑" : "↓") : "↕"}
+                </th>
+                <th
+                  className={`w-[9%] px-2 py-3 text-right whitespace-nowrap cursor-pointer select-none hover:bg-[color:var(--sf-border)] ${sortLabelClass(wonSortKey === "final_health")}`}
+                  onClick={() => toggleSort("final_health", wonSortKey, setWonSortKey, wonSortDir, setWonSortDir)}
+                >
+                  final health {wonSortKey === "final_health" ? (wonSortDir === "asc" ? "↑" : "↓") : "↕"}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {topDealsWonRows.length ? (
+                topDealsWonRows.map((d: any) => (
+                  <tr key={d.opportunity_public_id} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
+                    <td className={`min-w-0 px-3 py-3 font-medium align-top truncate ${sortCellClass(wonSortKey === "rep")}`} title={d.rep_name || ""}>
+                      {d.rep_name || ""}
+                    </td>
+                    <td className={`min-w-0 px-3 py-3 align-top truncate ${sortCellClass(wonSortKey === "account")}`} title={d.account_name || undefined}>
+                      {d.account_name || ""}
+                    </td>
+                    <td className={`min-w-0 px-3 py-3 align-top truncate ${sortCellClass(wonSortKey === "opportunity")}`} title={d.opportunity_name || undefined}>
+                      {d.opportunity_name || ""}
+                    </td>
+                    <td className={`min-w-0 px-3 py-3 align-top truncate ${sortCellClass(wonSortKey === "product")}`} title={d.product || undefined}>
+                      {d.product || ""}
+                    </td>
+                    <td className={`px-3 py-3 text-right font-mono text-xs align-top whitespace-nowrap ${sortCellClass(wonSortKey === "amount")}`}>
+                      {fmtMoney(d.amount)}
+                    </td>
+                    <td className={`px-3 py-3 text-right font-mono text-xs align-top whitespace-nowrap ${sortCellClass(wonSortKey === "age")}`}>
+                      {topDealsDaysBetween(d.create_date, d.close_date) == null
+                        ? "—"
+                        : String(topDealsDaysBetween(d.create_date, d.close_date))}
+                    </td>
+                    <td className={`px-2 py-3 text-right align-top whitespace-nowrap ${sortCellClass(wonSortKey === "initial_health")}`}>
+                      <HealthScorePill score={d.baseline_health_score} />
+                    </td>
+                    <td className={`px-2 py-3 text-right align-top whitespace-nowrap ${sortCellClass(wonSortKey === "final_health")}`}>
+                      <HealthScorePill score={d.health_score} />
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={8} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                    No won deals found for this quarter.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Closed Loss (top 10 by revenue)</h2>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+              Period: <span className="font-mono text-xs">{topDealsDateOnly(ap?.period_start)}</span> →{" "}
+              <span className="font-mono text-xs">{topDealsDateOnly(ap?.period_end)}</span>
+            </p>
+            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Sorted by revenue descending</p>
+          </div>
+        </div>
+
+        <div className="mt-4 overflow-hidden rounded-md border border-[color:var(--sf-border)]">
+          <table className="w-full table-fixed border-collapse text-left text-sm">
+            <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+              <tr>
+                <th
+                  className={`w-[14%] px-3 py-3 text-left cursor-pointer select-none hover:bg-[color:var(--sf-border)] ${sortLabelClass(lostSortKey === "rep")}`}
+                  onClick={() => toggleSort("rep", lostSortKey, setLostSortKey, lostSortDir, setLostSortDir)}
+                >
+                  rep {lostSortKey === "rep" ? (lostSortDir === "asc" ? "↑" : "↓") : "↕"}
+                </th>
+                <th
+                  className={`w-[16%] px-3 py-3 text-left cursor-pointer select-none hover:bg-[color:var(--sf-border)] ${sortLabelClass(lostSortKey === "account")}`}
+                  onClick={() => toggleSort("account", lostSortKey, setLostSortKey, lostSortDir, setLostSortDir)}
+                >
+                  account {lostSortKey === "account" ? (lostSortDir === "asc" ? "↑" : "↓") : "↕"}
+                </th>
+                <th
+                  className={`w-[22%] px-3 py-3 text-left cursor-pointer select-none hover:bg-[color:var(--sf-border)] ${sortLabelClass(lostSortKey === "opportunity")}`}
+                  onClick={() => toggleSort("opportunity", lostSortKey, setLostSortKey, lostSortDir, setLostSortDir)}
+                >
+                  opportunity {lostSortKey === "opportunity" ? (lostSortDir === "asc" ? "↑" : "↓") : "↕"}
+                </th>
+                <th
+                  className={`w-[12%] px-3 py-3 text-left cursor-pointer select-none hover:bg-[color:var(--sf-border)] ${sortLabelClass(lostSortKey === "product")}`}
+                  onClick={() => toggleSort("product", lostSortKey, setLostSortKey, lostSortDir, setLostSortDir)}
+                >
+                  product {lostSortKey === "product" ? (lostSortDir === "asc" ? "↑" : "↓") : "↕"}
+                </th>
+                <th
+                  className={`w-[12%] px-3 py-3 text-right whitespace-nowrap cursor-pointer select-none hover:bg-[color:var(--sf-border)] ${sortLabelClass(lostSortKey === "amount")}`}
+                  onClick={() => toggleSort("amount", lostSortKey, setLostSortKey, lostSortDir, setLostSortDir)}
+                >
+                  revenue {lostSortKey === "amount" ? (lostSortDir === "asc" ? "↑" : "↓") : "↕"}
+                </th>
+                <th
+                  className={`w-[6%] px-3 py-3 text-right whitespace-nowrap cursor-pointer select-none hover:bg-[color:var(--sf-border)] ${sortLabelClass(lostSortKey === "age")}`}
+                  onClick={() => toggleSort("age", lostSortKey, setLostSortKey, lostSortDir, setLostSortDir)}
+                >
+                  age {lostSortKey === "age" ? (lostSortDir === "asc" ? "↑" : "↓") : "↕"}
+                </th>
+                <th
+                  className={`w-[9%] px-2 py-3 text-right whitespace-nowrap cursor-pointer select-none hover:bg-[color:var(--sf-border)] ${sortLabelClass(lostSortKey === "initial_health")}`}
+                  onClick={() => toggleSort("initial_health", lostSortKey, setLostSortKey, lostSortDir, setLostSortDir)}
+                >
+                  initial health {lostSortKey === "initial_health" ? (lostSortDir === "asc" ? "↑" : "↓") : "↕"}
+                </th>
+                <th
+                  className={`w-[9%] px-2 py-3 text-right whitespace-nowrap cursor-pointer select-none hover:bg-[color:var(--sf-border)] ${sortLabelClass(lostSortKey === "final_health")}`}
+                  onClick={() => toggleSort("final_health", lostSortKey, setLostSortKey, lostSortDir, setLostSortDir)}
+                >
+                  final health {lostSortKey === "final_health" ? (lostSortDir === "asc" ? "↑" : "↓") : "↕"}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {topDealsLostRows.length ? (
+                topDealsLostRows.map((d: any) => (
+                  <tr key={d.opportunity_public_id} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
+                    <td className={`min-w-0 px-3 py-3 font-medium align-top truncate ${sortCellClass(lostSortKey === "rep")}`} title={d.rep_name || ""}>
+                      {d.rep_name || ""}
+                    </td>
+                    <td className={`min-w-0 px-3 py-3 align-top truncate ${sortCellClass(lostSortKey === "account")}`} title={d.account_name || undefined}>
+                      {d.account_name || ""}
+                    </td>
+                    <td className={`min-w-0 px-3 py-3 align-top truncate ${sortCellClass(lostSortKey === "opportunity")}`} title={d.opportunity_name || undefined}>
+                      {d.opportunity_name || ""}
+                    </td>
+                    <td className={`min-w-0 px-3 py-3 align-top truncate ${sortCellClass(lostSortKey === "product")}`} title={d.product || undefined}>
+                      {d.product || ""}
+                    </td>
+                    <td className={`px-3 py-3 text-right font-mono text-xs align-top whitespace-nowrap ${sortCellClass(lostSortKey === "amount")}`}>
+                      {fmtMoney(d.amount)}
+                    </td>
+                    <td className={`px-3 py-3 text-right font-mono text-xs align-top whitespace-nowrap ${sortCellClass(lostSortKey === "age")}`}>
+                      {topDealsDaysBetween(d.create_date, d.close_date) == null
+                        ? "—"
+                        : String(topDealsDaysBetween(d.create_date, d.close_date))}
+                    </td>
+                    <td className={`px-2 py-3 text-right align-top whitespace-nowrap ${sortCellClass(lostSortKey === "initial_health")}`}>
+                      <HealthScorePill score={d.baseline_health_score} />
+                    </td>
+                    <td className={`px-2 py-3 text-right align-top whitespace-nowrap ${sortCellClass(lostSortKey === "final_health")}`}>
+                      <HealthScorePill score={d.health_score} />
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={8} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                    No closed loss deals found for this quarter.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
 }
 
 export function ExecutiveTabsShellClient(props: {
@@ -659,7 +1004,13 @@ export function ExecutiveTabsShellClient(props: {
             <ExecutiveGapInsightsClient {...props.revenueTabProps} revenueTabOnly={true} viewerRole={props.viewerRole} />
           </div>
         )}
-        {activeTab === "top_deals" && <div>Top Deals coming soon</div>}
+        {activeTab === "top_deals" && (
+          <TopDealsTabContent
+            topDealsWon={props.topDealsWon}
+            topDealsLost={props.topDealsLost}
+            activePeriod={props.forecastTabProps.periods.find((p) => String(p.id) === props.forecastTabProps.quotaPeriodId)}
+          />
+        )}
         {activeTab === "report_builder" && <div>Report Builder coming soon</div>}
         {activeTab === "reports" && (
           <ReportsTabContent
