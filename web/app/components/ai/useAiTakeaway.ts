@@ -67,8 +67,11 @@ export function useAiTakeaway(args: {
 
   const loadedShaRef = useRef<string | null>(null);
   const summaryRef = useRef<string | null>(null);
+  const loadingRef = useRef(false);
+  const generatingRef = useRef(false);
   loadedShaRef.current = loadedSha;
   summaryRef.current = summary;
+  loadingRef.current = loading;
 
   useEffect(() => {
     let cancelled = false;
@@ -117,12 +120,15 @@ export function useAiTakeaway(args: {
 
   const generate = useCallback(
     async (force = false) => {
-      if (!enabled || !args.orgId || !payloadSha || loading) return;
+      if (!enabled || !args.orgId || !payloadSha) return;
+      if (loadingRef.current) return;
+      if (generatingRef.current) return;
+      generatingRef.current = true;
       setLoading(true);
       setStale(false);
       setToast("");
       try {
-        const res = await fetch("/api/forecast/ai-strategic-takeaway", {
+        const res = await fetch(apiEndpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -173,9 +179,10 @@ export function useAiTakeaway(args: {
         // ignore
       } finally {
         setLoading(false);
+        generatingRef.current = false;
       }
     },
-    [enabled, args.orgId, args.surface, args.payload, apiEndpoint, payloadSha, loading, summary, extended, loadedSha]
+    [enabled, args.orgId, args.surface, args.payload, apiEndpoint, payloadSha, summary, extended, loadedSha]
   );
 
   return {

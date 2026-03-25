@@ -4,6 +4,13 @@ import { pool } from "../../../lib/pool";
 
 export const runtime = "nodejs";
 
+/*
+ * Expired rows can be cleaned up periodically:
+ *   DELETE FROM ai_takeaway_cache
+ *     WHERE expires_at < NOW();
+ * Consider running this as a weekly cron.
+ */
+
 function jsonError(status: number, error: string) {
   return NextResponse.json({ ok: false, error }, { status });
 }
@@ -27,8 +34,12 @@ export async function GET(req: Request) {
 
   try {
     const r = await pool.query<{ summary: string; extended: string | null }>(
-      `SELECT summary, extended FROM ai_takeaway_cache
-       WHERE org_id = $1 AND surface = $2 AND payload_sha = $3
+      `SELECT summary, extended
+       FROM ai_takeaway_cache
+       WHERE org_id = $1
+         AND surface = $2
+         AND payload_sha = $3
+         AND expires_at > NOW()
        LIMIT 1`,
       [auth.user.org_id, surface, payloadSha]
     );
@@ -70,12 +81,14 @@ export async function POST(req: Request) {
 
   try {
     await pool.query(
-      `INSERT INTO ai_takeaway_cache (org_id, surface, payload_sha, summary, extended, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
+      `INSERT INTO ai_takeaway_cache
+         (org_id, surface, payload_sha, summary, extended, expires_at)
+       VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '24 hours')
        ON CONFLICT (org_id, surface, payload_sha)
        DO UPDATE SET
          summary = EXCLUDED.summary,
          extended = EXCLUDED.extended,
+         expires_at = NOW() + INTERVAL '24 hours',
          updated_at = NOW()`,
       [auth.user.org_id, surface, payloadSha, summary, extended]
     );
