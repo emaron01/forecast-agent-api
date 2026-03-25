@@ -55,7 +55,7 @@ async function listQuotaPeriodsForOrg(orgId: number): Promise<QuotaPeriodLite[]>
   return (rows || []) as any[];
 }
 
-type RepOption = { id: number; name: string; manager_rep_id: number | null };
+type RepOption = { id: number; name: string; manager_rep_id: number | null; role: string };
 
 type RepPeriodKpisRow = {
   quota_period_id: string;
@@ -230,7 +230,12 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
   const scope = await getScopedRepDirectory({ orgId: ctx.user.org_id, userId: ctx.user.id, role: ctx.user.role as any }).catch(() => null);
   const repDirectoryFull = scope?.repDirectory || [];
   const allowedRepIds = scope?.allowedRepIds ?? null;
-  const repOptions: RepOption[] = repDirectoryFull.map((r) => ({ id: r.id, name: r.name, manager_rep_id: r.manager_rep_id }));
+  const repOptions: RepOption[] = repDirectoryFull.map((r) => ({
+    id: r.id,
+    name: r.name,
+    manager_rep_id: r.manager_rep_id,
+    role: String(r.role || "").trim() || "REP",
+  }));
 
   // REP users should see the page, but only for themselves.
   if ((ctx.user.role === "REP" || ctx.user.role === "CHANNEL_REP") && !repOptions.length) redirect("/dashboard");

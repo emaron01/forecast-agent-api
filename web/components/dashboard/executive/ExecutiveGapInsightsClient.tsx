@@ -2352,33 +2352,6 @@ export function ExecutiveGapInsightsClient(props: {
                   pipelineMomentum={props.pipelineMomentum}
                   heroBucketAmounts={heroBucketAmounts}
                 />
-                {(() => {
-                  const quotaNum = Number(props.quota) || 0;
-                  const gapToQuota = quotaNum - wonAmount;
-                  const gapColor = gapToQuota > 0 ? "text-[#E74C3C]" : "text-[#16A34A]";
-                  return (
-                    <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                      <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-primary)]">Closed Won</div>
-                        <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-green-400 sm:text-2xl">{fmtMoney(wonAmount)}</div>
-                      </div>
-                      <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quota</div>
-                        <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{fmtMoney(quotaNum)}</div>
-                      </div>
-                      <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Gap to Quota</div>
-                        <div className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${gapColor}`}>{fmtMoney(gapToQuota)}</div>
-                        <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Remaining to quota</div>
-                      </div>
-                      <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Landing Zone</div>
-                        <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{fmtMoney(props.aiForecast)}</div>
-                        <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">AI weighted forecast</div>
-                      </div>
-                    </div>
-                  );
-                })()}
               </>
             ) : (
               <>
@@ -2564,6 +2537,38 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
         );
       })()}
+
+      {props.heroOnly ? (
+        <div>
+          {(() => {
+            const quotaNum = Number(props.quota) || 0;
+            const gapToQuota = quotaNum - wonAmount;
+            const gapColor = gapToQuota > 0 ? "text-[#E74C3C]" : "text-[#16A34A]";
+            return (
+              <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-primary)]">Closed Won</div>
+                  <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-green-400 sm:text-2xl">{fmtMoney(wonAmount)}</div>
+                </div>
+                <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quota</div>
+                  <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{fmtMoney(quotaNum)}</div>
+                </div>
+                <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Gap to Quota</div>
+                  <div className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${gapColor}`}>{fmtMoney(gapToQuota)}</div>
+                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Remaining to quota</div>
+                </div>
+                <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Landing Zone</div>
+                  <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{fmtMoney(props.aiForecast)}</div>
+                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">AI weighted forecast</div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      ) : null}
     </>
   );
 

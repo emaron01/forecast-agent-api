@@ -679,6 +679,7 @@ export function ExecutiveTabsShellClient(props: {
     id: number;
     name: string;
     manager_rep_id: number | null;
+    role: string;
   }>;
 }) {
   const router = useRouter();

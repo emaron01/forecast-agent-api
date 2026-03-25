@@ -435,7 +435,7 @@ function normalizeConfig(cfg: any): { repIds: string[]; metrics: MetricKey[] } {
 export function CustomReportDesignerClient(props: {
   reportType: string;
   repRows: RepRow[];
-  repDirectory: Array<{ id: number; name: string; manager_rep_id: number | null }>;
+  repDirectory: Array<{ id: number; name: string; manager_rep_id: number | null; role: string }>;
   savedReports: SavedReportRow[];
   periodLabel: string;
 }) {
@@ -459,6 +459,27 @@ export function CustomReportDesignerClient(props: {
     return m;
   }, [repDirectory]);
 
+  const roleById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of repDirectory) m.set(String(r.id), String(r.role || "").trim());
+    return m;
+  }, [repDirectory]);
+
+  function roleBucket(role: string) {
+    const r = String(role || "").trim();
+    if (!r) return "";
+    if (r.includes("EXEC_MANAGER")) return "EXEC_MANAGER";
+    if (r.includes("MANAGER")) return "MANAGER";
+    if (r.includes("REP")) return "REP";
+    return r;
+  }
+
+  const roleBucketById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const [id, role] of roleById.entries()) m.set(id, roleBucket(role));
+    return m;
+  }, [roleById]);
+
   const directReportCount = useMemo(() => {
     const c = new Map<string, number>();
     for (const r of repDirectory) {
@@ -471,9 +492,12 @@ export function CustomReportDesignerClient(props: {
 
   const managerCandidateIds = useMemo(() => {
     const out: string[] = [];
-    for (const [id, n] of directReportCount.entries()) if (n > 0) out.push(String(id));
+    for (const [id, n] of directReportCount.entries()) {
+      const bucket = roleBucketById.get(String(id)) || "";
+      if (n > 0 && bucket === "MANAGER") out.push(String(id));
+    }
     return out;
-  }, [directReportCount]);
+  }, [directReportCount, roleBucketById]);
 
   const executiveIds = useMemo(() => {
     // Exec = manager candidate with no manager_rep_id.
@@ -735,15 +759,13 @@ export function CustomReportDesignerClient(props: {
   }, [groupedSelected]);
 
   const execOptions = useMemo(() => {
-    const ids = new Set<string>();
-    for (const r of repDirectory) {
-      const top = execIdForRep(String(r.id));
-      if (top) ids.add(top);
-    }
-    const arr = Array.from(ids.values());
-    arr.sort((a, b) => (repNameById.get(a) || a).localeCompare(repNameById.get(b) || b));
-    return arr;
-  }, [repDirectory, repNameById, managerIdById]);
+    // Only show true EXEC_MANAGER reps at the top of the picker.
+    const ids = repDirectory
+      .filter((r) => roleBucketById.get(String(r.id)) === "EXEC_MANAGER")
+      .map((r) => String(r.id));
+    ids.sort((a, b) => (repNameById.get(a) || a).localeCompare(repNameById.get(b) || b));
+    return ids;
+  }, [repDirectory, repNameById, roleBucketById]);
 
   type PickerManagerGroup = {
     managerId: string;
@@ -777,7 +799,7 @@ export function CustomReportDesignerClient(props: {
           const managerName = repNameById.get(String(mid)) || `Manager ${mid}`;
           const managerRow = reps.find((r) => String(r.rep_id) === String(mid)) || null;
           const members = reps
-            .filter((r) => managerIdForRep(String(r.rep_id)) === String(mid))
+            .filter((r) => roleBucketById.get(String(r.rep_id)) === "REP" && managerIdForRep(String(r.rep_id)) === String(mid))
             .slice()
             .sort((a, b) => a.rep_name.localeCompare(b.rep_name));
           return { managerId: String(mid), managerName, managerRow, members };
@@ -787,7 +809,7 @@ export function CustomReportDesignerClient(props: {
       // If no manager rows found (IC exec or incomplete hierarchy), still show any reps that roll up to this exec.
       if (!managers.length) {
         const members = reps
-          .filter((r) => execIdForRep(String(r.rep_id)) === eid)
+          .filter((r) => roleBucketById.get(String(r.rep_id)) === "REP" && execIdForRep(String(r.rep_id)) === eid)
           .slice()
           .sort((a, b) => a.rep_name.localeCompare(b.rep_name));
         if (members.length) {
@@ -937,7 +959,7 @@ export function CustomReportDesignerClient(props: {
                       return (
                         <div
                           key={`mgr:${eg.execId}:${mg.managerId || "unassigned"}`}
-                          className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]"
+                          className="ml-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]"
                         >
                           <div className="flex items-center gap-3 border-b border-[color:var(--sf-border)] px-3 py-2">
                             <label className="flex min-w-0 items-center gap-2 text-sm font-medium text-[color:var(--sf-text-primary)]">
@@ -947,13 +969,16 @@ export function CustomReportDesignerClient(props: {
                                 onChange={() => setRepIdsChecked(managerTeamIds, !managerChecked)}
                                 disabled={!managerTeamIds.length}
                               />
-                              <span className="truncate">{mg.managerId ? `Manager: ${mg.managerName}` : `Team: ${mg.managerName}`}</span>
+                      <span className="truncate">{`Manager: ${mg.managerName}`}</span>
                             </label>
                           </div>
 
                           <div className="divide-y divide-[color:var(--sf-border)]">
                             {mg.members.map((r) => (
-                              <div key={`rep:${eg.execId}:${mg.managerId || "unassigned"}:${r.rep_id}`} className="flex items-center gap-3 px-3 py-2">
+                      <div
+                        key={`rep:${eg.execId}:${mg.managerId || "unassigned"}:${r.rep_id}`}
+                        className="flex items-center gap-3 px-3 py-2 pl-8"
+                      >
                                 <label className="flex min-w-0 items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
                                   <input type="checkbox" checked={selectedRepIds.has(String(r.rep_id))} onChange={() => toggleRep(String(r.rep_id))} />
                                   <span className="truncate">{r.rep_name}</span>

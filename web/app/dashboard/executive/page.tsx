@@ -727,11 +727,141 @@ export default async function ExecutiveDashboardPage({
   const comparePeriodIds = [selectedPeriodId, prevPeriodId].filter(Boolean);
   const scopeRepIdsForTeam = visibleRepIds.length > 0 ? visibleRepIds : null;
 
-  const directoryInScope = repDirectory.map((r) => ({
-    id: r.id,
-    name: r.name,
-    manager_rep_id: r.manager_rep_id ?? null,
-  }));
+  // Rep directory for Report Builder:
+  // - exclude Channel roles
+  // - keep only REP / MANAGER / EXEC_MANAGER
+  // - sort/group as EXEC_MANAGER -> MANAGER (under their exec) -> REP (under their manager)
+  const directoryInScope = (() => {
+    type BuilderDirRow = {
+      id: number;
+      name: string;
+      manager_rep_id: number | null;
+      role: string;
+    };
+
+    const filtered: BuilderDirRow[] = repDirectory
+      .map((r) => {
+        const role = String(r.role || "").trim();
+        return {
+          id: r.id,
+          name: r.name,
+          manager_rep_id: r.manager_rep_id ?? null,
+          role,
+        };
+      })
+      .filter((r) => {
+        if (!r.role) return false;
+        if (r.role.includes("CHANNEL")) return false;
+        return r.role === "REP" || r.role === "MANAGER" || r.role === "EXEC_MANAGER";
+      });
+
+    const execs = filtered
+      .filter((r) => r.role === "EXEC_MANAGER")
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+    const managers = filtered
+      .filter((r) => r.role === "MANAGER")
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+    const reps = filtered
+      .filter((r) => r.role === "REP")
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+
+    const execIds = new Set<number>(execs.map((e) => e.id));
+    const managerIds = new Set<number>(managers.map((m) => m.id));
+
+    const managersByExecId = new Map<number, BuilderDirRow[]>();
+    const orphanManagers: BuilderDirRow[] = [];
+    for (const m of managers) {
+      if (m.manager_rep_id != null && execIds.has(m.manager_rep_id)) {
+        const arr = managersByExecId.get(m.manager_rep_id) || [];
+        arr.push(m);
+        managersByExecId.set(m.manager_rep_id, arr);
+      } else {
+        orphanManagers.push(m);
+      }
+    }
+
+    const repsByManagerId = new Map<number, BuilderDirRow[]>();
+    const orphanReps: BuilderDirRow[] = [];
+    for (const r of reps) {
+      if (r.manager_rep_id != null && managerIds.has(r.manager_rep_id)) {
+        const arr = repsByManagerId.get(r.manager_rep_id) || [];
+        arr.push(r);
+        repsByManagerId.set(r.manager_rep_id, arr);
+      } else {
+        orphanReps.push(r);
+      }
+    }
+
+    const out: BuilderDirRow[] = [];
+    for (const exec of execs) {
+      out.push({
+        id: exec.id,
+        name: exec.name,
+        manager_rep_id: exec.manager_rep_id ?? null,
+        role: exec.role,
+      });
+
+      const execManagers = (managersByExecId.get(exec.id) || []).slice();
+      execManagers.sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+
+      for (const mgr of execManagers) {
+        out.push({
+          id: mgr.id,
+          name: mgr.name,
+          manager_rep_id: mgr.manager_rep_id ?? null,
+          role: mgr.role,
+        });
+
+        const mgrReps = (repsByManagerId.get(mgr.id) || []).slice();
+        mgrReps.sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+
+        for (const rep of mgrReps) {
+          out.push({
+            id: rep.id,
+            name: rep.name,
+            manager_rep_id: rep.manager_rep_id ?? null,
+            role: rep.role,
+          });
+        }
+      }
+    }
+
+    orphanManagers.sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+    for (const mgr of orphanManagers) {
+      out.push({
+        id: mgr.id,
+        name: mgr.name,
+        manager_rep_id: mgr.manager_rep_id ?? null,
+        role: mgr.role,
+      });
+
+      const mgrReps = (repsByManagerId.get(mgr.id) || []).slice();
+      mgrReps.sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+      for (const rep of mgrReps) {
+        out.push({
+          id: rep.id,
+          name: rep.name,
+          manager_rep_id: rep.manager_rep_id ?? null,
+          role: rep.role,
+        });
+      }
+    }
+
+    orphanReps.sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+    for (const rep of orphanReps) {
+      out.push({
+        id: rep.id,
+        name: rep.name,
+        manager_rep_id: rep.manager_rep_id ?? null,
+        role: rep.role,
+      });
+    }
+
+    return out;
+  })();
 
   const periodLabel = selectedPeriodForTeam?.period_name ?? "Current Period";
 
