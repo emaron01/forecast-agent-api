@@ -854,6 +854,65 @@ export default async function ExecutiveDashboardPage({
     health_score: number | null;
   };
 
+  type TopDealRow = {
+    opportunity_public_id: string;
+    partner_name: string | null;
+    account_name: string | null;
+    opportunity_name: string | null;
+    product: string | null;
+    amount: number;
+    create_date: string | null;
+    close_date: string | null;
+    baseline_health_score: number | null;
+    health_score: number | null;
+  };
+
+  async function listTopDeals(args: {
+    orgId: number;
+    outcome: "won" | "lost";
+    limit: number;
+    dateStart?: string | null;
+    dateEnd?: string | null;
+    repIds: number[] | null;
+  }): Promise<TopDealRow[]> {
+    const wantWon = args.outcome === "won";
+    const useRepFilter = !!(args.repIds && args.repIds.length);
+    const { rows } = await pool.query<TopDealRow>(
+      `
+      SELECT
+        o.public_id::text AS opportunity_public_id,
+        NULLIF(btrim(o.partner_name), '') AS partner_name,
+        o.account_name,
+        o.opportunity_name,
+        o.product,
+        COALESCE(o.amount, 0)::float8 AS amount,
+        o.create_date::timestamptz::text AS create_date,
+        o.close_date::date::text AS close_date,
+        o.baseline_health_score::float8 AS baseline_health_score,
+        o.health_score::float8 AS health_score
+      FROM opportunities o
+      WHERE o.org_id = $1
+        AND (NOT $6::boolean OR o.rep_id = ANY($5::bigint[]))
+        AND o.close_date IS NOT NULL
+        AND o.close_date >= COALESCE($3::date, o.close_date)
+        AND o.close_date <= COALESCE($4::date, o.close_date)
+        AND (
+          CASE
+            WHEN $2::boolean THEN ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
+            ELSE (
+              ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
+              OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
+            )
+          END
+        )
+      ORDER BY amount DESC NULLS LAST, o.id DESC
+      LIMIT $7
+      `,
+      [args.orgId, wantWon, args.dateStart || null, args.dateEnd || null, args.repIds || [], useRepFilter, args.limit]
+    );
+    return rows || [];
+  }
+
   async function listTopPartnerDealsExec(args: {
     orgId: number;
     quotaPeriodId: string;
@@ -917,6 +976,8 @@ export default async function ExecutiveDashboardPage({
 
   let topPartnerWon: any[] = [];
   let topPartnerLost: any[] = [];
+  let topDealsWon: any[] = [];
+  let topDealsLost: any[] = [];
   let channelContributionHero: ChannelPartnerHeroProps | null = null;
   try {
     if (selectedPeriod && visibleRepIds.length > 0 && selectedPeriodId) {
@@ -953,7 +1014,37 @@ export default async function ExecutiveDashboardPage({
   } catch {
     topPartnerWon = [];
     topPartnerLost = [];
+    topDealsWon = [];
+    topDealsLost = [];
     channelContributionHero = null;
+  }
+
+  try {
+    if (selectedPeriod && visibleRepIds.length > 0) {
+      const [won, lost] = await Promise.all([
+        listTopDeals({
+          orgId: ctx.user.org_id,
+          outcome: "won",
+          limit: 10,
+          dateStart: selectedPeriod.period_start,
+          dateEnd: selectedPeriod.period_end,
+          repIds: visibleRepIds,
+        }),
+        listTopDeals({
+          orgId: ctx.user.org_id,
+          outcome: "lost",
+          limit: 10,
+          dateStart: selectedPeriod.period_start,
+          dateEnd: selectedPeriod.period_end,
+          repIds: visibleRepIds,
+        }),
+      ]);
+      topDealsWon = won ?? [];
+      topDealsLost = lost ?? [];
+    }
+  } catch {
+    topDealsWon = [];
+    topDealsLost = [];
   }
 
   const showChannelContribution = Number(ctx.user.hierarchy_level ?? 99) <= 2;
@@ -1276,6 +1367,8 @@ export default async function ExecutiveDashboardPage({
             commitAdmission: summary.commitAdmission,
             commitDealPanels: summary.commitDealPanels,
             defaultTopN: 5,
+            topDealsWon,
+            topDealsLost,
           }}
           pipelineTabProps={{
             basePath: "/dashboard/executive",
@@ -1361,6 +1454,8 @@ export default async function ExecutiveDashboardPage({
           showManagerReviewQueue={showManagerReviewQueue}
           topPartnerWon={topPartnerWon}
           topPartnerLost={topPartnerLost}
+          topDealsWon={topDealsWon}
+          topDealsLost={topDealsLost}
           showChannelContribution={showChannelContribution}
           channelContributionHero={channelContributionHero}
           channelContributionRows={channelContributionRows}

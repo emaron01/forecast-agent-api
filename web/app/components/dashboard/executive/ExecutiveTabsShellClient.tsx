@@ -384,6 +384,8 @@ export function ExecutiveTabsShellClient(props: {
   revenueTabProps: ExecutiveGapInsightsClientProps;
   topPartnerWon: any[];
   topPartnerLost: any[];
+  topDealsWon?: any[];
+  topDealsLost?: any[];
   /** Channel tab: Led/Fed table for hierarchy levels 0–2 only */
   showChannelContribution?: boolean;
   channelContributionHero?: ChannelPartnerHeroProps | null;
