@@ -442,6 +442,25 @@ function rowsEquivalentForMetrics(metricList: MetricKey[], a: RepRow, b: RepRow)
   return true;
 }
 
+/** Rollup / aggregate labels — exclude from bar/line/radar (individual REPs only). */
+function isRollupRepNameForChart(repName: string | undefined) {
+  const n = String(repName || "");
+  return (
+    n.startsWith("Executive Total:") || n.startsWith("Manager Total:") || n.startsWith("Team Total:")
+  );
+}
+
+function RepNameXAxisTick(props: { x?: number; y?: number; payload?: { value?: string } }) {
+  const { x = 0, y = 0, payload } = props;
+  const name = String(payload?.value || "");
+  const short = name.length > 12 ? `${name.slice(0, 12)}…` : name;
+  return (
+    <text x={x} y={y} dy={16} textAnchor="middle" fill="var(--sf-text-secondary)" fontSize={11}>
+      {short}
+    </text>
+  );
+}
+
 type ChartType = "table" | "bar" | "line" | "radar";
 
 const CHART_COLORS = [
@@ -615,9 +634,14 @@ export function CustomReportDesignerClient(props: {
   );
   const previewRows = selectedReps;
 
+  const chartPreviewRows = useMemo(
+    () => previewRows.filter((row) => !isRollupRepNameForChart(row.rep_name)),
+    [previewRows]
+  );
+
   const chartData = useMemo(
     () =>
-      previewRows.map((row) => ({
+      chartPreviewRows.map((row) => ({
         rep: row.rep_name,
         ...selectedFields.reduce(
           (acc, f) => ({
@@ -627,25 +651,25 @@ export function CustomReportDesignerClient(props: {
           {} as Record<string, number>
         ),
       })),
-    [previewRows, selectedFields]
+    [chartPreviewRows, selectedFields]
   );
 
   const radarData = useMemo(() => {
     return selectedFields.map((f) => {
       const point: Record<string, any> = { metric: f.label };
-      previewRows.forEach((row) => {
+      chartPreviewRows.forEach((row) => {
         point[row.rep_name] = Number((row as any)[f.key] ?? 0);
       });
       return point;
     });
-  }, [selectedFields, previewRows]);
+  }, [selectedFields, chartPreviewRows]);
 
   const chartHasFields = selectedFields.length > 0;
-  const showChartPlaceholder =
-    chartType !== "table" && (!chartHasFields || !previewRows.length);
+  const chartHasReps = chartPreviewRows.length > 0;
+  const showChartPlaceholder = chartType !== "table" && (!chartHasFields || !chartHasReps);
   const showBarLineChart =
-    (chartType === "bar" || chartType === "line") && chartHasFields && previewRows.length > 0;
-  const showRadarChart = chartType === "radar" && chartHasFields && previewRows.length > 0;
+    (chartType === "bar" || chartType === "line") && chartHasFields && chartHasReps;
+  const showRadarChart = chartType === "radar" && chartHasFields && chartHasReps;
 
   function toggleRep(id: string) {
     setSelectedRepIds((prev) => {
@@ -1258,14 +1282,15 @@ export function CustomReportDesignerClient(props: {
       {showBarLineChart && chartType === "bar" ? (
         <div className="mt-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
           <ResponsiveContainer width="100%" height={360}>
-            <BarChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 60 }}>
+            <BarChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 48 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
               <XAxis
                 dataKey="rep"
-                tick={{ fill: "var(--sf-text-secondary)", fontSize: 11 }}
-                angle={-35}
-                textAnchor="end"
+                angle={0}
+                textAnchor="middle"
                 interval={0}
+                height={40}
+                tick={RepNameXAxisTick}
               />
               <YAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 11 }} />
               <Tooltip
@@ -1299,14 +1324,15 @@ export function CustomReportDesignerClient(props: {
       {showBarLineChart && chartType === "line" ? (
         <div className="mt-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
           <ResponsiveContainer width="100%" height={360}>
-            <LineChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 60 }}>
+            <LineChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 48 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
               <XAxis
                 dataKey="rep"
-                tick={{ fill: "var(--sf-text-secondary)", fontSize: 11 }}
-                angle={-35}
-                textAnchor="end"
+                angle={0}
+                textAnchor="middle"
                 interval={0}
+                height={40}
+                tick={RepNameXAxisTick}
               />
               <YAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 11 }} />
               <Tooltip
@@ -1345,9 +1371,9 @@ export function CustomReportDesignerClient(props: {
               <PolarGrid stroke="var(--sf-border)" />
               <PolarAngleAxis dataKey="metric" tick={{ fill: "var(--sf-text-secondary)", fontSize: 11 }} />
               <PolarRadiusAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} angle={90} />
-              {previewRows.map((row, i) => (
+              {chartPreviewRows.map((row, i) => (
                 <Radar
-                  key={row.rep_name}
+                  key={row.rep_id || row.rep_name}
                   name={row.rep_name}
                   dataKey={row.rep_name}
                   stroke={CHART_COLORS[i % CHART_COLORS.length]}
@@ -1404,31 +1430,67 @@ export function CustomReportDesignerClient(props: {
 
               const showExecRow = showExecSubtotal && !!execSubtotal && hasAnyReportData(execSubtotal);
               const showMgrRow = !!mgrSubtotal && (visibleReps.length > 0 || hasAnyReportData(mgrSubtotal));
+
+              const execMgrIdsMatch =
+                String(g.execId || "").length > 0 &&
+                String(g.mgrId || "").length > 0 &&
+                String(g.execId) === String(g.mgrId);
+              const exNm = String(g.execName || "").trim();
+              const mgrNm = String(g.mgrName || "").trim();
+              const execMgrNamesMatch =
+                exNm.length > 0 &&
+                exNm === mgrNm &&
+                exNm !== "(Unassigned)";
+              const samePersonExecMgr =
+                showExecRow &&
+                showMgrRow &&
+                !!execSubtotal &&
+                !!mgrSubtotal &&
+                (execMgrIdsMatch || execMgrNamesMatch);
+              const teamTotalDisplayName = execMgrIdsMatch
+                ? String(repNameById.get(String(g.execId)) || g.execName || g.mgrName || "Team").trim()
+                : execMgrNamesMatch
+                  ? String(g.execName || "").trim()
+                  : "";
+
               return (
                 <Fragment key={`grp:${g.execId}:${g.mgrId}`}>
-                  {showExecRow ? (
+                  {samePersonExecMgr ? (
                     <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
-                      <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{execSubtotal.rep_name}</td>
-                      {metricList.map((k) => (
-                        <td key={k} className="px-4 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                          {renderMetricCell(k, execSubtotal)}
-                        </td>
-                      ))}
-                    </tr>
-                  ) : null}
-
-                  {showMgrRow ? (
-                    <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
                       <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                        {mgrSubtotal.rep_name}
+                        Team Total: {teamTotalDisplayName}
                       </td>
                       {metricList.map((k) => (
                         <td key={k} className="px-4 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                          {renderMetricCell(k, mgrSubtotal)}
+                          {renderMetricCell(k, mgrSubtotal!)}
                         </td>
                       ))}
                     </tr>
-                  ) : null}
+                  ) : (
+                    <>
+                      {showExecRow ? (
+                        <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                          <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{execSubtotal!.rep_name}</td>
+                          {metricList.map((k) => (
+                            <td key={k} className="px-4 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                              {renderMetricCell(k, execSubtotal!)}
+                            </td>
+                          ))}
+                        </tr>
+                      ) : null}
+
+                      {showMgrRow ? (
+                        <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                          <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{mgrSubtotal!.rep_name}</td>
+                          {metricList.map((k) => (
+                            <td key={k} className="px-4 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                              {renderMetricCell(k, mgrSubtotal!)}
+                            </td>
+                          ))}
+                        </tr>
+                      ) : null}
+                    </>
+                  )}
 
                   {visibleReps.map((r) => (
                     <tr key={`rep:${g.execId}:${g.mgrId}:${r.rep_id}`} className="border-t border-[color:var(--sf-border)]">
