@@ -214,6 +214,7 @@ export default async function ChannelDashboardPage({
               viewerRole={ctx.user.role}
               periods={summary.periods}
               quotaPeriodId={summary.selectedQuotaPeriodId}
+              orgId={ctx.user.org_id}
               reps={summary.reps}
               fiscalYear={fiscalYear}
               fiscalQuarter={fiscalQuarter}
@@ -320,6 +321,7 @@ export default async function ChannelDashboardPage({
             viewerRole={ctx.user.role}
             periods={summary.periods}
             quotaPeriodId={summary.selectedQuotaPeriodId}
+            orgId={ctx.user.org_id}
             reps={summary.reps}
             fiscalYear={fiscalYear}
             fiscalQuarter={fiscalQuarter}

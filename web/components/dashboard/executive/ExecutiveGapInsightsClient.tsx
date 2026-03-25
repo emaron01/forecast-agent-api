@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { ExecRepOption } from "../../../lib/executiveForecastDashboard";
@@ -23,6 +23,7 @@ import { PartnersExecutiveAiTakeawayClient } from "../../ai/PartnersExecutiveAiT
 import { useExecutiveBriefing } from "./ExecutiveBriefingContext";
 import { DealCoachingCard, type DealCoachingCardDeal } from "../../../app/components/dashboard/coaching/DealCoachingCard";
 import { PartnerMotionPerformanceSection } from "./PartnerMotionPerformanceSection";
+import { useAiTakeaway } from "../../../app/components/ai/useAiTakeaway";
 
 type RiskCategoryKey =
   | "pain"
@@ -497,6 +498,7 @@ export function ExecutiveGapInsightsClient(props: {
   basePath: string;
   periods: Array<{ id: string; fiscal_year: string; fiscal_quarter: string; period_name: string; period_start: string; period_end: string }>;
   quotaPeriodId: string;
+  orgId: number;
   reps: ExecRepOption[];
   fiscalYear: string;
   fiscalQuarter: string;
@@ -698,20 +700,10 @@ export function ExecutiveGapInsightsClient(props: {
   const [analysisData, setAnalysisData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [analysisLoading, setAnalysisLoading] = useState(false);
-  const [heroAiSummary, setHeroAiSummary] = useState<string>("");
-  const [heroAiExtended, setHeroAiExtended] = useState<string>("");
-  const [heroAiPayloadSha, setHeroAiPayloadSha] = useState<string>("");
-  const [heroAiLoading, setHeroAiLoading] = useState(false);
   const [heroAiExpanded, setHeroAiExpanded] = useState(false);
-  const [heroAiToast, setHeroAiToast] = useState<string>("");
   const [heroAiCopied, setHeroAiCopied] = useState(false);
 
-  const [radarAiSummary, setRadarAiSummary] = useState<string>("");
-  const [radarAiExtended, setRadarAiExtended] = useState<string>("");
-  const [radarAiPayloadSha, setRadarAiPayloadSha] = useState<string>("");
-  const [radarAiLoading, setRadarAiLoading] = useState(false);
   const [radarAiExpanded, setRadarAiExpanded] = useState(false);
-  const [radarAiToast, setRadarAiToast] = useState<string>("");
   const [radarAiCopied, setRadarAiCopied] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [commitIntegrityExpandedId, setCommitIntegrityExpandedId] = useState<string | null>(null);
@@ -736,33 +728,6 @@ export function ExecutiveGapInsightsClient(props: {
     [props.basePath]
   );
 
-  // Extended content often starts with the summary (API repeats executive one-line); strip it so we don't show summary twice.
-  const radarAiExtendedDisplay = useMemo(() => {
-    if (!radarAiExtended) return radarAiExtended;
-    if (!radarAiSummary) return radarAiExtended;
-
-    const summaryTrimmed = radarAiSummary.trim();
-    const extendedTrimmed = radarAiExtended.trim();
-
-    // Split extended into lines
-    const lines = extendedTrimmed.split("\n");
-
-    // Remove all leading lines that appear anywhere in the summary text
-    const summaryLines = summaryTrimmed
-      .split("\n")
-      .map((l) => l.trim().toLowerCase())
-      .filter(Boolean);
-
-    const filtered = lines.filter((line) => {
-      const lineTrimmed = line.trim().toLowerCase();
-      if (!lineTrimmed) return true; // keep blank lines
-      return !summaryLines.some(
-        (sl) => lineTrimmed.includes(sl) || sl.includes(lineTrimmed)
-      );
-    });
-
-    return filtered.join("\n").trim();
-  }, [radarAiSummary, radarAiExtended]);
   const adjustRiskSectionRef = useRef<HTMLElement>(null);
   const userChangedFilterRef = useRef(false);
 
@@ -947,70 +912,27 @@ export function ExecutiveGapInsightsClient(props: {
     };
   }, [analysisFlattenedDeals, flattenedDeals, analysisOk?.totals?.gap, ok?.totals?.gap, props.gap, props.fiscalYear, props.fiscalQuarter, quotaPeriodId, props.leftToGo]);
 
-  const lastHeroAiKey = useRef<string>("");
-  const lastRadarAiKey = useRef<string>("");
+  const heroTakeawayEnabled = !!props.heroOnly && !!heroTakeawayPayload?.quota_period_id;
+  const heroTakeaway = useAiTakeaway({
+    orgId: props.orgId,
+    surface: "hero",
+    payload: heroTakeawayPayload,
+    enabled: heroTakeawayEnabled,
+  });
 
-  async function runHeroAi(args: { force: boolean; showNoChangeToast: boolean }) {
-    if (!heroTakeawayPayload?.quota_period_id) return;
-    setHeroAiLoading(true);
-    try {
-      const r = await fetch("/api/forecast/ai-strategic-takeaway", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          surface: "hero",
-          payload: heroTakeawayPayload,
-          force: args.force,
-          previous_payload_sha256: heroAiPayloadSha || undefined,
-          previous_summary: heroAiSummary || undefined,
-          previous_extended: heroAiExtended || undefined,
-        }),
-      });
-      const j = await r.json();
-      const noChange = !!j?.no_change;
-      const nextSummaryRaw = String(j?.summary || "").trim();
-      const nextExtendedRaw = String(j?.extended || "").trim();
-      const nextSha = String(j?.payload_sha256 || "").trim();
-      const unwrapped = unwrapIfJsonEnvelope(nextSummaryRaw, nextExtendedRaw);
-      const nextSummary = unwrapped.summary;
-      const nextExtended = unwrapped.extended;
+  useEffect(() => {
+    const text = [heroTakeaway.summary ? `Summary:\n${heroTakeaway.summary}` : "", heroTakeaway.extended ? `Extended analysis:\n${heroTakeaway.extended}` : ""]
+      .filter(Boolean)
+      .join("\n\n")
+      .trim();
+    briefing.setQuarterOutlook(text);
+  }, [heroTakeaway.summary, heroTakeaway.extended, briefing.setQuarterOutlook]);
 
-      const persistSummary = noChange ? (heroAiSummary || nextSummary) : (nextSummary || heroAiSummary);
-      const persistExtended = noChange ? (heroAiExtended || nextExtended) : (nextExtended || heroAiExtended);
-
-      if (nextSha) setHeroAiPayloadSha(nextSha);
-      // Even when `no_change=true`, still apply formatting hardening so we never "stick" on an empty/raw envelope.
-      if (nextSummary && nextSummary !== heroAiSummary) setHeroAiSummary(nextSummary);
-      if (nextExtended && nextExtended !== heroAiExtended) setHeroAiExtended(nextExtended);
-
-      if (noChange && args.showNoChangeToast && (persistSummary || persistExtended)) {
-        setHeroAiToast("No material change in the underlying data.");
-        window.setTimeout(() => setHeroAiToast(""), 2500);
-      }
-
-      // Persist for end-of-page summary.
-      try {
-        sessionStorage.setItem(
-          `sf_ai:hero:${String(heroTakeawayPayload.quota_period_id)}`,
-          JSON.stringify({
-            summary: persistSummary,
-            extended: persistExtended,
-            payload_sha256: nextSha || heroAiPayloadSha,
-            updatedAt: Date.now(),
-          })
-        );
-      } catch {
-        // ignore
-      }
-    } catch {
-      // Keep prior content on failure.
-    } finally {
-      setHeroAiLoading(false);
-    };
-  }
-
-  async function copyHeroAi() {
-    const text = [heroAiSummary ? `Summary:\n${heroAiSummary}` : "", heroAiExtended ? `Extended analysis:\n${heroAiExtended}` : ""].filter(Boolean).join("\n\n").trim();
+  const copyHeroAi = useCallback(async () => {
+    const text = [heroTakeaway.summary ? `Summary:\n${heroTakeaway.summary}` : "", heroTakeaway.extended ? `Extended analysis:\n${heroTakeaway.extended}` : ""]
+      .filter(Boolean)
+      .join("\n\n")
+      .trim();
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
@@ -1019,44 +941,7 @@ export function ExecutiveGapInsightsClient(props: {
     } catch {
       // ignore
     }
-  }
-
-  useEffect(() => {
-    const text = [heroAiSummary ? `Summary:\n${heroAiSummary}` : "", heroAiExtended ? `Extended analysis:\n${heroAiExtended}` : ""].filter(Boolean).join("\n\n").trim();
-    briefing.setQuarterOutlook(text);
-  }, [heroAiSummary, heroAiExtended, briefing.setQuarterOutlook]);
-
-  useEffect(() => {
-    const text = [radarAiSummary ? `Summary:\n${radarAiSummary}` : "", radarAiExtended ? `Extended analysis:\n${radarAiExtended}` : ""].filter(Boolean).join("\n\n").trim();
-    briefing.setForecastCommit(text);
-  }, [radarAiSummary, radarAiExtended, briefing.setForecastCommit]);
-
-  useEffect(() => {
-    if (!heroTakeawayPayload?.quota_period_id) return;
-    // Avoid spam: re-run when the core analysis inputs change.
-    const key = [
-      heroTakeawayPayload.quota_period_id,
-      heroTakeawayPayload.overall_gap,
-      heroTakeawayPayload.at_risk_count,
-      heroTakeawayPayload.min_deals_to_close_gap,
-      refreshNonce,
-    ].join("|");
-    if (key === lastHeroAiKey.current) return;
-    lastHeroAiKey.current = key;
-    void runHeroAi({ force: false, showNoChangeToast: false });
-  }, [heroTakeawayPayload, refreshNonce]);
-
-  async function copyRadarAi() {
-    const text = [radarAiSummary ? `Summary:\n${radarAiSummary}` : "", radarAiExtended ? `Extended analysis:\n${radarAiExtended}` : ""].filter(Boolean).join("\n\n").trim();
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      setRadarAiCopied(true);
-      window.setTimeout(() => setRadarAiCopied(false), 2000);
-    } catch {
-      // ignore
-    }
-  }
+  }, [heroTakeaway.summary, heroTakeaway.extended]);
 
   const sortedDeals = useMemo(() => {
     const overallGap = ok?.totals?.gap ?? 0;
@@ -1413,77 +1298,78 @@ export function ExecutiveGapInsightsClient(props: {
     };
   }, [props.fiscalYear, props.fiscalQuarter, quotaPeriodId, radarStrategicTakeaway, analysisFlattenedDeals.length]);
 
-  async function runRadarAi(args: { force: boolean; showNoChangeToast: boolean }) {
-    if (!radarTakeawayPayload?.quota_period_id) return;
-    setRadarAiLoading(true);
-    try {
-      const r = await fetch("/api/forecast/ai-strategic-takeaway", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          surface: "radar",
-          payload: radarTakeawayPayload,
-          force: args.force,
-          previous_payload_sha256: radarAiPayloadSha || undefined,
-          previous_summary: radarAiSummary || undefined,
-          previous_extended: radarAiExtended || undefined,
-        }),
-      });
-      const j = await r.json();
-      const noChange = !!j?.no_change;
-      const nextSummaryRaw = String(j?.summary || "").trim();
-      const nextExtendedRaw = String(j?.extended || "").trim();
-      const nextSha = String(j?.payload_sha256 || "").trim();
-      const unwrapped = unwrapIfJsonEnvelope(nextSummaryRaw, nextExtendedRaw);
-      const nextSummary = unwrapped.summary;
-      const nextExtended = unwrapped.extended;
+  const radarTakeawayEnabled = useMemo(
+    () =>
+      !!radarTakeawayPayload?.quota_period_id &&
+      !props.heroOnly &&
+      !props.revenueTabOnly &&
+      !props.forecastTabOnly &&
+      !props.pipelineKpisTabOnly,
+    [
+      radarTakeawayPayload?.quota_period_id,
+      props.heroOnly,
+      props.revenueTabOnly,
+      props.forecastTabOnly,
+      props.pipelineKpisTabOnly,
+    ]
+  );
 
-      const persistSummary = noChange ? (radarAiSummary || nextSummary) : (nextSummary || radarAiSummary);
-      const persistExtended = noChange ? (radarAiExtended || nextExtended) : (nextExtended || radarAiExtended);
+  const radarTakeaway = useAiTakeaway({
+    orgId: props.orgId,
+    surface: "radar",
+    payload: radarTakeawayPayload,
+    enabled: radarTakeawayEnabled,
+  });
 
-      if (nextSha) setRadarAiPayloadSha(nextSha);
-      // Even when `no_change=true`, still apply formatting hardening so we never "stick" on an empty/raw envelope.
-      if (nextSummary && nextSummary !== radarAiSummary) setRadarAiSummary(nextSummary);
-      if (nextExtended && nextExtended !== radarAiExtended) setRadarAiExtended(nextExtended);
+  const radarAiExtendedDisplay = useMemo(() => {
+    const ext = radarTakeaway.extended || "";
+    const sum = radarTakeaway.summary || "";
+    if (!ext) return ext;
+    if (!sum) return ext;
 
-      if (noChange && args.showNoChangeToast && (persistSummary || persistExtended)) {
-        setRadarAiToast("No material change in the underlying data.");
-        window.setTimeout(() => setRadarAiToast(""), 2500);
-      }
+    const summaryTrimmed = sum.trim();
+    const extendedTrimmed = ext.trim();
 
-      try {
-        sessionStorage.setItem(
-          `sf_ai:radar:${String(radarTakeawayPayload.quota_period_id)}`,
-          JSON.stringify({
-            summary: persistSummary,
-            extended: persistExtended,
-            payload_sha256: nextSha || radarAiPayloadSha,
-            updatedAt: Date.now(),
-          })
-        );
-      } catch {
-        // ignore
-      }
-    } catch {
-      // keep prior
-    } finally {
-      setRadarAiLoading(false);
-    }
-  }
+    const lines = extendedTrimmed.split("\n");
+
+    const summaryLines = summaryTrimmed
+      .split("\n")
+      .map((l) => l.trim().toLowerCase())
+      .filter(Boolean);
+
+    const filtered = lines.filter((line) => {
+      const lineTrimmed = line.trim().toLowerCase();
+      if (!lineTrimmed) return true;
+      return !summaryLines.some(
+        (sl) => lineTrimmed.includes(sl) || sl.includes(lineTrimmed)
+      );
+    });
+
+    return filtered.join("\n").trim();
+  }, [radarTakeaway.summary, radarTakeaway.extended]);
 
   useEffect(() => {
-    if (!radarTakeawayPayload?.quota_period_id) return;
-    const key = [
-      radarTakeawayPayload.quota_period_id,
-      radarTakeawayPayload.radar_risk?.risk_set_total?.at_risk_count || 0,
-      radarTakeawayPayload.radar_risk?.risk_set_total?.downside_gap_abs || 0,
-      stageView,
-      refreshNonce,
-    ].join("|");
-    if (key === lastRadarAiKey.current) return;
-    lastRadarAiKey.current = key;
-    void runRadarAi({ force: false, showNoChangeToast: false });
-  }, [radarTakeawayPayload, stageView, refreshNonce]);
+    const text = [radarTakeaway.summary ? `Summary:\n${radarTakeaway.summary}` : "", radarTakeaway.extended ? `Extended analysis:\n${radarTakeaway.extended}` : ""]
+      .filter(Boolean)
+      .join("\n\n")
+      .trim();
+    briefing.setForecastCommit(text);
+  }, [radarTakeaway.summary, radarTakeaway.extended, briefing.setForecastCommit]);
+
+  const copyRadarAi = useCallback(async () => {
+    const text = [radarTakeaway.summary ? `Summary:\n${radarTakeaway.summary}` : "", radarTakeaway.extended ? `Extended analysis:\n${radarTakeaway.extended}` : ""]
+      .filter(Boolean)
+      .join("\n\n")
+      .trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setRadarAiCopied(true);
+      window.setTimeout(() => setRadarAiCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  }, [radarTakeaway.summary, radarTakeaway.extended]);
 
   const productViz = useMemo<ExecutiveProductPerformanceData>(() => {
     const rows = Array.isArray(props.productsClosedWon) ? props.productsClosedWon : [];
@@ -2131,45 +2017,70 @@ export function ExecutiveGapInsightsClient(props: {
               />
               <span>✨ AI Strategic Takeaway</span>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void runRadarAi({ force: true, showNoChangeToast: true })}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
-              >
-                Reanalyze
-              </button>
-              <button
-                type="button"
-                onClick={() => void copyRadarAi()}
-                className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
-                disabled={!radarAiSummary && !radarAiExtended}
-                title={radarAiSummary || radarAiExtended ? "Copy summary + extended" : "No summary to copy yet"}
-              >
-                <span aria-hidden="true">⧉</span>
-                Copy
-              </button>
-              <button
-                type="button"
-                onClick={() => setRadarAiExpanded((v) => !v)}
-                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] bg-[color:var(--sf-surface-alt)]"
-              >
-                {radarAiExpanded ? "Hide extended analysis" : "Extended analysis"}
-              </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {radarTakeaway.summary || radarTakeaway.extended ? (
+                <button
+                  type="button"
+                  onClick={() => void radarTakeaway.generate(true)}
+                  disabled={radarTakeaway.loading}
+                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70 disabled:opacity-60"
+                >
+                  Reanalyze
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void radarTakeaway.generate(false)}
+                  disabled={radarTakeaway.loading}
+                  className="rounded-md border border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] px-3 py-2 text-xs font-semibold text-white hover:bg-[color:var(--sf-accent-secondary)] disabled:opacity-60"
+                >
+                  Generate
+                </button>
+              )}
+              {radarTakeaway.summary || radarTakeaway.extended ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void copyRadarAi()}
+                    className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
+                    disabled={!radarTakeaway.summary && !radarTakeaway.extended}
+                    title={radarTakeaway.summary || radarTakeaway.extended ? "Copy summary + extended" : "No summary to copy yet"}
+                  >
+                    <span aria-hidden="true">⧉</span>
+                    Copy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRadarAiExpanded((v) => !v)}
+                    className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] bg-[color:var(--sf-surface-alt)]"
+                  >
+                    {radarAiExpanded ? "Hide extended analysis" : "Extended analysis"}
+                  </button>
+                </>
+              ) : null}
             </div>
           </div>
-          {radarAiToast ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{radarAiToast}</div> : null}
+          {radarTakeaway.toast ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{radarTakeaway.toast}</div> : null}
           {radarAiCopied ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
-          {radarAiLoading ? (
-            <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating MEDDPICC+TB coaching guidance…</div>
-          ) : radarAiSummary || radarAiExtended ? (
+          {radarTakeaway.stale ? (
+            <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Quarter data has changed — regenerate for updated insights.
+            </div>
+          ) : null}
+          {radarTakeaway.loading ? (
+            <div className="mt-2 flex items-center gap-2 text-sm text-[color:var(--sf-text-secondary)]">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-[color:var(--sf-border)] border-t-transparent" />
+              Generating…
+            </div>
+          ) : null}
+          {radarTakeaway.summary || radarTakeaway.extended ? (
             <div className="mt-2 grid gap-3">
-              {radarAiSummary ? (
+              {radarTakeaway.summary ? (
                 <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
-                  {renderCategorizedText(radarAiSummary) || <div className="whitespace-pre-wrap">{radarAiSummary}</div>}
+                  {renderCategorizedText(radarTakeaway.summary) || <div className="whitespace-pre-wrap">{radarTakeaway.summary}</div>}
                 </div>
               ) : null}
-              {radarAiExpanded && radarAiExtended ? (
+              {radarAiExpanded && radarTakeaway.extended ? (
                 <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black whitespace-pre-wrap">
                   {renderCategorizedText(radarAiExtendedDisplay) || <div className="whitespace-pre-wrap">{radarAiExtendedDisplay}</div>}
                 </div>
@@ -2213,45 +2124,70 @@ export function ExecutiveGapInsightsClient(props: {
               />
               <span>✨ AI Strategic Takeaway</span>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void runRadarAi({ force: true, showNoChangeToast: true })}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
-              >
-                Reanalyze
-              </button>
-              <button
-                type="button"
-                onClick={() => void copyRadarAi()}
-                className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
-                disabled={!radarAiSummary && !radarAiExtended}
-                title={radarAiSummary || radarAiExtended ? "Copy summary + extended" : "No summary to copy yet"}
-              >
-                <span aria-hidden="true">⧉</span>
-                Copy
-              </button>
-              <button
-                type="button"
-                onClick={() => setRadarAiExpanded((v) => !v)}
-                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] bg-[color:var(--sf-surface-alt)]"
-              >
-                {radarAiExpanded ? "Hide extended analysis" : "Extended analysis"}
-              </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {radarTakeaway.summary || radarTakeaway.extended ? (
+                <button
+                  type="button"
+                  onClick={() => void radarTakeaway.generate(true)}
+                  disabled={radarTakeaway.loading}
+                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70 disabled:opacity-60"
+                >
+                  Reanalyze
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void radarTakeaway.generate(false)}
+                  disabled={radarTakeaway.loading}
+                  className="rounded-md border border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] px-3 py-2 text-xs font-semibold text-white hover:bg-[color:var(--sf-accent-secondary)] disabled:opacity-60"
+                >
+                  Generate
+                </button>
+              )}
+              {radarTakeaway.summary || radarTakeaway.extended ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void copyRadarAi()}
+                    className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
+                    disabled={!radarTakeaway.summary && !radarTakeaway.extended}
+                    title={radarTakeaway.summary || radarTakeaway.extended ? "Copy summary + extended" : "No summary to copy yet"}
+                  >
+                    <span aria-hidden="true">⧉</span>
+                    Copy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRadarAiExpanded((v) => !v)}
+                    className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] bg-[color:var(--sf-surface-alt)]"
+                  >
+                    {radarAiExpanded ? "Hide extended analysis" : "Extended analysis"}
+                  </button>
+                </>
+              ) : null}
             </div>
           </div>
-          {radarAiToast ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{radarAiToast}</div> : null}
+          {radarTakeaway.toast ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{radarTakeaway.toast}</div> : null}
           {radarAiCopied ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
-          {radarAiLoading ? (
-            <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating MEDDPICC+TB coaching guidance…</div>
-          ) : radarAiSummary || radarAiExtended ? (
+          {radarTakeaway.stale ? (
+            <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Quarter data has changed — regenerate for updated insights.
+            </div>
+          ) : null}
+          {radarTakeaway.loading ? (
+            <div className="mt-2 flex items-center gap-2 text-sm text-[color:var(--sf-text-secondary)]">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-[color:var(--sf-border)] border-t-transparent" />
+              Generating…
+            </div>
+          ) : null}
+          {radarTakeaway.summary || radarTakeaway.extended ? (
             <div className="mt-2 grid gap-3">
-              {radarAiSummary ? (
+              {radarTakeaway.summary ? (
                 <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
-                  {renderCategorizedText(radarAiSummary) || <div className="whitespace-pre-wrap">{radarAiSummary}</div>}
+                  {renderCategorizedText(radarTakeaway.summary) || <div className="whitespace-pre-wrap">{radarTakeaway.summary}</div>}
                 </div>
               ) : null}
-              {radarAiExpanded && radarAiExtended ? (
+              {radarAiExpanded && radarTakeaway.extended ? (
                 <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black whitespace-pre-wrap">
                   {renderCategorizedText(radarAiExtendedDisplay) || <div className="whitespace-pre-wrap">{radarAiExtendedDisplay}</div>}
                 </div>
@@ -2732,48 +2668,73 @@ export function ExecutiveGapInsightsClient(props: {
             />
             <span>✨ Strategic Takeaway</span>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void runHeroAi({ force: true, showNoChangeToast: true })}
-              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
-            >
-              Reanalyze
-            </button>
-            <button
-              type="button"
-              onClick={() => void copyHeroAi()}
-              className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
-              disabled={!heroAiSummary && !heroAiExtended}
-              title={heroAiSummary || heroAiExtended ? "Copy summary + extended" : "No summary to copy yet"}
-            >
-              <span aria-hidden="true">⧉</span>
-              Copy
-            </button>
-            <button
-              type="button"
-              onClick={() => setHeroAiExpanded((v) => !v)}
-              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
-            >
-              {heroAiExpanded ? "Hide extended analysis" : "Extended analysis"}
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {heroTakeaway.summary || heroTakeaway.extended ? (
+              <button
+                type="button"
+                onClick={() => void heroTakeaway.generate(true)}
+                disabled={heroTakeaway.loading}
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70 disabled:opacity-60"
+              >
+                Reanalyze
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void heroTakeaway.generate(false)}
+                disabled={heroTakeaway.loading}
+                className="rounded-md border border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] px-3 py-2 text-xs font-semibold text-white hover:bg-[color:var(--sf-accent-secondary)] disabled:opacity-60"
+              >
+                Generate
+              </button>
+            )}
+            {heroTakeaway.summary || heroTakeaway.extended ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void copyHeroAi()}
+                  className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
+                  disabled={!heroTakeaway.summary && !heroTakeaway.extended}
+                  title={heroTakeaway.summary || heroTakeaway.extended ? "Copy summary + extended" : "No summary to copy yet"}
+                >
+                  <span aria-hidden="true">⧉</span>
+                  Copy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHeroAiExpanded((v) => !v)}
+                  className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
+                >
+                  {heroAiExpanded ? "Hide extended analysis" : "Extended analysis"}
+                </button>
+              </>
+            ) : null}
           </div>
         </div>
 
-        {heroAiToast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroAiToast}</div> : null}
+        {heroTakeaway.toast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroTakeaway.toast}</div> : null}
         {heroAiCopied ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
-        {heroAiLoading ? (
-          <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating a CRO-grade takeaway…</div>
-        ) : heroAiSummary || heroAiExtended ? (
+        {heroTakeaway.stale ? (
+          <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            Quarter data has changed — regenerate for updated insights.
+          </div>
+        ) : null}
+        {heroTakeaway.loading ? (
+          <div className="mt-3 flex items-center gap-2 text-sm text-[color:var(--sf-text-secondary)]">
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-[color:var(--sf-border)] border-t-transparent" />
+            Generating…
+          </div>
+        ) : null}
+        {heroTakeaway.summary || heroTakeaway.extended ? (
           <div className="mt-3 grid gap-3">
-            {heroAiSummary ? (
+            {heroTakeaway.summary ? (
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
-                {renderCategorizedText(heroAiSummary) || <div className="whitespace-pre-wrap">{heroAiSummary}</div>}
+                {renderCategorizedText(heroTakeaway.summary) || <div className="whitespace-pre-wrap">{heroTakeaway.summary}</div>}
               </div>
             ) : null}
-            {heroAiExpanded && heroAiExtended ? (
+            {heroAiExpanded && heroTakeaway.extended ? (
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black whitespace-pre-wrap">
-                {renderCategorizedText(heroAiExtended) || <div className="whitespace-pre-wrap">{heroAiExtended}</div>}
+                {renderCategorizedText(heroTakeaway.extended) || <div className="whitespace-pre-wrap">{heroTakeaway.extended}</div>}
               </div>
             ) : null}
           </div>
@@ -2968,6 +2929,7 @@ export function ExecutiveGapInsightsClient(props: {
 
             <div className="mt-4">
               <PartnersExecutiveAiTakeawayClient
+                orgId={props.orgId}
                 quotaPeriodId={quotaPeriodId}
                 payload={{
                   page: "dashboard/executive",
@@ -3202,7 +3164,7 @@ export function ExecutiveGapInsightsClient(props: {
   if (props.revenueTabOnly) {
     return (
       <div className="grid gap-4">
-        {props.productsClosedWon.length ? <ExecutiveProductPerformance data={productViz} quotaPeriodId={quotaPeriodId} /> : null}
+        {props.productsClosedWon.length ? <ExecutiveProductPerformance data={productViz} quotaPeriodId={quotaPeriodId} orgId={props.orgId} /> : null}
 
         {props.productsClosedWonByRep.length ? (
           <details className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
@@ -3276,47 +3238,72 @@ export function ExecutiveGapInsightsClient(props: {
                 />
                 <span>✨ Strategic Takeaway</span>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void runHeroAi({ force: true, showNoChangeToast: true })}
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
-                >
-                  Reanalyze
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void copyHeroAi()}
-                  className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
-                  disabled={!heroAiSummary && !heroAiExtended}
-                  title={heroAiSummary || heroAiExtended ? "Copy summary + extended" : "No summary to copy yet"}
-                >
-                  <span aria-hidden="true">⧉</span>
-                  Copy
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHeroAiExpanded((v) => !v)}
-                  className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
-                >
-                  {heroAiExpanded ? "Hide extended analysis" : "Extended analysis"}
-                </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {heroTakeaway.summary || heroTakeaway.extended ? (
+                  <button
+                    type="button"
+                    onClick={() => void heroTakeaway.generate(true)}
+                    disabled={heroTakeaway.loading}
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70 disabled:opacity-60"
+                  >
+                    Reanalyze
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void heroTakeaway.generate(false)}
+                    disabled={heroTakeaway.loading}
+                    className="rounded-md border border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] px-3 py-2 text-xs font-semibold text-white hover:bg-[color:var(--sf-accent-secondary)] disabled:opacity-60"
+                  >
+                    Generate
+                  </button>
+                )}
+                {heroTakeaway.summary || heroTakeaway.extended ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void copyHeroAi()}
+                      className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
+                      disabled={!heroTakeaway.summary && !heroTakeaway.extended}
+                      title={heroTakeaway.summary || heroTakeaway.extended ? "Copy summary + extended" : "No summary to copy yet"}
+                    >
+                      <span aria-hidden="true">⧉</span>
+                      Copy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHeroAiExpanded((v) => !v)}
+                      className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
+                    >
+                      {heroAiExpanded ? "Hide extended analysis" : "Extended analysis"}
+                    </button>
+                  </>
+                ) : null}
               </div>
             </div>
-            {heroAiToast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroAiToast}</div> : null}
+            {heroTakeaway.toast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroTakeaway.toast}</div> : null}
             {heroAiCopied ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
-            {heroAiLoading ? (
-              <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating a CRO-grade takeaway…</div>
-            ) : heroAiSummary || heroAiExtended ? (
+            {heroTakeaway.stale ? (
+              <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Quarter data has changed — regenerate for updated insights.
+              </div>
+            ) : null}
+            {heroTakeaway.loading ? (
+              <div className="mt-3 flex items-center gap-2 text-sm text-[color:var(--sf-text-secondary)]">
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-[color:var(--sf-border)] border-t-transparent" />
+                Generating…
+              </div>
+            ) : null}
+            {heroTakeaway.summary || heroTakeaway.extended ? (
               <div className="mt-3 grid gap-3">
-                {heroAiSummary ? (
+                {heroTakeaway.summary ? (
                   <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
-                    {renderCategorizedText(heroAiSummary) || <div className="whitespace-pre-wrap">{heroAiSummary}</div>}
+                    {renderCategorizedText(heroTakeaway.summary) || <div className="whitespace-pre-wrap">{heroTakeaway.summary}</div>}
                   </div>
                 ) : null}
-                {heroAiExpanded && heroAiExtended ? (
+                {heroAiExpanded && heroTakeaway.extended ? (
                   <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black whitespace-pre-wrap">
-                    {renderCategorizedText(heroAiExtended) || <div className="whitespace-pre-wrap">{heroAiExtended}</div>}
+                    {renderCategorizedText(heroTakeaway.extended) || <div className="whitespace-pre-wrap">{heroTakeaway.extended}</div>}
                   </div>
                 ) : null}
               </div>
@@ -3522,48 +3509,73 @@ export function ExecutiveGapInsightsClient(props: {
                 />
                 <span>✨ Strategic Takeaway</span>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void runHeroAi({ force: true, showNoChangeToast: true })}
-                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
-                >
-                  Reanalyze
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void copyHeroAi()}
-                  className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
-                  disabled={!heroAiSummary && !heroAiExtended}
-                  title={heroAiSummary || heroAiExtended ? "Copy summary + extended" : "No summary to copy yet"}
-                >
-                  <span aria-hidden="true">⧉</span>
-                  Copy
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHeroAiExpanded((v) => !v)}
-                  className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
-                >
-                  {heroAiExpanded ? "Hide extended analysis" : "Extended analysis"}
-                </button>
+              <div className="flex flex-wrap items-center gap-2">
+                {heroTakeaway.summary || heroTakeaway.extended ? (
+                  <button
+                    type="button"
+                    onClick={() => void heroTakeaway.generate(true)}
+                    disabled={heroTakeaway.loading}
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70 disabled:opacity-60"
+                  >
+                    Reanalyze
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void heroTakeaway.generate(false)}
+                    disabled={heroTakeaway.loading}
+                    className="rounded-md border border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] px-3 py-2 text-xs font-semibold text-white hover:bg-[color:var(--sf-accent-secondary)] disabled:opacity-60"
+                  >
+                    Generate
+                  </button>
+                )}
+                {heroTakeaway.summary || heroTakeaway.extended ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void copyHeroAi()}
+                      className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]/70"
+                      disabled={!heroTakeaway.summary && !heroTakeaway.extended}
+                      title={heroTakeaway.summary || heroTakeaway.extended ? "Copy summary + extended" : "No summary to copy yet"}
+                    >
+                      <span aria-hidden="true">⧉</span>
+                      Copy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHeroAiExpanded((v) => !v)}
+                      className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
+                    >
+                      {heroAiExpanded ? "Hide extended analysis" : "Extended analysis"}
+                    </button>
+                  </>
+                ) : null}
               </div>
             </div>
 
-            {heroAiToast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroAiToast}</div> : null}
+            {heroTakeaway.toast ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{heroTakeaway.toast}</div> : null}
             {heroAiCopied ? <div className="mt-3 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
-            {heroAiLoading ? (
-              <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating a CRO-grade takeaway…</div>
-            ) : heroAiSummary || heroAiExtended ? (
+            {heroTakeaway.stale ? (
+              <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Quarter data has changed — regenerate for updated insights.
+              </div>
+            ) : null}
+            {heroTakeaway.loading ? (
+              <div className="mt-3 flex items-center gap-2 text-sm text-[color:var(--sf-text-secondary)]">
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-[color:var(--sf-border)] border-t-transparent" />
+                Generating…
+              </div>
+            ) : null}
+            {heroTakeaway.summary || heroTakeaway.extended ? (
               <div className="mt-3 grid gap-3">
-                {heroAiSummary ? (
+                {heroTakeaway.summary ? (
                   <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
-                    {renderCategorizedText(heroAiSummary) || <div className="whitespace-pre-wrap">{heroAiSummary}</div>}
+                    {renderCategorizedText(heroTakeaway.summary) || <div className="whitespace-pre-wrap">{heroTakeaway.summary}</div>}
                   </div>
                 ) : null}
-                {heroAiExpanded && heroAiExtended ? (
+                {heroAiExpanded && heroTakeaway.extended ? (
                   <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black whitespace-pre-wrap">
-                    {renderCategorizedText(heroAiExtended) || <div className="whitespace-pre-wrap">{heroAiExtended}</div>}
+                    {renderCategorizedText(heroTakeaway.extended) || <div className="whitespace-pre-wrap">{heroTakeaway.extended}</div>}
                   </div>
                 ) : null}
               </div>
@@ -3779,45 +3791,70 @@ export function ExecutiveGapInsightsClient(props: {
             />
             <span>✨ AI Strategic Takeaway</span>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void runRadarAi({ force: true, showNoChangeToast: true })}
-              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
-            >
-              Reanalyze
-            </button>
-            <button
-              type="button"
-              onClick={() => void copyRadarAi()}
-              className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
-              disabled={!radarAiSummary && !radarAiExtended}
-              title={radarAiSummary || radarAiExtended ? "Copy summary + extended" : "No summary to copy yet"}
-            >
-              <span aria-hidden="true">⧉</span>
-              Copy
-            </button>
-            <button
-              type="button"
-              onClick={() => setRadarAiExpanded((v) => !v)}
-              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
-            >
-              {radarAiExpanded ? "Hide extended analysis" : "Extended analysis"}
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {radarTakeaway.summary || radarTakeaway.extended ? (
+              <button
+                type="button"
+                onClick={() => void radarTakeaway.generate(true)}
+                disabled={radarTakeaway.loading}
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70 disabled:opacity-60"
+              >
+                Reanalyze
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void radarTakeaway.generate(false)}
+                disabled={radarTakeaway.loading}
+                className="rounded-md border border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] px-3 py-2 text-xs font-semibold text-white hover:bg-[color:var(--sf-accent-secondary)] disabled:opacity-60"
+              >
+                Generate
+              </button>
+            )}
+            {radarTakeaway.summary || radarTakeaway.extended ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void copyRadarAi()}
+                  className="inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]/70"
+                  disabled={!radarTakeaway.summary && !radarTakeaway.extended}
+                  title={radarTakeaway.summary || radarTakeaway.extended ? "Copy summary + extended" : "No summary to copy yet"}
+                >
+                  <span aria-hidden="true">⧉</span>
+                  Copy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRadarAiExpanded((v) => !v)}
+                  className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
+                >
+                  {radarAiExpanded ? "Hide extended analysis" : "Extended analysis"}
+                </button>
+              </>
+            ) : null}
           </div>
         </div>
-        {radarAiToast ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{radarAiToast}</div> : null}
+        {radarTakeaway.toast ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">{radarTakeaway.toast}</div> : null}
         {radarAiCopied ? <div className="mt-2 text-xs font-semibold text-[color:var(--sf-text-secondary)]">Copied.</div> : null}
-        {radarAiLoading ? (
-          <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">AI agent is generating MEDDPICC+TB coaching guidance…</div>
-        ) : radarAiSummary || radarAiExtended ? (
+        {radarTakeaway.stale ? (
+          <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            Quarter data has changed — regenerate for updated insights.
+          </div>
+        ) : null}
+        {radarTakeaway.loading ? (
+          <div className="mt-2 flex items-center gap-2 text-sm text-[color:var(--sf-text-secondary)]">
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-[color:var(--sf-border)] border-t-transparent" />
+            Generating…
+          </div>
+        ) : null}
+        {radarTakeaway.summary || radarTakeaway.extended ? (
           <div className="mt-2 grid gap-3">
-            {radarAiSummary ? (
+            {radarTakeaway.summary ? (
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-sm text-black">
-                {renderCategorizedText(radarAiSummary) || <div className="whitespace-pre-wrap">{radarAiSummary}</div>}
+                {renderCategorizedText(radarTakeaway.summary) || <div className="whitespace-pre-wrap">{radarTakeaway.summary}</div>}
               </div>
             ) : null}
-            {radarAiExpanded && radarAiExtended ? (
+            {radarAiExpanded && radarTakeaway.extended ? (
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-white p-3 text-left text-sm leading-relaxed text-black whitespace-pre-wrap">
                 {renderCategorizedText(radarAiExtendedDisplay) || <div className="whitespace-pre-wrap">{radarAiExtendedDisplay}</div>}
               </div>
@@ -4128,7 +4165,7 @@ export function ExecutiveGapInsightsClient(props: {
         );
       })()}
 
-      {props.productsClosedWon.length ? <ExecutiveProductPerformance data={productViz} quotaPeriodId={quotaPeriodId} /> : null}
+      {props.productsClosedWon.length ? <ExecutiveProductPerformance data={productViz} quotaPeriodId={quotaPeriodId} orgId={props.orgId} /> : null}
 
       {partnersDecisionEngine ? (
         <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
@@ -4234,6 +4271,7 @@ export function ExecutiveGapInsightsClient(props: {
 
           <div className="mt-4">
             <PartnersExecutiveAiTakeawayClient
+              orgId={props.orgId}
               quotaPeriodId={quotaPeriodId}
               payload={{
                 page: "dashboard/executive",

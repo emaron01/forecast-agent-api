@@ -23,7 +23,7 @@ function healthTone(pct: number | null) {
 
 const barColors = ["#7C3AED", "#2563EB", "#16A34A", "#F59E0B", "#EF4444"] as const;
 
-export function ExecutiveProductPerformance(props: { data: ExecutiveProductPerformanceData; quotaPeriodId: string }) {
+export function ExecutiveProductPerformance(props: { data: ExecutiveProductPerformanceData; quotaPeriodId: string; orgId: number }) {
   const rows = computeExecutiveProductRows(props.data);
   const dotColors = ["#2ECC71", "var(--sf-accent-primary)", "#E74C3C"] as const;
 
@@ -154,7 +154,7 @@ export function ExecutiveProductPerformance(props: { data: ExecutiveProductPerfo
         })}
       </div>
 
-      <ExecutiveProductPerformanceAiTakeawayClient quotaPeriodId={props.quotaPeriodId} payload={props.data} />
+      <ExecutiveProductPerformanceAiTakeawayClient orgId={props.orgId} quotaPeriodId={props.quotaPeriodId} payload={props.data} />
     </section>
   );
 }

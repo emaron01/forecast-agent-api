@@ -212,6 +212,7 @@ export default async function DashboardPage({
               basePath="/dashboard"
               periods={summary.periods}
               quotaPeriodId={summary.selectedQuotaPeriodId}
+              orgId={ctx.user.org_id}
               reps={summary.reps}
               fiscalYear={String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "—"}
               fiscalQuarter={String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—"}

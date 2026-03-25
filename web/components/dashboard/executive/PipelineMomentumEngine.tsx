@@ -157,7 +157,7 @@ function healthPill(pct: number | null) {
   return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${cls}`}>{text}</span>;
 }
 
-export function PipelineMomentumEngine(props: { data: PipelineMomentumData | null; quotaPeriodId?: string; className?: string }) {
+export function PipelineMomentumEngine(props: { data: PipelineMomentumData | null; quotaPeriodId?: string; orgId: number; className?: string }) {
   const data = props.data;
   const [showDebug, setShowDebug] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
@@ -528,6 +528,7 @@ export function PipelineMomentumEngine(props: { data: PipelineMomentumData | nul
       ) : null}
 
       <PipelineMomentumAiTakeawayClient
+        orgId={props.orgId}
         payload={{
           quota_period_id: props.quotaPeriodId || null,
           quota_target: data.quota_target,
