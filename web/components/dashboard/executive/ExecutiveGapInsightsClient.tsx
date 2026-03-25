@@ -685,7 +685,7 @@ export function ExecutiveGapInsightsClient(props: {
   pipelineHygiene?: PipelineHygienePayload | null;
   revenueTabOnly?: boolean;
   heroOnly?: boolean;
-  /** When using heroOnly, show Avg Days Aging (Closed Won / Remaining Pipeline) below Gap Attribution (e.g. executive dashboard only). */
+  /** @deprecated No longer rendered in heroOnly; aging cards live on the Forecast tab / full layout. */
   heroAgingCards?: boolean;
   /** Channel dashboard: second block below Fed/Led uses the same hero as executive (5-card row, KPIs, Gap Attribution). */
   salesHeroLayout?: boolean;
@@ -2505,51 +2505,91 @@ export function ExecutiveGapInsightsClient(props: {
           </div>
 
           <div className="min-w-0 lg:pt-1">
-            {(() => {
-              const quotaNum = Number(props.quota) || 0;
-              const gapToQuota = quotaNum - wonAmount;
-              const gapColor = gapToQuota > 0 ? "text-[#E74C3C]" : "text-[#16A34A]";
-              const lostAmt = Number(props.crmTotals?.lost_amount ?? 0) || 0;
-              const lostCnt = Number(props.crmTotals?.lost_count ?? 0) || 0;
-              return (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-                  <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-primary)]">Closed Won</div>
-                    <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-green-400 sm:text-2xl">{fmtMoney(wonAmount)}</div>
-                  </div>
-                  <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quota</div>
-                    <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{fmtMoney(quotaNum)}</div>
-                  </div>
-                  <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Gap to Quota</div>
-                    <div className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${gapColor}`}>{fmtMoney(gapToQuota)}</div>
-                    <div className="text-xs text-[color:var(--sf-text-secondary)] mt-1">Remaining to quota</div>
-                  </div>
-                  <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Landing Zone</div>
-                    <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{fmtMoney(props.aiForecast)}</div>
-                    <div className="text-xs text-[color:var(--sf-text-secondary)] mt-1">AI weighted forecast</div>
-                  </div>
-                  <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Closed Lost</div>
-                    <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-red-400 sm:text-2xl">{fmtMoney(lostAmt)}</div>
-                    <div className="text-xs text-[color:var(--sf-text-secondary)] mt-1">
-                      # Opps:{" "}
-                      <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{lostCnt.toLocaleString("en-US")}</span>
+            {props.heroOnly ? (
+              <>
+                <ExecutiveRemainingQuarterlyForecastBlock
+                  crmTotals={props.crmTotals}
+                  quota={props.quota}
+                  pipelineMomentum={props.pipelineMomentum}
+                  heroBucketAmounts={heroBucketAmounts}
+                />
+                {(() => {
+                  const quotaNum = Number(props.quota) || 0;
+                  const gapToQuota = quotaNum - wonAmount;
+                  const gapColor = gapToQuota > 0 ? "text-[#E74C3C]" : "text-[#16A34A]";
+                  return (
+                    <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-primary)]">Closed Won</div>
+                        <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-green-400 sm:text-2xl">{fmtMoney(wonAmount)}</div>
+                      </div>
+                      <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quota</div>
+                        <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{fmtMoney(quotaNum)}</div>
+                      </div>
+                      <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Gap to Quota</div>
+                        <div className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${gapColor}`}>{fmtMoney(gapToQuota)}</div>
+                        <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Remaining to quota</div>
+                      </div>
+                      <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Landing Zone</div>
+                        <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{fmtMoney(props.aiForecast)}</div>
+                        <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">AI weighted forecast</div>
+                      </div>
                     </div>
-                  </div>
+                  );
+                })()}
+              </>
+            ) : (
+              <>
+                {(() => {
+                  const quotaNum = Number(props.quota) || 0;
+                  const gapToQuota = quotaNum - wonAmount;
+                  const gapColor = gapToQuota > 0 ? "text-[#E74C3C]" : "text-[#16A34A]";
+                  const lostAmt = Number(props.crmTotals?.lost_amount ?? 0) || 0;
+                  const lostCnt = Number(props.crmTotals?.lost_count ?? 0) || 0;
+                  return (
+                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+                      <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-primary)]">Closed Won</div>
+                        <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-green-400 sm:text-2xl">{fmtMoney(wonAmount)}</div>
+                      </div>
+                      <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quota</div>
+                        <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{fmtMoney(quotaNum)}</div>
+                      </div>
+                      <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Gap to Quota</div>
+                        <div className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${gapColor}`}>{fmtMoney(gapToQuota)}</div>
+                        <div className="text-xs text-[color:var(--sf-text-secondary)] mt-1">Remaining to quota</div>
+                      </div>
+                      <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Landing Zone</div>
+                        <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{fmtMoney(props.aiForecast)}</div>
+                        <div className="text-xs text-[color:var(--sf-text-secondary)] mt-1">AI weighted forecast</div>
+                      </div>
+                      <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Closed Lost</div>
+                        <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-red-400 sm:text-2xl">{fmtMoney(lostAmt)}</div>
+                        <div className="text-xs text-[color:var(--sf-text-secondary)] mt-1">
+                          # Opps:{" "}
+                          <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{lostCnt.toLocaleString("en-US")}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+                <div className="mt-4">
+                  <ExecutiveRemainingQuarterlyForecastBlock
+                    crmTotals={props.crmTotals}
+                    quota={props.quota}
+                    pipelineMomentum={props.pipelineMomentum}
+                    heroBucketAmounts={heroBucketAmounts}
+                  />
                 </div>
-              );
-            })()}
-            <div className="mt-4">
-              <ExecutiveRemainingQuarterlyForecastBlock
-                crmTotals={props.crmTotals}
-                quota={props.quota}
-                pipelineMomentum={props.pipelineMomentum}
-                heroBucketAmounts={heroBucketAmounts}
-              />
-            </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -2694,82 +2734,151 @@ export function ExecutiveGapInsightsClient(props: {
     <div className="grid gap-4">
       {renderCurrentExecutiveHeroSectionAndKpis()}
 
-      {props.heroAgingCards ? (
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
-            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
-            <div className="mt-1 text-tableLabel">Closed Won</div>
-            <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">{fmtDays(props.quarterKpis?.wonAvgDays ?? null)}</div>
-          </div>
-          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 shadow-sm">
-            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Avg Days Aging</div>
-            <div className="mt-1 text-tableLabel">Remaining Pipeline</div>
-            <div className="mt-2 text-kpiSupport text-[color:var(--sf-text-primary)]">
-              {fmtDays(props.quarterKpis?.agingAvgDays ?? null)}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {props.commitAdmission && (props.commitAdmission.totalCommitCrmAmount > 0 || props.commitAdmission.unsupportedCommitAmount > 0 || props.commitAdmission.commitNeedsReviewAmount > 0 || props.commitAdmission.aiSupportedCommitAmount > 0) ? (
-        <section className="mt-4 w-full rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-          <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Commit Integrity</div>
-          {props.commitDealPanels && (props.commitDealPanels.topPainDeals.length > 0 || props.commitDealPanels.topVerifiedDeals.length > 0) ? (
-            <div className="mt-4 grid w-full grid-cols-2 gap-4">
-              {props.commitDealPanels.topPainDeals.length > 0 ? (
-                <div className={`rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 ${props.commitDealPanels.topVerifiedDeals.length === 0 ? "col-span-2" : ""}`}>
-                  <div className="text-xs font-semibold uppercase text-[color:var(--sf-text-secondary)]">Top Commit Risks</div>
-                  <div className="mt-2 grid grid-cols-2 gap-3">
-                    {props.commitDealPanels.topPainDeals.slice(0, 10).map((d, idx) => (
-                      <CommitIntegrityDealCard
-                        key={d.id}
-                        d={d}
-                        channelInline={inlineCommitIntegrityCards}
-                        expanded={commitIntegrityExpandedId === d.id}
-                        loading={commitDealLoadingId === d.id}
-                        deal={commitDealCache[d.id]}
-                        onToggle={() => void toggleCommitIntegrityDeal(d.id)}
-                        showRequestReview={!isChannelViewerRole}
-                        channelDashboard={isChannelDashboard}
-                        kind="pain"
-                        cardClassName={commitIntegrityCardClass}
-                        title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
-                        style={{ order: idx < 5 ? 0 : 1 }}
-                      />
-                    ))}
-                  </div>
+        {props.commitAdmission &&
+        (props.commitAdmission.totalCommitCrmAmount > 0 ||
+          props.commitAdmission.unsupportedCommitAmount > 0 ||
+          props.commitAdmission.commitNeedsReviewAmount > 0 ||
+          props.commitAdmission.aiSupportedCommitAmount > 0) ? (
+          <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Commit Integrity</div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                <div className="text-xs text-[color:var(--sf-text-secondary)]">Total Commit (CRM) $</div>
+                <div className="mt-1 text-lg font-semibold text-[color:var(--sf-text-primary)]">
+                  {props.commitAdmission.totalCommitCrmAmount.toLocaleString("en-US", {
+                    style: "currency",
+                    currency: "USD",
+                    maximumFractionDigits: 0,
+                  })}
                 </div>
-              ) : null}
-              {props.commitDealPanels.topVerifiedDeals.length > 0 ? (
-                <div className={`rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 ${props.commitDealPanels.topPainDeals.length === 0 ? "col-span-2" : ""}`}>
-                  <div className="text-xs font-semibold uppercase text-[color:var(--sf-text-secondary)]">Top Verified Commit</div>
-                  <div className="mt-2 grid grid-cols-2 gap-3">
-                    {props.commitDealPanels.topVerifiedDeals.slice(0, 10).map((d, idx) => (
-                      <CommitIntegrityDealCard
-                        key={d.id}
-                        d={d}
-                        channelInline={inlineCommitIntegrityCards}
-                        expanded={commitIntegrityExpandedId === d.id}
-                        loading={commitDealLoadingId === d.id}
-                        deal={commitDealCache[d.id]}
-                        onToggle={() => void toggleCommitIntegrityDeal(d.id)}
-                        showRequestReview={!isChannelViewerRole}
-                        channelDashboard={isChannelDashboard}
-                        kind="verified"
-                        cardClassName={commitIntegrityCardClass}
-                        title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
-                        style={{ order: idx < 5 ? 0 : 1 }}
-                      />
-                    ))}
-                  </div>
+              </div>
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                <div className="text-xs text-[color:var(--sf-text-secondary)]">AI-Supported Commit $</div>
+                <div className="mt-1 text-lg font-semibold text-[#2ECC71]">
+                  {props.commitAdmission.aiSupportedCommitAmount.toLocaleString("en-US", {
+                    style: "currency",
+                    currency: "USD",
+                    maximumFractionDigits: 0,
+                  })}
                 </div>
-              ) : null}
+              </div>
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                <div className="text-xs text-[color:var(--sf-text-secondary)]">Unsupported Commit $</div>
+                <div
+                  className={`mt-1 text-lg font-semibold ${
+                    props.commitAdmission.unsupportedCommitAmount > 0
+                      ? "text-[#E74C3C]"
+                      : "text-[color:var(--sf-text-primary)]"
+                  }`}
+                >
+                  {props.commitAdmission.unsupportedCommitAmount.toLocaleString("en-US", {
+                    style: "currency",
+                    currency: "USD",
+                    maximumFractionDigits: 0,
+                  })}
+                </div>
+              </div>
+              <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                <div className="text-xs text-[color:var(--sf-text-secondary)]">Needs Review $</div>
+                <div
+                  className={`mt-1 text-lg font-semibold ${
+                    props.commitAdmission.commitNeedsReviewAmount > 0
+                      ? "text-[#F1C40F]"
+                      : "text-[color:var(--sf-text-primary)]"
+                  }`}
+                >
+                  {props.commitAdmission.commitNeedsReviewAmount.toLocaleString("en-US", {
+                    style: "currency",
+                    currency: "USD",
+                    maximumFractionDigits: 0,
+                  })}
+                </div>
+              </div>
             </div>
-          ) : null}
-        </section>
-      ) : null}
+            {(props.commitAdmission.commitEvidenceCoveragePct != null ||
+              (props.commitAdmission.verifiedCommitAmount != null &&
+                props.commitAdmission.verifiedCommitAmount > 0)) && (
+              <div
+                className="mt-2 text-xs text-[color:var(--sf-text-secondary)]"
+                title="% of Commit deals backed by verified evidence (≥2 of Timing, Paper, Decision, Budget)."
+              >
+                Commit Evidence Coverage:{" "}
+                {props.commitAdmission.commitEvidenceCoveragePct != null
+                  ? `${Math.round(props.commitAdmission.commitEvidenceCoveragePct)}%`
+                  : "—"}
+                {props.commitAdmission.verifiedCommitAmount != null &&
+                props.commitAdmission.verifiedCommitAmount > 0 ? (
+                  <span className="ml-2">
+                    · Verified Commit:{" "}
+                    {props.commitAdmission.verifiedCommitAmount.toLocaleString("en-US", {
+                      style: "currency",
+                      currency: "USD",
+                      maximumFractionDigits: 0,
+                    })}
+                  </span>
+                ) : null}
+              </div>
+            )}
+            {props.commitDealPanels &&
+            (props.commitDealPanels.topPainDeals.length > 0 ||
+              props.commitDealPanels.topVerifiedDeals.length > 0) ? (
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                {props.commitDealPanels.topPainDeals.length > 0 ? (
+                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                    <div className="text-xs font-semibold uppercase text-[color:var(--sf-text-secondary)]">
+                      Top Commit Risks
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {props.commitDealPanels.topPainDeals.map((d) => (
+                        <CommitIntegrityDealCard
+                          key={d.id}
+                          d={d}
+                          channelInline={inlineCommitIntegrityCards}
+                          expanded={commitIntegrityExpandedId === d.id}
+                          loading={commitDealLoadingId === d.id}
+                          deal={commitDealCache[d.id]}
+                          onToggle={() => void toggleCommitIntegrityDeal(d.id)}
+                          showRequestReview={!isChannelViewerRole}
+                          channelDashboard={isChannelDashboard}
+                          kind="pain"
+                          cardClassName={commitIntegrityCardClass}
+                          title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {props.commitDealPanels.topVerifiedDeals.length > 0 ? (
+                  <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                    <div className="text-xs font-semibold uppercase text-[color:var(--sf-text-secondary)]">
+                      Top Verified Commit
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {props.commitDealPanels.topVerifiedDeals.map((d) => (
+                        <CommitIntegrityDealCard
+                          key={d.id}
+                          d={d}
+                          channelInline={inlineCommitIntegrityCards}
+                          expanded={commitIntegrityExpandedId === d.id}
+                          loading={commitDealLoadingId === d.id}
+                          deal={commitDealCache[d.id]}
+                          onToggle={() => void toggleCommitIntegrityDeal(d.id)}
+                          showRequestReview={!isChannelViewerRole}
+                          channelDashboard={isChannelDashboard}
+                          kind="verified"
+                          cardClassName={commitIntegrityCardClass}
+                          title={d.commit_admission_reasons?.slice(0, 2).join("; ") || undefined}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
-      {/* heroOnly order: Commit Integrity (optional) → Strategic Takeaway */}
+      {/* heroOnly: Strategic Takeaway */}
       <div className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="inline-flex items-center gap-2 text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
