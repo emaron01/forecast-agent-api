@@ -35,11 +35,6 @@ const TABS: { key: ExecTabKey; label: string }[] = [
 
 const REPORT_LINKS = [
   {
-    title: "KPIs by Quarter",
-    href: "/analytics/kpis",
-    description: "Quarter-by-quarter KPI breakdown with manager and rep detail",
-  },
-  {
     title: "Top Deals",
     href: "/analytics/quotas/executive",
     description: "Top 10 won and closed loss deals for the selected quarter, across all motions",

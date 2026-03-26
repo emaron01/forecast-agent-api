@@ -39,7 +39,7 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
           <nav className="ml-3 flex flex-wrap items-center gap-1">
             <NavLink href={dashHref} label="Dashboard" />
             <NavLink href={salesOpportunitiesHref} label="Sales Opportunities" />
-            <NavLink href="/analytics" label="Analytics" />
+            {user.role === "ADMIN" && <NavLink href="/analytics" label="Analytics" />}
             <NavLink href="/dashboard/excel-upload" label="Upload" />
           </nav>
         </div>

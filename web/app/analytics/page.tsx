@@ -26,6 +26,13 @@ export default async function AnalyticsPage() {
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
 
+  const r = ctx.user.role;
+  const cardCount =
+    (r === "ADMIN" ? 1 : 0) +
+    (r === "MANAGER" ? 1 : 0) +
+    (r === "EXEC_MANAGER" || r === "MANAGER" ? 1 : 0) +
+    (r === "EXEC_MANAGER" || r === "MANAGER" ? 1 : 0);
+
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
@@ -35,13 +42,17 @@ export default async function AnalyticsPage() {
           KPI dashboards, comparisons, quotas, and reporting.
         </p>
 
+        {cardCount < 2 ? (
+          <p className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 text-sm text-[color:var(--sf-text-secondary)]">
+            Additional analytics are available in the Executive Dashboard tabs.{" "}
+            <Link href="/dashboard/executive" className="font-medium text-[color:var(--sf-accent-secondary)] hover:underline">
+              Open Executive Dashboard
+            </Link>
+            .
+          </p>
+        ) : null}
+
         <section className="mt-6 grid gap-4 md:grid-cols-2">
-          <Card href="/analytics/kpis" title="KPIs by quarter" desc="Quarter-by-quarter KPI breakdown with manager + rep expand/collapse." />
-          <Card
-            href="/dashboard/executive?tab=forecast"
-            title="Forecast Hygiene"
-            desc="Team forecast hygiene, gap insights, and quarter KPIs on the Executive Dashboard."
-          />
           {ctx.user.role === "ADMIN" ? (
             <Card href="/analytics/quotas/admin" title="Quotas (Admin)" desc="Admin quota management." />
           ) : null}
@@ -50,16 +61,6 @@ export default async function AnalyticsPage() {
           ) : null}
           {(ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER") ? (
             <Card href="/analytics/quotas/executive" title="Top Deals" desc="Top Won + Closed Loss deals for the selected quarter (sortable)." />
-          ) : null}
-          {(ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER") ? (
-            <Card
-              href="/dashboard/executive?tab=channel"
-              title="Top Partners"
-              desc="Partner performance, CEI scoring, and channel investment guidance (Channel tab on Executive Dashboard)."
-            />
-          ) : null}
-          {ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER" || ctx.user.role === "ADMIN" ? (
-            <Card href="/analytics/custom-reports" title="Build Custom Reports" desc="Save/load custom rep comparison reports (fields + selected reps)." />
           ) : null}
           {(ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER") ? (
             <Card
@@ -73,4 +74,3 @@ export default async function AnalyticsPage() {
     </div>
   );
 }
-
