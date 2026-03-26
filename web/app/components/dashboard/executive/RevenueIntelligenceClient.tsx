@@ -289,6 +289,8 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   /** MEDDPICC radar: which quarter polygon (radio when multiple). */
   const [meddpiccQuarterId, setMeddpiccQuarterId] = useState<string>("");
 
+  const [controlsOpen, setControlsOpen] = useState(true);
+
   const panel1Ref = useRef<HTMLDivElement>(null);
   const panel2Ref = useRef<HTMLDivElement>(null);
   const panel3Ref = useRef<HTMLDivElement>(null);
@@ -540,6 +542,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         buckets: j.buckets || sortedBuckets,
         rows: j.rows || [],
       });
+      setControlsOpen(false);
     } catch (e: any) {
       setError(String(e?.message || e));
       setReportData(null);
@@ -816,7 +819,18 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   }, [reportData, sortedBuckets]);
 
   return (
-    <div className="space-y-6 text-[color:var(--sf-text-primary)]" data-org-id={orgId}>
+    <div className="text-[color:var(--sf-text-primary)]" data-org-id={orgId}>
+      <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setControlsOpen((v) => !v)}
+          className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
+        >
+          <span>⚙ Report Configuration</span>
+          <span className="text-xs text-[color:var(--sf-text-secondary)]">{controlsOpen ? "▲ Hide" : "▼ Configure"}</span>
+        </button>
+        {controlsOpen && (
+          <div className="border-t border-[color:var(--sf-border)] p-5 space-y-5">
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <h2 className="text-base font-semibold">Revenue Buckets</h2>
         <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
@@ -1059,7 +1073,53 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         {error ? <span className="text-sm text-[#E74C3C]">{error}</span> : null}
       </div>
 
-      {reportData && reportType === "deal_volume" ? (
+      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+        <h3 className="text-sm font-semibold">Save / load report</h3>
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <div className="grid gap-1">
+            <label className="text-xs text-[color:var(--sf-text-secondary)]">Report name</label>
+            <input
+              value={reportName}
+              onChange={(e) => setReportName(e.target.value)}
+              className="min-w-[220px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1.5 text-sm"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => void saveReportConfig()}
+            disabled={loading}
+            className="rounded-md bg-[color:var(--sf-accent-primary)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          >
+            Save Report
+          </button>
+          <select
+            value={loadReportId}
+            onChange={(e) => setLoadReportId(e.target.value)}
+            className="min-w-[220px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1.5 text-sm"
+          >
+            <option value="">Load saved…</option>
+            {savedReports.map((r: any) => (
+              <option key={String(r.id)} value={String(r.id)}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={loadSavedReport} className={outlineQuickBtn}>
+            Load
+          </button>
+          <button type="button" onClick={() => void deleteSavedReport()} className={outlineQuickBtn}>
+            Delete
+          </button>
+        </div>
+      </section>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-5 space-y-5">
+        {reportData ? (
+          <>
+      {reportType === "deal_volume" ? (
         <>
           <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -1341,7 +1401,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         </>
       ) : null}
 
-      {reportData && reportType === "meddpicc_health" ? (
+      {reportType === "meddpicc_health" ? (
         <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">MEDDPICC+TB Scores by Revenue Segment</h3>
@@ -1427,7 +1487,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         </section>
       ) : null}
 
-      {reportData && reportType === "product_mix" ? (
+      {reportType === "product_mix" ? (
         <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Product Revenue by Segment</h3>
@@ -1503,46 +1563,13 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
           </div>
         </section>
       ) : null}
-
-      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-        <h3 className="text-sm font-semibold">Save / load report</h3>
-        <div className="mt-3 flex flex-wrap items-end gap-2">
-          <div className="grid gap-1">
-            <label className="text-xs text-[color:var(--sf-text-secondary)]">Report name</label>
-            <input
-              value={reportName}
-              onChange={(e) => setReportName(e.target.value)}
-              className="min-w-[220px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1.5 text-sm"
-            />
+          </>
+        ) : (
+          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-12 text-center text-sm text-[color:var(--sf-text-secondary)]">
+            Configure your report above and click Run Report to see results.
           </div>
-          <button
-            type="button"
-            onClick={() => void saveReportConfig()}
-            disabled={loading}
-            className="rounded-md bg-[color:var(--sf-accent-primary)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
-          >
-            Save Report
-          </button>
-          <select
-            value={loadReportId}
-            onChange={(e) => setLoadReportId(e.target.value)}
-            className="min-w-[220px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1.5 text-sm"
-          >
-            <option value="">Load saved…</option>
-            {savedReports.map((r: any) => (
-              <option key={String(r.id)} value={String(r.id)}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-          <button type="button" onClick={loadSavedReport} className={outlineQuickBtn}>
-            Load
-          </button>
-          <button type="button" onClick={() => void deleteSavedReport()} className={outlineQuickBtn}>
-            Delete
-          </button>
-        </div>
-      </section>
+        )}
+      </div>
     </div>
   );
 }
