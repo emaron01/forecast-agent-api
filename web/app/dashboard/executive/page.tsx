@@ -53,18 +53,8 @@ export default async function ExecutiveDashboardPage({
       searchParams,
     });
 
-    console.log("[periods debug]", 
-      JSON.stringify(
-        summary.periods.slice(0,3).map(p => ({
-          id: p.id,
-          period_name: p.period_name,
-          fiscal_year: p.fiscal_year,
-          period_start: p.period_start,
-          period_end: p.period_end,
-        })), 
-        null, 2
-      )
-    );
+
+
 
     // Team Forecast Hygiene (Coverage, Assessment, Velocity, Progression) for Pipeline tab
     const orgId = ctx.user.org_id;
@@ -155,7 +145,7 @@ export default async function ExecutiveDashboardPage({
         .map((r) => r.id)
     );
 
-    /** Only REP / MANAGER / EXEC_MANAGER — excludes channel roles (and any other rep.role values). */
+    /** Only REP / MANAGER / EXEC_MANAGER â€” excludes channel roles (and any other rep.role values). */
     const hygieneRepRoleSql = `AND r.role IN ('REP', 'MANAGER', 'EXEC_MANAGER')`;
 
     type CoverageRow = {
@@ -421,7 +411,7 @@ export default async function ExecutiveDashboardPage({
             avg_total: null,
           };
         }
-        /** SQL AVG(x): mean of non-null values; empty set → null (matches assessment SQL). */
+        /** SQL AVG(x): mean of non-null values; empty set â†’ null (matches assessment SQL). */
         const sqlAvg = (get: (r: AssessmentOppRow) => number | null): number | null => {
           const vals = rows.map(get).filter((v) => v != null && Number.isFinite(Number(v)));
           if (!vals.length) return null;
@@ -1697,8 +1687,8 @@ export default async function ExecutiveDashboardPage({
               quotaPeriodId={summary.selectedQuotaPeriodId}
               orgId={ctx.user.org_id}
               reps={summary.reps}
-              fiscalYear={String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "—"}
-              fiscalQuarter={String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—"}
+              fiscalYear={String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "â€”"}
+              fiscalQuarter={String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "â€”"}
               stageProbabilities={summary.stageProbabilities}
               healthModifiers={summary.healthModifiers}
               repDirectory={summary.repDirectory}
@@ -1744,8 +1734,8 @@ export default async function ExecutiveDashboardPage({
             quotaPeriodId: summary.selectedQuotaPeriodId,
             orgId: ctx.user.org_id,
             reps: summary.reps,
-            fiscalYear: String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "—",
-            fiscalQuarter: String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—",
+            fiscalYear: String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "â€”",
+            fiscalQuarter: String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "â€”",
             stageProbabilities: summary.stageProbabilities,
             healthModifiers: summary.healthModifiers,
             repDirectory: summary.repDirectory,
@@ -1791,8 +1781,8 @@ export default async function ExecutiveDashboardPage({
             quotaPeriodId: summary.selectedQuotaPeriodId,
             orgId: ctx.user.org_id,
             reps: summary.reps,
-            fiscalYear: String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "—",
-            fiscalQuarter: String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—",
+            fiscalYear: String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "â€”",
+            fiscalQuarter: String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "â€”",
             stageProbabilities: summary.stageProbabilities,
             healthModifiers: summary.healthModifiers,
             repDirectory: summary.repDirectory,
@@ -1833,8 +1823,8 @@ export default async function ExecutiveDashboardPage({
             quotaPeriodId: summary.selectedQuotaPeriodId,
             orgId: ctx.user.org_id,
             reps: summary.reps,
-            fiscalYear: String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "—",
-            fiscalQuarter: String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—",
+            fiscalYear: String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "â€”",
+            fiscalQuarter: String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "â€”",
             stageProbabilities: summary.stageProbabilities,
             healthModifiers: summary.healthModifiers,
             repDirectory: summary.repDirectory,
@@ -1908,8 +1898,8 @@ export default async function ExecutiveDashboardPage({
             quotaPeriodId: summary.selectedQuotaPeriodId,
             orgId: ctx.user.org_id,
             reps: summary.reps,
-            fiscalYear: String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "—",
-            fiscalQuarter: String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—",
+            fiscalYear: String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "â€”",
+            fiscalQuarter: String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "â€”",
             stageProbabilities: summary.stageProbabilities,
             healthModifiers: summary.healthModifiers,
             repDirectory: summary.repDirectory,
