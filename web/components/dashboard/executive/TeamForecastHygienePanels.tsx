@@ -92,6 +92,14 @@ function rollupRowLabel(repName: string, rollupCount: number): string {
   return `${repName}'s Team`;
 }
 
+function fmtMoney(n: unknown) {
+  const v = Number(n || 0);
+  if (!Number.isFinite(v)) return "—";
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1000) return `$${(v / 1000).toFixed(0)}K`;
+  return `$${Math.round(v)}`;
+}
+
 function avgCoverage(rows: CoverageHygieneRow[]): number {
   const pcts = rows.map((r) => r.coverage_pct).filter((p): p is number => p != null && Number.isFinite(p));
   if (!pcts.length) return 0;
@@ -211,6 +219,8 @@ function weakestCategoryLabelsForRows(rows: AssessmentHygieneRow[]): string[] {
   return avgs.slice(0, 3).map((x) => x.label);
 }
 
+type PaceStatus = "on_track" | "at_risk" | "behind" | "unknown";
+
 type ManagerCoachingTeam = {
   managerId: string;
   managerName: string;
@@ -218,6 +228,11 @@ type ManagerCoachingTeam = {
   repCount: number;
   reviewedCount: number;
   teamCoveragePct: number;
+  teamQuotaSum: number;
+  teamWonSum: number;
+  /** 0–100 display scale (won / quota). */
+  teamAttainmentPct: number;
+  paceStatus: PaceStatus;
   teamMeddpiccAvg: number;
   teamDelta: number;
   teamFlat: number;
@@ -225,17 +240,74 @@ type ManagerCoachingTeam = {
   teamRadarData: { category: string; value: number }[];
 };
 
+function paceRatioFromPeriod(periodStart?: string, periodEnd?: string): number {
+  if (!periodStart || !periodEnd) return 1;
+  const today = new Date();
+  const start = new Date(periodStart);
+  const end = new Date(periodEnd);
+  const totalDays = Math.max(1, (end.getTime() - start.getTime()) / 86400000);
+  const daysPassed = Math.max(0, Math.min(totalDays, (today.getTime() - start.getTime()) / 86400000));
+  return daysPassed / totalDays;
+}
+
+function calcPaceStatus(wonAmount: number, quota: number, paceRatio: number): PaceStatus {
+  const expectedAtPace = quota * paceRatio;
+  const paceScore = quota > 0 ? wonAmount / expectedAtPace : null;
+  if (paceScore == null || !Number.isFinite(paceScore)) return "unknown";
+  if (paceScore >= 0.9) return "on_track";
+  if (paceScore >= 0.7) return "at_risk";
+  return "behind";
+}
+
+function paceStatusCardClass(s: PaceStatus): string {
+  switch (s) {
+    case "on_track":
+      return "border-green-500/40 bg-green-500/5";
+    case "at_risk":
+      return "border-yellow-500/40 bg-yellow-500/5";
+    case "behind":
+      return "border-red-500/40 bg-red-500/5";
+    default:
+      return "border-[color:var(--sf-border)]";
+  }
+}
+
+/** Headline / bar: attainment % tiers (not pace). */
+function attainmentTierTextClass(pct: number): string {
+  if (pct >= 80) return "text-green-600";
+  if (pct >= 50) return "text-yellow-600";
+  return "text-red-600";
+}
+
+function attainmentTierBarClass(pct: number): string {
+  if (pct >= 80) return "bg-green-500";
+  if (pct >= 50) return "bg-yellow-500";
+  return "bg-red-500";
+}
+
+function repAttainmentPctDisplay(rep: RepCoachingData): number | null {
+  const a = rep.attainment;
+  if (a == null || !Number.isFinite(a)) return null;
+  return Math.min(100, Math.round(a * 1000) / 10);
+}
+
 function aggregateManagerTeam(
   managerId: string,
   managerName: string,
   reps: RepCoachingData[],
-  assessmentRepRows: AssessmentHygieneRow[]
+  assessmentRepRows: AssessmentHygieneRow[],
+  paceRatio: number
 ): ManagerCoachingTeam {
   const repIdSet = new Set(reps.map((r) => r.rep_id));
   const assessmentSlice = assessmentRepRows.filter((a) => repIdSet.has(String(a.rep_id)));
   const totalOpps = reps.reduce((s, r) => s + r.total_opps, 0);
   const reviewedCount = reps.reduce((s, r) => s + r.reviewed_opps, 0);
   const teamCoveragePct = totalOpps > 0 ? Math.round((reviewedCount / totalOpps) * 100) : 0;
+  const teamQuotaSum = reps.reduce((s, r) => s + (Number(r.quota) || 0), 0);
+  const teamWonSum = reps.reduce((s, r) => s + (Number(r.won_amount) || 0), 0);
+  const teamAttainmentPct =
+    teamQuotaSum > 0 ? Math.min(100, (teamWonSum / teamQuotaSum) * 100) : 0;
+  const paceStatus = calcPaceStatus(teamWonSum, teamQuotaSum, paceRatio);
   const n = reps.length || 1;
   const teamMeddpiccAvg = reps.length ? reps.reduce((s, r) => s + r.avg_meddpicc, 0) / n : 0;
   const teamDelta = reps.length ? reps.reduce((s, r) => s + r.avg_delta, 0) / n : 0;
@@ -252,6 +324,10 @@ function aggregateManagerTeam(
     repCount: reps.length,
     reviewedCount,
     teamCoveragePct,
+    teamQuotaSum,
+    teamWonSum,
+    teamAttainmentPct,
+    paceStatus,
     teamMeddpiccAvg,
     teamDelta,
     teamFlat,
@@ -263,13 +339,14 @@ function aggregateManagerTeam(
 function buildManagerCoachingTeams(
   repCoaching: RepCoachingData[],
   coachingRepRows: RepManagerRepRow[] | null | undefined,
-  assessmentRepRows: AssessmentHygieneRow[]
+  assessmentRepRows: AssessmentHygieneRow[],
+  paceRatio: number
 ): ManagerCoachingTeam[] {
   const crRows = coachingRepRows ?? [];
   if (repCoaching.length === 0) return [];
 
   if (crRows.length === 0) {
-    return [aggregateManagerTeam("team-all", "Team", [...repCoaching], assessmentRepRows)];
+    return [aggregateManagerTeam("team-all", "Team", [...repCoaching], assessmentRepRows, paceRatio)];
   }
 
   const crByRep = new Map(crRows.map((r) => [String(r.rep_id), r]));
@@ -302,27 +379,30 @@ function buildManagerCoachingTeams(
     const mgrName =
       crRows.find((r) => String(r.manager_id ?? "") === managerId)?.manager_name?.trim() ||
       (managerId === "__unassigned__" ? "(Unassigned)" : `Manager ${managerId}`);
-    return aggregateManagerTeam(managerId, mgrName, reps, assessmentRepRows);
+    return aggregateManagerTeam(managerId, mgrName, reps, assessmentRepRows, paceRatio);
   });
 }
 
-/** Leader coaching card border/background from team coverage % (Team tab alignment). */
-function leaderCoverageBorderClass(teamCoveragePct: number): string {
-  if (teamCoveragePct >= 80) return "border-green-500/40 bg-green-500/5";
-  if (teamCoveragePct >= 50) return "border-yellow-500/40 bg-yellow-500/5";
-  return "border-red-500/40 bg-red-500/5";
+function paceLineLabel(s: PaceStatus): string {
+  if (s === "unknown") return "Pace unknown (no quota)";
+  if (s === "on_track") return "✅ On Pace";
+  if (s === "at_risk") return "⚠️ At Risk";
+  return "🔴 Behind Pace";
 }
 
-function leaderCoveragePctTextClass(teamCoveragePct: number): string {
-  if (teamCoveragePct >= 80) return "text-green-600";
-  if (teamCoveragePct >= 50) return "text-yellow-600";
+function paceLineTextClass(s: PaceStatus): string {
+  if (s === "unknown") return "text-[color:var(--sf-text-secondary)]";
+  if (s === "on_track") return "text-green-600";
+  if (s === "at_risk") return "text-yellow-600";
   return "text-red-600";
 }
 
-function leaderCoverageBarClass(teamCoveragePct: number): string {
-  if (teamCoveragePct >= 80) return "bg-green-500";
-  if (teamCoveragePct >= 50) return "bg-yellow-500";
-  return "bg-red-500";
+function repPaceIcon(rep: RepCoachingData, paceRatio: number): string {
+  const s = calcPaceStatus(Number(rep.won_amount) || 0, Number(rep.quota) || 0, paceRatio);
+  if (s === "on_track") return "✅";
+  if (s === "at_risk") return "⚠️";
+  if (s === "behind") return "🔴";
+  return "·";
 }
 
 function ManagerCoachingLeaderCard(props: {
@@ -330,13 +410,19 @@ function ManagerCoachingLeaderCard(props: {
   cardKey: string;
   expanded: boolean;
   onToggle: () => void;
+  paceRatio: number;
 }) {
-  const { team, cardKey, expanded, onToggle } = props;
-  const borderColor = leaderCoverageBorderClass(team.teamCoveragePct);
-  const coverageColor = leaderCoveragePctTextClass(team.teamCoveragePct);
-  const barColor = leaderCoverageBarClass(team.teamCoveragePct);
+  const { team, cardKey, expanded, onToggle, paceRatio } = props;
+  const borderColor = paceStatusCardClass(team.paceStatus);
+  const headlineColor = attainmentTierTextClass(team.teamAttainmentPct);
+  const barFillColor = attainmentTierBarClass(team.teamAttainmentPct);
+  const attDisplay = Math.round(team.teamAttainmentPct * 10) / 10;
 
-  const sortedReps = [...team.reps].sort((a, b) => (a.coverage_pct ?? 0) - (b.coverage_pct ?? 0));
+  const sortedReps = [...team.reps].sort((a, b) => {
+    const aa = repAttainmentPctDisplay(a) ?? 999;
+    const bb = repAttainmentPctDisplay(b) ?? 999;
+    return aa - bb;
+  });
 
   return (
     <div className="min-w-0 w-full">
@@ -349,19 +435,28 @@ function ManagerCoachingLeaderCard(props: {
             </div>
           </div>
           <div className="text-right">
-            <div className={`text-2xl font-bold ${coverageColor}`}>{team.teamCoveragePct}%</div>
-            <div className="text-xs text-[color:var(--sf-text-secondary)]">coverage</div>
+            <div className={`text-2xl font-bold ${headlineColor}`}>{attDisplay}%</div>
+            <div className="text-xs text-[color:var(--sf-text-secondary)]">attainment</div>
           </div>
         </div>
 
         <div className="mt-3 h-2 rounded-full bg-[color:var(--sf-surface-alt)]">
           <div
-            className={`h-2 rounded-full transition-all ${barColor}`}
-            style={{ width: `${Math.min(100, team.teamCoveragePct)}%` }}
+            className={`h-2 rounded-full transition-all ${barFillColor}`}
+            style={{ width: `${Math.min(100, team.teamAttainmentPct)}%` }}
           />
         </div>
 
-        <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+        <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
+          {fmtMoney(team.teamWonSum)} / {fmtMoney(team.teamQuotaSum)}
+        </div>
+        <div className={`mt-1 text-xs ${paceLineTextClass(team.paceStatus)}`}>{paceLineLabel(team.paceStatus)}</div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+          <div>
+            <div className="text-[color:var(--sf-text-secondary)]">Coverage</div>
+            <div className="font-semibold text-[color:var(--sf-text-primary)]">{team.teamCoveragePct}%</div>
+          </div>
           <div>
             <div className="text-[color:var(--sf-text-secondary)]">MEDDPICC Avg</div>
             <div className="font-semibold text-[color:var(--sf-text-primary)]">{team.teamMeddpiccAvg.toFixed(1)}</div>
@@ -421,54 +516,74 @@ function ManagerCoachingLeaderCard(props: {
 
       {expanded && (
         <div className="mt-2 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] divide-y divide-[color:var(--sf-border)]">
-          {sortedReps.map((rep) => (
-            <div key={`${cardKey}-${rep.rep_id}`} className="flex items-start justify-between px-4 py-3">
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-[color:var(--sf-text-primary)]">{rep.rep_name}</div>
-                <div className="mt-1 flex flex-wrap gap-3 text-xs text-[color:var(--sf-text-secondary)]">
-                  <span>
-                    Coverage:{" "}
-                    <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{rep.coverage_pct}%</span>
-                  </span>
-                  <span>
-                    MEDDPICC:{" "}
-                    <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{rep.avg_meddpicc.toFixed(1)}</span>
-                  </span>
-                  <span>
-                    Velocity:{" "}
-                    <span
-                      className={`ml-1 font-semibold ${
-                        rep.avg_delta > 0 ? "text-green-400" : "text-[color:var(--sf-text-secondary)]"
-                      }`}
-                    >
-                      {rep.avg_delta >= 0 ? "+" : ""}
-                      {rep.avg_delta.toFixed(1)}
+          {sortedReps.map((rep) => {
+            const repPct = repAttainmentPctDisplay(rep);
+            const attClass =
+              repPct != null ? attainmentTierTextClass(repPct) : "text-[color:var(--sf-text-secondary)]";
+            const attLabel =
+              repPct != null ? `${Math.round(repPct * 10) / 10}%` : "—";
+            return (
+              <div key={`${cardKey}-${rep.rep_id}`} className="flex items-start justify-between px-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-[color:var(--sf-text-primary)]">
+                    <span className="mr-1.5" aria-hidden>
+                      {repPaceIcon(rep, paceRatio)}
                     </span>
-                  </span>
-                  <span>
-                    Flat:{" "}
-                    <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{rep.deals_flat}</span>
-                  </span>
-                </div>
-                {rep.weakest_categories.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1">
-                    {rep.weakest_categories.map((cat) => (
-                      <span
-                        key={cat}
-                        className="rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs text-white"
-                      >
-                        {cat}
-                      </span>
-                    ))}
+                    {rep.rep_name}
                   </div>
-                )}
+                  <div className="mt-1 flex flex-wrap gap-3 text-xs text-[color:var(--sf-text-secondary)]">
+                    <span>
+                      Won:{" "}
+                      <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">
+                        {fmtMoney(rep.won_amount)}
+                      </span>
+                    </span>
+                    <span>
+                      Coverage:{" "}
+                      <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{rep.coverage_pct}%</span>
+                    </span>
+                    <span>
+                      MEDDPICC:{" "}
+                      <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">
+                        {rep.avg_meddpicc.toFixed(1)}
+                      </span>
+                    </span>
+                    <span>
+                      Velocity:{" "}
+                      <span
+                        className={`ml-1 font-semibold ${
+                          rep.avg_delta > 0 ? "text-green-400" : "text-[color:var(--sf-text-secondary)]"
+                        }`}
+                      >
+                        {rep.avg_delta >= 0 ? "+" : ""}
+                        {rep.avg_delta.toFixed(1)}
+                      </span>
+                    </span>
+                    <span>
+                      Flat:{" "}
+                      <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{rep.deals_flat}</span>
+                    </span>
+                  </div>
+                  {rep.weakest_categories.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {rep.weakest_categories.map((cat) => (
+                        <span
+                          key={cat}
+                          className="rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs text-white"
+                        >
+                          {cat}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="text-right shrink-0 ml-4">
+                  <div className={`text-sm font-bold ${attClass}`}>{attLabel}</div>
+                  <div className="text-xs text-[color:var(--sf-text-secondary)]">attainment</div>
+                </div>
               </div>
-              <div className="text-right shrink-0 ml-4">
-                <div className="text-sm font-bold text-[color:var(--sf-text-primary)]">{rep.coverage_pct}%</div>
-                <div className="text-xs text-[color:var(--sf-text-secondary)]">coverage</div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -484,7 +599,7 @@ export function TeamForecastHygienePanels(props: {
   coachingPeriodStart?: string;
   coachingPeriodEnd?: string;
 }) {
-  const { pipelineHygiene: h, periodName, coachingRepRows } = props;
+  const { pipelineHygiene: h, periodName, coachingRepRows, coachingPeriodStart, coachingPeriodEnd } = props;
   const sectionClass = props.sectionClassName ?? "mt-4 space-y-4";
   const [showDetail, setShowDetail] = useState(false);
 
@@ -574,9 +689,14 @@ export function TeamForecastHygienePanels(props: {
 
   const repCoaching = useMemo(() => buildRepCoachingData(h, coachingRepRows ?? null), [h, coachingRepRows]);
 
+  const coachingPaceRatio = useMemo(
+    () => paceRatioFromPeriod(coachingPeriodStart, coachingPeriodEnd),
+    [coachingPeriodStart, coachingPeriodEnd]
+  );
+
   const managerCoachingTeams = useMemo(
-    () => buildManagerCoachingTeams(repCoaching, coachingRepRows ?? null, assessmentRepRows),
-    [repCoaching, coachingRepRows, assessmentRepRows]
+    () => buildManagerCoachingTeams(repCoaching, coachingRepRows ?? null, assessmentRepRows, coachingPaceRatio),
+    [repCoaching, coachingRepRows, assessmentRepRows, coachingPaceRatio]
   );
 
   const [expandedManagerKeys, setExpandedManagerKeys] = useState<Set<string>>(new Set());
@@ -654,6 +774,7 @@ export function TeamForecastHygienePanels(props: {
               team={team}
               expanded={expandedManagerKeys.has(cardKey)}
               onToggle={() => toggleManagerExpand(cardKey)}
+              paceRatio={coachingPaceRatio}
             />
           );
         })}
