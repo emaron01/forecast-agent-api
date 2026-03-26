@@ -219,7 +219,10 @@ async function insertAuditEvent(pool, {
   schemaVersion = 1,
   promptVersion = "v1",
   logicVersion = "v1",
+  /** Same as save_deal_data scoring: "ai_notes" (ingest) vs "rep_review" (Matthew / category / handsfree). */
+  scoreSource = "rep_review",
 }) {
+  const sourceValue = scoreSource === "ai_notes" ? "ingest" : "matthew";
   // Legacy DBs may use `organization_id` instead of `org_id` in audit tables.
   // Deal Review MUST NOT fail if audit schema varies; audit is best-effort.
   const orgCol = await detectOpportunityAuditEventsOrgColumn(pool);
@@ -242,6 +245,7 @@ async function insertAuditEvent(pool, {
     "meta",
     "run_id",
     "call_id",
+    "source",
   ].filter(Boolean);
 
   // Build positional parameters dynamically based on which org column exists.
@@ -264,6 +268,7 @@ async function insertAuditEvent(pool, {
     JSON.stringify(meta || {}),
     runId,
     callId,
+    sourceValue,
   ];
 
   const placeholders = values.map((_, i) => `$${i + 1}`);
@@ -858,6 +863,7 @@ export async function handleFunctionCall({ toolName, args, pool }) {
       schemaVersion: 1,
       promptVersion: args.prompt_version || "v1",
       logicVersion: args.logic_version || "v1",
+      scoreSource,
     });
 
     // Increment run_count for each successful scoring run; ignore if column not present.
