@@ -1,16 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
   Legend,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
   PolarAngleAxis,
   PolarGrid,
   PolarRadiusAxis,
@@ -35,7 +30,6 @@ export type RevenueIntelligenceProps = {
 
 type BucketRow = { id: string; label: string; min: number; max: number | null };
 type ReportType = "deal_volume" | "meddpicc_health" | "product_mix";
-type ChartType = "table" | "bar" | "line" | "radar" | "pie";
 
 const CHART_COLORS = [
   "#00BCD4",
@@ -47,6 +41,10 @@ const CHART_COLORS = [
   "#00BFA5",
   "#FF5722",
 ];
+
+const WON_SHADES = ["#16A34A", "#2ECC71", "#22C55E", "#4ADE80"];
+const LOST_SHADES = ["#DC2626", "#E74C3C", "#F87171", "#FB923C"];
+const PIPE_SHADES = ["#2563EB", "#3B82F6", "#00BCD4", "#60A5FA"];
 
 const outlineQuickBtn =
   "rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface)]";
@@ -100,7 +98,7 @@ async function downloadSvgAsPng(svgEl: SVGElement, filename: string) {
   const svg64 = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
   const img = new Image();
   const w = Number(svgEl.getAttribute("width")) || svgEl.getBoundingClientRect().width || 800;
-  const h = Number(svgEl.getAttribute("height")) || svgEl.getBoundingClientRect().height || 380;
+  const h = Number(svgEl.getAttribute("height")) || svgEl.getBoundingClientRect().height || 320;
   await new Promise<void>((resolve, reject) => {
     img.onload = () => resolve();
     img.onerror = () => reject(new Error("Image load failed"));
@@ -112,7 +110,7 @@ async function downloadSvgAsPng(svgEl: SVGElement, filename: string) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.scale(2, 2);
-  ctx.fillStyle = "var(--sf-surface)";
+  ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, w, h);
   ctx.drawImage(img, 0, 0, w, h);
   canvas.toBlob((blob) => {
@@ -156,31 +154,101 @@ type AggRow = {
   products: Record<string, number>;
 };
 
-type DealVolumeMetric =
-  | "won_count"
-  | "lost_count"
-  | "pipeline_count"
-  | "win_rate"
-  | "won_amount"
-  | "lost_amount"
-  | "avg_days_won"
-  | "avg_days_lost"
-  | "avg_health_won"
-  | "avg_health_lost"
-  | "avg_health_pipeline";
+type RepSelectionState = { managers: Set<string>; reps: Set<string> };
 
-type MeddpiccMetric =
-  | "avg_health"
-  | "avg_pain"
-  | "avg_metrics"
-  | "avg_champion"
-  | "avg_eb"
-  | "avg_process"
-  | "avg_paper"
-  | "avg_timing"
-  | "avg_budget"
-  | "avg_criteria"
-  | "avg_competition";
+type RepDir = RevenueIntelligenceProps["repDirectory"][number];
+
+type RepSelectionAction =
+  | { type: "toggleManager"; managerId: string; repIds: string[] }
+  | { type: "toggleRep"; repId: string }
+  | { type: "quickAll"; repDirectory: RepDir[] }
+  | { type: "quickClear" }
+  | { type: "quickRepsOnly"; repDirectory: RepDir[] }
+  | { type: "quickLeadersOnly"; repDirectory: RepDir[] }
+  | { type: "replace"; managers: string[]; reps: string[] };
+
+function repSelectionReducer(state: RepSelectionState, action: RepSelectionAction): RepSelectionState {
+  switch (action.type) {
+    case "toggleManager": {
+      const { managerId, repIds } = action;
+      const nextM = new Set(state.managers);
+      const nextR = new Set(state.reps);
+      const allOn =
+        nextM.has(managerId) && repIds.length > 0 && repIds.every((id) => nextR.has(id));
+      if (allOn) {
+        nextM.delete(managerId);
+        repIds.forEach((id) => nextR.delete(id));
+      } else {
+        nextM.add(managerId);
+        repIds.forEach((id) => nextR.add(id));
+      }
+      return { managers: nextM, reps: nextR };
+    }
+    case "toggleRep": {
+      const nextR = new Set(state.reps);
+      if (nextR.has(action.repId)) nextR.delete(action.repId);
+      else nextR.add(action.repId);
+      return { managers: new Set(state.managers), reps: nextR };
+    }
+    case "quickAll":
+      return {
+        managers: new Set(
+          action.repDirectory.filter((r) => r.role === "MANAGER" || r.role === "EXEC_MANAGER").map((r) => String(r.id))
+        ),
+        reps: new Set(action.repDirectory.filter((r) => r.role === "REP").map((r) => String(r.id))),
+      };
+    case "quickClear":
+      return { managers: new Set(), reps: new Set() };
+    case "quickRepsOnly":
+      return {
+        managers: new Set(),
+        reps: new Set(action.repDirectory.filter((r) => r.role === "REP").map((r) => String(r.id))),
+      };
+    case "quickLeadersOnly":
+      return {
+        managers: new Set(
+          action.repDirectory.filter((r) => r.role === "MANAGER" || r.role === "EXEC_MANAGER").map((r) => String(r.id))
+        ),
+        reps: new Set(),
+      };
+    case "replace":
+      return { managers: new Set(action.managers), reps: new Set(action.reps) };
+    default:
+      return state;
+  }
+}
+
+function managerGroupState(
+  managerId: string,
+  repIds: string[],
+  managers: Set<string>,
+  reps: Set<string>
+): "none" | "partial" | "all" {
+  if (repIds.length === 0) return managers.has(managerId) ? "all" : "none";
+  const n = repIds.filter((id) => reps.has(id)).length;
+  const m = managers.has(managerId);
+  if (n === 0 && !m) return "none";
+  if (n === repIds.length && m) return "all";
+  return "partial";
+}
+
+const MEDDPICC_SPOKES: Array<{ key: keyof AggRow; label: string }> = [
+  { key: "avg_pain", label: "Pain" },
+  { key: "avg_metrics", label: "Metrics" },
+  { key: "avg_champion", label: "Champion" },
+  { key: "avg_eb", label: "EB" },
+  { key: "avg_criteria", label: "Criteria" },
+  { key: "avg_process", label: "Process" },
+  { key: "avg_competition", label: "Competition" },
+  { key: "avg_paper", label: "Paper" },
+  { key: "avg_timing", label: "Timing" },
+  { key: "avg_budget", label: "Budget" },
+];
+
+function healthPctNum(score: number | null | undefined): number {
+  if (score == null || !Number.isFinite(Number(score))) return 0;
+  return Math.max(0, Math.min(100, (Number(score) / 30) * 100));
+}
 
 export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   const { orgId, quotaPeriods, repDirectory } = props;
@@ -194,25 +262,16 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   const [savedBucketSets, setSavedBucketSets] = useState<any[]>([]);
   const [loadBucketSetId, setLoadBucketSetId] = useState("");
 
-  const sortedQuotaPeriods = useMemo(() => {
-    return [...quotaPeriods].sort((a, b) => {
-      const ai = quotaPeriods.findIndex((x) => x.id === a.id);
-      const bi = quotaPeriods.findIndex((x) => x.id === b.id);
-      return ai - bi;
-    });
-  }, [quotaPeriods]);
-
-  const periodsNewestFirst = useMemo(() => [...sortedQuotaPeriods].reverse(), [sortedQuotaPeriods]);
+  /** Newest first; labels are full `name` from quotaPeriods (org quota_periods). */
+  const periodsNewestFirst = useMemo(() => [...quotaPeriods].reverse(), [quotaPeriods]);
 
   const [selectedQuarterIds, setSelectedQuarterIds] = useState<Set<string>>(() => new Set());
 
-  const [selectedRepIds, setSelectedRepIds] = useState<Set<string>>(new Set());
-  const [selectedManagerIds, setSelectedManagerIds] = useState<Set<string>>(new Set());
+  const [repSelection, dispatchRep] = useReducer(repSelectionReducer, { managers: new Set<string>(), reps: new Set<string>() });
+  const selectedManagerIds = repSelection.managers;
+  const selectedRepIds = repSelection.reps;
 
   const [reportType, setReportType] = useState<ReportType>("deal_volume");
-  const [chartType, setChartType] = useState<ChartType>("bar");
-  const [chartMetric, setChartMetric] = useState<string>("won_count");
-  const [productMixProduct, setProductMixProduct] = useState<string>("");
 
   const [reportData, setReportData] = useState<{
     quarters: { id: string; name: string }[];
@@ -227,15 +286,19 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   const [loadReportId, setLoadReportId] = useState("");
   const [bucketSetIdRef, setBucketSetIdRef] = useState<string | null>(null);
 
-  const chartWrapRef = useRef<HTMLDivElement>(null);
+  /** MEDDPICC radar: which quarter polygon (radio when multiple). */
+  const [meddpiccQuarterId, setMeddpiccQuarterId] = useState<string>("");
+
+  const panel1Ref = useRef<HTMLDivElement>(null);
+  const panel2Ref = useRef<HTMLDivElement>(null);
+  const panel3Ref = useRef<HTMLDivElement>(null);
+  const panelMeddpiccRef = useRef<HTMLDivElement>(null);
+  const panelProductRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     void (async () => {
       try {
-        const [rb, ri] = await Promise.all([
-          fetch("/api/revenue-buckets"),
-          fetch("/api/revenue-intelligence"),
-        ]);
+        const [rb, ri] = await Promise.all([fetch("/api/revenue-buckets"), fetch("/api/revenue-intelligence")]);
         const jb = await rb.json().catch(() => ({}));
         const ji = await ri.json().catch(() => ({}));
         if (jb?.ok && Array.isArray(jb.bucketSets)) setSavedBucketSets(jb.bucketSets);
@@ -246,7 +309,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     })();
   }, []);
 
-  const pickerGroups = useMemo(() => {
+  const managerGroups = useMemo(() => {
     const managers = repDirectory.filter((r) => r.role === "MANAGER" || r.role === "EXEC_MANAGER");
     const dirReps = repDirectory.filter((r) => r.role === "REP");
     const groups = managers.map((mgr) => ({
@@ -258,47 +321,18 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     return { groups, unassigned };
   }, [repDirectory]);
 
-  const allRepDirectoryIds = useMemo(() => repDirectory.map((r) => String(r.id)), [repDirectory]);
+  function toggleManagerReps(managerId: string, repIds: string[]) {
+    dispatchRep({ type: "toggleManager", managerId, repIds });
+  }
 
-  const toggleRep = (id: string) => {
-    setSelectedRepIds((prev) => {
-      const n = new Set(prev);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      return n;
-    });
-  };
+  function toggleRepId(repId: string) {
+    dispatchRep({ type: "toggleRep", repId });
+  }
 
-  const toggleManager = (id: string) => {
-    setSelectedManagerIds((prev) => {
-      const n = new Set(prev);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      return n;
-    });
-  };
-
-  const quickSelectAll = () => {
-    setSelectedRepIds(new Set(repDirectory.filter((r) => r.role === "REP").map((r) => String(r.id))));
-    setSelectedManagerIds(new Set(repDirectory.filter((r) => r.role === "MANAGER" || r.role === "EXEC_MANAGER").map((r) => String(r.id))));
-  };
-
-  const quickSelectClear = () => {
-    setSelectedRepIds(new Set());
-    setSelectedManagerIds(new Set());
-  };
-
-  const quickSelectRepsOnly = () => {
-    setSelectedRepIds(new Set(repDirectory.filter((r) => r.role === "REP").map((r) => String(r.id))));
-    setSelectedManagerIds(new Set());
-  };
-
-  const quickSelectLeadersOnly = () => {
-    setSelectedManagerIds(
-      new Set(repDirectory.filter((r) => r.role === "MANAGER" || r.role === "EXEC_MANAGER").map((r) => String(r.id)))
-    );
-    setSelectedRepIds(new Set());
-  };
+  const quickSelectAll = () => dispatchRep({ type: "quickAll", repDirectory });
+  const quickSelectClear = () => dispatchRep({ type: "quickClear" });
+  const quickSelectRepsOnly = () => dispatchRep({ type: "quickRepsOnly", repDirectory });
+  const quickSelectLeadersOnly = () => dispatchRep({ type: "quickLeadersOnly", repDirectory });
 
   const resolveRepIdsForApi = useCallback((): string[] | null => {
     const out = new Set<number>();
@@ -317,9 +351,8 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     return Array.from(out).map(String);
   }, [repDirectory, selectedRepIds, selectedManagerIds]);
 
-  const sortedBuckets = useMemo(() => {
-    return [...buckets].sort((a, b) => Number(a.min) - Number(b.min));
-  }, [buckets]);
+  /** Display order by min $; does not reorder stored `buckets` array. */
+  const sortedBuckets = useMemo(() => [...buckets].sort((a, b) => Number(a.min) - Number(b.min)), [buckets]);
 
   const addBucket = () => {
     setBuckets((prev) => [...prev, { id: newId(), label: "New", min: 0, max: null }]);
@@ -333,121 +366,20 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     setBuckets((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
   };
 
+  /** Selected quarters in UI order (newest first), full `name` from quotaPeriods. */
   const selectedQuartersOrdered = useMemo(() => {
-    const sel = Array.from(selectedQuarterIds);
-    return periodsNewestFirst.filter((p) => sel.includes(p.id));
+    const sel = selectedQuarterIds;
+    return periodsNewestFirst.filter((p) => sel.has(p.id));
   }, [selectedQuarterIds, periodsNewestFirst]);
 
-  const getMetricValue = useCallback(
-    (row: AggRow, metric: string): number | null => {
-      if (reportType === "deal_volume") {
-        const m = metric as DealVolumeMetric;
-        switch (m) {
-          case "won_count":
-            return row.won_count;
-          case "lost_count":
-            return row.lost_count;
-          case "pipeline_count":
-            return row.pipeline_count;
-          case "win_rate":
-            return row.win_rate;
-          case "won_amount":
-            return row.won_amount;
-          case "lost_amount":
-            return row.lost_amount;
-          case "avg_days_won":
-            return row.avg_days_won;
-          case "avg_days_lost":
-            return row.avg_days_lost;
-          case "avg_health_won":
-            return row.avg_health_won;
-          case "avg_health_lost":
-            return row.avg_health_lost;
-          case "avg_health_pipeline":
-            return row.avg_health_pipeline;
-          default:
-            return row.won_count;
-        }
+  useEffect(() => {
+    if (reportType === "meddpicc_health" && reportData?.quarters?.length) {
+      const ids = reportData.quarters.map((q) => q.id);
+      if (!meddpiccQuarterId || !ids.includes(meddpiccQuarterId)) {
+        setMeddpiccQuarterId(ids[0]!);
       }
-      if (reportType === "meddpicc_health") {
-        const m = metric as MeddpiccMetric;
-        switch (m) {
-          case "avg_health": {
-            const vals = [row.avg_health_won, row.avg_health_lost, row.avg_health_pipeline].filter((x) => x != null) as number[];
-            if (!vals.length) return null;
-            return vals.reduce((a, b) => a + b, 0) / vals.length;
-          }
-          case "avg_pain":
-            return row.avg_pain;
-          case "avg_metrics":
-            return row.avg_metrics;
-          case "avg_champion":
-            return row.avg_champion;
-          case "avg_eb":
-            return row.avg_eb;
-          case "avg_process":
-            return row.avg_process;
-          case "avg_paper":
-            return row.avg_paper;
-          case "avg_timing":
-            return row.avg_timing;
-          case "avg_budget":
-            return row.avg_budget;
-          case "avg_criteria":
-            return row.avg_criteria;
-          case "avg_competition":
-            return row.avg_competition;
-          default:
-            return row.avg_pain;
-        }
-      }
-      if (reportType === "product_mix") {
-        const p = metric || productMixProduct;
-        if (!p) return null;
-        return row.products[p] ?? 0;
-      }
-      return null;
-    },
-    [reportType, productMixProduct]
-  );
-
-  const chartData = useMemo(() => {
-    if (!reportData?.rows?.length) return [];
-    const bucketOrder = reportData.buckets.length ? reportData.buckets : sortedBuckets;
-    const rows = reportData.rows;
-    const metricKey = reportType === "product_mix" ? productMixProduct || chartMetric : chartMetric;
-    const out: Record<string, string | number>[] = [];
-    for (const b of bucketOrder) {
-      const pt: Record<string, string | number> = { bucket: b.label };
-      for (const q of selectedQuartersOrdered) {
-        const cell = rows.find((r) => r.bucket_id === b.id && r.quarter_id === q.id);
-        const v = cell ? getMetricValue(cell, metricKey) : null;
-        pt[q.name] = v == null || !Number.isFinite(v) ? 0 : Number(v);
-      }
-      out.push(pt);
     }
-    return out;
-  }, [reportData, sortedBuckets, selectedQuartersOrdered, chartMetric, getMetricValue, reportType, productMixProduct]);
-
-  const pieData = useMemo(() => {
-    if (selectedQuartersOrdered.length !== 1 || !chartData.length) return [];
-    const q = selectedQuartersOrdered[0]!;
-    return chartData.map((row) => ({
-      bucket: String(row.bucket),
-      value: Number(row[q.name] ?? 0),
-    }));
-  }, [chartData, selectedQuartersOrdered]);
-
-  /** One row per bucket; each quarter is a numeric field (Recharts radar: angle = bucket, series = quarter). */
-  const radarData = useMemo(() => {
-    return chartData.map((row) => {
-      const o: Record<string, string | number> = { bucket: String(row.bucket) };
-      for (const q of selectedQuartersOrdered) {
-        o[q.name] = Number(row[q.name] ?? 0);
-      }
-      return o;
-    });
-  }, [chartData, selectedQuartersOrdered]);
+  }, [reportType, reportData, meddpiccQuarterId]);
 
   const allProductNames = useMemo(() => {
     if (!reportData?.rows?.length) return [];
@@ -460,47 +392,114 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [reportData]);
 
-  useEffect(() => {
-    if (reportType === "product_mix" && allProductNames.length && !productMixProduct) {
-      setProductMixProduct(allProductNames[0]!);
-    }
-  }, [reportType, allProductNames, productMixProduct]);
+  /**
+   * Panel 1 — Win/Loss Volume chartData: one row per bucket; keys `${quarter.name} Won|Lost|Pipeline`.
+   * Quarters use full `name` from quotaPeriods (via selectedQuartersOrdered).
+   */
+  const panel1ChartData = useMemo(() => {
+    if (!reportData?.rows?.length || !reportData.buckets.length) return [];
+    const rows = reportData.rows;
+    return reportData.buckets.map((b) => {
+      const entries = selectedQuartersOrdered.flatMap((q) => {
+        const row = rows.find((r) => r.bucket_id === b.id && r.quarter_id === q.id);
+        return [
+          [`${q.name} Won`, row?.won_count ?? 0],
+          [`${q.name} Lost`, row?.lost_count ?? 0],
+          [`${q.name} Pipeline`, row?.pipeline_count ?? 0],
+        ] as [string, number][];
+      });
+      const fromPairs = entries.reduce<Record<string, number>>((acc, [k, v]) => ({ ...acc, [k]: v }), {});
+      return { bucket: b.label, ...fromPairs };
+    });
+  }, [reportData, selectedQuartersOrdered]);
 
-  useEffect(() => {
-    if (reportType === "deal_volume") {
-      const allowed = new Set([
-        "won_count",
-        "lost_count",
-        "pipeline_count",
-        "win_rate",
-        "won_amount",
-        "lost_amount",
-        "avg_days_won",
-        "avg_days_lost",
-        "avg_health_won",
-        "avg_health_lost",
-        "avg_health_pipeline",
-      ]);
-      if (!allowed.has(chartMetric)) setChartMetric("won_count");
-    } else if (reportType === "meddpicc_health") {
-      const allowed = new Set([
-        "avg_health",
-        "avg_pain",
-        "avg_metrics",
-        "avg_champion",
-        "avg_eb",
-        "avg_process",
-        "avg_paper",
-        "avg_timing",
-        "avg_budget",
-        "avg_criteria",
-        "avg_competition",
-      ]);
-      if (!allowed.has(chartMetric)) setChartMetric("avg_health");
-    } else if (reportType === "product_mix") {
-      if (productMixProduct) setChartMetric(productMixProduct);
+  const panel1SeriesKeys = useMemo(() => {
+    const keys: string[] = [];
+    for (const q of selectedQuartersOrdered) {
+      keys.push(`${q.name} Won`, `${q.name} Lost`, `${q.name} Pipeline`);
     }
-  }, [reportType, chartMetric, productMixProduct]);
+    return keys;
+  }, [selectedQuartersOrdered]);
+
+  const panel2ChartData = useMemo(() => {
+    if (!reportData?.rows?.length || !reportData.buckets.length) return [];
+    const rows = reportData.rows;
+    return reportData.buckets.map((b) => {
+      const entries = selectedQuartersOrdered.flatMap((q) => {
+        const row = rows.find((r) => r.bucket_id === b.id && r.quarter_id === q.id);
+        return [
+          [`${q.name} Avg Days Won`, row?.avg_days_won ?? 0],
+          [`${q.name} Avg Days Lost`, row?.avg_days_lost ?? 0],
+        ] as [string, number][];
+      });
+      const fromPairs = entries.reduce<Record<string, number>>((acc, [k, v]) => ({ ...acc, [k]: v }), {});
+      return { bucket: b.label, ...fromPairs };
+    });
+  }, [reportData, selectedQuartersOrdered]);
+
+  const panel2SeriesKeys = useMemo(() => {
+    const keys: string[] = [];
+    for (const q of selectedQuartersOrdered) {
+      keys.push(`${q.name} Avg Days Won`, `${q.name} Avg Days Lost`);
+    }
+    return keys;
+  }, [selectedQuartersOrdered]);
+
+  const panel3ChartData = useMemo(() => {
+    if (!reportData?.rows?.length || !reportData.buckets.length) return [];
+    const rows = reportData.rows;
+    return reportData.buckets.map((b) => {
+      const entries = selectedQuartersOrdered.flatMap((q) => {
+        const row = rows.find((r) => r.bucket_id === b.id && r.quarter_id === q.id);
+        return [
+          [`${q.name} Health Won`, healthPctNum(row?.avg_health_won ?? null)],
+          [`${q.name} Health Lost`, healthPctNum(row?.avg_health_lost ?? null)],
+          [`${q.name} Health Pipeline`, healthPctNum(row?.avg_health_pipeline ?? null)],
+        ] as [string, number][];
+      });
+      const fromPairs = entries.reduce<Record<string, number>>((acc, [k, v]) => ({ ...acc, [k]: v }), {});
+      return { bucket: b.label, ...fromPairs };
+    });
+  }, [reportData, selectedQuartersOrdered]);
+
+  const panel3SeriesKeys = useMemo(() => {
+    const keys: string[] = [];
+    for (const q of selectedQuartersOrdered) {
+      keys.push(`${q.name} Health Won`, `${q.name} Health Lost`, `${q.name} Health Pipeline`);
+    }
+    return keys;
+  }, [selectedQuartersOrdered]);
+
+  const meddpiccRadarRows = useMemo(() => {
+    if (!reportData?.rows?.length || !reportData.buckets.length || !meddpiccQuarterId) return [];
+    const rows = reportData.rows;
+    return MEDDPICC_SPOKES.map((spoke) => {
+      const pt: Record<string, string | number> = { spoke: spoke.label };
+      for (const b of reportData.buckets) {
+        const cell = rows.find((r) => r.bucket_id === b.id && r.quarter_id === meddpiccQuarterId);
+        const raw = cell ? (cell[spoke.key] as number | null | undefined) : null;
+        pt[`bk_${b.id}`] = raw != null && Number.isFinite(Number(raw)) ? Number(raw) : 0;
+      }
+      return pt;
+    });
+  }, [reportData, meddpiccQuarterId]);
+
+  const productMixChartData = useMemo(() => {
+    if (!reportData?.rows?.length || !reportData.buckets.length || !allProductNames.length) return [];
+    const rows = reportData.rows;
+    return reportData.buckets.map((b) => {
+      const pt: Record<string, string | number> = { bucket: b.label };
+      for (const prod of allProductNames) {
+        let sum = 0;
+        for (const q of selectedQuartersOrdered) {
+          const cell = rows.find((r) => r.bucket_id === b.id && r.quarter_id === q.id);
+          sum += cell?.products?.[prod] ? Number(cell.products[prod]) : 0;
+        }
+        pt[prod] = sum;
+      }
+      return pt;
+    });
+  }, [reportData, allProductNames, selectedQuartersOrdered]);
 
   const runReport = async () => {
     setError(null);
@@ -515,8 +514,6 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     setLoading(true);
     try {
       const repIds = resolveRepIdsForApi();
-      const effectiveMetric =
-        reportType === "product_mix" ? (productMixProduct || allProductNames[0] || "") : chartMetric;
       const res = await fetch("/api/revenue-intelligence/data", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -543,15 +540,6 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         buckets: j.buckets || sortedBuckets,
         rows: j.rows || [],
       });
-      if (reportType === "product_mix") {
-        const names = new Set<string>();
-        for (const r of j.rows || []) {
-          for (const k of Object.keys(r.products || {})) if (k) names.add(k);
-        }
-        const arr = Array.from(names).sort((a, b) => a.localeCompare(b));
-        if (arr.length && !arr.includes(productMixProduct)) setProductMixProduct(arr[0]!);
-      }
-      if (reportType === "product_mix" && effectiveMetric) setChartMetric(effectiveMetric);
     } catch (e: any) {
       setError(String(e?.message || e));
       setReportData(null);
@@ -632,15 +620,14 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     setError(null);
     try {
       const config = {
-        version: 1,
+        version: 2,
         buckets: sortedBuckets.map((b) => ({ id: b.id, label: b.label, min: b.min, max: b.max })),
         bucketSetId: bucketSetIdRef,
         selectedQuarterIds: Array.from(selectedQuarterIds),
         selectedRepIds: Array.from(selectedRepIds),
         selectedManagerIds: Array.from(selectedManagerIds),
         reportType,
-        chartType,
-        chartMetric: reportType === "product_mix" ? productMixProduct || chartMetric : chartMetric,
+        meddpiccQuarterId: meddpiccQuarterId || null,
       };
       const res = await fetch("/api/revenue-intelligence", {
         method: "POST",
@@ -675,18 +662,17 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     }
     if (c.bucketSetId != null) setBucketSetIdRef(String(c.bucketSetId));
     if (Array.isArray(c.selectedQuarterIds)) setSelectedQuarterIds(new Set(c.selectedQuarterIds.map(String)));
-    if (Array.isArray(c.selectedRepIds)) setSelectedRepIds(new Set(c.selectedRepIds.map(String)));
-    if (Array.isArray(c.selectedManagerIds)) setSelectedManagerIds(new Set(c.selectedManagerIds.map(String)));
+    if (Array.isArray(c.selectedRepIds) || Array.isArray(c.selectedManagerIds)) {
+      dispatchRep({
+        type: "replace",
+        managers: Array.isArray(c.selectedManagerIds) ? c.selectedManagerIds.map(String) : [],
+        reps: Array.isArray(c.selectedRepIds) ? c.selectedRepIds.map(String) : [],
+      });
+    }
     if (c.reportType === "deal_volume" || c.reportType === "meddpicc_health" || c.reportType === "product_mix") {
       setReportType(c.reportType);
     }
-    if (c.chartType === "table" || c.chartType === "bar" || c.chartType === "line" || c.chartType === "radar" || c.chartType === "pie") {
-      setChartType(c.chartType);
-    }
-    if (typeof c.chartMetric === "string") {
-      setChartMetric(c.chartMetric);
-      if (c.reportType === "product_mix") setProductMixProduct(c.chartMetric);
-    }
+    if (typeof c.meddpiccQuarterId === "string") setMeddpiccQuarterId(c.meddpiccQuarterId);
     setReportName(String(r.name || ""));
   };
 
@@ -709,130 +695,101 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     }
   };
 
+  async function downloadPanelPng(container: HTMLDivElement | null, filename: string) {
+    if (!container) return;
+    const svg = container.querySelector("svg");
+    if (!svg) return;
+    await downloadSvgAsPng(svg, filename);
+  }
+
   const exportCsv = () => {
+    if (!reportData) return;
     const lines: string[][] = [];
+    const bOrder = reportData.buckets.length ? reportData.buckets : sortedBuckets;
+    const rows = reportData.rows;
+
     if (reportType === "deal_volume") {
-      const qCols = selectedQuartersOrdered;
-      const base = [
-        "Bucket",
-        ...qCols.flatMap((q) => [
-          `${q.name} Won`,
-          `${q.name} Lost`,
-          `${q.name} Pipeline`,
-          `${q.name} Win Rate`,
-          `${q.name} Avg Days Won`,
-          `${q.name} Avg Days Lost`,
-          `${q.name} Avg Health Won`,
-          `${q.name} Avg Health Lost`,
-          `${q.name} Avg Health Pipeline`,
-          `${q.name} Won $`,
-          `${q.name} Lost $`,
-        ]),
-      ];
-      if (selectedQuartersOrdered.length === 2) {
-        base.push("Δ Won", "Δ Win Rate");
-      }
-      lines.push(base);
-      const bOrder = reportData?.buckets?.length ? reportData.buckets : sortedBuckets;
-      const rows = reportData?.rows || [];
+      lines.push(["=== Win / Loss by Revenue Segment ==="]);
+      lines.push(["Bucket", ...selectedQuartersOrdered.flatMap((q) => [`${q.name} Won`, `${q.name} Lost`, `${q.name} Pipeline`, `${q.name} Win Rate`, `${q.name} Won $`, `${q.name} Lost $`])]);
       for (const b of bOrder) {
-        const rowCells: string[] = [b.label];
         const byQ = new Map<string, AggRow>();
-        for (const r of rows) {
-          if (r.bucket_id === b.id) byQ.set(r.quarter_id, r);
-        }
-        for (const q of qCols) {
+        for (const r of rows) if (r.bucket_id === b.id) byQ.set(r.quarter_id, r);
+        const cells: string[] = [b.label];
+        for (const q of selectedQuartersOrdered) {
           const rr = byQ.get(q.id);
           if (!rr) {
-            rowCells.push("", "", "", "", "", "", "", "", "", "", "");
+            cells.push("", "", "", "", "", "");
             continue;
           }
-          rowCells.push(
+          cells.push(
             String(rr.won_count),
             String(rr.lost_count),
             String(rr.pipeline_count),
             fmtPct01(rr.win_rate),
-            fmtNum(rr.avg_days_won),
-            fmtNum(rr.avg_days_lost),
-            fmtHealthPct(rr.avg_health_won),
-            fmtHealthPct(rr.avg_health_lost),
-            fmtHealthPct(rr.avg_health_pipeline),
             String(rr.won_amount),
             String(rr.lost_amount)
           );
         }
-        if (selectedQuartersOrdered.length === 2) {
-          const a = byQ.get(selectedQuartersOrdered[0]!.id);
-          const c = byQ.get(selectedQuartersOrdered[1]!.id);
-          const dWon = a && c ? a.won_count - c.won_count : "";
-          const dWr = a && c ? a.win_rate - c.win_rate : "";
-          rowCells.push(dWon === "" ? "" : String(dWon), dWr === "" ? "" : String(dWr));
-        }
-        lines.push(rowCells);
+        lines.push(cells);
       }
-    } else if (reportType === "meddpicc_health") {
-      const qCols = selectedQuartersOrdered;
-      const header = [
-        "Bucket",
-        ...qCols.flatMap((q) => [
-          `${q.name} Avg Health`,
-          `${q.name} Pain`,
-          `${q.name} Metrics`,
-          `${q.name} Champion`,
-          `${q.name} EB`,
-          `${q.name} Process`,
-          `${q.name} Paper`,
-          `${q.name} Timing`,
-          `${q.name} Budget`,
-          `${q.name} Criteria`,
-          `${q.name} Competition`,
-        ]),
-      ];
-      lines.push(header);
-      const bOrder = reportData?.buckets?.length ? reportData.buckets : sortedBuckets;
-      const rows = reportData?.rows || [];
+      lines.push([]);
+      lines.push(["=== Avg Days to Close ==="]);
+      lines.push(["Bucket", ...selectedQuartersOrdered.flatMap((q) => [`${q.name} Avg Days Won`, `${q.name} Avg Days Lost`, `${q.name} Avg Days Pipeline`])]);
       for (const b of bOrder) {
-        const rowCells: string[] = [b.label];
         const byQ = new Map<string, AggRow>();
-        for (const r of rows) {
-          if (r.bucket_id === b.id) byQ.set(r.quarter_id, r);
-        }
-        for (const q of qCols) {
+        for (const r of rows) if (r.bucket_id === b.id) byQ.set(r.quarter_id, r);
+        const cells: string[] = [b.label];
+        for (const q of selectedQuartersOrdered) {
           const rr = byQ.get(q.id);
           if (!rr) {
-            rowCells.push("", "", "", "", "", "", "", "", "", "", "");
+            cells.push("", "", "");
             continue;
           }
-          const hAvg = getMetricValue(rr, "avg_health");
-          rowCells.push(
-            hAvg == null ? "" : fmtNum(hAvg),
-            fmtNum(rr.avg_pain),
-            fmtNum(rr.avg_metrics),
-            fmtNum(rr.avg_champion),
-            fmtNum(rr.avg_eb),
-            fmtNum(rr.avg_process),
-            fmtNum(rr.avg_paper),
-            fmtNum(rr.avg_timing),
-            fmtNum(rr.avg_budget),
-            fmtNum(rr.avg_criteria),
-            fmtNum(rr.avg_competition)
-          );
+          cells.push(fmtNum(rr.avg_days_won), fmtNum(rr.avg_days_lost), fmtNum(rr.avg_days_pipeline));
         }
-        lines.push(rowCells);
+        lines.push(cells);
       }
-    } else {
-      const products = allProductNames;
-      lines.push(["Bucket", ...products.map((p) => `${p} ($)`), "Total ($)"]);
-      const bOrder = reportData?.buckets?.length ? reportData.buckets : sortedBuckets;
-      const rows = reportData?.rows || [];
+      lines.push([]);
+      lines.push(["=== Avg Health Score (% of 30) ==="]);
+      lines.push(["Bucket", ...selectedQuartersOrdered.flatMap((q) => [`${q.name} Health Won`, `${q.name} Health Lost`, `${q.name} Health Pipeline`])]);
       for (const b of bOrder) {
         const byQ = new Map<string, AggRow>();
-        for (const r of rows) {
-          if (r.bucket_id === b.id) byQ.set(r.quarter_id, r);
+        for (const r of rows) if (r.bucket_id === b.id) byQ.set(r.quarter_id, r);
+        const cells: string[] = [b.label];
+        for (const q of selectedQuartersOrdered) {
+          const rr = byQ.get(q.id);
+          if (!rr) {
+            cells.push("", "", "");
+            continue;
+          }
+          cells.push(fmtHealthPct(rr.avg_health_won), fmtHealthPct(rr.avg_health_lost), fmtHealthPct(rr.avg_health_pipeline));
         }
+        lines.push(cells);
+      }
+    } else if (reportType === "meddpicc_health") {
+      lines.push(["=== MEDDPICC+TB Scores ==="]);
+      const qid = meddpiccQuarterId || reportData.quarters[0]?.id || "";
+      lines.push([`Quarter id: ${qid}`]);
+      const header = ["Bucket", ...MEDDPICC_SPOKES.map((s) => s.label)];
+      lines.push(header);
+      for (const b of bOrder) {
+        const rr = rows.find((r) => r.bucket_id === b.id && r.quarter_id === qid);
+        const cells: string[] = [b.label];
+        for (const sp of MEDDPICC_SPOKES) {
+          const v = rr ? rr[sp.key] : null;
+          cells.push(v == null ? "" : fmtNum(v as number));
+        }
+        lines.push(cells);
+      }
+    } else {
+      lines.push(["=== Product Revenue by Segment ==="]);
+      lines.push(["Bucket", ...allProductNames.map((p) => `${p} ($)`), "Total ($)"]);
+      for (const b of bOrder) {
+        const byQ = new Map<string, AggRow>();
+        for (const r of rows) if (r.bucket_id === b.id) byQ.set(r.quarter_id, r);
         let total = 0;
         const cells: string[] = [b.label];
-        for (const p of products) {
+        for (const p of allProductNames) {
           let sum = 0;
           for (const q of selectedQuartersOrdered) {
             const rr = byQ.get(q.id);
@@ -849,57 +806,21 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     downloadTextFile("revenue-intelligence.csv", csv, "text/csv;charset=utf-8");
   };
 
-  const downloadChart = async () => {
-    const root = chartWrapRef.current;
-    if (!root) return;
-    const svg = root.querySelector("svg");
-    if (!svg) return;
-    await downloadSvgAsPng(svg, "revenue-intelligence-chart.png");
-  };
+  function findAgg(bid: string, qid: string): AggRow | undefined {
+    return reportData?.rows.find((r) => r.bucket_id === bid && r.quarter_id === qid);
+  }
 
-  const showPie = chartType === "pie" && selectedQuartersOrdered.length === 1;
-  const showPieMsg = chartType === "pie" && selectedQuartersOrdered.length !== 1;
-  const showBarLine = (chartType === "bar" || chartType === "line") && chartData.length && selectedQuartersOrdered.length > 0;
-  const showRadar = chartType === "radar" && radarData.length && chartData.length > 0;
-  const showTableOnlyChart = chartType === "table";
-
-  const dealVolumeMetricOptions: { value: DealVolumeMetric; label: string }[] = [
-    { value: "won_count", label: "Won Count" },
-    { value: "lost_count", label: "Lost Count" },
-    { value: "pipeline_count", label: "Pipeline Count" },
-    { value: "win_rate", label: "Win Rate" },
-    { value: "won_amount", label: "Won $" },
-    { value: "lost_amount", label: "Lost $" },
-    { value: "avg_days_won", label: "Avg Days Won" },
-    { value: "avg_days_lost", label: "Avg Days Lost" },
-    { value: "avg_health_won", label: "Avg Health Won" },
-    { value: "avg_health_lost", label: "Avg Health Lost" },
-    { value: "avg_health_pipeline", label: "Avg Health Pipeline" },
-  ];
-
-  const meddpiccMetricOptions: { value: MeddpiccMetric; label: string }[] = [
-    { value: "avg_health", label: "Health" },
-    { value: "avg_pain", label: "Pain" },
-    { value: "avg_metrics", label: "Metrics" },
-    { value: "avg_champion", label: "Champion" },
-    { value: "avg_eb", label: "EB" },
-    { value: "avg_process", label: "Process" },
-    { value: "avg_paper", label: "Paper" },
-    { value: "avg_timing", label: "Timing" },
-    { value: "avg_budget", label: "Budget" },
-    { value: "avg_criteria", label: "Criteria" },
-    { value: "avg_competition", label: "Competition" },
-  ];
-
-  const twoQuarterDelta =
-    selectedQuartersOrdered.length === 2 ? { qA: selectedQuartersOrdered[0]!, qB: selectedQuartersOrdered[1]! } : null;
+  const bOrder = useMemo(() => {
+    if (!reportData?.buckets?.length) return sortedBuckets;
+    return reportData.buckets;
+  }, [reportData, sortedBuckets]);
 
   return (
     <div className="space-y-6 text-[color:var(--sf-text-primary)]" data-org-id={orgId}>
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <h2 className="text-base font-semibold">Revenue Buckets</h2>
         <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-          Define amount ranges. Rows are sorted by minimum $ automatically.
+          Rows below are sorted by minimum $ for editing. New buckets are appended to the end of the list.
         </p>
         <div className="mt-4 space-y-2">
           {sortedBuckets.map((b) => (
@@ -1010,11 +931,12 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         {selectedQuarterIds.size > 4 ? (
           <p className="mt-2 text-xs text-amber-700">Charts work best with 4 or fewer quarters</p>
         ) : null}
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-3 grid gap-2 sm:grid-cols-1 lg:grid-cols-2">
           {periodsNewestFirst.map((p) => (
-            <label key={p.id} className="flex items-center gap-2 text-sm">
+            <label key={p.id} className="flex cursor-pointer items-start gap-2 text-sm">
               <input
                 type="checkbox"
+                className="mt-1 shrink-0"
                 checked={selectedQuarterIds.has(p.id)}
                 onChange={() =>
                   setSelectedQuarterIds((prev) => {
@@ -1025,7 +947,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                   })
                 }
               />
-              <span>{p.name}</span>
+              <span className="min-w-0 break-words">{p.name}</span>
             </label>
           ))}
         </div>
@@ -1034,7 +956,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <h2 className="text-base font-semibold">Team Scope</h2>
         <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-          Select leaders (direct team) and/or individual reps. Empty scope runs across all reps in the org.
+          Empty scope includes all reps in the org. Manager row toggles all direct reports; symbols: ☐ none · ⊟ partial · ☑ all.
         </p>
         <div className="mt-2 flex flex-wrap gap-2">
           <button type="button" onClick={quickSelectAll} className={outlineQuickBtn}>
@@ -1050,37 +972,46 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
             Leaders Only
           </button>
         </div>
-        <div className="mt-2 max-h-[320px] overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
-          {pickerGroups.groups.map((group) => {
+        <div className="mt-2 max-h-[420px] overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+          {managerGroups.groups.map((group) => {
             const mgr = group.manager;
             const mid = String(mgr.id);
+            const repIds = group.reps.map((r) => String(r.id));
+            const st = managerGroupState(mid, repIds, selectedManagerIds, selectedRepIds);
+            const glyph = st === "all" ? "☑" : st === "partial" ? "⊟" : "☐";
             return (
-              <div key={`ri-mgr:${mgr.id}`} className="mt-3 first:mt-0">
-                <label className="flex cursor-pointer items-center gap-2 py-0.5 text-sm font-semibold">
-                  <input type="checkbox" checked={selectedManagerIds.has(mid)} onChange={() => toggleManager(mid)} />
+              <div key={`mgr-grp:${mgr.id}`} className="mt-3 first:mt-0">
+                <button
+                  type="button"
+                  onClick={() => toggleManagerReps(mid, repIds)}
+                  className="flex w-full items-center gap-2 py-0.5 text-left text-sm font-semibold text-[color:var(--sf-text-primary)]"
+                >
+                  <span className="w-5 shrink-0 font-mono text-xs" aria-hidden>
+                    {glyph}
+                  </span>
                   <span>{mgr.name}</span>
-                </label>
+                </button>
                 {group.reps.map((rep) => (
-                  <label key={rep.id} className="ml-6 flex cursor-pointer items-center gap-2 py-0.5">
-                    <input type="checkbox" checked={selectedRepIds.has(String(rep.id))} onChange={() => toggleRep(String(rep.id))} />
+                  <label key={rep.id} className="ml-8 flex cursor-pointer items-center gap-2 py-0.5">
+                    <input type="checkbox" checked={selectedRepIds.has(String(rep.id))} onChange={() => toggleRepId(String(rep.id))} />
                     <span className="text-sm">{rep.name}</span>
                   </label>
                 ))}
               </div>
             );
           })}
-          {pickerGroups.unassigned.length ? (
-            <div className={pickerGroups.groups.length ? "mt-3 border-t border-[color:var(--sf-border)] pt-3" : ""}>
-              {pickerGroups.unassigned.map((rep) => (
-                <label key={rep.id} className="ml-6 flex cursor-pointer items-center gap-2 py-0.5">
-                  <input type="checkbox" checked={selectedRepIds.has(String(rep.id))} onChange={() => toggleRep(String(rep.id))} />
+          {managerGroups.unassigned.length ? (
+            <div className={managerGroups.groups.length ? "mt-3 border-t border-[color:var(--sf-border)] pt-3" : ""}>
+              {managerGroups.unassigned.map((rep) => (
+                <label key={rep.id} className="ml-8 flex cursor-pointer items-center gap-2 py-0.5">
+                  <input type="checkbox" checked={selectedRepIds.has(String(rep.id))} onChange={() => toggleRepId(String(rep.id))} />
                   <span className="text-sm">{rep.name}</span>
                 </label>
               ))}
             </div>
           ) : null}
-          {!allRepDirectoryIds.length ? (
-            <div className="px-3 py-6 text-center text-sm text-[color:var(--sf-text-disabled)]">No directory rows.</div>
+          {!repDirectory.length ? (
+            <div className="px-3 py-6 text-center text-sm text-[color:var(--sf-text-disabled)]">No reps found.</div>
           ) : null}
         </div>
       </section>
@@ -1111,81 +1042,6 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         </div>
       </section>
 
-      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-        <h2 className="text-base font-semibold">Chart Type</h2>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {(["table", "bar", "line", "radar", "pie"] as const).map((ct) => (
-            <button
-              key={ct}
-              type="button"
-              onClick={() => setChartType(ct)}
-              className={
-                chartType === ct
-                  ? "rounded-full border px-3 py-1.5 text-xs font-semibold border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] text-white"
-                  : "rounded-full border px-3 py-1.5 text-xs font-semibold border-[color:var(--sf-border)] text-[color:var(--sf-text-secondary)] capitalize hover:text-[color:var(--sf-text-primary)]"
-              }
-            >
-              {ct}
-            </button>
-          ))}
-        </div>
-        {reportType === "deal_volume" ? (
-          <div className="mt-3">
-            <label className="text-xs text-[color:var(--sf-text-secondary)]">Metric</label>
-            <select
-              value={chartMetric}
-              onChange={(e) => setChartMetric(e.target.value)}
-              className="mt-1 block w-full max-w-md rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1.5 text-sm"
-            >
-              {dealVolumeMetricOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
-        {reportType === "meddpicc_health" ? (
-          <div className="mt-3">
-            <label className="text-xs text-[color:var(--sf-text-secondary)]">Metric</label>
-            <select
-              value={chartMetric}
-              onChange={(e) => setChartMetric(e.target.value)}
-              className="mt-1 block w-full max-w-md rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1.5 text-sm"
-            >
-              {meddpiccMetricOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : null}
-        {reportType === "product_mix" ? (
-          <div className="mt-3">
-            <label className="text-xs text-[color:var(--sf-text-secondary)]">Product</label>
-            <select
-              value={productMixProduct}
-              onChange={(e) => {
-                setProductMixProduct(e.target.value);
-                setChartMetric(e.target.value);
-              }}
-              className="mt-1 block w-full max-w-md rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1.5 text-sm"
-            >
-              {allProductNames.length ? (
-                allProductNames.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))
-              ) : (
-                <option value="">Run report to load products</option>
-              )}
-            </select>
-          </div>
-        ) : null}
-      </section>
-
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
@@ -1195,37 +1051,33 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         >
           {loading ? "Running report..." : "Run Report"}
         </button>
+        {reportData ? (
+          <button type="button" onClick={exportCsv} className={outlineQuickBtn}>
+            Export CSV
+          </button>
+        ) : null}
         {error ? <span className="text-sm text-[#E74C3C]">{error}</span> : null}
       </div>
 
-      {reportData && !showTableOnlyChart ? (
-        <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold">Chart</h3>
-            <button type="button" onClick={() => void downloadChart()} className={outlineQuickBtn}>
-              Download Chart
-            </button>
-          </div>
-          <div ref={chartWrapRef} className="mt-3 w-full">
-            {showPieMsg ? (
-              <p className="text-sm text-[color:var(--sf-text-secondary)]">Pie chart uses a single selected quarter. Pick one quarter or switch chart type.</p>
-            ) : null}
-            {showPie ? (
-              <ResponsiveContainer width="100%" height={380}>
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    dataKey="value"
-                    nameKey="bucket"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={140}
-                    label={({ bucket, percent }: any) => `${bucket} ${(percent * 100).toFixed(0)}%`}
-                  >
-                    {pieData.map((_, i) => (
-                      <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                    ))}
-                  </Pie>
+      {reportData && reportType === "deal_volume" ? (
+        <>
+          <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Win / Loss by Revenue Segment</h3>
+              <button
+                type="button"
+                onClick={() => void downloadPanelPng(panel1Ref.current, "revenue-intel-win-loss.png")}
+                className={outlineQuickBtn}
+              >
+                Download chart PNG
+              </button>
+            </div>
+            <div ref={panel1Ref}>
+              <ResponsiveContainer width="100%" height={320}>
+                <BarChart data={panel1ChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
+                  <XAxis dataKey="bucket" tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} />
+                  <YAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} />
                   <Tooltip
                     contentStyle={{
                       background: "var(--sf-surface)",
@@ -1233,197 +1085,123 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                       color: "var(--sf-text-primary)",
                     }}
                   />
-                  <Legend wrapperStyle={{ color: "var(--sf-text-secondary)", fontSize: 12 }} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : null}
-            {showBarLine ? (
-              <ResponsiveContainer width="100%" height={380}>
-                {chartType === "bar" ? (
-                  <BarChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
-                    <XAxis dataKey="bucket" tick={{ fill: "var(--sf-text-secondary)", fontSize: 11 }} />
-                    <YAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 11 }} />
-                    <Tooltip
-                      contentStyle={{
-                        background: "var(--sf-surface)",
-                        border: "1px solid var(--sf-border)",
-                        color: "var(--sf-text-primary)",
-                      }}
-                    />
-                    <Legend wrapperStyle={{ color: "var(--sf-text-secondary)", fontSize: 12 }} />
-                    {selectedQuartersOrdered.map((q, i) => (
-                      <Bar key={q.id} dataKey={q.name} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[4, 4, 0, 0]} />
-                    ))}
-                  </BarChart>
-                ) : (
-                  <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
-                    <XAxis dataKey="bucket" tick={{ fill: "var(--sf-text-secondary)", fontSize: 11 }} />
-                    <YAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 11 }} />
-                    <Tooltip
-                      contentStyle={{
-                        background: "var(--sf-surface)",
-                        border: "1px solid var(--sf-border)",
-                        color: "var(--sf-text-primary)",
-                      }}
-                    />
-                    <Legend wrapperStyle={{ color: "var(--sf-text-secondary)", fontSize: 12 }} />
-                    {selectedQuartersOrdered.map((q, i) => (
-                      <Line
-                        key={q.id}
-                        type="monotone"
-                        dataKey={q.name}
-                        stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                        strokeWidth={2}
-                        dot={{ r: 3 }}
-                      />
-                    ))}
-                  </LineChart>
-                )}
-              </ResponsiveContainer>
-            ) : null}
-            {showRadar ? (
-              <ResponsiveContainer width="100%" height={380}>
-                <RadarChart data={radarData}>
-                  <PolarGrid stroke="var(--sf-border)" />
-                  <PolarAngleAxis dataKey="bucket" tick={{ fill: "var(--sf-text-secondary)", fontSize: 11 }} />
-                  <PolarRadiusAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} />
-                  <Tooltip
-                    contentStyle={{
-                      background: "var(--sf-surface)",
-                      border: "1px solid var(--sf-border)",
-                      color: "var(--sf-text-primary)",
-                    }}
-                  />
-                  <Legend wrapperStyle={{ color: "var(--sf-text-secondary)", fontSize: 12 }} />
-                  {selectedQuartersOrdered.map((q, i) => (
-                    <Radar
-                      key={q.id}
-                      name={q.name}
-                      dataKey={q.name}
-                      stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                      fill={CHART_COLORS[i % CHART_COLORS.length]}
-                      fillOpacity={0.18}
+                  <Legend wrapperStyle={{ color: "var(--sf-text-secondary)", fontSize: 11 }} />
+                  {selectedQuartersOrdered.map((q, qi) => (
+                    <Bar
+                      key={`${q.id}-won`}
+                      dataKey={`${q.name} Won`}
+                      fill={WON_SHADES[qi % WON_SHADES.length]}
+                      radius={[2, 2, 0, 0]}
                     />
                   ))}
-                </RadarChart>
+                  {selectedQuartersOrdered.map((q, qi) => (
+                    <Bar
+                      key={`${q.id}-lost`}
+                      dataKey={`${q.name} Lost`}
+                      fill={LOST_SHADES[qi % LOST_SHADES.length]}
+                      radius={[2, 2, 0, 0]}
+                    />
+                  ))}
+                  {selectedQuartersOrdered.map((q, qi) => (
+                    <Bar
+                      key={`${q.id}-pipe`}
+                      dataKey={`${q.name} Pipeline`}
+                      fill={PIPE_SHADES[qi % PIPE_SHADES.length]}
+                      radius={[2, 2, 0, 0]}
+                    />
+                  ))}
+                </BarChart>
               </ResponsiveContainer>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
-
-      {reportData ? (
-        <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold">Table</h3>
-            <button type="button" onClick={exportCsv} className={outlineQuickBtn}>
-              Export CSV
-            </button>
-          </div>
-          <div className="mt-3 overflow-x-auto">
-            {reportType === "deal_volume" ? (
-              <table className="w-full min-w-[960px] border-collapse text-left text-sm">
-                <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
-                  <tr>
-                    <th className="border-b border-[color:var(--sf-border)] px-3 py-2">Bucket</th>
-                    {selectedQuartersOrdered.map((q) => (
-                      <th key={q.id} colSpan={11} className="border-b border-l border-[color:var(--sf-border)] px-3 py-2 text-center">
-                        {q.name}
-                      </th>
-                    ))}
-                    {twoQuarterDelta ? (
-                      <>
-                        <th className="border-b border-l border-[color:var(--sf-border)] px-2 py-2 text-right">Δ Won</th>
-                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Δ Win Rate</th>
-                      </>
-                    ) : null}
-                  </tr>
-                  <tr>
-                    <th className="border-b border-[color:var(--sf-border)] px-2 py-1" />
-                    {selectedQuartersOrdered.map((q) => (
-                      <th key={`${q.id}-sub`} colSpan={11} className="border-b border-l border-[color:var(--sf-border)] px-0">
-                        <div className="grid grid-cols-11 gap-0 text-[10px] font-normal">
-                          {["Won", "Lost", "Pipe", "WR%", "Days W", "Days L", "HW", "HL", "HP", "Won$", "Lost$"].map((h) => (
-                            <span key={h + q.id} className="border-r border-[color:var(--sf-border)] px-1 py-1 text-center last:border-r-0">
-                              {h}
-                            </span>
-                          ))}
-                        </div>
-                      </th>
-                    ))}
-                    {twoQuarterDelta ? (
-                      <>
-                        <th className="border-b border-l border-[color:var(--sf-border)]" />
-                        <th className="border-b border-[color:var(--sf-border)]" />
-                      </>
-                    ) : null}
-                  </tr>
-                </thead>
-                <tbody>
-                  {(reportData.buckets.length ? reportData.buckets : sortedBuckets).map((b) => {
-                    const byQ = new Map<string, AggRow>();
-                    for (const r of reportData.rows) {
-                      if (r.bucket_id === b.id) byQ.set(r.quarter_id, r);
-                    }
-                    return (
-                      <tr key={b.id} className="border-t border-[color:var(--sf-border)]">
-                        <td className="px-3 py-2 font-medium">{b.label}</td>
-                        {selectedQuartersOrdered.map((q) => {
-                          const rr = byQ.get(q.id);
-                          return (
-                            <td key={q.id} colSpan={11} className="border-l border-[color:var(--sf-border)] px-0">
-                              {rr ? (
-                                <div className="grid grid-cols-11 gap-0 text-xs">
-                                  <span className="border-r border-[color:var(--sf-border)] px-1 py-2 text-right">{rr.won_count}</span>
-                                  <span className="border-r border-[color:var(--sf-border)] px-1 py-2 text-right">{rr.lost_count}</span>
-                                  <span className="border-r border-[color:var(--sf-border)] px-1 py-2 text-right">{rr.pipeline_count}</span>
-                                  <span className="border-r border-[color:var(--sf-border)] px-1 py-2 text-right">{fmtPct01(rr.win_rate)}</span>
-                                  <span className="border-r border-[color:var(--sf-border)] px-1 py-2 text-right">{fmtNum(rr.avg_days_won)}</span>
-                                  <span className="border-r border-[color:var(--sf-border)] px-1 py-2 text-right">{fmtNum(rr.avg_days_lost)}</span>
-                                  <span className="border-r border-[color:var(--sf-border)] px-1 py-2 text-right">{fmtHealthPct(rr.avg_health_won)}</span>
-                                  <span className="border-r border-[color:var(--sf-border)] px-1 py-2 text-right">{fmtHealthPct(rr.avg_health_lost)}</span>
-                                  <span className="border-r border-[color:var(--sf-border)] px-1 py-2 text-right">{fmtHealthPct(rr.avg_health_pipeline)}</span>
-                                  <span className="border-r border-[color:var(--sf-border)] px-1 py-2 text-right font-mono">{fmtMoney(rr.won_amount)}</span>
-                                  <span className="border-r border-[color:var(--sf-border)] px-1 py-2 text-right font-mono">{fmtMoney(rr.lost_amount)}</span>
-                                </div>
-                              ) : (
-                                <div className="grid grid-cols-11 gap-0 text-xs text-[color:var(--sf-text-disabled)]">
-                                  {Array.from({ length: 11 }).map((_, i) => (
-                                    <span key={i} className="border-r px-1 py-2 text-center">
-                                      —
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                            </td>
-                          );
-                        })}
-                        {twoQuarterDelta ? (() => {
-                          const a = byQ.get(twoQuarterDelta.qA.id);
-                          const c = byQ.get(twoQuarterDelta.qB.id);
-                          const dWon = a && c ? a.won_count - c.won_count : null;
-                          const dWr = a && c ? a.win_rate - c.win_rate : null;
-                          return (
-                            <>
-                              <td className="border-l border-[color:var(--sf-border)] px-2 py-2 text-right text-xs">{dWon == null ? "—" : dWon}</td>
-                              <td className="px-2 py-2 text-right text-xs">{dWr == null ? "—" : fmtPct01(dWr)}</td>
-                            </>
-                          );
-                        })() : null}
+            </div>
+            <div className="mt-4 overflow-x-auto space-y-6">
+              {selectedQuartersOrdered.map((q) => (
+                <div key={q.id}>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">{q.name}</div>
+                  <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                    <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                      <tr>
+                        <th className="border-b border-[color:var(--sf-border)] px-3 py-2">Bucket</th>
+                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Won</th>
+                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Lost</th>
+                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Pipeline</th>
+                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Win Rate</th>
+                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Won $</th>
+                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Lost $</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            ) : reportType === "meddpicc_health" ? (
-              <table className="w-full min-w-[900px] border-collapse text-left text-sm">
+                    </thead>
+                    <tbody>
+                      {bOrder.map((b) => {
+                        const rr = findAgg(b.id, q.id);
+                        return (
+                          <tr key={`${b.id}-${q.id}-p1`} className="border-t border-[color:var(--sf-border)]">
+                            <td className="px-3 py-2 font-medium">{b.label}</td>
+                            <td className="px-2 py-2 text-right">{rr ? rr.won_count : "—"}</td>
+                            <td className="px-2 py-2 text-right">{rr ? rr.lost_count : "—"}</td>
+                            <td className="px-2 py-2 text-right">{rr ? rr.pipeline_count : "—"}</td>
+                            <td className="px-2 py-2 text-right">{rr ? fmtPct01(rr.win_rate) : "—"}</td>
+                            <td className="px-2 py-2 text-right font-mono text-xs">{rr ? fmtMoney(rr.won_amount) : "—"}</td>
+                            <td className="px-2 py-2 text-right font-mono text-xs">{rr ? fmtMoney(rr.lost_amount) : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Avg Days to Close by Revenue Segment</h3>
+              <button
+                type="button"
+                onClick={() => void downloadPanelPng(panel2Ref.current, "revenue-intel-velocity.png")}
+                className={outlineQuickBtn}
+              >
+                Download chart PNG
+              </button>
+            </div>
+            <div ref={panel2Ref}>
+              <ResponsiveContainer width="100%" height={320}>
+                <BarChart data={panel2ChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
+                  <XAxis dataKey="bucket" tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} />
+                  <YAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} />
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--sf-surface)",
+                      border: "1px solid var(--sf-border)",
+                      color: "var(--sf-text-primary)",
+                    }}
+                  />
+                  <Legend wrapperStyle={{ color: "var(--sf-text-secondary)", fontSize: 11 }} />
+                  {selectedQuartersOrdered.map((q) => (
+                    <Bar
+                      key={`${q.id}-dw`}
+                      dataKey={`${q.name} Avg Days Won`}
+                      fill="#14B8A6"
+                      radius={[2, 2, 0, 0]}
+                    />
+                  ))}
+                  {selectedQuartersOrdered.map((q) => (
+                    <Bar
+                      key={`${q.id}-dl`}
+                      dataKey={`${q.name} Avg Days Lost`}
+                      fill="#E74C3C"
+                      radius={[2, 2, 0, 0]}
+                    />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full min-w-[560px] border-collapse text-left text-sm">
                 <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
                   <tr>
                     <th className="border-b border-[color:var(--sf-border)] px-3 py-2">Bucket</th>
-                    {selectedQuartersOrdered.map((q) => (
-                      <th key={q.id} colSpan={11} className="border-b border-l border-[color:var(--sf-border)] px-3 py-2 text-center">
+                    {selectedQuartersOrdered.flatMap((q) => (
+                      <th key={q.id} colSpan={3} className="border-b border-l border-[color:var(--sf-border)] px-2 py-2 text-center">
                         {q.name}
                       </th>
                     ))}
@@ -1431,103 +1209,297 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                   <tr>
                     <th />
                     {selectedQuartersOrdered.map((q) => (
-                      <th key={`${q.id}-m`} colSpan={11} className="border-b border-l border-[color:var(--sf-border)] px-0">
-                        <div className="grid grid-cols-11 gap-0 text-[10px] font-normal">
-                          {["Health", "Pain", "Met", "Champ", "EB", "Proc", "Paper", "Time", "Budg", "Crit", "Comp"].map((h) => (
-                            <span key={h + q.id} className="border-r border-[color:var(--sf-border)] px-1 py-1 text-center">
-                              {h}
-                            </span>
-                          ))}
+                      <th key={`${q.id}-sub`} colSpan={3} className="border-b border-l border-[color:var(--sf-border)] px-0">
+                        <div className="grid grid-cols-3 gap-0 text-[10px] font-normal">
+                          <span className="border-r px-1 py-1 text-center">Days Won</span>
+                          <span className="border-r px-1 py-1 text-center">Days Lost</span>
+                          <span className="px-1 py-1 text-center">Days Pipeline</span>
                         </div>
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {(reportData.buckets.length ? reportData.buckets : sortedBuckets).map((b) => {
-                    const byQ = new Map<string, AggRow>();
-                    for (const r of reportData.rows) {
-                      if (r.bucket_id === b.id) byQ.set(r.quarter_id, r);
-                    }
-                    return (
-                      <tr key={b.id} className="border-t border-[color:var(--sf-border)]">
-                        <td className="px-3 py-2 font-medium">{b.label}</td>
-                        {selectedQuartersOrdered.map((q) => {
-                          const rr = byQ.get(q.id);
-                          const hAvg = rr ? getMetricValue(rr, "avg_health") : null;
-                          return (
-                            <td key={q.id} colSpan={11} className="border-l border-[color:var(--sf-border)] px-0">
-                              {rr ? (
-                                <div className="grid grid-cols-11 gap-0 text-xs">
-                                  <span className="border-r px-1 py-2 text-right">{hAvg == null ? "—" : fmtNum(hAvg)}</span>
-                                  <span className="border-r px-1 py-2 text-right">{fmtNum(rr.avg_pain)}</span>
-                                  <span className="border-r px-1 py-2 text-right">{fmtNum(rr.avg_metrics)}</span>
-                                  <span className="border-r px-1 py-2 text-right">{fmtNum(rr.avg_champion)}</span>
-                                  <span className="border-r px-1 py-2 text-right">{fmtNum(rr.avg_eb)}</span>
-                                  <span className="border-r px-1 py-2 text-right">{fmtNum(rr.avg_process)}</span>
-                                  <span className="border-r px-1 py-2 text-right">{fmtNum(rr.avg_paper)}</span>
-                                  <span className="border-r px-1 py-2 text-right">{fmtNum(rr.avg_timing)}</span>
-                                  <span className="border-r px-1 py-2 text-right">{fmtNum(rr.avg_budget)}</span>
-                                  <span className="border-r px-1 py-2 text-right">{fmtNum(rr.avg_criteria)}</span>
-                                  <span className="border-r px-1 py-2 text-right">{fmtNum(rr.avg_competition)}</span>
-                                </div>
-                              ) : (
-                                <div className="grid grid-cols-11 gap-0 text-xs">—</div>
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
+                  {bOrder.map((b) => (
+                    <tr key={b.id} className="border-t border-[color:var(--sf-border)]">
+                      <td className="px-3 py-2 font-medium">{b.label}</td>
+                      {selectedQuartersOrdered.map((q) => {
+                        const rr = findAgg(b.id, q.id);
+                        return (
+                          <td key={q.id} colSpan={3} className="border-l border-[color:var(--sf-border)] px-0">
+                            {rr ? (
+                              <div className="grid grid-cols-3 gap-0 text-xs">
+                                <span className="border-r px-1 py-2 text-right">{fmtNum(rr.avg_days_won)}</span>
+                                <span className="border-r px-1 py-2 text-right">{fmtNum(rr.avg_days_lost)}</span>
+                                <span className="px-1 py-2 text-right">{fmtNum(rr.avg_days_pipeline)}</span>
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-3 text-xs text-[color:var(--sf-text-disabled)]">
+                                <span className="px-1 py-2 text-center">—</span>
+                                <span className="px-1 py-2 text-center">—</span>
+                                <span className="px-1 py-2 text-center">—</span>
+                              </div>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
-            ) : (
-              <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Avg Health Score by Revenue Segment</h3>
+              <button
+                type="button"
+                onClick={() => void downloadPanelPng(panel3Ref.current, "revenue-intel-health.png")}
+                className={outlineQuickBtn}
+              >
+                Download chart PNG
+              </button>
+            </div>
+            <div ref={panel3Ref}>
+              <ResponsiveContainer width="100%" height={320}>
+                <BarChart data={panel3ChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
+                  <XAxis dataKey="bucket" tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} />
+                  <YAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} domain={[0, 100]} />
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--sf-surface)",
+                      border: "1px solid var(--sf-border)",
+                      color: "var(--sf-text-primary)",
+                    }}
+                    formatter={(v: number) => [`${Number(v).toFixed(0)}%`, ""]}
+                  />
+                  <Legend wrapperStyle={{ color: "var(--sf-text-secondary)", fontSize: 11 }} />
+                  {selectedQuartersOrdered.map((q) => (
+                    <Bar key={`${q.id}-hw`} dataKey={`${q.name} Health Won`} fill="#16A34A" radius={[2, 2, 0, 0]} />
+                  ))}
+                  {selectedQuartersOrdered.map((q) => (
+                    <Bar key={`${q.id}-hl`} dataKey={`${q.name} Health Lost`} fill="#E74C3C" radius={[2, 2, 0, 0]} />
+                  ))}
+                  {selectedQuartersOrdered.map((q) => (
+                    <Bar key={`${q.id}-hp`} dataKey={`${q.name} Health Pipeline`} fill="#F1C40F" radius={[2, 2, 0, 0]} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full min-w-[560px] border-collapse text-left text-sm">
                 <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
                   <tr>
                     <th className="border-b border-[color:var(--sf-border)] px-3 py-2">Bucket</th>
-                    {allProductNames.map((p) => (
-                      <th key={p} className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
-                        {p}
+                    {selectedQuartersOrdered.flatMap((q) => (
+                      <th key={q.id} colSpan={3} className="border-b border-l border-[color:var(--sf-border)] px-2 py-2 text-center">
+                        {q.name}
                       </th>
                     ))}
-                    <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Total</th>
+                  </tr>
+                  <tr>
+                    <th />
+                    {selectedQuartersOrdered.map((q) => (
+                      <th key={`${q.id}-hsub`} colSpan={3} className="border-b border-l border-[color:var(--sf-border)] px-0">
+                        <div className="grid grid-cols-3 gap-0 text-[10px] font-normal">
+                          <span className="border-r px-1 py-1 text-center">Health Won</span>
+                          <span className="border-r px-1 py-1 text-center">Health Lost</span>
+                          <span className="px-1 py-1 text-center">Health Pipeline</span>
+                        </div>
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {(reportData.buckets.length ? reportData.buckets : sortedBuckets).map((b) => {
-                    const byQ = new Map<string, AggRow>();
-                    for (const r of reportData.rows) {
-                      if (r.bucket_id === b.id) byQ.set(r.quarter_id, r);
-                    }
-                    let total = 0;
-                    const cells = allProductNames.map((p) => {
-                      let sum = 0;
-                      for (const q of selectedQuartersOrdered) {
-                        const rr = byQ.get(q.id);
-                        sum += rr?.products?.[p] ? Number(rr.products[p]) : 0;
-                      }
-                      total += sum;
-                      return (
-                        <td key={p} className="border-t border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-xs">
-                          {fmtMoney(sum)}
-                        </td>
-                      );
-                    });
-                    return (
-                      <tr key={b.id} className="border-t border-[color:var(--sf-border)]">
-                        <td className="px-3 py-2 font-medium">{b.label}</td>
-                        {cells}
-                        <td className="border-t border-[color:var(--sf-border)] px-2 py-2 text-right font-mono text-xs font-semibold">
-                          {fmtMoney(total)}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {bOrder.map((b) => (
+                    <tr key={`${b.id}-h`} className="border-t border-[color:var(--sf-border)]">
+                      <td className="px-3 py-2 font-medium">{b.label}</td>
+                      {selectedQuartersOrdered.map((q) => {
+                        const rr = findAgg(b.id, q.id);
+                        return (
+                          <td key={q.id} colSpan={3} className="border-l border-[color:var(--sf-border)] px-0">
+                            {rr ? (
+                              <div className="grid grid-cols-3 gap-0 text-xs">
+                                <span className="border-r px-1 py-2 text-right">{fmtHealthPct(rr.avg_health_won)}</span>
+                                <span className="border-r px-1 py-2 text-right">{fmtHealthPct(rr.avg_health_lost)}</span>
+                                <span className="px-1 py-2 text-right">{fmtHealthPct(rr.avg_health_pipeline)}</span>
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-3 text-xs">—</div>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
-            )}
+            </div>
+          </section>
+        </>
+      ) : null}
+
+      {reportData && reportType === "meddpicc_health" ? (
+        <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">MEDDPICC+TB Scores by Revenue Segment</h3>
+            <button
+              type="button"
+              onClick={() => void downloadPanelPng(panelMeddpiccRef.current, "revenue-intel-meddpicc.png")}
+              className={outlineQuickBtn}
+            >
+              Download chart PNG
+            </button>
+          </div>
+          {reportData.quarters.length > 1 ? (
+            <div className="mb-4 flex flex-wrap gap-3">
+              {reportData.quarters.map((q) => (
+                <label key={q.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="meddpicc-quarter"
+                    checked={meddpiccQuarterId === q.id}
+                    onChange={() => setMeddpiccQuarterId(q.id)}
+                  />
+                  <span className="min-w-0 break-words">{quotaPeriods.find((p) => p.id === q.id)?.name ?? q.name}</span>
+                </label>
+              ))}
+            </div>
+          ) : null}
+          <div ref={panelMeddpiccRef}>
+            <ResponsiveContainer width="100%" height={320}>
+              <RadarChart data={meddpiccRadarRows}>
+                <PolarGrid stroke="var(--sf-border)" />
+                <PolarAngleAxis dataKey="spoke" tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} />
+                <PolarRadiusAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 9 }} />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--sf-surface)",
+                    border: "1px solid var(--sf-border)",
+                    color: "var(--sf-text-primary)",
+                  }}
+                />
+                <Legend wrapperStyle={{ color: "var(--sf-text-secondary)", fontSize: 11 }} />
+                {reportData.buckets.map((b, i) => (
+                  <Radar
+                    key={b.id}
+                    name={b.label}
+                    dataKey={`bk_${b.id}`}
+                    stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                    fill={CHART_COLORS[i % CHART_COLORS.length]}
+                    fillOpacity={0.2}
+                  />
+                ))}
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+              <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                <tr>
+                  <th className="border-b border-[color:var(--sf-border)] px-3 py-2">Bucket</th>
+                  {MEDDPICC_SPOKES.map((s) => (
+                    <th key={s.key} className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
+                      {s.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {bOrder.map((b) => {
+                  const rr = reportData.rows.find((r) => r.bucket_id === b.id && r.quarter_id === meddpiccQuarterId);
+                  return (
+                    <tr key={b.id} className="border-t border-[color:var(--sf-border)]">
+                      <td className="px-3 py-2 font-medium">{b.label}</td>
+                      {MEDDPICC_SPOKES.map((s) => (
+                        <td key={s.key} className="px-2 py-2 text-right">
+                          {rr ? fmtNum(rr[s.key] as number) : "—"}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {reportData && reportType === "product_mix" ? (
+        <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Product Revenue by Segment</h3>
+            <button
+              type="button"
+              onClick={() => void downloadPanelPng(panelProductRef.current, "revenue-intel-product-mix.png")}
+              className={outlineQuickBtn}
+            >
+              Download chart PNG
+            </button>
+          </div>
+          <div ref={panelProductRef}>
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={productMixChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
+                <XAxis dataKey="bucket" tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} />
+                <YAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--sf-surface)",
+                    border: "1px solid var(--sf-border)",
+                    color: "var(--sf-text-primary)",
+                  }}
+                  formatter={(v: number) => fmtMoney(v)}
+                />
+                <Legend wrapperStyle={{ color: "var(--sf-text-secondary)", fontSize: 11 }} />
+                {allProductNames.map((p, i) => (
+                  <Bar key={p} dataKey={p} stackId="mix" fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[0, 0, 0, 0]} />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+              <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                <tr>
+                  <th className="border-b border-[color:var(--sf-border)] px-3 py-2">Bucket</th>
+                  {allProductNames.map((p) => (
+                    <th key={p} className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">
+                      {p}
+                    </th>
+                  ))}
+                  <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bOrder.map((b) => {
+                  const byQ = new Map<string, AggRow>();
+                  for (const r of reportData.rows) if (r.bucket_id === b.id) byQ.set(r.quarter_id, r);
+                  let total = 0;
+                  return (
+                    <tr key={b.id} className="border-t border-[color:var(--sf-border)]">
+                      <td className="px-3 py-2 font-medium">{b.label}</td>
+                      {allProductNames.map((p) => {
+                        let sum = 0;
+                        for (const q of selectedQuartersOrdered) {
+                          const rr = byQ.get(q.id);
+                          sum += rr?.products?.[p] ? Number(rr.products[p]) : 0;
+                        }
+                        total += sum;
+                        return (
+                          <td key={p} className="px-2 py-2 text-right font-mono text-xs">
+                            {fmtMoney(sum)}
+                          </td>
+                        );
+                      })}
+                      <td className="px-2 py-2 text-right font-mono text-xs font-semibold">{fmtMoney(total)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </section>
       ) : null}
@@ -1543,7 +1515,12 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
               className="min-w-[220px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1.5 text-sm"
             />
           </div>
-          <button type="button" onClick={() => void saveReportConfig()} disabled={loading} className="rounded-md bg-[color:var(--sf-accent-primary)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
+          <button
+            type="button"
+            onClick={() => void saveReportConfig()}
+            disabled={loading}
+            className="rounded-md bg-[color:var(--sf-accent-primary)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          >
             Save Report
           </button>
           <select
