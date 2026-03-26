@@ -50,8 +50,9 @@ export async function POST(req: Request) {
 
   const { rows } = await pool.query(
     `
-    INSERT INTO revenue_buckets (org_id, user_id, name, buckets)
-    VALUES ($1, $2, $3, $4)
+    INSERT INTO revenue_buckets
+      (org_id, user_id, name, buckets)
+    VALUES ($1, $2, $3, $4::jsonb)
     ON CONFLICT (user_id, name)
     DO UPDATE SET
       buckets = EXCLUDED.buckets,

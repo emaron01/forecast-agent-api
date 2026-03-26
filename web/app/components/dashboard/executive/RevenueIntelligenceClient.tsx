@@ -257,11 +257,7 @@ function healthPctNum(score: number | null | undefined): number {
 export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   const { orgId, quotaPeriods, repDirectory } = props;
 
-  const [buckets, setBuckets] = useState<BucketRow[]>([
-    { id: newId(), label: "SMB", min: 0, max: 50000 },
-    { id: newId(), label: "Mid-Market", min: 50000, max: 250000 },
-    { id: newId(), label: "Enterprise", min: 250000, max: null },
-  ]);
+  const [buckets, setBuckets] = useState<BucketRow[]>([]);
   const [bucketSetName, setBucketSetName] = useState("");
   const [savedBucketSets, setSavedBucketSets] = useState<any[]>([]);
   const [loadBucketSetId, setLoadBucketSetId] = useState("");
@@ -394,7 +390,15 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   const sortedBuckets = useMemo(() => [...buckets].sort((a, b) => Number(a.min) - Number(b.min)), [buckets]);
 
   const addBucket = () => {
-    setBuckets((prev) => [...prev, { id: newId(), label: "New", min: 0, max: null }]);
+    setBuckets((prev) => [
+      ...prev,
+      {
+        id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId(),
+        label: "",
+        min: 0,
+        max: null,
+      },
+    ]);
   };
 
   const removeBucket = (id: string) => {
@@ -931,12 +935,36 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         >
           Load & Run
         </button>
+        <div className="flex gap-1 ml-2">
+          {(["deal_volume", "meddpicc_health", "product_mix"] as const).map((rt) => (
+            <button
+              key={rt}
+              type="button"
+              onClick={() => setReportType(rt)}
+              className={
+                reportType === rt
+                  ? "rounded-full border px-3 py-1 text-xs font-semibold border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] text-white"
+                  : "rounded-full border px-3 py-1 text-xs font-semibold border-[color:var(--sf-border)] text-[color:var(--sf-text-secondary)]"
+              }
+            >
+              {rt === "deal_volume" ? "Deal Volume" : rt === "meddpicc_health" ? "MEDDPICC" : "Product Mix"}
+            </button>
+          ))}
+        </div>
         <button
           type="button"
           onClick={() => setControlsOpen((v) => !v)}
           className="rounded-md border border-[color:var(--sf-border)] px-4 py-2 text-sm text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)]"
         >
           {controlsOpen ? "▲ Hide Config" : "⚙ Configure"}
+        </button>
+        <button
+          type="button"
+          onClick={() => void runReport()}
+          disabled={loading}
+          className="rounded-md border border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+        >
+          {loading ? "Running…" : "▶ Run Report"}
         </button>
       </div>
 
@@ -948,6 +976,11 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
           Rows below are sorted by minimum $ for editing. New buckets are appended to the end of the list.
         </p>
+        {!buckets.length ? (
+          <p className="mt-3 text-sm text-[color:var(--sf-text-secondary)]">
+            No buckets defined. Add buckets below or load a saved bucket set.
+          </p>
+        ) : null}
         <div className="mt-4 space-y-2">
           {sortedBuckets.map((b) => (
             <div key={b.id} className="flex flex-wrap items-end gap-2">
@@ -1146,41 +1179,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         </div>
       </section>
 
-      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-        <h2 className="text-base font-semibold">Report Type</h2>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {(
-            [
-              { k: "deal_volume" as const, label: "Deal Volume" },
-              { k: "meddpicc_health" as const, label: "MEDDPICC Health" },
-              { k: "product_mix" as const, label: "Product Mix" },
-            ] as const
-          ).map((x) => (
-            <button
-              key={x.k}
-              type="button"
-              onClick={() => setReportType(x.k)}
-              className={
-                reportType === x.k
-                  ? "rounded-full border px-3 py-1.5 text-xs font-semibold border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] text-white"
-                  : "rounded-full border px-3 py-1.5 text-xs font-semibold border-[color:var(--sf-border)] text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)]"
-              }
-            >
-              {x.label}
-            </button>
-          ))}
-        </div>
-      </section>
-
       <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={() => void runReport()}
-          disabled={loading}
-          className="rounded-lg bg-[color:var(--sf-accent-primary)] px-6 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
-        >
-          {loading ? "Running report..." : "Run Report"}
-        </button>
         {reportData ? (
           <button type="button" onClick={exportCsv} className={outlineQuickBtn}>
             Export CSV

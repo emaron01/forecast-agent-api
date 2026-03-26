@@ -50,7 +50,8 @@ export async function POST(req: Request) {
   try {
     const { rows } = await pool.query(
       `
-      INSERT INTO revenue_intelligence_reports (org_id, user_id, name, config)
+      INSERT INTO revenue_intelligence_reports
+        (org_id, user_id, name, config)
       VALUES ($1, $2, $3, $4::jsonb)
       ON CONFLICT (user_id, name)
       DO UPDATE SET
