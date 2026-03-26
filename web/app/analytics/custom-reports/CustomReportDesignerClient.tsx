@@ -515,18 +515,24 @@ export function CustomReportDesignerClient(props: {
 
   const periodsNewestFirst = useMemo(() => [...quotaPeriods].reverse(), [quotaPeriods]);
 
+  const uniquePeriods = useMemo(() => {
+    const seen = new Set<string>();
+    return quotaPeriods.filter((p) => {
+      if (seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    });
+  }, [quotaPeriods]);
+
   const quartersByYear = useMemo(() => {
-    const grouped: Record<string, QuotaPeriodOption[]> = {};
-    for (const period of periodsNewestFirst) {
-      const year = yearGroupKey(period);
+    const grouped: Record<string, typeof quotaPeriods> = {};
+    for (const p of uniquePeriods) {
+      const year = p.fiscal_year || p.name.match(/FY(\d{4})/)?.[1] || 'Unknown';
       if (!grouped[year]) grouped[year] = [];
-      grouped[year].push(period);
+      grouped[year].push(p);
     }
-    for (const year of Object.keys(grouped)) {
-      grouped[year].sort((a, b) => quarterSortKey(a.name) - quarterSortKey(b.name));
-    }
-    return grouped;
-  }, [periodsNewestFirst]);
+    return Object.entries(grouped).sort(([a], [b]) => Number(b) - Number(a));
+  }, [uniquePeriods]);
 
   const sortedYearKeys = useMemo(() => {
     return Object.keys(quartersByYear).sort((a, b) => {

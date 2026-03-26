@@ -1867,9 +1867,10 @@ export default async function ExecutiveDashboardPage({
           reportBuilderSavedReports={reportBuilderSavedReports}
           reportBuilderPeriodLabel={periodLabel}
           reportBuilderRepDirectory={directoryInScope}
-          reportBuilderQuotaPeriods={(summary.periods || []).map((p: { id: unknown; period_name?: string | null }) => ({
+          reportBuilderQuotaPeriods={summary.periods.map((p) => ({
             id: String(p.id),
-            name: String(p.period_name ?? p.id),
+            name: p.period_name ? `${p.period_name}` : String(p.id),
+            fiscal_year: String(p.fiscal_year ?? ""),
           }))}
           reportBuilderOrgId={orgId}
           reportBuilderInitialPeriodId={selectedPeriodId}
