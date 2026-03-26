@@ -386,14 +386,14 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     return Array.from(out).map(String);
   }, [repDirectory, selectedRepIds, selectedManagerIds]);
 
-  /** Display order by min $; does not reorder stored `buckets` array. */
-  const sortedBuckets = useMemo(() => [...buckets].sort((a, b) => Number(a.min) - Number(b.min)), [buckets]);
+  /** By min $ only for API payloads, charts, tables, CSV — not for editable bucket row order. */
+  const bucketsSortedByMin = useMemo(() => [...buckets].sort((a, b) => Number(a.min) - Number(b.min)), [buckets]);
 
   const addBucket = () => {
     setBuckets((prev) => [
       ...prev,
       {
-        id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : newId(),
+        id: crypto.randomUUID(),
         label: "",
         min: 0,
         max: null,
@@ -557,7 +557,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
 
   const runReport = async () => {
     setError(null);
-    if (!sortedBuckets.length) {
+    if (!buckets.length) {
       setError("Add at least one revenue bucket.");
       return;
     }
@@ -572,7 +572,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          buckets: sortedBuckets.map((b) => ({
+          buckets: bucketsSortedByMin.map((b) => ({
             id: b.id,
             label: b.label,
             min: b.min,
@@ -591,7 +591,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
       }
       setReportData({
         quarters: j.quarters || [],
-        buckets: j.buckets || sortedBuckets,
+        buckets: j.buckets || bucketsSortedByMin,
         rows: j.rows || [],
       });
       setControlsOpen(false);
@@ -642,7 +642,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: bucketSetName.trim(),
-          buckets: sortedBuckets.map((b) => ({ id: b.id, label: b.label, min: b.min, max: b.max })),
+          buckets: buckets.map((b) => ({ id: b.id, label: b.label, min: b.min, max: b.max })),
         }),
       });
       const j = await res.json().catch(() => ({}));
@@ -704,7 +704,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     try {
       const config = {
         version: 2,
-        buckets: sortedBuckets.map((b) => ({ id: b.id, label: b.label, min: b.min, max: b.max })),
+        buckets: buckets.map((b) => ({ id: b.id, label: b.label, min: b.min, max: b.max })),
         bucketSetId: bucketSetIdRef,
         selectedQuarterIds: Array.from(selectedQuarterIds),
         selectedRepIds: Array.from(selectedRepIds),
@@ -802,7 +802,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   const exportCsv = () => {
     if (!reportData) return;
     const lines: string[][] = [];
-    const bOrder = reportData.buckets.length ? reportData.buckets : sortedBuckets;
+    const bOrder = reportData.buckets.length ? reportData.buckets : bucketsSortedByMin;
     const rows = reportData.rows;
 
     if (reportType === "deal_volume") {
@@ -908,9 +908,9 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   }
 
   const bOrder = useMemo(() => {
-    if (!reportData?.buckets?.length) return sortedBuckets;
+    if (!reportData?.buckets?.length) return bucketsSortedByMin;
     return reportData.buckets;
-  }, [reportData, sortedBuckets]);
+  }, [reportData, bucketsSortedByMin]);
 
   return (
     <div className="text-[color:var(--sf-text-primary)]" data-org-id={orgId}>
@@ -974,7 +974,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <h2 className="text-base font-semibold">Revenue Buckets</h2>
         <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-          Rows below are sorted by minimum $ for editing. New buckets are appended to the end of the list.
+          Edit buckets in list order (new rows append at the bottom). Charts, tables, and exports use order by minimum $.
         </p>
         {!buckets.length ? (
           <p className="mt-3 text-sm text-[color:var(--sf-text-secondary)]">
@@ -982,7 +982,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
           </p>
         ) : null}
         <div className="mt-4 space-y-2">
-          {sortedBuckets.map((b) => (
+          {buckets.map((b) => (
             <div key={b.id} className="flex flex-wrap items-end gap-2">
               <div className="grid min-w-[140px] flex-1 gap-1">
                 <label className="text-xs text-[color:var(--sf-text-secondary)]">Label</label>
