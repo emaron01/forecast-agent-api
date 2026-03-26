@@ -73,6 +73,9 @@ const PIPE_SHADES = ["#2563EB", "#3B82F6", "#00BCD4", "#60A5FA"];
 const outlineQuickBtn =
   "rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface)]";
 
+const destructiveOutlineBtn =
+  "rounded-md border border-red-400/50 bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30";
+
 function newId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return `b_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -625,7 +628,8 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         }),
       });
       const j = await res.json().catch(() => ({}));
-      if (!res.ok || !j?.ok) throw new Error(j?.error || "Save failed");
+      if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : `Save failed (${res.status})`);
+      if (!j?.ok) throw new Error(typeof j?.error === "string" ? j.error : "Save failed");
       setBucketSetIdRef(j?.bucketSet?.id ? String(j.bucketSet.id) : null);
       const list = await fetch("/api/revenue-buckets");
       const jl = await list.json().catch(() => ({}));
@@ -659,7 +663,8 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     try {
       const res = await fetch(`/api/revenue-buckets?id=${encodeURIComponent(loadBucketSetId)}`, { method: "DELETE" });
       const j = await res.json().catch(() => ({}));
-      if (!res.ok || !j?.ok) throw new Error(j?.error || "Delete failed");
+      if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : `Delete failed (${res.status})`);
+      if (!j?.ok) throw new Error(typeof j?.error === "string" ? j.error : "Delete failed");
       setLoadBucketSetId("");
       const list = await fetch("/api/revenue-buckets");
       const jl = await list.json().catch(() => ({}));
@@ -695,7 +700,8 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         body: JSON.stringify({ name: reportName.trim(), config }),
       });
       const j = await res.json().catch(() => ({}));
-      if (!res.ok || !j?.ok) throw new Error(j?.error || "Save failed");
+      if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : `Save failed (${res.status})`);
+      if (!j?.ok) throw new Error(typeof j?.error === "string" ? j.error : "Save failed");
       const list = await fetch("/api/revenue-intelligence");
       const jl = await list.json().catch(() => ({}));
       if (jl?.ok && Array.isArray(jl.reports)) setSavedReports(jl.reports);
@@ -743,7 +749,8 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     try {
       const res = await fetch(`/api/revenue-intelligence?id=${encodeURIComponent(loadReportId)}`, { method: "DELETE" });
       const j = await res.json().catch(() => ({}));
-      if (!res.ok || !j?.ok) throw new Error(j?.error || "Delete failed");
+      if (!res.ok) throw new Error(typeof j?.error === "string" ? j.error : `Delete failed (${res.status})`);
+      if (!j?.ok) throw new Error(typeof j?.error === "string" ? j.error : "Delete failed");
       setLoadReportId("");
       const list = await fetch("/api/revenue-intelligence");
       const jl = await list.json().catch(() => ({}));
@@ -877,8 +884,6 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
 
   return (
     <div className="text-[color:var(--sf-text-primary)]" data-org-id={orgId}>
-      <div className="flex gap-6">
-        <div className="w-80 shrink-0 space-y-4">
       <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm overflow-hidden">
         <button
           type="button"
@@ -981,8 +986,14 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
           <button type="button" onClick={loadBucketSet} className={outlineQuickBtn}>
             Load
           </button>
-          <button type="button" onClick={() => void deleteBucketSet()} className={outlineQuickBtn}>
-            Delete
+          <button
+            type="button"
+            onClick={() => void deleteBucketSet()}
+            className={destructiveOutlineBtn}
+            title="Delete selected saved bucket set"
+            disabled={!loadBucketSetId}
+          >
+            Delete bucket set
           </button>
         </div>
       </section>
@@ -1164,17 +1175,22 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
           <button type="button" onClick={loadSavedReport} className={outlineQuickBtn}>
             Load
           </button>
-          <button type="button" onClick={() => void deleteSavedReport()} className={outlineQuickBtn}>
-            Delete
+          <button
+            type="button"
+            onClick={() => void deleteSavedReport()}
+            className={destructiveOutlineBtn}
+            title="Delete selected saved report"
+            disabled={!loadReportId}
+          >
+            Delete report
           </button>
         </div>
       </section>
           </div>
         )}
       </div>
-        </div>
 
-      <div className="flex-1 min-w-0 space-y-5">
+      <div className="mt-5 space-y-5">
         {reportData ? (
           <>
       {reportType === "deal_volume" ? (
@@ -1624,10 +1640,9 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
           </>
         ) : (
           <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-12 text-center text-sm text-[color:var(--sf-text-secondary)]">
-            Configure your report on the left and click Run Report to see results.
+            Configure your report above and click Run Report to see results.
           </div>
         )}
-      </div>
       </div>
     </div>
   );

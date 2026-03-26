@@ -40,21 +40,33 @@ export async function POST(req: Request) {
   if (!parsed.success) return jsonError(400, "Invalid payload");
 
   const { name, config } = parsed.data;
+  let safeConfig: Record<string, unknown>;
+  try {
+    safeConfig = JSON.parse(JSON.stringify(config ?? {})) as Record<string, unknown>;
+  } catch {
+    return jsonError(400, "Config must be JSON-serializable");
+  }
 
-  const { rows } = await pool.query(
-    `
-    INSERT INTO revenue_intelligence_reports (org_id, user_id, name, config)
-    VALUES ($1, $2, $3, $4)
-    ON CONFLICT (user_id, name)
-    DO UPDATE SET
-      config = EXCLUDED.config,
-      updated_at = NOW()
-    RETURNING id::text, name, config
-    `,
-    [ctx.user.org_id, ctx.user.id, name, JSON.stringify(config ?? {})]
-  );
+  try {
+    const { rows } = await pool.query(
+      `
+      INSERT INTO revenue_intelligence_reports (org_id, user_id, name, config)
+      VALUES ($1, $2, $3, $4::jsonb)
+      ON CONFLICT (user_id, name)
+      DO UPDATE SET
+        config = EXCLUDED.config,
+        updated_at = NOW()
+      RETURNING id::text, name, config
+      `,
+      [ctx.user.org_id, ctx.user.id, name, safeConfig as object]
+    );
 
-  return NextResponse.json({ ok: true, report: rows?.[0] || null });
+    return NextResponse.json({ ok: true, report: rows?.[0] || null });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[revenue-intelligence POST]", msg);
+    return jsonError(500, msg || "Save failed");
+  }
 }
 
 export async function DELETE(req: Request) {
