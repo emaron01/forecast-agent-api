@@ -53,6 +53,19 @@ export default async function ExecutiveDashboardPage({
       searchParams,
     });
 
+    console.log("[periods debug]", 
+      JSON.stringify(
+        summary.periods.slice(0,3).map(p => ({
+          id: p.id,
+          period_name: p.period_name,
+          fiscal_year: p.fiscal_year,
+          period_start: p.period_start,
+          period_end: p.period_end,
+        })), 
+        null, 2
+      )
+    );
+
     // Team Forecast Hygiene (Coverage, Assessment, Velocity, Progression) for Pipeline tab
     const orgId = ctx.user.org_id;
     const selectedPeriod = summary.selectedPeriod;

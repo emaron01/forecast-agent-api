@@ -525,13 +525,21 @@ export function CustomReportDesignerClient(props: {
   }, [quotaPeriods]);
 
   const quartersByYear = useMemo(() => {
-    const grouped: Record<string, typeof quotaPeriods> = {};
+    const grouped: Record<string, typeof uniquePeriods> = {};
     for (const p of uniquePeriods) {
-      const year = p.fiscal_year || p.name.match(/FY(\d{4})/)?.[1] || 'Unknown';
+      const year =
+        p.fiscal_year && p.fiscal_year !== "0" && p.fiscal_year !== ""
+          ? p.fiscal_year
+          : p.name?.match(/FY(\d{4})/)?.[1] ??
+            p.name?.match(/(\d{4})/)?.[1] ??
+            "Unknown";
       if (!grouped[year]) grouped[year] = [];
       grouped[year].push(p);
     }
-    return Object.entries(grouped).sort(([a], [b]) => Number(b) - Number(a));
+    for (const year of Object.keys(grouped)) {
+      grouped[year].sort((a, b) => quarterSortKey(a.name) - quarterSortKey(b.name));
+    }
+    return grouped;
   }, [uniquePeriods]);
 
   const sortedYearKeys = useMemo(() => {
@@ -1060,7 +1068,7 @@ export function CustomReportDesignerClient(props: {
                     {(quartersByYear[year] ?? []).map((p) => (
                       <label key={p.id} className="flex items-center gap-2 text-sm cursor-pointer">
                         <input type="checkbox" checked={periodSelection.ids.has(p.id)} onChange={() => togglePeriod(p.id)} />
-                        <span className="text-sm text-[color:var(--sf-text-primary)]">{p.name}</span>
+                        <span className="text-sm text-[color:var(--sf-text-primary)]">{p.name || p.id}</span>
                       </label>
                     ))}
                   </div>
