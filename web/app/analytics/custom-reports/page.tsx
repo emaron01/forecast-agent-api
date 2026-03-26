@@ -439,9 +439,10 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
                 }`
               : `—${start_date || end_date ? ` · Dates: ${start_date || "…"} → ${end_date || "…"}` : ""}`
           }
-          quotaPeriods={periodsForYear.map((p) => ({
+          quotaPeriods={periods.map((p) => ({
             id: String(p.id),
             name: String(p.period_name ?? p.id),
+            fiscal_year: String(p.fiscal_year ?? ""),
           }))}
           orgId={ctx.user.org_id}
           initialSelectedPeriodId={selectedPeriod ? String(selectedPeriod.id) : ""}

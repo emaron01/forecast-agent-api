@@ -79,6 +79,12 @@ type SavedReportRow = {
   updated_at?: string;
 };
 
+type QuotaPeriodOption = {
+  id: string;
+  name: string;
+  fiscal_year?: string;
+};
+
 type MetricKey =
   | "avg_health_all"
   | "avg_health_commit"
@@ -188,6 +194,26 @@ function periodSelectionReducer(
   }
   next.add(action.id);
   return { ids: next, lastId: action.id };
+}
+
+function yearGroupKey(period: QuotaPeriodOption): string {
+  const fy = String(period.fiscal_year || "").trim();
+  if (fy) {
+    if (/^FY\d{4}$/i.test(fy)) return fy.replace(/^fy/i, "FY");
+    if (/^\d{4}$/.test(fy)) return `FY${fy}`;
+    return fy;
+  }
+  const match = period.name.match(/FY(\d{4})/i);
+  if (match) return `FY${match[1]}`;
+  return "Unknown";
+}
+
+function quarterSortKey(name: string): number {
+  const quarter = name.match(/\bQ([1-4])\b/i);
+  if (quarter) return parseInt(quarter[1], 10);
+  const ordinal = name.match(/(\d)(?:st|nd|rd|th)\s+Quarter/i);
+  if (ordinal) return parseInt(ordinal[1], 10);
+  return 99;
 }
 
 function fmtMoney(n: any) {
@@ -465,7 +491,7 @@ export function CustomReportDesignerClient(props: {
   savedReports: SavedReportRow[];
   periodLabel: string;
   /** Quarters for report-builder period selector (executive dashboard). */
-  quotaPeriods?: { id: string; name: string }[];
+  quotaPeriods?: QuotaPeriodOption[];
   orgId?: number;
   /** Server-selected period; used to skip redundant client fetch until the user picks another quarter. */
   initialSelectedPeriodId?: string;
@@ -487,22 +513,31 @@ export function CustomReportDesignerClient(props: {
     })
   );
 
+  const periodsNewestFirst = useMemo(() => [...quotaPeriods].reverse(), [quotaPeriods]);
+
   const quartersByYear = useMemo(() => {
-    const grouped: Record<string, { id: string; name: string }[]> = {};
-    for (const p of quotaPeriods) {
-      const year = p.name.match(/FY(\d{4})/)?.[1] ?? "Other";
+    const grouped: Record<string, QuotaPeriodOption[]> = {};
+    for (const period of periodsNewestFirst) {
+      const year = yearGroupKey(period);
       if (!grouped[year]) grouped[year] = [];
-      grouped[year].push(p);
+      grouped[year].push(period);
     }
-    for (const y of Object.keys(grouped)) {
-      grouped[y].sort((a, b) => a.name.localeCompare(b.name));
+    for (const year of Object.keys(grouped)) {
+      grouped[year].sort((a, b) => quarterSortKey(a.name) - quarterSortKey(b.name));
     }
-    return Object.entries(grouped).sort(([a], [b]) => {
-      if (a === "Other") return 1;
-      if (b === "Other") return -1;
-      return Number(b) - Number(a);
+    return grouped;
+  }, [periodsNewestFirst]);
+
+  const sortedYearKeys = useMemo(() => {
+    return Object.keys(quartersByYear).sort((a, b) => {
+      if (a === "Unknown") return 1;
+      if (b === "Unknown") return -1;
+      const na = parseInt(a.replace(/\D/g, ""), 10);
+      const nb = parseInt(b.replace(/\D/g, ""), 10);
+      if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return nb - na;
+      return b.localeCompare(a);
     });
-  }, [quotaPeriods]);
+  }, [quartersByYear]);
 
   const periodIdForFetch = useMemo(() => {
     const ids = Array.from(periodSelection.ids);
@@ -601,6 +636,25 @@ export function CustomReportDesignerClient(props: {
     }
     return periodLabelDisplay;
   }, [repDirectory, periodLabelDisplay]);
+
+  const activePeriods = useMemo(
+    () => periodsNewestFirst.filter((period) => periodSelection.ids.has(period.id)),
+    [periodsNewestFirst, periodSelection.ids]
+  );
+
+  const reportPeriodLabel = useMemo(() => {
+    if (activePeriods.length === 0) return "";
+    if (activePeriods.length === 1) return activePeriods[0].name;
+    if (activePeriods.length === 2) return `${activePeriods[0].name} vs ${activePeriods[1].name}`;
+    return `${activePeriods.length} Quarters`;
+  }, [activePeriods]);
+
+  const reportHeaderLabel = useMemo(() => {
+    const reportTitle = name.trim();
+    if (reportTitle && reportPeriodLabel) return `${reportTitle} — ${reportPeriodLabel}`;
+    if (reportTitle) return reportTitle;
+    return reportPeriodLabel;
+  }, [name, reportPeriodLabel]);
 
   const previewRows = useMemo(() => {
     const byId = new Map<string, RepRow>();
@@ -721,6 +775,10 @@ export function CustomReportDesignerClient(props: {
       else next.add(k);
       return next;
     });
+  }
+
+  function togglePeriod(periodId: string) {
+    dispatchPeriodSelection({ type: "toggle", id: periodId });
   }
 
   function clearSelection() {
@@ -984,23 +1042,19 @@ export function CustomReportDesignerClient(props: {
           <div>
             <div className="text-sm font-semibold text-[color:var(--sf-text-primary)] mb-2">Quarter</div>
             <div className="flex flex-wrap gap-6">
-              {quartersByYear.length === 0 ? (
+              {sortedYearKeys.length === 0 ? (
                 <p className="text-xs text-[color:var(--sf-text-secondary)]">No quota periods available.</p>
               ) : null}
-              {quartersByYear.map(([year, periods]) => (
-                <div key={year} className="min-w-[160px]">
+              {sortedYearKeys.map((year) => (
+                <div key={year} className="min-w-[140px]">
                   <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)] mb-2">
-                    {year === "Other" ? "Other" : `FY${year}`}
+                    {year}
                   </div>
                   <div className="space-y-1">
-                    {periods.map((p) => (
-                      <label key={p.id} className="flex items-center gap-2 text-sm cursor-pointer text-[color:var(--sf-text-primary)]">
-                        <input
-                          type="checkbox"
-                          checked={periodSelection.ids.has(p.id)}
-                          onChange={() => dispatchPeriodSelection({ type: "toggle", id: p.id })}
-                        />
-                        <span>{p.name}</span>
+                    {(quartersByYear[year] ?? []).map((p) => (
+                      <label key={p.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="checkbox" checked={periodSelection.ids.has(p.id)} onChange={() => togglePeriod(p.id)} />
+                        <span className="text-sm text-[color:var(--sf-text-primary)]">{p.name}</span>
                       </label>
                     ))}
                   </div>
@@ -1079,7 +1133,7 @@ export function CustomReportDesignerClient(props: {
           ) : null}
         </div>
         <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
-          Select sales leaders (team rollup) or individual reps. Preview and export follow your selection.
+          Select sales leaders (team rollup) or individual reps. Export follows your selection.
         </div>
       </div>
 
@@ -1118,21 +1172,17 @@ export function CustomReportDesignerClient(props: {
         </div>
       ) : null}
 
-      <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 items-end gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Preview</span>
-          <button
-            type="button"
-            onClick={() => void downloadPreviewPng()}
-            className="rounded-md border border-[color:var(--sf-border)] px-3 py-1 text-xs text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)]"
-          >
-            Download PNG
-          </button>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">
+          {reportHeaderLabel || periodLabelDisplay}
         </div>
-        <div className="text-sm font-semibold text-center text-[color:var(--sf-text-secondary)]">{periodLabelDisplay}</div>
-        <div className="text-sm font-semibold text-right text-[color:var(--sf-text-secondary)]">
-          Executive: <span className="font-mono">{execHeaderName}</span>
-        </div>
+        <button
+          type="button"
+          onClick={() => void downloadPreviewPng()}
+          className="rounded-md border border-[color:var(--sf-border)] px-3 py-1 text-xs text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)]"
+        >
+          Download PNG
+        </button>
       </div>
 
       <div ref={previewRef}>
