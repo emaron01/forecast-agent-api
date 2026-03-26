@@ -17,6 +17,7 @@ import { ExecutiveProductPerformance } from "./ExecutiveProductPerformance";
 import type { ExecutiveProductPerformanceData } from "../../../lib/executiveProductInsights";
 import { ExecutiveQuarterKpisModule, ExecutiveRemainingQuarterlyForecastBlock } from "./ExecutiveQuarterKpisModule";
 import { TeamForecastHygienePanels, type PipelineHygienePayload } from "./TeamForecastHygienePanels";
+import type { RepManagerRepRow } from "../../../app/components/dashboard/executive/RepManagerComparisonPanel";
 import type { PipelineMomentumData } from "../../../lib/pipelineMomentum";
 import { AiSummaryReportClient } from "../../ai/AiSummaryReportClient";
 import { PartnersExecutiveAiTakeawayClient } from "../../ai/PartnersExecutiveAiTakeawayClient";
@@ -688,6 +689,10 @@ export function ExecutiveGapInsightsClient(props: {
   pipelineHygiene?: PipelineHygienePayload | null;
   /** Active quota period name for the Team Forecast Hygiene heading. */
   periodName?: string;
+  /** Rep quota / attainment / won for coaching cards (e.g. Team tab `repRows`). */
+  coachingRepRows?: RepManagerRepRow[] | null;
+  coachingPeriodStart?: string;
+  coachingPeriodEnd?: string;
   revenueTabOnly?: boolean;
   heroOnly?: boolean;
   /** @deprecated No longer rendered in heroOnly; aging cards live on the Forecast tab / full layout. */
@@ -2222,6 +2227,9 @@ export function ExecutiveGapInsightsClient(props: {
             pipelineHygiene={props.pipelineHygiene}
             periodName={props.periodName}
             sectionClassName="space-y-4"
+            coachingRepRows={props.coachingRepRows ?? null}
+            coachingPeriodStart={props.coachingPeriodStart}
+            coachingPeriodEnd={props.coachingPeriodEnd}
           />
         ) : null}
       </div>

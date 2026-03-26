@@ -1763,6 +1763,9 @@ export default async function ExecutiveDashboardPage({
             topDealsWon,
             topDealsLost,
             periodName: selectedPeriod?.period_name ?? "",
+            coachingRepRows: teamRepRows,
+            coachingPeriodStart: selectedPeriod?.period_start ?? "",
+            coachingPeriodEnd: selectedPeriod?.period_end ?? "",
             pipelineHygiene: {
               coverageRows: coverageRowsFinal,
               assessmentRows: assessmentRowsFinal,
