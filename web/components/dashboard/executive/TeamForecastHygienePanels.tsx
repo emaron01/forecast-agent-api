@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer } from "recharts";
 import type { RepManagerRepRow } from "../../../app/components/dashboard/executive/RepManagerComparisonPanel";
 
@@ -306,14 +306,23 @@ function buildManagerCoachingTeams(
   });
 }
 
-function paceRatioFromPeriod(periodStart?: string, periodEnd?: string): number {
-  if (!periodStart || !periodEnd) return 1;
-  const today = new Date();
-  const start = new Date(periodStart);
-  const end = new Date(periodEnd);
-  const totalDays = Math.max(1, (end.getTime() - start.getTime()) / 86400000);
-  const daysPassed = Math.max(0, Math.min(totalDays, (today.getTime() - start.getTime()) / 86400000));
-  return daysPassed / totalDays;
+/** Leader coaching card border/background from team coverage % (Team tab alignment). */
+function leaderCoverageBorderClass(teamCoveragePct: number): string {
+  if (teamCoveragePct >= 80) return "border-green-500/40 bg-green-500/5";
+  if (teamCoveragePct >= 50) return "border-yellow-500/40 bg-yellow-500/5";
+  return "border-red-500/40 bg-red-500/5";
+}
+
+function leaderCoveragePctTextClass(teamCoveragePct: number): string {
+  if (teamCoveragePct >= 80) return "text-green-600";
+  if (teamCoveragePct >= 50) return "text-yellow-600";
+  return "text-red-600";
+}
+
+function leaderCoverageBarClass(teamCoveragePct: number): string {
+  if (teamCoveragePct >= 80) return "bg-green-500";
+  if (teamCoveragePct >= 50) return "bg-yellow-500";
+  return "bg-red-500";
 }
 
 function ManagerCoachingLeaderCard(props: {
@@ -321,101 +330,90 @@ function ManagerCoachingLeaderCard(props: {
   cardKey: string;
   expanded: boolean;
   onToggle: () => void;
-  paceIcon: (r: RepCoachingData) => string;
-  attainmentPctDisplay: (a: number | null) => number | null;
-  attainmentTextColor: (pct: number) => string;
 }) {
-  const { team, cardKey, expanded, onToggle, paceIcon, attainmentPctDisplay, attainmentTextColor } = props;
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [wideEnoughForRadar, setWideEnoughForRadar] = useState(true);
+  const { team, cardKey, expanded, onToggle } = props;
+  const borderColor = leaderCoverageBorderClass(team.teamCoveragePct);
+  const coverageColor = leaderCoveragePctTextClass(team.teamCoveragePct);
+  const barColor = leaderCoverageBarClass(team.teamCoveragePct);
 
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width ?? 0;
-      setWideEnoughForRadar(w >= 400);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  const sortedReps = [...team.reps].sort((a, b) => (a.attainment ?? 0) - (b.attainment ?? 0));
+  const sortedReps = [...team.reps].sort((a, b) => (a.coverage_pct ?? 0) - (b.coverage_pct ?? 0));
 
   return (
-    <div ref={containerRef} className="min-w-0 w-full">
-      <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5">
+    <div className="min-w-0 w-full">
+      <div className={`rounded-xl border p-4 ${borderColor}`}>
         <div className="flex items-start justify-between">
           <div>
-            <div className="text-sm font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
-              {team.managerName}&apos;s Team
-            </div>
-            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+            <div className="font-semibold text-[color:var(--sf-text-primary)]">{team.managerName}</div>
+            <div className="text-xs text-[color:var(--sf-text-secondary)] mt-0.5">
               {team.repCount} reps · {team.reviewedCount} reviewed
             </div>
           </div>
           <div className="text-right">
-            <div className="text-2xl font-bold text-[color:var(--sf-text-primary)]">{team.teamCoveragePct}%</div>
+            <div className={`text-2xl font-bold ${coverageColor}`}>{team.teamCoveragePct}%</div>
             <div className="text-xs text-[color:var(--sf-text-secondary)]">coverage</div>
           </div>
         </div>
 
-        <div className={`mt-4 flex gap-4 items-start ${wideEnoughForRadar ? "flex-row" : "flex-col"}`}>
-          <div className="flex-1 space-y-2 text-xs min-w-0">
-            <div className="flex justify-between gap-2">
-              <span className="text-[color:var(--sf-text-secondary)]">MEDDPICC Avg</span>
-              <span className="font-semibold text-[color:var(--sf-text-primary)]">{team.teamMeddpiccAvg.toFixed(1)}</span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-[color:var(--sf-text-secondary)]">Velocity Δ</span>
-              <span
-                className={`font-semibold ${
-                  team.teamDelta > 0 ? "text-green-400" : "text-[color:var(--sf-text-secondary)]"
-                }`}
-              >
-                {team.teamDelta >= 0 ? "+" : ""}
-                {team.teamDelta.toFixed(1)}
-              </span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-[color:var(--sf-text-secondary)]">Flat deals</span>
-              <span className="font-semibold text-[color:var(--sf-text-primary)]">{team.teamFlat}</span>
-            </div>
-            <div className="mt-2">
-              <span className="text-[color:var(--sf-text-secondary)]">Weakest: </span>
-              {team.teamWeakest.length > 0 ? (
-                team.teamWeakest.map((cat) => (
-                  <span
-                    key={cat}
-                    className="ml-1 inline-block rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs text-red-400"
-                  >
-                    {cat}
-                  </span>
-                ))
-              ) : (
-                <span className="text-[color:var(--sf-text-secondary)]">—</span>
-              )}
+        <div className="mt-3 h-2 rounded-full bg-[color:var(--sf-surface-alt)]">
+          <div
+            className={`h-2 rounded-full transition-all ${barColor}`}
+            style={{ width: `${Math.min(100, team.teamCoveragePct)}%` }}
+          />
+        </div>
+
+        <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+          <div>
+            <div className="text-[color:var(--sf-text-secondary)]">MEDDPICC Avg</div>
+            <div className="font-semibold text-[color:var(--sf-text-primary)]">{team.teamMeddpiccAvg.toFixed(1)}</div>
+          </div>
+          <div>
+            <div className="text-[color:var(--sf-text-secondary)]">Velocity Δ</div>
+            <div
+              className={`font-semibold ${
+                team.teamDelta > 0 ? "text-green-400" : "text-[color:var(--sf-text-secondary)]"
+              }`}
+            >
+              {team.teamDelta >= 0 ? "+" : ""}
+              {team.teamDelta.toFixed(1)}
             </div>
           </div>
-
-          {wideEnoughForRadar ? (
-            <div className="w-full sm:w-[180px] shrink-0 mx-auto sm:mx-0">
-              <ResponsiveContainer width="100%" height={180}>
-                <RadarChart data={team.teamRadarData}>
-                  <PolarGrid stroke="var(--sf-border)" />
-                  <PolarAngleAxis dataKey="category" tick={{ fill: "var(--sf-text-secondary)", fontSize: 9 }} />
-                  <PolarRadiusAxis domain={[0, 3]} tick={false} axisLine={false} />
-                  <Radar name="Team Avg" dataKey="value" stroke="#00BCD4" fill="#00BCD4" fillOpacity={0.2} />
-                </RadarChart>
-              </ResponsiveContainer>
-            </div>
-          ) : null}
+          <div>
+            <div className="text-[color:var(--sf-text-secondary)]">Flat deals</div>
+            <div className="font-semibold text-[color:var(--sf-text-primary)]">{team.teamFlat}</div>
+          </div>
         </div>
+
+        {team.teamMeddpiccAvg > 0 && (
+          <div className="mt-3">
+            <ResponsiveContainer width="100%" height={120}>
+              <RadarChart data={team.teamRadarData}>
+                <PolarGrid stroke="var(--sf-border)" />
+                <PolarAngleAxis dataKey="category" tick={{ fill: "var(--sf-text-secondary)", fontSize: 8 }} />
+                <PolarRadiusAxis domain={[0, 3]} tick={false} axisLine={false} />
+                <Radar dataKey="value" stroke="#00BCD4" fill="#00BCD4" fillOpacity={0.2} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {team.teamWeakest.length > 0 && (
+          <div className="mt-2">
+            <span className="text-xs text-[color:var(--sf-text-secondary)]">Weakest: </span>
+            {team.teamWeakest.map((cat) => (
+              <span
+                key={cat}
+                className="ml-1 rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs text-white"
+              >
+                {cat}
+              </span>
+            ))}
+          </div>
+        )}
 
         <button
           type="button"
           onClick={onToggle}
-          className="mt-4 w-full text-left text-xs text-[color:var(--sf-accent-primary)] hover:underline"
+          className="mt-3 text-xs text-[color:var(--sf-accent-primary)] hover:underline"
         >
           {expanded ? "▲ Hide reps" : "▼ See reps"}
         </button>
@@ -423,20 +421,11 @@ function ManagerCoachingLeaderCard(props: {
 
       {expanded && (
         <div className="mt-2 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] divide-y divide-[color:var(--sf-border)]">
-          {sortedReps.map((rep) => {
-            const pct = attainmentPctDisplay(rep.attainment) ?? 0;
-            return (
-              <div key={`${cardKey}-${rep.rep_id}`} className="px-4 py-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-[color:var(--sf-text-primary)]">
-                    {paceIcon(rep)} {rep.rep_name}
-                  </span>
-                  <span className={`text-sm font-bold ${attainmentTextColor(pct)}`}>
-                    {attainmentPctDisplay(rep.attainment) != null ? `${attainmentPctDisplay(rep.attainment)}%` : "—"}{" "}
-                    attainment
-                  </span>
-                </div>
-                <div className="mt-1 flex flex-wrap gap-4 text-xs text-[color:var(--sf-text-secondary)]">
+          {sortedReps.map((rep) => (
+            <div key={`${cardKey}-${rep.rep_id}`} className="flex items-start justify-between px-4 py-3">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-[color:var(--sf-text-primary)]">{rep.rep_name}</div>
+                <div className="mt-1 flex flex-wrap gap-3 text-xs text-[color:var(--sf-text-secondary)]">
                   <span>
                     Coverage:{" "}
                     <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{rep.coverage_pct}%</span>
@@ -462,11 +451,11 @@ function ManagerCoachingLeaderCard(props: {
                   </span>
                 </div>
                 {rep.weakest_categories.length > 0 && (
-                  <div className="mt-1.5">
+                  <div className="mt-1.5 flex flex-wrap gap-1">
                     {rep.weakest_categories.map((cat) => (
                       <span
                         key={cat}
-                        className="mr-1 inline-block rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs text-red-400"
+                        className="rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs text-white"
                       >
                         {cat}
                       </span>
@@ -474,8 +463,12 @@ function ManagerCoachingLeaderCard(props: {
                   </div>
                 )}
               </div>
-            );
-          })}
+              <div className="text-right shrink-0 ml-4">
+                <div className="text-sm font-bold text-[color:var(--sf-text-primary)]">{rep.coverage_pct}%</div>
+                <div className="text-xs text-[color:var(--sf-text-secondary)]">coverage</div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -491,7 +484,7 @@ export function TeamForecastHygienePanels(props: {
   coachingPeriodStart?: string;
   coachingPeriodEnd?: string;
 }) {
-  const { pipelineHygiene: h, periodName, coachingRepRows, coachingPeriodStart, coachingPeriodEnd } = props;
+  const { pipelineHygiene: h, periodName, coachingRepRows } = props;
   const sectionClass = props.sectionClassName ?? "mt-4 space-y-4";
   const [showDetail, setShowDetail] = useState(false);
 
@@ -597,27 +590,6 @@ export function TeamForecastHygienePanels(props: {
     });
   }
 
-  const paceRatio = paceRatioFromPeriod(coachingPeriodStart, coachingPeriodEnd);
-
-  /** Attainment from coaching rows is 0–1; display as 0–100 with one decimal. */
-  const attainmentPctDisplay = (attainment: number | null) =>
-    attainment != null && Number.isFinite(attainment) ? Math.round(attainment * 1000) / 10 : null;
-
-  const paceIcon = (rep: RepCoachingData) => {
-    const quota = rep.quota ?? 0;
-    const won = rep.won_amount ?? 0;
-    const expectedAtPace = quota * paceRatio;
-    const paceScore = quota > 0 ? won / expectedAtPace : null;
-    if (paceScore == null || !Number.isFinite(paceScore)) return "·";
-    if (paceScore >= 0.9) return "✅";
-    if (paceScore >= 0.7) return "⚠️";
-    return "🔴";
-  };
-
-  /** pct is 0–100 (display scale). */
-  const attainmentTextColor = (pct: number) =>
-    pct >= 70 ? "text-green-400" : pct >= 50 ? "text-yellow-400" : "text-red-400";
-
   return (
     <section className={sectionClass}>
       <header>
@@ -672,7 +644,7 @@ export function TeamForecastHygienePanels(props: {
       </div>
 
       {/* Manager leader cards + expandable rep rows (Team tab pattern) */}
-      <div className="mt-6 space-y-4">
+      <div className="mt-6 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
         {managerCoachingTeams.map((team) => {
           const cardKey = `mgr:${team.managerId}`;
           return (
@@ -682,9 +654,6 @@ export function TeamForecastHygienePanels(props: {
               team={team}
               expanded={expandedManagerKeys.has(cardKey)}
               onToggle={() => toggleManagerExpand(cardKey)}
-              paceIcon={paceIcon}
-              attainmentPctDisplay={attainmentPctDisplay}
-              attainmentTextColor={attainmentTextColor}
             />
           );
         })}
