@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import { sha256HexUtf8 } from "../../../lib/payloadSha256";
 
 export type RepCoachingBriefProps = {
+  orgId: number;
   repName: string;
   weakestDeals: {
     name: string;
@@ -28,17 +30,55 @@ export type RepCoachingBriefProps = {
 };
 
 export function RepCoachingBriefClient(props: RepCoachingBriefProps) {
-  const { repName, weakestDeals, categoryAverages, fiscalYear, quotaPeriodId } = props;
+  const { orgId, repName, weakestDeals, categoryAverages, fiscalYear, quotaPeriodId } = props;
   const [briefText, setBriefText] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  const [briefPayloadSha, setBriefPayloadSha] = useState<string>("");
   const [dataKey, setDataKey] = useState<string>("");
   const [stale, setStale] = useState(false);
   const [copied, setCopied] = useState(false);
+  /** Footer line: cache fresh / expired / live generation time */
+  const [statusFooter, setStatusFooter] = useState<string | null>(null);
+
+  const payloadKey = useMemo(
+    () =>
+      JSON.stringify({
+        quotaPeriodId: props.quotaPeriodId,
+        fiscalYear: props.fiscalYear,
+        repName: props.repName,
+      }),
+    [props.quotaPeriodId, props.fiscalYear, props.repName]
+  );
+
+  const checkCache = useCallback(async () => {
+    try {
+      const sha = await sha256HexUtf8(payloadKey);
+      setBriefPayloadSha(sha);
+      const res = await fetch(
+        `/api/ai-takeaway-cache?org_id=${orgId}&surface=${encodeURIComponent("rep_coaching_brief")}&payload_sha=${encodeURIComponent(sha)}`
+      );
+      const j = await res.json();
+      if (j?.ok && j?.summary) {
+        setBriefText(String(j.summary));
+        setStatusFooter(j.is_fresh ? "Cached" : "Last generated over 24 hours ago");
+        setDataKey(`${fiscalYear}-${quotaPeriodId}`);
+      }
+    } catch {
+      // ignore
+    }
+  }, [payloadKey, orgId, fiscalYear, quotaPeriodId]);
+
+  useEffect(() => {
+    if (briefText) return;
+    if (!quotaPeriodId) return;
+    void checkCache();
+  }, [payloadKey, briefText, quotaPeriodId, checkCache]);
 
   useEffect(() => {
     const nextKey = `${fiscalYear}-${quotaPeriodId}`;
-    if (briefText && nextKey !== dataKey) setStale(true);
+    if (briefText && dataKey && nextKey !== dataKey) {
+      setStale(true);
+    }
   }, [fiscalYear, quotaPeriodId, briefText, dataKey]);
 
   async function generateBrief() {
@@ -65,11 +105,36 @@ export function RepCoachingBriefClient(props: RepCoachingBriefProps) {
         body: JSON.stringify({ payload }),
       });
       const data = await response.json();
-      setBriefText(data.text || "Unable to generate brief.");
-      setGeneratedAt(new Date().toLocaleTimeString());
-      setDataKey(`${fiscalYear}-${quotaPeriodId}`);
+      const text = data.text || "Unable to generate brief.";
+      setBriefText(text);
+      if (
+        response.ok &&
+        orgId &&
+        text &&
+        !String(text).startsWith("Unable to generate") &&
+        !String(text).startsWith("Error:")
+      ) {
+        setStatusFooter(`Generated at ${new Date().toLocaleTimeString()}`);
+        setDataKey(`${fiscalYear}-${quotaPeriodId}`);
+        const sha = await sha256HexUtf8(payloadKey);
+        setBriefPayloadSha(sha);
+        await fetch("/api/ai-takeaway-cache", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            org_id: orgId,
+            surface: "rep_coaching_brief",
+            payload_sha: sha,
+            summary: text,
+            extended: null,
+          }),
+        });
+      } else {
+        setStatusFooter(null);
+      }
     } catch {
       setBriefText("Unable to generate brief.");
+      setStatusFooter(null);
     } finally {
       setLoading(false);
     }
@@ -133,8 +198,8 @@ export function RepCoachingBriefClient(props: RepCoachingBriefProps) {
         </div>
       </div>
 
-      {stale ? (
-        <div className="mt-3 rounded-md border border-[#F1C40F]/50 bg-[#F1C40F]/12 px-3 py-2 text-xs font-semibold text-[#F1C40F]">
+      {stale && briefText ? (
+        <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           Quarter changed — refresh for updated coaching
         </div>
       ) : null}
@@ -155,8 +220,8 @@ export function RepCoachingBriefClient(props: RepCoachingBriefProps) {
         </p>
       )}
 
-      {generatedAt && briefText ? (
-        <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">Generated at {generatedAt}</div>
+      {statusFooter && briefText ? (
+        <div className="mt-3 text-xs text-[color:var(--sf-text-secondary)]">{statusFooter}</div>
       ) : null}
     </section>
   );

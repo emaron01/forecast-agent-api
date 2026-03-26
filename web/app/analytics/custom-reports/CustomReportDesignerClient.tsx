@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -435,18 +435,14 @@ function hasAnyReportData(r: RepRow | null | undefined) {
   return false;
 }
 
-function rowsEquivalentForMetrics(metricList: MetricKey[], a: RepRow, b: RepRow) {
-  for (const k of metricList) {
-    if (renderMetricValue(k, a) !== renderMetricValue(k, b)) return false;
-  }
-  return true;
-}
-
 /** Rollup / aggregate labels — exclude from bar/line/radar (individual REPs only). */
 function isRollupRepNameForChart(repName: string | undefined) {
   const n = String(repName || "");
   return (
-    n.startsWith("Executive Total:") || n.startsWith("Manager Total:") || n.startsWith("Team Total:")
+    n.startsWith("Executive Total:") ||
+    n.startsWith("Manager Total:") ||
+    n.startsWith("Team Total") ||
+    n === "Team Total"
   );
 }
 
@@ -499,69 +495,6 @@ export function CustomReportDesignerClient(props: {
   const repDirectory = props.repDirectory || [];
   const saved = props.savedReports || [];
 
-  const repNameById = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const r of repDirectory) {
-      const id = String(r.id);
-      const nm = String((r as any).name || "").trim() || `Rep ${id}`;
-      m.set(id, nm);
-    }
-    return m;
-  }, [repDirectory]);
-
-  const managerIdById = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const r of repDirectory) m.set(String(r.id), r.manager_rep_id == null ? "" : String(r.manager_rep_id));
-    return m;
-  }, [repDirectory]);
-
-  const roleById = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const r of repDirectory) m.set(String(r.id), String(r.role || "").trim());
-    return m;
-  }, [repDirectory]);
-
-  function roleBucket(role: string) {
-    const r = String(role || "").trim();
-    if (!r) return "";
-    if (r.includes("EXEC_MANAGER")) return "EXEC_MANAGER";
-    if (r.includes("MANAGER")) return "MANAGER";
-    if (r.includes("REP")) return "REP";
-    return r;
-  }
-
-  const roleBucketById = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const [id, role] of roleById.entries()) m.set(id, roleBucket(role));
-    return m;
-  }, [roleById]);
-
-  const directReportCount = useMemo(() => {
-    const c = new Map<string, number>();
-    for (const r of repDirectory) {
-      const mid = r.manager_rep_id == null ? "" : String(r.manager_rep_id);
-      if (!mid) continue;
-      c.set(mid, (c.get(mid) || 0) + 1);
-    }
-    return c;
-  }, [repDirectory]);
-
-  const managerCandidateIds = useMemo(() => {
-    const out: string[] = [];
-    for (const [id, n] of directReportCount.entries()) {
-      const bucket = roleBucketById.get(String(id)) || "";
-      if (n > 0 && bucket === "MANAGER") out.push(String(id));
-    }
-    return out;
-  }, [directReportCount, roleBucketById]);
-
-  const executiveIds = useMemo(() => {
-    // Exec = manager candidate with no manager_rep_id.
-    return managerCandidateIds
-      .filter((id) => !(managerIdById.get(String(id)) || ""))
-      .sort((a, b) => (repNameById.get(a) || a).localeCompare(repNameById.get(b) || b));
-  }, [managerCandidateIds, managerIdById, repNameById]);
-
   const [selectedRepIds, setSelectedRepIds] = useState<Set<string>>(() => new Set());
   const [selectedMetrics, setSelectedMetrics] = useState<Set<MetricKey>>(
     () => new Set(["won_amount", "attainment", "active_amount", "avg_health_all", "win_rate", "avg_days_active"])
@@ -576,46 +509,46 @@ export function CustomReportDesignerClient(props: {
   const [status, setStatus] = useState<string>("");
   const [chartType, setChartType] = useState<ChartType>("table");
 
-  function execIdForRep(repId: string) {
-    let cur = String(repId || "");
-    const seen = new Set<string>();
-    while (cur && !seen.has(cur)) {
-      seen.add(cur);
-      const mid = managerIdById.get(cur) || "";
-      if (!mid) {
-        // cur is top-most ancestor
-        return cur;
-      }
-      cur = mid;
-    }
-    return "";
-  }
-
-  function managerIdForRep(repId: string) {
-    return managerIdById.get(String(repId)) || "";
-  }
-
   const selectedReps = useMemo(() => {
-    const ids = selectedRepIds;
-    const base = ids.size ? reps.filter((r) => ids.has(String(r.rep_id))) : reps.slice(0, 10);
-    return base.slice().sort((a, b) => (b.won_amount - a.won_amount) || a.rep_name.localeCompare(b.rep_name));
+    if (!selectedRepIds.size) return [] as RepRow[];
+    return reps
+      .filter((r) => selectedRepIds.has(String(r.rep_id)))
+      .slice()
+      .sort((a, b) => b.won_amount - a.won_amount || a.rep_name.localeCompare(b.rep_name));
   }, [reps, selectedRepIds]);
 
-  const selectedTeamsLabel = useMemo(() => {
-    const execSet = new Set<string>();
-    const mgrSet = new Set<string>();
-    for (const r of selectedReps) {
-      const eid = execIdForRep(String(r.rep_id));
-      const mid = managerIdForRep(String(r.rep_id));
-      if (eid) execSet.add(eid);
-      if (mid) mgrSet.add(mid);
+  const execHeaderName = useMemo(() => {
+    const exec = repDirectory.find((r) => String(r.role || "").trim() === "EXEC_MANAGER");
+    if (exec) {
+      const nm = String(exec.name || "").trim();
+      return nm || `Executive ${exec.id}`;
     }
-    const execNames = Array.from(execSet.values()).map((id) => repNameById.get(id) || id);
-    const mgrNames = Array.from(mgrSet.values()).map((id) => repNameById.get(id) || id);
-    const execLabel = execNames.length === 1 ? execNames[0] : execNames.length ? "Multiple" : "—";
-    const mgrLabel = mgrNames.length === 1 ? mgrNames[0] : mgrNames.length ? "Multiple" : "—";
-    return { execLabel, mgrLabel };
-  }, [selectedReps, repNameById, executiveIds, managerIdById]);
+    return props.periodLabel;
+  }, [repDirectory, props.periodLabel]);
+
+  const teamTotalRow = useMemo(() => {
+    if (!selectedReps.length) return null;
+    return rollupRepRows({
+      label: "Team Total",
+      execName: execHeaderName,
+      managerName: "",
+      rows: selectedReps,
+    });
+  }, [selectedReps, execHeaderName]);
+
+  const managerGroups = useMemo(() => {
+    const managers = repDirectory.filter((r) => r.role === "MANAGER" || r.role === "EXEC_MANAGER");
+    const dirReps = repDirectory.filter((r) => r.role === "REP");
+    const groups = managers
+      .map((mgr) => ({
+        manager: mgr,
+        reps: dirReps.filter((r) => r.manager_rep_id === mgr.id),
+      }))
+      .filter((g) => g.reps.length > 0);
+    const managedRepIds = new Set(groups.flatMap((g) => g.reps.map((r) => r.id)));
+    const unassigned = dirReps.filter((r) => !managedRepIds.has(r.id));
+    return { groups, unassigned };
+  }, [repDirectory]);
 
   const metricsAlpha = useMemo(() => METRICS.slice().sort((a, b) => a.label.localeCompare(b.label)), []);
   const labelForMetric = useMemo(() => {
@@ -678,26 +611,6 @@ export function CustomReportDesignerClient(props: {
       else next.add(id);
       return next;
     });
-  }
-
-  function setRepIdsChecked(ids: string[], checked: boolean) {
-    const deduped = Array.from(new Set(ids.filter(Boolean).map(String)));
-    if (!deduped.length) return;
-    setSelectedRepIds((prev) => {
-      const next = new Set(prev);
-      for (const id of deduped) {
-        if (checked) next.add(id);
-        else next.delete(id);
-      }
-      return next;
-    });
-  }
-
-  function areAllRepIdsChecked(ids: string[]) {
-    const deduped = Array.from(new Set(ids.filter(Boolean).map(String)));
-    if (!deduped.length) return false;
-    for (const id of deduped) if (!selectedRepIds.has(id)) return false;
-    return true;
   }
 
   function toggleMetric(k: MetricKey) {
@@ -806,183 +719,37 @@ export function CustomReportDesignerClient(props: {
   }
 
   const exportRows = useMemo(() => {
-    return selectedReps.map((r) => {
+    const teamStr = `Executive: ${execHeaderName}`;
+    const rows: Record<string, any>[] = selectedReps.map((r) => {
       const out: Record<string, any> = {
         rep: r.rep_name,
-        team: `Executive: ${selectedTeamsLabel.execLabel} | Manager: ${selectedTeamsLabel.mgrLabel}`,
+        team: teamStr,
       };
       for (const k of metricList) {
         out[labelForMetric.get(k) || k] = renderMetricValue(k, r);
       }
       return out;
     });
-  }, [metricList, selectedReps, selectedTeamsLabel, labelForMetric]);
-
-  const groupedSelected = useMemo(() => {
-    const byKey = new Map<string, { execId: string; execName: string; mgrId: string; mgrName: string; reps: RepRow[] }>();
-    for (const r of selectedReps) {
-      const eid = execIdForRep(String(r.rep_id)) || "";
-      const mid = managerIdForRep(String(r.rep_id)) || "";
-      const execName = eid ? repNameById.get(eid) || `Executive ${eid}` : "(Unassigned)";
-      const mgrName = mid ? repNameById.get(mid) || r.manager_name || `Manager ${mid}` : "(Unassigned)";
-      const key = `${eid}|${mid}`;
-      if (!byKey.has(key)) byKey.set(key, { execId: eid, execName, mgrId: mid, mgrName, reps: [] });
-      byKey.get(key)!.reps.push(r);
-    }
-    const groups = Array.from(byKey.values());
-    groups.sort((a, b) => a.execName.localeCompare(b.execName) || a.mgrName.localeCompare(b.mgrName));
-    for (const g of groups) g.reps.sort((a, b) => b.won_amount - a.won_amount || a.rep_name.localeCompare(b.rep_name));
-    return groups;
-  }, [selectedReps, repNameById, managerIdById]);
-
-  const rollupsByExecId = useMemo(() => {
-    const m = new Map<string, RepRow>();
-    const byExec = new Map<string, RepRow[]>();
-    for (const g of groupedSelected) {
-      const arr = byExec.get(g.execId) || [];
-      arr.push(...g.reps);
-      byExec.set(g.execId, arr);
-    }
-    for (const [execId, rows] of byExec.entries()) {
-      const execName = execId ? repNameById.get(execId) || `Executive ${execId}` : "(Unassigned)";
-      m.set(execId, rollupRepRows({ label: `Executive Total: ${execName}`, execName, managerName: "", rows }));
-    }
-    return m;
-  }, [groupedSelected, repNameById]);
-
-  const rollupsByExecMgrKey = useMemo(() => {
-    const m = new Map<string, RepRow>();
-    for (const g of groupedSelected) {
-      const key = `${g.execId}|${g.mgrId}`;
-      m.set(key, rollupRepRows({ label: `Manager Total: ${g.mgrName}`, execName: g.execName, managerName: g.mgrName, rows: g.reps }));
-    }
-    return m;
-  }, [groupedSelected]);
-
-  const managerIdsWithGroups = useMemo(() => {
-    const s = new Set<string>();
-    for (const g of groupedSelected) {
-      const mid = String(g.mgrId || "");
-      if (mid) s.add(mid);
-    }
-    return s;
-  }, [groupedSelected]);
-
-  const execOptions = useMemo(() => {
-    // Only show true EXEC_MANAGER reps at the top of the picker.
-    const ids = repDirectory
-      .filter((r) => roleBucketById.get(String(r.id)) === "EXEC_MANAGER")
-      .map((r) => String(r.id));
-    ids.sort((a, b) => (repNameById.get(a) || a).localeCompare(repNameById.get(b) || b));
-    return ids;
-  }, [repDirectory, repNameById, roleBucketById]);
-
-  type PickerManagerGroup = {
-    managerId: string;
-    managerName: string;
-    managerRow: RepRow | null;
-    members: RepRow[];
-  };
-
-  type PickerExecGroup = {
-    execId: string;
-    execName: string;
-    execRow: RepRow | null;
-    directMembers: RepRow[];
-    managers: PickerManagerGroup[];
-  };
-
-  const repGroupsForPicker = useMemo<PickerExecGroup[]>(() => {
-    const execGroups: PickerExecGroup[] = [];
-
-    const managerIds = repDirectory
-      .map((r) => String(r.id))
-      .filter((id) => roleBucketById.get(String(id)) === "MANAGER");
-
-    const execRoleIds = new Set(execOptions.map(String));
-
-    const execAncestorForNode = (nodeId: string) => {
-      let cur = String(nodeId || "");
-      const seen = new Set<string>();
-      while (cur && !seen.has(cur)) {
-        seen.add(cur);
-        const role = roleBucketById.get(String(cur)) || "";
-        if (role === "EXEC_MANAGER") return cur;
-        const mid = managerIdById.get(String(cur)) || "";
-        cur = mid ? String(mid) : "";
+    if (teamTotalRow && hasAnyReportData(teamTotalRow)) {
+      const totalOut: Record<string, any> = {
+        rep: teamTotalRow.rep_name,
+        team: teamStr,
+      };
+      for (const k of metricList) {
+        totalOut[labelForMetric.get(k) || k] = renderMetricValue(k, teamTotalRow);
       }
-      return "";
-    };
-
-    const repRowsOnly = reps.filter((r) => roleBucketById.get(String(r.rep_id)) === "REP");
-
-    for (const eid of execOptions) {
-      const execName = repNameById.get(eid) || `Executive ${eid}`;
-      const execRow = reps.find((r) => String(r.rep_id) === String(eid)) || null;
-
-      // Direct reps for this exec (rep.manager_rep_id points to this EXEC_MANAGER).
-      const directMembers = repRowsOnly
-        .filter((r) => String(managerIdById.get(String(r.rep_id))) === String(eid))
-        .slice()
-        .sort((a, b) => a.rep_name.localeCompare(b.rep_name));
-
-      // Managers that belong under this exec (manager role must exist).
-      const managersForExec = managerIds
-        .filter((mid) => execAncestorForNode(mid) === String(eid))
-        .slice()
-        .sort((a, b) => (repNameById.get(a) || a).localeCompare(repNameById.get(b) || b));
-
-      const managers: PickerManagerGroup[] = managersForExec
-        .map((mid) => {
-          const managerName = repNameById.get(String(mid)) || `Manager ${mid}`;
-          const managerRow = reps.find((r) => String(r.rep_id) === String(mid)) || null;
-          const members = repRowsOnly
-            .filter((r) => String(managerIdById.get(String(r.rep_id))) === String(mid))
-            .slice()
-            .sort((a, b) => a.rep_name.localeCompare(b.rep_name));
-          return { managerId: String(mid), managerName, managerRow, members };
-        })
-        .filter((g) => g.members.length);
-
-      // Ensure the exec group is shown only if there is at least one selectable REP underneath it.
-      const anyMembers = directMembers.length > 0 || managers.some((m) => m.members.length > 0);
-      if (!anyMembers) continue;
-
-      execGroups.push({ execId: eid, execName, execRow, directMembers, managers });
+      rows.push(totalOut);
     }
+    return rows;
+  }, [metricList, selectedReps, execHeaderName, teamTotalRow, labelForMetric]);
 
-    execGroups.sort((a, b) => a.execName.localeCompare(b.execName));
-    return execGroups;
-  }, [execOptions, managerIdById, repDirectory, repNameById, reps, roleBucketById]);
-
-  const repRowIdSet = useMemo(() => new Set(reps.map((r) => String(r.rep_id))), [reps]);
-
-  const allRepRoleIds = useMemo(() => {
-    const out: string[] = [];
-    for (const r of repDirectory) {
-      if (roleBucketById.get(String(r.id)) !== "REP") continue;
-      const id = String(r.id);
-      if (repRowIdSet.has(id)) out.push(id);
-    }
-    return out;
-  }, [repDirectory, roleBucketById, repRowIdSet]);
-
-  const myTeamRepIds = useMemo(() => {
-    const execId = props.currentExecutiveRepId;
-    if (!execId) return [] as string[];
-    const out: string[] = [];
-    for (const r of repDirectory) {
-      if (roleBucketById.get(String(r.id)) !== "REP") continue;
-      const mid = r.manager_rep_id == null ? "" : String(r.manager_rep_id);
-      if (mid !== String(execId)) continue;
-      const id = String(r.id);
-      if (repRowIdSet.has(id)) out.push(id);
-    }
-    return out;
-  }, [repDirectory, roleBucketById, repRowIdSet, props.currentExecutiveRepId]);
+  const allRepDirectoryRepIds = useMemo(
+    () => repDirectory.filter((r) => r.role === "REP").map((r) => String(r.id)),
+    [repDirectory]
+  );
 
   function selectAllReps() {
-    setSelectedRepIds(new Set(allRepRoleIds));
+    setSelectedRepIds(new Set(allRepDirectoryRepIds));
   }
 
   function clearAllReps() {
@@ -990,8 +757,36 @@ export function CustomReportDesignerClient(props: {
   }
 
   function selectMyTeam() {
-    setSelectedRepIds(new Set(myTeamRepIds));
+    selectAllReps();
   }
+
+  const toggleManagerReps = useCallback(
+    (managerId: number) => {
+      const group = managerGroups.groups.find((g) => g.manager.id === managerId);
+      if (!group) return;
+      const repIds = group.reps.map((r) => String(r.id));
+      setSelectedRepIds((prev) => {
+        const allSelected = repIds.length > 0 && repIds.every((id) => prev.has(id));
+        const next = new Set(prev);
+        if (allSelected) repIds.forEach((id) => next.delete(id));
+        else repIds.forEach((id) => next.add(id));
+        return next;
+      });
+    },
+    [managerGroups.groups]
+  );
+
+  const toggleUnassignedReps = useCallback(() => {
+    const repIds = managerGroups.unassigned.map((r) => String(r.id));
+    if (!repIds.length) return;
+    setSelectedRepIds((prev) => {
+      const allSelected = repIds.every((id) => prev.has(id));
+      const next = new Set(prev);
+      if (allSelected) repIds.forEach((id) => next.delete(id));
+      else repIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }, [managerGroups.unassigned]);
 
   const outlineQuickBtn =
     "rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface)]";
@@ -1106,108 +901,90 @@ export function CustomReportDesignerClient(props: {
           <button type="button" onClick={clearAllReps} className={outlineQuickBtn}>
             Clear
           </button>
-          <button type="button" onClick={selectMyTeam} className={outlineQuickBtn} disabled={!myTeamRepIds.length}>
+          <button type="button" onClick={selectMyTeam} className={outlineQuickBtn}>
             My Team
           </button>
         </div>
-        <div className="mt-2 max-h-[420px] overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-          <div className="grid grid-cols-1 gap-2 p-2 sm:grid-cols-2 lg:grid-cols-3">
-            {repGroupsForPicker.map((eg) => {
-              const execTeamIds = [
-                ...eg.directMembers.map((r) => String(r.rep_id)),
-                ...eg.managers.flatMap((m) => m.members.map((r) => String(r.rep_id))),
-              ];
-              const execChecked = areAllRepIdsChecked(execTeamIds);
-
-              return (
-                <div key={`exec:${eg.execId}`} className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-                  <div className="flex items-center gap-3 border-b border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2">
-                    <label className="flex min-w-0 items-center gap-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">
-                      <input
-                        type="checkbox"
-                        checked={execChecked}
-                        onChange={() => setRepIdsChecked(execTeamIds, !execChecked)}
-                        disabled={!execTeamIds.length}
-                      />
-                      <span className="truncate">Executive: {eg.execName}</span>
-                    </label>
-                  </div>
-
-                  <div className="grid gap-2 p-2">
-                    {eg.directMembers.length ? (
-                      <div className="divide-y divide-[color:var(--sf-border)]">
-                        {eg.directMembers.map((r) => (
-                          <div key={`rep:${eg.execId}:direct:${r.rep_id}`} className="flex items-center gap-3 px-3 py-2 pl-4">
-                            <label className="flex min-w-0 items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
-                              <input
-                                type="checkbox"
-                                checked={selectedRepIds.has(String(r.rep_id))}
-                                onChange={() => toggleRep(String(r.rep_id))}
-                              />
-                              <span className="truncate">{r.rep_name}</span>
-                            </label>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-
-                    {eg.managers.map((mg) => {
-                      const managerTeamIds = Array.from(new Set(mg.members.map((r) => String(r.rep_id))));
-                      const managerChecked = areAllRepIdsChecked(managerTeamIds);
-
-                      if (!mg.members.length) return null;
-
-                      return (
-                        <div
-                          key={`mgr:${eg.execId}:${mg.managerId}`}
-                          className="ml-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]"
-                        >
-                          <div className="flex items-center gap-3 border-b border-[color:var(--sf-border)] px-3 py-2">
-                            <label className="flex min-w-0 items-center gap-2 text-sm font-medium text-[color:var(--sf-text-primary)]">
-                              <input
-                                type="checkbox"
-                                checked={managerChecked}
-                                onChange={() => setRepIdsChecked(managerTeamIds, !managerChecked)}
-                                disabled={!managerTeamIds.length}
-                              />
-                              <span className="truncate">{`Manager: ${mg.managerName}`}</span>
-                            </label>
-                          </div>
-
-                          <div className="divide-y divide-[color:var(--sf-border)]">
-                            {mg.members.map((r) => (
-                              <div
-                                key={`rep:${eg.execId}:${mg.managerId}:${r.rep_id}`}
-                                className="flex items-center gap-3 px-3 py-2 pl-8"
-                              >
-                                <label className="flex min-w-0 items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedRepIds.has(String(r.rep_id))}
-                                    onChange={() => toggleRep(String(r.rep_id))}
-                                  />
-                                  <span className="truncate">{r.rep_name}</span>
-                                </label>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+        <div className="mt-2 max-h-[420px] overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
+          {managerGroups.groups.map((group) => {
+            const mgr = group.manager;
+            const repIds = group.reps.map((r) => String(r.id));
+            const allSelected = repIds.length > 0 && repIds.every((id) => selectedRepIds.has(id));
+            const someSelected = repIds.some((id) => selectedRepIds.has(id)) && !allSelected;
+            const box = allSelected ? "☑" : someSelected ? "⊟" : "☐";
+            return (
+              <div key={`mgr-grp:${mgr.id}`}>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className="text-xs font-semibold text-[color:var(--sf-text-secondary)] uppercase tracking-wide mt-3 mb-1 cursor-pointer hover:text-[color:var(--sf-text-primary)]"
+                  onClick={() => toggleManagerReps(mgr.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggleManagerReps(mgr.id);
+                    }
+                  }}
+                >
+                  {box} {mgr.name}
                 </div>
-              );
-            })}
-
-            {!repGroupsForPicker.length ? (
-              <div className="px-3 py-6 text-center text-sm text-[color:var(--sf-text-disabled)]">No reps found.</div>
-            ) : null}
-          </div>
+                {group.reps.map((rep) => (
+                  <label key={rep.id} className="ml-4 flex items-center gap-2 cursor-pointer py-0.5">
+                    <input
+                      type="checkbox"
+                      checked={selectedRepIds.has(String(rep.id))}
+                      onChange={() => toggleRep(String(rep.id))}
+                    />
+                    <span className="text-sm text-[color:var(--sf-text-primary)]">{rep.name}</span>
+                  </label>
+                ))}
+              </div>
+            );
+          })}
+          {managerGroups.unassigned.length ? (
+            <div className="mt-3">
+              {(() => {
+                const repIds = managerGroups.unassigned.map((r) => String(r.id));
+                const allSelected = repIds.every((id) => selectedRepIds.has(id));
+                const someSelected = repIds.some((id) => selectedRepIds.has(id)) && !allSelected;
+                const box = allSelected ? "☑" : someSelected ? "⊟" : "☐";
+                return (
+                  <>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      className="text-xs font-semibold text-[color:var(--sf-text-secondary)] uppercase tracking-wide mt-3 mb-1 cursor-pointer hover:text-[color:var(--sf-text-primary)]"
+                      onClick={() => toggleUnassignedReps()}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          toggleUnassignedReps();
+                        }
+                      }}
+                    >
+                      {box} Other
+                    </div>
+                    {managerGroups.unassigned.map((rep) => (
+                      <label key={rep.id} className="ml-4 flex items-center gap-2 cursor-pointer py-0.5">
+                        <input
+                          type="checkbox"
+                          checked={selectedRepIds.has(String(rep.id))}
+                          onChange={() => toggleRep(String(rep.id))}
+                        />
+                        <span className="text-sm text-[color:var(--sf-text-primary)]">{rep.name}</span>
+                      </label>
+                    ))}
+                  </>
+                );
+              })()}
+            </div>
+          ) : null}
+          {!managerGroups.groups.length && !managerGroups.unassigned.length ? (
+            <div className="px-3 py-6 text-center text-sm text-[color:var(--sf-text-disabled)]">No reps found.</div>
+          ) : null}
         </div>
-          <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
-            If you don’t select any reps, the preview defaults to the top 10 by Closed Won.
-          </div>
-        </div>
+        <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">Select reps to include in the preview and export.</div>
+      </div>
 
       <div className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
         <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Report fields</div>
@@ -1267,7 +1044,7 @@ export function CustomReportDesignerClient(props: {
         <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Preview</div>
         <div className="text-sm font-semibold text-center text-[color:var(--sf-text-secondary)]">{props.periodLabel}</div>
         <div className="text-sm font-semibold text-right text-[color:var(--sf-text-secondary)]">
-          Executive: <span className="font-mono">{selectedTeamsLabel.execLabel}</span> · Manager: <span className="font-mono">{selectedTeamsLabel.mgrLabel}</span>
+          Executive: <span className="font-mono">{execHeaderName}</span>
         </div>
       </div>
 
@@ -1407,107 +1184,29 @@ export function CustomReportDesignerClient(props: {
             </tr>
           </thead>
           <tbody>
-            {groupedSelected.map((g, idx) => {
-              const prevExecId = idx > 0 ? groupedSelected[idx - 1]?.execId : null;
-              const showExecSubtotal = idx === 0 || String(prevExecId) !== String(g.execId);
-              const execSubtotal = rollupsByExecId.get(g.execId) || null;
-              const mgrSubtotal = rollupsByExecMgrKey.get(`${g.execId}|${g.mgrId}`) || null;
-
-              const visibleReps = g.reps.filter((r) => {
-                // If a rep is also a manager elsewhere, don't show them under an "(Unassigned)" manager bucket.
-                // Their hierarchy is represented by a Manager Total section.
-                if (!String(g.mgrId || "") && managerIdsWithGroups.has(String(r.rep_id || ""))) return false;
-
-                // Hide a manager/executive "rep row" if it exactly duplicates the subtotal row for this section.
-                if (mgrSubtotal && String(g.mgrId || "") && String(r.rep_id || "") === String(g.mgrId || "")) {
-                  if (rowsEquivalentForMetrics(metricList, r, mgrSubtotal)) return false;
-                }
-                if (execSubtotal && showExecSubtotal && String(g.execId || "") && String(r.rep_id || "") === String(g.execId || "")) {
-                  if (rowsEquivalentForMetrics(metricList, r, execSubtotal)) return false;
-                }
-                return true;
-              });
-
-              const showExecRow = showExecSubtotal && !!execSubtotal && hasAnyReportData(execSubtotal);
-              const showMgrRow = !!mgrSubtotal && (visibleReps.length > 0 || hasAnyReportData(mgrSubtotal));
-
-              const execMgrIdsMatch =
-                String(g.execId || "").length > 0 &&
-                String(g.mgrId || "").length > 0 &&
-                String(g.execId) === String(g.mgrId);
-              const exNm = String(g.execName || "").trim();
-              const mgrNm = String(g.mgrName || "").trim();
-              const execMgrNamesMatch =
-                exNm.length > 0 &&
-                exNm === mgrNm &&
-                exNm !== "(Unassigned)";
-              const samePersonExecMgr =
-                showExecRow &&
-                showMgrRow &&
-                !!execSubtotal &&
-                !!mgrSubtotal &&
-                (execMgrIdsMatch || execMgrNamesMatch);
-              const teamTotalDisplayName = execMgrIdsMatch
-                ? String(repNameById.get(String(g.execId)) || g.execName || g.mgrName || "Team").trim()
-                : execMgrNamesMatch
-                  ? String(g.execName || "").trim()
-                  : "";
-
-              return (
-                <Fragment key={`grp:${g.execId}:${g.mgrId}`}>
-                  {samePersonExecMgr ? (
-                    <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
-                      <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                        Team Total: {teamTotalDisplayName}
-                      </td>
-                      {metricList.map((k) => (
-                        <td key={k} className="px-4 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                          {renderMetricCell(k, mgrSubtotal!)}
-                        </td>
-                      ))}
-                    </tr>
-                  ) : (
-                    <>
-                      {showExecRow ? (
-                        <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
-                          <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{execSubtotal!.rep_name}</td>
-                          {metricList.map((k) => (
-                            <td key={k} className="px-4 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                              {renderMetricCell(k, execSubtotal!)}
-                            </td>
-                          ))}
-                        </tr>
-                      ) : null}
-
-                      {showMgrRow ? (
-                        <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
-                          <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{mgrSubtotal!.rep_name}</td>
-                          {metricList.map((k) => (
-                            <td key={k} className="px-4 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                              {renderMetricCell(k, mgrSubtotal!)}
-                            </td>
-                          ))}
-                        </tr>
-                      ) : null}
-                    </>
-                  )}
-
-                  {visibleReps.map((r) => (
-                    <tr key={`rep:${g.execId}:${g.mgrId}:${r.rep_id}`} className="border-t border-[color:var(--sf-border)]">
-                      <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{r.rep_name}</td>
-                      {metricList.map((k) => (
-                        <td key={k} className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">
-                          {renderMetricCell(k, r)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </Fragment>
-              );
-            })}
+            {selectedReps.map((r) => (
+              <tr key={`rep:${r.rep_id}`} className="border-t border-[color:var(--sf-border)]">
+                <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{r.rep_name}</td>
+                {metricList.map((k) => (
+                  <td key={k} className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">
+                    {renderMetricCell(k, r)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            {teamTotalRow && hasAnyReportData(teamTotalRow) ? (
+              <tr className="border-t-2 border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{teamTotalRow.rep_name}</td>
+                {metricList.map((k) => (
+                  <td key={k} className="px-4 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                    {renderMetricCell(k, teamTotalRow)}
+                  </td>
+                ))}
+              </tr>
+            ) : null}
             {!selectedReps.length ? (
               <tr>
-                <td colSpan={1 + metricList.length} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                <td colSpan={1 + metricList.length} className="px-4 py-6 text-center text-sm text-[color:var(--sf-text-disabled)]">
                   No reps selected.
                 </td>
               </tr>

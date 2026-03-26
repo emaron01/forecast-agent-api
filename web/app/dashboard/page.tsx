@@ -249,6 +249,7 @@ export default async function DashboardPage({
 
           <div className="mt-6">
             <RepCoachingBriefClient
+              orgId={ctx.user.org_id}
               repName={repNameForBrief}
               weakestDeals={weakestDeals}
               categoryAverages={categoryAverages}
