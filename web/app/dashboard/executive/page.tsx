@@ -317,7 +317,6 @@ export default async function ExecutiveDashboardPage({
         WHERE oae.opportunity_id = opp.id
           AND oae.org_id = $1
           AND oae.total_score IS NOT NULL
-          AND oae.source = 'matthew'
      )
     WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
       AND r.id = ANY($4::bigint[])
@@ -381,7 +380,6 @@ export default async function ExecutiveDashboardPage({
           SELECT 1 FROM opportunity_audit_events oae
           WHERE oae.opportunity_id = opp.id AND oae.org_id = $1
             AND oae.total_score IS NOT NULL
-            AND oae.source = 'matthew'
         )
       `,
       [orgId, startIso, endIso, visibleRepIdsForQuery]
@@ -508,9 +506,7 @@ export default async function ExecutiveDashboardPage({
       FROM opportunity_audit_events
       WHERE opportunity_id = opp.id
         AND org_id = $1
-        AND event_type = 'score_save'
         AND total_score IS NOT NULL
-        AND source = 'matthew'
       ORDER BY ts ASC, id ASC
       LIMIT 1
     ) first_event ON true
@@ -519,9 +515,7 @@ export default async function ExecutiveDashboardPage({
       FROM opportunity_audit_events
       WHERE opportunity_id = opp.id
         AND org_id = $1
-        AND event_type = 'score_save'
         AND total_score IS NOT NULL
-        AND source = 'matthew'
       ORDER BY ts DESC, id DESC
       LIMIT 1
     ) last_event ON true
@@ -532,9 +526,7 @@ export default async function ExecutiveDashboardPage({
       AND EXISTS (
         SELECT 1 FROM opportunity_audit_events oae2
         WHERE oae2.opportunity_id = opp.id AND oae2.org_id = $1
-          AND oae2.event_type = 'score_save'
           AND oae2.total_score IS NOT NULL
-          AND oae2.source = 'matthew'
       )
     ORDER BY delta ASC NULLS LAST, rep_name ASC, opp_name ASC
       `,
@@ -680,7 +672,6 @@ export default async function ExecutiveDashboardPage({
       AND opp.rep_id = ANY($4::bigint[])
       AND opp.close_date >= $2::timestamptz
       AND opp.close_date < $3::timestamptz
-      AND oae.source = 'matthew'
     ORDER BY oae.opportunity_id, oae.ts ASC
       `,
       [orgId, startIso, endIso, visibleRepIdsForQuery]

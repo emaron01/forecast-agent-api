@@ -1,16 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import {
-  Legend,
-  PolarAngleAxis,
-  PolarGrid,
-  PolarRadiusAxis,
-  Radar,
-  RadarChart,
-  ResponsiveContainer,
-  Tooltip,
-} from "recharts";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer } from "recharts";
 import type { RepManagerRepRow } from "../../../app/components/dashboard/executive/RepManagerComparisonPanel";
 
 export type CoverageHygieneRow = {
@@ -76,17 +67,6 @@ const MEDDPICC_CATEGORIES = [
   { key: "budget", label: "Budget" },
 ] as const;
 
-const CHART_COLORS = [
-  "#00BCD4",
-  "#2ECC71",
-  "#F1C40F",
-  "#E74C3C",
-  "#9B59B6",
-  "#FF9800",
-  "#00BFA5",
-  "#FF5722",
-];
-
 function coveragePctTextClass(pct: number | null): string {
   if (pct == null) return "text-[color:var(--sf-text-primary)]";
   if (pct === 0) return "text-red-600";
@@ -110,14 +90,6 @@ function deltaTextClass(delta: number): string {
 function rollupRowLabel(repName: string, rollupCount: number): string {
   if (rollupCount <= 1) return "Team Total";
   return `${repName}'s Team`;
-}
-
-function fmtMoney(n: unknown) {
-  const v = Number(n || 0);
-  if (!Number.isFinite(v)) return "—";
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1000) return `$${(v / 1000).toFixed(0)}K`;
-  return `$${Math.round(v)}`;
 }
 
 function avgCoverage(rows: CoverageHygieneRow[]): number {
@@ -230,6 +202,110 @@ function teamAvgForCategory(
   return n ? sum / n : 0;
 }
 
+function weakestCategoryLabelsForRows(rows: AssessmentHygieneRow[]): string[] {
+  if (!rows.length) return [];
+  const avgs = MEDDPICC_CATEGORIES.map((c) => ({
+    label: c.label,
+    v: teamAvgForCategory(rows, c.key),
+  })).sort((a, b) => a.v - b.v);
+  return avgs.slice(0, 3).map((x) => x.label);
+}
+
+type ManagerCoachingTeam = {
+  managerId: string;
+  managerName: string;
+  reps: RepCoachingData[];
+  repCount: number;
+  reviewedCount: number;
+  teamCoveragePct: number;
+  teamMeddpiccAvg: number;
+  teamDelta: number;
+  teamFlat: number;
+  teamWeakest: string[];
+  teamRadarData: { category: string; value: number }[];
+};
+
+function aggregateManagerTeam(
+  managerId: string,
+  managerName: string,
+  reps: RepCoachingData[],
+  assessmentRepRows: AssessmentHygieneRow[]
+): ManagerCoachingTeam {
+  const repIdSet = new Set(reps.map((r) => r.rep_id));
+  const assessmentSlice = assessmentRepRows.filter((a) => repIdSet.has(String(a.rep_id)));
+  const totalOpps = reps.reduce((s, r) => s + r.total_opps, 0);
+  const reviewedCount = reps.reduce((s, r) => s + r.reviewed_opps, 0);
+  const teamCoveragePct = totalOpps > 0 ? Math.round((reviewedCount / totalOpps) * 100) : 0;
+  const n = reps.length || 1;
+  const teamMeddpiccAvg = reps.length ? reps.reduce((s, r) => s + r.avg_meddpicc, 0) / n : 0;
+  const teamDelta = reps.length ? reps.reduce((s, r) => s + r.avg_delta, 0) / n : 0;
+  const teamFlat = reps.reduce((s, r) => s + r.deals_flat, 0);
+  const teamWeakest = weakestCategoryLabelsForRows(assessmentSlice);
+  const teamRadarData = MEDDPICC_CATEGORIES.map((c) => ({
+    category: c.label,
+    value: teamAvgForCategory(assessmentSlice, c.key),
+  }));
+  return {
+    managerId,
+    managerName,
+    reps,
+    repCount: reps.length,
+    reviewedCount,
+    teamCoveragePct,
+    teamMeddpiccAvg,
+    teamDelta,
+    teamFlat,
+    teamWeakest,
+    teamRadarData,
+  };
+}
+
+function buildManagerCoachingTeams(
+  repCoaching: RepCoachingData[],
+  coachingRepRows: RepManagerRepRow[] | null | undefined,
+  assessmentRepRows: AssessmentHygieneRow[]
+): ManagerCoachingTeam[] {
+  const crRows = coachingRepRows ?? [];
+  if (repCoaching.length === 0) return [];
+
+  if (crRows.length === 0) {
+    return [aggregateManagerTeam("team-all", "Team", [...repCoaching], assessmentRepRows)];
+  }
+
+  const crByRep = new Map(crRows.map((r) => [String(r.rep_id), r]));
+  const byMid = new Map<string, RepCoachingData[]>();
+  for (const rep of repCoaching) {
+    const cr = crByRep.get(rep.rep_id);
+    const mid = cr ? String(cr.manager_id ?? "") : "__unassigned__";
+    if (!byMid.has(mid)) byMid.set(mid, []);
+    byMid.get(mid)!.push(rep);
+  }
+
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  for (const r of crRows) {
+    const id = String(r.manager_id ?? "");
+    if (!seen.has(id) && byMid.has(id)) {
+      ordered.push(id);
+      seen.add(id);
+    }
+  }
+  for (const id of byMid.keys()) {
+    if (!seen.has(id)) {
+      ordered.push(id);
+      seen.add(id);
+    }
+  }
+
+  return ordered.map((managerId) => {
+    const reps = byMid.get(managerId) ?? [];
+    const mgrName =
+      crRows.find((r) => String(r.manager_id ?? "") === managerId)?.manager_name?.trim() ||
+      (managerId === "__unassigned__" ? "(Unassigned)" : `Manager ${managerId}`);
+    return aggregateManagerTeam(managerId, mgrName, reps, assessmentRepRows);
+  });
+}
+
 function paceRatioFromPeriod(periodStart?: string, periodEnd?: string): number {
   if (!periodStart || !periodEnd) return 1;
   const today = new Date();
@@ -238,6 +314,172 @@ function paceRatioFromPeriod(periodStart?: string, periodEnd?: string): number {
   const totalDays = Math.max(1, (end.getTime() - start.getTime()) / 86400000);
   const daysPassed = Math.max(0, Math.min(totalDays, (today.getTime() - start.getTime()) / 86400000));
   return daysPassed / totalDays;
+}
+
+function ManagerCoachingLeaderCard(props: {
+  team: ManagerCoachingTeam;
+  cardKey: string;
+  expanded: boolean;
+  onToggle: () => void;
+  paceIcon: (r: RepCoachingData) => string;
+  attainmentPctDisplay: (a: number | null) => number | null;
+  attainmentTextColor: (pct: number) => string;
+}) {
+  const { team, cardKey, expanded, onToggle, paceIcon, attainmentPctDisplay, attainmentTextColor } = props;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [wideEnoughForRadar, setWideEnoughForRadar] = useState(true);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      setWideEnoughForRadar(w >= 400);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const sortedReps = [...team.reps].sort((a, b) => (a.attainment ?? 0) - (b.attainment ?? 0));
+
+  return (
+    <div ref={containerRef} className="min-w-0 w-full">
+      <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="text-sm font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+              {team.managerName}&apos;s Team
+            </div>
+            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+              {team.repCount} reps · {team.reviewedCount} reviewed
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold text-[color:var(--sf-text-primary)]">{team.teamCoveragePct}%</div>
+            <div className="text-xs text-[color:var(--sf-text-secondary)]">coverage</div>
+          </div>
+        </div>
+
+        <div className={`mt-4 flex gap-4 items-start ${wideEnoughForRadar ? "flex-row" : "flex-col"}`}>
+          <div className="flex-1 space-y-2 text-xs min-w-0">
+            <div className="flex justify-between gap-2">
+              <span className="text-[color:var(--sf-text-secondary)]">MEDDPICC Avg</span>
+              <span className="font-semibold text-[color:var(--sf-text-primary)]">{team.teamMeddpiccAvg.toFixed(1)}</span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-[color:var(--sf-text-secondary)]">Velocity Δ</span>
+              <span
+                className={`font-semibold ${
+                  team.teamDelta > 0 ? "text-green-400" : "text-[color:var(--sf-text-secondary)]"
+                }`}
+              >
+                {team.teamDelta >= 0 ? "+" : ""}
+                {team.teamDelta.toFixed(1)}
+              </span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-[color:var(--sf-text-secondary)]">Flat deals</span>
+              <span className="font-semibold text-[color:var(--sf-text-primary)]">{team.teamFlat}</span>
+            </div>
+            <div className="mt-2">
+              <span className="text-[color:var(--sf-text-secondary)]">Weakest: </span>
+              {team.teamWeakest.length > 0 ? (
+                team.teamWeakest.map((cat) => (
+                  <span
+                    key={cat}
+                    className="ml-1 inline-block rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs text-red-400"
+                  >
+                    {cat}
+                  </span>
+                ))
+              ) : (
+                <span className="text-[color:var(--sf-text-secondary)]">—</span>
+              )}
+            </div>
+          </div>
+
+          {wideEnoughForRadar ? (
+            <div className="w-full sm:w-[180px] shrink-0 mx-auto sm:mx-0">
+              <ResponsiveContainer width="100%" height={180}>
+                <RadarChart data={team.teamRadarData}>
+                  <PolarGrid stroke="var(--sf-border)" />
+                  <PolarAngleAxis dataKey="category" tick={{ fill: "var(--sf-text-secondary)", fontSize: 9 }} />
+                  <PolarRadiusAxis domain={[0, 3]} tick={false} axisLine={false} />
+                  <Radar name="Team Avg" dataKey="value" stroke="#00BCD4" fill="#00BCD4" fillOpacity={0.2} />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : null}
+        </div>
+
+        <button
+          type="button"
+          onClick={onToggle}
+          className="mt-4 w-full text-left text-xs text-[color:var(--sf-accent-primary)] hover:underline"
+        >
+          {expanded ? "▲ Hide reps" : "▼ See reps"}
+        </button>
+      </div>
+
+      {expanded && (
+        <div className="mt-2 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] divide-y divide-[color:var(--sf-border)]">
+          {sortedReps.map((rep) => {
+            const pct = attainmentPctDisplay(rep.attainment) ?? 0;
+            return (
+              <div key={`${cardKey}-${rep.rep_id}`} className="px-4 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-[color:var(--sf-text-primary)]">
+                    {paceIcon(rep)} {rep.rep_name}
+                  </span>
+                  <span className={`text-sm font-bold ${attainmentTextColor(pct)}`}>
+                    {attainmentPctDisplay(rep.attainment) != null ? `${attainmentPctDisplay(rep.attainment)}%` : "—"}{" "}
+                    attainment
+                  </span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-4 text-xs text-[color:var(--sf-text-secondary)]">
+                  <span>
+                    Coverage:{" "}
+                    <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{rep.coverage_pct}%</span>
+                  </span>
+                  <span>
+                    MEDDPICC:{" "}
+                    <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{rep.avg_meddpicc.toFixed(1)}</span>
+                  </span>
+                  <span>
+                    Velocity:{" "}
+                    <span
+                      className={`ml-1 font-semibold ${
+                        rep.avg_delta > 0 ? "text-green-400" : "text-[color:var(--sf-text-secondary)]"
+                      }`}
+                    >
+                      {rep.avg_delta >= 0 ? "+" : ""}
+                      {rep.avg_delta.toFixed(1)}
+                    </span>
+                  </span>
+                  <span>
+                    Flat:{" "}
+                    <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{rep.deals_flat}</span>
+                  </span>
+                </div>
+                {rep.weakest_categories.length > 0 && (
+                  <div className="mt-1.5">
+                    {rep.weakest_categories.map((cat) => (
+                      <span
+                        key={cat}
+                        className="mr-1 inline-block rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs text-red-400"
+                      >
+                        {cat}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function TeamForecastHygienePanels(props: {
@@ -337,96 +579,29 @@ export function TeamForecastHygienePanels(props: {
   const progressionColor =
     progressingCount > stalledCount ? "text-green-400" : stalledCount > progressingCount ? "text-red-400" : "text-yellow-400";
 
-  const radarData = useMemo(() => {
-    return MEDDPICC_CATEGORIES.map((cat) => {
-      const point: Record<string, string | number> = { category: cat.label };
-      for (const rep of assessmentRepRows) {
-        const v = rep[cat.key as keyof AssessmentHygieneRow];
-        point[rep.rep_name] = v != null && Number.isFinite(Number(v)) ? Number(v) : 0;
-      }
-      point["Team Avg"] = teamAvgForCategory(assessmentRepRows, cat.key);
-      return point;
-    });
-  }, [assessmentRepRows]);
-
   const repCoaching = useMemo(() => buildRepCoachingData(h, coachingRepRows ?? null), [h, coachingRepRows]);
 
-  const sortedReps = useMemo(() => {
-    return [...repCoaching].sort((a, b) => {
-      const aa = a.attainment ?? 1.01;
-      const bb = b.attainment ?? 1.01;
-      return aa - bb;
+  const managerCoachingTeams = useMemo(
+    () => buildManagerCoachingTeams(repCoaching, coachingRepRows ?? null, assessmentRepRows),
+    [repCoaching, coachingRepRows, assessmentRepRows]
+  );
+
+  const [expandedManagerKeys, setExpandedManagerKeys] = useState<Set<string>>(new Set());
+
+  function toggleManagerExpand(managerKey: string) {
+    setExpandedManagerKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(managerKey)) next.delete(managerKey);
+      else next.add(managerKey);
+      return next;
     });
-  }, [repCoaching]);
-
-  const lowestAttainmentRepId = useMemo(() => {
-    let min = Infinity;
-    let id: string | null = null;
-    for (const r of repCoaching) {
-      if (r.attainment == null || !Number.isFinite(r.attainment)) continue;
-      if (r.attainment < min) {
-        min = r.attainment;
-        id = r.rep_id;
-      }
-    }
-    return id;
-  }, [repCoaching]);
-
-  const repRadarColor = (repId: string, seriesIndex: number) => {
-    if (repId === lowestAttainmentRepId) return "#E74C3C";
-    return CHART_COLORS[seriesIndex % CHART_COLORS.length];
-  };
+  }
 
   const paceRatio = paceRatioFromPeriod(coachingPeriodStart, coachingPeriodEnd);
-
-  const managerCard = useMemo(() => {
-    const rows = coachingRepRows ?? [];
-    const quotaSum = rows.reduce((s, r) => s + (Number(r.quota) || 0), 0);
-    const wonSum = rows.reduce((s, r) => s + (Number(r.won_amount) || 0), 0);
-    const teamAttnPct = quotaSum > 0 ? (wonSum / quotaSum) * 100 : null;
-    const uniqueMgrNames = Array.from(new Set(rows.map((r) => String(r.manager_name || "").trim()).filter(Boolean)));
-    const mgrName =
-      coverageRollupRows.length === 1
-        ? coverageRollupRows[0].rep_name
-        : uniqueMgrNames.length === 1
-          ? uniqueMgrNames[0]
-          : rows.length
-            ? "Team"
-            : "Team";
-    const label = `${mgrName}'s Team`;
-    const teamWeakest = weakestCategory;
-    return {
-      label,
-      teamAttnPct,
-      teamCoverage,
-      meddpiccAvg,
-      avgDelta,
-      teamWeakest,
-    };
-  }, [coachingRepRows, coverageRollupRows, teamCoverage, meddpiccAvg, avgDelta, weakestCategory]);
 
   /** Attainment from coaching rows is 0–1; display as 0–100 with one decimal. */
   const attainmentPctDisplay = (attainment: number | null) =>
     attainment != null && Number.isFinite(attainment) ? Math.round(attainment * 1000) / 10 : null;
-
-  const cardBorderForRep = (rep: RepCoachingData) => {
-    const quota = rep.quota ?? 0;
-    const won = rep.won_amount ?? 0;
-    const expectedAtPace = quota * paceRatio;
-    const paceScore = quota > 0 ? won / expectedAtPace : null;
-    const paceStatus =
-      paceScore == null || !Number.isFinite(paceScore)
-        ? "unknown"
-        : paceScore >= 0.9
-          ? "on_track"
-          : paceScore >= 0.7
-            ? "at_risk"
-            : "behind";
-    if (paceStatus === "on_track") return "border-green-500/40 bg-green-500/5";
-    if (paceStatus === "at_risk") return "border-yellow-500/40 bg-yellow-500/5";
-    if (paceStatus === "behind") return "border-red-500/40 bg-red-500/5";
-    return "border-[color:var(--sf-border)]";
-  };
 
   const paceIcon = (rep: RepCoachingData) => {
     const quota = rep.quota ?? 0;
@@ -438,9 +613,6 @@ export function TeamForecastHygienePanels(props: {
     if (paceScore >= 0.7) return "⚠️";
     return "🔴";
   };
-
-  const attainmentBarColor = (pct: number) =>
-    pct >= 70 ? "bg-green-500" : pct >= 50 ? "bg-yellow-500" : "bg-red-500";
 
   /** pct is 0–100 (display scale). */
   const attainmentTextColor = (pct: number) =>
@@ -499,140 +671,21 @@ export function TeamForecastHygienePanels(props: {
         </div>
       </div>
 
-      {/* SECTION 2 — Radar */}
-      <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 mt-5">
-        <h3 className="text-sm font-semibold text-[color:var(--sf-text-primary)] mb-4">MEDDPICC+TB by Rep</h3>
-        {assessmentRepRows.length ? (
-          <ResponsiveContainer width="100%" height={380}>
-            <RadarChart data={radarData}>
-              <PolarGrid stroke="var(--sf-border)" />
-              <PolarAngleAxis dataKey="category" tick={{ fill: "var(--sf-text-secondary)", fontSize: 11 }} />
-              <PolarRadiusAxis domain={[0, 3]} tick={{ fill: "var(--sf-text-secondary)", fontSize: 9 }} angle={90} />
-              {assessmentRepRows.map((arow, i) => (
-                <Radar
-                  key={arow.rep_id}
-                  name={arow.rep_name}
-                  dataKey={arow.rep_name}
-                  stroke={repRadarColor(String(arow.rep_id), i)}
-                  fill={repRadarColor(String(arow.rep_id), i)}
-                  fillOpacity={0.15}
-                />
-              ))}
-              <Radar name="Team Avg" dataKey="Team Avg" stroke="#666" fill="none" strokeDasharray="4 4" fillOpacity={0} />
-              <Legend wrapperStyle={{ color: "var(--sf-text-secondary)", fontSize: 12 }} />
-              <Tooltip
-                contentStyle={{
-                  background: "var(--sf-surface)",
-                  border: "1px solid var(--sf-border)",
-                  color: "var(--sf-text-primary)",
-                }}
-              />
-            </RadarChart>
-          </ResponsiveContainer>
-        ) : (
-          <div className="text-sm text-[color:var(--sf-text-secondary)]">No assessment data for this period.</div>
-        )}
-      </section>
-
-      {/* SECTION 3 — Manager + rep cards */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">{managerCard.label}</div>
-          <div className="mt-2 text-2xl font-bold text-[color:var(--sf-text-primary)]">
-            {managerCard.teamAttnPct != null ? `${Math.round(managerCard.teamAttnPct * 10) / 10}%` : "—"}{" "}
-            <span className="text-sm font-normal text-[color:var(--sf-text-secondary)]">attainment</span>
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-[color:var(--sf-text-secondary)]">
-            <div>
-              Coverage:{" "}
-              <span className="font-semibold text-[color:var(--sf-text-primary)]">{Math.round(managerCard.teamCoverage)}%</span>
-            </div>
-            <div>
-              MEDDPICC:{" "}
-              <span className="font-semibold text-[color:var(--sf-text-primary)]">{managerCard.meddpiccAvg.toFixed(1)}</span>
-            </div>
-            <div>
-              Velocity Δ:{" "}
-              <span className="font-semibold text-[color:var(--sf-text-primary)]">
-                {managerCard.avgDelta >= 0 ? "+" : ""}
-                {managerCard.avgDelta.toFixed(1)}
-              </span>
-            </div>
-            <div>
-              Weakest:{" "}
-              <span className="font-semibold text-[color:var(--sf-text-primary)]">{managerCard.teamWeakest}</span>
-            </div>
-          </div>
-        </div>
-
-        {sortedReps.map((rep) => {
-          const pct = attainmentPctDisplay(rep.attainment) ?? 0;
+      {/* Manager leader cards + expandable rep rows (Team tab pattern) */}
+      <div className="mt-6 space-y-4">
+        {managerCoachingTeams.map((team) => {
+          const cardKey = `mgr:${team.managerId}`;
           return (
-            <div key={rep.rep_id} className={`rounded-xl border p-4 ${cardBorderForRep(rep)}`}>
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="font-semibold text-[color:var(--sf-text-primary)]">
-                    {paceIcon(rep)} {rep.rep_name}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className={`text-2xl font-bold ${attainmentTextColor(pct)}`}>
-                    {attainmentPctDisplay(rep.attainment) != null ? `${attainmentPctDisplay(rep.attainment)}%` : "—"}
-                  </div>
-                  <div className="text-xs text-[color:var(--sf-text-secondary)]">attainment</div>
-                </div>
-              </div>
-
-              <div className="mt-2 h-1.5 rounded-full bg-[color:var(--sf-surface-alt)]">
-                <div
-                  className={`h-1.5 rounded-full ${attainmentBarColor(pct)}`}
-                  style={{ width: `${Math.min(100, pct)}%` }}
-                />
-              </div>
-              <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-                {fmtMoney(rep.won_amount)} / {fmtMoney(rep.quota)}
-              </div>
-
-              <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                <div className="text-[color:var(--sf-text-secondary)]">
-                  Coverage
-                  <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{rep.coverage_pct}%</span>
-                </div>
-                <div className="text-[color:var(--sf-text-secondary)]">
-                  MEDDPICC Avg
-                  <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{rep.avg_meddpicc.toFixed(1)}</span>
-                </div>
-                <div className="text-[color:var(--sf-text-secondary)]">
-                  Velocity
-                  <span
-                    className={`ml-1 font-semibold ${
-                      rep.avg_delta > 0 ? "text-green-400" : "text-[color:var(--sf-text-secondary)]"
-                    }`}
-                  >
-                    {rep.avg_delta >= 0 ? "+" : ""}
-                    {rep.avg_delta.toFixed(1)}
-                  </span>
-                </div>
-                <div className="text-[color:var(--sf-text-secondary)]">
-                  Flat deals
-                  <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{rep.deals_flat}</span>
-                </div>
-              </div>
-
-              {rep.weakest_categories.length > 0 && (
-                <div className="mt-3 text-xs">
-                  <span className="text-[color:var(--sf-text-secondary)]">Focus areas: </span>
-                  {rep.weakest_categories.map((cat) => (
-                    <span
-                      key={cat}
-                      className="ml-1 rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-red-400"
-                    >
-                      {cat}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
+            <ManagerCoachingLeaderCard
+              key={cardKey}
+              cardKey={cardKey}
+              team={team}
+              expanded={expandedManagerKeys.has(cardKey)}
+              onToggle={() => toggleManagerExpand(cardKey)}
+              paceIcon={paceIcon}
+              attainmentPctDisplay={attainmentPctDisplay}
+              attainmentTextColor={attainmentTextColor}
+            />
           );
         })}
       </div>
