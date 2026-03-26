@@ -5,6 +5,7 @@ export const EXEC_TABS = [
   "team",
   "channel",
   "revenue_mix",
+  "revenue_intelligence",
   "top_deals",
   "report_builder",
   "reports",

@@ -16,6 +16,7 @@ import { ManagerReviewQueueClient, type ManagerReviewQueueProps } from "./Manage
 import type { ChannelLedFedRow, ChannelPartnerHeroProps } from "../../../../lib/channelPartnerHeroData";
 import { CustomReportDesignerClient } from "../../../analytics/custom-reports/CustomReportDesignerClient";
 import { sha256HexUtf8 } from "../../../../lib/payloadSha256";
+import { RevenueIntelligenceClient } from "./RevenueIntelligenceClient";
 
 type ExecutiveGapInsightsClientProps = ComponentProps<typeof ExecutiveGapInsightsClient>;
 
@@ -26,6 +27,7 @@ const TABS: { key: ExecTabKey; label: string }[] = [
   { key: "team", label: "Team" },
   { key: "channel", label: "Channel" },
   { key: "revenue_mix", label: "Revenue Mix" },
+  { key: "revenue_intelligence", label: "Revenue Intelligence" },
   { key: "top_deals", label: "Top Deals" },
   { key: "report_builder", label: "Report Builder" },
   { key: "reports", label: "Reports" },
@@ -757,6 +759,14 @@ export function ExecutiveTabsShellClient(props: {
     manager_rep_id: number | null;
     role: string;
   }>;
+  revenueIntelligenceOrgId: number;
+  revenueIntelligenceQuotaPeriods: { id: string; name: string }[];
+  revenueIntelligenceRepDirectory: Array<{
+    id: number;
+    name: string;
+    role: string;
+    manager_rep_id: number | null;
+  }>;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -1088,6 +1098,13 @@ export function ExecutiveTabsShellClient(props: {
           <div className="-mx-4 -mt-4">
             <ExecutiveGapInsightsClient {...props.revenueTabProps} revenueTabOnly={true} viewerRole={props.viewerRole} />
           </div>
+        )}
+        {activeTab === "revenue_intelligence" && (
+          <RevenueIntelligenceClient
+            orgId={props.revenueIntelligenceOrgId}
+            quotaPeriods={props.revenueIntelligenceQuotaPeriods}
+            repDirectory={props.revenueIntelligenceRepDirectory}
+          />
         )}
         {activeTab === "top_deals" && (
           <TopDealsTabContent

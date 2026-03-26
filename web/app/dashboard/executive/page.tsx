@@ -1772,6 +1772,17 @@ export default async function ExecutiveDashboardPage({
           reportBuilderSavedReports={reportBuilderSavedReports}
           reportBuilderPeriodLabel={periodLabel}
           reportBuilderRepDirectory={directoryInScope}
+          revenueIntelligenceOrgId={orgId}
+          revenueIntelligenceQuotaPeriods={summary.periods.map((p) => ({
+            id: String(p.id),
+            name: p.period_name,
+          }))}
+          revenueIntelligenceRepDirectory={directoryInScope.map((r) => ({
+            id: r.id,
+            name: r.name,
+            role: r.role ?? "REP",
+            manager_rep_id: r.manager_rep_id ?? null,
+          }))}
           showChannelContribution={showChannelContribution}
           channelContributionHero={channelContributionHero}
           channelContributionRows={channelContributionRows}
