@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -167,6 +167,28 @@ const MEDDPICC_HEALTH_METRICS: Array<{ key: MetricKey; label: string }> = [
 ];
 
 const ALL_METRICS: Array<{ key: MetricKey; label: string }> = [...METRICS, ...MEDDPICC_HEALTH_METRICS];
+
+type PeriodSelectionState = { ids: Set<string>; lastId: string };
+
+function periodSelectionReducer(
+  state: PeriodSelectionState,
+  action: { type: "toggle"; id: string } | { type: "syncFromServer"; initialId: string }
+): PeriodSelectionState {
+  if (action.type === "syncFromServer") {
+    const id = String(action.initialId || "").trim();
+    if (!id) return { ids: new Set(), lastId: "" };
+    return { ids: new Set([id]), lastId: id };
+  }
+  const next = new Set(state.ids);
+  const had = next.has(action.id);
+  if (had) {
+    next.delete(action.id);
+    const newLast = state.lastId === action.id ? Array.from(next)[0] ?? "" : state.lastId;
+    return { ids: next, lastId: newLast };
+  }
+  next.add(action.id);
+  return { ids: next, lastId: action.id };
+}
 
 function fmtMoney(n: any) {
   if (n === null || n === undefined) return "—";
@@ -455,7 +477,57 @@ export function CustomReportDesignerClient(props: {
   const [repRowsLocal, setRepRowsLocal] = useState<RepRow[]>(() => props.repRows || []);
   const [periodLabelDisplay, setPeriodLabelDisplay] = useState(() => props.periodLabel);
   const [controlsOpen, setControlsOpen] = useState(true);
-  const [selectedPeriodId, setSelectedPeriodId] = useState<string>(initialPeriodId);
+
+  const [periodSelection, dispatchPeriodSelection] = useReducer(
+    periodSelectionReducer,
+    undefined,
+    (): PeriodSelectionState => ({
+      ids: new Set(initialPeriodId ? [initialPeriodId] : []),
+      lastId: initialPeriodId || "",
+    })
+  );
+
+  const quartersByYear = useMemo(() => {
+    const grouped: Record<string, { id: string; name: string }[]> = {};
+    for (const p of quotaPeriods) {
+      const year = p.name.match(/FY(\d{4})/)?.[1] ?? "Other";
+      if (!grouped[year]) grouped[year] = [];
+      grouped[year].push(p);
+    }
+    for (const y of Object.keys(grouped)) {
+      grouped[y].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return Object.entries(grouped).sort(([a], [b]) => {
+      if (a === "Other") return 1;
+      if (b === "Other") return -1;
+      return Number(b) - Number(a);
+    });
+  }, [quotaPeriods]);
+
+  const periodIdForFetch = useMemo(() => {
+    const ids = Array.from(periodSelection.ids);
+    if (ids.length === 0) return "";
+    if (ids.length === 1) return ids[0];
+    // TODO: merge multi-period rows / QoQ side-by-side; for now fetch only the most recently toggled period.
+    if (periodSelection.ids.has(periodSelection.lastId)) return periodSelection.lastId;
+    return ids[0];
+  }, [periodSelection]);
+
+  const previewRef = useRef<HTMLDivElement>(null);
+
+  async function downloadPreviewPng() {
+    if (!previewRef.current) return;
+    const html2canvas = (await import("html2canvas")).default;
+    const canvas = await html2canvas(previewRef.current, {
+      backgroundColor: "#1a1a2e",
+      scale: 2,
+      useCORS: true,
+    });
+    const link = document.createElement("a");
+    link.download = "report.png";
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  }
 
   useEffect(() => {
     setRepRowsLocal(props.repRows || []);
@@ -466,15 +538,16 @@ export function CustomReportDesignerClient(props: {
   }, [props.periodLabel]);
 
   useEffect(() => {
-    if (props.initialSelectedPeriodId) {
-      setSelectedPeriodId(props.initialSelectedPeriodId);
+    const pid = props.initialSelectedPeriodId ?? "";
+    if (pid) {
+      dispatchPeriodSelection({ type: "syncFromServer", initialId: pid });
     }
   }, [props.initialSelectedPeriodId]);
 
   useEffect(() => {
-    if (!orgIdForFetch || !selectedPeriodId) return;
+    if (!orgIdForFetch || !periodIdForFetch) return;
     const initialPid = props.initialSelectedPeriodId ?? "";
-    if (selectedPeriodId === initialPid) {
+    if (periodIdForFetch === initialPid) {
       setRepRowsLocal(props.repRows || []);
       setPeriodLabelDisplay(props.periodLabel);
       return;
@@ -485,7 +558,7 @@ export function CustomReportDesignerClient(props: {
         const res = await fetch("/api/report-builder/data", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ periodId: selectedPeriodId }),
+          body: JSON.stringify({ periodId: periodIdForFetch }),
         });
         const json = await res.json().catch(() => ({}));
         if (cancelled || !json?.ok || !Array.isArray(json.repRows)) return;
@@ -500,7 +573,7 @@ export function CustomReportDesignerClient(props: {
     return () => {
       cancelled = true;
     };
-  }, [selectedPeriodId, orgIdForFetch, props.initialSelectedPeriodId, props.repRows, props.periodLabel]);
+  }, [periodIdForFetch, orgIdForFetch, props.initialSelectedPeriodId, props.repRows, props.periodLabel]);
 
   const reps = repRowsLocal;
   const repDirectory = props.repDirectory || [];
@@ -794,6 +867,11 @@ export function CustomReportDesignerClient(props: {
   const outlineQuickBtn =
     "rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface)]";
 
+  const chartToggleActive =
+    "rounded-full border px-3 py-1 text-xs font-semibold border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] text-white";
+  const chartToggleInactive =
+    "rounded-full border px-3 py-1 text-xs font-semibold border-[color:var(--sf-border)] text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)]";
+
   return (
     <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -849,6 +927,21 @@ export function CustomReportDesignerClient(props: {
             </option>
           ))}
         </select>
+        <div className="flex flex-wrap items-center gap-2">
+          {(["table", "bar", "line", "radar"] as const).map((type) => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => {
+                setChartType(type);
+                setControlsOpen(false);
+              }}
+              className={chartType === type ? chartToggleActive : chartToggleInactive}
+            >
+              {type === "table" ? "📋 Table" : type === "bar" ? "📊 Bar" : type === "line" ? "📈 Line" : "🕸️ Radar"}
+            </button>
+          ))}
+        </div>
         <button
           type="button"
           onClick={() => setControlsOpen((v) => !v)}
@@ -890,17 +983,30 @@ export function CustomReportDesignerClient(props: {
         <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 mb-4 space-y-5">
           <div>
             <div className="text-sm font-semibold text-[color:var(--sf-text-primary)] mb-2">Quarter</div>
-            <select
-              value={selectedPeriodId}
-              onChange={(e) => setSelectedPeriodId(e.target.value)}
-              className="rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-            >
-              {quotaPeriods.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
+            <div className="flex flex-wrap gap-6">
+              {quartersByYear.length === 0 ? (
+                <p className="text-xs text-[color:var(--sf-text-secondary)]">No quota periods available.</p>
+              ) : null}
+              {quartersByYear.map(([year, periods]) => (
+                <div key={year} className="min-w-[160px]">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)] mb-2">
+                    {year === "Other" ? "Other" : `FY${year}`}
+                  </div>
+                  <div className="space-y-1">
+                    {periods.map((p) => (
+                      <label key={p.id} className="flex items-center gap-2 text-sm cursor-pointer text-[color:var(--sf-text-primary)]">
+                        <input
+                          type="checkbox"
+                          checked={periodSelection.ids.has(p.id)}
+                          onChange={() => dispatchPeriodSelection({ type: "toggle", id: p.id })}
+                        />
+                        <span>{p.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
               ))}
-            </select>
+            </div>
             <p className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">Initial health (at deal open) coming soon</p>
           </div>
 
@@ -1012,47 +1118,33 @@ export function CustomReportDesignerClient(props: {
         </div>
       ) : null}
 
-      <div className="mt-4">
-        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)] mb-2">Visualization</div>
-        <div className="flex flex-wrap gap-2">
-          {(["table", "bar", "line", "radar"] as const).map((type) => (
-            <button
-              key={type}
-              type="button"
-              onClick={() => {
-                setChartType(type);
-                setControlsOpen(false);
-              }}
-              className={
-                chartType === type
-                  ? "rounded-full border px-3 py-1 text-xs font-semibold border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] text-white"
-                  : "rounded-full border px-3 py-1 text-xs font-semibold border-[color:var(--sf-border)] text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)]"
-              }
-            >
-              {type === "table" ? "📋 Table" : type === "bar" ? "📊 Bar" : type === "line" ? "📈 Line" : "🕸️ Radar"}
-            </button>
-          ))}
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 items-end gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Preview</span>
+          <button
+            type="button"
+            onClick={() => void downloadPreviewPng()}
+            className="rounded-md border border-[color:var(--sf-border)] px-3 py-1 text-xs text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)]"
+          >
+            Download PNG
+          </button>
         </div>
-
-      </div>
-
-      <div className="mt-4 grid grid-cols-3 items-end gap-2">
-        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Preview</div>
         <div className="text-sm font-semibold text-center text-[color:var(--sf-text-secondary)]">{periodLabelDisplay}</div>
         <div className="text-sm font-semibold text-right text-[color:var(--sf-text-secondary)]">
           Executive: <span className="font-mono">{execHeaderName}</span>
         </div>
       </div>
 
-      {showChartPlaceholder ? (
-        <div className="mt-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-8 text-center text-sm text-[color:var(--sf-text-secondary)]">
-          {!chartHasFields
-            ? "Select report fields above to visualize data."
-            : "Select people or teams above to visualize data."}
-        </div>
-      ) : null}
+      <div ref={previewRef}>
+        {showChartPlaceholder ? (
+          <div className="mt-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-8 text-center text-sm text-[color:var(--sf-text-secondary)]">
+            {!chartHasFields
+              ? "Select report fields above to visualize data."
+              : "Select people or teams above to visualize data."}
+          </div>
+        ) : null}
 
-      {showBarLineChart && chartType === "bar" ? (
+        {showBarLineChart && chartType === "bar" ? (
         <div className="mt-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
           <ResponsiveContainer width="100%" height={360}>
             <BarChart data={chartData} margin={{ top: 10, right: 20, left: 20, bottom: 48 }}>
@@ -1167,7 +1259,7 @@ export function CustomReportDesignerClient(props: {
         </div>
       ) : null}
 
-      <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
+        <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
         <table className="w-full min-w-[900px] text-left text-sm">
           <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
             <tr>
@@ -1209,6 +1301,7 @@ export function CustomReportDesignerClient(props: {
             ) : null}
           </tbody>
         </table>
+        </div>
       </div>
 
       <div className="mt-3 flex items-center justify-end">
