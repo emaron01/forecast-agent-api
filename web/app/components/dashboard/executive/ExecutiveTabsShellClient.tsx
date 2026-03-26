@@ -15,6 +15,7 @@ import {
 import { ManagerReviewQueueClient, type ManagerReviewQueueProps } from "./ManagerReviewQueueClient";
 import type { ChannelLedFedRow, ChannelPartnerHeroProps } from "../../../../lib/channelPartnerHeroData";
 import { CustomReportDesignerClient } from "../../../analytics/custom-reports/CustomReportDesignerClient";
+import { sha256HexUtf8 } from "../../../../lib/payloadSha256";
 
 type ExecutiveGapInsightsClientProps = ComponentProps<typeof ExecutiveGapInsightsClient>;
 
@@ -59,6 +60,8 @@ const REPORT_LINKS = [
 ] as const;
 
 function ReportsTabContent(props: {
+  orgId: number;
+  reportsTabActive: boolean;
   fiscalYear: string;
   fiscalQuarter: string;
   orgName: string;
@@ -70,17 +73,68 @@ function ReportsTabContent(props: {
   const [briefingGeneratedAt, setBriefingGeneratedAt] = useState<string | null>(null);
   const [briefingDataKey, setBriefingDataKey] = useState<string>("");
   const [briefingStale, setBriefingStale] = useState(false);
+  const [briefingPayloadSha, setBriefingPayloadSha] = useState<string>("");
 
   const quarter = `${props.forecastTabProps.fiscalYear} Q${props.forecastTabProps.fiscalQuarter}`;
+
+  const briefingPayloadKey = useMemo(
+    () =>
+      JSON.stringify({
+        quotaPeriodId: props.forecastTabProps.quotaPeriodId,
+        fiscalYear: props.forecastTabProps.fiscalYear,
+        fiscalQuarter: props.forecastTabProps.fiscalQuarter,
+      }),
+    [
+      props.forecastTabProps.quotaPeriodId,
+      props.forecastTabProps.fiscalYear,
+      props.forecastTabProps.fiscalQuarter,
+    ]
+  );
+
+  const checkBriefingCache = useCallback(
+    async (payloadKey: string) => {
+      if (!props.orgId) return;
+      try {
+        const sha = await sha256HexUtf8(payloadKey);
+        setBriefingPayloadSha(sha);
+
+        const res = await fetch(
+          `/api/ai-takeaway-cache?org_id=${props.orgId}&surface=${encodeURIComponent("executive_briefing")}&payload_sha=${encodeURIComponent(sha)}`
+        );
+        const j = await res.json();
+        if (j?.ok && j?.summary) {
+          setBriefingText(String(j.summary));
+          setBriefingGeneratedAt(j.is_fresh ? "cached" : "expired");
+          setBriefingDataKey(`${props.forecastTabProps.fiscalYear}-${props.forecastTabProps.quotaPeriodId}`);
+        }
+      } catch {
+        // ignore
+      }
+    },
+    [props.orgId, props.forecastTabProps.fiscalYear, props.forecastTabProps.quotaPeriodId]
+  );
+
+  useEffect(() => {
+    if (!props.reportsTabActive) return;
+    if (briefingText) return;
+    if (!props.forecastTabProps.quotaPeriodId) return;
+
+    void checkBriefingCache(briefingPayloadKey);
+  }, [props.reportsTabActive, briefingPayloadKey, briefingText, props.forecastTabProps.quotaPeriodId, checkBriefingCache]);
 
   useEffect(() => {
     const fy = props.forecastTabProps.fiscalYear;
     const qp = props.forecastTabProps.quotaPeriodId;
     const nextKey = `${fy}-${qp}`;
-    if (briefingText && nextKey !== briefingDataKey) {
+    if (briefingText && briefingDataKey && nextKey !== briefingDataKey) {
       setBriefingStale(true);
     }
-  }, [props.forecastTabProps.fiscalYear, props.forecastTabProps.quotaPeriodId]);
+  }, [
+    props.forecastTabProps.fiscalYear,
+    props.forecastTabProps.quotaPeriodId,
+    briefingText,
+    briefingDataKey,
+  ]);
 
   const generateBriefing = useCallback(async () => {
     setBriefingLoading(true);
@@ -135,12 +189,33 @@ function ReportsTabContent(props: {
       setBriefingText(text);
       setBriefingGeneratedAt(new Date().toLocaleTimeString());
       setBriefingDataKey(`${props.forecastTabProps.fiscalYear}-${props.forecastTabProps.quotaPeriodId}`);
+
+      const payloadKey = JSON.stringify({
+        quotaPeriodId: props.forecastTabProps.quotaPeriodId,
+        fiscalYear: props.forecastTabProps.fiscalYear,
+        fiscalQuarter: props.forecastTabProps.fiscalQuarter,
+      });
+      const sha = await sha256HexUtf8(payloadKey);
+      setBriefingPayloadSha(sha);
+      if (props.orgId) {
+        await fetch("/api/ai-takeaway-cache", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            org_id: props.orgId,
+            surface: "executive_briefing",
+            payload_sha: sha,
+            summary: text,
+            extended: null,
+          }),
+        });
+      }
     } catch {
       setBriefingText("Unable to generate briefing.");
     } finally {
       setBriefingLoading(false);
     }
-  }, [props.forecastTabProps, props.pipelineHygiene, quarter]);
+  }, [props.forecastTabProps, props.pipelineHygiene, props.orgId, quarter]);
 
   const copyBriefing = useCallback(async () => {
     if (!briefingText) return;
@@ -212,9 +287,9 @@ function ReportsTabContent(props: {
 
         <p className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">{subheading}</p>
 
-        {briefingStale ? (
+        {briefingStale && briefingText ? (
           <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            Quarter data has changed — regenerate for updated insights.
+            Refresh for updated briefing.
           </div>
         ) : null}
 
@@ -653,6 +728,7 @@ export function ExecutiveTabsShellClient(props: {
   basePath: string;
   initialTab: ExecTabKey;
   setDefaultTab: (tab: ExecTabKey) => Promise<void>;
+  orgId: number;
   forecastTabProps: ExecutiveGapInsightsClientProps;
   pipelineTabProps: ExecutiveGapInsightsClientProps;
   pipelineHygiene: PipelineHygienePayload;
@@ -1033,6 +1109,8 @@ export function ExecutiveTabsShellClient(props: {
         )}
         {activeTab === "reports" && (
           <ReportsTabContent
+            orgId={props.orgId}
+            reportsTabActive={activeTab === "reports"}
             fiscalYear={props.forecastTabProps.fiscalYear}
             fiscalQuarter={props.forecastTabProps.fiscalQuarter}
             orgName={props.orgName ?? "SalesForecast.io"}

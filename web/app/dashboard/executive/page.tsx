@@ -1634,6 +1634,7 @@ export default async function ExecutiveDashboardPage({
           basePath="/dashboard/executive"
           initialTab={activeTab}
           setDefaultTab={setExecDefaultTabAction}
+          orgId={ctx.user.org_id}
           orgName={orgName}
           viewerRole={ctx.user.role}
           forecastTabProps={{
