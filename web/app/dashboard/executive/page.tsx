@@ -291,7 +291,18 @@ export default async function ExecutiveDashboardPage({
       ROUND(AVG(opp.paper_score))       AS paper,
       ROUND(AVG(opp.timing_score))      AS timing,
       ROUND(AVG(opp.budget_score))      AS budget,
-      ROUND(AVG(opp.health_score))      AS avg_total
+      ROUND((
+        AVG(opp.pain_score) +
+        AVG(opp.metrics_score) +
+        AVG(opp.champion_score) +
+        AVG(opp.eb_score) +
+        AVG(opp.criteria_score) +
+        AVG(opp.process_score) +
+        AVG(opp.competition_score) +
+        AVG(opp.paper_score) +
+        AVG(opp.timing_score) +
+        AVG(opp.budget_score)
+      ) / 10.0) AS avg_total
     FROM reps r
     LEFT JOIN opportunities opp
       ON opp.rep_id = r.id
@@ -372,8 +383,6 @@ export default async function ExecutiveDashboardPage({
       [orgId, startIso, endIso, visibleRepIdsForQuery]
     );
 
-    const num = (v: number | null | undefined): number => (v != null && Number.isFinite(v) ? Number(v) : 0);
-
     const leaderAssessmentRows: AssessmentRow[] = leaders
       .filter((l) => leaderRepIds.get(l.id)?.length)
       .map((leader) => {
@@ -397,40 +406,52 @@ export default async function ExecutiveDashboardPage({
             avg_total: null,
           };
         }
-        const sum = (get: (r: AssessmentOppRow) => number | null) =>
-          rows.reduce((a, r) => a + num(get(r)), 0);
-        const avg = (get: (r: AssessmentOppRow) => number | null) =>
-          Math.round(sum(get) / n);
-        const painV = avg((r) => r.pain_score);
-        const metricsV = avg((r) => r.metrics_score);
-        const championV = avg((r) => r.champion_score);
-        const ebV = avg((r) => r.eb_score);
-        const criteriaV = avg((r) => r.criteria_score);
-        const processV = avg((r) => r.process_score);
-        const competitionV = avg((r) => r.competition_score);
-        const paperV = avg((r) => r.paper_score);
-        const timingV = avg((r) => r.timing_score);
-        const budgetV = avg((r) => r.budget_score);
-        const categoryAvgs = [painV, metricsV, championV, ebV, criteriaV, processV, competitionV, paperV, timingV, budgetV].filter(
-          (v): v is number => v !== null && v !== undefined
-        );
+        /** SQL AVG(x): mean of non-null values; empty set → null (matches assessment SQL). */
+        const sqlAvg = (get: (r: AssessmentOppRow) => number | null): number | null => {
+          const vals = rows.map(get).filter((v) => v != null && Number.isFinite(Number(v)));
+          if (!vals.length) return null;
+          return vals.reduce((a, v) => a + Number(v), 0) / vals.length;
+        };
+        const mPain = sqlAvg((r) => r.pain_score);
+        const mMetrics = sqlAvg((r) => r.metrics_score);
+        const mChampion = sqlAvg((r) => r.champion_score);
+        const mEb = sqlAvg((r) => r.eb_score);
+        const mCriteria = sqlAvg((r) => r.criteria_score);
+        const mProcess = sqlAvg((r) => r.process_score);
+        const mCompetition = sqlAvg((r) => r.competition_score);
+        const mPaper = sqlAvg((r) => r.paper_score);
+        const mTiming = sqlAvg((r) => r.timing_score);
+        const mBudget = sqlAvg((r) => r.budget_score);
+        const categoryMeans = [
+          mPain,
+          mMetrics,
+          mChampion,
+          mEb,
+          mCriteria,
+          mProcess,
+          mCompetition,
+          mPaper,
+          mTiming,
+          mBudget,
+        ];
         const avgTotal =
-          categoryAvgs.length > 0
-            ? Math.round(categoryAvgs.reduce((a, b) => a + b, 0) / categoryAvgs.length)
+          categoryMeans.every((v) => v != null && Number.isFinite(v))
+            ? Math.round(categoryMeans.reduce((a, b) => a + b!, 0) / 10)
             : null;
+        const roundCol = (m: number | null) => (m != null && Number.isFinite(m) ? Math.round(m) : null);
         return {
           rep_id: -leader.id,
           rep_name: leader.display_name,
-          pain: painV,
-          metrics: metricsV,
-          champion: championV,
-          eb: ebV,
-          criteria: criteriaV,
-          process: processV,
-          competition: competitionV,
-          paper: paperV,
-          timing: timingV,
-          budget: budgetV,
+          pain: roundCol(mPain),
+          metrics: roundCol(mMetrics),
+          champion: roundCol(mChampion),
+          eb: roundCol(mEb),
+          criteria: roundCol(mCriteria),
+          process: roundCol(mProcess),
+          competition: roundCol(mCompetition),
+          paper: roundCol(mPaper),
+          timing: roundCol(mTiming),
+          budget: roundCol(mBudget),
           avg_total: avgTotal,
         };
       });
@@ -471,8 +492,8 @@ export default async function ExecutiveDashboardPage({
         '(Unknown rep)'
       ) AS rep_name,
       first_event.total_score AS baseline_score,
-      opp.health_score AS current_score,
-      (opp.health_score - first_event.total_score) AS delta
+      last_event.total_score AS current_score,
+      (last_event.total_score - first_event.total_score) AS delta
     FROM opportunities opp
     JOIN reps r
       ON r.id = opp.rep_id
@@ -483,9 +504,21 @@ export default async function ExecutiveDashboardPage({
       FROM opportunity_audit_events
       WHERE opportunity_id = opp.id
         AND org_id = $1
-      ORDER BY ts ASC
+        AND event_type = 'score_save'
+        AND total_score IS NOT NULL
+      ORDER BY ts ASC, id ASC
       LIMIT 1
     ) first_event ON true
+    JOIN LATERAL (
+      SELECT total_score
+      FROM opportunity_audit_events
+      WHERE opportunity_id = opp.id
+        AND org_id = $1
+        AND event_type = 'score_save'
+        AND total_score IS NOT NULL
+      ORDER BY ts DESC, id DESC
+      LIMIT 1
+    ) last_event ON true
     WHERE opp.rep_id = ANY($4::bigint[])
       AND opp.org_id = $1
       AND opp.close_date >= $2::timestamptz
@@ -493,6 +526,7 @@ export default async function ExecutiveDashboardPage({
       AND EXISTS (
         SELECT 1 FROM opportunity_audit_events oae2
         WHERE oae2.opportunity_id = opp.id AND oae2.org_id = $1
+          AND oae2.event_type = 'score_save'
           AND oae2.total_score IS NOT NULL
       )
     ORDER BY delta ASC NULLS LAST, rep_name ASC, opp_name ASC
