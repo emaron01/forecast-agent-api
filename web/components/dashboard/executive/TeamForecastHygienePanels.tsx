@@ -25,6 +25,8 @@ export type AssessmentHygieneRow = {
 };
 
 export type VelocityHygieneSummary = {
+  /** Positive: rep; negative: leader team rollup (same convention as coverage/assessment `rep_id`). */
+  repId: number;
   repName: string;
   avgBaseline: number;
   avgCurrent: number;
@@ -34,6 +36,7 @@ export type VelocityHygieneSummary = {
 };
 
 export type ProgressionHygieneSummary = {
+  repId: number;
   repName: string;
   progressing: number;
   stalled: number;
@@ -68,22 +71,48 @@ function deltaTextClass(delta: number): string {
   return "text-gray-500";
 }
 
+/** Leader rollup rows use negative `rep_id` / `repId`; label one rollup as Team Total, multiple as "{name}'s Team". */
+function rollupRowLabel(repName: string, rollupCount: number): string {
+  if (rollupCount <= 1) return "Team Total";
+  return `${repName}'s Team`;
+}
+
 /** Shared Team Forecast Hygiene UI (Coverage, Assessment, Score Velocity, Deal Progression). */
 export function TeamForecastHygienePanels(props: {
   pipelineHygiene: PipelineHygienePayload;
+  /** Active quota period label (e.g. "3rd Quarter (FY2026 Q3)"). */
+  periodName?: string;
   /** e.g. `mt-4 space-y-4` when not first on page; `space-y-4` for forecast tab top */
   sectionClassName?: string;
 }) {
-  const { pipelineHygiene: h } = props;
+  const { pipelineHygiene: h, periodName } = props;
   const sectionClass = props.sectionClassName ?? "mt-4 space-y-4";
+
+  const coverageRepRows = h.coverageRows.filter((r) => r.rep_id > 0);
+  const coverageRollupRows = h.coverageRows.filter((r) => r.rep_id < 0);
+  const coverageRollupN = coverageRollupRows.length;
+
+  const assessmentRepRows = h.assessmentRows.filter((r) => r.rep_id > 0);
+  const assessmentRollupRows = h.assessmentRows.filter((r) => r.rep_id < 0);
+  const assessmentRollupN = assessmentRollupRows.length;
+
+  const velocityRepRows = h.velocitySummaries.filter((r) => r.repId > 0);
+  const velocityRollupRows = h.velocitySummaries.filter((r) => r.repId < 0);
+  const velocityRollupN = velocityRollupRows.length;
+
+  const progressionRepRows = h.progressionSummaries.filter((r) => r.repId > 0);
+  const progressionRollupRows = h.progressionSummaries.filter((r) => r.repId < 0);
+  const progressionRollupN = progressionRollupRows.length;
 
   return (
     <section className={sectionClass}>
       <header>
-        <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Team Forecast Hygiene</h2>
-        <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-          Quarter-scoped hygiene metrics for the visible team, aligned with the selected forecast period.
-        </p>
+        <div className="px-1">
+          <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">
+            Team Forecast Hygiene
+            {periodName ? ` — ${periodName}` : ""}
+          </h2>
+        </div>
       </header>
 
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
@@ -102,12 +131,22 @@ export function TeamForecastHygienePanels(props: {
               </tr>
             </thead>
             <tbody>
-              {h.coverageRows.map((row) => (
+              {coverageRepRows.map((row) => (
                 <tr key={row.rep_id} className="border-t border-[color:var(--sf-border)]">
                   <td className="px-3 py-2 text-[color:var(--sf-text-primary)]">{row.rep_name}</td>
                   <td className="px-3 py-2 text-right text-[color:var(--sf-text-primary)]">{row.total_opps}</td>
                   <td className="px-3 py-2 text-right text-[color:var(--sf-text-primary)]">{row.reviewed_opps}</td>
                   <td className={`px-3 py-2 text-right font-medium ${coveragePctTextClass(row.coverage_pct)}`}>
+                    {row.coverage_pct != null ? `${row.coverage_pct}%` : "—"}
+                  </td>
+                </tr>
+              ))}
+              {coverageRollupRows.map((row) => (
+                <tr key={row.rep_id} className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]">
+                  <td className="px-3 py-2 font-semibold">{rollupRowLabel(row.rep_name, coverageRollupN)}</td>
+                  <td className="px-3 py-2 text-right font-semibold">{row.total_opps}</td>
+                  <td className="px-3 py-2 text-right font-semibold">{row.reviewed_opps}</td>
+                  <td className={`px-3 py-2 text-right font-semibold ${coveragePctTextClass(row.coverage_pct)}`}>
                     {row.coverage_pct != null ? `${row.coverage_pct}%` : "—"}
                   </td>
                 </tr>
@@ -140,12 +179,24 @@ export function TeamForecastHygienePanels(props: {
               </tr>
             </thead>
             <tbody>
-              {h.assessmentRows.map((row) => (
+              {assessmentRepRows.map((row) => (
                 <tr key={row.rep_id} className="border-t border-[color:var(--sf-border)]">
                   <td className="px-2 py-2 whitespace-nowrap text-[color:var(--sf-text-primary)]">{row.rep_name}</td>
                   {[row.pain, row.metrics, row.champion, row.eb, row.criteria, row.process, row.competition, row.paper, row.timing, row.budget, row.avg_total].map(
                     (v, idx) => (
                       <td key={idx} className={`px-2 py-1 text-center font-mono ${assessmentScoreTextClass(v)}`}>
+                        {v != null ? v : "—"}
+                      </td>
+                    )
+                  )}
+                </tr>
+              ))}
+              {assessmentRollupRows.map((row) => (
+                <tr key={row.rep_id} className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]">
+                  <td className="px-2 py-2 whitespace-nowrap font-semibold">{rollupRowLabel(row.rep_name, assessmentRollupN)}</td>
+                  {[row.pain, row.metrics, row.champion, row.eb, row.criteria, row.process, row.competition, row.paper, row.timing, row.budget, row.avg_total].map(
+                    (v, idx) => (
+                      <td key={idx} className={`px-2 py-1 text-center font-mono font-semibold ${assessmentScoreTextClass(v)}`}>
                         {v != null ? v : "—"}
                       </td>
                     )
@@ -182,8 +233,8 @@ export function TeamForecastHygienePanels(props: {
               </tr>
             </thead>
             <tbody>
-              {h.velocitySummaries.map((row, idx) => (
-                <tr key={`${row.repName}:${idx}`} className="border-t border-[color:var(--sf-border)]">
+              {velocityRepRows.map((row) => (
+                <tr key={row.repId} className="border-t border-[color:var(--sf-border)]">
                   <td className="px-3 py-2 whitespace-nowrap text-[color:var(--sf-text-primary)]">{row.repName}</td>
                   <td className="px-3 py-2 text-right text-[color:var(--sf-text-primary)]">
                     {Number.isFinite(row.avgBaseline) ? row.avgBaseline.toFixed(1) : "—"}
@@ -196,6 +247,22 @@ export function TeamForecastHygienePanels(props: {
                   </td>
                   <td className="px-3 py-2 text-right text-[color:var(--sf-text-primary)]">{row.dealsMoving}</td>
                   <td className="px-3 py-2 text-right text-[color:var(--sf-text-primary)]">{row.dealsFlat}</td>
+                </tr>
+              ))}
+              {velocityRollupRows.map((row) => (
+                <tr key={row.repId} className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]">
+                  <td className="px-3 py-2 whitespace-nowrap font-semibold">{rollupRowLabel(row.repName, velocityRollupN)}</td>
+                  <td className="px-3 py-2 text-right font-semibold">
+                    {Number.isFinite(row.avgBaseline) ? row.avgBaseline.toFixed(1) : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-right font-semibold">
+                    {Number.isFinite(row.avgCurrent) ? row.avgCurrent.toFixed(1) : "—"}
+                  </td>
+                  <td className={`px-3 py-2 text-right font-mono font-semibold ${deltaTextClass(row.avgDelta)}`}>
+                    {Number.isFinite(row.avgDelta) ? row.avgDelta.toFixed(1) : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-right font-semibold">{row.dealsMoving}</td>
+                  <td className="px-3 py-2 text-right font-semibold">{row.dealsFlat}</td>
                 </tr>
               ))}
               {!h.velocitySummaries.length && (
@@ -227,13 +294,22 @@ export function TeamForecastHygienePanels(props: {
               </tr>
             </thead>
             <tbody>
-              {h.progressionSummaries.map((row, idx) => (
-                <tr key={`${row.repName}:${idx}`} className="border-t border-[color:var(--sf-border)]">
+              {progressionRepRows.map((row) => (
+                <tr key={row.repId} className="border-t border-[color:var(--sf-border)]">
                   <td className="px-3 py-2 whitespace-nowrap text-[color:var(--sf-text-primary)]">{row.repName}</td>
                   <td className="px-3 py-2 text-right text-[color:var(--sf-text-primary)]">{row.progressing}</td>
                   <td className="px-3 py-2 text-right text-[color:var(--sf-text-primary)]">{row.stalled}</td>
                   <td className="px-3 py-2 text-right text-[color:var(--sf-text-primary)]">{row.flat}</td>
                   <td className="px-3 py-2 text-right text-[color:var(--sf-text-primary)]">{row.total}</td>
+                </tr>
+              ))}
+              {progressionRollupRows.map((row) => (
+                <tr key={row.repId} className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]">
+                  <td className="px-3 py-2 whitespace-nowrap font-semibold">{rollupRowLabel(row.repName, progressionRollupN)}</td>
+                  <td className="px-3 py-2 text-right font-semibold">{row.progressing}</td>
+                  <td className="px-3 py-2 text-right font-semibold">{row.stalled}</td>
+                  <td className="px-3 py-2 text-right font-semibold">{row.flat}</td>
+                  <td className="px-3 py-2 text-right font-semibold">{row.total}</td>
                 </tr>
               ))}
               {!h.progressionSummaries.length && (

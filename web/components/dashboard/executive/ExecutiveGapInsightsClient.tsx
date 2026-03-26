@@ -686,6 +686,8 @@ export function ExecutiveGapInsightsClient(props: {
   topDealsLost?: any[];
   /** Team Forecast Hygiene (Coverage, Assessment, Score Velocity, Deal Progression) — same payload as executive shell `pipelineHygiene`. */
   pipelineHygiene?: PipelineHygienePayload | null;
+  /** Active quota period name for the Team Forecast Hygiene heading. */
+  periodName?: string;
   revenueTabOnly?: boolean;
   heroOnly?: boolean;
   /** @deprecated No longer rendered in heroOnly; aging cards live on the Forecast tab / full layout. */
@@ -2216,7 +2218,11 @@ export function ExecutiveGapInsightsClient(props: {
     return (
       <div className="grid gap-4">
         {props.pipelineHygiene ? (
-          <TeamForecastHygienePanels pipelineHygiene={props.pipelineHygiene} sectionClassName="space-y-4" />
+          <TeamForecastHygienePanels
+            pipelineHygiene={props.pipelineHygiene}
+            periodName={props.periodName}
+            sectionClassName="space-y-4"
+          />
         ) : null}
       </div>
     );

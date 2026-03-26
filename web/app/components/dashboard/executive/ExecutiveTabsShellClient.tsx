@@ -154,10 +154,12 @@ function ReportsTabContent(props: {
         Number(props.forecastTabProps.partnersExecutive?.partner_influenced?.won_amount || 0) +
         Number(props.forecastTabProps.partnersExecutive?.partner_sourced?.won_amount || 0),
       partner_cei: (props.forecastTabProps.partnersExecutive as any)?.cei?.partner_sourced_index,
-      coverage: props.pipelineHygiene.coverageRows.map((r) => ({
-        rep: r.rep_name,
-        pct: r.coverage_pct,
-      })),
+      coverage: props.pipelineHygiene.coverageRows
+        .filter((r) => r.rep_id > 0)
+        .map((r) => ({
+          rep: r.rep_name,
+          pct: r.coverage_pct,
+        })),
     };
 
     try {

@@ -135,7 +135,15 @@ export default async function ExecutiveDashboardPage({
       const repIds = getSubtreeRepIds(leader.id);
       if (repIds.length > 0) leaderRepIds.set(leader.id, repIds);
     }
-    const leaderRepIdSet = new Set(Array.from(leaderRepIds.keys()).map((id) => id));
+    /** Hygiene tables: exclude leaders from peer rep rows; they only appear as rollup rows (negative rep_id). */
+    const managerRoleRepIds = new Set(
+      repDirectory
+        .filter((r) => r.role === "EXEC_MANAGER" || r.role === "MANAGER")
+        .map((r) => r.id)
+    );
+
+    /** Only REP / MANAGER / EXEC_MANAGER — excludes channel roles (and any other rep.role values). */
+    const hygieneRepRoleSql = `AND r.role IN ('REP', 'MANAGER', 'EXEC_MANAGER')`;
 
     type CoverageRow = {
       rep_id: number;
@@ -146,6 +154,7 @@ export default async function ExecutiveDashboardPage({
     };
 
     type VelocityRepSummary = {
+      repId: number;
       repName: string;
       avgBaseline: number;
       avgCurrent: number;
@@ -195,6 +204,7 @@ export default async function ExecutiveDashboardPage({
      AND opp.close_date < $3::timestamptz
     WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
       AND r.id = ANY($4::bigint[])
+      ${hygieneRepRoleSql}
     GROUP BY
       r.id,
       COALESCE(
@@ -236,8 +246,10 @@ export default async function ExecutiveDashboardPage({
             coverage_pct: total > 0 ? Math.round((reviewed / total) * 100) : null,
           };
         });
-      const coverageRowsFiltered = (coverageRows ?? []).filter((row) => !leaderRepIdSet.has(row.rep_id));
-      coverageRowsFinal = [...leaderCoverageRows, ...coverageRowsFiltered];
+      const coverageRowsFiltered = (coverageRows ?? []).filter(
+        (row) => row.rep_id > 0 && !managerRoleRepIds.has(row.rep_id)
+      );
+      coverageRowsFinal = [...coverageRowsFiltered, ...leaderCoverageRows];
     } catch (e) {
       console.error("[hygiene:coverage]", e);
     }
@@ -295,6 +307,7 @@ export default async function ExecutiveDashboardPage({
      )
     WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
       AND r.id = ANY($4::bigint[])
+      ${hygieneRepRoleSql}
     GROUP BY
       r.id,
       COALESCE(
@@ -343,10 +356,13 @@ export default async function ExecutiveDashboardPage({
         opp.budget_score,
         opp.health_score
       FROM opportunities opp
+      JOIN reps r_h ON r_h.id = opp.rep_id
+        AND COALESCE(r_h.organization_id, r_h.org_id::bigint) = $1::bigint
       WHERE opp.rep_id = ANY($4::bigint[])
         AND opp.org_id = $1
         AND opp.close_date >= $2::timestamptz
         AND opp.close_date < $3::timestamptz
+        AND r_h.role IN ('REP', 'MANAGER', 'EXEC_MANAGER')
         AND EXISTS (
           SELECT 1 FROM opportunity_audit_events oae
           WHERE oae.opportunity_id = opp.id AND oae.org_id = $1
@@ -385,24 +401,43 @@ export default async function ExecutiveDashboardPage({
           rows.reduce((a, r) => a + num(get(r)), 0);
         const avg = (get: (r: AssessmentOppRow) => number | null) =>
           Math.round(sum(get) / n);
+        const painV = avg((r) => r.pain_score);
+        const metricsV = avg((r) => r.metrics_score);
+        const championV = avg((r) => r.champion_score);
+        const ebV = avg((r) => r.eb_score);
+        const criteriaV = avg((r) => r.criteria_score);
+        const processV = avg((r) => r.process_score);
+        const competitionV = avg((r) => r.competition_score);
+        const paperV = avg((r) => r.paper_score);
+        const timingV = avg((r) => r.timing_score);
+        const budgetV = avg((r) => r.budget_score);
+        const categoryAvgs = [painV, metricsV, championV, ebV, criteriaV, processV, competitionV, paperV, timingV, budgetV].filter(
+          (v): v is number => v !== null && v !== undefined
+        );
+        const avgTotal =
+          categoryAvgs.length > 0
+            ? Math.round(categoryAvgs.reduce((a, b) => a + b, 0) / categoryAvgs.length)
+            : null;
         return {
           rep_id: -leader.id,
           rep_name: leader.display_name,
-          pain: avg((r) => r.pain_score),
-          metrics: avg((r) => r.metrics_score),
-          champion: avg((r) => r.champion_score),
-          eb: avg((r) => r.eb_score),
-          criteria: avg((r) => r.criteria_score),
-          process: avg((r) => r.process_score),
-          competition: avg((r) => r.competition_score),
-          paper: avg((r) => r.paper_score),
-          timing: avg((r) => r.timing_score),
-          budget: avg((r) => r.budget_score),
-          avg_total: avg((r) => r.health_score),
+          pain: painV,
+          metrics: metricsV,
+          champion: championV,
+          eb: ebV,
+          criteria: criteriaV,
+          process: processV,
+          competition: competitionV,
+          paper: paperV,
+          timing: timingV,
+          budget: budgetV,
+          avg_total: avgTotal,
         };
       });
-    const assessmentRowsFiltered = (assessmentRows ?? []).filter((row) => !leaderRepIdSet.has(row.rep_id));
-    assessmentRowsFinal = [...leaderAssessmentRows, ...assessmentRowsFiltered];
+    const assessmentRowsFiltered = (assessmentRows ?? []).filter(
+      (row) => row.rep_id > 0 && !managerRoleRepIds.has(row.rep_id)
+    );
+    assessmentRowsFinal = [...assessmentRowsFiltered, ...leaderAssessmentRows];
   } catch (e) {
     console.error("[hygiene:assessment]", e);
   }
@@ -442,6 +477,7 @@ export default async function ExecutiveDashboardPage({
     JOIN reps r
       ON r.id = opp.rep_id
      AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+     ${hygieneRepRoleSql}
     JOIN LATERAL (
       SELECT total_score
       FROM opportunity_audit_events
@@ -465,6 +501,7 @@ export default async function ExecutiveDashboardPage({
     );
 
     const velocityByRep = new Map<string, {
+      repId: number;
       repName: string;
       count: number;
       sumBaseline: number;
@@ -475,10 +512,12 @@ export default async function ExecutiveDashboardPage({
     }>();
 
     for (const row of velocityRows) {
+      if (managerRoleRepIds.has(row.rep_id)) continue;
       const key = `${row.rep_id}:${row.rep_name}`;
       let agg = velocityByRep.get(key);
       if (!agg) {
         agg = {
+          repId: row.rep_id,
           repName: row.rep_name,
           count: 0,
           sumBaseline: 0,
@@ -501,6 +540,7 @@ export default async function ExecutiveDashboardPage({
     }
 
     const velocityRepSummaries: VelocityRepSummary[] = Array.from(velocityByRep.values()).map((agg) => ({
+      repId: agg.repId,
       repName: agg.repName,
       avgBaseline: agg.count ? agg.sumBaseline / agg.count : 0,
       avgCurrent: agg.count ? agg.sumCurrent / agg.count : 0,
@@ -520,6 +560,7 @@ export default async function ExecutiveDashboardPage({
         let dealsMoving = 0;
         let dealsFlat = 0;
         for (const row of velocityRows) {
+          if (managerRoleRepIds.has(row.rep_id)) continue;
           if (!repIds.includes(row.rep_id)) continue;
           count += 1;
           const b = num(row.baseline_score);
@@ -532,6 +573,7 @@ export default async function ExecutiveDashboardPage({
           if (d === 0) dealsFlat += 1;
         }
         return {
+          repId: -leader.id,
           repName: leader.display_name,
           avgBaseline: count ? sumBaseline / count : 0,
           avgCurrent: count ? sumCurrent / count : 0,
@@ -540,10 +582,7 @@ export default async function ExecutiveDashboardPage({
           dealsFlat,
         };
       });
-    const velocityRepSummariesFiltered: VelocityRepSummary[] = velocityRepSummaries.filter((row) => {
-      return !leaders.some((l) => row.repName === l.display_name);
-    });
-    velocityRepSummariesFinal = [...leaderVelocityRows, ...velocityRepSummariesFiltered];
+    velocityRepSummariesFinal = [...velocityRepSummaries, ...leaderVelocityRows];
   } catch (e) {
     console.error("[hygiene:velocity]", e);
   }
@@ -566,6 +605,7 @@ export default async function ExecutiveDashboardPage({
   };
 
   type ProgressionRepSummary = {
+    repId: number;
     repName: string;
     progressing: number;
     stalled: number;
@@ -593,6 +633,7 @@ export default async function ExecutiveDashboardPage({
     JOIN reps r
       ON r.id = opp.rep_id
      AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+     ${hygieneRepRoleSql}
     WHERE oae.org_id = $1
       AND opp.org_id = $1
       AND opp.rep_id = ANY($4::bigint[])
@@ -615,6 +656,7 @@ export default async function ExecutiveDashboardPage({
     const now = new Date();
     const progressionByOpp = new Map<number, ProgressionSeries>();
     for (const row of progressionRows) {
+      if (managerRoleRepIds.has(row.rep_id)) continue;
       const t = new Date(row.ts);
       const existing = progressionByOpp.get(row.opportunity_id);
       if (!existing) {
@@ -649,7 +691,15 @@ export default async function ExecutiveDashboardPage({
 
     const progressionSeries = Array.from(progressionByOpp.values());
 
-    const progressionByRepId = new Map<number, ProgressionRepSummary>();
+    type ProgressionRepAgg = {
+      repName: string;
+      progressing: number;
+      stalled: number;
+      flat: number;
+      total: number;
+    };
+
+    const progressionByRepId = new Map<number, ProgressionRepAgg>();
 
     for (const series of progressionSeries) {
       const key = series.rep_id;
@@ -673,7 +723,16 @@ export default async function ExecutiveDashboardPage({
       }
     }
 
-    const progressionRepSummaries: ProgressionRepSummary[] = Array.from(progressionByRepId.values());
+    const progressionRepSummaries: ProgressionRepSummary[] = Array.from(progressionByRepId.entries()).map(
+      ([repId, agg]) => ({
+        repId,
+        repName: agg.repName,
+        progressing: agg.progressing,
+        stalled: agg.stalled,
+        flat: agg.flat,
+        total: agg.total,
+      })
+    );
 
     const leaderProgressionRows: ProgressionRepSummary[] = leaders
       .filter((l) => leaderRepIds.get(l.id)?.length)
@@ -684,6 +743,7 @@ export default async function ExecutiveDashboardPage({
         let flat = 0;
         let total = 0;
         for (const repId of repIds) {
+          if (managerRoleRepIds.has(repId)) continue;
           const s = progressionByRepId.get(repId);
           if (s) {
             progressing += s.progressing;
@@ -693,6 +753,7 @@ export default async function ExecutiveDashboardPage({
           }
         }
         return {
+          repId: -leader.id,
           repName: leader.display_name,
           progressing,
           stalled,
@@ -700,13 +761,7 @@ export default async function ExecutiveDashboardPage({
           total,
         };
       });
-    const progressionRepSummariesFiltered: ProgressionRepSummary[] = progressionRepSummaries.filter((row) => {
-      return !leaders.some((l) => row.repName === l.display_name);
-    });
-    progressionRepSummariesFinal = [
-      ...leaderProgressionRows,
-      ...progressionRepSummariesFiltered,
-    ];
+    progressionRepSummariesFinal = [...progressionRepSummaries, ...leaderProgressionRows];
   } catch (e) {
     console.error("[hygiene:progression]", e);
   }
@@ -1673,6 +1728,7 @@ export default async function ExecutiveDashboardPage({
             defaultTopN: 5,
             topDealsWon,
             topDealsLost,
+            periodName: selectedPeriod?.period_name ?? "",
             pipelineHygiene: {
               coverageRows: coverageRowsFinal,
               assessmentRows: assessmentRowsFinal,
@@ -1714,6 +1770,7 @@ export default async function ExecutiveDashboardPage({
             commitAdmission: summary.commitAdmission,
             commitDealPanels: summary.commitDealPanels,
             defaultTopN: 5,
+            periodName: selectedPeriod?.period_name ?? "",
           }}
           pipelineHygiene={{
             coverageRows: coverageRowsFinal,
