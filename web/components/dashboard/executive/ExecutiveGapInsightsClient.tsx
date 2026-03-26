@@ -2543,7 +2543,7 @@ export function ExecutiveGapInsightsClient(props: {
           props.commitAdmission.unsupportedCommitAmount > 0 ||
           props.commitAdmission.commitNeedsReviewAmount > 0 ||
           props.commitAdmission.aiSupportedCommitAmount > 0) ? (
-          <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+          <section className="mt-4 w-full rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
             <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Commit Integrity</div>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
@@ -2626,7 +2626,7 @@ export function ExecutiveGapInsightsClient(props: {
             {props.commitDealPanels &&
             (props.commitDealPanels.topPainDeals.length > 0 ||
               props.commitDealPanels.topVerifiedDeals.length > 0) ? (
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full mt-3">
                 {props.commitDealPanels.topPainDeals.length > 0 ? (
                   <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
                     <div className="text-xs font-semibold uppercase text-[color:var(--sf-text-secondary)]">
