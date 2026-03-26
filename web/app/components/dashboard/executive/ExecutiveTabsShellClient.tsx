@@ -755,6 +755,9 @@ export function ExecutiveTabsShellClient(props: {
     manager_rep_id: number | null;
     role: string;
   }>;
+  reportBuilderQuotaPeriods: { id: string; name: string }[];
+  reportBuilderOrgId: number;
+  reportBuilderInitialPeriodId: string;
   revenueIntelligenceOrgId: number;
   revenueIntelligenceQuotaPeriods: { id: string; name: string; fiscal_year?: string }[];
   revenueIntelligenceRepDirectory: Array<{
@@ -1116,6 +1119,9 @@ export function ExecutiveTabsShellClient(props: {
               repDirectory={props.reportBuilderRepDirectory}
               savedReports={props.reportBuilderSavedReports}
               periodLabel={props.reportBuilderPeriodLabel}
+              quotaPeriods={props.reportBuilderQuotaPeriods}
+              orgId={props.reportBuilderOrgId}
+              initialSelectedPeriodId={props.reportBuilderInitialPeriodId}
             />
           </div>
         )}

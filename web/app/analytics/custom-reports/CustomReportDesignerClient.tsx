@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -124,10 +124,10 @@ type MetricKey =
 const METRICS: Array<{ key: MetricKey; label: string }> = [
   { key: "avg_health_all", label: "Avg Health (Overall)" },
   { key: "avg_health_best", label: "Avg Health (Best Case)" },
-  { key: "avg_health_closed", label: "Avg Health (Closed)" },
+  { key: "avg_health_closed", label: "Avg Health Closed Lost (%)" },
   { key: "avg_health_commit", label: "Avg Health (Commit)" },
   { key: "avg_health_pipeline", label: "Avg Health (Pipeline)" },
-  { key: "avg_health_won", label: "Avg Health (Won)" },
+  { key: "avg_health_won", label: "Avg Health Won (%)" },
   { key: "aov", label: "AOV ($)" },
   { key: "avg_days_active", label: "Aging (avg days)" },
   { key: "best_amount", label: "Best Case ($)" },
@@ -169,23 +169,27 @@ const MEDDPICC_HEALTH_METRICS: Array<{ key: MetricKey; label: string }> = [
 const ALL_METRICS: Array<{ key: MetricKey; label: string }> = [...METRICS, ...MEDDPICC_HEALTH_METRICS];
 
 function fmtMoney(n: any) {
-  const v = Number(n || 0);
+  if (n === null || n === undefined) return "—";
+  const v = Number(n);
   if (!Number.isFinite(v)) return "—";
   return v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
-function fmtPct(n: number | null) {
-  if (n == null || !Number.isFinite(n)) return "—";
-  return `${Math.round(n * 100)}%`;
+function fmtPct(n: number | null | undefined) {
+  if (n == null || n === undefined || !Number.isFinite(Number(n))) return "—";
+  return `${Math.round(Number(n) * 100)}%`;
 }
 
 function healthFracFrom30(score: any) {
+  if (score === null || score === undefined) return null;
   const n = Number(score);
-  if (!Number.isFinite(n) || n <= 0) return null;
+  if (!Number.isFinite(n)) return null;
+  if (n <= 0) return 0;
   return Math.max(0, Math.min(1, n / 30));
 }
 
 function fmtNum(n: any) {
+  if (n === null || n === undefined) return "—";
   const v = Number(n);
   if (!Number.isFinite(v)) return "—";
   return v.toLocaleString();
@@ -193,7 +197,7 @@ function fmtNum(n: any) {
 
 function lmhFromAvg(avg: any) {
   const n = avg == null ? null : Number(avg);
-  if (n == null || !Number.isFinite(n) || n <= 0) {
+  if (n == null || !Number.isFinite(n)) {
     return { label: "—", cls: "text-[color:var(--sf-text-disabled)] bg-[color:var(--sf-surface-alt)]" };
   }
   const k = Math.round(n);
@@ -221,10 +225,10 @@ function renderMetricValue(key: MetricKey, r: RepRow) {
     key.startsWith("mix_") ||
     key.startsWith("partner_")
   ) {
-    return fmtPct(v == null ? null : Number(v));
+    return fmtPct(v != null ? Number(v) : null);
   }
   if (key.includes("amount") || key === "quota" || key === "aov") return fmtMoney(v);
-  if (key.startsWith("avg_days_")) return v == null ? "—" : String(Math.round(Number(v)));
+  if (key.startsWith("avg_days_")) return v == null || v === undefined ? "—" : String(Math.round(Number(v)));
   return fmtNum(v);
 }
 
@@ -237,6 +241,7 @@ function renderMetricCell(key: MetricKey, r: RepRow) {
 }
 
 function safeNum(n: any) {
+  if (n == null) return 0;
   const v = Number(n);
   return Number.isFinite(v) ? v : 0;
 }
@@ -437,8 +442,67 @@ export function CustomReportDesignerClient(props: {
   currentExecutiveRepId?: string | null;
   savedReports: SavedReportRow[];
   periodLabel: string;
+  /** Quarters for report-builder period selector (executive dashboard). */
+  quotaPeriods?: { id: string; name: string }[];
+  orgId?: number;
+  /** Server-selected period; used to skip redundant client fetch until the user picks another quarter. */
+  initialSelectedPeriodId?: string;
 }) {
-  const reps = props.repRows || [];
+  const quotaPeriods = props.quotaPeriods ?? [];
+  const orgIdForFetch = props.orgId ?? 0;
+  const initialPeriodId = props.initialSelectedPeriodId ?? quotaPeriods[0]?.id ?? "";
+
+  const [repRowsLocal, setRepRowsLocal] = useState<RepRow[]>(() => props.repRows || []);
+  const [periodLabelDisplay, setPeriodLabelDisplay] = useState(() => props.periodLabel);
+  const [controlsOpen, setControlsOpen] = useState(true);
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string>(initialPeriodId);
+
+  useEffect(() => {
+    setRepRowsLocal(props.repRows || []);
+  }, [props.repRows]);
+
+  useEffect(() => {
+    setPeriodLabelDisplay(props.periodLabel);
+  }, [props.periodLabel]);
+
+  useEffect(() => {
+    if (props.initialSelectedPeriodId) {
+      setSelectedPeriodId(props.initialSelectedPeriodId);
+    }
+  }, [props.initialSelectedPeriodId]);
+
+  useEffect(() => {
+    if (!orgIdForFetch || !selectedPeriodId) return;
+    const initialPid = props.initialSelectedPeriodId ?? "";
+    if (selectedPeriodId === initialPid) {
+      setRepRowsLocal(props.repRows || []);
+      setPeriodLabelDisplay(props.periodLabel);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/report-builder/data", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ periodId: selectedPeriodId }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (cancelled || !json?.ok || !Array.isArray(json.repRows)) return;
+        setRepRowsLocal(json.repRows as RepRow[]);
+        if (typeof json.periodLabel === "string" && json.periodLabel.trim()) {
+          setPeriodLabelDisplay(json.periodLabel);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPeriodId, orgIdForFetch, props.initialSelectedPeriodId, props.repRows, props.periodLabel]);
+
+  const reps = repRowsLocal;
   const repDirectory = props.repDirectory || [];
   const saved = props.savedReports || [];
 
@@ -462,8 +526,8 @@ export function CustomReportDesignerClient(props: {
       const nm = String(exec.name || "").trim();
       return nm || `Executive ${exec.id}`;
     }
-    return props.periodLabel;
-  }, [repDirectory, props.periodLabel]);
+    return periodLabelDisplay;
+  }, [repDirectory, periodLabelDisplay]);
 
   const previewRows = useMemo(() => {
     const byId = new Map<string, RepRow>();
@@ -542,7 +606,7 @@ export function CustomReportDesignerClient(props: {
         ...selectedFields.reduce(
           (acc, f) => ({
             ...acc,
-            [f.label]: Number((row as any)[f.key] ?? 0),
+            [f.label]: (row as any)[f.key] != null ? Number((row as any)[f.key]) : 0,
           }),
           {} as Record<string, number>
         ),
@@ -554,7 +618,8 @@ export function CustomReportDesignerClient(props: {
     return selectedFields.map((f) => {
       const point: Record<string, any> = { metric: f.label };
       chartPreviewRows.forEach((row) => {
-        point[row.rep_name] = Number((row as any)[f.key] ?? 0);
+        const raw = (row as any)[f.key];
+        point[row.rep_name] = raw != null ? Number(raw) : 0;
       });
       return point;
     });
@@ -734,30 +799,9 @@ export function CustomReportDesignerClient(props: {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Designer</h2>
-          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Period: {props.periodLabel}</p>
+          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Period: {periodLabelDisplay}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={savedPickId}
-            onChange={(e) => {
-              const id = String(e.target.value || "");
-              setSavedPickId(id);
-              if (!id) {
-                startNewSavedReport();
-                return;
-              }
-              const r = saved.find((x) => String(x.id) === id) || null;
-              if (r) loadReport(r);
-            }}
-            className="h-[40px] min-w-[220px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-          >
-            <option value="">Select saved report…</option>
-            {saved.map((r) => (
-              <option key={r.id} value={String(r.id)}>
-                {r.name}
-              </option>
-            ))}
-          </select>
           <button
             type="button"
             onClick={() => setShowReportMeta((v) => !v)}
@@ -781,6 +825,37 @@ export function CustomReportDesignerClient(props: {
             Clear
           </button>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <select
+          value={savedPickId}
+          onChange={(e) => {
+            const id = String(e.target.value || "");
+            setSavedPickId(id);
+            if (!id) {
+              startNewSavedReport();
+              return;
+            }
+            const r = saved.find((x) => String(x.id) === id) || null;
+            if (r) loadReport(r);
+          }}
+          className="rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] min-w-[220px]"
+        >
+          <option value="">Select saved report...</option>
+          {saved.map((r) => (
+            <option key={r.id} value={String(r.id)}>
+              {r.name}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => setControlsOpen((v) => !v)}
+          className="rounded-md border border-[color:var(--sf-border)] px-4 py-2 text-sm text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)]"
+        >
+          {controlsOpen ? "▲ Hide Config" : "⚙ Configure"}
+        </button>
       </div>
 
       {showReportMeta ? (
@@ -811,7 +886,25 @@ export function CustomReportDesignerClient(props: {
         <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">{status}</div>
       ) : null}
 
-      <div className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+      {controlsOpen ? (
+        <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 mb-4 space-y-5">
+          <div>
+            <div className="text-sm font-semibold text-[color:var(--sf-text-primary)] mb-2">Quarter</div>
+            <select
+              value={selectedPeriodId}
+              onChange={(e) => setSelectedPeriodId(e.target.value)}
+              className="rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+            >
+              {quotaPeriods.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">Initial health (at deal open) coming soon</p>
+          </div>
+
+      <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Reps</div>
           <div className="flex items-center gap-2">
@@ -899,28 +992,7 @@ export function CustomReportDesignerClient(props: {
         </div>
       </div>
 
-      <div className="mt-4">
-        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)] mb-2">Visualization</div>
-        <div className="flex flex-wrap gap-2">
-          {(["table", "bar", "line", "radar"] as const).map((type) => (
-            <button
-              key={type}
-              type="button"
-              onClick={() => setChartType(type)}
-              className={
-                chartType === type
-                  ? "rounded-full border px-3 py-1 text-xs font-semibold border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] text-white"
-                  : "rounded-full border px-3 py-1 text-xs font-semibold border-[color:var(--sf-border)] text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)]"
-              }
-            >
-              {type === "table" ? "📋 Table" : type === "bar" ? "📊 Bar" : type === "line" ? "📈 Line" : "🕸️ Radar"}
-            </button>
-          ))}
-        </div>
-
-      </div>
-
-      <div className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
+      <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
         <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">MEDDPICC+TB Health</div>
         <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
           Averages shown as <span className="font-mono">L</span> (0), <span className="font-mono">M</span> (1–2), <span className="font-mono">H</span> (3)
@@ -937,10 +1009,36 @@ export function CustomReportDesignerClient(props: {
           })}
         </div>
       </div>
+        </div>
+      ) : null}
+
+      <div className="mt-4">
+        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)] mb-2">Visualization</div>
+        <div className="flex flex-wrap gap-2">
+          {(["table", "bar", "line", "radar"] as const).map((type) => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => {
+                setChartType(type);
+                setControlsOpen(false);
+              }}
+              className={
+                chartType === type
+                  ? "rounded-full border px-3 py-1 text-xs font-semibold border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] text-white"
+                  : "rounded-full border px-3 py-1 text-xs font-semibold border-[color:var(--sf-border)] text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)]"
+              }
+            >
+              {type === "table" ? "📋 Table" : type === "bar" ? "📊 Bar" : type === "line" ? "📈 Line" : "🕸️ Radar"}
+            </button>
+          ))}
+        </div>
+
+      </div>
 
       <div className="mt-4 grid grid-cols-3 items-end gap-2">
         <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Preview</div>
-        <div className="text-sm font-semibold text-center text-[color:var(--sf-text-secondary)]">{props.periodLabel}</div>
+        <div className="text-sm font-semibold text-center text-[color:var(--sf-text-secondary)]">{periodLabelDisplay}</div>
         <div className="text-sm font-semibold text-right text-[color:var(--sf-text-secondary)]">
           Executive: <span className="font-mono">{execHeaderName}</span>
         </div>
@@ -1114,7 +1212,7 @@ export function CustomReportDesignerClient(props: {
       </div>
 
       <div className="mt-3 flex items-center justify-end">
-        <ExportToExcelButton fileName={`Custom Report - ${props.periodLabel}`} sheets={[{ name: "Report", rows: exportRows }]} />
+        <ExportToExcelButton fileName={`Custom Report - ${periodLabelDisplay}`} sheets={[{ name: "Report", rows: exportRows }]} />
       </div>
     </section>
   );
