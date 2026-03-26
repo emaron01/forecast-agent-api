@@ -74,11 +74,21 @@ function coveragePctTextClass(pct: number | null): string {
   return "text-[color:var(--sf-text-primary)]";
 }
 
-function assessmentScoreTextClass(score: number | null | undefined): string {
-  if (score === null || score === undefined) return "text-gray-400";
-  if (score <= 1) return "text-red-600";
-  if (score === 2) return "text-yellow-600";
-  return "text-green-600";
+/** MEDDPICC+TB category average → letter band (same scale as Report Builder). */
+function lmhFromAvg(avg: number | null | undefined): string {
+  if (avg === null || avg === undefined) return "—";
+  const n = Number(avg);
+  if (!Number.isFinite(n)) return "—";
+  if (n <= 0) return "L";
+  if (n <= 2) return "M";
+  return "H";
+}
+
+function lmhLetterTextClass(letter: string): string {
+  if (letter === "L") return "text-red-400";
+  if (letter === "M") return "text-yellow-400";
+  if (letter === "H") return "text-green-400";
+  return "text-[color:var(--sf-text-secondary)]";
 }
 
 function deltaTextClass(delta: number): string {
@@ -163,11 +173,10 @@ export function buildRepCoachingData(
     const total_opps = cov?.total_opps ?? 0;
     const reviewed_opps = cov?.reviewed_opps ?? 0;
 
-    const catScores = MEDDPICC_CATEGORIES.map((c) => ({
-      label: c.label,
-      score: Number(ass?.[c.key as keyof AssessmentHygieneRow] ?? 0) || 0,
-    })).sort((a, b) => a.score - b.score);
-    const weakest_categories = catScores.slice(0, 3).map((x) => x.label);
+    const weakest_categories = MEDDPICC_CATEGORIES.filter((c) => {
+      const raw = ass?.[c.key as keyof AssessmentHygieneRow];
+      return lmhFromAvg(raw as number | null) === "L";
+    }).map((c) => c.label);
 
     const avg_meddpicc = ass?.avg_total != null && Number.isFinite(ass.avg_total) ? Number(ass.avg_total) : 0;
 
@@ -212,11 +221,7 @@ function teamAvgForCategory(
 
 function weakestCategoryLabelsForRows(rows: AssessmentHygieneRow[]): string[] {
   if (!rows.length) return [];
-  const avgs = MEDDPICC_CATEGORIES.map((c) => ({
-    label: c.label,
-    v: teamAvgForCategory(rows, c.key),
-  })).sort((a, b) => a.v - b.v);
-  return avgs.slice(0, 3).map((x) => x.label);
+  return MEDDPICC_CATEGORIES.filter((c) => lmhFromAvg(teamAvgForCategory(rows, c.key)) === "L").map((c) => c.label);
 }
 
 type PaceStatus = "on_track" | "at_risk" | "behind" | "unknown";
@@ -459,7 +464,9 @@ function ManagerCoachingLeaderCard(props: {
           </div>
           <div>
             <div className="text-[color:var(--sf-text-secondary)]">MEDDPICC Avg</div>
-            <div className="font-semibold text-[color:var(--sf-text-primary)]">{team.teamMeddpiccAvg.toFixed(1)}</div>
+            <div className={`font-semibold ${lmhLetterTextClass(lmhFromAvg(team.teamMeddpiccAvg))}`}>
+              {lmhFromAvg(team.teamMeddpiccAvg)}
+            </div>
           </div>
           <div>
             <div className="text-[color:var(--sf-text-secondary)]">Velocity Δ</div>
@@ -544,8 +551,8 @@ function ManagerCoachingLeaderCard(props: {
                     </span>
                     <span>
                       MEDDPICC:{" "}
-                      <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">
-                        {rep.avg_meddpicc.toFixed(1)}
+                      <span className={`ml-1 font-semibold ${lmhLetterTextClass(lmhFromAvg(rep.avg_meddpicc))}`}>
+                        {lmhFromAvg(rep.avg_meddpicc)}
                       </span>
                     </span>
                     <span>
@@ -645,16 +652,16 @@ export function TeamForecastHygienePanels(props: {
     return vals.reduce((a, b) => a + b, 0) / vals.length;
   }, [assessmentRepRows, assessmentRollupRows]);
 
-  const weakestCategory = useMemo(() => {
-    const avgs = MEDDPICC_CATEGORIES.map((c) => ({
-      label: c.label,
-      v: teamAvgForCategory(assessmentRepRows, c.key),
-    })).sort((a, b) => a.v - b.v);
-    return avgs[0]?.label ?? "—";
+  const weakestCategories = useMemo(() => {
+    return MEDDPICC_CATEGORIES.filter((c) => lmhFromAvg(teamAvgForCategory(assessmentRepRows, c.key)) === "L").map(
+      (c) => c.label
+    );
   }, [assessmentRepRows]);
 
-  const meddpiccColor =
-    meddpiccAvg >= 2 ? "text-green-400" : meddpiccAvg >= 1 ? "text-yellow-400" : "text-red-400";
+  const weakestCategoryDisplay = weakestCategories.length ? weakestCategories.join(", ") : "—";
+
+  const meddpiccLetter = lmhFromAvg(meddpiccAvg);
+  const meddpiccColor = lmhLetterTextClass(meddpiccLetter);
 
   const avgDelta = useMemo(() => {
     if (velocityRollupRows.length === 1) return velocityRollupRows[0].avgDelta;
@@ -739,8 +746,8 @@ export function TeamForecastHygienePanels(props: {
 
         <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">MEDDPICC Avg</div>
-          <div className={`text-3xl font-bold mt-1 ${meddpiccColor}`}>{meddpiccAvg.toFixed(1)}</div>
-          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Weakest: {weakestCategory}</div>
+          <div className={`text-3xl font-bold mt-1 ${meddpiccColor}`}>{meddpiccLetter}</div>
+          <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Weakest: {weakestCategoryDisplay}</div>
         </div>
 
         <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
@@ -837,6 +844,7 @@ export function TeamForecastHygienePanels(props: {
 
           <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
             <h3 className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Matthew&apos;s Assessment (MEDDPICC+TB)</h3>
+            <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Averages shown as L (0), M (1–2), H (3)</p>
             <div className="mt-3 overflow-x-auto">
               <table className="min-w-full border-collapse text-[11px]">
                 <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
@@ -854,11 +862,14 @@ export function TeamForecastHygienePanels(props: {
                     <tr key={row.rep_id} className="border-t border-[color:var(--sf-border)]">
                       <td className="px-2 py-2 whitespace-nowrap text-[color:var(--sf-text-primary)]">{row.rep_name}</td>
                       {[row.pain, row.metrics, row.champion, row.eb, row.criteria, row.process, row.competition, row.paper, row.timing, row.budget, row.avg_total].map(
-                        (v, idx) => (
-                          <td key={idx} className={`px-2 py-1 text-center font-mono ${assessmentScoreTextClass(v)}`}>
-                            {v != null ? v : "—"}
-                          </td>
-                        )
+                        (v, idx) => {
+                          const letter = lmhFromAvg(v);
+                          return (
+                            <td key={idx} className={`px-2 py-1 text-center font-semibold ${lmhLetterTextClass(letter)}`}>
+                              {letter}
+                            </td>
+                          );
+                        }
                       )}
                     </tr>
                   ))}
@@ -866,11 +877,14 @@ export function TeamForecastHygienePanels(props: {
                     <tr key={row.rep_id} className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]">
                       <td className="px-2 py-2 whitespace-nowrap font-semibold">{rollupRowLabel(row.rep_name, assessmentRollupN)}</td>
                       {[row.pain, row.metrics, row.champion, row.eb, row.criteria, row.process, row.competition, row.paper, row.timing, row.budget, row.avg_total].map(
-                        (v, idx) => (
-                          <td key={idx} className={`px-2 py-1 text-center font-mono font-semibold ${assessmentScoreTextClass(v)}`}>
-                            {v != null ? v : "—"}
-                          </td>
-                        )
+                        (v, idx) => {
+                          const letter = lmhFromAvg(v);
+                          return (
+                            <td key={idx} className={`px-2 py-1 text-center font-semibold ${lmhLetterTextClass(letter)}`}>
+                              {letter}
+                            </td>
+                          );
+                        }
                       )}
                     </tr>
                   ))}

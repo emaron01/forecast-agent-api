@@ -1101,7 +1101,7 @@ export function CustomReportDesignerClient(props: {
       <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
         <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">MEDDPICC+TB Health</div>
         <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-          Averages shown as <span className="font-mono">L</span> (0), <span className="font-mono">M</span> (1–2), <span className="font-mono">H</span> (3)
+          <span className="font-mono">L</span> = Low, <span className="font-mono">M</span> = Medium, and <span className="font-mono">H</span> = Highly Qualified
         </div>
         <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {MEDDPICC_HEALTH_METRICS.map((m) => {

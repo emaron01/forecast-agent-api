@@ -3700,7 +3700,7 @@ export function ExecutiveGapInsightsClient(props: {
               {props.commitDealPanels.topPainDeals.length > 0 ? (
                 <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
                   <div className="text-xs font-semibold uppercase text-[color:var(--sf-text-secondary)]">Top Commit Risks</div>
-                  <div className="mt-2 space-y-2">
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {props.commitDealPanels.topPainDeals.map((d) => (
                       <CommitIntegrityDealCard
                         key={d.id}
@@ -3723,7 +3723,7 @@ export function ExecutiveGapInsightsClient(props: {
               {props.commitDealPanels.topVerifiedDeals.length > 0 ? (
                 <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
                   <div className="text-xs font-semibold uppercase text-[color:var(--sf-text-secondary)]">Top Verified Commit</div>
-                  <div className="mt-2 space-y-2">
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {props.commitDealPanels.topVerifiedDeals.map((d) => (
                       <CommitIntegrityDealCard
                         key={d.id}
