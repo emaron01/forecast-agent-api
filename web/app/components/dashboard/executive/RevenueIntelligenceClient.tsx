@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import type { RefObject } from "react";
 import {
   Bar,
   BarChart,
@@ -50,6 +51,15 @@ function quarterSortKey(name: string): number {
   const ord = name.match(/(\d)(?:st|nd|rd|th)\s+Quarter/i);
   if (ord) return parseInt(ord[1], 10);
   return 99;
+}
+
+/** Panel / table titles: single name, "A vs B", or "N Quarters". */
+function quarterLabel(quarters: { id: string; name: string }[]): string {
+  if (quarters.length === 0) return "";
+  const sorted = [...quarters].sort((a, b) => quarterSortKey(a.name) - quarterSortKey(b.name));
+  if (sorted.length === 1) return sorted[0].name;
+  if (sorted.length === 2) return `${sorted[0].name} vs ${sorted[1].name}`;
+  return `${sorted.length} Quarters`;
 }
 
 type BucketRow = { id: string; label: string; min: number; max: number | null };
@@ -116,39 +126,6 @@ function downloadTextFile(filename: string, text: string, mime: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-async function downloadSvgAsPng(svgEl: SVGElement, filename: string) {
-  const clone = svgEl.cloneNode(true) as SVGElement;
-  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-  const xml = new XMLSerializer().serializeToString(clone);
-  const svg64 = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
-  const img = new Image();
-  const w = Number(svgEl.getAttribute("width")) || svgEl.getBoundingClientRect().width || 800;
-  const h = Number(svgEl.getAttribute("height")) || svgEl.getBoundingClientRect().height || 320;
-  await new Promise<void>((resolve, reject) => {
-    img.onload = () => resolve();
-    img.onerror = () => reject(new Error("Image load failed"));
-    img.src = svg64;
-  });
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.floor(w * 2));
-  canvas.height = Math.max(1, Math.floor(h * 2));
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  ctx.scale(2, 2);
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, w, h);
-  ctx.drawImage(img, 0, 0, w, h);
-  canvas.toBlob((blob) => {
-    if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, "image/png");
 }
 
 type AggRow = {
@@ -351,11 +328,11 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
 
   const [controlsOpen, setControlsOpen] = useState(true);
 
-  const panel1Ref = useRef<HTMLDivElement>(null);
-  const panel2Ref = useRef<HTMLDivElement>(null);
-  const panel3Ref = useRef<HTMLDivElement>(null);
-  const panelMeddpiccRef = useRef<HTMLDivElement>(null);
-  const panelProductRef = useRef<HTMLDivElement>(null);
+  const panel1Ref = useRef<HTMLElement | null>(null);
+  const panel2Ref = useRef<HTMLElement | null>(null);
+  const panel3Ref = useRef<HTMLElement | null>(null);
+  const panelMeddpiccRef = useRef<HTMLElement | null>(null);
+  const panelProductRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -433,6 +410,17 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     const sel = selectedQuarterIds;
     return periodsNewestFirst.filter((p) => sel.has(p.id));
   }, [selectedQuarterIds, periodsNewestFirst]);
+
+  const panelQuarterLabel = useMemo(() => quarterLabel(selectedQuartersOrdered), [selectedQuartersOrdered]);
+
+  const meddpiccTitleQuarter = useMemo(() => {
+    if (!meddpiccQuarterId || !reportData) return "";
+    const name =
+      quotaPeriods.find((p) => p.id === meddpiccQuarterId)?.name ??
+      reportData.quarters.find((q) => q.id === meddpiccQuarterId)?.name ??
+      "";
+    return name ? quarterLabel([{ id: meddpiccQuarterId, name }]) : "";
+  }, [meddpiccQuarterId, quotaPeriods, reportData]);
 
   useEffect(() => {
     if (reportType === "meddpicc_health" && reportData?.quarters?.length) {
@@ -611,6 +599,32 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     }
   };
 
+  const runReportRef = useRef(runReport);
+  runReportRef.current = runReport;
+
+  const handleLoadAndRun = async () => {
+    const report = savedReports.find((r) => String(r.id) === loadReportId);
+    if (!report?.config) return;
+    applyReportFromRow(report);
+    setControlsOpen(false);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await runReportRef.current();
+  };
+
+  const autoRestoredRef = useRef(false);
+  useEffect(() => {
+    if (autoRestoredRef.current || savedReports.length === 0) return;
+    autoRestoredRef.current = true;
+    const r = savedReports[0];
+    applyReportFromRow(r);
+    setLoadReportId(String(r.id));
+    setControlsOpen(false);
+    const t = window.setTimeout(() => {
+      void runReportRef.current();
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [savedReports]);
+
   const saveBuckets = async () => {
     if (!bucketSetName.trim()) {
       setError("Enter a name to save bucket sets.");
@@ -712,8 +726,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     }
   };
 
-  const loadSavedReport = () => {
-    const r = savedReports.find((x) => String(x.id) === loadReportId);
+  function applyReportFromRow(r: any) {
     if (!r?.config) return;
     const c = r.config;
     if (Array.isArray(c.buckets)) {
@@ -740,6 +753,12 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     }
     if (typeof c.meddpiccQuarterId === "string") setMeddpiccQuarterId(c.meddpiccQuarterId);
     setReportName(String(r.name || ""));
+  }
+
+  const loadSavedReport = () => {
+    const r = savedReports.find((x) => String(x.id) === loadReportId);
+    if (!r) return;
+    applyReportFromRow(r);
   };
 
   const deleteSavedReport = async () => {
@@ -762,11 +781,18 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     }
   };
 
-  async function downloadPanelPng(container: HTMLDivElement | null, filename: string) {
-    if (!container) return;
-    const svg = container.querySelector("svg");
-    if (!svg) return;
-    await downloadSvgAsPng(svg, filename);
+  async function downloadPanelPng(ref: RefObject<HTMLElement | null>, filename: string) {
+    if (!ref.current) return;
+    const html2canvas = (await import("html2canvas")).default;
+    const canvas = await html2canvas(ref.current, {
+      backgroundColor: "#1a1a2e",
+      scale: 2,
+      useCORS: true,
+    });
+    const link = document.createElement("a");
+    link.download = filename;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
   }
 
   const exportCsv = () => {
@@ -884,17 +910,39 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
 
   return (
     <div className="text-[color:var(--sf-text-primary)]" data-org-id={orgId}>
-      <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm overflow-hidden">
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <select
+          value={loadReportId}
+          onChange={(e) => setLoadReportId(e.target.value)}
+          className="rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+        >
+          <option value="">Select saved report...</option>
+          {savedReports.map((r: any) => (
+            <option key={String(r.id)} value={String(r.id)}>
+              {r.name}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => void handleLoadAndRun()}
+          disabled={!loadReportId || loading}
+          className="rounded-md border border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+        >
+          Load & Run
+        </button>
         <button
           type="button"
           onClick={() => setControlsOpen((v) => !v)}
-          className="w-full flex items-center justify-between px-5 py-3 text-sm font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
+          className="rounded-md border border-[color:var(--sf-border)] px-4 py-2 text-sm text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)]"
         >
-          <span>⚙ Report Configuration</span>
-          <span className="text-xs text-[color:var(--sf-text-secondary)]">{controlsOpen ? "▲ Hide" : "▼ Configure"}</span>
+          {controlsOpen ? "▲ Hide Config" : "⚙ Configure"}
         </button>
+      </div>
+
+      <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm overflow-hidden">
         {controlsOpen && (
-          <div className="border-t border-[color:var(--sf-border)] p-5 space-y-5">
+          <div className="p-5 space-y-5">
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <h2 className="text-base font-semibold">Revenue Buckets</h2>
         <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
@@ -1160,20 +1208,8 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
           >
             Save Report
           </button>
-          <select
-            value={loadReportId}
-            onChange={(e) => setLoadReportId(e.target.value)}
-            className="min-w-[220px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1.5 text-sm"
-          >
-            <option value="">Load saved…</option>
-            {savedReports.map((r: any) => (
-              <option key={String(r.id)} value={String(r.id)}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-          <button type="button" onClick={loadSavedReport} className={outlineQuickBtn}>
-            Load
+          <button type="button" onClick={loadSavedReport} className={outlineQuickBtn} disabled={!loadReportId}>
+            Load settings only
           </button>
           <button
             type="button"
@@ -1195,18 +1231,23 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
           <>
       {reportType === "deal_volume" ? (
         <>
-          <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+          <section
+            ref={panel1Ref}
+            className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
+          >
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Win / Loss by Revenue Segment</h3>
+              <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">
+                Win / Loss by Revenue Segment{panelQuarterLabel ? ` — ${panelQuarterLabel}` : ""}
+              </h3>
               <button
                 type="button"
-                onClick={() => void downloadPanelPng(panel1Ref.current, "revenue-intel-win-loss.png")}
+                onClick={() => void downloadPanelPng(panel1Ref, "win-loss-by-segment.png")}
                 className={outlineQuickBtn}
               >
-                Download chart PNG
+                Download PNG
               </button>
             </div>
-            <div ref={panel1Ref}>
+            <div>
               <ResponsiveContainer width="100%" height={320}>
                 <BarChart data={panel1ChartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
@@ -1250,7 +1291,9 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
             <div className="mt-4 overflow-x-auto space-y-6">
               {selectedQuartersOrdered.map((q) => (
                 <div key={q.id}>
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">{q.name}</div>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                    {quarterLabel([q])}
+                  </div>
                   <table className="w-full min-w-[640px] border-collapse text-left text-sm">
                     <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
                       <tr>
@@ -1285,18 +1328,23 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
             </div>
           </section>
 
-          <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+          <section
+            ref={panel2Ref}
+            className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
+          >
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Avg Days to Close by Revenue Segment</h3>
+              <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">
+                Avg Days to Close by Revenue Segment{panelQuarterLabel ? ` — ${panelQuarterLabel}` : ""}
+              </h3>
               <button
                 type="button"
-                onClick={() => void downloadPanelPng(panel2Ref.current, "revenue-intel-velocity.png")}
+                onClick={() => void downloadPanelPng(panel2Ref, "avg-days-by-segment.png")}
                 className={outlineQuickBtn}
               >
-                Download chart PNG
+                Download PNG
               </button>
             </div>
-            <div ref={panel2Ref}>
+            <div>
               <ResponsiveContainer width="100%" height={320}>
                 <BarChart data={panel2ChartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
@@ -1336,7 +1384,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                     <th className="border-b border-[color:var(--sf-border)] px-3 py-2">Bucket</th>
                     {selectedQuartersOrdered.flatMap((q) => (
                       <th key={q.id} colSpan={3} className="border-b border-l border-[color:var(--sf-border)] px-2 py-2 text-center">
-                        {q.name}
+                        {quarterLabel([q])}
                       </th>
                     ))}
                   </tr>
@@ -1384,18 +1432,23 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
             </div>
           </section>
 
-          <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+          <section
+            ref={panel3Ref}
+            className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
+          >
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Avg Health Score by Revenue Segment</h3>
+              <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">
+                Avg Health Score by Revenue Segment{panelQuarterLabel ? ` — ${panelQuarterLabel}` : ""}
+              </h3>
               <button
                 type="button"
-                onClick={() => void downloadPanelPng(panel3Ref.current, "revenue-intel-health.png")}
+                onClick={() => void downloadPanelPng(panel3Ref, "health-score-by-segment.png")}
                 className={outlineQuickBtn}
               >
-                Download chart PNG
+                Download PNG
               </button>
             </div>
-            <div ref={panel3Ref}>
+            <div>
               <ResponsiveContainer width="100%" height={320}>
                 <BarChart data={panel3ChartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
@@ -1429,7 +1482,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                     <th className="border-b border-[color:var(--sf-border)] px-3 py-2">Bucket</th>
                     {selectedQuartersOrdered.flatMap((q) => (
                       <th key={q.id} colSpan={3} className="border-b border-l border-[color:var(--sf-border)] px-2 py-2 text-center">
-                        {q.name}
+                        {quarterLabel([q])}
                       </th>
                     ))}
                   </tr>
@@ -1476,15 +1529,20 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
       ) : null}
 
       {reportType === "meddpicc_health" ? (
-        <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+        <section
+          ref={panelMeddpiccRef}
+          className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
+        >
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">MEDDPICC+TB Scores by Revenue Segment</h3>
+            <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">
+              MEDDPICC+TB Scores by Revenue Segment{meddpiccTitleQuarter ? ` — ${meddpiccTitleQuarter}` : ""}
+            </h3>
             <button
               type="button"
-              onClick={() => void downloadPanelPng(panelMeddpiccRef.current, "revenue-intel-meddpicc.png")}
+              onClick={() => void downloadPanelPng(panelMeddpiccRef, "meddpicc-by-segment.png")}
               className={outlineQuickBtn}
             >
-              Download chart PNG
+              Download PNG
             </button>
           </div>
           {reportData.quarters.length > 1 ? (
@@ -1502,7 +1560,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
               ))}
             </div>
           ) : null}
-          <div ref={panelMeddpiccRef}>
+          <div>
             <ResponsiveContainer width="100%" height={320}>
               <RadarChart data={meddpiccRadarRows}>
                 <PolarGrid stroke="var(--sf-border)" />
@@ -1562,18 +1620,23 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
       ) : null}
 
       {reportType === "product_mix" ? (
-        <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+        <section
+          ref={panelProductRef}
+          className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
+        >
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Product Revenue by Segment</h3>
+            <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">
+              Product Revenue by Segment{panelQuarterLabel ? ` — ${panelQuarterLabel}` : ""}
+            </h3>
             <button
               type="button"
-              onClick={() => void downloadPanelPng(panelProductRef.current, "revenue-intel-product-mix.png")}
+              onClick={() => void downloadPanelPng(panelProductRef, "product-revenue-by-segment.png")}
               className={outlineQuickBtn}
             >
-              Download chart PNG
+              Download PNG
             </button>
           </div>
-          <div ref={panelProductRef}>
+          <div>
             <ResponsiveContainer width="100%" height={320}>
               <BarChart data={productMixChartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
