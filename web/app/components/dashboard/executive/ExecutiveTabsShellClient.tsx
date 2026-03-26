@@ -7,11 +7,8 @@ import { useCallback, useEffect, useMemo, useState, useTransition, type Componen
 import { ExecutiveGapInsightsClient } from "../../../../components/dashboard/executive/ExecutiveGapInsightsClient";
 import type { PipelineHygienePayload } from "../../../../components/dashboard/executive/TeamForecastHygienePanels";
 import type { ExecTabKey } from "../../../actions/execTabConstants";
-import {
-  RepManagerComparisonPanel,
-  type RepManagerManagerRow,
-  type RepManagerRepRow,
-} from "./RepManagerComparisonPanel";
+import { type RepManagerManagerRow, type RepManagerRepRow } from "./RepManagerComparisonPanel";
+import { TeamLeaderboardClient } from "./TeamLeaderboardClient";
 import { ManagerReviewQueueClient, type ManagerReviewQueueProps } from "./ManagerReviewQueueClient";
 import type { ChannelLedFedRow, ChannelPartnerHeroProps } from "../../../../lib/channelPartnerHeroData";
 import { CustomReportDesignerClient } from "../../../analytics/custom-reports/CustomReportDesignerClient";
@@ -350,6 +347,8 @@ export type TeamRepManagerPayload = {
   repRows: RepManagerRepRow[];
   managerRows: RepManagerManagerRow[];
   periodName?: string;
+  periodStart?: string;
+  periodEnd?: string;
 };
 
 function fmtMoney(v: number | null | undefined) {
@@ -862,16 +861,15 @@ export function ExecutiveTabsShellClient(props: {
         )}
         {activeTab === "team" && (
           <div className="space-y-6">
-            <div>
-              <p className="text-sm text-[color:var(--sf-text-secondary)] mb-4">
-                Quarter-scoped rep comparison and manager rollup by attainment.
-              </p>
-              <RepManagerComparisonPanel
-                repRows={props.teamRepManagerPayload.repRows}
-                managerRows={props.teamRepManagerPayload.managerRows}
-                periodName={props.teamRepManagerPayload.periodName}
-              />
-            </div>
+            <TeamLeaderboardClient
+              repRows={props.teamRepManagerPayload.repRows}
+              managerRows={props.teamRepManagerPayload.managerRows}
+              periodName={props.teamRepManagerPayload.periodName ?? ""}
+              quotaPeriodId={String(props.forecastTabProps.quotaPeriodId ?? "")}
+              fiscalYear={props.forecastTabProps.fiscalYear}
+              periodStart={props.teamRepManagerPayload.periodStart ?? ""}
+              periodEnd={props.teamRepManagerPayload.periodEnd ?? ""}
+            />
           </div>
         )}
         {"channel" === activeTab && (

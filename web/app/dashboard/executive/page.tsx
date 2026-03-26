@@ -1817,6 +1817,8 @@ export default async function ExecutiveDashboardPage({
             repRows: teamRepRows,
             managerRows: teamManagerRows,
             periodName: summary.selectedPeriod?.period_name ?? "",
+            periodStart: selectedPeriod?.period_start ?? "",
+            periodEnd: selectedPeriod?.period_end ?? "",
           }}
           reviewQueueDeals={reviewQueueDeals}
           currentUserId={ctx.user.id}
