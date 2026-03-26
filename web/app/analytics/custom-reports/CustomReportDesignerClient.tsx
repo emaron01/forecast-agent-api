@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -393,59 +393,6 @@ function rollupRepRows(args: { label: string; execName: string; managerName: str
   };
 }
 
-function hasAnyReportData(r: RepRow | null | undefined) {
-  if (!r) return false;
-  // Conservative "has any actual data" check so we can suppress empty subtotal sections.
-  if (safeNum(r.total_count) > 0) return true;
-  if (safeNum(r.won_count) > 0) return true;
-  if (safeNum(r.lost_count) > 0) return true;
-  if (safeNum(r.active_amount) > 0) return true;
-  if (safeNum(r.won_amount) > 0) return true;
-  if (safeNum(r.created_amount) > 0) return true;
-  if (safeNum(r.created_count) > 0) return true;
-  if (safeNum(r.commit_amount) > 0) return true;
-  if (safeNum(r.best_amount) > 0) return true;
-  if (safeNum(r.pipeline_amount) > 0) return true;
-  if (safeNum(r.quota) > 0) return true;
-
-  const avgKeys: Array<keyof RepRow> = [
-    "avg_health_all",
-    "avg_health_commit",
-    "avg_health_best",
-    "avg_health_pipeline",
-    "avg_health_won",
-    "avg_health_closed",
-    "avg_pain",
-    "avg_metrics",
-    "avg_champion",
-    "avg_eb",
-    "avg_competition",
-    "avg_criteria",
-    "avg_process",
-    "avg_paper",
-    "avg_timing",
-    "avg_budget",
-  ];
-  for (const k of avgKeys) {
-    const v = (r as any)[k];
-    if (v == null) continue;
-    const n = Number(v);
-    if (Number.isFinite(n) && n > 0) return true;
-  }
-  return false;
-}
-
-/** Rollup / aggregate labels — exclude from bar/line/radar (individual REPs only). */
-function isRollupRepNameForChart(repName: string | undefined) {
-  const n = String(repName || "");
-  return (
-    n.startsWith("Executive Total:") ||
-    n.startsWith("Manager Total:") ||
-    n.startsWith("Team Total") ||
-    n === "Team Total"
-  );
-}
-
 function RepNameXAxisTick(props: { x?: number; y?: number; payload?: { value?: string } }) {
   const { x = 0, y = 0, payload } = props;
   const name = String(payload?.value || "");
@@ -495,7 +442,7 @@ export function CustomReportDesignerClient(props: {
   const repDirectory = props.repDirectory || [];
   const saved = props.savedReports || [];
 
-  const [selectedRepIds, setSelectedRepIds] = useState<Set<string>>(() => new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [selectedMetrics, setSelectedMetrics] = useState<Set<MetricKey>>(
     () => new Set(["won_amount", "attainment", "active_amount", "avg_health_all", "win_rate", "avg_days_active"])
   );
@@ -509,14 +456,6 @@ export function CustomReportDesignerClient(props: {
   const [status, setStatus] = useState<string>("");
   const [chartType, setChartType] = useState<ChartType>("table");
 
-  const selectedReps = useMemo(() => {
-    if (!selectedRepIds.size) return [] as RepRow[];
-    return reps
-      .filter((r) => selectedRepIds.has(String(r.rep_id)))
-      .slice()
-      .sort((a, b) => b.won_amount - a.won_amount || a.rep_name.localeCompare(b.rep_name));
-  }, [reps, selectedRepIds]);
-
   const execHeaderName = useMemo(() => {
     const exec = repDirectory.find((r) => String(r.role || "").trim() === "EXEC_MANAGER");
     if (exec) {
@@ -526,25 +465,54 @@ export function CustomReportDesignerClient(props: {
     return props.periodLabel;
   }, [repDirectory, props.periodLabel]);
 
+  const previewRows = useMemo(() => {
+    const byId = new Map<string, RepRow>();
+    for (const r of reps) byId.set(String(r.rep_id), r);
+    const out: RepRow[] = [];
+    for (const d of repDirectory) {
+      const sid = String(d.id);
+      if (!selectedIds.has(sid)) continue;
+      const role = String(d.role || "").trim();
+      if (role === "REP") {
+        const row = byId.get(sid);
+        if (row) out.push(row);
+        continue;
+      }
+      if (role === "MANAGER" || role === "EXEC_MANAGER") {
+        const directDirReps = repDirectory.filter((r) => r.role === "REP" && r.manager_rep_id === d.id);
+        const metricRows = directDirReps.map((r) => byId.get(String(r.id))).filter(Boolean) as RepRow[];
+        const displayName = String(d.name || "").trim() || `Rep ${d.id}`;
+        out.push({
+          ...rollupRepRows({
+            label: `${displayName}'s Team`,
+            execName: execHeaderName,
+            managerName: displayName,
+            rows: metricRows,
+          }),
+          rep_id: `mgr:${d.id}`,
+        });
+      }
+    }
+    return out;
+  }, [repDirectory, selectedIds, reps, execHeaderName]);
+
   const teamTotalRow = useMemo(() => {
-    if (!selectedReps.length) return null;
+    if (!previewRows.length) return null;
     return rollupRepRows({
       label: "Team Total",
       execName: execHeaderName,
       managerName: "",
-      rows: selectedReps,
+      rows: previewRows,
     });
-  }, [selectedReps, execHeaderName]);
+  }, [previewRows, execHeaderName]);
 
-  const managerGroups = useMemo(() => {
+  const pickerGroups = useMemo(() => {
     const managers = repDirectory.filter((r) => r.role === "MANAGER" || r.role === "EXEC_MANAGER");
     const dirReps = repDirectory.filter((r) => r.role === "REP");
-    const groups = managers
-      .map((mgr) => ({
-        manager: mgr,
-        reps: dirReps.filter((r) => r.manager_rep_id === mgr.id),
-      }))
-      .filter((g) => g.reps.length > 0);
+    const groups = managers.map((mgr) => ({
+      manager: mgr,
+      reps: dirReps.filter((r) => r.manager_rep_id === mgr.id),
+    }));
     const managedRepIds = new Set(groups.flatMap((g) => g.reps.map((r) => r.id)));
     const unassigned = dirReps.filter((r) => !managedRepIds.has(r.id));
     return { groups, unassigned };
@@ -565,12 +533,7 @@ export function CustomReportDesignerClient(props: {
     () => metricList.map((k) => ({ key: k, label: labelForMetric.get(k) || String(k) })),
     [metricList, labelForMetric]
   );
-  const previewRows = selectedReps;
-
-  const chartPreviewRows = useMemo(
-    () => previewRows.filter((row) => !isRollupRepNameForChart(row.rep_name)),
-    [previewRows]
-  );
+  const chartPreviewRows = previewRows;
 
   const chartData = useMemo(
     () =>
@@ -604,8 +567,8 @@ export function CustomReportDesignerClient(props: {
     (chartType === "bar" || chartType === "line") && chartHasFields && chartHasReps;
   const showRadarChart = chartType === "radar" && chartHasFields && chartHasReps;
 
-  function toggleRep(id: string) {
-    setSelectedRepIds((prev) => {
+  function toggleId(id: string) {
+    setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -623,7 +586,7 @@ export function CustomReportDesignerClient(props: {
   }
 
   function clearSelection() {
-    setSelectedRepIds(new Set());
+    setSelectedIds(new Set());
     setSelectedMetrics(new Set(["won_amount", "attainment", "active_amount", "avg_health_all", "win_rate", "avg_days_active"]));
     setReportId("");
     setName("");
@@ -648,7 +611,7 @@ export function CustomReportDesignerClient(props: {
         description: description.trim() ? description.trim() : null,
         config: {
           version: 1,
-          repIds: Array.from(selectedRepIds.values()),
+          repIds: Array.from(selectedIds.values()),
           metrics: Array.from(selectedMetrics.values()),
           chartType,
         },
@@ -700,7 +663,7 @@ export function CustomReportDesignerClient(props: {
       "avg_days_active",
     ];
     const effectiveMetrics = cfg.metrics.length ? cfg.metrics : defaultMetrics;
-    setSelectedRepIds(new Set(cfg.repIds));
+    setSelectedIds(new Set(cfg.repIds));
     setSelectedMetrics(new Set(effectiveMetrics));
     setChartType(cfg.chartType);
     setReportId(String(r.id || ""));
@@ -720,7 +683,7 @@ export function CustomReportDesignerClient(props: {
 
   const exportRows = useMemo(() => {
     const teamStr = `Executive: ${execHeaderName}`;
-    const rows: Record<string, any>[] = selectedReps.map((r) => {
+    const rows: Record<string, any>[] = previewRows.map((r) => {
       const out: Record<string, any> = {
         rep: r.rep_name,
         team: teamStr,
@@ -730,7 +693,7 @@ export function CustomReportDesignerClient(props: {
       }
       return out;
     });
-    if (teamTotalRow && hasAnyReportData(teamTotalRow)) {
+    if (teamTotalRow && previewRows.length > 0) {
       const totalOut: Record<string, any> = {
         rep: teamTotalRow.rep_name,
         team: teamStr,
@@ -741,52 +704,27 @@ export function CustomReportDesignerClient(props: {
       rows.push(totalOut);
     }
     return rows;
-  }, [metricList, selectedReps, execHeaderName, teamTotalRow, labelForMetric]);
+  }, [metricList, previewRows, execHeaderName, teamTotalRow, labelForMetric]);
 
-  const allRepDirectoryRepIds = useMemo(
-    () => repDirectory.filter((r) => r.role === "REP").map((r) => String(r.id)),
-    [repDirectory]
-  );
+  const allDirectoryIds = useMemo(() => repDirectory.map((r) => String(r.id)), [repDirectory]);
 
-  function selectAllReps() {
-    setSelectedRepIds(new Set(allRepDirectoryRepIds));
+  function quickSelectAll() {
+    setSelectedIds(new Set(allDirectoryIds));
   }
 
-  function clearAllReps() {
-    setSelectedRepIds(new Set());
+  function quickSelectClear() {
+    setSelectedIds(new Set());
   }
 
-  function selectMyTeam() {
-    selectAllReps();
+  function quickSelectRepsOnly() {
+    setSelectedIds(new Set(repDirectory.filter((r) => r.role === "REP").map((r) => String(r.id))));
   }
 
-  const toggleManagerReps = useCallback(
-    (managerId: number) => {
-      const group = managerGroups.groups.find((g) => g.manager.id === managerId);
-      if (!group) return;
-      const repIds = group.reps.map((r) => String(r.id));
-      setSelectedRepIds((prev) => {
-        const allSelected = repIds.length > 0 && repIds.every((id) => prev.has(id));
-        const next = new Set(prev);
-        if (allSelected) repIds.forEach((id) => next.delete(id));
-        else repIds.forEach((id) => next.add(id));
-        return next;
-      });
-    },
-    [managerGroups.groups]
-  );
-
-  const toggleUnassignedReps = useCallback(() => {
-    const repIds = managerGroups.unassigned.map((r) => String(r.id));
-    if (!repIds.length) return;
-    setSelectedRepIds((prev) => {
-      const allSelected = repIds.every((id) => prev.has(id));
-      const next = new Set(prev);
-      if (allSelected) repIds.forEach((id) => next.delete(id));
-      else repIds.forEach((id) => next.add(id));
-      return next;
-    });
-  }, [managerGroups.unassigned]);
+  function quickSelectLeadersOnly() {
+    setSelectedIds(
+      new Set(repDirectory.filter((r) => r.role === "MANAGER" || r.role === "EXEC_MANAGER").map((r) => String(r.id)))
+    );
+  }
 
   const outlineQuickBtn =
     "rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface)]";
@@ -895,95 +833,55 @@ export function CustomReportDesignerClient(props: {
           </div>
         </div>
         <div className="mt-2 flex flex-wrap gap-2">
-          <button type="button" onClick={selectAllReps} className={outlineQuickBtn}>
-            All Reps
+          <button type="button" onClick={quickSelectAll} className={outlineQuickBtn}>
+            All
           </button>
-          <button type="button" onClick={clearAllReps} className={outlineQuickBtn}>
+          <button type="button" onClick={quickSelectClear} className={outlineQuickBtn}>
             Clear
           </button>
-          <button type="button" onClick={selectMyTeam} className={outlineQuickBtn}>
-            My Team
+          <button type="button" onClick={quickSelectRepsOnly} className={outlineQuickBtn}>
+            Reps Only
+          </button>
+          <button type="button" onClick={quickSelectLeadersOnly} className={outlineQuickBtn}>
+            Leaders Only
           </button>
         </div>
         <div className="mt-2 max-h-[420px] overflow-auto rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
-          {managerGroups.groups.map((group) => {
+          {pickerGroups.groups.map((group) => {
             const mgr = group.manager;
-            const repIds = group.reps.map((r) => String(r.id));
-            const allSelected = repIds.length > 0 && repIds.every((id) => selectedRepIds.has(id));
-            const someSelected = repIds.some((id) => selectedRepIds.has(id)) && !allSelected;
-            const box = allSelected ? "☑" : someSelected ? "⊟" : "☐";
+            const mid = String(mgr.id);
             return (
-              <div key={`mgr-grp:${mgr.id}`}>
-                <div
-                  role="button"
-                  tabIndex={0}
-                  className="text-xs font-semibold text-[color:var(--sf-text-secondary)] uppercase tracking-wide mt-3 mb-1 cursor-pointer hover:text-[color:var(--sf-text-primary)]"
-                  onClick={() => toggleManagerReps(mgr.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      toggleManagerReps(mgr.id);
-                    }
-                  }}
-                >
-                  {box} {mgr.name}
-                </div>
+              <div key={`mgr-grp:${mgr.id}`} className="mt-3 first:mt-0">
+                <label className="flex items-center gap-2 cursor-pointer py-0.5 text-sm font-semibold text-[color:var(--sf-text-primary)]">
+                  <input type="checkbox" checked={selectedIds.has(mid)} onChange={() => toggleId(mid)} />
+                  <span>{mgr.name}</span>
+                </label>
                 {group.reps.map((rep) => (
-                  <label key={rep.id} className="ml-4 flex items-center gap-2 cursor-pointer py-0.5">
-                    <input
-                      type="checkbox"
-                      checked={selectedRepIds.has(String(rep.id))}
-                      onChange={() => toggleRep(String(rep.id))}
-                    />
+                  <label key={rep.id} className="ml-6 flex items-center gap-2 cursor-pointer py-0.5">
+                    <input type="checkbox" checked={selectedIds.has(String(rep.id))} onChange={() => toggleId(String(rep.id))} />
                     <span className="text-sm text-[color:var(--sf-text-primary)]">{rep.name}</span>
                   </label>
                 ))}
               </div>
             );
           })}
-          {managerGroups.unassigned.length ? (
-            <div className="mt-3">
-              {(() => {
-                const repIds = managerGroups.unassigned.map((r) => String(r.id));
-                const allSelected = repIds.every((id) => selectedRepIds.has(id));
-                const someSelected = repIds.some((id) => selectedRepIds.has(id)) && !allSelected;
-                const box = allSelected ? "☑" : someSelected ? "⊟" : "☐";
-                return (
-                  <>
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      className="text-xs font-semibold text-[color:var(--sf-text-secondary)] uppercase tracking-wide mt-3 mb-1 cursor-pointer hover:text-[color:var(--sf-text-primary)]"
-                      onClick={() => toggleUnassignedReps()}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          toggleUnassignedReps();
-                        }
-                      }}
-                    >
-                      {box} Other
-                    </div>
-                    {managerGroups.unassigned.map((rep) => (
-                      <label key={rep.id} className="ml-4 flex items-center gap-2 cursor-pointer py-0.5">
-                        <input
-                          type="checkbox"
-                          checked={selectedRepIds.has(String(rep.id))}
-                          onChange={() => toggleRep(String(rep.id))}
-                        />
-                        <span className="text-sm text-[color:var(--sf-text-primary)]">{rep.name}</span>
-                      </label>
-                    ))}
-                  </>
-                );
-              })()}
+          {pickerGroups.unassigned.length ? (
+            <div className={pickerGroups.groups.length ? "mt-3 border-t border-[color:var(--sf-border)] pt-3" : ""}>
+              {pickerGroups.unassigned.map((rep) => (
+                <label key={rep.id} className="ml-6 flex items-center gap-2 cursor-pointer py-0.5">
+                  <input type="checkbox" checked={selectedIds.has(String(rep.id))} onChange={() => toggleId(String(rep.id))} />
+                  <span className="text-sm text-[color:var(--sf-text-primary)]">{rep.name}</span>
+                </label>
+              ))}
             </div>
           ) : null}
-          {!managerGroups.groups.length && !managerGroups.unassigned.length ? (
+          {!repDirectory.length ? (
             <div className="px-3 py-6 text-center text-sm text-[color:var(--sf-text-disabled)]">No reps found.</div>
           ) : null}
         </div>
-        <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">Select reps to include in the preview and export.</div>
+        <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
+          Select sales leaders (team rollup) or individual reps. Preview and export follow your selection.
+        </div>
       </div>
 
       <div className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
@@ -1052,7 +950,7 @@ export function CustomReportDesignerClient(props: {
         <div className="mt-4 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-8 text-center text-sm text-[color:var(--sf-text-secondary)]">
           {!chartHasFields
             ? "Select report fields above to visualize data."
-            : "Select reps above to visualize data."}
+            : "Select people or teams above to visualize data."}
         </div>
       ) : null}
 
@@ -1184,8 +1082,8 @@ export function CustomReportDesignerClient(props: {
             </tr>
           </thead>
           <tbody>
-            {selectedReps.map((r) => (
-              <tr key={`rep:${r.rep_id}`} className="border-t border-[color:var(--sf-border)]">
+            {previewRows.map((r) => (
+              <tr key={`row:${r.rep_id || r.rep_name}`} className="border-t border-[color:var(--sf-border)]">
                 <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{r.rep_name}</td>
                 {metricList.map((k) => (
                   <td key={k} className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">
@@ -1194,7 +1092,7 @@ export function CustomReportDesignerClient(props: {
                 ))}
               </tr>
             ))}
-            {teamTotalRow && hasAnyReportData(teamTotalRow) ? (
+            {teamTotalRow && previewRows.length > 0 ? (
               <tr className="border-t-2 border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
                 <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{teamTotalRow.rep_name}</td>
                 {metricList.map((k) => (
@@ -1204,10 +1102,10 @@ export function CustomReportDesignerClient(props: {
                 ))}
               </tr>
             ) : null}
-            {!selectedReps.length ? (
+            {!previewRows.length ? (
               <tr>
                 <td colSpan={1 + metricList.length} className="px-4 py-6 text-center text-sm text-[color:var(--sf-text-disabled)]">
-                  No reps selected.
+                  Nothing selected.
                 </td>
               </tr>
             ) : null}
