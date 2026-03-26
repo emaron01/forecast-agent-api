@@ -1776,6 +1776,7 @@ export default async function ExecutiveDashboardPage({
           revenueIntelligenceQuotaPeriods={summary.periods.map((p) => ({
             id: String(p.id),
             name: p.period_name,
+            fiscal_year: String(p.fiscal_year ?? ""),
           }))}
           revenueIntelligenceRepDirectory={directoryInScope.map((r) => ({
             id: r.id,

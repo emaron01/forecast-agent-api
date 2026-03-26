@@ -19,7 +19,7 @@ import {
 
 export type RevenueIntelligenceProps = {
   orgId: number;
-  quotaPeriods: { id: string; name: string }[];
+  quotaPeriods: { id: string; name: string; fiscal_year?: string }[];
   repDirectory: Array<{
     id: number;
     name: string;
@@ -27,6 +27,30 @@ export type RevenueIntelligenceProps = {
     manager_rep_id: number | null;
   }>;
 };
+
+type QuotaPeriodRow = RevenueIntelligenceProps["quotaPeriods"][number];
+
+/** Group key like FY2026; prefers prop fiscal_year, else parses name. */
+function yearGroupKey(p: QuotaPeriodRow): string {
+  const fy = p.fiscal_year?.trim();
+  if (fy) {
+    if (/^FY\d{4}$/i.test(fy)) return fy.replace(/^fy/i, "FY");
+    if (/^\d{4}$/.test(fy)) return `FY${fy}`;
+    return fy;
+  }
+  const m = p.name.match(/FY(\d{4})/i);
+  if (m) return `FY${m[1]}`;
+  return "Unknown";
+}
+
+/** Q1–Q4 order within a fiscal year. */
+function quarterSortKey(name: string): number {
+  const q = name.match(/\bQ([1-4])\b/i);
+  if (q) return parseInt(q[1], 10);
+  const ord = name.match(/(\d)(?:st|nd|rd|th)\s+Quarter/i);
+  if (ord) return parseInt(ord[1], 10);
+  return 99;
+}
 
 type BucketRow = { id: string; label: string; min: number; max: number | null };
 type ReportType = "deal_volume" | "meddpicc_health" | "product_mix";
@@ -265,7 +289,40 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   /** Newest first; labels are full `name` from quotaPeriods (org quota_periods). */
   const periodsNewestFirst = useMemo(() => [...quotaPeriods].reverse(), [quotaPeriods]);
 
+  const quartersByYear = useMemo(() => {
+    const grouped: Record<string, QuotaPeriodRow[]> = {};
+    for (const p of periodsNewestFirst) {
+      const year = yearGroupKey(p);
+      if (!grouped[year]) grouped[year] = [];
+      grouped[year].push(p);
+    }
+    for (const k of Object.keys(grouped)) {
+      grouped[k].sort((a, b) => quarterSortKey(a.name) - quarterSortKey(b.name));
+    }
+    return grouped;
+  }, [periodsNewestFirst]);
+
+  const sortedYearKeys = useMemo(() => {
+    return Object.keys(quartersByYear).sort((a, b) => {
+      if (a === "Unknown") return 1;
+      if (b === "Unknown") return -1;
+      const na = parseInt(a.replace(/\D/g, ""), 10);
+      const nb = parseInt(b.replace(/\D/g, ""), 10);
+      if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return nb - na;
+      return b.localeCompare(a);
+    });
+  }, [quartersByYear]);
+
   const [selectedQuarterIds, setSelectedQuarterIds] = useState<Set<string>>(() => new Set());
+
+  function toggleQuarter(periodId: string) {
+    setSelectedQuarterIds((prev) => {
+      const n = new Set(prev);
+      if (n.has(periodId)) n.delete(periodId);
+      else n.add(periodId);
+      return n;
+    });
+  }
 
   const [repSelection, dispatchRep] = useReducer(repSelectionReducer, { managers: new Set<string>(), reps: new Set<string>() });
   const selectedManagerIds = repSelection.managers;
@@ -820,6 +877,8 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
 
   return (
     <div className="text-[color:var(--sf-text-primary)]" data-org-id={orgId}>
+      <div className="flex gap-6">
+        <div className="w-80 shrink-0 space-y-4">
       <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm overflow-hidden">
         <button
           type="button"
@@ -945,33 +1004,28 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         {selectedQuarterIds.size > 4 ? (
           <p className="mt-2 text-xs text-amber-700">Charts work best with 4 or fewer quarters</p>
         ) : null}
-        <div className="mt-3 grid gap-2 sm:grid-cols-1 lg:grid-cols-2">
-          {periodsNewestFirst.map((p) => (
-            <label key={p.id} className="flex cursor-pointer items-start gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="mt-1 shrink-0"
-                checked={selectedQuarterIds.has(p.id)}
-                onChange={() =>
-                  setSelectedQuarterIds((prev) => {
-                    const n = new Set(prev);
-                    if (n.has(p.id)) n.delete(p.id);
-                    else n.add(p.id);
-                    return n;
-                  })
-                }
-              />
-              <span className="min-w-0 break-words">{p.name}</span>
-            </label>
-          ))}
+        <div className="mt-3 flex flex-wrap gap-6">
+          {sortedYearKeys.map((year) => {
+            const periods = quartersByYear[year];
+            return (
+              <div key={year} className="min-w-[160px]">
+                <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)] mb-2">{year}</div>
+                <div className="space-y-1">
+                  {periods.map((p) => (
+                    <label key={p.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                      <input type="checkbox" checked={selectedQuarterIds.has(p.id)} onChange={() => toggleQuarter(p.id)} />
+                      <span className="min-w-0 break-words">{p.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </section>
 
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <h2 className="text-base font-semibold">Team Scope</h2>
-        <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-          Empty scope includes all reps in the org. Manager row toggles all direct reports; symbols: ☐ none · ⊟ partial · ☑ all.
-        </p>
         <div className="mt-2 flex flex-wrap gap-2">
           <button type="button" onClick={quickSelectAll} className={outlineQuickBtn}>
             All
@@ -998,7 +1052,10 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                 <button
                   type="button"
                   onClick={() => toggleManagerReps(mid, repIds)}
-                  className="flex w-full items-center gap-2 py-0.5 text-left text-sm font-semibold text-[color:var(--sf-text-primary)]"
+                  className={
+                    "flex w-full items-center gap-2 py-0.5 text-left text-sm font-semibold " +
+                    (st !== "none" ? "text-[color:var(--sf-accent-primary)]" : "text-[color:var(--sf-text-primary)]")
+                  }
                 >
                   <span className="w-5 shrink-0 font-mono text-xs" aria-hidden>
                     {glyph}
@@ -1115,8 +1172,9 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
           </div>
         )}
       </div>
+        </div>
 
-      <div className="mt-5 space-y-5">
+      <div className="flex-1 min-w-0 space-y-5">
         {reportData ? (
           <>
       {reportType === "deal_volume" ? (
@@ -1566,9 +1624,10 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
           </>
         ) : (
           <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-12 text-center text-sm text-[color:var(--sf-text-secondary)]">
-            Configure your report above and click Run Report to see results.
+            Configure your report on the left and click Run Report to see results.
           </div>
         )}
+      </div>
       </div>
     </div>
   );

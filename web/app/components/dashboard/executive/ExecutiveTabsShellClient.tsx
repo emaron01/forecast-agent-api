@@ -760,7 +760,7 @@ export function ExecutiveTabsShellClient(props: {
     role: string;
   }>;
   revenueIntelligenceOrgId: number;
-  revenueIntelligenceQuotaPeriods: { id: string; name: string }[];
+  revenueIntelligenceQuotaPeriods: { id: string; name: string; fiscal_year?: string }[];
   revenueIntelligenceRepDirectory: Array<{
     id: number;
     name: string;
