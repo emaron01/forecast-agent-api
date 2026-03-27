@@ -501,6 +501,11 @@ export function CustomReportDesignerClient(props: {
   const initialPeriodId = props.initialSelectedPeriodId ?? quotaPeriods[0]?.id ?? "";
 
   const [repRowsLocal, setRepRowsLocal] = useState<RepRow[]>(() => props.repRows || []);
+  const [allPeriodResults, setAllPeriodResults] = useState<{
+    periodId: string;
+    label: string;
+    rows: RepRow[];
+  }[]>([]);
   const [periodLabelDisplay, setPeriodLabelDisplay] = useState(() => props.periodLabel);
   const [controlsOpen, setControlsOpen] = useState(true);
 
@@ -594,7 +599,10 @@ export function CustomReportDesignerClient(props: {
   }, [props.initialSelectedPeriodId]);
 
   useEffect(() => {
-    if (!orgIdForFetch || periodSelection.ids.size === 0) return;
+    if (!orgIdForFetch || periodSelection.ids.size === 0) {
+      setAllPeriodResults([]);
+      return;
+    }
     const ids = Array.from(periodSelection.ids);
     let cancelled = false;
 
@@ -625,13 +633,9 @@ export function CustomReportDesignerClient(props: {
 
         if (cancelled || results.length === 0) return;
 
-        if (results.length === 1) {
-          setRepRowsLocal(results[0].rows);
-          setPeriodLabelDisplay(results[0].label);
-        } else {
-          setRepRowsLocal(results[results.length - 1].rows);
-          setPeriodLabelDisplay(results.map((r) => r.label).join(" vs "));
-        }
+        setAllPeriodResults(results);
+        setRepRowsLocal(results[results.length - 1].rows);
+        setPeriodLabelDisplay(results.map((r) => r.label).join(" vs "));
       } catch {
         /* ignore */
       }
@@ -689,9 +693,9 @@ export function CustomReportDesignerClient(props: {
     return reportPeriodLabel;
   }, [name, reportPeriodLabel]);
 
-  const previewRows = useMemo(() => {
+  const buildPreviewRows = (baseRows: RepRow[]) => {
     const byId = new Map<string, RepRow>();
-    for (const r of reps) byId.set(String(r.rep_id), r);
+    for (const r of baseRows) byId.set(String(r.rep_id), r);
     const out: RepRow[] = [];
     for (const d of repDirectory) {
       const sid = String(d.id);
@@ -718,7 +722,41 @@ export function CustomReportDesignerClient(props: {
       }
     }
     return out;
-  }, [repDirectory, selectedIds, reps, execHeaderName]);
+  };
+
+  const previewRows = useMemo(() => buildPreviewRows(reps), [repDirectory, selectedIds, reps, execHeaderName]);
+
+  const qvqPeriodResults = useMemo(
+    () =>
+      allPeriodResults.map((pr) => ({
+        periodId: pr.periodId,
+        label: pr.label,
+        rows: buildPreviewRows(pr.rows),
+      })),
+    [allPeriodResults, repDirectory, selectedIds, execHeaderName]
+  );
+
+  const showQvqComparison = allPeriodResults.length > 1;
+
+  const allRepNames = useMemo(
+    () =>
+      Array.from(new Set(qvqPeriodResults.flatMap((r) => r.rows.map((row) => row.rep_name)))).filter(
+        (name): name is string => Boolean(name)
+      ),
+    [qvqPeriodResults]
+  );
+
+  const mergedRows = useMemo(
+    () =>
+      allRepNames.map((name) => ({
+        rep_name: name,
+        byPeriod: qvqPeriodResults.map((pr) => ({
+          label: pr.label,
+          row: pr.rows.find((r) => r.rep_name === name) ?? null,
+        })),
+      })),
+    [allRepNames, qvqPeriodResults]
+  );
 
   const teamTotalRow = useMemo(() => {
     if (!previewRows.length) return null;
@@ -729,6 +767,24 @@ export function CustomReportDesignerClient(props: {
       rows: previewRows,
     });
   }, [previewRows, execHeaderName]);
+
+  const qvqTeamTotalRow = useMemo(() => {
+    if (!showQvqComparison) return null;
+    return {
+      rep_name: "Team Total",
+      byPeriod: qvqPeriodResults.map((pr) => ({
+        label: pr.label,
+        row: pr.rows.length
+          ? rollupRepRows({
+              label: "Team Total",
+              execName: execHeaderName,
+              managerName: "",
+              rows: pr.rows,
+            })
+          : null,
+      })),
+    };
+  }, [showQvqComparison, qvqPeriodResults, execHeaderName]);
 
   const pickerGroups = useMemo(() => {
     const managers = repDirectory.filter((r) => r.role === "MANAGER" || r.role === "EXEC_MANAGER");
@@ -759,22 +815,44 @@ export function CustomReportDesignerClient(props: {
   );
   const chartPreviewRows = previewRows;
 
-  const chartData = useMemo(
-    () =>
-      chartPreviewRows.map((row) => ({
-        rep: row.rep_name,
-        ...selectedFields.reduce(
-          (acc, f) => ({
-            ...acc,
-            [f.label]: (row as any)[f.key] != null ? Number((row as any)[f.key]) : 0,
-          }),
-          {} as Record<string, number>
-        ),
-      })),
-    [chartPreviewRows, selectedFields]
-  );
+  const chartData = useMemo(() => {
+    if (showQvqComparison) {
+      return allRepNames.map((name) => {
+        const point: Record<string, any> = { rep: name };
+        qvqPeriodResults.forEach((pr) => {
+          const row = pr.rows.find((r) => r.rep_name === name);
+          selectedFields.forEach((f) => {
+            point[`${pr.label} — ${f.label}`] = row ? Number((row as any)[f.key] ?? 0) : 0;
+          });
+        });
+        return point;
+      });
+    }
+    return chartPreviewRows.map((row) => ({
+      rep: row.rep_name,
+      ...selectedFields.reduce(
+        (acc, f) => ({
+          ...acc,
+          [f.label]: (row as any)[f.key] != null ? Number((row as any)[f.key]) : 0,
+        }),
+        {} as Record<string, number>
+      ),
+    }));
+  }, [showQvqComparison, allRepNames, qvqPeriodResults, chartPreviewRows, selectedFields]);
 
   const radarData = useMemo(() => {
+    if (showQvqComparison) {
+      return selectedFields.map((f) => {
+        const point: Record<string, any> = { metric: f.label };
+        qvqPeriodResults.forEach((pr) => {
+          const vals = pr.rows
+            .map((r) => Number((r as any)[f.key] ?? 0))
+            .filter((v) => Number.isFinite(v));
+          point[pr.label] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+        });
+        return point;
+      });
+    }
     return selectedFields.map((f) => {
       const point: Record<string, any> = { metric: f.label };
       chartPreviewRows.forEach((row) => {
@@ -783,14 +861,74 @@ export function CustomReportDesignerClient(props: {
       });
       return point;
     });
-  }, [selectedFields, chartPreviewRows]);
+  }, [showQvqComparison, selectedFields, qvqPeriodResults, chartPreviewRows]);
+
+  const barLineSeries = useMemo(
+    () =>
+      showQvqComparison
+        ? qvqPeriodResults.flatMap((pr, pi) =>
+            selectedFields.map((f, fi) => ({
+              key: `${pr.periodId}-${f.key}`,
+              dataKey: `${pr.label} — ${f.label}`,
+              name: `${pr.label} — ${f.label}`,
+              color: CHART_COLORS[(pi * selectedFields.length + fi) % CHART_COLORS.length],
+            }))
+          )
+        : selectedFields.map((f, i) => ({
+            key: f.key,
+            dataKey: f.label,
+            name: f.label,
+            color: CHART_COLORS[i % CHART_COLORS.length],
+          })),
+    [showQvqComparison, qvqPeriodResults, selectedFields]
+  );
+
+  const radarSeries = useMemo(
+    () =>
+      showQvqComparison
+        ? qvqPeriodResults.map((pr, i) => ({
+            key: pr.periodId,
+            dataKey: pr.label,
+            name: pr.label,
+            color: CHART_COLORS[i % CHART_COLORS.length],
+          }))
+        : chartPreviewRows.map((row, i) => ({
+            key: row.rep_id || row.rep_name,
+            dataKey: row.rep_name,
+            name: row.rep_name,
+            color: CHART_COLORS[i % CHART_COLORS.length],
+          })),
+    [showQvqComparison, qvqPeriodResults, chartPreviewRows]
+  );
 
   const chartHasFields = selectedFields.length > 0;
-  const chartHasReps = chartPreviewRows.length > 0;
+  const chartHasReps = showQvqComparison ? allRepNames.length > 0 : chartPreviewRows.length > 0;
   const showChartPlaceholder = chartType !== "table" && (!chartHasFields || !chartHasReps);
   const showBarLineChart =
     (chartType === "bar" || chartType === "line") && chartHasFields && chartHasReps;
   const showRadarChart = chartType === "radar" && chartHasFields && chartHasReps;
+
+  function renderQvqDelta(
+    metricKey: MetricKey,
+    metricLabel: string,
+    periodRows: Array<{ label: string; row: RepRow | null }>
+  ) {
+    if (periodRows.length !== 2) return null;
+    const v0 = Number(periodRows[0].row?.[metricKey as keyof RepRow] ?? 0);
+    const v1 = Number(periodRows[1].row?.[metricKey as keyof RepRow] ?? 0);
+    const diff = v1 - v0;
+    const isMonetary = metricLabel.includes("$");
+    const color = diff >= 0 ? "text-green-400" : "text-red-400";
+    const prefix = diff >= 0 ? "+" : "";
+    const formatted = isMonetary ? fmtMoney(Math.abs(diff)) : `${Math.abs(Math.round(diff * 100) / 100)}`;
+    return (
+      <span className={color}>
+        {prefix}
+        {diff < 0 ? "-" : ""}
+        {formatted}
+      </span>
+    );
+  }
 
   function toggleId(id: string) {
     setSelectedIds((prev) => {
@@ -1094,9 +1232,6 @@ export function CustomReportDesignerClient(props: {
                 </div>
               ))}
             </div>
-            {periodSelection.ids.size > 1 ? (
-              <p className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">Quarter-over-quarter comparison coming soon. Showing most recent selected quarter.</p>
-            ) : null}
             <p className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">Initial health (at deal open) coming soon</p>
           </div>
 
@@ -1258,13 +1393,13 @@ export function CustomReportDesignerClient(props: {
                   paddingTop: 8,
                 }}
               />
-              {selectedFields.map((f, i) => (
+              {barLineSeries.map((series) => (
                 <Bar
-                  key={f.key}
-                  dataKey={f.label}
-                  fill={CHART_COLORS[i % CHART_COLORS.length]}
+                  key={series.key}
+                  dataKey={series.dataKey}
+                  fill={series.color}
                   radius={[4, 4, 0, 0]}
-                  name={f.label}
+                  name={series.name}
                 />
               ))}
             </BarChart>
@@ -1300,14 +1435,14 @@ export function CustomReportDesignerClient(props: {
                   paddingTop: 8,
                 }}
               />
-              {selectedFields.map((f, i) => (
+              {barLineSeries.map((series) => (
                 <Line
-                  key={f.key}
+                  key={series.key}
                   type="monotone"
-                  dataKey={f.label}
-                  stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                  dot={{ fill: CHART_COLORS[i % CHART_COLORS.length] }}
-                  name={f.label}
+                  dataKey={series.dataKey}
+                  stroke={series.color}
+                  dot={{ fill: series.color }}
+                  name={series.name}
                 />
               ))}
             </LineChart>
@@ -1322,13 +1457,13 @@ export function CustomReportDesignerClient(props: {
               <PolarGrid stroke="var(--sf-border)" />
               <PolarAngleAxis dataKey="metric" tick={{ fill: "var(--sf-text-secondary)", fontSize: 11 }} />
               <PolarRadiusAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} angle={90} />
-              {chartPreviewRows.map((row, i) => (
+              {radarSeries.map((series) => (
                 <Radar
-                  key={row.rep_id || row.rep_name}
-                  name={row.rep_name}
-                  dataKey={row.rep_name}
-                  stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                  fill={CHART_COLORS[i % CHART_COLORS.length]}
+                  key={series.key}
+                  name={series.name}
+                  dataKey={series.dataKey}
+                  stroke={series.color}
+                  fill={series.color}
                   fillOpacity={0.15}
                 />
               ))}
@@ -1346,47 +1481,121 @@ export function CustomReportDesignerClient(props: {
       ) : null}
 
         <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-        <table className="w-full min-w-[900px] text-left text-sm">
-          <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
-            <tr>
-              <th className="px-4 py-3">rep</th>
-              {metricList.map((k) => (
-                <th key={k} className="px-4 py-3 text-right">
-                      {labelForMetric.get(k) || k}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {previewRows.map((r) => (
-              <tr key={`row:${r.rep_id || r.rep_name}`} className="border-t border-[color:var(--sf-border)]">
-                <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{r.rep_name}</td>
-                {metricList.map((k) => (
-                  <td key={k} className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">
-                    {renderMetricCell(k, r)}
-                  </td>
-                ))}
-              </tr>
-            ))}
-            {teamTotalRow && previewRows.length > 0 ? (
-              <tr className="border-t-2 border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
-                <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{teamTotalRow.rep_name}</td>
-                {metricList.map((k) => (
-                  <td key={k} className="px-4 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                    {renderMetricCell(k, teamTotalRow)}
-                  </td>
-                ))}
-              </tr>
-            ) : null}
-            {!previewRows.length ? (
+        {showQvqComparison ? (
+          <table className="w-full min-w-[900px] text-left text-sm">
+            <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
               <tr>
-                <td colSpan={1 + metricList.length} className="px-4 py-6 text-center text-sm text-[color:var(--sf-text-disabled)]">
-                  Nothing selected.
-                </td>
+                <th className="px-4 py-3">Rep</th>
+                {selectedFields.flatMap((f) =>
+                  qvqPeriodResults.map((pr, pi) => (
+                    <th key={`${f.key}-${pi}`} className="px-4 py-3 text-right">
+                      {pr.label} {f.label}
+                    </th>
+                  ))
+                )}
+                {qvqPeriodResults.length === 2
+                  ? selectedFields.map((f) => (
+                      <th key={`delta-${f.key}`} className="px-4 py-3 text-right">
+                        Δ {f.label}
+                      </th>
+                    ))
+                  : null}
               </tr>
-            ) : null}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {mergedRows.map((row) => (
+                <tr key={row.rep_name} className="border-t border-[color:var(--sf-border)]">
+                  <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{row.rep_name}</td>
+                  {selectedFields.flatMap((f) =>
+                    row.byPeriod.map((pd, pi) => (
+                      <td key={`${row.rep_name}-${f.key}-${pi}`} className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">
+                        {renderMetricValue(f.key, pd.row ?? ({} as RepRow))}
+                      </td>
+                    ))
+                  )}
+                  {qvqPeriodResults.length === 2
+                    ? selectedFields.map((f) => (
+                        <td key={`${row.rep_name}-delta-${f.key}`} className="px-4 py-3 text-right font-mono text-xs">
+                          {renderQvqDelta(f.key, f.label, row.byPeriod)}
+                        </td>
+                      ))
+                    : null}
+                </tr>
+              ))}
+              {qvqTeamTotalRow ? (
+                <tr className="border-t-2 border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                  <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{qvqTeamTotalRow.rep_name}</td>
+                  {selectedFields.flatMap((f) =>
+                    qvqTeamTotalRow.byPeriod.map((pd, pi) => (
+                      <td key={`team-total-${f.key}-${pi}`} className="px-4 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                        {renderMetricValue(f.key, pd.row ?? ({} as RepRow))}
+                      </td>
+                    ))
+                  )}
+                  {qvqPeriodResults.length === 2
+                    ? selectedFields.map((f) => (
+                        <td key={`team-total-delta-${f.key}`} className="px-4 py-2 text-right font-mono text-xs font-semibold">
+                          {renderQvqDelta(f.key, f.label, qvqTeamTotalRow.byPeriod)}
+                        </td>
+                      ))
+                    : null}
+                </tr>
+              ) : null}
+              {!mergedRows.length ? (
+                <tr>
+                  <td
+                    colSpan={1 + selectedFields.length * qvqPeriodResults.length + (qvqPeriodResults.length === 2 ? selectedFields.length : 0)}
+                    className="px-4 py-6 text-center text-sm text-[color:var(--sf-text-disabled)]"
+                  >
+                    Nothing selected.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        ) : (
+          <table className="w-full min-w-[900px] text-left text-sm">
+            <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+              <tr>
+                <th className="px-4 py-3">rep</th>
+                {metricList.map((k) => (
+                  <th key={k} className="px-4 py-3 text-right">
+                        {labelForMetric.get(k) || k}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {previewRows.map((r) => (
+                <tr key={`row:${r.rep_id || r.rep_name}`} className="border-t border-[color:var(--sf-border)]">
+                  <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{r.rep_name}</td>
+                  {metricList.map((k) => (
+                    <td key={k} className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">
+                      {renderMetricCell(k, r)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+              {teamTotalRow && previewRows.length > 0 ? (
+                <tr className="border-t-2 border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                  <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{teamTotalRow.rep_name}</td>
+                  {metricList.map((k) => (
+                    <td key={k} className="px-4 py-2 text-right font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                      {renderMetricCell(k, teamTotalRow)}
+                    </td>
+                  ))}
+                </tr>
+              ) : null}
+              {!previewRows.length ? (
+                <tr>
+                  <td colSpan={1 + metricList.length} className="px-4 py-6 text-center text-sm text-[color:var(--sf-text-disabled)]">
+                    Nothing selected.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        )}
         </div>
       </div>
 
