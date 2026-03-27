@@ -147,7 +147,7 @@ const METRICS: Array<{ key: MetricKey; label: string }> = [
   { key: "mix_commit", label: "Mix: Commit (%)" },
   { key: "mix_pipeline", label: "Mix: Pipeline (%)" },
   { key: "mix_won", label: "Mix: Won (%)" },
-  { key: "opp_to_win", label: "Oppâ†’Win Conversion (%)" },
+  { key: "opp_to_win", label: "Opp->Win Conversion (%)" },
   { key: "partner_contribution", label: "Partner Contribution (%)" },
   { key: "partner_win_rate", label: "Partner Win Rate (%)" },
   { key: "quota", label: "Quota ($)" },
@@ -225,14 +225,14 @@ function quarterSortKey(name: string): number {
 }
 
 function fmtMoney(n: any) {
-  if (n === null || n === undefined) return "â€”";
+  if (n === null || n === undefined) return "-";
   const v = Number(n);
-  if (!Number.isFinite(v)) return "â€”";
+  if (!Number.isFinite(v)) return "-";
   return v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
 function fmtPct(n: number | null | undefined) {
-  if (n == null || n === undefined || !Number.isFinite(Number(n))) return "â€”";
+  if (n == null || n === undefined || !Number.isFinite(Number(n))) return "-";
   return `${Math.round(Number(n) * 100)}%`;
 }
 
@@ -245,16 +245,16 @@ function healthFracFrom30(score: any) {
 }
 
 function fmtNum(n: any) {
-  if (n === null || n === undefined) return "â€”";
+  if (n === null || n === undefined) return "-";
   const v = Number(n);
-  if (!Number.isFinite(v)) return "â€”";
+  if (!Number.isFinite(v)) return "-";
   return v.toLocaleString();
 }
 
 function lmhFromAvg(avg: any) {
   const n = avg == null ? null : Number(avg);
   if (n == null || !Number.isFinite(n)) {
-    return { label: "â€”", cls: "text-[color:var(--sf-text-disabled)] bg-[color:var(--sf-surface-alt)]" };
+    return { label: "-", cls: "text-[color:var(--sf-text-disabled)] bg-[color:var(--sf-surface-alt)]" };
   }
   const k = Math.round(n);
   const level = k >= 3 ? "H" : k >= 1 ? "M" : "L";
@@ -284,7 +284,7 @@ function renderMetricValue(key: MetricKey, r: RepRow) {
     return fmtPct(v != null ? Number(v) : null);
   }
   if (key.includes("amount") || key === "quota" || key === "aov") return fmtMoney(v);
-  if (key.startsWith("avg_days_")) return v == null || v === undefined ? "â€”" : String(Math.round(Number(v)));
+  if (key.startsWith("avg_days_")) return v == null || v === undefined ? "-" : String(Math.round(Number(v)));
   return fmtNum(v);
 }
 
@@ -700,7 +700,7 @@ export function CustomReportDesignerClient(props: {
 
   const reportHeaderLabel = useMemo(() => {
     const reportTitle = name.trim();
-    if (reportTitle && reportPeriodLabel) return `${reportTitle} â€” ${reportPeriodLabel}`;
+    if (reportTitle && reportPeriodLabel) return `${reportTitle} - ${reportPeriodLabel}`;
     if (reportTitle) return reportTitle;
     return reportPeriodLabel;
   }, [name, reportPeriodLabel]);
@@ -834,7 +834,7 @@ export function CustomReportDesignerClient(props: {
         qvqPeriodResults.forEach((pr) => {
           const row = pr.rows.find((r) => r.rep_name === name);
           selectedFields.forEach((f) => {
-            point[`${pr.label} â€” ${f.label}`] = row ? Number((row as any)[f.key] ?? 0) : 0;
+            point[`${pr.label} - ${f.label}`] = row ? Number((row as any)[f.key] ?? 0) : 0;
           });
         });
         return point;
@@ -881,8 +881,8 @@ export function CustomReportDesignerClient(props: {
         ? qvqPeriodResults.flatMap((pr, pi) =>
             selectedFields.map((f, fi) => ({
               key: `${pr.periodId}-${f.key}`,
-              dataKey: `${pr.label} â€” ${f.label}`,
-              name: `${pr.label} â€” ${f.label}`,
+              dataKey: `${pr.label} - ${f.label}`,
+              name: `${pr.label} - ${f.label}`,
               color: CHART_COLORS[(pi * selectedFields.length + fi) % CHART_COLORS.length],
             }))
           )
@@ -1134,7 +1134,7 @@ export function CustomReportDesignerClient(props: {
 
   return (
     <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Designer</h2>
           <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Period: {periodLabelDisplay}</p>
