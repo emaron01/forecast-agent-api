@@ -813,7 +813,12 @@ export function ExecutiveGapInsightsClient(props: {
   const [radarTopN, setRadarTopN] = useState(20);
   const [stageView, setStageView] = useState<"commit" | "best_case" | "pipeline" | "all">("all");
   const [pipelineConfigOpen, setPipelineConfigOpen] = useState(false);
-  const [pipelineQuarterIds, setPipelineQuarterIds] = useState<string[]>(() => [String(props.quotaPeriodId ?? "")].filter(Boolean));
+  const [pipelineQuarterIds, setPipelineQuarterIds] = useState<string[]>(() => {
+    if (props.pipelineQuarterIds?.length) {
+      return props.pipelineQuarterIds.map(String).filter(Boolean);
+    }
+    return [String(props.quotaPeriodId ?? "")].filter(Boolean);
+  });
   const [wonSortKey, setWonSortKey] = useState<string>("amount");
   const [wonSortDir, setWonSortDir] = useState<"asc" | "desc">("desc");
   const [lostSortKey, setLostSortKey] = useState<string>("amount");
@@ -828,11 +833,32 @@ export function ExecutiveGapInsightsClient(props: {
   const mode = String(sp.get("mode") || "drivers").trim() === "risk" ? "risk" : "drivers";
   const scoreDrivenOnly = String(sp.get("driver_require_score_effect") || sp.get("risk_require_score_effect") || "1").trim() !== "0";
 
+  const currentPeriod = useMemo(() => {
+    const today = new Date();
+    const sortedPeriods = [...(props.periods ?? [])].sort(
+      (a, b) => new Date(a.period_start).getTime() - new Date(b.period_start).getTime()
+    );
+    return (
+      sortedPeriods.find((p) => new Date(p.period_start).getTime() <= today.getTime() && new Date(p.period_end).getTime() >= today.getTime()) ??
+      sortedPeriods[0] ??
+      null
+    );
+  }, [props.periods]);
+
+  const fyQuarterIds = useMemo(() => {
+    return (props.periods ?? [])
+      .filter((p) => String(p.fiscal_year) === String(currentPeriod?.fiscal_year))
+      .map((p) => String(p.id))
+      .filter(Boolean);
+  }, [props.periods, currentPeriod]);
+
   const apiUrl = useMemo(() => {
     const params = new URLSearchParams(sp.toString());
     // Ensure quarter selection is always honored.
     setParam(params, "quota_period_id", quotaPeriodId);
-    if (props.pipelineTabOnly && pipelineQuarterIds.length) {
+    if (props.pipelineTabOnly && fyQuarterIds.length) {
+      params.set("pipeline_quarter_ids", fyQuarterIds.join(","));
+    } else if (props.pipelineTabOnly && pipelineQuarterIds.length) {
       params.set("pipeline_quarter_ids", pipelineQuarterIds.join(","));
     }
     // CRO/VP default: include ALL stages unless user explicitly filters buckets.
@@ -844,7 +870,7 @@ export function ExecutiveGapInsightsClient(props: {
       params.set("bucket_pipeline", "1");
     }
     return `/api/forecast/gap-driving-deals?${params.toString()}`;
-  }, [pipelineQuarterIds, props.pipelineTabOnly, quotaPeriodId, sp]);
+  }, [fyQuarterIds, pipelineQuarterIds, props.pipelineTabOnly, quotaPeriodId, sp]);
 
   const activePeriod = useMemo(() => {
     const id = String(quotaPeriodId || "").trim();
@@ -854,8 +880,12 @@ export function ExecutiveGapInsightsClient(props: {
 
 
   useEffect(() => {
+    if (props.pipelineQuarterIds?.length) {
+      setPipelineQuarterIds(props.pipelineQuarterIds.map(String).filter(Boolean));
+      return;
+    }
     setPipelineQuarterIds([String(props.quotaPeriodId ?? "")].filter(Boolean));
-  }, [props.quotaPeriodId]);
+  }, [props.pipelineQuarterIds, props.quotaPeriodId]);
 
   const quartersByYear = useMemo(() => {
     const grouped: Record<string, typeof props.periods> = {};
@@ -873,7 +903,9 @@ export function ExecutiveGapInsightsClient(props: {
   const analysisApiUrl = useMemo(() => {
     const params = new URLSearchParams(sp.toString());
     setParam(params, "quota_period_id", quotaPeriodId);
-    if (props.pipelineTabOnly && pipelineQuarterIds.length) {
+    if (props.pipelineTabOnly && fyQuarterIds.length) {
+      params.set("pipeline_quarter_ids", fyQuarterIds.join(","));
+    } else if (props.pipelineTabOnly && pipelineQuarterIds.length) {
       params.set("pipeline_quarter_ids", pipelineQuarterIds.join(","));
     }
 
@@ -892,7 +924,7 @@ export function ExecutiveGapInsightsClient(props: {
     params.set("limit", "2000");
 
     return `/api/forecast/gap-driving-deals?${params.toString()}`;
-  }, [pipelineQuarterIds, props.pipelineTabOnly, quotaPeriodId, sp]);
+  }, [fyQuarterIds, pipelineQuarterIds, props.pipelineTabOnly, quotaPeriodId, sp]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1830,10 +1862,6 @@ export function ExecutiveGapInsightsClient(props: {
     const sortedPeriods = [...(props.periods ?? [])].sort(
       (a, b) => new Date(a.period_start).getTime() - new Date(b.period_start).getTime()
     );
-    const currentPeriod =
-      sortedPeriods.find((p) => new Date(p.period_start).getTime() <= today.getTime() && new Date(p.period_end).getTime() >= today.getTime()) ??
-      sortedPeriods[0] ??
-      null;
     const currentPeriodIndex = currentPeriod ? sortedPeriods.findIndex((p) => String(p.id) === String(currentPeriod.id)) : -1;
     const nextPeriod = currentPeriodIndex >= 0 ? sortedPeriods[currentPeriodIndex + 1] ?? null : null;
     const fyRemainingPeriods = currentPeriod
