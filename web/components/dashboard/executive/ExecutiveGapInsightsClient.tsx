@@ -810,8 +810,7 @@ export function ExecutiveGapInsightsClient(props: {
 
   // Deals list: keep small by default (space).
   const [topN, setTopN] = useState(() => clampInt(props.defaultTopN ?? 5, 5, 50));
-  // Radar + account review: default to broader context.
-  const [radarTopN, setRadarTopN] = useState(20);
+  const [quickReviewTopN, setQuickReviewTopN] = useState(20);
   const [stageView, setStageView] = useState<"commit" | "best_case" | "pipeline" | "all">("all");
   const [pipelineConfigOpen, setPipelineConfigOpen] = useState(false);
   const [pipelineQuarterIds, setPipelineQuarterIds] = useState<string[]>(() => {
@@ -1197,6 +1196,8 @@ export function ExecutiveGapInsightsClient(props: {
       meddpicc_tb: (d.meddpicc_tb || []).map((c) => ({ key: String(c.key || ""), score: c.score == null ? null : (Number(c.score) as any) })),
     }));
   }, [radarBaseDeals]);
+
+  const quickReviewDeals = useMemo(() => radarDeals.slice(0, quickReviewTopN), [radarDeals, quickReviewTopN]);
 
   const quarterDrivers = useMemo(() => {
     const deals = analysisFlattenedDeals.length ? analysisFlattenedDeals : flattenedDeals;
@@ -2080,7 +2081,7 @@ export function ExecutiveGapInsightsClient(props: {
             </div>
           </section>
 
-          <div className="grid gap-4 lg:mx-auto lg:w-4/5 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_400px]">
             <div className="min-w-0">
               <RiskRadarPlot
                 deals={radarDeals}
@@ -2090,48 +2091,50 @@ export function ExecutiveGapInsightsClient(props: {
               />
             </div>
 
-            <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
-                  Quick Account Review - Top {radarTopN}
-                </div>
-                <select
-                  value={radarTopN}
-                  onChange={(e) => setRadarTopN(clampInt(Number(e.target.value) || 20, 5, 50))}
-                  className="h-[36px] w-[80px] shrink-0 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
-                >
-                  {topXOptions.map((n) => (
-                    <option key={n} value={n}>
-                      Top {n}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="mt-3 text-sm text-[color:var(--sf-text-primary)]">
-                {radarDeals.length ? (
-                  <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
-                    {radarDeals.map((d) => (
-                      <div
-                        key={d.id}
-                        className="flex min-w-0 items-center gap-1.5 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1"
-                      >
-                        <span
-                          className="h-2 w-2 shrink-0 rounded-full border border-[color:var(--sf-border)]"
-                          style={{ background: d.color }}
-                          aria-hidden="true"
-                        />
-                        <span className="min-w-0 truncate text-xs" title={String(d.legendLabel || d.label)}>
-                          {String(d.legendLabel || d.label)}
-                        </span>
-                      </div>
-                    ))}
+            <div className="min-w-0">
+              <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
+                    Quick Account Review - Top {quickReviewTopN}
                   </div>
-                ) : (
-                  <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
-                )}
-              </div>
-            </section>
+                  <select
+                    value={quickReviewTopN}
+                    onChange={(e) => setQuickReviewTopN(clampInt(Number(e.target.value) || 20, 5, 50))}
+                    className="h-[36px] w-[80px] shrink-0 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
+                  >
+                    {topXOptions.map((n) => (
+                      <option key={n} value={n}>
+                        Top {n}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="mt-3 text-sm text-[color:var(--sf-text-primary)]">
+                  {quickReviewDeals.length ? (
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      {quickReviewDeals.map((d) => (
+                        <div
+                          key={d.id}
+                          className="flex min-w-0 items-center gap-1.5 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1"
+                        >
+                          <span
+                            className="h-2 w-2 shrink-0 rounded-full border border-[color:var(--sf-border)]"
+                            style={{ background: d.color }}
+                            aria-hidden="true"
+                          />
+                          <span className="min-w-0 truncate text-xs" title={String(d.legendLabel || d.label)}>
+                            {String(d.legendLabel || d.label)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
+                  )}
+                </div>
+              </section>
+            </div>
           </div>
 
           <button
