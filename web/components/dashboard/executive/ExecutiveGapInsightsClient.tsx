@@ -749,6 +749,7 @@ export function ExecutiveGapInsightsClient(props: {
   const [radarTopN, setRadarTopN] = useState(20);
   const [stageView, setStageView] = useState<"commit" | "best_case" | "pipeline" | "all">("all");
   const [pipelineConfigOpen, setPipelineConfigOpen] = useState(false);
+  const [pipelineQuarterIds, setPipelineQuarterIds] = useState<string[]>(() => [String(props.quotaPeriodId ?? "")].filter(Boolean));
   const [wonSortKey, setWonSortKey] = useState<string>("amount");
   const [wonSortDir, setWonSortDir] = useState<"asc" | "desc">("desc");
   const [lostSortKey, setLostSortKey] = useState<string>("amount");
@@ -767,8 +768,8 @@ export function ExecutiveGapInsightsClient(props: {
     const params = new URLSearchParams(sp.toString());
     // Ensure quarter selection is always honored.
     setParam(params, "quota_period_id", quotaPeriodId);
-    if (props.pipelineTabOnly && Array.isArray(props.pipelineQuarterIds) && props.pipelineQuarterIds.length) {
-      params.set("pipeline_quarter_ids", props.pipelineQuarterIds.join(","));
+    if (props.pipelineTabOnly && pipelineQuarterIds.length) {
+      params.set("pipeline_quarter_ids", pipelineQuarterIds.join(","));
     }
     // CRO/VP default: include ALL stages unless user explicitly filters buckets.
     const hasAnyBucket =
@@ -779,7 +780,7 @@ export function ExecutiveGapInsightsClient(props: {
       params.set("bucket_pipeline", "1");
     }
     return `/api/forecast/gap-driving-deals?${params.toString()}`;
-  }, [props.pipelineQuarterIds, props.pipelineTabOnly, quotaPeriodId, sp]);
+  }, [pipelineQuarterIds, props.pipelineTabOnly, quotaPeriodId, sp]);
 
   const activePeriod = useMemo(() => {
     const id = String(quotaPeriodId || "").trim();
@@ -787,11 +788,29 @@ export function ExecutiveGapInsightsClient(props: {
     return (props.periods || []).find((p) => String(p.id) === id) || null;
   }, [props.periods, quotaPeriodId]);
 
+
+  useEffect(() => {
+    setPipelineQuarterIds([String(props.quotaPeriodId ?? "")].filter(Boolean));
+  }, [props.quotaPeriodId]);
+
+  const quartersByYear = useMemo(() => {
+    const grouped: Record<string, typeof props.periods> = {};
+    for (const p of props.periods ?? []) {
+      const year = String(p.fiscal_year ?? "");
+      if (!grouped[year]) grouped[year] = [];
+      grouped[year].push(p);
+    }
+    for (const year of Object.keys(grouped)) {
+      grouped[year].sort((a, b) => Number(a.fiscal_quarter || 0) - Number(b.fiscal_quarter || 0));
+    }
+    return Object.entries(grouped).sort(([a], [b]) => Number(b) - Number(a));
+  }, [props.periods]);
+
   const analysisApiUrl = useMemo(() => {
     const params = new URLSearchParams(sp.toString());
     setParam(params, "quota_period_id", quotaPeriodId);
-    if (props.pipelineTabOnly && Array.isArray(props.pipelineQuarterIds) && props.pipelineQuarterIds.length) {
-      params.set("pipeline_quarter_ids", props.pipelineQuarterIds.join(","));
+    if (props.pipelineTabOnly && pipelineQuarterIds.length) {
+      params.set("pipeline_quarter_ids", pipelineQuarterIds.join(","));
     }
 
     const hasAnyBucket =
@@ -809,7 +828,7 @@ export function ExecutiveGapInsightsClient(props: {
     params.set("limit", "2000");
 
     return `/api/forecast/gap-driving-deals?${params.toString()}`;
-  }, [props.pipelineQuarterIds, props.pipelineTabOnly, quotaPeriodId, sp]);
+  }, [pipelineQuarterIds, props.pipelineTabOnly, quotaPeriodId, sp]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1702,344 +1721,369 @@ export function ExecutiveGapInsightsClient(props: {
 
     return (
       <div className="grid gap-4">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="space-y-4">
           <div className="space-y-4">
-            <div className="grid w-full gap-4 lg:grid-cols-[minmax(200px,280px)_1fr] lg:items-start">
-              <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
-                    Quick Account Review - Top {radarTopN}
+            <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
+                  Quick Account Review - Top {radarTopN}
+                </div>
+                <select
+                  value={radarTopN}
+                  onChange={(e) => setRadarTopN(clampInt(Number(e.target.value) || 20, 5, 50))}
+                  className="h-[36px] w-[80px] shrink-0 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
+                >
+                  {topXOptions.map((n) => (
+                    <option key={n} value={n}>
+                      Top {n}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="mt-3 text-sm text-[color:var(--sf-text-primary)]">
+                {radarDeals.length ? (
+                  <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
+                    {radarDeals.map((d) => (
+                      <div
+                        key={d.id}
+                        className="flex min-w-0 items-center gap-1.5 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1"
+                      >
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-full border border-[color:var(--sf-border)]"
+                          style={{ background: d.color }}
+                          aria-hidden="true"
+                        />
+                        <span className="min-w-0 truncate text-xs" title={String(d.legendLabel || d.label)}>
+                          {String(d.legendLabel || d.label)}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                  <select
-                    value={radarTopN}
-                    onChange={(e) => setRadarTopN(clampInt(Number(e.target.value) || 20, 5, 50))}
-                    className="h-[36px] w-[80px] shrink-0 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
+                ) : (
+                  <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
+                )}
+              </div>
+            </section>
+
+            <div className="min-w-0">
+              <RiskRadarPlot deals={radarDeals} height={300} />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setPipelineConfigOpen((v) => !v)}
+            className="mb-4 flex w-full items-center justify-between rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-5 py-3 text-sm font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
+          >
+            <span>Pipeline Filters</span>
+            <span className="text-xs text-[color:var(--sf-text-secondary)]">
+              {pipelineConfigOpen ? "▲ Hide" : "▼ Configure"}
+            </span>
+          </button>
+
+          {pipelineConfigOpen ? (
+            <section
+              ref={adjustRiskSectionRef}
+              className="mb-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5"
+            >
+              <div>
+                <div className="text-sm font-semibold mb-2">Quarters</div>
+                <div className="flex flex-wrap gap-6">
+                  {quartersByYear.map(([year, periods]) => (
+                    <div key={year} className="min-w-[140px]">
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                        FY{year}
+                      </div>
+                      <div className="space-y-1">
+                        {periods.map((p) => (
+                          <label key={p.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={pipelineQuarterIds.includes(p.id)}
+                              onChange={() => {
+                                setPipelineQuarterIds((prev) =>
+                                  prev.includes(p.id) ? prev.filter((id) => id !== p.id) : [...prev, p.id]
+                                );
+                              }}
+                            />
+                            <span>{p.period_name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Adjust Risk Radar and Account View</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRefreshNonce((n) => n + 1)}
+                    className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
                   >
-                    {topXOptions.map((n) => (
-                      <option key={n} value={n}>
-                        Top {n}
+                    Refresh
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-[color:var(--sf-text-secondary)]">Show</span>
+                    <select
+                      value={topN}
+                      onChange={(e) => setTopN(clampInt(Number(e.target.value) || 5, 5, 50))}
+                      className="h-[40px] w-[92px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                    >
+                      {topXOptions.map((n) => (
+                        <option key={n} value={n}>
+                          Top {n}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <div className="grid gap-1">
+                  <label className="text-xs text-[color:var(--sf-text-secondary)]">Sales Team</label>
+                  <select
+                    value={teamRepIdValue}
+                    onChange={(e) =>
+                      updateUrl((p) => {
+                        const v = String(e.target.value || "").trim();
+                        setParam(p, "team_rep_id", v);
+                        p.delete("rep_name");
+                        p.delete("rep_public_id");
+                      })
+                    }
+                    className="h-[40px] min-w-[220px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                  >
+                    <option value="">All Sales Team</option>
+                    {(() => {
+                      const dir = Array.isArray(props.repDirectory) ? props.repDirectory : [];
+                      const byId = new Map<number, RepDirectoryRow>();
+                      for (const r of dir) byId.set(Number(r.id), r);
+
+                      const children = new Map<number, RepDirectoryRow[]>();
+                      for (const r of dir) {
+                        const mid = r.manager_rep_id;
+                        if (mid == null || !Number.isFinite(mid)) continue;
+                        const arr = children.get(mid) || [];
+                        arr.push(r);
+                        children.set(mid, arr);
+                      }
+                      for (const [mid, arr] of children.entries()) {
+                        arr.sort((a, b) => {
+                          const ra = rankRole(a);
+                          const rb = rankRole(b);
+                          if (ra !== rb) return ra - rb;
+                          const dn = String(a.name || "").localeCompare(String(b.name || ""));
+                          if (dn !== 0) return dn;
+                          return Number(a.id) - Number(b.id);
+                        });
+                        children.set(mid, arr);
+                      }
+
+                      const rootId = props.myRepId != null && Number.isFinite(props.myRepId) ? Number(props.myRepId) : null;
+                      const roots: RepDirectoryRow[] =
+                        rootId != null
+                          ? (children.get(rootId) || []).filter((r) => String(r.role || "").trim().toUpperCase() !== "REP")
+                          : dir.filter((r) => r.manager_rep_id == null);
+
+                      const out: Array<{ id: number; label: string }> = [];
+                      const seen = new Set<number>();
+                      const pushTree = (node: RepDirectoryRow, depth: number) => {
+                        const id = Number(node.id);
+                        if (!Number.isFinite(id) || id <= 0) return;
+                        if (seen.has(id)) return;
+                        seen.add(id);
+                        const role = String(node.role || "").trim().toUpperCase();
+                        const isMgr = role === "MANAGER" || role === "EXEC_MANAGER";
+                        const prefix = depth > 0 ? `${" ".repeat(Math.min(8, depth * 2))}↳ ` : "";
+                        const tag = isMgr ? "[Manager] " : "";
+                        out.push({ id, label: `${prefix}${tag}${node.name}` });
+                        for (const c of children.get(id) || []) {
+                          pushTree(c, depth + 1);
+                        }
+                      };
+
+                      if (rootId != null && byId.has(rootId)) {
+                        pushTree(byId.get(rootId)!, 0);
+                      }
+                      for (const r of roots) pushTree(r, 0);
+
+                      const fallback = out.length
+                        ? out
+                        : dir
+                            .slice()
+                            .sort((a, b) => {
+                              const ra = rankRole(a) - rankRole(b);
+                              if (ra !== 0) return ra;
+                              return String(a.name || "").localeCompare(String(b.name || ""));
+                            })
+                            .map((r) => ({
+                              id: Number(r.id),
+                              label: `${
+                                String(r.role || "").toUpperCase() === "MANAGER" ||
+                                String(r.role || "").toUpperCase() === "EXEC_MANAGER"
+                                  ? "[Manager] "
+                                  : ""
+                              }${r.name}`,
+                            }));
+
+                      return fallback.map((o) => (
+                        <option key={o.id} value={String(o.id)}>
+                          {o.label}
+                        </option>
+                      ));
+                    })()}
+                  </select>
+                </div>
+
+                <div className="grid gap-1">
+                  <label className="text-xs text-[color:var(--sf-text-secondary)]">MEDDPIC+TB Risk Category</label>
+                  <select
+                    value={riskCategory}
+                    onChange={(e) =>
+                      updateUrl((p) => {
+                        const v = String(e.target.value || "").trim();
+                        setParam(p, "risk_category", v);
+                        p.delete("riskType");
+                      })
+                    }
+                    className="h-[40px] min-w-[260px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                  >
+                    <option value="">All Categories</option>
+                    {(
+                      [
+                        "economic_buyer",
+                        "paper",
+                        "champion",
+                        "process",
+                        "timing",
+                        "criteria",
+                        "competition",
+                        "budget",
+                        "pain",
+                        "metrics",
+                        "suppressed",
+                      ] as RiskCategoryKey[]
+                    ).map((k) => (
+                      <option key={k} value={k}>
+                        {riskLabelForKey(k)}
                       </option>
                     ))}
                   </select>
                 </div>
 
-                <div className="mt-3 text-sm text-[color:var(--sf-text-primary)]">
-                  {radarDeals.length ? (
-                    <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
-                      {radarDeals.map((d) => (
-                        <div
-                          key={d.id}
-                          className="flex min-w-0 items-center gap-1.5 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1"
-                        >
-                          <span
-                            className="h-2 w-2 shrink-0 rounded-full border border-[color:var(--sf-border)]"
-                            style={{ background: d.color }}
-                            aria-hidden="true"
-                          />
-                          <span className="min-w-0 truncate text-xs" title={String(d.legendLabel || d.label)}>
-                            {String(d.legendLabel || d.label)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
-                  )}
+                <div className="grid gap-1">
+                  <label className="text-xs text-[color:var(--sf-text-secondary)]">Mode</label>
+                  <select
+                    value={mode}
+                    onChange={(e) =>
+                      updateUrl((p) => {
+                        const v = String(e.target.value || "").trim();
+                        setParam(p, "mode", v === "risk" ? "risk" : "drivers");
+                      })
+                    }
+                    className="h-[40px] w-[160px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                  >
+                    <option value="drivers">AI Top Drivers</option>
+                    <option value="risk">At-risk deals</option>
+                  </select>
                 </div>
-              </section>
 
-              <div className="min-w-0">
-                <RiskRadarPlot deals={radarDeals} height={300} />
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <button
-              type="button"
-              onClick={() => setPipelineConfigOpen((v) => !v)}
-              className="mb-4 flex w-full items-center justify-between rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-5 py-3 text-sm font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)]"
-            >
-              <span>Pipeline Filters</span>
-              <span className="text-xs text-[color:var(--sf-text-secondary)]">
-                {pipelineConfigOpen ? "▲ Hide" : "▼ Configure"}
-              </span>
-            </button>
-
-            {pipelineConfigOpen ? (
-              <section
-                ref={adjustRiskSectionRef}
-                className="mb-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5"
-              >
-                <div className="flex flex-wrap items-end justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Adjust Risk Radar and Account View</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setRefreshNonce((n) => n + 1)}
-                      className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
-                    >
-                      Refresh
-                    </button>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-[color:var(--sf-text-secondary)]">Show</span>
-                      <select
-                        value={topN}
-                        onChange={(e) => setTopN(clampInt(Number(e.target.value) || 5, 5, 50))}
-                        className="h-[40px] w-[92px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                <div className="grid gap-1">
+                  <label className="text-xs text-[color:var(--sf-text-secondary)]">Stages</label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(
+                      [
+                        { k: "commit", label: "Commit" },
+                        { k: "best_case", label: "Best Case" },
+                        { k: "pipeline", label: "Pipeline" },
+                        { k: "all", label: "All" },
+                      ] as const
+                    ).map((t) => (
+                      <button
+                        key={t.k}
+                        type="button"
+                        onClick={() => setStageView(t.k)}
+                        className={[
+                          "h-[40px] rounded-md border px-3 text-sm",
+                          t.k === stageView
+                            ? "border-[color:var(--sf-accent-secondary)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
+                            : "border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface-alt)]",
+                        ].join(" ")}
                       >
-                        {topXOptions.map((n) => (
-                          <option key={n} value={n}>
-                            Top {n}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                        {t.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <div className="grid gap-1">
-                    <label className="text-xs text-[color:var(--sf-text-secondary)]">Sales Team</label>
-                    <select
-                      value={teamRepIdValue}
-                      onChange={(e) =>
-                        updateUrl((p) => {
-                          const v = String(e.target.value || "").trim();
-                          setParam(p, "team_rep_id", v);
-                          p.delete("rep_name");
-                          p.delete("rep_public_id");
-                        })
-                      }
-                      className="h-[40px] min-w-[220px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                    >
-                      <option value="">All Sales Team</option>
-                      {(() => {
-                        const dir = Array.isArray(props.repDirectory) ? props.repDirectory : [];
-                        const byId = new Map<number, RepDirectoryRow>();
-                        for (const r of dir) byId.set(Number(r.id), r);
-
-                        const children = new Map<number, RepDirectoryRow[]>();
-                        for (const r of dir) {
-                          const mid = r.manager_rep_id;
-                          if (mid == null || !Number.isFinite(mid)) continue;
-                          const arr = children.get(mid) || [];
-                          arr.push(r);
-                          children.set(mid, arr);
+                <div className="grid gap-1">
+                  <label className="text-xs text-[color:var(--sf-text-secondary)]">Commit flags</label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(
+                      [
+                        { k: "", label: "All" },
+                        { k: "not_admitted", label: "Commit Not Supported" },
+                        { k: "needs_review", label: "Commit Review Required" },
+                        { k: "verified", label: "Verified Commit" },
+                        { k: "low_evidence", label: "Low Evidence Coverage" },
+                      ] as const
+                    ).map((t) => (
+                      <button
+                        key={t.k || "all"}
+                        type="button"
+                        onClick={() =>
+                          updateUrl((p) => {
+                            if (t.k) setParam(p, "commit_filter", t.k);
+                            else p.delete("commit_filter");
+                          })
                         }
-                        for (const [mid, arr] of children.entries()) {
-                          arr.sort((a, b) => {
-                            const ra = rankRole(a);
-                            const rb = rankRole(b);
-                            if (ra !== rb) return ra - rb;
-                            const dn = String(a.name || "").localeCompare(String(b.name || ""));
-                            if (dn !== 0) return dn;
-                            return Number(a.id) - Number(b.id);
-                          });
-                          children.set(mid, arr);
-                        }
-
-                        const rootId = props.myRepId != null && Number.isFinite(props.myRepId) ? Number(props.myRepId) : null;
-                        const roots: RepDirectoryRow[] =
-                          rootId != null
-                            ? (children.get(rootId) || []).filter((r) => String(r.role || "").trim().toUpperCase() !== "REP")
-                            : dir.filter((r) => r.manager_rep_id == null);
-
-                        const out: Array<{ id: number; label: string }> = [];
-                        const seen = new Set<number>();
-                        const pushTree = (node: RepDirectoryRow, depth: number) => {
-                          const id = Number(node.id);
-                          if (!Number.isFinite(id) || id <= 0) return;
-                          if (seen.has(id)) return;
-                          seen.add(id);
-                          const role = String(node.role || "").trim().toUpperCase();
-                          const isMgr = role === "MANAGER" || role === "EXEC_MANAGER";
-                          const prefix = depth > 0 ? `${" ".repeat(Math.min(8, depth * 2))}↳ ` : "";
-                          const tag = isMgr ? "[Manager] " : "";
-                          out.push({ id, label: `${prefix}${tag}${node.name}` });
-                          for (const c of children.get(id) || []) {
-                            pushTree(c, depth + 1);
-                          }
-                        };
-
-                        if (rootId != null && byId.has(rootId)) {
-                          pushTree(byId.get(rootId)!, 0);
-                        }
-                        for (const r of roots) pushTree(r, 0);
-
-                        const fallback = out.length
-                          ? out
-                          : dir
-                              .slice()
-                              .sort((a, b) => {
-                                const ra = rankRole(a) - rankRole(b);
-                                if (ra !== 0) return ra;
-                                return String(a.name || "").localeCompare(String(b.name || ""));
-                              })
-                              .map((r) => ({
-                                id: Number(r.id),
-                                label: `${
-                                  String(r.role || "").toUpperCase() === "MANAGER" ||
-                                  String(r.role || "").toUpperCase() === "EXEC_MANAGER"
-                                    ? "[Manager] "
-                                    : ""
-                                }${r.name}`,
-                              }));
-
-                        return fallback.map((o) => (
-                          <option key={o.id} value={String(o.id)}>
-                            {o.label}
-                          </option>
-                        ));
-                      })()}
-                    </select>
+                        className={[
+                          "h-[40px] rounded-md border px-3 text-sm",
+                          commitFilter === t.k
+                            ? "border-[color:var(--sf-accent-secondary)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
+                            : "border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface-alt)]",
+                        ].join(" ")}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
                   </div>
-
-                  <div className="grid gap-1">
-                    <label className="text-xs text-[color:var(--sf-text-secondary)]">MEDDPIC+TB Risk Category</label>
-                    <select
-                      value={riskCategory}
-                      onChange={(e) =>
-                        updateUrl((p) => {
-                          const v = String(e.target.value || "").trim();
-                          setParam(p, "risk_category", v);
-                          p.delete("riskType");
-                        })
-                      }
-                      className="h-[40px] min-w-[260px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                    >
-                      <option value="">All Categories</option>
-                      {(
-                        [
-                          "economic_buyer",
-                          "paper",
-                          "champion",
-                          "process",
-                          "timing",
-                          "criteria",
-                          "competition",
-                          "budget",
-                          "pain",
-                          "metrics",
-                          "suppressed",
-                        ] as RiskCategoryKey[]
-                      ).map((k) => (
-                        <option key={k} value={k}>
-                          {riskLabelForKey(k)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="grid gap-1">
-                    <label className="text-xs text-[color:var(--sf-text-secondary)]">Mode</label>
-                    <select
-                      value={mode}
-                      onChange={(e) =>
-                        updateUrl((p) => {
-                          const v = String(e.target.value || "").trim();
-                          setParam(p, "mode", v === "risk" ? "risk" : "drivers");
-                        })
-                      }
-                      className="h-[40px] w-[160px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                    >
-                      <option value="drivers">AI Top Drivers</option>
-                      <option value="risk">At-risk deals</option>
-                    </select>
-                  </div>
-
-                  <div className="grid gap-1">
-                    <label className="text-xs text-[color:var(--sf-text-secondary)]">Stages</label>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {(
-                        [
-                          { k: "commit", label: "Commit" },
-                          { k: "best_case", label: "Best Case" },
-                          { k: "pipeline", label: "Pipeline" },
-                          { k: "all", label: "All" },
-                        ] as const
-                      ).map((t) => (
-                        <button
-                          key={t.k}
-                          type="button"
-                          onClick={() => setStageView(t.k)}
-                          className={[
-                            "h-[40px] rounded-md border px-3 text-sm",
-                            t.k === stageView
-                              ? "border-[color:var(--sf-accent-secondary)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
-                              : "border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface-alt)]",
-                          ].join(" ")}
-                        >
-                          {t.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-1">
-                    <label className="text-xs text-[color:var(--sf-text-secondary)]">Commit flags</label>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {(
-                        [
-                          { k: "", label: "All" },
-                          { k: "not_admitted", label: "Commit Not Supported" },
-                          { k: "needs_review", label: "Commit Review Required" },
-                          { k: "verified", label: "Verified Commit" },
-                          { k: "low_evidence", label: "Low Evidence Coverage" },
-                        ] as const
-                      ).map((t) => (
-                        <button
-                          key={t.k || "all"}
-                          type="button"
-                          onClick={() =>
-                            updateUrl((p) => {
-                              if (t.k) setParam(p, "commit_filter", t.k);
-                              else p.delete("commit_filter");
-                            })
-                          }
-                          className={[
-                            "h-[40px] rounded-md border px-3 text-sm",
-                            commitFilter === t.k
-                              ? "border-[color:var(--sf-accent-secondary)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
-                              : "border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface-alt)]",
-                          ].join(" ")}
-                        >
-                          {t.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <label className="mt-5 inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]">
-                    <input
-                      type="checkbox"
-                      checked={scoreDrivenOnly}
-                      onChange={(e) =>
-                        updateUrl((p) => {
-                          const on = e.target.checked;
-                          if (mode === "risk") setParam(p, "risk_require_score_effect", on ? "1" : "0");
-                          else setParam(p, "driver_require_score_effect", on ? "1" : "0");
-                        })
-                      }
-                    />
-                    AI Score Drivers Only
-                  </label>
                 </div>
 
-                {loading ? <div className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">Loading…</div> : null}
-                {err ? <div className="mt-2 text-sm text-[#E74C3C]">{err.error}</div> : null}
-              </section>
-            ) : null}
+                <label className="mt-5 inline-flex items-center gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]">
+                  <input
+                    type="checkbox"
+                    checked={scoreDrivenOnly}
+                    onChange={(e) =>
+                      updateUrl((p) => {
+                        const on = e.target.checked;
+                        if (mode === "risk") setParam(p, "risk_require_score_effect", on ? "1" : "0");
+                        else setParam(p, "driver_require_score_effect", on ? "1" : "0");
+                      })
+                    }
+                  />
+                  AI Score Drivers Only
+                </label>
+              </div>
 
-            <div className="grid gap-3">
-              <ExecutiveDealsDrivingGapModule
-                title={stageLabel}
-                subtitle={undefined}
-                deals={sortedDeals.slice(0, topN)}
-              />
-            </div>
+              {loading ? <div className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">Loading…</div> : null}
+              {err ? <div className="mt-2 text-sm text-[#E74C3C]">{err.error}</div> : null}
+            </section>
+          ) : null}
+
+          <div className="grid gap-3">
+            <ExecutiveDealsDrivingGapModule
+              title={stageLabel}
+              subtitle={undefined}
+              deals={sortedDeals.slice(0, topN)}
+            />
           </div>
         </div>
 
