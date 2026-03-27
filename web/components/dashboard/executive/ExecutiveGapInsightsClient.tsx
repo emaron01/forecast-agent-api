@@ -875,6 +875,8 @@ export function ExecutiveGapInsightsClient(props: {
     setParam(params, "quota_period_id", quotaPeriodId);
     if (props.pipelineTabOnly && pipelineQuarterIds.length) {
       params.set("pipeline_quarter_ids", pipelineQuarterIds.join(","));
+      params.set("driver_require_score_effect", "false");
+      params.set("risk_require_score_effect", "false");
     }
     // CRO/VP default: include ALL stages unless user explicitly filters buckets.
     const hasAnyBucket =
@@ -1129,16 +1131,26 @@ export function ExecutiveGapInsightsClient(props: {
     return flattenedDeals.filter((d) => Number(d.weighted?.gap || 0) < 0).length;
   }, [flattenedDeals]);
 
+  const radarDateBounds = useMemo(() => {
+    if (!pipelineQuarterIds.length) return null;
+    const selectedPeriods = (props.periods ?? []).filter((p) => pipelineQuarterIds.includes(String(p.id)));
+    if (!selectedPeriods.length) return null;
+    const starts = selectedPeriods.map((p) => new Date(p.period_start).getTime()).filter(Number.isFinite);
+    const ends = selectedPeriods.map((p) => new Date(p.period_end).getTime()).filter(Number.isFinite);
+    if (!starts.length || !ends.length) return null;
+    return {
+      startMs: Math.min(...starts),
+      endMs: Math.max(...ends),
+    };
+  }, [pipelineQuarterIds, props.periods]);
+
   const radarBaseDeals = useMemo(() => {
-    if (!activePeriod?.period_start || !activePeriod?.period_end) return stageDeals;
-    const startMs = Date.parse(String(activePeriod.period_start));
-    const endMs = Date.parse(String(activePeriod.period_end));
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return stageDeals;
+    if (!radarDateBounds) return stageDeals;
     return stageDeals.filter((d) => {
-      const closeMs = Date.parse(String(d.close_date || ""));
-      return Number.isFinite(closeMs) && closeMs >= startMs && closeMs <= endMs;
+      const closeMs = Date.parse(String(d.close_date ?? ""));
+      return Number.isFinite(closeMs) && closeMs >= radarDateBounds.startMs && closeMs <= radarDateBounds.endMs;
     });
-  }, [activePeriod?.period_end, activePeriod?.period_start, stageDeals]);
+  }, [stageDeals, radarDateBounds]);
 
   const radarPeriodLabel = props.periodName || activePeriod?.period_name || "selected quarter";
 
