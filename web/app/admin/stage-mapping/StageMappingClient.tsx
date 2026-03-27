@@ -116,6 +116,55 @@ export function StageMappingClient() {
         </button>
       </div>
 
+      {tab === "forecast_category" ? (
+        <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4 mb-4 text-sm text-[color:var(--sf-text-secondary)]">
+          <div className="font-semibold text-[color:var(--sf-text-primary)] mb-1">Forecast Stage Mappings</div>
+          <p>
+            Map your CRM forecast stage values (e.g. "Commit", "Best Case", "Pipeline", "Closed") to SalesForecast.io buckets.
+          </p>
+          <p className="mt-2">
+            <strong className="text-[color:var(--sf-text-primary)]">Recommended for all customers.</strong>{" "}
+            These mappings use the rep&apos;s forecast judgment as the primary signal. If your reps set forecast stages in your CRM,
+            map them here.
+          </p>
+          <p className="mt-2">
+            <strong className="text-[color:var(--sf-text-primary)]">Important:</strong>{" "}
+            Always map your closed-won and closed-lost forecast stages here (e.g. "Closed Won" → Won, "Closed Lost" → Lost) so
+            that completed deals are excluded from open pipeline.
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-4 mb-4 text-sm text-[color:var(--sf-text-secondary)]">
+          <div className="font-semibold text-[color:var(--sf-text-primary)] mb-1">Sales Stage Mappings</div>
+          <p>
+            Map your CRM sales stage values to forecast buckets. Sales stage mappings{" "}
+            <strong className="text-[color:var(--sf-text-primary)]">override</strong>{" "}
+            forecast stage mappings when both are present for a deal.
+          </p>
+          <ul className="mt-2 space-y-1 list-disc list-inside">
+            <li>
+              <strong className="text-[color:var(--sf-text-primary)]">Required:</strong>{" "}
+              Map any sales stages that indicate a closed deal (e.g. "Won and Closed" → Won, "Lost and Closed" → Lost). This
+              ensures closed deals are removed from open pipeline.
+            </li>
+            <li className="mt-1">
+              <strong className="text-[color:var(--sf-text-primary)]">Optional - Stage Discipline:</strong>{" "}
+              Map early sales stages to Pipeline or Best Case to prevent reps from calling Commit on deals that haven&apos;t reached
+              the right stage. Example: "2. Gain Access" → Pipeline prevents a rep from marking a stage-2 deal as Commit.
+              <span className="block mt-1 text-yellow-500/80">
+                ⚠ Use with caution — this overrides rep forecast judgment entirely. Only enable if your sales process strictly
+                gates forecast stage by sales stage.
+              </span>
+            </li>
+            <li className="mt-1">
+              <strong className="text-[color:var(--sf-text-primary)]">Unassigned stages:</strong>{" "}
+              Sales stages without a mapping fall back to the forecast stage mapping. You do not need to map every stage — only
+              map stages where you want to override the rep&apos;s forecast judgment or explicitly mark deals as closed.
+            </li>
+          </ul>
+        </div>
+      )}
+
       <p className="text-sm text-[color:var(--sf-text-secondary)]">
         {summary.mapped} of {summary.total} stages mapped — {summary.unmapped} unmapped stages using pattern matching
       </p>
