@@ -1881,35 +1881,47 @@ export function ExecutiveGapInsightsClient(props: {
     const nextQuarterTotal = summarizeDeals(nextPeriodDeals);
     const nextQuarterDenom = nextQuarterTotal.amount > 0 ? nextQuarterTotal.amount : null;
 
+    const fyPeriodsInYear = currentPeriod
+      ? sortedPeriods.filter((p) => String(p.fiscal_year) === String(currentPeriod.fiscal_year))
+      : [];
+    const fyPeriodCount = fyPeriodsInYear.length;
+    const fyStart =
+      fyPeriodsInYear
+        .slice()
+        .sort((a, b) => new Date(a.period_start).getTime() - new Date(b.period_start).getTime())[0]?.period_start ?? null;
+    const fyEnd =
+      fyPeriodsInYear
+        .slice()
+        .sort((a, b) => new Date(a.period_end).getTime() - new Date(b.period_end).getTime())[fyPeriodsInYear.length - 1]?.period_end ?? null;
     const fyRemainingDeals = currentPeriod
       ? flattenedDeals.filter((d) => {
           const closeMs = parseDateMs(d.close_date);
-          if (closeMs == null) return false;
-          return fyRemainingPeriods.some((p) => {
-            const startMs = parseDateMs(p.period_start);
-            const endMs = parseDateMs(p.period_end);
-            return startMs != null && endMs != null && closeMs >= startMs && closeMs <= endMs;
-          });
+          const todayMs = today.getTime();
+          const fyEndMs = parseDateMs(fyEnd);
+          if (closeMs == null || fyEndMs == null) return false;
+          return closeMs >= todayMs && closeMs <= fyEndMs;
         })
       : [];
-    const annualQuota = Number.isFinite(Number(props.quota)) ? Number(props.quota) : null;
+    const annualQuota =
+      currentPeriod && Number.isFinite(Number(props.quota)) && fyPeriodCount > 0 ? Number(props.quota) * fyPeriodCount : null;
     const closedWonYtd = Number.isFinite(Number(props.crmTotals?.won_amount)) ? Number(props.crmTotals?.won_amount) : null;
     const pctToAnnualGoal = annualQuota != null && annualQuota > 0 && closedWonYtd != null ? closedWonYtd / annualQuota : null;
+    const quotaGap = annualQuota != null && closedWonYtd != null ? Math.max(annualQuota - closedWonYtd, 0) : null;
     const totalRemainingPipeline = fyRemainingDeals.reduce((sum, d) => sum + (Number(d.amount || 0) || 0), 0);
     const openDealCount = fyRemainingDeals.length;
-    const remainingQuota = annualQuota != null && closedWonYtd != null ? Math.max(annualQuota - closedWonYtd, 0) : null;
+    const remainingQuota = quotaGap;
     const coverageRatio = remainingQuota != null && remainingQuota > 0 ? totalRemainingPipeline / remainingQuota : null;
     const annualGoalColor = pctToAnnualGoal == null ? "text-[color:var(--sf-text-primary)]" : pctToAnnualGoal >= 0.8 ? "text-[#2ECC71]" : pctToAnnualGoal >= 0.5 ? "text-[#F1C40F]" : "text-[#E74C3C]";
     const coverageColor = coverageRatio == null ? "text-[color:var(--sf-text-primary)]" : coverageRatio >= 3 ? "text-[#2ECC71]" : coverageRatio >= 2 ? "text-[#F1C40F]" : "text-[#E74C3C]";
-    const riskLevel = coverageRatio == null ? "—" : coverageRatio >= 3 ? "LOW RISK" : coverageRatio >= 2 ? "MODERATE" : "HIGH RISK";
-    const riskLevelClass =
-      riskLevel === "LOW RISK"
-        ? "border-[#2ECC71]/40 bg-[#2ECC71]/10 text-[#2ECC71]"
-        : riskLevel === "MODERATE"
-          ? "border-[#F1C40F]/50 bg-[#F1C40F]/10 text-[#F1C40F]"
-          : riskLevel === "HIGH RISK"
-            ? "border-[#E74C3C]/50 bg-[#E74C3C]/10 text-[#E74C3C]"
-            : "border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]";
+    const coveragePillLabel = coverageRatio == null ? "—" : coverageRatio >= 3 ? "STRONG" : coverageRatio >= 2 ? "MODERATE" : "HIGH RISK";
+    const coveragePillClass =
+      coveragePillLabel === "STRONG"
+        ? "bg-[#2ECC71]/10 text-[#2ECC71]"
+        : coveragePillLabel === "MODERATE"
+          ? "bg-[#F1C40F]/10 text-[#F1C40F]"
+          : coveragePillLabel === "HIGH RISK"
+            ? "bg-[#E74C3C]/10 text-[#E74C3C]"
+            : "bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]";
     const renderStageSetupCard = (opts: {
       label: string;
       dotColor?: string;
@@ -2047,7 +2059,7 @@ export function ExecutiveGapInsightsClient(props: {
           {nextPeriod ? (
             <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
               <div className="mb-3">
-                <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">{nextPeriod.period_name} Setup</h3>
+                <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">{nextPeriod.period_name} Pipeline</h3>
                 <p className="text-xs text-[color:var(--sf-text-secondary)]">
                   {nextPeriod.period_start} → {nextPeriod.period_end}
                 </p>
@@ -2116,7 +2128,7 @@ export function ExecutiveGapInsightsClient(props: {
                 <div className={heroCard}>
                   <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">ANNUAL QUOTA</div>
                   <div className={heroVal}>{annualQuota == null ? "—" : fmtMoney(annualQuota)}</div>
-                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Full fiscal year target</div>
+                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">{fyPeriodCount ? `${fyPeriodCount} FY quarters` : "Full fiscal year target"}</div>
                 </div>
                 <div className={heroCard}>
                   <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">CLOSED WON YTD</div>
@@ -2129,6 +2141,11 @@ export function ExecutiveGapInsightsClient(props: {
                   <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Based on available won data</div>
                 </div>
                 <div className={heroCard}>
+                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">QUOTA GAP</div>
+                  <div className={[heroVal, "text-[#E74C3C]"].join(" ")}>{quotaGap == null ? "—" : fmtMoney(quotaGap)}</div>
+                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Remaining to annual quota</div>
+                </div>
+                <div className={heroCard}>
                   <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">REMAINING PIPELINE</div>
                   <div className={heroVal}>{fmtMoney(totalRemainingPipeline)}</div>
                   <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">{fmtNum(openDealCount)} open deals</div>
@@ -2137,15 +2154,9 @@ export function ExecutiveGapInsightsClient(props: {
                   <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">PIPELINE COVERAGE</div>
                   <div className={[heroVal, coverageColor].join(" ")}>{coverageRatio == null ? "—" : `${coverageRatio.toFixed(1)}x`}</div>
                   <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">of remaining quota</div>
-                </div>
-                <div className={heroCard}>
-                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">RISK LEVEL</div>
-                  <div className="mt-2 min-w-0 overflow-hidden">
-                    <span className={["inline-flex max-w-full truncate rounded-full border px-2 py-0.5 text-[10px] font-semibold", riskLevelClass].join(" ")}>
-                      {riskLevel}
-                    </span>
-                  </div>
-                  <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">Based on coverage ratio</div>
+                  <span className={["mt-2 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold", coveragePillClass].join(" ")}>
+                    {coveragePillLabel}
+                  </span>
                 </div>
               </div>
             </section>
