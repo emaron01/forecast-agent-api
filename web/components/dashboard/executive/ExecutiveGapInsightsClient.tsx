@@ -862,6 +862,7 @@ export function ExecutiveGapInsightsClient(props: {
     params.set("bucket_commit", "1");
     params.set("bucket_best_case", "1");
     params.set("bucket_pipeline", "1");
+    params.set("mode", "pipeline");
     return `/api/forecast/gap-driving-deals?${params.toString()}`;
   }, [fyQuarterIds, props.pipelineTabOnly, props.quotaPeriodId]);
 
@@ -1018,6 +1019,7 @@ export function ExecutiveGapInsightsClient(props: {
     if (!d) return [] as DealOut[];
     return [...(d.groups.commit.deals || []), ...(d.groups.best_case.deals || []), ...(d.groups.pipeline.deals || [])];
   }, [fyData]);
+
 
   const heroTakeawayPayload = useMemo(() => {
     const deals = analysisFlattenedDeals.length ? analysisFlattenedDeals : flattenedDeals;
