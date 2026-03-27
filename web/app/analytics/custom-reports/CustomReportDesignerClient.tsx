@@ -147,7 +147,7 @@ const METRICS: Array<{ key: MetricKey; label: string }> = [
   { key: "mix_commit", label: "Mix: Commit (%)" },
   { key: "mix_pipeline", label: "Mix: Pipeline (%)" },
   { key: "mix_won", label: "Mix: Won (%)" },
-  { key: "opp_to_win", label: "Oppâ†’Win Conversion (%)" },
+  { key: "opp_to_win", label: "Opp→Win Conversion (%)" },
   { key: "partner_contribution", label: "Partner Contribution (%)" },
   { key: "partner_win_rate", label: "Partner Win Rate (%)" },
   { key: "quota", label: "Quota ($)" },
@@ -217,14 +217,14 @@ function quarterSortKey(name: string): number {
 }
 
 function fmtMoney(n: any) {
-  if (n === null || n === undefined) return "â€”";
+  if (n === null || n === undefined) return "—";
   const v = Number(n);
-  if (!Number.isFinite(v)) return "â€”";
+  if (!Number.isFinite(v)) return "—";
   return v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
 function fmtPct(n: number | null | undefined) {
-  if (n == null || n === undefined || !Number.isFinite(Number(n))) return "â€”";
+  if (n == null || n === undefined || !Number.isFinite(Number(n))) return "—";
   return `${Math.round(Number(n) * 100)}%`;
 }
 
@@ -237,16 +237,16 @@ function healthFracFrom30(score: any) {
 }
 
 function fmtNum(n: any) {
-  if (n === null || n === undefined) return "â€”";
+  if (n === null || n === undefined) return "—";
   const v = Number(n);
-  if (!Number.isFinite(v)) return "â€”";
+  if (!Number.isFinite(v)) return "—";
   return v.toLocaleString();
 }
 
 function lmhFromAvg(avg: any) {
   const n = avg == null ? null : Number(avg);
   if (n == null || !Number.isFinite(n)) {
-    return { label: "â€”", cls: "text-[color:var(--sf-text-disabled)] bg-[color:var(--sf-surface-alt)]" };
+    return { label: "—", cls: "text-[color:var(--sf-text-disabled)] bg-[color:var(--sf-surface-alt)]" };
   }
   const k = Math.round(n);
   const level = k >= 3 ? "H" : k >= 1 ? "M" : "L";
@@ -276,7 +276,7 @@ function renderMetricValue(key: MetricKey, r: RepRow) {
     return fmtPct(v != null ? Number(v) : null);
   }
   if (key.includes("amount") || key === "quota" || key === "aov") return fmtMoney(v);
-  if (key.startsWith("avg_days_")) return v == null || v === undefined ? "â€”" : String(Math.round(Number(v)));
+  if (key.startsWith("avg_days_")) return v == null || v === undefined ? "—" : String(Math.round(Number(v)));
   return fmtNum(v);
 }
 
@@ -449,7 +449,7 @@ function rollupRepRows(args: { label: string; execName: string; managerName: str
 function RepNameXAxisTick(props: { x?: number; y?: number; payload?: { value?: string } }) {
   const { x = 0, y = 0, payload } = props;
   const name = String(payload?.value || "");
-  const short = name.length > 12 ? `${name.slice(0, 12)}â€¦` : name;
+  const short = name.length > 12 ? `${name.slice(0, 12)}...` : name;
   return (
     <text x={x} y={y} dy={16} textAnchor="middle" fill="var(--sf-text-secondary)" fontSize={11}>
       {short}
@@ -486,7 +486,7 @@ export function CustomReportDesignerClient(props: {
   reportType: string;
   repRows: RepRow[];
   repDirectory: Array<{ id: number; name: string; manager_rep_id: number | null; role: string }>;
-  /** Logged-in executiveâ€™s rep id (for â€œMy Teamâ€); REPs with this manager_rep_id are selected. */
+  /** Logged-in executive's rep id (for "My Team"); REPs with this manager_rep_id are selected. */
   currentExecutiveRepId?: string | null;
   savedReports: SavedReportRow[];
   periodLabel: string;
@@ -594,35 +594,54 @@ export function CustomReportDesignerClient(props: {
   }, [props.initialSelectedPeriodId]);
 
   useEffect(() => {
-    if (!orgIdForFetch || !periodIdForFetch) return;
-    const initialPid = props.initialSelectedPeriodId ?? "";
-    if (periodIdForFetch === initialPid) {
-      setRepRowsLocal(props.repRows || []);
-      setPeriodLabelDisplay(props.periodLabel);
-      return;
-    }
+    if (!orgIdForFetch || periodSelection.ids.size === 0) return;
+    const ids = Array.from(periodSelection.ids);
     let cancelled = false;
-    void (async () => {
+
+    async function fetchAllPeriods() {
       try {
-        const res = await fetch("/api/report-builder/data", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ periodId: periodIdForFetch }),
-        });
-        const json = await res.json().catch(() => ({}));
-        if (cancelled || !json?.ok || !Array.isArray(json.repRows)) return;
-        setRepRowsLocal(json.repRows as RepRow[]);
-        if (typeof json.periodLabel === "string" && json.periodLabel.trim()) {
-          setPeriodLabelDisplay(json.periodLabel);
+        const results = await Promise.all(
+          ids.map(async (periodId) => {
+            if (periodId === initialPeriodId && props.repRows?.length) {
+              return {
+                periodId,
+                rows: props.repRows,
+                label: quotaPeriods.find((p) => p.id === periodId)?.name ?? periodId,
+              };
+            }
+            const res = await fetch("/api/report-builder/data", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ periodId, orgId: orgIdForFetch }),
+            });
+            const j = await res.json().catch(() => ({}));
+            return {
+              periodId,
+              rows: Array.isArray(j?.repRows) ? (j.repRows as RepRow[]) : [],
+              label: quotaPeriods.find((p) => p.id === periodId)?.name ?? periodId,
+            };
+          })
+        );
+
+        if (cancelled || results.length === 0) return;
+
+        if (results.length === 1) {
+          setRepRowsLocal(results[0].rows);
+          setPeriodLabelDisplay(results[0].label);
+        } else {
+          setRepRowsLocal(results[results.length - 1].rows);
+          setPeriodLabelDisplay(results.map((r) => r.label).join(" vs "));
         }
       } catch {
         /* ignore */
       }
-    })();
+    }
+
+    void fetchAllPeriods();
     return () => {
       cancelled = true;
     };
-  }, [periodIdForFetch, orgIdForFetch, props.initialSelectedPeriodId, props.repRows, props.periodLabel]);
+  }, [periodSelection.ids, initialPeriodId, orgIdForFetch, props.repRows, quotaPeriods]);
 
   const reps = repRowsLocal;
   const repDirectory = props.repDirectory || [];
@@ -665,7 +684,7 @@ export function CustomReportDesignerClient(props: {
 
   const reportHeaderLabel = useMemo(() => {
     const reportTitle = name.trim();
-    if (reportTitle && reportPeriodLabel) return `${reportTitle} â€” ${reportPeriodLabel}`;
+    if (reportTitle && reportPeriodLabel) return `${reportTitle} — ${reportPeriodLabel}`;
     if (reportTitle) return reportTitle;
     return reportPeriodLabel;
   }, [name, reportPeriodLabel]);
@@ -957,7 +976,7 @@ export function CustomReportDesignerClient(props: {
             onClick={() => setShowReportMeta((v) => !v)}
             className="h-[40px] rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface)]"
           >
-            Title/Description {showReportMeta ? "â–²" : "â–¼"}
+            Title/Description
           </button>
           <button
             type="button"
@@ -1010,7 +1029,7 @@ export function CustomReportDesignerClient(props: {
               }}
               className={chartType === type ? chartToggleActive : chartToggleInactive}
             >
-              {type === "table" ? "ðŸ“‹ Table" : type === "bar" ? "ðŸ“Š Bar" : type === "line" ? "ðŸ“ˆ Line" : "ðŸ•¸ï¸ Radar"}
+              {type === "table" ? "Table" : type === "bar" ? "Bar" : type === "line" ? "Line" : "Radar"}
             </button>
           ))}
         </div>
@@ -1019,7 +1038,7 @@ export function CustomReportDesignerClient(props: {
           onClick={() => setControlsOpen((v) => !v)}
           className="rounded-md border border-[color:var(--sf-border)] px-4 py-2 text-sm text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)]"
         >
-          {controlsOpen ? "â–² Hide Config" : "âš™ Configure"}
+          {controlsOpen ? "Hide Config" : "Configure"}
         </button>
       </div>
 
@@ -1075,6 +1094,9 @@ export function CustomReportDesignerClient(props: {
                 </div>
               ))}
             </div>
+            {periodSelection.ids.size > 1 ? (
+              <p className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">Quarter-over-quarter comparison coming soon. Showing most recent selected quarter.</p>
+            ) : null}
             <p className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">Initial health (at deal open) coming soon</p>
           </div>
 
