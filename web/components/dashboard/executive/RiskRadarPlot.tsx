@@ -67,16 +67,16 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number; height
   const size = Math.max(300, Math.min(960, requestedSize));
   const cx = size / 2;
   const cy = size / 2;
+  const flush = props.flush === true;
   // Larger outer radius to reduce empty space while keeping label padding safe.
-  const outerR = size * 0.42;
+  const outerR = size * (flush ? 0.5 : 0.42);
   const r1 = outerR * 0.36;
   const r2 = outerR * 0.66;
   const r3 = outerR * 0.96;
   const labelR = outerR + 30;
-  const flush = props.flush === true;
-  // Use tighter vertical padding in flush mode while preserving wider side space for labels.
-  const padX = flush ? 240 : Math.max(48, Math.min(96, Math.round(size * 0.12)));
-  const padY = flush ? 180 : Math.max(48, Math.min(96, Math.round(size * 0.12)));
+  // Flush mode uses the same wrapper, but less internal padding so the radar fills more of it.
+  const padX = flush ? 144 : Math.max(48, Math.min(96, Math.round(size * 0.12)));
+  const padY = flush ? 108 : Math.max(48, Math.min(96, Math.round(size * 0.12)));
   const labelFont = Math.max(12, Math.min(14, Math.round(size * 0.017)));
 
   const dots = useMemo(() => {
