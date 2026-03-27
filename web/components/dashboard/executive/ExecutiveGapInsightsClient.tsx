@@ -1185,8 +1185,10 @@ export function ExecutiveGapInsightsClient(props: {
   );
 
   const radarDeals: RadarDeal[] = useMemo(() => {
-    // Radar (dots + account list) is a display slice for the active quarter only.
-    const shown = radarBaseDeals.slice(0, radarTopN).filter((d) => Number(d.weighted?.gap || 0) < 0);
+    const shown = radarBaseDeals.filter((d) => {
+      const closeMs = Date.parse(String(d.close_date ?? ""));
+      return Number.isFinite(closeMs);
+    });
     return shown.map((d) => ({
       id: String(d.id),
       label: dealTitle(d),
@@ -1194,7 +1196,7 @@ export function ExecutiveGapInsightsClient(props: {
       color: colorForDealId(String(d.id)),
       meddpicc_tb: (d.meddpicc_tb || []).map((c) => ({ key: String(c.key || ""), score: c.score == null ? null : (Number(c.score) as any) })),
     }));
-  }, [radarBaseDeals, radarTopN]);
+  }, [radarBaseDeals]);
 
   const quarterDrivers = useMemo(() => {
     const deals = analysisFlattenedDeals.length ? analysisFlattenedDeals : flattenedDeals;
