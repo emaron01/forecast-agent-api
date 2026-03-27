@@ -848,6 +848,9 @@ export function ExecutiveTabsShellClient(props: {
                 pipelineHygiene={props.pipelineHygiene}
                 periodName={props.pipelineTabProps.periodName}
                 sectionClassName="space-y-4"
+                coachingRepRows={props.teamRepManagerPayload.repRows}
+                coachingPeriodStart={props.teamRepManagerPayload.periodStart ?? ""}
+                coachingPeriodEnd={props.teamRepManagerPayload.periodEnd ?? ""}
               />
             </div>
             {/* Part 1: Coaching Insights from teamTabOnly */}
