@@ -422,6 +422,22 @@ function repPaceIcon(rep: RepCoachingData, paceRatio: number): string {
   return "·";
 }
 
+function PaceStatusBadge({ paceStatus }: { paceStatus: PaceStatus }) {
+  return (
+    <div className="mt-1">
+      {paceStatus === "on_track" && (
+        <span className="text-xs font-semibold text-green-400">✅ On Track</span>
+      )}
+      {paceStatus === "at_risk" && (
+        <span className="text-xs font-semibold text-yellow-400">⚠️ At Risk</span>
+      )}
+      {paceStatus === "behind" && (
+        <span className="text-xs font-semibold text-red-400">🔴 Behind Pace</span>
+      )}
+    </div>
+  );
+}
+
 function ManagerCoachingLeaderCard(props: {
   team: ManagerCoachingTeam;
   cardKey: string;
@@ -449,17 +465,7 @@ function ManagerCoachingLeaderCard(props: {
         <div className="flex items-start justify-between">
           <div>
             <div className="font-semibold text-[color:var(--sf-text-primary)]">{team.managerName}</div>
-            <div className="mt-1">
-              {paceStatus === "on_track" && (
-                <span className="text-xs font-semibold text-green-400">✅ On Track</span>
-              )}
-              {paceStatus === "at_risk" && (
-                <span className="text-xs font-semibold text-yellow-400">⚠️ At Risk</span>
-              )}
-              {paceStatus === "behind" && (
-                <span className="text-xs font-semibold text-red-400">🔴 Behind Pace</span>
-              )}
-            </div>
+            <PaceStatusBadge paceStatus={paceStatus} />
             <div className="text-xs text-[color:var(--sf-text-secondary)] mt-0.5">
               {team.repCount} reps · {team.reviewedCount} reviewed
             </div>
@@ -547,6 +553,7 @@ function ManagerCoachingLeaderCard(props: {
         <div className="mt-2 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] divide-y divide-[color:var(--sf-border)]">
           {sortedReps.map((rep) => {
             const repPct = repAttainmentPctDisplay(rep);
+            const repPaceStatus = calcPaceStatus(Number(rep.won_amount) || 0, Number(rep.quota) || 0, paceRatio);
             const attClass =
               repPct != null ? attainmentTierTextClass(repPct) : "text-[color:var(--sf-text-secondary)]";
             const attLabel =
@@ -555,11 +562,9 @@ function ManagerCoachingLeaderCard(props: {
               <div key={`${cardKey}-${rep.rep_id}`} className="flex items-start justify-between px-4 py-3">
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-[color:var(--sf-text-primary)]">
-                    <span className="mr-1.5" aria-hidden>
-                      {repPaceIcon(rep, paceRatio)}
-                    </span>
                     {rep.rep_name}
                   </div>
+                  <PaceStatusBadge paceStatus={repPaceStatus} />
                   <div className="mt-1 flex flex-wrap gap-3 text-xs text-[color:var(--sf-text-secondary)]">
                     <span>
                       Won:{" "}
