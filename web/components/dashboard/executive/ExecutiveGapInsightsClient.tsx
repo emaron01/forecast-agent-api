@@ -862,7 +862,10 @@ export function ExecutiveGapInsightsClient(props: {
     params.set("bucket_commit", "1");
     params.set("bucket_best_case", "1");
     params.set("bucket_pipeline", "1");
-    params.set("mode", "pipeline");
+    params.set("driver_require_score_effect", "false");
+    params.set("risk_require_score_effect", "false");
+    params.set("driver_min_abs_gap", "0");
+    params.set("risk_min_downside", "0");
     return `/api/forecast/gap-driving-deals?${params.toString()}`;
   }, [fyQuarterIds, props.pipelineTabOnly, props.quotaPeriodId]);
 
