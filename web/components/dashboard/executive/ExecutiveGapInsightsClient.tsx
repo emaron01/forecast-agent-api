@@ -1882,7 +1882,7 @@ export function ExecutiveGapInsightsClient(props: {
             </div>
           </section>
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+          <div className="grid gap-4 lg:mx-auto lg:w-4/5 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
             <div className="min-w-0">
               <RiskRadarPlot
                 deals={radarDeals}
