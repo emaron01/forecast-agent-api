@@ -147,7 +147,7 @@ const METRICS: Array<{ key: MetricKey; label: string }> = [
   { key: "mix_commit", label: "Mix: Commit (%)" },
   { key: "mix_pipeline", label: "Mix: Pipeline (%)" },
   { key: "mix_won", label: "Mix: Won (%)" },
-  { key: "opp_to_win", label: "Opp→Win Conversion (%)" },
+  { key: "opp_to_win", label: "Oppâ†’Win Conversion (%)" },
   { key: "partner_contribution", label: "Partner Contribution (%)" },
   { key: "partner_win_rate", label: "Partner Win Rate (%)" },
   { key: "quota", label: "Quota ($)" },
@@ -225,14 +225,14 @@ function quarterSortKey(name: string): number {
 }
 
 function fmtMoney(n: any) {
-  if (n === null || n === undefined) return "—";
+  if (n === null || n === undefined) return "â€”";
   const v = Number(n);
-  if (!Number.isFinite(v)) return "—";
+  if (!Number.isFinite(v)) return "â€”";
   return v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
 function fmtPct(n: number | null | undefined) {
-  if (n == null || n === undefined || !Number.isFinite(Number(n))) return "—";
+  if (n == null || n === undefined || !Number.isFinite(Number(n))) return "â€”";
   return `${Math.round(Number(n) * 100)}%`;
 }
 
@@ -245,16 +245,16 @@ function healthFracFrom30(score: any) {
 }
 
 function fmtNum(n: any) {
-  if (n === null || n === undefined) return "—";
+  if (n === null || n === undefined) return "â€”";
   const v = Number(n);
-  if (!Number.isFinite(v)) return "—";
+  if (!Number.isFinite(v)) return "â€”";
   return v.toLocaleString();
 }
 
 function lmhFromAvg(avg: any) {
   const n = avg == null ? null : Number(avg);
   if (n == null || !Number.isFinite(n)) {
-    return { label: "—", cls: "text-[color:var(--sf-text-disabled)] bg-[color:var(--sf-surface-alt)]" };
+    return { label: "â€”", cls: "text-[color:var(--sf-text-disabled)] bg-[color:var(--sf-surface-alt)]" };
   }
   const k = Math.round(n);
   const level = k >= 3 ? "H" : k >= 1 ? "M" : "L";
@@ -284,7 +284,7 @@ function renderMetricValue(key: MetricKey, r: RepRow) {
     return fmtPct(v != null ? Number(v) : null);
   }
   if (key.includes("amount") || key === "quota" || key === "aov") return fmtMoney(v);
-  if (key.startsWith("avg_days_")) return v == null || v === undefined ? "—" : String(Math.round(Number(v)));
+  if (key.startsWith("avg_days_")) return v == null || v === undefined ? "â€”" : String(Math.round(Number(v)));
   return fmtNum(v);
 }
 
@@ -672,6 +672,7 @@ export function CustomReportDesignerClient(props: {
   const [description, setDescription] = useState<string>("");
   const [savedPickId, setSavedPickId] = useState<string>("");
   const [showReportMeta, setShowReportMeta] = useState<boolean>(false);
+  const autoLoadedSavedReportRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string>("");
   const [chartType, setChartType] = useState<ChartType>("table");
@@ -699,7 +700,7 @@ export function CustomReportDesignerClient(props: {
 
   const reportHeaderLabel = useMemo(() => {
     const reportTitle = name.trim();
-    if (reportTitle && reportPeriodLabel) return `${reportTitle} — ${reportPeriodLabel}`;
+    if (reportTitle && reportPeriodLabel) return `${reportTitle} â€” ${reportPeriodLabel}`;
     if (reportTitle) return reportTitle;
     return reportPeriodLabel;
   }, [name, reportPeriodLabel]);
@@ -833,7 +834,7 @@ export function CustomReportDesignerClient(props: {
         qvqPeriodResults.forEach((pr) => {
           const row = pr.rows.find((r) => r.rep_name === name);
           selectedFields.forEach((f) => {
-            point[`${pr.label} — ${f.label}`] = row ? Number((row as any)[f.key] ?? 0) : 0;
+            point[`${pr.label} â€” ${f.label}`] = row ? Number((row as any)[f.key] ?? 0) : 0;
           });
         });
         return point;
@@ -880,8 +881,8 @@ export function CustomReportDesignerClient(props: {
         ? qvqPeriodResults.flatMap((pr, pi) =>
             selectedFields.map((f, fi) => ({
               key: `${pr.periodId}-${f.key}`,
-              dataKey: `${pr.label} — ${f.label}`,
-              name: `${pr.label} — ${f.label}`,
+              dataKey: `${pr.label} â€” ${f.label}`,
+              name: `${pr.label} â€” ${f.label}`,
               color: CHART_COLORS[(pi * selectedFields.length + fi) % CHART_COLORS.length],
             }))
           )
@@ -955,6 +956,14 @@ export function CustomReportDesignerClient(props: {
       const next = new Set(prev);
       if (next.has(k)) next.delete(k);
       else next.add(k);
+      return next;
+    });
+  }
+
+  function clearMetricGroup(keys: MetricKey[]) {
+    setSelectedMetrics((prev) => {
+      const next = new Set(prev);
+      keys.forEach((key) => next.delete(key));
       return next;
     });
   }
@@ -1108,6 +1117,13 @@ export function CustomReportDesignerClient(props: {
     );
   }
 
+  useEffect(() => {
+    if (autoLoadedSavedReportRef.current || saved.length === 0) return;
+    autoLoadedSavedReportRef.current = true;
+    loadReport(saved[0]);
+    setControlsOpen(false);
+  }, [saved]);
+
   const outlineQuickBtn =
     "rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface)]";
 
@@ -1171,6 +1187,14 @@ export function CustomReportDesignerClient(props: {
             </option>
           ))}
         </select>
+        <button
+          type="button"
+          disabled={!savedPickId}
+          onClick={() => void deleteReport(String(savedPickId))}
+          className="rounded-md bg-[#E74C3C] px-3 py-2 text-sm font-medium text-white hover:bg-[#C0392B] disabled:opacity-50"
+        >
+          Delete Report
+        </button>
         <div className="flex flex-wrap items-center gap-2">
           {(["table", "bar", "line", "radar"] as const).map((type) => (
             <button
@@ -1324,7 +1348,16 @@ export function CustomReportDesignerClient(props: {
       </div>
 
       <div className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Report fields</div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Report fields</div>
+          <button
+            type="button"
+            onClick={() => clearMetricGroup(METRICS.map((m) => m.key))}
+            className={outlineQuickBtn}
+          >
+            Clear
+          </button>
+        </div>
         <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {metricsAlpha.map((m) => {
             const checked = selectedMetrics.has(m.key);
@@ -1339,7 +1372,16 @@ export function CustomReportDesignerClient(props: {
       </div>
 
       <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">MEDDPICC+TB Health</div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">MEDDPICC+TB Health</div>
+          <button
+            type="button"
+            onClick={() => clearMetricGroup(MEDDPICC_HEALTH_METRICS.map((m) => m.key))}
+            className={outlineQuickBtn}
+          >
+            Clear
+          </button>
+        </div>
         <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
           <span className="font-mono">L</span> = Low, <span className="font-mono">M</span> = Medium, and <span className="font-mono">H</span> = Highly Qualified
         </div>
@@ -1511,7 +1553,7 @@ export function CustomReportDesignerClient(props: {
                 {qvqPeriodResults.length === 2
                   ? selectedFields.map((f) => (
                       <th key={`delta-${f.key}`} className="px-4 py-3 text-right">
-                        Δ {f.label}
+                        Î” {f.label}
                       </th>
                     ))
                   : null}
