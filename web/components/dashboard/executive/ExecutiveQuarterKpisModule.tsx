@@ -357,62 +357,57 @@ export function ExecutiveQuarterKpisModule(props: {
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <div className={heroCard}>
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Created pipeline (value)</div>
-              <div className={["mt-2 break-all text-kpiValue font-[tabular-nums]", deltaColorClass(createdActiveQoq)].join(" ")}>
-                {fmtMoney(created.current?.total_amount)}
-              </div>
-              <div className="mt-2 text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Created pipeline (Active)</div>
-              <div className="mt-2 grid min-w-0 grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1 text-meta">
-                <div className="min-w-0 truncate">Prev (carried into current)</div>
-                <div className="text-right num-tabular font-[500] text-[color:var(--sf-text-primary)]">
-                  {created.previous?.total_amount == null ? "—" : fmtMoney(created.previous.total_amount)}
-                </div>
-                <div className="min-w-0 truncate">Previous Quarter</div>
-                <div className={["text-right text-kpiValue font-[tabular-nums] font-[700]", deltaColorClass(createdActiveQoq)].join(" ")}>
-                  {createdActiveQoq == null
-                    ? "—"
-                    : `${createdActiveQoq < 0 ? "↓" : createdActiveQoq > 0 ? "↑" : "•"} ${fmtSignedPct(createdActiveQoq, { digits: 0 })}`}
-                </div>
-              </div>
-              <div className="mt-2 min-w-0 text-meta">Excludes won and lost</div>
-            </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 mt-3">
+            {(() => {
+              const createdPipelineValue = Number(created.current?.total_amount_all ?? created.current?.total_amount ?? 0) || 0;
+              const activePipelineValue = Number(created.current?.total_amount ?? 0) || 0;
+              const prevCarried = created.previous?.total_amount == null ? null : Number(created.previous.total_amount);
+              const prevQtrValue = created.previous?.total_amount_all ?? created.previous?.total_amount ?? null;
+              const currQtrValue = created.current?.total_amount_all ?? created.current?.total_amount ?? null;
+              const createdCount = created.current?.total_opps ?? null;
+              const prevCount = created.previous?.total_opps ?? null;
+              const deltaArrow = createdActiveQoq == null ? "" : createdActiveQoq < 0 ? "↓ " : createdActiveQoq > 0 ? "↑ " : "";
 
-            <div className={heroCard}>
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Previous Quarter velocity</div>
-              <div className={["mt-2 break-all text-kpiValue font-[tabular-nums]", deltaColorClass(createdQoq)].join(" ")}>
-                {fmtSignedPct(createdQoq, { digits: 0 })}
-              </div>
-              <div className="mt-2 min-w-0 break-words text-meta">
-                Created pipeline ({fmtMoney(created.previous?.total_amount_all ?? created.previous?.total_amount)} →{" "}
-                {fmtMoney(created.current?.total_amount_all ?? created.current?.total_amount)})
-              </div>
-            </div>
+              return (
+                <>
+                  <div className={heroCard}>
+                    <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">CREATED PIPELINE</div>
+                    <div className={heroVal}>{fmtMoney(createdPipelineValue)}</div>
+                    <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Total value created this quarter</div>
+                  </div>
 
-            <div className={heroCard}>
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Created pipeline (# opps)</div>
-              <div className={heroVal}>{fmtNum(created.current?.total_opps ?? null)}</div>
-              <div className="mt-2 min-w-0 truncate text-meta">
-                Prev Qtr: {created.previous?.total_opps == null ? "—" : fmtNum(created.previous.total_opps)}
-              </div>
-            </div>
+                  <div className={heroCard}>
+                    <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">ACTIVE PIPELINE</div>
+                    <div className={heroVal}>{fmtMoney(activePipelineValue)}</div>
+                    <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                      Prev carried: {prevCarried == null ? "—" : fmtMoney(prevCarried)}
+                    </div>
+                  </div>
 
-            <div className={heroCard}>
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Created In Quarter Won</div>
-              <div className={heroVal}>{fmtMoney(created.current?.created_won_amount ?? 0)}</div>
-              <div className="mt-2 min-w-0 truncate text-meta">
-                # opps: <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{fmtNum(created.current?.created_won_opps ?? 0)}</span> · Avg Health: —
-              </div>
-            </div>
+                  <div className={heroCard}>
+                    <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">QOQ VELOCITY</div>
+                    <div className={[heroVal, deltaColorClass(createdQoq)].join(" ")}>{fmtSignedPct(createdQoq, { digits: 0 })}</div>
+                    <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                      {fmtMoney(prevQtrValue)} → {fmtMoney(currQtrValue)}
+                    </div>
+                  </div>
 
-            <div className={heroCard}>
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Created In Quarter Lost</div>
-              <div className={heroVal}>{fmtMoney(created.current?.created_lost_amount ?? 0)}</div>
-              <div className="mt-2 min-w-0 truncate text-meta">
-                # opps: <span className="num-tabular font-[500] text-[color:var(--sf-text-primary)]">{fmtNum(created.current?.created_lost_opps ?? 0)}</span> · Avg Health: —
-              </div>
-            </div>
+                  <div className={heroCard}>
+                    <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">OPPS CREATED</div>
+                    <div className={heroVal}>{fmtNum(createdCount)}</div>
+                    <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Prev Qtr: {fmtNum(prevCount)}</div>
+                  </div>
+
+                  <div className={heroCard}>
+                    <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">VS PRIOR QUARTER</div>
+                    <div className={[heroVal, deltaColorClass(createdActiveQoq)].join(" ")}>
+                      {createdActiveQoq == null ? "—" : `${deltaArrow}${fmtSignedPct(createdActiveQoq, { digits: 0 })}`}
+                    </div>
+                    <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Excludes won and lost</div>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       ) : null}
