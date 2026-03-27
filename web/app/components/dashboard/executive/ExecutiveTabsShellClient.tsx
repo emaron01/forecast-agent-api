@@ -843,7 +843,10 @@ export function ExecutiveTabsShellClient(props: {
             <div className="-mx-4">
               <ExecutiveGapInsightsClient {...props.pipelineTabProps} pipelineKpisTabOnly={true} viewerRole={props.viewerRole} />
             </div>
-
+          </div>
+        )}
+        {activeTab === "coaching" && (
+          <div className="space-y-6">
             <div className="-mx-4">
               <TeamForecastHygienePanels
                 pipelineHygiene={props.pipelineHygiene}
@@ -851,10 +854,6 @@ export function ExecutiveTabsShellClient(props: {
                 sectionClassName="space-y-4"
               />
             </div>
-          </div>
-        )}
-        {activeTab === "coaching" && (
-          <div className="space-y-6">
             {/* Part 1: Coaching Insights from teamTabOnly */}
             <ExecutiveGapInsightsClient
               {...props.teamTabProps}
