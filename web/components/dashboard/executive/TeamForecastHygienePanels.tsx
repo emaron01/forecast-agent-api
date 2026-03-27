@@ -168,21 +168,22 @@ export function buildRepCoachingData(
 
   const out: RepCoachingData[] = [];
   for (const repId of repIds) {
-    const cov = covBy.get(repId);
-    const ass = assBy.get(repId);
-    const vel = velBy.get(repId);
-    const prog = progBy.get(repId);
+    const repIdKey = String(repId ?? "");
+    const cov = covBy.get(repIdKey);
+    const ass = assBy.get(repIdKey);
+    const vel = velBy.get(repIdKey);
+    const prog = progBy.get(repIdKey);
     const repName =
       cov?.rep_name ??
       ass?.rep_name ??
       vel?.repName ??
       prog?.repName ??
-      coachingRepRows?.find((r) => String(r.rep_id) === repId)?.rep_name ??
-      `Rep ${repId}`;
+      coachingRepRows?.find((r) => String(r.rep_id) === repIdKey)?.rep_name ??
+      `Rep ${repIdKey}`;
     const repNameKey = normalizeRepName(repName);
     const cr =
       coachingRepRows?.find(
-        (r) => String(r.rep_id) === repId || normalizeRepName(r.rep_name) === repNameKey
+        (r) => String(r.rep_id) === String(repIdKey) || normalizeRepName(r.rep_name) === repNameKey
       ) ?? null;
 
     const coverage_pct = cov?.coverage_pct ?? 0;
@@ -199,7 +200,7 @@ export function buildRepCoachingData(
     const avg_meddpicc = ass?.avg_total != null && Number.isFinite(ass.avg_total) ? Number(ass.avg_total) : 0;
 
     out.push({
-      rep_id: repId,
+      rep_id: repIdKey,
       rep_name: repName,
       attainment: cr?.attainment != null && Number.isFinite(cr.attainment) ? cr.attainment : null,
       quota: cr?.quota != null && Number.isFinite(cr.quota) ? Number(cr.quota) : null,
