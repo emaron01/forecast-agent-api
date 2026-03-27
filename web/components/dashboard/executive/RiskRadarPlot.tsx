@@ -226,17 +226,20 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number; height
           ? "rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] overflow-hidden"
           : "rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm"
       }
+      style={flush ? { paddingTop: "4px", paddingBottom: "4px" } : undefined}
     >
-      <div className={flush ? "px-4 pt-4" : undefined}>
-        <div className="flex items-end justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">AI Risk Radar</div>
-            {props.subtitle ? <div className="text-xs text-[color:var(--sf-text-secondary)]">{props.subtitle}</div> : null}
+      {!flush ? (
+        <div>
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">AI Risk Radar</div>
+              {props.subtitle ? <div className="text-xs text-[color:var(--sf-text-secondary)]">{props.subtitle}</div> : null}
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
-      <div className={flush ? "mt-2 flex items-center justify-center" : "mt-3 flex items-center justify-center"}>
+      <div className={flush ? "flex items-center justify-center" : "mt-3 flex items-center justify-center"}>
         <div className="aspect-square w-full" style={{ maxWidth: size }}>
           <svg
             className="h-full w-full"
