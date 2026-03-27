@@ -178,12 +178,20 @@ type PeriodSelectionState = { ids: Set<string>; lastId: string };
 
 function periodSelectionReducer(
   state: PeriodSelectionState,
-  action: { type: "toggle"; id: string } | { type: "syncFromServer"; initialId: string }
+  action:
+    | { type: "toggle"; id: string }
+    | { type: "syncFromServer"; initialId: string }
+    | { type: "replace"; ids: string[] }
 ): PeriodSelectionState {
   if (action.type === "syncFromServer") {
     const id = String(action.initialId || "").trim();
     if (!id) return { ids: new Set(), lastId: "" };
     return { ids: new Set([id]), lastId: id };
+  }
+  if (action.type === "replace") {
+    const ids = action.ids.map((id) => String(id).trim()).filter(Boolean);
+    if (ids.length === 0) return { ids: new Set(), lastId: "" };
+    return { ids: new Set(ids), lastId: ids[ids.length - 1] ?? "" };
   }
   const next = new Set(state.ids);
   const had = next.has(action.id);
@@ -472,14 +480,17 @@ const CHART_COLORS = [
   "#795548",
 ];
 
-function normalizeConfig(cfg: any): { repIds: string[]; metrics: MetricKey[]; chartType: ChartType } {
+function normalizeConfig(cfg: any): { repIds: string[]; metrics: MetricKey[]; chartType: ChartType; selectedPeriodIds: string[] } {
   const repIds = Array.isArray(cfg?.repIds) ? cfg.repIds.map((x: any) => String(x)).filter(Boolean) : [];
   const metricsRaw = Array.isArray(cfg?.metrics) ? cfg.metrics.map((x: any) => String(x)).filter(Boolean) : [];
   const metrics = metricsRaw.filter((k) => ALL_METRICS.some((m) => m.key === (k as any))) as MetricKey[];
+  const selectedPeriodIds = Array.isArray(cfg?.selectedPeriodIds)
+    ? cfg.selectedPeriodIds.map((x: any) => String(x)).filter(Boolean)
+    : [];
   const rawType = cfg?.chartType;
   const chartType: ChartType =
     rawType === "bar" || rawType === "line" || rawType === "radar" || rawType === "table" ? rawType : "table";
-  return { repIds, metrics, chartType };
+  return { repIds, metrics, chartType, selectedPeriodIds };
 }
 
 export function CustomReportDesignerClient(props: {
@@ -978,6 +989,7 @@ export function CustomReportDesignerClient(props: {
         description: description.trim() ? description.trim() : null,
         config: {
           version: 1,
+          selectedPeriodIds: Array.from(periodSelection.ids),
           repIds: Array.from(selectedIds.values()),
           metrics: Array.from(selectedMetrics.values()),
           chartType,
@@ -1032,6 +1044,9 @@ export function CustomReportDesignerClient(props: {
     const effectiveMetrics = cfg.metrics.length ? cfg.metrics : defaultMetrics;
     setSelectedIds(new Set(cfg.repIds));
     setSelectedMetrics(new Set(effectiveMetrics));
+    if (Array.isArray(cfg.selectedPeriodIds) && cfg.selectedPeriodIds.length > 0) {
+      dispatchPeriodSelection({ type: "replace", ids: cfg.selectedPeriodIds });
+    }
     setChartType(cfg.chartType);
     setReportId(String(r.id || ""));
     setName(String(r.name || ""));
