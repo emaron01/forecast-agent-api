@@ -74,8 +74,8 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number; height
   const r3 = outerR * 0.96;
   const labelR = outerR + 30;
   // Use tighter vertical padding in flush mode while preserving wider side space for labels.
-  const padX = flush ? 40 : Math.max(48, Math.min(96, Math.round(size * 0.12)));
-  const padY = flush ? 8 : Math.max(48, Math.min(96, Math.round(size * 0.12)));
+  const padX = flush ? 48 : Math.max(48, Math.min(96, Math.round(size * 0.12)));
+  const padY = flush ? 24 : Math.max(48, Math.min(96, Math.round(size * 0.12)));
   const labelFont = Math.max(12, Math.min(14, Math.round(size * 0.017)));
 
   const dots = useMemo(() => {
@@ -243,7 +243,7 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number; height
       <div className={flush ? "flex items-center justify-center" : "mt-3 flex items-center justify-center"}>
         <div
           className={flush ? "w-full" : "aspect-square w-full"}
-          style={flush ? { maxWidth: size, height: size, minHeight: size } : { maxWidth: size }}
+          style={flush ? { height: "100%", minHeight: size } : { maxWidth: size }}
         >
           <svg
             className="h-full w-full"
