@@ -398,13 +398,6 @@ export function ExecutiveQuarterKpisModule(props: {
                     <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Prev Qtr: {fmtNum(prevCount)}</div>
                   </div>
 
-                  <div className={heroCard}>
-                    <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">VS PRIOR QUARTER</div>
-                    <div className={[heroVal, deltaColorClass(createdActiveQoq)].join(" ")}>
-                      {createdActiveQoq == null ? "—" : `${deltaArrow}${fmtSignedPct(createdActiveQoq, { digits: 0 })}`}
-                    </div>
-                    <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Excludes won and lost</div>
-                  </div>
                 </>
               );
             })()}

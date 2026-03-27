@@ -2056,112 +2056,6 @@ export function ExecutiveGapInsightsClient(props: {
             </section>
           </div>
 
-          {nextPeriod ? (
-            <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-              <div className="mb-3">
-                <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">{nextPeriod.period_name} Pipeline</h3>
-                <p className="text-xs text-[color:var(--sf-text-secondary)]">
-                  {nextPeriod.period_start} → {nextPeriod.period_end}
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 mt-3">
-                {renderStageSetupCard({
-                  label: "COMMIT",
-                  dotColor: "#2ECC71",
-                  mixPct: nextQuarterDenom ? nextQuarterCommit.amount / nextQuarterDenom : null,
-                  amount: nextQuarterCommit.amount,
-                  count: nextQuarterCommit.count,
-                  healthPct: nextQuarterCommit.healthPct,
-                })}
-                {renderStageSetupCard({
-                  label: "BEST CASE",
-                  dotColor: "var(--sf-accent-primary)",
-                  mixPct: nextQuarterDenom ? nextQuarterBest.amount / nextQuarterDenom : null,
-                  amount: nextQuarterBest.amount,
-                  count: nextQuarterBest.count,
-                  healthPct: nextQuarterBest.healthPct,
-                })}
-                {renderStageSetupCard({
-                  label: "WON",
-                  dotColor: "#F1C40F",
-                  mixPct: nextQuarterDenom ? nextQuarterWon.amount / nextQuarterDenom : null,
-                  amount: nextQuarterWon.amount,
-                  count: nextQuarterWon.count,
-                  healthPct: nextQuarterWon.healthPct,
-                })}
-                {renderStageSetupCard({
-                  label: "LOST",
-                  dotColor: "#EC4899",
-                  mixPct: nextQuarterDenom ? nextQuarterLost.amount / nextQuarterDenom : null,
-                  amount: nextQuarterLost.amount,
-                  count: nextQuarterLost.count,
-                  healthPct: nextQuarterLost.healthPct,
-                })}
-                {renderStageSetupCard({
-                  label: "PIPELINE",
-                  dotColor: "#E74C3C",
-                  mixPct: nextQuarterDenom ? nextQuarterPipeline.amount / nextQuarterDenom : null,
-                  amount: nextQuarterPipeline.amount,
-                  count: nextQuarterPipeline.count,
-                  healthPct: nextQuarterPipeline.healthPct,
-                })}
-                {renderStageSetupCard({
-                  label: "TOTAL PIPELINE",
-                  mixPct: null,
-                  amount: nextQuarterTotal.amount,
-                  count: nextQuarterTotal.count,
-                  healthPct: nextQuarterTotal.healthPct,
-                })}
-              </div>
-            </section>
-          ) : null}
-
-          {currentPeriod ? (
-            <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-              <div className="mb-3">
-                <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">FY{currentPeriod.fiscal_year} Remaining</h3>
-                <p className="text-xs text-[color:var(--sf-text-secondary)]">
-                  {fyRemainingPeriods.length} quarters remaining including current
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 mt-3">
-                <div className={heroCard}>
-                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">ANNUAL QUOTA</div>
-                  <div className={heroVal}>{annualQuota == null ? "—" : fmtMoney(annualQuota)}</div>
-                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">{fyPeriodCount ? `${fyPeriodCount} FY quarters` : "Full fiscal year target"}</div>
-                </div>
-                <div className={heroCard}>
-                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">CLOSED WON YTD</div>
-                  <div className={heroVal}>{closedWonYtd == null ? "—" : fmtMoney(closedWonYtd)}</div>
-                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">across all FY quarters</div>
-                </div>
-                <div className={heroCard}>
-                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">% TO ANNUAL GOAL</div>
-                  <div className={[heroVal, annualGoalColor].join(" ")}>{pctToAnnualGoal == null ? "—" : `${Math.round(pctToAnnualGoal * 100)}%`}</div>
-                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Based on available won data</div>
-                </div>
-                <div className={heroCard}>
-                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">QUOTA GAP</div>
-                  <div className={[heroVal, "text-[#E74C3C]"].join(" ")}>{quotaGap == null ? "—" : fmtMoney(quotaGap)}</div>
-                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Remaining to annual quota</div>
-                </div>
-                <div className={heroCard}>
-                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">REMAINING PIPELINE</div>
-                  <div className={heroVal}>{fmtMoney(totalRemainingPipeline)}</div>
-                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">{fmtNum(openDealCount)} open deals</div>
-                </div>
-                <div className={heroCard}>
-                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">PIPELINE COVERAGE</div>
-                  <div className={[heroVal, coverageColor].join(" ")}>{coverageRatio == null ? "—" : `${coverageRatio.toFixed(1)}x`}</div>
-                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">of remaining quota</div>
-                  <span className={["mt-2 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold", coveragePillClass].join(" ")}>
-                    {coveragePillLabel}
-                  </span>
-                </div>
-              </div>
-            </section>
-          ) : null}
-
           <button
             type="button"
             onClick={() => setPipelineConfigOpen((v) => !v)}
@@ -2567,6 +2461,113 @@ export function ExecutiveGapInsightsClient(props: {
             </div>
           ) : null}
         </section>
+
+          {nextPeriod ? (
+            <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+              <div className="mb-3">
+                <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">{nextPeriod.period_name} Pipeline</h3>
+                <p className="text-xs text-[color:var(--sf-text-secondary)]">
+                  {nextPeriod.period_start} → {nextPeriod.period_end}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 mt-3">
+                {renderStageSetupCard({
+                  label: "COMMIT",
+                  dotColor: "#2ECC71",
+                  mixPct: nextQuarterDenom ? nextQuarterCommit.amount / nextQuarterDenom : null,
+                  amount: nextQuarterCommit.amount,
+                  count: nextQuarterCommit.count,
+                  healthPct: nextQuarterCommit.healthPct,
+                })}
+                {renderStageSetupCard({
+                  label: "BEST CASE",
+                  dotColor: "var(--sf-accent-primary)",
+                  mixPct: nextQuarterDenom ? nextQuarterBest.amount / nextQuarterDenom : null,
+                  amount: nextQuarterBest.amount,
+                  count: nextQuarterBest.count,
+                  healthPct: nextQuarterBest.healthPct,
+                })}
+                {renderStageSetupCard({
+                  label: "WON",
+                  dotColor: "#F1C40F",
+                  mixPct: nextQuarterDenom ? nextQuarterWon.amount / nextQuarterDenom : null,
+                  amount: nextQuarterWon.amount,
+                  count: nextQuarterWon.count,
+                  healthPct: nextQuarterWon.healthPct,
+                })}
+                {renderStageSetupCard({
+                  label: "LOST",
+                  dotColor: "#EC4899",
+                  mixPct: nextQuarterDenom ? nextQuarterLost.amount / nextQuarterDenom : null,
+                  amount: nextQuarterLost.amount,
+                  count: nextQuarterLost.count,
+                  healthPct: nextQuarterLost.healthPct,
+                })}
+                {renderStageSetupCard({
+                  label: "PIPELINE",
+                  dotColor: "#E74C3C",
+                  mixPct: nextQuarterDenom ? nextQuarterPipeline.amount / nextQuarterDenom : null,
+                  amount: nextQuarterPipeline.amount,
+                  count: nextQuarterPipeline.count,
+                  healthPct: nextQuarterPipeline.healthPct,
+                })}
+                {renderStageSetupCard({
+                  label: "TOTAL PIPELINE",
+                  mixPct: null,
+                  amount: nextQuarterTotal.amount,
+                  count: nextQuarterTotal.count,
+                  healthPct: nextQuarterTotal.healthPct,
+                })}
+              </div>
+            </section>
+          ) : null}
+
+          {currentPeriod ? (
+            <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+              <div className="mb-3">
+                <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">FY{currentPeriod.fiscal_year} Remaining</h3>
+                <p className="text-xs text-[color:var(--sf-text-secondary)]">
+                  {fyRemainingPeriods.length} quarters remaining including current
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 mt-3">
+                <div className={heroCard}>
+                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">ANNUAL QUOTA</div>
+                  <div className={heroVal}>{annualQuota == null ? "—" : fmtMoney(annualQuota)}</div>
+                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">{fyPeriodCount ? `${fyPeriodCount} FY quarters` : "Full fiscal year target"}</div>
+                </div>
+                <div className={heroCard}>
+                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">CLOSED WON YTD</div>
+                  <div className={heroVal}>{closedWonYtd == null ? "—" : fmtMoney(closedWonYtd)}</div>
+                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">across all FY quarters</div>
+                </div>
+                <div className={heroCard}>
+                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">% TO ANNUAL GOAL</div>
+                  <div className={[heroVal, annualGoalColor].join(" ")}>{pctToAnnualGoal == null ? "—" : `${Math.round(pctToAnnualGoal * 100)}%`}</div>
+                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Based on available won data</div>
+                </div>
+                <div className={heroCard}>
+                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">QUOTA GAP</div>
+                  <div className={[heroVal, "text-[#E74C3C]"].join(" ")}>{quotaGap == null ? "—" : fmtMoney(quotaGap)}</div>
+                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Remaining to annual quota</div>
+                </div>
+                <div className={heroCard}>
+                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">REMAINING PIPELINE</div>
+                  <div className={heroVal}>{fmtMoney(totalRemainingPipeline)}</div>
+                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">{fmtNum(openDealCount)} open deals</div>
+                </div>
+                <div className={heroCard}>
+                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">PIPELINE COVERAGE</div>
+                  <div className={[heroVal, coverageColor].join(" ")}>{coverageRatio == null ? "—" : `${coverageRatio.toFixed(1)}x`}</div>
+                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">of remaining quota</div>
+                  <span className={["mt-2 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold", coveragePillClass].join(" ")}>
+                    {coveragePillLabel}
+                  </span>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
       </div>
     );
   }
