@@ -733,7 +733,7 @@ export async function GET(req: Request) {
           fiscal_quarter::text AS fiscal_quarter
           FROM quota_periods
          WHERE org_id = $1::bigint
-           AND id = ANY($22::bigint[])
+           AND id = ANY($21::bigint[])
       ),
       base AS (
         SELECT
@@ -784,18 +784,18 @@ export async function GET(req: Request) {
         WHERE o.org_id = $1::bigint
           AND (o.predictive_eligible IS TRUE)
           AND (
-            NOT $3::boolean
+            NOT $2::boolean
             OR (
-              (o.rep_id IS NOT NULL AND o.rep_id = ANY($4::bigint[]))
+              (o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
               OR (
-                COALESCE(array_length($19::text[], 1), 0) > 0
-                AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($19::text[])
+                COALESCE(array_length($18::text[], 1), 0) > 0
+                AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($18::text[])
               )
             )
           )
-          AND ($5::bigint IS NULL OR o.rep_id = $5::bigint)
-          AND ($6::text IS NULL OR btrim(COALESCE(o.rep_name, '')) ILIKE $6::text)
-          AND (NOT $20::boolean OR (o.rep_id IS NOT NULL AND o.rep_id = ANY($21::bigint[])))
+          AND ($4::bigint IS NULL OR o.rep_id = $4::bigint)
+          AND ($5::text IS NULL OR btrim(COALESCE(o.rep_name, '')) ILIKE $5::text)
+          AND (NOT $19::boolean OR (o.rep_id IS NOT NULL AND o.rep_id = ANY($20::bigint[])))
       ),
       classified AS (
         SELECT
@@ -829,9 +829,9 @@ export async function GET(req: Request) {
         SELECT *
           FROM classified
          WHERE is_open = TRUE
-           AND (COALESCE(array_length($7::text[], 1), 0) = 0 OR crm_bucket = ANY($7::text[]))
-           AND ($8::float8 IS NULL OR health_score IS NOT NULL AND health_score >= $8::float8)
-           AND ($9::float8 IS NULL OR health_score IS NOT NULL AND health_score <= $9::float8)
+           AND (COALESCE(array_length($6::text[], 1), 0) = 0 OR crm_bucket = ANY($6::text[]))
+           AND ($7::float8 IS NULL OR health_score IS NOT NULL AND health_score >= $7::float8)
+           AND ($8::float8 IS NULL OR health_score IS NOT NULL AND health_score <= $8::float8)
       ),
       with_rules AS (
         SELECT
@@ -892,65 +892,64 @@ export async function GET(req: Request) {
         paper_confidence, process_confidence, timing_confidence, budget_confidence,
         paper_evidence_strength, process_evidence_strength, timing_evidence_strength, budget_evidence_strength
       FROM modded
-      WHERE (NOT $10::boolean OR suppression IS TRUE)
+      WHERE (NOT $9::boolean OR suppression IS TRUE)
         AND (
-          NOT $12::boolean
+          NOT $11::boolean
           OR (
             (
-              $13::float8 IS NOT NULL
+              $12::float8 IS NOT NULL
               AND crm_bucket = 'commit'
               AND health_score IS NOT NULL
-              AND health_score < $13::float8
+              AND health_score < $12::float8
             )
             OR (
-              $14::boolean IS TRUE
+              $13::boolean IS TRUE
               AND crm_bucket = 'best_case'
               AND suppression IS TRUE
             )
             OR (
+              $14::int IS NOT NULL
+              AND (eb_score IS NULL OR eb_score <= $14::int)
+            )
+            OR (
               $15::int IS NOT NULL
-              AND (eb_score IS NULL OR eb_score <= $15::int)
+              AND (budget_score IS NULL OR budget_score <= $15::int)
             )
             OR (
               $16::int IS NOT NULL
-              AND (budget_score IS NULL OR budget_score <= $16::int)
-            )
-            OR (
-              $17::int IS NOT NULL
-              AND (paper_score IS NULL OR paper_score <= $17::int)
+              AND (paper_score IS NULL OR paper_score <= $16::int)
             )
           )
         )
       ORDER BY
-        CASE WHEN $18::boolean THEN amount END DESC NULLS LAST,
+        CASE WHEN $17::boolean THEN amount END DESC NULLS LAST,
         close_date ASC NULLS LAST,
         amount DESC NULLS LAST,
         id ASC
-      LIMIT $11::int
+      LIMIT $10::int
         `,
         [
           auth.user.org_id,
-          quotaPeriodId,
-          useScopedRepIds, // $3 useScopedRepIds
-          repIdsToUse, // $4 scoped list (ignored when $3=false)
-          repIdFilter, // $5
-          repNameLike ? `%${repNameLike}%` : null, // $6
-          bucketList, // $7
-          hsMin == null ? null : Number(hsMin), // $8
-          hsMax == null ? null : Number(hsMax), // $9
-          suppressedOnly, // $10
-          limit, // $11
-          hiOn, // $12
-          hiCfg.commit_health_lt == null ? null : Number(hiCfg.commit_health_lt), // $13
-          !!hiCfg.best_case_suppressed, // $14
-          hiCfg.eb_max == null ? null : Number(hiCfg.eb_max), // $15
-          hiCfg.budget_max == null ? null : Number(hiCfg.budget_max), // $16
-          hiCfg.paper_max == null ? null : Number(hiCfg.paper_max), // $17
-          effectiveMode === "drivers" || effectiveMode === "risk", // $18
-          allowedRepNameKeysUniq, // $19
-          useTeamFilter, // $20
-          teamRepIdsFilter, // $21
-          effectiveQuarterIdNums, // $22
+          useScopedRepIds, // $2 useScopedRepIds
+          repIdsToUse, // $3 scoped list (ignored when $2=false)
+          repIdFilter, // $4
+          repNameLike ? `%${repNameLike}%` : null, // $5
+          bucketList, // $6
+          hsMin == null ? null : Number(hsMin), // $7
+          hsMax == null ? null : Number(hsMax), // $8
+          suppressedOnly, // $9
+          limit, // $10
+          hiOn, // $11
+          hiCfg.commit_health_lt == null ? null : Number(hiCfg.commit_health_lt), // $12
+          !!hiCfg.best_case_suppressed, // $13
+          hiCfg.eb_max == null ? null : Number(hiCfg.eb_max), // $14
+          hiCfg.budget_max == null ? null : Number(hiCfg.budget_max), // $15
+          hiCfg.paper_max == null ? null : Number(hiCfg.paper_max), // $16
+          effectiveMode === "drivers" || effectiveMode === "risk", // $17
+          allowedRepNameKeysUniq, // $18
+          useTeamFilter, // $19
+          teamRepIdsFilter, // $20
+          effectiveQuarterIdNums, // $21
         ]
       );
     };
@@ -968,7 +967,7 @@ export async function GET(req: Request) {
             fiscal_quarter::text AS fiscal_quarter
             FROM quota_periods
            WHERE org_id = $1::bigint
-             AND id = ANY($22::bigint[])
+             AND id = ANY($21::bigint[])
         ),
         base AS (
           SELECT
@@ -1019,18 +1018,18 @@ export async function GET(req: Request) {
           WHERE o.org_id = $1::bigint
             AND (o.predictive_eligible IS TRUE)
             AND (
-              NOT $3::boolean
+              NOT $2::boolean
               OR (
-                (o.rep_id IS NOT NULL AND o.rep_id = ANY($4::bigint[]))
+                (o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
                 OR (
-                  COALESCE(array_length($19::text[], 1), 0) > 0
-                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($19::text[])
+                  COALESCE(array_length($18::text[], 1), 0) > 0
+                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($18::text[])
                 )
               )
             )
-            AND ($5::bigint IS NULL OR o.rep_id = $5::bigint)
-            AND ($6::text IS NULL OR btrim(COALESCE(o.rep_name, '')) ILIKE $6::text)
-          AND (NOT $20::boolean OR (o.rep_id IS NOT NULL AND o.rep_id = ANY($21::bigint[])))
+            AND ($4::bigint IS NULL OR o.rep_id = $4::bigint)
+            AND ($5::text IS NULL OR btrim(COALESCE(o.rep_name, '')) ILIKE $5::text)
+          AND (NOT $19::boolean OR (o.rep_id IS NOT NULL AND o.rep_id = ANY($20::bigint[])))
         ),
         classified AS (
           SELECT
@@ -1064,9 +1063,9 @@ export async function GET(req: Request) {
           SELECT *
             FROM classified
            WHERE is_open = TRUE
-             AND (COALESCE(array_length($7::text[], 1), 0) = 0 OR crm_bucket = ANY($7::text[]))
-             AND ($8::float8 IS NULL OR health_score IS NOT NULL AND health_score >= $8::float8)
-             AND ($9::float8 IS NULL OR health_score IS NOT NULL AND health_score <= $9::float8)
+             AND (COALESCE(array_length($6::text[], 1), 0) = 0 OR crm_bucket = ANY($6::text[]))
+             AND ($7::float8 IS NULL OR health_score IS NOT NULL AND health_score >= $7::float8)
+             AND ($8::float8 IS NULL OR health_score IS NOT NULL AND health_score <= $8::float8)
         )
         SELECT
           id,
@@ -1097,65 +1096,64 @@ export async function GET(req: Request) {
           paper_confidence, process_confidence, timing_confidence, budget_confidence,
           paper_evidence_strength, process_evidence_strength, timing_evidence_strength, budget_evidence_strength
         FROM open_only
-        WHERE (NOT $10::boolean OR FALSE)
+        WHERE (NOT $9::boolean OR FALSE)
           AND (
-            NOT $12::boolean
+            NOT $11::boolean
             OR (
               (
-                $13::float8 IS NOT NULL
+                $12::float8 IS NOT NULL
                 AND crm_bucket = 'commit'
                 AND health_score IS NOT NULL
-                AND health_score < $13::float8
+                AND health_score < $12::float8
               )
               OR (
-                $14::boolean IS TRUE
+                $13::boolean IS TRUE
                 AND crm_bucket = 'best_case'
                 AND FALSE
               )
               OR (
+                $14::int IS NOT NULL
+                AND (eb_score IS NULL OR eb_score <= $14::int)
+              )
+              OR (
                 $15::int IS NOT NULL
-                AND (eb_score IS NULL OR eb_score <= $15::int)
+                AND (budget_score IS NULL OR budget_score <= $15::int)
               )
               OR (
                 $16::int IS NOT NULL
-                AND (budget_score IS NULL OR budget_score <= $16::int)
-              )
-              OR (
-                $17::int IS NOT NULL
-                AND (paper_score IS NULL OR paper_score <= $17::int)
+                AND (paper_score IS NULL OR paper_score <= $16::int)
               )
             )
           )
         ORDER BY
-          CASE WHEN $18::boolean THEN amount END DESC NULLS LAST,
+          CASE WHEN $17::boolean THEN amount END DESC NULLS LAST,
           close_date ASC NULLS LAST,
           amount DESC NULLS LAST,
           id ASC
-        LIMIT $11::int
+        LIMIT $10::int
         `,
         [
           auth.user.org_id,
-          quotaPeriodId,
-          useScopedRepIds, // $3 useScopedRepIds
-          repIdsToUse, // $4 scoped list (ignored when $3=false)
-          repIdFilter, // $5
-          repNameLike ? `%${repNameLike}%` : null, // $6
-          bucketList, // $7
-          hsMin == null ? null : Number(hsMin), // $8
-          hsMax == null ? null : Number(hsMax), // $9
-          suppressedOnly, // $10
-          limit, // $11
-          hiOn, // $12
-          hiCfg.commit_health_lt == null ? null : Number(hiCfg.commit_health_lt), // $13
-          !!hiCfg.best_case_suppressed, // $14
-          hiCfg.eb_max == null ? null : Number(hiCfg.eb_max), // $15
-          hiCfg.budget_max == null ? null : Number(hiCfg.budget_max), // $16
-          hiCfg.paper_max == null ? null : Number(hiCfg.paper_max), // $17
-          effectiveMode === "drivers" || effectiveMode === "risk", // $18
-          allowedRepNameKeysUniq, // $19
-          useTeamFilter, // $20
-          teamRepIdsFilter, // $21
-          effectiveQuarterIdNums, // $22
+          useScopedRepIds, // $2 useScopedRepIds
+          repIdsToUse, // $3 scoped list (ignored when $2=false)
+          repIdFilter, // $4
+          repNameLike ? `%${repNameLike}%` : null, // $5
+          bucketList, // $6
+          hsMin == null ? null : Number(hsMin), // $7
+          hsMax == null ? null : Number(hsMax), // $8
+          suppressedOnly, // $9
+          limit, // $10
+          hiOn, // $11
+          hiCfg.commit_health_lt == null ? null : Number(hiCfg.commit_health_lt), // $12
+          !!hiCfg.best_case_suppressed, // $13
+          hiCfg.eb_max == null ? null : Number(hiCfg.eb_max), // $14
+          hiCfg.budget_max == null ? null : Number(hiCfg.budget_max), // $15
+          hiCfg.paper_max == null ? null : Number(hiCfg.paper_max), // $16
+          effectiveMode === "drivers" || effectiveMode === "risk", // $17
+          allowedRepNameKeysUniq, // $18
+          useTeamFilter, // $19
+          teamRepIdsFilter, // $20
+          effectiveQuarterIdNums, // $21
         ]
       );
     };

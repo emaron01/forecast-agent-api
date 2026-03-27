@@ -997,9 +997,22 @@ export function ExecutiveGapInsightsClient(props: {
     return flattenedDeals.filter((d) => Number(d.weighted?.gap || 0) < 0).length;
   }, [flattenedDeals]);
 
+  const radarBaseDeals = useMemo(() => {
+    if (!activePeriod?.period_start || !activePeriod?.period_end) return stageDeals;
+    const startMs = Date.parse(String(activePeriod.period_start));
+    const endMs = Date.parse(String(activePeriod.period_end));
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return stageDeals;
+    return stageDeals.filter((d) => {
+      const closeMs = Date.parse(String(d.close_date || ""));
+      return Number.isFinite(closeMs) && closeMs >= startMs && closeMs <= endMs;
+    });
+  }, [activePeriod?.period_end, activePeriod?.period_start, stageDeals]);
+
+  const radarPeriodLabel = props.periodName || activePeriod?.period_name || "selected quarter";
+
   const radarDeals: RadarDeal[] = useMemo(() => {
-    // Radar (dots + account list) is a display slice, independent from the deals table Top N.
-    const shown = sortedDeals.slice(0, radarTopN).filter((d) => Number(d.weighted?.gap || 0) < 0);
+    // Radar (dots + account list) is a display slice for the active quarter only.
+    const shown = radarBaseDeals.slice(0, radarTopN).filter((d) => Number(d.weighted?.gap || 0) < 0);
     return shown.map((d) => ({
       id: String(d.id),
       label: dealTitle(d),
@@ -1007,7 +1020,7 @@ export function ExecutiveGapInsightsClient(props: {
       color: colorForDealId(String(d.id)),
       meddpicc_tb: (d.meddpicc_tb || []).map((c) => ({ key: String(c.key || ""), score: c.score == null ? null : (Number(c.score) as any) })),
     }));
-  }, [sortedDeals, radarTopN]);
+  }, [radarBaseDeals, radarTopN]);
 
   const quarterDrivers = useMemo(() => {
     const deals = analysisFlattenedDeals.length ? analysisFlattenedDeals : flattenedDeals;
@@ -1722,54 +1735,57 @@ export function ExecutiveGapInsightsClient(props: {
     return (
       <div className="grid gap-4">
         <div className="space-y-4">
-          <div className="space-y-4">
-            <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
-                  Quick Account Review - Top {radarTopN}
-                </div>
-                <select
-                  value={radarTopN}
-                  onChange={(e) => setRadarTopN(clampInt(Number(e.target.value) || 20, 5, 50))}
-                  className="h-[36px] w-[80px] shrink-0 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
-                >
-                  {topXOptions.map((n) => (
-                    <option key={n} value={n}>
-                      Top {n}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="mt-3 text-sm text-[color:var(--sf-text-primary)]">
-                {radarDeals.length ? (
-                  <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
-                    {radarDeals.map((d) => (
-                      <div
-                        key={d.id}
-                        className="flex min-w-0 items-center gap-1.5 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1"
-                      >
-                        <span
-                          className="h-2 w-2 shrink-0 rounded-full border border-[color:var(--sf-border)]"
-                          style={{ background: d.color }}
-                          aria-hidden="true"
-                        />
-                        <span className="min-w-0 truncate text-xs" title={String(d.legendLabel || d.label)}>
-                          {String(d.legendLabel || d.label)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
-                )}
-              </div>
-            </section>
-
-            <div className="min-w-0">
-              <RiskRadarPlot deals={radarDeals} height={300} />
-            </div>
+          <div className="min-w-0">
+            <RiskRadarPlot
+              deals={radarDeals}
+              height={480}
+              flush={true}
+              subtitle={`Showing ${radarDeals.length} open deals in ${radarPeriodLabel}`}
+            />
           </div>
+
+          <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
+                Quick Account Review - Top {radarTopN}
+              </div>
+              <select
+                value={radarTopN}
+                onChange={(e) => setRadarTopN(clampInt(Number(e.target.value) || 20, 5, 50))}
+                className="h-[36px] w-[80px] shrink-0 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
+              >
+                {topXOptions.map((n) => (
+                  <option key={n} value={n}>
+                    Top {n}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="mt-3 text-sm text-[color:var(--sf-text-primary)]">
+              {radarDeals.length ? (
+                <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
+                  {radarDeals.map((d) => (
+                    <div
+                      key={d.id}
+                      className="flex min-w-0 items-center gap-1.5 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1"
+                    >
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full border border-[color:var(--sf-border)]"
+                        style={{ background: d.color }}
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0 truncate text-xs" title={String(d.legendLabel || d.label)}>
+                        {String(d.legendLabel || d.label)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
+              )}
+            </div>
+          </section>
 
           <button
             type="button"

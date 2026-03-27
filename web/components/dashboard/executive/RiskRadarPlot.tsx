@@ -61,7 +61,7 @@ function textAnchorForAngle(rad: number) {
   return "middle";
 }
 
-export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number; height?: number }) {
+export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number; height?: number; subtitle?: string | null; flush?: boolean }) {
   // Allow the radar to fill modern executive dashboard layouts.
   const requestedSize = Number(props.height ?? props.size ?? 640);
   const size = Math.max(300, Math.min(960, requestedSize));
@@ -217,15 +217,26 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number; height
     return out;
   }, [cx, cy, labelR]);
 
+  const flush = props.flush === true;
+
   return (
-    <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">AI Risk Radar</div>
+    <section
+      className={
+        flush
+          ? "rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] overflow-hidden"
+          : "rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm"
+      }
+    >
+      <div className={flush ? "px-4 pt-4" : undefined}>
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">AI Risk Radar</div>
+            {props.subtitle ? <div className="text-xs text-[color:var(--sf-text-secondary)]">{props.subtitle}</div> : null}
+          </div>
         </div>
       </div>
 
-      <div className="mt-3 flex items-center justify-center">
+      <div className={flush ? "mt-2 flex items-center justify-center" : "mt-3 flex items-center justify-center"}>
         <div className="aspect-square w-full" style={{ maxWidth: size }}>
           <svg
             className="h-full w-full"
