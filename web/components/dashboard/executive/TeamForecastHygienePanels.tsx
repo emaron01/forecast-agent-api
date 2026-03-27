@@ -315,12 +315,6 @@ function attainmentTierTextClass(pct: number): string {
   return "text-red-600";
 }
 
-function attainmentTierBarClass(pct: number): string {
-  if (pct >= 80) return "bg-green-500";
-  if (pct >= 50) return "bg-yellow-500";
-  return "bg-red-500";
-}
-
 function repAttainmentPctDisplay(rep: RepCoachingData): number | null {
   const a = rep.attainment;
   if (a == null || !Number.isFinite(a)) return null;
@@ -420,20 +414,6 @@ function buildManagerCoachingTeams(
   });
 }
 
-function paceLineLabel(s: PaceStatus): string {
-  if (s === "unknown") return "Pace unknown (no quota)";
-  if (s === "on_track") return "✅ On Pace";
-  if (s === "at_risk") return "⚠️ At Risk";
-  return "🔴 Behind Pace";
-}
-
-function paceLineTextClass(s: PaceStatus): string {
-  if (s === "unknown") return "text-[color:var(--sf-text-secondary)]";
-  if (s === "on_track") return "text-green-600";
-  if (s === "at_risk") return "text-yellow-600";
-  return "text-red-600";
-}
-
 function repPaceIcon(rep: RepCoachingData, paceRatio: number): string {
   const s = calcPaceStatus(Number(rep.won_amount) || 0, Number(rep.quota) || 0, paceRatio);
   if (s === "on_track") return "✅";
@@ -452,10 +432,10 @@ function ManagerCoachingLeaderCard(props: {
   const { team, cardKey, expanded, onToggle, paceRatio } = props;
   const borderColor = paceStatusCardClass(team.paceStatus);
   const headlineColor = attainmentTierTextClass(team.teamAttainmentPct);
-  const barFillColor = attainmentTierBarClass(team.teamAttainmentPct);
   const attDisplay = Math.round(team.teamAttainmentPct * 10) / 10;
   const teamWonSum = team.teamWonSum;
   const teamQuotaSum = team.teamQuotaSum;
+  const paceStatus = team.paceStatus;
 
   const sortedReps = [...team.reps].sort((a, b) => {
     const aa = repAttainmentPctDisplay(a) ?? 999;
@@ -469,6 +449,17 @@ function ManagerCoachingLeaderCard(props: {
         <div className="flex items-start justify-between">
           <div>
             <div className="font-semibold text-[color:var(--sf-text-primary)]">{team.managerName}</div>
+            <div className="mt-1">
+              {paceStatus === "on_track" && (
+                <span className="text-xs font-semibold text-green-400">✅ On Track</span>
+              )}
+              {paceStatus === "at_risk" && (
+                <span className="text-xs font-semibold text-yellow-400">⚠️ At Risk</span>
+              )}
+              {paceStatus === "behind" && (
+                <span className="text-xs font-semibold text-red-400">🔴 Behind Pace</span>
+              )}
+            </div>
             <div className="text-xs text-[color:var(--sf-text-secondary)] mt-0.5">
               {team.repCount} reps · {team.reviewedCount} reviewed
             </div>
@@ -479,13 +470,6 @@ function ManagerCoachingLeaderCard(props: {
           </div>
         </div>
 
-        <div className="mt-3 h-2 rounded-full bg-[color:var(--sf-surface-alt)]">
-          <div
-            className={`h-2 rounded-full transition-all ${barFillColor}`}
-            style={{ width: `${Math.min(100, team.teamAttainmentPct)}%` }}
-          />
-        </div>
-
         <div className="mt-2 flex items-center justify-between text-xs">
           <span className="text-[color:var(--sf-text-secondary)]">Won</span>
           <span className="font-semibold text-green-400">{fmtMoney(teamWonSum)}</span>
@@ -494,13 +478,8 @@ function ManagerCoachingLeaderCard(props: {
           <span className="text-[color:var(--sf-text-secondary)]">Quota</span>
           <span className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(teamQuotaSum)}</span>
         </div>
-        <div className={`mt-1 text-xs ${paceLineTextClass(team.paceStatus)}`}>{paceLineLabel(team.paceStatus)}</div>
 
         <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-          <div>
-            <div className="text-[color:var(--sf-text-secondary)]">Coverage</div>
-            <div className="font-semibold text-[color:var(--sf-text-primary)]">{team.teamCoveragePct}%</div>
-          </div>
           <div>
             <div className="text-[color:var(--sf-text-secondary)]">MEDDPICC Avg</div>
             <div className={`font-semibold ${lmhLetterTextClass(lmhFromAvg(team.teamMeddpiccAvg))}`}>
@@ -521,6 +500,10 @@ function ManagerCoachingLeaderCard(props: {
           <div>
             <div className="text-[color:var(--sf-text-secondary)]">Flat deals</div>
             <div className="font-semibold text-[color:var(--sf-text-primary)]">{team.teamFlat}</div>
+          </div>
+          <div>
+            <div className="text-[color:var(--sf-text-secondary)]">Coverage</div>
+            <div className="font-semibold text-[color:var(--sf-text-primary)]">{team.teamCoveragePct}%</div>
           </div>
         </div>
 
