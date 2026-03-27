@@ -173,10 +173,12 @@ export function buildRepCoachingData(
     const total_opps = cov?.total_opps ?? 0;
     const reviewed_opps = cov?.reviewed_opps ?? 0;
 
-    const weakest_categories = MEDDPICC_CATEGORIES.filter((c) => {
-      const raw = ass?.[c.key as keyof AssessmentHygieneRow];
-      return lmhFromAvg(raw as number | null) === "L";
-    }).map((c) => c.label);
+    const weakest_categories = weakestCategoryLabelsFromScores(
+      MEDDPICC_CATEGORIES.map((cat) => ({
+        label: cat.label,
+        score: Number(ass?.[cat.key as keyof AssessmentHygieneRow] ?? 0),
+      }))
+    );
 
     const avg_meddpicc = ass?.avg_total != null && Number.isFinite(ass.avg_total) ? Number(ass.avg_total) : 0;
 
@@ -219,9 +221,21 @@ function teamAvgForCategory(
   return n ? sum / n : 0;
 }
 
+function weakestCategoryLabelsFromScores(scores: Array<{ label: string; score: number }>): string[] {
+  return scores
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 3)
+    .map((c) => c.label);
+}
+
 function weakestCategoryLabelsForRows(rows: AssessmentHygieneRow[]): string[] {
   if (!rows.length) return [];
-  return MEDDPICC_CATEGORIES.filter((c) => lmhFromAvg(teamAvgForCategory(rows, c.key)) === "L").map((c) => c.label);
+  return weakestCategoryLabelsFromScores(
+    MEDDPICC_CATEGORIES.map((c) => ({
+      label: c.label,
+      score: teamAvgForCategory(rows, c.key),
+    }))
+  );
 }
 
 type PaceStatus = "on_track" | "at_risk" | "behind" | "unknown";
@@ -501,7 +515,7 @@ function ManagerCoachingLeaderCard(props: {
         {team.teamWeakest.length > 0 && (
           <div className="mt-2">
             <span className="text-xs text-[color:var(--sf-text-secondary)]">Weakest: </span>
-            {team.teamWeakest.map((cat) => (
+            {team.teamWeakest.slice(0, 3).map((cat) => (
               <span
                 key={cat}
                 className="ml-1 rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs text-white"
@@ -572,8 +586,8 @@ function ManagerCoachingLeaderCard(props: {
                     </span>
                   </div>
                   {rep.weakest_categories.length > 0 && (
-                    <div className="mt-1.5 flex flex-wrap gap-1">
-                      {rep.weakest_categories.map((cat) => (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {rep.weakest_categories.slice(0, 3).map((cat) => (
                         <span
                           key={cat}
                           className="rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs text-white"
@@ -653,12 +667,15 @@ export function TeamForecastHygienePanels(props: {
   }, [assessmentRepRows, assessmentRollupRows]);
 
   const weakestCategories = useMemo(() => {
-    return MEDDPICC_CATEGORIES.filter((c) => lmhFromAvg(teamAvgForCategory(assessmentRepRows, c.key)) === "L").map(
-      (c) => c.label
+    return weakestCategoryLabelsFromScores(
+      MEDDPICC_CATEGORIES.map((c) => ({
+        label: c.label,
+        score: teamAvgForCategory(assessmentRepRows, c.key),
+      }))
     );
   }, [assessmentRepRows]);
 
-  const weakestCategoryDisplay = weakestCategories.length ? weakestCategories.join(", ") : "—";
+  const weakestCategoryDisplay = weakestCategories.length ? weakestCategories.slice(0, 3).join(", ") : "—";
 
   const meddpiccLetter = lmhFromAvg(meddpiccAvg);
   const meddpiccColor = lmhLetterTextClass(meddpiccLetter);
