@@ -1128,9 +1128,9 @@ export function CustomReportDesignerClient(props: {
     "rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface)]";
 
   const chartToggleActive =
-    "rounded-full border px-3 py-1 text-xs font-semibold border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] text-white";
+    "rounded-full border px-4 py-2 text-sm font-semibold border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] text-white";
   const chartToggleInactive =
-    "rounded-full border px-3 py-1 text-xs font-semibold border-[color:var(--sf-border)] text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)]";
+    "rounded-full border px-4 py-2 text-sm font-semibold border-[color:var(--sf-border)] text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)]";
 
   return (
     <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
@@ -1162,6 +1162,14 @@ export function CustomReportDesignerClient(props: {
           >
             Clear
           </button>
+          <button
+            type="button"
+            disabled={!savedPickId}
+            onClick={() => void deleteReport(String(savedPickId))}
+            className="rounded-md bg-[#E74C3C]/80 px-3 py-2 text-sm font-medium text-white hover:bg-[#C0392B]/85 disabled:opacity-50"
+          >
+            Delete Report
+          </button>
         </div>
       </div>
 
@@ -1171,12 +1179,7 @@ export function CustomReportDesignerClient(props: {
           onChange={(e) => {
             const id = String(e.target.value || "");
             setSavedPickId(id);
-            if (!id) {
-              startNewSavedReport();
-              return;
-            }
-            const r = saved.find((x) => String(x.id) === id) || null;
-            if (r) loadReport(r);
+            if (!id) startNewSavedReport();
           }}
           className="rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] min-w-[220px]"
         >
@@ -1190,10 +1193,13 @@ export function CustomReportDesignerClient(props: {
         <button
           type="button"
           disabled={!savedPickId}
-          onClick={() => void deleteReport(String(savedPickId))}
-          className="rounded-md bg-[#E74C3C] px-3 py-2 text-sm font-medium text-white hover:bg-[#C0392B] disabled:opacity-50"
+          onClick={() => {
+            const r = saved.find((x) => String(x.id) === String(savedPickId)) || null;
+            if (r) loadReport(r);
+          }}
+          className="rounded-md border border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
         >
-          Delete Report
+          Load & Run
         </button>
         <div className="flex flex-wrap items-center gap-2">
           {(["table", "bar", "line", "radar"] as const).map((type) => (
