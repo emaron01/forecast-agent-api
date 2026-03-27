@@ -2462,6 +2462,18 @@ export function ExecutiveGapInsightsClient(props: {
           ) : null}
         </section>
 
+          <div className="mt-4">
+            <ExecutiveQuarterKpisModule
+              period={activePeriod}
+              quota={props.quota}
+              pipelineMomentum={props.pipelineMomentum}
+              crmTotals={props.crmTotals}
+              quarterKpis={props.quarterKpis}
+              repRollups={props.repRollups as any}
+              productsClosedWon={props.productsClosedWon as any}
+            />
+          </div>
+
           {nextPeriod ? (
             <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
               <div className="mb-3">
