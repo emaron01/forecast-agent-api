@@ -110,6 +110,13 @@ function fmtMoney(n: unknown) {
   return `$${Math.round(v)}`;
 }
 
+function normalizeRepName(name: unknown): string {
+  return String(name || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
 function avgCoverage(rows: CoverageHygieneRow[]): number {
   const pcts = rows.map((r) => r.coverage_pct).filter((p): p is number => p != null && Number.isFinite(p));
   if (!pcts.length) return 0;
@@ -142,8 +149,6 @@ export function buildRepCoachingData(
   h: PipelineHygienePayload,
   coachingRepRows?: RepManagerRepRow[] | null
 ): RepCoachingData[] {
-  const crById = new Map((coachingRepRows ?? []).map((r) => [String(r.rep_id), r]));
-
   const covPos = h.coverageRows.filter((r) => r.rep_id > 0);
   const assPos = h.assessmentRows.filter((r) => r.rep_id > 0);
   const velPos = h.velocitySummaries.filter((r) => r.repId > 0);
@@ -167,7 +172,18 @@ export function buildRepCoachingData(
     const ass = assBy.get(repId);
     const vel = velBy.get(repId);
     const prog = progBy.get(repId);
-    const cr = crById.get(repId);
+    const repName =
+      cov?.rep_name ??
+      ass?.rep_name ??
+      vel?.repName ??
+      prog?.repName ??
+      coachingRepRows?.find((r) => String(r.rep_id) === repId)?.rep_name ??
+      `Rep ${repId}`;
+    const repNameKey = normalizeRepName(repName);
+    const cr =
+      coachingRepRows?.find(
+        (r) => String(r.rep_id) === repId || normalizeRepName(r.rep_name) === repNameKey
+      ) ?? null;
 
     const coverage_pct = cov?.coverage_pct ?? 0;
     const total_opps = cov?.total_opps ?? 0;
@@ -184,7 +200,7 @@ export function buildRepCoachingData(
 
     out.push({
       rep_id: repId,
-      rep_name: cov?.rep_name ?? ass?.rep_name ?? vel?.repName ?? prog?.repName ?? `Rep ${repId}`,
+      rep_name: repName,
       attainment: cr?.attainment != null && Number.isFinite(cr.attainment) ? cr.attainment : null,
       quota: cr?.quota != null && Number.isFinite(cr.quota) ? Number(cr.quota) : null,
       won_amount: cr?.won_amount != null && Number.isFinite(cr.won_amount) ? Number(cr.won_amount) : null,
@@ -224,7 +240,7 @@ function teamAvgForCategory(
 function weakestCategoryLabelsFromScores(scores: Array<{ label: string; score: number }>): string[] {
   return scores
     .sort((a, b) => a.score - b.score)
-    .slice(0, 3)
+    .slice(0, 4)
     .map((c) => c.label);
 }
 
@@ -368,10 +384,11 @@ function buildManagerCoachingTeams(
     return [aggregateManagerTeam("team-all", "Team", [...repCoaching], assessmentRepRows, paceRatio)];
   }
 
-  const crByRep = new Map(crRows.map((r) => [String(r.rep_id), r]));
   const byMid = new Map<string, RepCoachingData[]>();
   for (const rep of repCoaching) {
-    const cr = crByRep.get(rep.rep_id);
+    const repNameKey = normalizeRepName(rep.rep_name);
+    const cr =
+      crRows.find((r) => String(r.rep_id) === rep.rep_id || normalizeRepName(r.rep_name) === repNameKey) ?? null;
     const mid = cr ? String(cr.manager_id ?? "") : "__unassigned__";
     if (!byMid.has(mid)) byMid.set(mid, []);
     byMid.get(mid)!.push(rep);
@@ -436,6 +453,8 @@ function ManagerCoachingLeaderCard(props: {
   const headlineColor = attainmentTierTextClass(team.teamAttainmentPct);
   const barFillColor = attainmentTierBarClass(team.teamAttainmentPct);
   const attDisplay = Math.round(team.teamAttainmentPct * 10) / 10;
+  const teamWonSum = team.teamWonSum;
+  const teamQuotaSum = team.teamQuotaSum;
 
   const sortedReps = [...team.reps].sort((a, b) => {
     const aa = repAttainmentPctDisplay(a) ?? 999;
@@ -466,8 +485,13 @@ function ManagerCoachingLeaderCard(props: {
           />
         </div>
 
-        <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
-          {fmtMoney(team.teamWonSum)} / {fmtMoney(team.teamQuotaSum)}
+        <div className="mt-2 flex items-center justify-between text-xs">
+          <span className="text-[color:var(--sf-text-secondary)]">Won</span>
+          <span className="font-semibold text-green-400">{fmtMoney(teamWonSum)}</span>
+        </div>
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-[color:var(--sf-text-secondary)]">Quota</span>
+          <span className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(teamQuotaSum)}</span>
         </div>
         <div className={`mt-1 text-xs ${paceLineTextClass(team.paceStatus)}`}>{paceLineLabel(team.paceStatus)}</div>
 
@@ -515,7 +539,7 @@ function ManagerCoachingLeaderCard(props: {
         {team.teamWeakest.length > 0 && (
           <div className="mt-2">
             <span className="text-xs text-[color:var(--sf-text-secondary)]">Weakest: </span>
-            {team.teamWeakest.slice(0, 3).map((cat) => (
+            {team.teamWeakest.slice(0, 4).map((cat) => (
               <span
                 key={cat}
                 className="ml-1 rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs text-white"
@@ -560,15 +584,13 @@ function ManagerCoachingLeaderCard(props: {
                       </span>
                     </span>
                     <span>
-                      Coverage:{" "}
-                      <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{rep.coverage_pct}%</span>
-                    </span>
-                    <span>
-                      MEDDPICC:{" "}
-                      <span className={`ml-1 font-semibold ${lmhLetterTextClass(lmhFromAvg(rep.avg_meddpicc))}`}>
-                        {lmhFromAvg(rep.avg_meddpicc)}
+                      Quota:{" "}
+                      <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">
+                        {fmtMoney(rep.quota ?? 0)}
                       </span>
                     </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-3 text-xs text-[color:var(--sf-text-secondary)]">
                     <span>
                       Velocity:{" "}
                       <span
@@ -585,9 +607,22 @@ function ManagerCoachingLeaderCard(props: {
                       <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{rep.deals_flat}</span>
                     </span>
                   </div>
+                  <div className="mt-1 flex flex-wrap gap-3 text-xs text-[color:var(--sf-text-secondary)]">
+                    <span>
+                      Coverage:{" "}
+                      <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{rep.coverage_pct}%</span>
+                    </span>
+                    <span>
+                      MEDDPICC:{" "}
+                      <span className={`ml-1 font-semibold ${lmhLetterTextClass(lmhFromAvg(rep.avg_meddpicc))}`}>
+                        {lmhFromAvg(rep.avg_meddpicc)}
+                      </span>
+                    </span>
+                  </div>
                   {rep.weakest_categories.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {rep.weakest_categories.slice(0, 3).map((cat) => (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                      <span className="text-xs text-[color:var(--sf-text-secondary)] mr-1">Top Risk:</span>
+                      {rep.weakest_categories.map((cat) => (
                         <span
                           key={cat}
                           className="rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs text-white"
