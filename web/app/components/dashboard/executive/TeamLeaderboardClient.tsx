@@ -8,6 +8,27 @@ import {
 } from "./RepManagerComparisonPanel";
 import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
 
+type TeamLeaderboardFyQuarterRow = {
+  rep_id: string;
+  period_id: string;
+  period_name: string;
+  fiscal_quarter: string;
+  won_amount: number;
+  quota: number;
+  attainment: number | null;
+};
+
+type ProductsClosedWonByRepRow = {
+  rep_name: string;
+  product: string;
+  won_amount: number;
+  won_count: number;
+  avg_order_value: number;
+  avg_health_score: number | null;
+};
+
+type ProductsClosedWonByRepMap = Record<string, Record<string, number>>;
+
 export type TeamLeaderboardProps = {
   repRows: RepManagerRepRow[];
   managerRows: RepManagerManagerRow[];
@@ -16,7 +37,8 @@ export type TeamLeaderboardProps = {
   fiscalYear: string;
   periodStart: string;
   periodEnd: string;
-  allPeriodRows?: RepManagerRepRow[];
+  allPeriodRows?: TeamLeaderboardFyQuarterRow[];
+  productsClosedWonByRep?: ProductsClosedWonByRepRow[] | ProductsClosedWonByRepMap;
 };
 
 function fmtMoney(n: unknown) {
@@ -61,129 +83,180 @@ function paceStatusCardClass(s: PaceStatus): string {
   }
 }
 
-function paceStatusBarClass(s: PaceStatus): string {
+function paceStatusTextClass(s: PaceStatus): string {
   switch (s) {
     case "on_track":
-      return "bg-green-500";
+      return "text-green-400";
     case "at_risk":
-      return "bg-yellow-500";
+      return "text-yellow-400";
     case "behind":
-      return "bg-red-500";
-    default:
-      return "bg-[color:var(--sf-text-secondary)]";
-  }
-}
-
-function paceStatusPaceTextClass(s: PaceStatus): string {
-  switch (s) {
-    case "on_track":
-      return "text-green-600";
-    case "at_risk":
-      return "text-yellow-600";
-    case "behind":
-      return "text-red-600";
+      return "text-red-400";
     default:
       return "text-[color:var(--sf-text-secondary)]";
   }
 }
 
-function attainmentHeaderClass(s: PaceStatus): string {
-  switch (s) {
-    case "on_track":
-      return "text-green-600";
-    case "at_risk":
-      return "text-yellow-600";
-    case "behind":
-      return "text-red-600";
-    default:
-      return "text-[color:var(--sf-text-primary)]";
-  }
+function paceStatusIcon(s: PaceStatus): string {
+  if (s === "on_track") return "✅";
+  if (s === "at_risk") return "⚠️";
+  if (s === "behind") return "🔴";
+  return "—";
 }
 
-/** Manager quota = sum of direct rep quotas (never use managerRow.quota alone). */
-function sumRepQuota(reps: RepManagerRepRow[]): number {
-  return reps.reduce((sum, rep) => sum + (Number(rep.quota) || 0), 0);
+function paceStatusLabel(s: PaceStatus): string {
+  if (s === "on_track") return "On Track";
+  if (s === "at_risk") return "At Risk";
+  if (s === "behind") return "Behind Pace";
+  return "Unknown";
 }
 
-function sumRepWon(reps: RepManagerRepRow[]): number {
-  return reps.reduce((sum, rep) => sum + (Number(rep.won_amount) || 0), 0);
+function attainmentTextClassByPct(pct: number | null | undefined): string {
+  if (pct == null || !Number.isFinite(pct)) return "text-[color:var(--sf-text-secondary)]";
+  if (pct >= 80) return "text-green-400";
+  if (pct >= 50) return "text-yellow-400";
+  return "text-red-400";
 }
 
-function aggregateTeam(reps: RepManagerRepRow[]) {
-  const quota = sumRepQuota(reps);
-  const wonAmount = sumRepWon(reps);
-  let wonC = 0;
-  let lostC = 0;
-  let pipeline = 0;
-  for (const r of reps) {
-    wonC += Number(r.won_count) || 0;
-    lostC += Number(r.lost_count) || 0;
-    pipeline += Number(r.active_amount) || 0;
-  }
-  const winRatePct =
-    wonC + lostC > 0 ? Math.round((wonC / (wonC + lostC)) * 1000) / 10 : null;
-  const aov = wonC > 0 ? wonAmount / wonC : 0;
-  const attainmentPct = quota > 0 ? Math.min(100, (wonAmount / quota) * 100) : 0;
-  return { quota, wonAmount, winRatePct, pipeline, aov, attainmentPct };
+function coverageTextClass(value: number): string {
+  if (!Number.isFinite(value)) return "text-[color:var(--sf-text-secondary)]";
+  if (value >= 3) return "text-green-400";
+  if (value >= 2) return "text-yellow-400";
+  return "text-red-400";
 }
 
-/** YTD % of annual quota: allPeriodRows sums per rep, else 4× quarterly quota as annual estimate. */
-function ytdPctOfAnnual(rep: RepManagerRepRow, allPeriodRows?: RepManagerRepRow[]): number | null {
-  const q = Number(rep.quota) || 0;
-  if (q <= 0) return null;
-  if (allPeriodRows && allPeriodRows.length > 0) {
-    const rows = allPeriodRows.filter((r) => r.rep_id === rep.rep_id);
-    const annualQuotaSum = rows.reduce((s, r) => s + (Number(r.quota) || 0), 0);
-    const wonSum = rows.reduce((s, r) => s + (Number(r.won_amount) || 0), 0);
-    if (annualQuotaSum <= 0) return null;
-    return wonSum / annualQuotaSum;
-  }
-  const annualQuota = 4 * q;
-  const won = Number(rep.won_amount) || 0;
-  return won / annualQuota;
+function riskFromCoverage(value: number): { label: string; color: string } {
+  if (!Number.isFinite(value)) return { label: "UNKNOWN", color: "text-[color:var(--sf-text-secondary)]" };
+  if (value >= 3) return { label: "LOW", color: "text-green-400" };
+  if (value >= 2) return { label: "MODERATE", color: "text-yellow-400" };
+  return { label: "HIGH", color: "text-red-400" };
 }
 
-function ytdPctManager(reps: RepManagerRepRow[], allPeriodRows?: RepManagerRepRow[]): number | null {
-  if (!reps.length) return null;
-  let num = 0;
-  let den = 0;
-  for (const rep of reps) {
-    const p = ytdPctOfAnnual(rep, allPeriodRows);
-    if (p == null) continue;
-    const q = Number(rep.quota) || 0;
-    if (allPeriodRows && allPeriodRows.length) {
-      const rows = allPeriodRows.filter((r) => r.rep_id === rep.rep_id);
-      const aq = rows.reduce((s, r) => s + (Number(r.quota) || 0), 0);
-      const w = rows.reduce((s, r) => s + (Number(r.won_amount) || 0), 0);
-      num += w;
-      den += aq;
+function healthTextClass(pct: number | null | undefined): string {
+  if (pct == null || !Number.isFinite(pct)) return "text-[color:var(--sf-text-secondary)]";
+  if (pct >= 80) return "text-green-400";
+  if (pct >= 50) return "text-yellow-400";
+  return "text-red-400";
+}
+
+function quarterSortValue(value: string): number {
+  const match = String(value || "").match(/(\d+)/);
+  const n = match ? Number(match[1]) : Number(value);
+  return Number.isFinite(n) ? n : 999;
+}
+
+function normalizeNameKey(value: unknown): string {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function healthPctFrom30(score: number | null | undefined): number | null {
+  if (score == null || !Number.isFinite(score) || score <= 0) return null;
+  return Math.max(0, Math.min(100, Math.round((score / 30) * 100)));
+}
+
+function aggregateCurrentTeam(reps: RepManagerRepRow[]) {
+  const quota = reps.reduce((sum, rep) => sum + (Number(rep.quota) || 0), 0);
+  const wonAmount = reps.reduce((sum, rep) => sum + (Number(rep.won_amount) || 0), 0);
+  const activePipelineAmount = reps.reduce((sum, rep) => sum + (Number(rep.active_amount) || 0), 0);
+  const wonCount = reps.reduce((sum, rep) => sum + (Number(rep.won_count) || 0), 0);
+  const aov = wonCount > 0 ? wonAmount / wonCount : 0;
+  return { quota, wonAmount, activePipelineAmount, aov };
+}
+
+function aggregateFyQuarterRows(rows: TeamLeaderboardFyQuarterRow[]): TeamLeaderboardFyQuarterRow[] {
+  const byPeriod = new Map<string, TeamLeaderboardFyQuarterRow>();
+  for (const row of rows) {
+    const key = String(row.period_id);
+    const prev = byPeriod.get(key);
+    if (prev) {
+      prev.won_amount += Number(row.won_amount || 0) || 0;
+      prev.quota += Number(row.quota || 0) || 0;
+      prev.attainment = prev.quota > 0 ? prev.won_amount / prev.quota : null;
     } else {
-      num += Number(rep.won_amount) || 0;
-      den += 4 * q;
+      byPeriod.set(key, {
+        rep_id: String(row.rep_id),
+        period_id: String(row.period_id),
+        period_name: String(row.period_name || ""),
+        fiscal_quarter: String(row.fiscal_quarter || ""),
+        won_amount: Number(row.won_amount || 0) || 0,
+        quota: Number(row.quota || 0) || 0,
+        attainment:
+          Number(row.quota || 0) > 0 ? (Number(row.won_amount || 0) || 0) / (Number(row.quota || 0) || 0) : null,
+      });
     }
   }
-  if (den <= 0) return null;
-  return num / den;
+  return Array.from(byPeriod.values()).sort((a, b) => quarterSortValue(a.fiscal_quarter) - quarterSortValue(b.fiscal_quarter));
 }
 
-function repAttainmentPct(rep: RepManagerRepRow): number {
-  const q = Number(rep.quota) || 0;
-  if (q <= 0) return 0;
-  return Math.min(100, ((Number(rep.won_amount) || 0) / q) * 100);
-}
+function getProductSummary(args: {
+  input?: ProductsClosedWonByRepRow[] | ProductsClosedWonByRepMap;
+  repIds: string[];
+  repNames: string[];
+  fallbackAov?: number | null;
+}) {
+  const input = args.input;
+  const repIdSet = new Set(args.repIds.map((x) => String(x)));
+  const repNameSet = new Set(args.repNames.map((x) => normalizeNameKey(x)));
 
-function attainmentTextClass(rep: RepManagerRepRow): string {
-  const pct = repAttainmentPct(rep);
-  if (pct >= 90) return "text-green-600 font-semibold";
-  if (pct >= 70) return "text-yellow-600 font-semibold";
-  return "text-red-600 font-semibold";
-}
+  if (!input) {
+    return {
+      repProducts: [] as Array<{ product: string; amount: number }>,
+      aov: args.fallbackAov ?? 0,
+      avgHealthPct: null as number | null,
+    };
+  }
 
-function repWinRate(rep: RepManagerRepRow): string {
-  const w = Number(rep.won_count) || 0;
-  const l = Number(rep.lost_count) || 0;
-  if (w + l <= 0) return "—";
-  return String(Math.round((w / (w + l)) * 1000) / 10);
+  if (Array.isArray(input)) {
+    const byProduct = new Map<string, { product: string; amount: number }>();
+    let totalAmount = 0;
+    let totalWonCount = 0;
+    let healthWeightedSum = 0;
+    let healthWeightedCount = 0;
+
+    for (const row of input) {
+      if (!repNameSet.has(normalizeNameKey(row.rep_name))) continue;
+      const amount = Number(row.won_amount || 0) || 0;
+      const wonCount = Number(row.won_count || 0) || 0;
+      const healthScore = row.avg_health_score == null || !Number.isFinite(Number(row.avg_health_score)) ? null : Number(row.avg_health_score);
+
+      totalAmount += amount;
+      totalWonCount += wonCount;
+      if (healthScore != null && wonCount > 0) {
+        healthWeightedSum += healthScore * wonCount;
+        healthWeightedCount += wonCount;
+      }
+
+      const prev = byProduct.get(row.product);
+      if (prev) prev.amount += amount;
+      else byProduct.set(row.product, { product: row.product, amount });
+    }
+
+    const avgHealthScore = healthWeightedCount > 0 ? healthWeightedSum / healthWeightedCount : null;
+    return {
+      repProducts: Array.from(byProduct.values()).sort((a, b) => b.amount - a.amount),
+      aov: totalWonCount > 0 ? totalAmount / totalWonCount : args.fallbackAov ?? 0,
+      avgHealthPct: healthPctFrom30(avgHealthScore),
+    };
+  }
+
+  const byProduct = new Map<string, { product: string; amount: number }>();
+  for (const repId of repIdSet) {
+    const row = input[repId];
+    if (!row) continue;
+    for (const [product, amountRaw] of Object.entries(row)) {
+      const amount = Number(amountRaw || 0) || 0;
+      const prev = byProduct.get(product);
+      if (prev) prev.amount += amount;
+      else byProduct.set(product, { product, amount });
+    }
+  }
+  return {
+    repProducts: Array.from(byProduct.values()).sort((a, b) => b.amount - a.amount),
+    aov: args.fallbackAov ?? 0,
+    avgHealthPct: null,
+  };
 }
 
 export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
@@ -196,6 +269,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     periodStart,
     periodEnd,
     allPeriodRows,
+    productsClosedWonByRep,
   } = props;
 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -249,210 +323,292 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     return [{ name: "Team", rows }];
   }, [repRows]);
 
+  const currentPeriodName = periodName || "Current Quarter";
+
+  const renderPerformanceCard = (args: {
+    name: string;
+    paceStatus: PaceStatus;
+    attainPct: number;
+    quota: number;
+    wonAmount: number;
+    annualQuota: number;
+    ytdRevenue: number;
+    ytdAttainPct: number;
+    fyQuarters: TeamLeaderboardFyQuarterRow[];
+    activePipelineAmount: number;
+    repProducts: Array<{ product: string; amount: number }>;
+    aov: number;
+    avgHealthPct: number | null;
+    isLeader: boolean;
+    expanded: boolean;
+    repCount: number;
+    onToggle?: () => void;
+  }) => {
+    const paceColor = paceStatusTextClass(args.paceStatus);
+    const paceIcon = paceStatusIcon(args.paceStatus);
+    const paceLabel = paceStatusLabel(args.paceStatus);
+    const attainColor = attainmentTextClassByPct(args.attainPct);
+    const ytdAttainColor = attainmentTextClassByPct(args.ytdAttainPct);
+    const remainingQuota = Math.max(0, args.quota - args.wonAmount);
+    const qCoverage = remainingQuota > 0 ? args.activePipelineAmount / remainingQuota : 0;
+    const totalFyPipeline = args.activePipelineAmount;
+    const annualRemaining = Math.max(0, args.annualQuota - args.ytdRevenue);
+    const annualCoverage = annualRemaining > 0 ? totalFyPipeline / annualRemaining : 0;
+    const coverageColor = coverageTextClass(qCoverage);
+    const annualCoverageColor = coverageTextClass(annualCoverage);
+    const { label: riskLabel, color: riskColor } = riskFromCoverage(annualCoverage);
+    const healthColor = healthTextClass(args.avgHealthPct);
+    const sortedProducts = [...args.repProducts].sort((a, b) => b.amount - a.amount);
+
+    return (
+      <div className={`rounded-xl border p-5 ${paceStatusCardClass(args.paceStatus)}`}>
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="font-semibold text-base text-[color:var(--sf-text-primary)]">{args.name}</div>
+            <div className={`mt-0.5 text-xs font-semibold ${paceColor}`}>
+              {paceIcon} {paceLabel}
+            </div>
+          </div>
+          <div className="text-right">
+            <div className={`text-2xl font-bold ${attainColor}`}>{args.attainPct}%</div>
+            <div className="text-xs text-[color:var(--sf-text-secondary)]">Q attainment</div>
+          </div>
+        </div>
+
+        <div className="my-3 border-t border-[color:var(--sf-border)]" />
+
+        <div className="grid grid-cols-1 gap-4 text-xs xl:grid-cols-3">
+          <div className="space-y-1">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+              Current Quarter
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-[color:var(--sf-text-secondary)]">{currentPeriodName} Quota</span>
+              <span className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(args.quota)}</span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-[color:var(--sf-text-secondary)]">Won</span>
+              <span className="font-semibold text-green-400">{fmtMoney(args.wonAmount)}</span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-[color:var(--sf-text-secondary)]">Attainment</span>
+              <span className={`font-semibold ${attainColor}`}>{args.attainPct}%</span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-[color:var(--sf-text-secondary)]">Pace</span>
+              <span className={`font-semibold ${paceColor}`}>{paceLabel}</span>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+              Full Year
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-[color:var(--sf-text-secondary)]">Annual Quota</span>
+              <span className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(args.annualQuota)}</span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-[color:var(--sf-text-secondary)]">YTD Revenue</span>
+              <span className="font-semibold text-green-400">{fmtMoney(args.ytdRevenue)}</span>
+            </div>
+            <div className="flex justify-between gap-2">
+              <span className="text-[color:var(--sf-text-secondary)]">YTD Attainment</span>
+              <span className={`font-semibold ${ytdAttainColor}`}>{args.ytdAttainPct}%</span>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+              Quarterly Trend
+            </div>
+            {args.fyQuarters.length ? (
+              args.fyQuarters.map((q) => {
+                const qAttain = q.quota > 0 ? q.won_amount / q.quota : null;
+                const qColor =
+                  qAttain === null
+                    ? "text-[color:var(--sf-text-secondary)]"
+                    : qAttain >= 0.8
+                      ? "text-green-400"
+                      : qAttain >= 0.5
+                        ? "text-yellow-400"
+                        : "text-red-400";
+                const qIcon = qAttain === null ? "—" : qAttain >= 0.9 ? "✅" : qAttain >= 0.7 ? "⚠️" : "🔴";
+                return (
+                  <div key={q.period_id} className="grid grid-cols-[auto_auto_1fr] items-center gap-2">
+                    <span className="text-[color:var(--sf-text-secondary)]">{q.fiscal_quarter}</span>
+                    <span className="font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(q.won_amount)}</span>
+                    <span className={`justify-self-end font-semibold ${qColor}`}>
+                      {qAttain !== null ? `${Math.round(qAttain * 100)}%` : "—"} {qIcon}
+                    </span>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-[color:var(--sf-text-secondary)]">—</div>
+            )}
+          </div>
+        </div>
+
+        <div className="my-3 border-t border-[color:var(--sf-border)]" />
+
+        <div className="space-y-1">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+            Pipeline
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs xl:grid-cols-4">
+            <div>
+              <div className="text-[color:var(--sf-text-secondary)]">Q Coverage</div>
+              <div className={`font-semibold ${coverageColor}`}>{qCoverage.toFixed(1)}x</div>
+            </div>
+            <div>
+              <div className="text-[color:var(--sf-text-secondary)]">Annual Coverage</div>
+              <div className={`font-semibold ${annualCoverageColor}`}>{annualCoverage.toFixed(1)}x</div>
+            </div>
+            <div>
+              <div className="text-[color:var(--sf-text-secondary)]">Avg Health</div>
+              <div className={`font-semibold ${healthColor}`}>
+                {args.avgHealthPct != null ? `${args.avgHealthPct}%` : "—"}
+              </div>
+            </div>
+            <div>
+              <div className="text-[color:var(--sf-text-secondary)]">Pipeline Risk</div>
+              <div className={`font-semibold ${riskColor}`}>{riskLabel}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="my-3 border-t border-[color:var(--sf-border)]" />
+
+        <div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+            Products Sold (this quarter)
+          </div>
+          <div className="flex flex-wrap gap-3 text-xs">
+            {sortedProducts.length ? (
+              sortedProducts.map((p) => (
+                <div key={p.product} className="flex items-center gap-1">
+                  <span className="text-[color:var(--sf-text-secondary)]">{p.product}:</span>
+                  <span className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(p.amount)}</span>
+                </div>
+              ))
+            ) : (
+              <div className="text-[color:var(--sf-text-secondary)]">—</div>
+            )}
+            <div className="ml-auto flex items-center gap-1">
+              <span className="text-[color:var(--sf-text-secondary)]">AOV:</span>
+              <span className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(args.aov)}</span>
+            </div>
+          </div>
+        </div>
+
+        {args.isLeader && args.onToggle ? (
+          <button
+            type="button"
+            onClick={args.onToggle}
+            className="mt-4 w-full text-left text-xs text-[color:var(--sf-accent-primary)] hover:underline"
+          >
+            {args.expanded ? `▲ Hide reps (${args.repCount})` : `▼ See reps (${args.repCount})`}
+          </button>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderRepCard = (rep: RepManagerRepRow) => {
+    const quota = Number(rep.quota) || 0;
+    const wonAmount = Number(rep.won_amount) || 0;
+    const paceStatus = calcPaceStatus(wonAmount, quota, paceRatio);
+    const fyQuarters = aggregateFyQuarterRows((allPeriodRows ?? []).filter((r) => String(r.rep_id) === String(rep.rep_id)));
+    const annualQuota = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.quota, 0) : quota * 4;
+    const ytdRevenue = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.won_amount, 0) : wonAmount;
+    const ytdAttainPct = annualQuota > 0 ? Math.round((ytdRevenue / annualQuota) * 100) : 0;
+    const attainPct = quota > 0 ? Math.round((wonAmount / quota) * 100) : 0;
+    const productSummary = getProductSummary({
+      input: productsClosedWonByRep,
+      repIds: [String(rep.rep_id)],
+      repNames: [rep.rep_name],
+      fallbackAov: rep.aov ?? 0,
+    });
+
+    return (
+      <div key={`rep:${rep.rep_id}`}>
+        {renderPerformanceCard({
+          name: rep.rep_name,
+          paceStatus,
+          attainPct,
+          quota,
+          wonAmount,
+          annualQuota,
+          ytdRevenue,
+          ytdAttainPct,
+          fyQuarters,
+          activePipelineAmount: Number(rep.active_amount) || 0,
+          repProducts: productSummary.repProducts,
+          aov: productSummary.aov,
+          avgHealthPct: productSummary.avgHealthPct,
+          isLeader: false,
+          expanded: false,
+          repCount: 0,
+        })}
+      </div>
+    );
+  };
+
   const renderManagerCard = (managerId: string) => {
-    const repsUnder = (repsByManager.get(managerId) || []).slice();
+    const repsUnder = (repsByManager.get(managerId) || [])
+      .slice()
+      .sort((a, b) => {
+        const aa = a.attainment == null || !Number.isFinite(a.attainment) ? Number.POSITIVE_INFINITY : Number(a.attainment);
+        const bb = b.attainment == null || !Number.isFinite(b.attainment) ? Number.POSITIVE_INFINITY : Number(b.attainment);
+        return aa - bb || a.rep_name.localeCompare(b.rep_name);
+      });
     const mgrMeta = managerRows.find((m) => String(m.manager_id || "") === String(managerId || ""));
     const managerLabel =
       mgrMeta?.manager_name ||
       (managerId ? repsUnder[0]?.manager_name : "(Unassigned)") ||
       `Manager ${managerId || ""}`;
     const cardKey = `mgr:${managerId || "unassigned"}`;
-    const agg = aggregateTeam(repsUnder);
-    const { quota: managerQuota, wonAmount, winRatePct, pipeline, aov, attainmentPct } = agg;
-    const paceStatus = calcPaceStatus(wonAmount, managerQuota, paceRatio);
-    const cardBorder = paceStatusCardClass(paceStatus);
-    const barColor = paceStatusBarClass(paceStatus);
-    const paceColor = paceStatusPaceTextClass(paceStatus);
-    const attainmentColor = attainmentHeaderClass(paceStatus);
-    const pct = Math.min(100, managerQuota > 0 ? (wonAmount / managerQuota) * 100 : 0);
-    const repCount = repsUnder.length;
-    const ytdPct = ytdPctManager(repsUnder, allPeriodRows);
+    const current = aggregateCurrentTeam(repsUnder);
+    const repIds = repsUnder.map((r) => String(r.rep_id));
+    const fyQuarters = aggregateFyQuarterRows((allPeriodRows ?? []).filter((r) => repIds.includes(String(r.rep_id))));
+    const annualQuota = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.quota, 0) : current.quota * 4;
+    const ytdRevenue = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.won_amount, 0) : current.wonAmount;
+    const ytdAttainPct = annualQuota > 0 ? Math.round((ytdRevenue / annualQuota) * 100) : 0;
+    const attainPct = current.quota > 0 ? Math.round((current.wonAmount / current.quota) * 100) : 0;
+    const paceStatus = calcPaceStatus(current.wonAmount, current.quota, paceRatio);
+    const productSummary = getProductSummary({
+      input: productsClosedWonByRep,
+      repIds,
+      repNames: repsUnder.map((r) => r.rep_name),
+      fallbackAov: current.aov,
+    });
 
     return (
       <div key={cardKey} className="min-w-0">
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => toggleExpand(cardKey)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              toggleExpand(cardKey);
-            }
-          }}
-          className={`rounded-xl border p-4 cursor-pointer transition-colors ${cardBorder}`}
-        >
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="font-semibold text-[color:var(--sf-text-primary)]">{managerLabel}</div>
-              <div className="text-xs text-[color:var(--sf-text-secondary)] mt-0.5">
-                {repCount} rep{repCount !== 1 ? "s" : ""}
-              </div>
-            </div>
-            <div className="text-right">
-              <div className={`text-2xl font-bold ${attainmentColor}`}>{Math.round(attainmentPct * 10) / 10}%</div>
-              <div className="text-xs text-[color:var(--sf-text-secondary)]">to quota</div>
-            </div>
-          </div>
-
-          <div className="mt-3 h-2 rounded-full bg-[color:var(--sf-surface-alt)]">
-            <div className={`h-2 rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
-          </div>
-
-          <div className="mt-2 flex items-center justify-between text-xs">
-            <span className={paceStatus === "unknown" ? "text-[color:var(--sf-text-secondary)]" : paceColor}>
-              {paceStatus === "unknown"
-                ? "Pace unknown (no quota)"
-                : paceStatus === "on_track"
-                  ? "✅ On Pace"
-                  : paceStatus === "at_risk"
-                    ? "⚠️ At Risk"
-                    : "🔴 Behind Pace"}
-            </span>
-            <span className="text-[color:var(--sf-text-secondary)]">
-              {fmtMoney(wonAmount)} / {fmtMoney(managerQuota)}
-            </span>
-          </div>
-
-          <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-            <div>
-              <div className="text-[color:var(--sf-text-secondary)]">Win Rate</div>
-              <div className="font-semibold text-[color:var(--sf-text-primary)]">
-                {winRatePct != null ? `${winRatePct}%` : "—"}
-              </div>
-            </div>
-            <div>
-              <div className="text-[color:var(--sf-text-secondary)]">Pipeline</div>
-              <div className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(pipeline)}</div>
-            </div>
-            <div>
-              <div className="text-[color:var(--sf-text-secondary)]">AOV</div>
-              <div className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(aov)}</div>
-            </div>
-          </div>
-
-          {ytdPct !== null && (
-            <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
-              YTD: {Math.round(ytdPct * 100)}% of annual quota
-            </div>
-          )}
-
-          <div className="mt-3 text-xs text-[color:var(--sf-accent-primary)] text-right">
-            {expandedIds.has(cardKey) ? "▲ Hide reps" : "▼ See reps"}
-          </div>
-        </div>
+        {renderPerformanceCard({
+          name: managerLabel,
+          paceStatus,
+          attainPct,
+          quota: current.quota,
+          wonAmount: current.wonAmount,
+          annualQuota,
+          ytdRevenue,
+          ytdAttainPct,
+          fyQuarters,
+          activePipelineAmount: current.activePipelineAmount,
+          repProducts: productSummary.repProducts,
+          aov: productSummary.aov,
+          avgHealthPct: productSummary.avgHealthPct,
+          isLeader: true,
+          expanded: expandedIds.has(cardKey),
+          repCount: repsUnder.length,
+          onToggle: () => toggleExpand(cardKey),
+        })}
 
         {expandedIds.has(cardKey) && (
           <div className="mt-2 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] divide-y divide-[color:var(--sf-border)]">
-            {repsUnder.map((rep) => {
-              const rq = Number(rep.quota) || 0;
-              const rw = Number(rep.won_amount) || 0;
-              const repPaceStatus = calcPaceStatus(rw, rq, paceRatio);
-              const repPaceIcon =
-                repPaceStatus === "unknown"
-                  ? "·"
-                  : repPaceStatus === "on_track"
-                    ? "✅"
-                    : repPaceStatus === "at_risk"
-                      ? "⚠️"
-                      : "🔴";
-              return (
-                <div key={rep.rep_id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span aria-hidden>{repPaceIcon}</span>
-                    <span className="text-sm font-medium text-[color:var(--sf-text-primary)] truncate">{rep.rep_name}</span>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-[color:var(--sf-text-secondary)]">
-                    <span>
-                      <span className={attainmentTextClass(rep)}>{Math.round(repAttainmentPct(rep) * 10) / 10}%</span> attainment
-                    </span>
-                    <span>{fmtMoney(rep.won_amount)} won</span>
-                    <span>{repWinRate(rep)}% win rate</span>
-                    <span>{fmtMoney(rep.active_amount)} pipeline</span>
-                    <span>
-                      {rep.avg_days_won != null ? `${Math.round(rep.avg_days_won)}d cycle` : "—"}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const renderRepCard = (rep: RepManagerRepRow) => {
-    const rq = Number(rep.quota) || 0;
-    const rw = Number(rep.won_amount) || 0;
-    const repsOne = [rep];
-    const agg = aggregateTeam(repsOne);
-    const paceStatus = calcPaceStatus(rw, rq, paceRatio);
-    const cardBorder = paceStatusCardClass(paceStatus);
-    const barColor = paceStatusBarClass(paceStatus);
-    const paceColor = paceStatusPaceTextClass(paceStatus);
-    const attainmentColor = attainmentHeaderClass(paceStatus);
-    const pct = Math.min(100, rq > 0 ? (rw / rq) * 100 : 0);
-    const ytdPct = ytdPctOfAnnual(rep, allPeriodRows);
-    const wonC = Number(rep.won_count) || 0;
-    const lostC = Number(rep.lost_count) || 0;
-    const winRatePct = wonC + lostC > 0 ? Math.round((wonC / (wonC + lostC)) * 1000) / 10 : null;
-
-    return (
-      <div
-        key={`rep:${rep.rep_id}`}
-        className={`rounded-xl border p-4 transition-colors ${cardBorder}`}
-      >
-        <div className="flex items-start justify-between">
-          <div>
-            <div className="font-semibold text-[color:var(--sf-text-primary)]">{rep.rep_name}</div>
-            <div className="text-xs text-[color:var(--sf-text-secondary)] mt-0.5">Rep</div>
-          </div>
-          <div className="text-right">
-            <div className={`text-2xl font-bold ${attainmentColor}`}>{Math.round(agg.attainmentPct * 10) / 10}%</div>
-            <div className="text-xs text-[color:var(--sf-text-secondary)]">to quota</div>
-          </div>
-        </div>
-
-        <div className="mt-3 h-2 rounded-full bg-[color:var(--sf-surface-alt)]">
-          <div className={`h-2 rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
-        </div>
-
-        <div className="mt-2 flex items-center justify-between text-xs">
-          <span className={paceStatus === "unknown" ? "text-[color:var(--sf-text-secondary)]" : paceColor}>
-            {paceStatus === "unknown"
-              ? "Pace unknown (no quota)"
-              : paceStatus === "on_track"
-                ? "✅ On Pace"
-                : paceStatus === "at_risk"
-                  ? "⚠️ At Risk"
-                  : "🔴 Behind Pace"}
-          </span>
-          <span className="text-[color:var(--sf-text-secondary)]">
-            {fmtMoney(rw)} / {fmtMoney(rq)}
-          </span>
-        </div>
-
-        <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-          <div>
-            <div className="text-[color:var(--sf-text-secondary)]">Win Rate</div>
-            <div className="font-semibold text-[color:var(--sf-text-primary)]">
-              {winRatePct != null ? `${winRatePct}%` : "—"}
-            </div>
-          </div>
-          <div>
-            <div className="text-[color:var(--sf-text-secondary)]">Pipeline</div>
-            <div className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(rep.active_amount)}</div>
-          </div>
-          <div>
-            <div className="text-[color:var(--sf-text-secondary)]">AOV</div>
-            <div className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(rep.aov ?? 0)}</div>
-          </div>
-        </div>
-
-        {ytdPct !== null && (
-          <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
-            YTD: {Math.round(ytdPct * 100)}% of annual quota
+            {repsUnder.map((rep) => renderRepCard(rep))}
           </div>
         )}
       </div>
@@ -463,24 +619,30 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="mb-4 flex items-center justify-between">
         <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">
           Team Performance — {periodName || "—"}
         </h2>
         <div className="flex items-center gap-2 text-xs text-[color:var(--sf-text-secondary)]">
-          <span className="inline-block w-3 h-3 rounded-full bg-green-500/40" aria-hidden />
+          <span className="inline-block h-3 w-3 rounded-full bg-green-500/40" aria-hidden />
           On Track
-          <span className="inline-block w-3 h-3 rounded-full bg-yellow-500/40 ml-2" aria-hidden />
+          <span className="ml-2 inline-block h-3 w-3 rounded-full bg-yellow-500/40" aria-hidden />
           At Risk
-          <span className="inline-block w-3 h-3 rounded-full bg-red-500/40 ml-2" aria-hidden />
+          <span className="ml-2 inline-block h-3 w-3 rounded-full bg-red-500/40" aria-hidden />
           Behind
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-1">
         {showManagerGrid
           ? managerIdsWithReps.map((mid) => renderManagerCard(mid))
-          : repRows.map((r) => renderRepCard(r))}
+          : [...repRows]
+              .sort((a, b) => {
+                const aa = a.attainment == null || !Number.isFinite(a.attainment) ? Number.POSITIVE_INFINITY : Number(a.attainment);
+                const bb = b.attainment == null || !Number.isFinite(b.attainment) ? Number.POSITIVE_INFINITY : Number(b.attainment);
+                return aa - bb || a.rep_name.localeCompare(b.rep_name);
+              })
+              .map((r) => renderRepCard(r))}
       </div>
 
       <button

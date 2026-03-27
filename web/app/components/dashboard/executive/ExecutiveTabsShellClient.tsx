@@ -349,6 +349,15 @@ export type TeamRepManagerPayload = {
   periodName?: string;
   periodStart?: string;
   periodEnd?: string;
+  repFyQuarterRows?: {
+    rep_id: string;
+    period_id: string;
+    period_name: string;
+    fiscal_quarter: string;
+    won_amount: number;
+    quota: number;
+    attainment: number | null;
+  }[];
 };
 
 function fmtMoney(v: number | null | undefined) {
@@ -878,6 +887,8 @@ export function ExecutiveTabsShellClient(props: {
               fiscalYear={props.forecastTabProps.fiscalYear}
               periodStart={props.teamRepManagerPayload.periodStart ?? ""}
               periodEnd={props.teamRepManagerPayload.periodEnd ?? ""}
+              allPeriodRows={props.teamRepManagerPayload.repFyQuarterRows}
+              productsClosedWonByRep={props.forecastTabProps.productsClosedWonByRep}
             />
           </div>
         )}

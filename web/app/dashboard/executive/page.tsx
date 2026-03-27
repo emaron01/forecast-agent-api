@@ -1144,6 +1144,15 @@ export default async function ExecutiveDashboardPage({
   let teamManagerRows: RepManagerManagerRow[] = [];
   let teamRepsByManager = new Map<string, RepManagerRepRow[]>();
   let teamOrderedManagerIds: string[] = [];
+  let repFyQuarterRows: {
+    rep_id: string;
+    period_id: string;
+    period_name: string;
+    fiscal_quarter: string;
+    won_amount: number;
+    quota: number;
+    attainment: number | null;
+  }[] = [];
 
   const showManagerReviewQueue =
     ctx.user.role === "MANAGER" || ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "ADMIN";
@@ -1652,6 +1661,73 @@ export default async function ExecutiveDashboardPage({
     teamRepsByManager = repsByManagerMap;
   }
 
+  try {
+    const fyPeriodIds = summary.periods
+      .filter((p) => String(p.fiscal_year) === String(summary.selectedPeriod?.fiscal_year))
+      .map((p) => String(p.id));
+
+    if (fyPeriodIds.length > 0 && visibleRepIds.length > 0) {
+      const { rows } = await pool.query<{
+        rep_id: string;
+        period_id: string;
+        period_name: string;
+        fiscal_quarter: string;
+        won_amount: number;
+        quota: number;
+      }>(
+        `
+        SELECT
+          r.id::text AS rep_id,
+          qp.id::text AS period_id,
+          qp.period_name,
+          qp.fiscal_quarter::text AS fiscal_quarter,
+          COALESCE(SUM(
+            CASE WHEN (
+              lower(btrim(COALESCE(o.forecast_stage,''))) LIKE '%won%'
+              OR lower(btrim(COALESCE(o.sales_stage,''))) LIKE '%won%'
+            ) THEN o.amount ELSE 0 END
+          ), 0)::float8 AS won_amount,
+          COALESCE(MAX(q.amount), 0)::float8 AS quota
+        FROM reps r
+        JOIN quota_periods qp
+          ON qp.org_id = COALESCE(r.organization_id, r.org_id::bigint)
+         AND qp.id = ANY($2::bigint[])
+        LEFT JOIN opportunities o
+          ON o.rep_id = r.id
+         AND o.org_id = COALESCE(r.organization_id, r.org_id::bigint)
+         AND o.close_date >= qp.period_start
+         AND o.close_date <= qp.period_end
+        LEFT JOIN quotas q
+          ON q.rep_id = r.id
+         AND q.quota_period_id = qp.id
+         AND q.org_id = COALESCE(r.organization_id, r.org_id::bigint)
+        WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+          AND r.id = ANY($3::bigint[])
+        GROUP BY r.id, qp.id, qp.period_name, qp.fiscal_quarter, qp.period_start
+        ORDER BY qp.period_start ASC
+        `,
+        [orgId, fyPeriodIds.map(Number), visibleRepIds]
+      );
+
+      repFyQuarterRows = (rows ?? []).map((r) => {
+        const wonAmount = Number(r.won_amount || 0) || 0;
+        const quota = Number(r.quota || 0) || 0;
+        return {
+          rep_id: String(r.rep_id),
+          period_id: String(r.period_id),
+          period_name: String(r.period_name || ""),
+          fiscal_quarter: String(r.fiscal_quarter || ""),
+          won_amount: wonAmount,
+          quota,
+          attainment: quota > 0 ? wonAmount / quota : null,
+        };
+      });
+    }
+  } catch (e) {
+    console.error("[repFyQuarterRows]", e);
+    repFyQuarterRows = [];
+  }
+
   // Determine active tab: URL param > user preference > forecast
   const search = searchParams || {};
   const tabRaw = Array.isArray(search.tab) ? search.tab[0] : search.tab;
@@ -1869,6 +1945,7 @@ export default async function ExecutiveDashboardPage({
             periodName: summary.selectedPeriod?.period_name ?? "",
             periodStart: selectedPeriod?.period_start ?? "",
             periodEnd: selectedPeriod?.period_end ?? "",
+            repFyQuarterRows,
           }}
           reviewQueueDeals={reviewQueueDeals}
           currentUserId={ctx.user.id}
