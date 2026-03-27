@@ -73,8 +73,9 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number; height
   const r2 = outerR * 0.66;
   const r3 = outerR * 0.96;
   const labelR = outerR + 30;
-  // Extra padding to avoid cutting off longer slice labels like "Economic Buyer".
-  const pad = Math.max(48, Math.min(96, Math.round(size * 0.12)));
+  // Use tighter vertical padding in flush mode while preserving wider side space for labels.
+  const padX = flush ? 40 : Math.max(48, Math.min(96, Math.round(size * 0.12)));
+  const padY = flush ? 8 : Math.max(48, Math.min(96, Math.round(size * 0.12)));
   const labelFont = Math.max(12, Math.min(14, Math.round(size * 0.017)));
 
   const dots = useMemo(() => {
@@ -240,10 +241,13 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number; height
       ) : null}
 
       <div className={flush ? "flex items-center justify-center" : "mt-3 flex items-center justify-center"}>
-        <div className="aspect-square w-full" style={{ maxWidth: size }}>
+        <div
+          className={flush ? "w-full" : "aspect-square w-full"}
+          style={flush ? { maxWidth: size, height: size, minHeight: size } : { maxWidth: size }}
+        >
           <svg
             className="h-full w-full"
-            viewBox={`${-pad} ${-pad} ${size + pad * 2} ${size + pad * 2}`}
+            viewBox={`${-padX} ${-padY} ${size + padX * 2} ${size + padY * 2}`}
             role="img"
             aria-label="MEDDPICC+TB radar"
           >
