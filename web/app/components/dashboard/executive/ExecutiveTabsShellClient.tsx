@@ -837,11 +837,11 @@ export function ExecutiveTabsShellClient(props: {
         {activeTab === "pipeline" && (
           <div className="space-y-6">
             <div className="-mx-4 -mt-4">
-              <ExecutiveGapInsightsClient {...props.pipelineTabProps} pipelineTabOnly={true} viewerRole={props.viewerRole} />
+              <ExecutiveGapInsightsClient {...props.pipelineTabProps} pipelineKpisTabOnly={true} viewerRole={props.viewerRole} />
             </div>
 
             <div className="-mx-4">
-              <ExecutiveGapInsightsClient {...props.pipelineTabProps} pipelineKpisTabOnly={true} viewerRole={props.viewerRole} />
+              <ExecutiveGapInsightsClient {...props.pipelineTabProps} pipelineTabOnly={true} viewerRole={props.viewerRole} />
             </div>
           </div>
         )}
