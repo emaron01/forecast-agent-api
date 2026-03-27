@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { PolarAngleAxis, PolarGrid, PolarRadiusAxis, Radar, RadarChart, ResponsiveContainer } from "recharts";
 import type { RepManagerRepRow } from "../../../app/components/dashboard/executive/RepManagerComparisonPanel";
 
 export type CoverageHygieneRow = {
@@ -464,75 +463,65 @@ function ManagerCoachingLeaderCard(props: {
       <div className={`rounded-xl border p-4 ${borderColor}`}>
         <div className="flex items-start justify-between">
           <div>
-            <div className="font-semibold text-[color:var(--sf-text-primary)]">{team.managerName}</div>
+            <div className="text-sm font-medium text-[color:var(--sf-text-primary)]">{team.managerName}</div>
             <PaceStatusBadge paceStatus={paceStatus} />
             <div className="text-xs text-[color:var(--sf-text-secondary)] mt-0.5">
               {team.repCount} reps · {team.reviewedCount} reviewed
             </div>
           </div>
-          <div className="text-right">
-            <div className={`text-2xl font-bold ${headlineColor}`}>{attDisplay}%</div>
+          <div className="text-right shrink-0 ml-4">
+            <div className={`text-sm font-bold ${headlineColor}`}>{attDisplay}%</div>
             <div className="text-xs text-[color:var(--sf-text-secondary)]">attainment</div>
           </div>
         </div>
 
-        <div className="mt-2 flex items-center justify-between text-xs">
-          <span className="text-[color:var(--sf-text-secondary)]">Won</span>
-          <span className="font-semibold text-green-400">{fmtMoney(teamWonSum)}</span>
+        <div className="mt-1 flex flex-wrap gap-3 text-xs text-[color:var(--sf-text-secondary)]">
+          <span>
+            Won:{" "}
+            <span className="ml-1 font-semibold text-green-400">{fmtMoney(teamWonSum)}</span>
+          </span>
+          <span>
+            Quota:{" "}
+            <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(teamQuotaSum)}</span>
+          </span>
         </div>
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-[color:var(--sf-text-secondary)]">Quota</span>
-          <span className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(teamQuotaSum)}</span>
-        </div>
-
-        <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-          <div>
-            <div className="text-[color:var(--sf-text-secondary)]">MEDDPICC Avg</div>
-            <div className={`font-semibold ${lmhLetterTextClass(lmhFromAvg(team.teamMeddpiccAvg))}`}>
-              {lmhFromAvg(team.teamMeddpiccAvg)}
-            </div>
-          </div>
-          <div>
-            <div className="text-[color:var(--sf-text-secondary)]">Velocity Δ</div>
-            <div
-              className={`font-semibold ${
+        <div className="mt-1 flex flex-wrap gap-3 text-xs text-[color:var(--sf-text-secondary)]">
+          <span>
+            Velocity:{" "}
+            <span
+              className={`ml-1 font-semibold ${
                 team.teamDelta > 0 ? "text-green-400" : "text-[color:var(--sf-text-secondary)]"
               }`}
             >
               {team.teamDelta >= 0 ? "+" : ""}
               {team.teamDelta.toFixed(1)}
-            </div>
-          </div>
-          <div>
-            <div className="text-[color:var(--sf-text-secondary)]">Flat deals</div>
-            <div className="font-semibold text-[color:var(--sf-text-primary)]">{team.teamFlat}</div>
-          </div>
-          <div>
-            <div className="text-[color:var(--sf-text-secondary)]">Coverage</div>
-            <div className="font-semibold text-[color:var(--sf-text-primary)]">{team.teamCoveragePct}%</div>
-          </div>
+            </span>
+          </span>
+          <span>
+            Flat:{" "}
+            <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{team.teamFlat}</span>
+          </span>
+        </div>
+        <div className="mt-1 flex flex-wrap gap-3 text-xs text-[color:var(--sf-text-secondary)]">
+          <span>
+            Coverage:{" "}
+            <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{team.teamCoveragePct}%</span>
+          </span>
+          <span>
+            MEDDPICC:{" "}
+            <span className={`ml-1 font-semibold ${lmhLetterTextClass(lmhFromAvg(team.teamMeddpiccAvg))}`}>
+              {lmhFromAvg(team.teamMeddpiccAvg)}
+            </span>
+          </span>
         </div>
 
-        {team.teamMeddpiccAvg > 0 && (
-          <div className="mt-3">
-            <ResponsiveContainer width="100%" height={120}>
-              <RadarChart data={team.teamRadarData}>
-                <PolarGrid stroke="var(--sf-border)" />
-                <PolarAngleAxis dataKey="category" tick={{ fill: "var(--sf-text-secondary)", fontSize: 8 }} />
-                <PolarRadiusAxis domain={[0, 3]} tick={false} axisLine={false} />
-                <Radar dataKey="value" stroke="#00BCD4" fill="#00BCD4" fillOpacity={0.2} />
-              </RadarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-
         {team.teamWeakest.length > 0 && (
-          <div className="mt-2">
-            <span className="text-xs text-[color:var(--sf-text-secondary)]">Weakest: </span>
-            {team.teamWeakest.slice(0, 4).map((cat) => (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            <span className="text-xs text-[color:var(--sf-text-secondary)] mr-1">Top Risk:</span>
+            {team.teamWeakest.map((cat) => (
               <span
                 key={cat}
-                className="ml-1 rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs text-white"
+                className="rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-xs text-white"
               >
                 {cat}
               </span>
