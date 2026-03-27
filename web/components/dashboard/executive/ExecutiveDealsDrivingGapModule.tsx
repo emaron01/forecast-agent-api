@@ -40,6 +40,7 @@ export type ExecutiveGapDeal = {
   id: string;
   rep: { rep_public_id?: string | null; rep_name: string | null };
   deal_name: { account_name: string | null; opportunity_name: string | null };
+  close_date?: string | null;
   quarter?: { label: string | null };
   crm_stage: { forecast_stage?: string | null; bucket: "commit" | "best_case" | "pipeline" | null; label: string };
   ai_verdict_stage?: "Commit" | "Best Case" | "Pipeline" | null;
