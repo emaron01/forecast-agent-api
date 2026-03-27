@@ -73,6 +73,7 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number; height
   const r2 = outerR * 0.66;
   const r3 = outerR * 0.96;
   const labelR = outerR + 30;
+  const flush = props.flush === true;
   // Use tighter vertical padding in flush mode while preserving wider side space for labels.
   const padX = flush ? 48 : Math.max(48, Math.min(96, Math.round(size * 0.12)));
   const padY = flush ? 24 : Math.max(48, Math.min(96, Math.round(size * 0.12)));
@@ -218,7 +219,6 @@ export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number; height
     return out;
   }, [cx, cy, labelR]);
 
-  const flush = props.flush === true;
 
   return (
     <section
