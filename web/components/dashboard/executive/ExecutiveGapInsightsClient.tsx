@@ -4322,10 +4322,10 @@ export function ExecutiveGapInsightsClient(props: {
       <div className="grid w-full gap-4 lg:grid-cols-[minmax(200px,280px)_1fr] lg:items-start">
         <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quick Account Review - Top {radarTopN}</div>
+            <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quick Account Review - Top {quickReviewTopN}</div>
             <select
-              value={radarTopN}
-              onChange={(e) => setRadarTopN(clampInt(Number(e.target.value) || 20, 5, 50))}
+              value={quickReviewTopN}
+              onChange={(e) => setQuickReviewTopN(clampInt(Number(e.target.value) || 20, 5, 50))}
               className="h-[36px] w-[80px] shrink-0 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
             >
               {topXOptions.map((n) => (
