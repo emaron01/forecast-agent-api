@@ -136,6 +136,9 @@ type DealRow = {
   opportunity_name: string | null;
   amount: number | null;
   close_date: string | null;
+  close_period_name: string | null;
+  close_fiscal_year: string | null;
+  close_fiscal_quarter: string | null;
   forecast_stage: string | null;
   crm_bucket: "commit" | "best_case" | "pipeline" | null;
   health_score: number | null;
@@ -189,6 +192,20 @@ function bucketLabel(b: DealRow["crm_bucket"]) {
   if (b === "best_case") return "Best Case";
   if (b === "pipeline") return "Pipeline";
   return "Pipeline";
+}
+
+function quarterLabel(periodName: string | null, fiscalQuarter: string | null, fiscalYear: string | null) {
+  const fq = String(fiscalQuarter || "").trim();
+  const fy = String(fiscalYear || "").trim();
+  if (fq && fy) return `Q${fq} FY${fy}`;
+
+  const name = String(periodName || "").trim();
+  if (!name) return null;
+
+  const yearMatch = name.match(/FY\s?(\d{4})/i);
+  const qMatch = name.match(/Q\s?([1-4])\b/i) || name.match(/([1-4])(st|nd|rd|th)\s+Quarter/i);
+  if (yearMatch?.[1] && qMatch?.[1]) return `Q${qMatch[1]} FY${yearMatch[1]}`;
+  return name;
 }
 
 function stageProbabilityForBucket(probs: { commit: number; best_case: number; pipeline: number }, b: DealRow["crm_bucket"]) {
@@ -588,6 +605,16 @@ export async function GET(req: Request) {
       .parse(quotaPeriodIdRaw || defaultQuotaPeriodId || undefined);
     if (!quotaPeriodId) return jsonError(400, "Missing quota_period_id");
 
+    const requestedPipelineQuarterIds = String(url.searchParams.get("pipeline_quarter_ids") || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => /^\d+$/.test(s));
+    const effectiveQuarterIds = requestedPipelineQuarterIds.length ? requestedPipelineQuarterIds : [quotaPeriodId];
+    const effectiveQuarterIdNums = effectiveQuarterIds
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (!effectiveQuarterIdNums.length) return jsonError(400, "Missing pipeline quarter ids");
+
     const qp = periods.find((p) => String(p.id) === String(quotaPeriodId)) || null;
 
     const probs = await getForecastStageProbabilities({ orgId: auth.user.org_id }).catch(() => ({
@@ -697,11 +724,16 @@ export async function GET(req: Request) {
       return await pool.query<DealRow>(
         `
       WITH qp AS (
-        SELECT period_start::date AS period_start, period_end::date AS period_end
+        SELECT
+          id::text AS id,
+          period_start::date AS period_start,
+          period_end::date AS period_end,
+          period_name,
+          fiscal_year::text AS fiscal_year,
+          fiscal_quarter::text AS fiscal_quarter
           FROM quota_periods
          WHERE org_id = $1::bigint
-           AND id = $2::bigint
-         LIMIT 1
+           AND id = ANY($22::bigint[])
       ),
       base AS (
         SELECT
@@ -713,6 +745,9 @@ export async function GET(req: Request) {
           o.opportunity_name,
           COALESCE(o.amount, 0)::float8 AS amount,
           o.close_date::text AS close_date,
+          matched_qp.period_name AS close_period_name,
+          matched_qp.fiscal_year AS close_fiscal_year,
+          matched_qp.fiscal_quarter AS close_fiscal_quarter,
           o.forecast_stage,
           o.health_score,
           o.risk_summary,
@@ -734,15 +769,20 @@ export async function GET(req: Request) {
             )
           ) AS fs
         FROM opportunities o
-        JOIN qp ON TRUE
+        JOIN LATERAL (
+          SELECT qp.id, qp.period_start, qp.period_end, qp.period_name, qp.fiscal_year, qp.fiscal_quarter
+          FROM qp
+          WHERE o.close_date IS NOT NULL
+            AND o.close_date >= qp.period_start
+            AND o.close_date <= qp.period_end
+          ORDER BY qp.period_start ASC, qp.id ASC
+          LIMIT 1
+        ) matched_qp ON TRUE
         LEFT JOIN reps r
           ON COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
          AND r.id = o.rep_id
         WHERE o.org_id = $1::bigint
           AND (o.predictive_eligible IS TRUE)
-          AND o.close_date IS NOT NULL
-          AND o.close_date >= qp.period_start
-          AND o.close_date <= qp.period_end
           AND (
             NOT $3::boolean
             OR (
@@ -832,6 +872,9 @@ export async function GET(req: Request) {
         opportunity_name,
         amount,
         close_date,
+        close_period_name,
+        close_fiscal_year,
+        close_fiscal_quarter,
         forecast_stage,
         crm_bucket,
         health_score,
@@ -907,6 +950,7 @@ export async function GET(req: Request) {
           allowedRepNameKeysUniq, // $19
           useTeamFilter, // $20
           teamRepIdsFilter, // $21
+          effectiveQuarterIdNums, // $22
         ]
       );
     };
@@ -915,11 +959,16 @@ export async function GET(req: Request) {
       return await pool.query<DealRow>(
         `
         WITH qp AS (
-          SELECT period_start::date AS period_start, period_end::date AS period_end
+          SELECT
+            id::text AS id,
+            period_start::date AS period_start,
+            period_end::date AS period_end,
+            period_name,
+            fiscal_year::text AS fiscal_year,
+            fiscal_quarter::text AS fiscal_quarter
             FROM quota_periods
            WHERE org_id = $1::bigint
-             AND id = $2::bigint
-           LIMIT 1
+             AND id = ANY($22::bigint[])
         ),
         base AS (
           SELECT
@@ -931,6 +980,9 @@ export async function GET(req: Request) {
             o.opportunity_name,
             COALESCE(o.amount, 0)::float8 AS amount,
             o.close_date::text AS close_date,
+            matched_qp.period_name AS close_period_name,
+            matched_qp.fiscal_year AS close_fiscal_year,
+            matched_qp.fiscal_quarter AS close_fiscal_quarter,
             o.forecast_stage,
             o.health_score,
             o.risk_summary,
@@ -952,15 +1004,20 @@ export async function GET(req: Request) {
               )
             ) AS fs
           FROM opportunities o
-          JOIN qp ON TRUE
+          JOIN LATERAL (
+            SELECT qp.id, qp.period_start, qp.period_end, qp.period_name, qp.fiscal_year, qp.fiscal_quarter
+            FROM qp
+            WHERE o.close_date IS NOT NULL
+              AND o.close_date >= qp.period_start
+              AND o.close_date <= qp.period_end
+            ORDER BY qp.period_start ASC, qp.id ASC
+            LIMIT 1
+          ) matched_qp ON TRUE
           LEFT JOIN reps r
             ON COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
            AND r.id = o.rep_id
           WHERE o.org_id = $1::bigint
             AND (o.predictive_eligible IS TRUE)
-            AND o.close_date IS NOT NULL
-            AND o.close_date >= qp.period_start
-            AND o.close_date <= qp.period_end
             AND (
               NOT $3::boolean
               OR (
@@ -1020,6 +1077,9 @@ export async function GET(req: Request) {
           opportunity_name,
           amount,
           close_date,
+          close_period_name,
+          close_fiscal_year,
+          close_fiscal_quarter,
           forecast_stage,
           crm_bucket,
           health_score,
@@ -1095,6 +1155,7 @@ export async function GET(req: Request) {
           allowedRepNameKeysUniq, // $19
           useTeamFilter, // $20
           teamRepIdsFilter, // $21
+          effectiveQuarterIdNums, // $22
         ]
       );
     };
@@ -1121,6 +1182,7 @@ export async function GET(req: Request) {
       rep: { rep_id: string | null; rep_public_id: string | null; rep_name: string | null };
       deal_name: { account_name: string | null; opportunity_name: string | null };
       close_date: string | null;
+      quarter: { label: string | null };
       crm_stage: { forecast_stage: string | null; bucket: "commit" | "best_case" | "pipeline" | null; label: string };
       ai_verdict_stage: "Commit" | "Best Case" | "Pipeline" | null;
       amount: number;
@@ -1233,6 +1295,9 @@ export async function GET(req: Request) {
           opportunity_name: d.opportunity_name,
         },
         close_date: d.close_date,
+        quarter: {
+          label: quarterLabel(d.close_period_name, d.close_fiscal_quarter, d.close_fiscal_year),
+        },
         crm_stage: {
           forecast_stage: d.forecast_stage,
           bucket: d.crm_bucket,
@@ -1392,6 +1457,7 @@ export async function GET(req: Request) {
           scopedRole,
           org_id: auth.user.org_id,
           quota_period_id: String(quotaPeriodId),
+          quota_period_ids: effectiveQuarterIds,
           quota_period: qp,
           use_scoped_rep_ids: useScopedRepIds,
           visible_rep_users: visibleRepUsers.length,

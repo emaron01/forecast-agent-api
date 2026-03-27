@@ -40,6 +40,7 @@ export type ExecutiveGapDeal = {
   id: string;
   rep: { rep_public_id?: string | null; rep_name: string | null };
   deal_name: { account_name: string | null; opportunity_name: string | null };
+  quarter?: { label: string | null };
   crm_stage: { forecast_stage?: string | null; bucket: "commit" | "best_case" | "pipeline" | null; label: string };
   ai_verdict_stage?: "Commit" | "Best Case" | "Pipeline" | null;
   amount: number;
@@ -166,11 +167,12 @@ export function ExecutiveDealsDrivingGapModule(props: {
       </div>
 
       <div className="mt-4 overflow-auto rounded-lg border border-[color:var(--sf-border)]">
-        <div className="min-w-[720px]">
-          <div className="grid grid-cols-[80px_1fr_100px_90px_90px_70px_90px_32px] gap-0 bg-[color:var(--sf-surface-alt)] text-tableLabel">
+        <div className="min-w-[840px]">
+          <div className="grid grid-cols-[80px_1fr_100px_120px_90px_90px_70px_90px_32px] gap-0 bg-[color:var(--sf-surface-alt)] text-tableLabel">
             <div className="px-2 py-2">Risk</div>
             <div className="px-2 py-2">Deal</div>
             <div className="px-2 py-2">Rep</div>
+            <div className="px-2 py-2">Quarter</div>
             <div className="px-2 py-2">Stage</div>
             <div className="px-2 py-2 text-right">Amount</div>
             <div className="px-2 py-2 text-right">Health</div>
@@ -195,7 +197,7 @@ export function ExecutiveDealsDrivingGapModule(props: {
                 <div key={id} className="border-t border-[color:var(--sf-border)]">
                   <button
                     type="button"
-                    className="grid w-full grid-cols-[80px_1fr_100px_90px_90px_70px_90px_32px] items-center text-left text-tableValue text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
+                    className="grid w-full grid-cols-[80px_1fr_100px_120px_90px_90px_70px_90px_32px] items-center text-left text-tableValue text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
                     aria-expanded={open}
                     aria-controls={detailsId}
                     onClick={() => {
@@ -226,6 +228,7 @@ export function ExecutiveDealsDrivingGapModule(props: {
                       ) : null}
                     </div>
                     <div className="px-2 py-2 text-meta truncate" title={dealRep(d)}>{dealRep(d)}</div>
+                    <div className="px-2 py-2 text-meta truncate" title={d.quarter?.label || undefined}>{d.quarter?.label || "—"}</div>
                     <div className="px-2 py-2 text-meta">{stage}</div>
                     <div className="px-2 py-2 text-right text-tableValue num-tabular shrink-0">{fmtMoney(d.amount)}</div>
                     <div className={`px-2 py-2 text-right text-tableValue num-tabular shrink-0 ${healthTextClass(d.health?.health_pct ?? null)}`}>

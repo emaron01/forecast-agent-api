@@ -5,7 +5,7 @@ import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useTransition, type ComponentProps } from "react";
 import { ExecutiveGapInsightsClient } from "../../../../components/dashboard/executive/ExecutiveGapInsightsClient";
-import type { PipelineHygienePayload } from "../../../../components/dashboard/executive/TeamForecastHygienePanels";
+import { TeamForecastHygienePanels, type PipelineHygienePayload } from "../../../../components/dashboard/executive/TeamForecastHygienePanels";
 import type { ExecTabKey } from "../../../actions/execTabConstants";
 import { type RepManagerManagerRow, type RepManagerRepRow } from "./RepManagerComparisonPanel";
 import { TeamLeaderboardClient } from "./TeamLeaderboardClient";
@@ -842,6 +842,14 @@ export function ExecutiveTabsShellClient(props: {
 
             <div className="-mx-4">
               <ExecutiveGapInsightsClient {...props.pipelineTabProps} pipelineKpisTabOnly={true} viewerRole={props.viewerRole} />
+            </div>
+
+            <div className="-mx-4">
+              <TeamForecastHygienePanels
+                pipelineHygiene={props.pipelineHygiene}
+                periodName={props.pipelineTabProps.periodName}
+                sectionClassName="space-y-4"
+              />
             </div>
           </div>
         )}

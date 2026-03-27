@@ -693,6 +693,7 @@ export function ExecutiveGapInsightsClient(props: {
   coachingRepRows?: RepManagerRepRow[] | null;
   coachingPeriodStart?: string;
   coachingPeriodEnd?: string;
+  pipelineQuarterIds?: string[];
   revenueTabOnly?: boolean;
   heroOnly?: boolean;
   /** @deprecated No longer rendered in heroOnly; aging cards live on the Forecast tab / full layout. */
@@ -765,6 +766,9 @@ export function ExecutiveGapInsightsClient(props: {
     const params = new URLSearchParams(sp.toString());
     // Ensure quarter selection is always honored.
     setParam(params, "quota_period_id", quotaPeriodId);
+    if (props.pipelineTabOnly && Array.isArray(props.pipelineQuarterIds) && props.pipelineQuarterIds.length) {
+      params.set("pipeline_quarter_ids", props.pipelineQuarterIds.join(","));
+    }
     // CRO/VP default: include ALL stages unless user explicitly filters buckets.
     const hasAnyBucket =
       params.has("bucket_commit") || params.has("bucket_best_case") || params.has("bucket_pipeline");
@@ -774,7 +778,7 @@ export function ExecutiveGapInsightsClient(props: {
       params.set("bucket_pipeline", "1");
     }
     return `/api/forecast/gap-driving-deals?${params.toString()}`;
-  }, [sp, quotaPeriodId]);
+  }, [props.pipelineQuarterIds, props.pipelineTabOnly, quotaPeriodId, sp]);
 
   const activePeriod = useMemo(() => {
     const id = String(quotaPeriodId || "").trim();
@@ -785,6 +789,9 @@ export function ExecutiveGapInsightsClient(props: {
   const analysisApiUrl = useMemo(() => {
     const params = new URLSearchParams(sp.toString());
     setParam(params, "quota_period_id", quotaPeriodId);
+    if (props.pipelineTabOnly && Array.isArray(props.pipelineQuarterIds) && props.pipelineQuarterIds.length) {
+      params.set("pipeline_quarter_ids", props.pipelineQuarterIds.join(","));
+    }
 
     const hasAnyBucket =
       params.has("bucket_commit") || params.has("bucket_best_case") || params.has("bucket_pipeline");
@@ -801,7 +808,7 @@ export function ExecutiveGapInsightsClient(props: {
     params.set("limit", "2000");
 
     return `/api/forecast/gap-driving-deals?${params.toString()}`;
-  }, [sp, quotaPeriodId]);
+  }, [props.pipelineQuarterIds, props.pipelineTabOnly, quotaPeriodId, sp]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1694,56 +1701,60 @@ export function ExecutiveGapInsightsClient(props: {
 
     return (
       <div className="grid gap-4">
-        <div className="grid w-full gap-4 lg:grid-cols-[minmax(200px,280px)_1fr] lg:items-start">
-          <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
-                Quick Account Review - Top {radarTopN}
-              </div>
-              <select
-                value={radarTopN}
-                onChange={(e) => setRadarTopN(clampInt(Number(e.target.value) || 20, 5, 50))}
-                className="h-[36px] w-[80px] shrink-0 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
-              >
-                {topXOptions.map((n) => (
-                  <option key={n} value={n}>
-                    Top {n}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="mt-3 text-sm text-[color:var(--sf-text-primary)]">
-              {radarDeals.length ? (
-                <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
-                  {radarDeals.map((d) => (
-                    <div
-                      key={d.id}
-                      className="flex min-w-0 items-center gap-1.5 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1"
-                    >
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full border border-[color:var(--sf-border)]"
-                        style={{ background: d.color }}
-                        aria-hidden="true"
-                      />
-                      <span className="min-w-0 truncate text-xs" title={String(d.legendLabel || d.label)}>
-                        {String(d.legendLabel || d.label)}
-                      </span>
-                    </div>
-                  ))}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="space-y-4">
+            <div className="grid w-full gap-4 lg:grid-cols-[minmax(200px,280px)_1fr] lg:items-start">
+              <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
+                    Quick Account Review - Top {radarTopN}
+                  </div>
+                  <select
+                    value={radarTopN}
+                    onChange={(e) => setRadarTopN(clampInt(Number(e.target.value) || 20, 5, 50))}
+                    className="h-[36px] w-[80px] shrink-0 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
+                  >
+                    {topXOptions.map((n) => (
+                      <option key={n} value={n}>
+                        Top {n}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              ) : (
-                <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
-              )}
+
+                <div className="mt-3 text-sm text-[color:var(--sf-text-primary)]">
+                  {radarDeals.length ? (
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
+                      {radarDeals.map((d) => (
+                        <div
+                          key={d.id}
+                          className="flex min-w-0 items-center gap-1.5 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1"
+                        >
+                          <span
+                            className="h-2 w-2 shrink-0 rounded-full border border-[color:var(--sf-border)]"
+                            style={{ background: d.color }}
+                            aria-hidden="true"
+                          />
+                          <span className="min-w-0 truncate text-xs" title={String(d.legendLabel || d.label)}>
+                            {String(d.legendLabel || d.label)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
+                  )}
+                </div>
+              </section>
+
+              <div className="min-w-0">
+                <RiskRadarPlot deals={radarDeals} height={300} />
+              </div>
             </div>
-          </section>
-
-          <div className="min-w-0">
-            <RiskRadarPlot deals={radarDeals} size={960} />
           </div>
-        </div>
 
-        <section ref={adjustRiskSectionRef} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+          <div className="space-y-4">
+            <section ref={adjustRiskSectionRef} className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Adjust Risk Radae and Account View</div>
@@ -2005,12 +2016,14 @@ export function ExecutiveGapInsightsClient(props: {
           {err ? <div className="mt-2 text-sm text-[#E74C3C]">{err.error}</div> : null}
         </section>
 
-        <div className="grid gap-3">
-          <ExecutiveDealsDrivingGapModule
-            title={stageLabel}
-            subtitle={undefined}
-            deals={sortedDeals.slice(0, topN)}
-          />
+            <div className="grid gap-3">
+              <ExecutiveDealsDrivingGapModule
+                title={stageLabel}
+                subtitle={undefined}
+                deals={sortedDeals.slice(0, topN)}
+              />
+            </div>
+          </div>
         </div>
 
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">

@@ -67,6 +67,16 @@ export default async function ExecutiveDashboardPage({
       selectedPeriod?.period_end != null
         ? new Date(new Date(selectedPeriod.period_end).getTime() + 24 * 60 * 60 * 1000).toISOString()
         : new Date().toISOString();
+    const pipelineQuarterIds = selectedPeriod?.period_start
+      ? summary.periods
+          .slice()
+          .filter((p) => new Date(p.period_start).getTime() >= new Date(selectedPeriod.period_start).getTime())
+          .sort((a, b) => new Date(a.period_start).getTime() - new Date(b.period_start).getTime())
+          .slice(0, 3)
+          .map((p) => String(p.id))
+      : selectedPeriod?.id != null
+        ? [String(selectedPeriod.id)]
+        : [];
 
     const scopedRole =
       ctx.user.role === "ADMIN" ||
@@ -1765,6 +1775,7 @@ export default async function ExecutiveDashboardPage({
             topDealsWon,
             topDealsLost,
             periodName: selectedPeriod?.period_name ?? "",
+            pipelineQuarterIds,
             coachingRepRows: teamRepRows,
             coachingPeriodStart: selectedPeriod?.period_start ?? "",
             coachingPeriodEnd: selectedPeriod?.period_end ?? "",

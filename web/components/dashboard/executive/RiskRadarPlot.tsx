@@ -61,9 +61,10 @@ function textAnchorForAngle(rad: number) {
   return "middle";
 }
 
-export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number }) {
+export function RiskRadarPlot(props: { deals: RadarDeal[]; size?: number; height?: number }) {
   // Allow the radar to fill modern executive dashboard layouts.
-  const size = Math.max(360, Math.min(960, Number(props.size || 640)));
+  const requestedSize = Number(props.height ?? props.size ?? 640);
+  const size = Math.max(300, Math.min(960, requestedSize));
   const cx = size / 2;
   const cy = size / 2;
   // Larger outer radius to reduce empty space while keeping label padding safe.
