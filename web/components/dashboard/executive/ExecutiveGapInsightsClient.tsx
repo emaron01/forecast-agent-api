@@ -1882,57 +1882,59 @@ export function ExecutiveGapInsightsClient(props: {
             </div>
           </section>
 
-          <div className="min-w-0">
-            <RiskRadarPlot
-              deals={radarDeals}
-              height={480}
-              flush={true}
-              subtitle={`Showing ${radarDeals.length} open deals in ${radarPeriodLabel}`}
-            />
-          </div>
-
-          <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
-                Quick Account Review - Top {radarTopN}
-              </div>
-              <select
-                value={radarTopN}
-                onChange={(e) => setRadarTopN(clampInt(Number(e.target.value) || 20, 5, 50))}
-                className="h-[36px] w-[80px] shrink-0 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
-              >
-                {topXOptions.map((n) => (
-                  <option key={n} value={n}>
-                    Top {n}
-                  </option>
-                ))}
-              </select>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+            <div className="min-w-0">
+              <RiskRadarPlot
+                deals={radarDeals}
+                height={480}
+                flush={true}
+                subtitle={`Showing ${radarDeals.length} open deals in ${radarPeriodLabel}`}
+              />
             </div>
 
-            <div className="mt-3 text-sm text-[color:var(--sf-text-primary)]">
-              {radarDeals.length ? (
-                <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
-                  {radarDeals.map((d) => (
-                    <div
-                      key={d.id}
-                      className="flex min-w-0 items-center gap-1.5 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1"
-                    >
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full border border-[color:var(--sf-border)]"
-                        style={{ background: d.color }}
-                        aria-hidden="true"
-                      />
-                      <span className="min-w-0 truncate text-xs" title={String(d.legendLabel || d.label)}>
-                        {String(d.legendLabel || d.label)}
-                      </span>
-                    </div>
-                  ))}
+            <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
+                  Quick Account Review - Top {radarTopN}
                 </div>
-              ) : (
-                <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
-              )}
-            </div>
-          </section>
+                <select
+                  value={radarTopN}
+                  onChange={(e) => setRadarTopN(clampInt(Number(e.target.value) || 20, 5, 50))}
+                  className="h-[36px] w-[80px] shrink-0 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
+                >
+                  {topXOptions.map((n) => (
+                    <option key={n} value={n}>
+                      Top {n}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="mt-3 text-sm text-[color:var(--sf-text-primary)]">
+                {radarDeals.length ? (
+                  <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
+                    {radarDeals.map((d) => (
+                      <div
+                        key={d.id}
+                        className="flex min-w-0 items-center gap-1.5 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1"
+                      >
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-full border border-[color:var(--sf-border)]"
+                          style={{ background: d.color }}
+                          aria-hidden="true"
+                        />
+                        <span className="min-w-0 truncate text-xs" title={String(d.legendLabel || d.label)}>
+                          {String(d.legendLabel || d.label)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-[color:var(--sf-text-secondary)]">No at-risk deals in the current view.</div>
+                )}
+              </div>
+            </section>
+          </div>
 
           <button
             type="button"
