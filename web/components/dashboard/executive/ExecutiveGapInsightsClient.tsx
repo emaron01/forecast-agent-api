@@ -366,13 +366,77 @@ function hash01(s: string) {
 }
 
 function colorForDealId(id: string) {
-  const base = palette.chartSeries;
-  const h = hash01(id);
-  const idx = Math.floor(h * base.length) % base.length;
-  const tweak = (hash01(id + "|t") - 0.5) * 0.22;
-  // Return a CSS color-mix string so we stay within design tokens.
-  const mixPct = Math.round(clamp01(0.68 + tweak) * 100);
-  return `color-mix(in srgb, ${base[idx]} ${mixPct}%, white)`;
+  const hue = Math.round(hash01(`${id}|h`) * 359);
+  const saturation = Math.round(68 + hash01(`${id}|s`) * 18);
+  const lightness = Math.round(48 + hash01(`${id}|l`) * 10);
+  return `hsl(${hue} ${saturation}% ${lightness}%)`;
+}
+
+const MEDDPICC_HEAT_MAP_COLS = [
+  { key: "pain", short: "Pain", scoreKey: "pain" },
+  { key: "metrics", short: "Metrics", scoreKey: "metrics" },
+  { key: "champion", short: "Champ", scoreKey: "champion" },
+  { key: "eb", short: "EB", scoreKey: "economic_buyer" },
+  { key: "criteria", short: "Crit", scoreKey: "criteria" },
+  { key: "process", short: "Process", scoreKey: "process" },
+  { key: "competition", short: "Comp", scoreKey: "competition" },
+  { key: "paper", short: "Paper", scoreKey: "paper" },
+  { key: "timing", short: "Timing", scoreKey: "timing" },
+  { key: "budget", short: "Budget", scoreKey: "budget" },
+] as const;
+
+const STAGE_ROWS = [
+  { label: "Commit", match: (s: string) => s.toLowerCase().includes("commit") },
+  { label: "Best Case", match: (s: string) => s.toLowerCase().includes("best") },
+  {
+    label: "Pipeline",
+    match: (s: string) =>
+      !s.toLowerCase().includes("commit") &&
+      !s.toLowerCase().includes("best") &&
+      !s.toLowerCase().includes("won") &&
+      !s.toLowerCase().includes("lost"),
+  },
+] as const;
+
+function stageMatches(deal: DealOut, stage: (typeof STAGE_ROWS)[number]): boolean {
+  const fs = String(deal.crm_stage?.forecast_stage ?? "").toLowerCase();
+  return stage.match(fs);
+}
+
+function scoreToCell(avg: number | null, count: number): { bg: string; text: string; label: string } {
+  if (avg === null || count === 0) {
+    return {
+      bg: "bg-[color:var(--sf-surface-alt)]",
+      text: "text-[color:var(--sf-text-disabled)]",
+      label: "—",
+    };
+  }
+  if (avg < 0.5) {
+    return {
+      bg: "bg-red-500/20",
+      text: "text-red-400",
+      label: "L",
+    };
+  }
+  if (avg < 1.5) {
+    return {
+      bg: "bg-yellow-500/20",
+      text: "text-yellow-400",
+      label: "M",
+    };
+  }
+  return {
+    bg: "bg-green-500/20",
+    text: "text-green-400",
+    label: "H",
+  };
+}
+
+function fmtHeatMapMoney(n: number): string {
+  if (!Number.isFinite(n)) return "—";
+  if (n >= 1000000) return `$${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `$${(n / 1000).toFixed(0)}K`;
+  return `$${Math.round(n)}`;
 }
 
 async function fetchCommitDealCoachingCard(dealId: string): Promise<DealCoachingCardDeal | null> {
@@ -1009,6 +1073,36 @@ export function ExecutiveGapInsightsClient(props: {
   }, [activePeriod?.period_end, activePeriod?.period_start, stageDeals]);
 
   const radarPeriodLabel = props.periodName || activePeriod?.period_name || "selected quarter";
+
+  const heatMapRows = useMemo(
+    () =>
+      STAGE_ROWS.map((stage) => {
+        const stageDeals = radarBaseDeals.filter((d) => stageMatches(d, stage));
+        const dealCount = stageDeals.length;
+        const totalAmount = stageDeals.reduce((sum, d) => sum + Number(d.amount ?? 0), 0);
+        const cells = MEDDPICC_HEAT_MAP_COLS.map((col) => {
+          const scores = stageDeals
+            .map((d) => {
+              const entry = (d.meddpicc_tb || []).find((item) => String(item.key || "").trim() === col.scoreKey);
+              const value = entry?.score;
+              return value == null ? null : Number(value);
+            })
+            .filter((value): value is number => value != null && Number.isFinite(value) && value >= 0);
+          const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+          return {
+            key: col.key,
+            ...scoreToCell(avg, dealCount),
+          };
+        });
+        return {
+          label: stage.label,
+          dealCount,
+          totalAmount,
+          cells,
+        };
+      }),
+    [radarBaseDeals]
+  );
 
   const radarDeals: RadarDeal[] = useMemo(() => {
     // Radar (dots + account list) is a display slice for the active quarter only.
@@ -1735,6 +1829,59 @@ export function ExecutiveGapInsightsClient(props: {
     return (
       <div className="grid gap-4">
         <div className="space-y-4">
+          <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-[color:var(--sf-text-primary)]">MEDDPICC Risk Heat Map</h3>
+                <p className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">
+                  Average category scores by forecast stage · {radarBaseDeals.length} open deals · {radarPeriodLabel}
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="w-[120px] px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                      Stage
+                    </th>
+                    {MEDDPICC_HEAT_MAP_COLS.map((col) => (
+                      <th
+                        key={col.key}
+                        className="px-2 py-2 text-center text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]"
+                      >
+                        {col.short}
+                      </th>
+                    ))}
+                    <th className="px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                      Deals
+                    </th>
+                    <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                      Amount
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {heatMapRows.map((row) => (
+                    <tr key={row.label} className="border-t border-[color:var(--sf-border)]">
+                      <td className="px-3 py-3 text-sm font-semibold text-[color:var(--sf-text-primary)]">{row.label}</td>
+                      {row.cells.map((cell) => (
+                        <td key={cell.key} className={`rounded-sm px-2 py-3 text-center text-sm font-bold ${cell.bg} ${cell.text}`}>
+                          {cell.label}
+                        </td>
+                      ))}
+                      <td className="px-3 py-3 text-center text-sm text-[color:var(--sf-text-secondary)]">{row.dealCount}</td>
+                      <td className="px-3 py-3 text-right font-mono text-sm text-[color:var(--sf-text-primary)]">
+                        {fmtHeatMapMoney(row.totalAmount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
           <div className="min-w-0">
             <RiskRadarPlot
               deals={radarDeals}
