@@ -162,15 +162,19 @@ function aggregateCurrentTeam(reps: RepManagerRepRow[]) {
     const nums = values.map((v) => Number(v)).filter((v) => Number.isFinite(v));
     return nums.length ? nums.reduce((sum, v) => sum + v, 0) / nums.length : null;
   };
+  const getLostAmount = (rep: RepManagerRepRow) => Number((rep as RepManagerRepRow & { lost_amount?: number }).lost_amount || 0) || 0;
   const quota = reps.reduce((sum, rep) => sum + (Number(rep.quota) || 0), 0);
   const wonAmount = reps.reduce((sum, rep) => sum + (Number(rep.won_amount) || 0), 0);
+  const lostAmount = reps.reduce((sum, rep) => sum + getLostAmount(rep), 0);
   const activePipelineAmount = reps.reduce((sum, rep) => sum + (Number(rep.active_amount) || 0), 0);
+  const totalCount = reps.reduce((sum, rep) => sum + (Number(rep.total_count) || 0), 0);
   const wonCount = reps.reduce((sum, rep) => sum + (Number(rep.won_count) || 0), 0);
+  const lostCount = reps.reduce((sum, rep) => sum + (Number(rep.lost_count) || 0), 0);
   const aov = wonCount > 0 ? wonAmount / wonCount : 0;
   const avgDaysWon = average(reps.map((rep) => rep.avg_days_won));
   const avgDaysLost = average(reps.map((rep) => rep.avg_days_lost));
   const avgDaysActive = average(reps.map((rep) => rep.avg_days_active));
-  return { quota, wonAmount, activePipelineAmount, wonCount, aov, avgDaysWon, avgDaysLost, avgDaysActive };
+  return { quota, wonAmount, lostAmount, activePipelineAmount, totalCount, wonCount, lostCount, aov, avgDaysWon, avgDaysLost, avgDaysActive };
 }
 
 function aggregateFyQuarterRows(rows: TeamLeaderboardFyQuarterRow[]): TeamLeaderboardFyQuarterRow[] {
@@ -345,7 +349,10 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     ytdAttainPct: number;
     fyQuarters: TeamLeaderboardFyQuarterRow[];
     activePipelineAmount: number;
+    totalCount: number;
     wonCount: number;
+    lostCount: number;
+    lostAmount: number;
     avgDaysWon: number | null;
     avgDaysLost: number | null;
     avgDaysActive: number | null;
@@ -371,7 +378,10 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const annualCoverageColor = coverageTextClass(annualCoverage);
     const { label: riskLabel, color: riskColor } = riskFromCoverage(annualCoverage);
     const healthColor = healthTextClass(args.avgHealthPct);
-    const pipelineAov = args.wonCount > 0 ? args.wonAmount / args.wonCount : 0;
+    const pipelineCount = Math.max(0, args.totalCount - args.wonCount - args.lostCount);
+    const aovWon = args.wonCount > 0 ? args.wonAmount / args.wonCount : 0;
+    const aovLost = args.lostCount > 0 ? args.lostAmount / args.lostCount : 0;
+    const aovPipeline = pipelineCount > 0 ? args.activePipelineAmount / pipelineCount : 0;
     const sortedProducts = [...args.repProducts].sort((a, b) => b.amount - a.amount);
 
     return (
@@ -477,47 +487,24 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           <div className="mb-3 text-xs font-bold uppercase tracking-wider text-[color:var(--sf-text-secondary)]">
             Pipeline
           </div>
-          <div className="grid grid-cols-2 gap-2 text-xs md:grid-cols-4 xl:grid-cols-6">
-            <div>
-              <div className="text-base text-[color:var(--sf-text-secondary)]">Q Coverage</div>
-              <div className={`text-base font-semibold ${coverageColor}`}>{qCoverage.toFixed(1)}x</div>
-            </div>
-            <div>
-              <div className="text-base text-[color:var(--sf-text-secondary)]">Annual Coverage</div>
-              <div className={`text-base font-semibold ${annualCoverageColor}`}>{annualCoverage.toFixed(1)}x</div>
-            </div>
-            <div>
-              <div className="text-base text-[color:var(--sf-text-secondary)]">Avg Health</div>
-              <div className={`text-base font-semibold ${healthColor}`}>
-                {args.avgHealthPct != null ? `${args.avgHealthPct}%` : "—"}
+          <div className="mt-2 flex flex-wrap items-start gap-6">
+            {[
+              { label: "Q Coverage", value: `${qCoverage.toFixed(1)}x`, color: coverageColor },
+              { label: "Annual Coverage", value: `${annualCoverage.toFixed(1)}x`, color: annualCoverageColor },
+              { label: "Avg Health", value: args.avgHealthPct != null ? `${args.avgHealthPct}%` : "—", color: healthColor },
+              { label: "Pipeline Risk", value: riskLabel, color: riskColor },
+              { label: "AOV Won", value: fmtMoney(aovWon), color: "text-green-400" },
+              { label: "AOV Lost", value: fmtMoney(aovLost), color: "text-red-400" },
+              { label: "AOV Pipeline", value: fmtMoney(aovPipeline), color: "text-[color:var(--sf-text-primary)]" },
+              { label: "Age Won", value: args.avgDaysWon != null ? `${Math.round(args.avgDaysWon)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
+              { label: "Age Lost", value: args.avgDaysLost != null ? `${Math.round(args.avgDaysLost)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
+              { label: "Age Pipeline", value: args.avgDaysActive != null ? `${Math.round(args.avgDaysActive)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
+            ].map((stat) => (
+              <div key={stat.label} className="flex items-baseline gap-1">
+                <span className="shrink-0 text-sm text-[color:var(--sf-text-secondary)]">{stat.label}:</span>
+                <span className={`shrink-0 text-sm font-semibold ${stat.color}`}>{stat.value}</span>
               </div>
-            </div>
-            <div>
-              <div className="text-base text-[color:var(--sf-text-secondary)]">Pipeline Risk</div>
-              <div className={`text-base font-semibold ${riskColor}`}>{riskLabel}</div>
-            </div>
-            <div>
-              <div className="text-base text-[color:var(--sf-text-secondary)]">AOV</div>
-              <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(pipelineAov)}</div>
-            </div>
-            <div>
-              <div className="text-base text-[color:var(--sf-text-secondary)]">Avg Age Won</div>
-              <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">
-                {args.avgDaysWon != null ? `${Math.round(args.avgDaysWon)}d` : "—"}
-              </div>
-            </div>
-            <div>
-              <div className="text-base text-[color:var(--sf-text-secondary)]">Avg Age Lost</div>
-              <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">
-                {args.avgDaysLost != null ? `${Math.round(args.avgDaysLost)}d` : "—"}
-              </div>
-            </div>
-            <div>
-              <div className="text-base text-[color:var(--sf-text-secondary)]">Avg Age Pipeline</div>
-              <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">
-                {args.avgDaysActive != null ? `${Math.round(args.avgDaysActive)}d` : "—"}
-              </div>
-            </div>
+            ))}
           </div>
         </div>
 
@@ -594,7 +581,10 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           ytdAttainPct,
           fyQuarters,
           activePipelineAmount: Number(rep.active_amount) || 0,
+          totalCount: Number(rep.total_count) || 0,
           wonCount: Number(rep.won_count) || 0,
+          lostCount: Number(rep.lost_count) || 0,
+          lostAmount: Number((rep as RepManagerRepRow & { lost_amount?: number }).lost_amount || 0) || 0,
           avgDaysWon: rep.avg_days_won ?? null,
           avgDaysLost: rep.avg_days_lost ?? null,
           avgDaysActive: rep.avg_days_active ?? null,
@@ -655,7 +645,10 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           ytdAttainPct,
           fyQuarters,
           activePipelineAmount: current.activePipelineAmount,
+          totalCount: current.totalCount,
           wonCount: current.wonCount,
+          lostCount: current.lostCount,
+          lostAmount: current.lostAmount,
           avgDaysWon: current.avgDaysWon,
           avgDaysLost: current.avgDaysLost,
           avgDaysActive: current.avgDaysActive,
