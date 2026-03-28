@@ -351,6 +351,7 @@ export type TeamRepManagerPayload = {
   periodEnd?: string;
   repFyQuarterRows?: {
     rep_id: string;
+    rep_int_id: string;
     period_id: string;
     period_name: string;
     fiscal_quarter: string;

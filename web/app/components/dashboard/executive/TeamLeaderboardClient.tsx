@@ -10,6 +10,7 @@ import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
 
 type TeamLeaderboardFyQuarterRow = {
   rep_id: string;
+  rep_int_id: string;
   period_id: string;
   period_name: string;
   fiscal_quarter: string;
@@ -364,7 +365,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
       <div className={`rounded-xl border p-5 ${paceStatusCardClass(args.paceStatus)}`}>
         <div className="flex items-start justify-between">
           <div>
-            <div className="font-semibold text-base text-[color:var(--sf-text-primary)]">{args.name}</div>
+            <div className="font-bold text-lg text-[color:var(--sf-text-primary)]">{args.name}</div>
             <div className={`mt-0.5 text-xs font-semibold ${paceColor}`}>
               {paceIcon} {paceLabel}
             </div>
@@ -519,20 +520,14 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const quota = Number(rep.quota) || 0;
     const wonAmount = Number(rep.won_amount) || 0;
     const paceStatus = calcPaceStatus(wonAmount, quota, paceRatio);
-    const repPublicId = String(rep.rep_id ?? "");
-    console.log("[fyQuarters debug]", {
-      repPublicId,
-      rowRepId: rep.rep_id,
-      allPeriodRowsCount: allPeriodRows?.length,
-      firstRow: allPeriodRows?.[0],
-    });
     const fyQuarters = aggregateFyQuarterRows(
       (allPeriodRows ?? [])
         .filter(
           (r) =>
-            r.rep_id === repPublicId ||
+            r.rep_id === rep.rep_id ||
+            r.rep_int_id === rep.rep_id ||
             r.rep_id === String(rep.rep_id) ||
-            r.rep_id === (rep.rep_id as any)
+            r.rep_int_id === String(rep.rep_id)
         )
         .sort((a, b) => Number(a.fiscal_quarter) - Number(b.fiscal_quarter))
     );
@@ -587,7 +582,11 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const cardKey = `mgr:${managerId || "unassigned"}`;
     const current = aggregateCurrentTeam(repsUnder);
     const repIds = repsUnder.map((r) => String(r.rep_id));
-    const fyQuarters = aggregateFyQuarterRows((allPeriodRows ?? []).filter((r) => repIds.includes(String(r.rep_id))));
+    const fyQuarters = aggregateFyQuarterRows(
+      (allPeriodRows ?? [])
+        .filter((r) => repIds.includes(String(r.rep_id)) || repIds.includes(String(r.rep_int_id)))
+        .sort((a, b) => Number(a.fiscal_quarter) - Number(b.fiscal_quarter))
+    );
     const annualQuota = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.quota, 0) : current.quota * 4;
     const ytdRevenue = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.won_amount, 0) : current.wonAmount;
     const ytdAttainPct = annualQuota > 0 ? Math.round((ytdRevenue / annualQuota) * 100) : 0;

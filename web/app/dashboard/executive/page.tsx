@@ -1146,6 +1146,7 @@ export default async function ExecutiveDashboardPage({
   let teamOrderedManagerIds: string[] = [];
   let repFyQuarterRows: {
     rep_id: string;
+    rep_int_id: string;
     period_id: string;
     period_name: string;
     fiscal_quarter: string;
@@ -1669,6 +1670,7 @@ export default async function ExecutiveDashboardPage({
     if (fyPeriodIds.length > 0 && visibleRepIds.length > 0) {
       const { rows } = await pool.query<{
         rep_id: string;
+        rep_int_id: string;
         period_id: string;
         period_name: string;
         fiscal_quarter: string;
@@ -1677,7 +1679,8 @@ export default async function ExecutiveDashboardPage({
       }>(
         `
         SELECT
-          r.id::text AS rep_id,
+          r.public_id::text AS rep_id,
+          r.id::text AS rep_int_id,
           qp.id::text AS period_id,
           qp.period_name,
           qp.fiscal_quarter::text AS fiscal_quarter,
@@ -1714,6 +1717,7 @@ export default async function ExecutiveDashboardPage({
         const quota = Number(r.quota || 0) || 0;
         return {
           rep_id: String(r.rep_id),
+          rep_int_id: String(r.rep_int_id),
           period_id: String(r.period_id),
           period_name: String(r.period_name || ""),
           fiscal_quarter: String(r.fiscal_quarter || ""),
