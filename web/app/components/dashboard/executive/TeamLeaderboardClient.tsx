@@ -496,13 +496,22 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
               { label: "AOV Won", value: fmtMoney(aovWon), color: "text-green-400" },
               { label: "AOV Lost", value: fmtMoney(aovLost), color: "text-red-400" },
               { label: "AOV Pipeline", value: fmtMoney(aovPipeline), color: "text-[color:var(--sf-text-primary)]" },
+            ].map((stat) => (
+              <div key={stat.label} className="flex items-baseline gap-1">
+                <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">{stat.label}:</span>
+                <span className={`shrink-0 text-base font-semibold ${stat.color}`}>{stat.value}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 flex flex-wrap items-start gap-6">
+            {[
               { label: "Age Won", value: args.avgDaysWon != null ? `${Math.round(args.avgDaysWon)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
               { label: "Age Lost", value: args.avgDaysLost != null ? `${Math.round(args.avgDaysLost)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
               { label: "Age Pipeline", value: args.avgDaysActive != null ? `${Math.round(args.avgDaysActive)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
             ].map((stat) => (
               <div key={stat.label} className="flex items-baseline gap-1">
-                <span className="shrink-0 text-sm text-[color:var(--sf-text-secondary)]">{stat.label}:</span>
-                <span className={`shrink-0 text-sm font-semibold ${stat.color}`}>{stat.value}</span>
+                <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">{stat.label}:</span>
+                <span className={`shrink-0 text-base font-semibold ${stat.color}`}>{stat.value}</span>
               </div>
             ))}
           </div>
