@@ -69,7 +69,7 @@ type ReportData = {
   buckets: BucketRow[];
   rows: AggRow[];
 };
-type BreakdownSelection = { label: string; repIds: number[] };
+type BreakdownSelection = { label: string; repIds: string[] };
 type BreakdownResult = { label: string; data: ReportData };
 
 const CHART_COLORS = [
@@ -449,7 +449,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
       if (!mgr) return;
       const teamRepIds = repDirectory
         .filter((r) => r.role === "REP" && r.manager_rep_id === mgr.id)
-        .map((r) => r.id);
+        .map((r) => String(r.id));
       selections.push({
         label: `${mgr.name}'s Team`,
         repIds: teamRepIds,
@@ -461,14 +461,14 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
       if (!rep) return;
       selections.push({
         label: rep.name,
-        repIds: [rep.id],
+        repIds: [String(rep.id)],
       });
     });
 
     if (selections.length === 0) {
       selections.push({
         label: "All Reps",
-        repIds: repDirectory.filter((r) => r.role === "REP").map((r) => r.id),
+        repIds: repDirectory.filter((r) => r.role === "REP").map((r) => String(r.id)),
       });
     }
 
