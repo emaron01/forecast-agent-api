@@ -1690,7 +1690,7 @@ export default async function ExecutiveDashboardPage({
               OR lower(btrim(COALESCE(o.sales_stage,''))) LIKE '%won%'
             ) THEN o.amount ELSE 0 END
           ), 0)::float8 AS won_amount,
-          COALESCE(MAX(q.amount), 0)::float8 AS quota
+          COALESCE(MAX(q.quota_amount), 0)::float8 AS quota
         FROM reps r
         JOIN quota_periods qp
           ON qp.org_id = COALESCE(r.organization_id, r.org_id::bigint)

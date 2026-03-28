@@ -521,12 +521,13 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const quota = Number(rep.quota) || 0;
     const wonAmount = Number(rep.won_amount) || 0;
     const paceStatus = calcPaceStatus(wonAmount, quota, paceRatio);
+    const repKey = String(rep.rep_id);
     const fyQuarters = aggregateFyQuarterRows(
       (allPeriodRows ?? [])
         .filter(
           (r) =>
-            r.rep_id === rep.rep_id ||
-            r.rep_int_id === rep.rep_id ||
+            r.rep_id === repKey ||
+            r.rep_int_id === repKey ||
             r.rep_id === String(rep.rep_id) ||
             r.rep_int_id === String(rep.rep_id)
         )
