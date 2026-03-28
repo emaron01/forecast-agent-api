@@ -158,12 +158,19 @@ function healthPctFrom30(score: number | null | undefined): number | null {
 }
 
 function aggregateCurrentTeam(reps: RepManagerRepRow[]) {
+  const average = (values: Array<number | null | undefined>) => {
+    const nums = values.map((v) => Number(v)).filter((v) => Number.isFinite(v));
+    return nums.length ? nums.reduce((sum, v) => sum + v, 0) / nums.length : null;
+  };
   const quota = reps.reduce((sum, rep) => sum + (Number(rep.quota) || 0), 0);
   const wonAmount = reps.reduce((sum, rep) => sum + (Number(rep.won_amount) || 0), 0);
   const activePipelineAmount = reps.reduce((sum, rep) => sum + (Number(rep.active_amount) || 0), 0);
   const wonCount = reps.reduce((sum, rep) => sum + (Number(rep.won_count) || 0), 0);
   const aov = wonCount > 0 ? wonAmount / wonCount : 0;
-  return { quota, wonAmount, activePipelineAmount, wonCount, aov };
+  const avgDaysWon = average(reps.map((rep) => rep.avg_days_won));
+  const avgDaysLost = average(reps.map((rep) => rep.avg_days_lost));
+  const avgDaysActive = average(reps.map((rep) => rep.avg_days_active));
+  return { quota, wonAmount, activePipelineAmount, wonCount, aov, avgDaysWon, avgDaysLost, avgDaysActive };
 }
 
 function aggregateFyQuarterRows(rows: TeamLeaderboardFyQuarterRow[]): TeamLeaderboardFyQuarterRow[] {
@@ -339,6 +346,9 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     fyQuarters: TeamLeaderboardFyQuarterRow[];
     activePipelineAmount: number;
     wonCount: number;
+    avgDaysWon: number | null;
+    avgDaysLost: number | null;
+    avgDaysActive: number | null;
     repProducts: Array<{ product: string; amount: number }>;
     aov: number;
     avgHealthPct: number | null;
@@ -439,7 +449,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
                         : "text-red-400";
                 const qIcon = qAttain === null ? "—" : qAttain >= 0.9 ? "✅" : qAttain >= 0.7 ? "⚠️" : "🔴";
                 return (
-                  <div key={q.period_id} className="flex items-center gap-3 py-0.5">
+                  <div key={q.period_id} className="flex flex-wrap items-center gap-3 py-0.5">
                     <span className="w-6 shrink-0 text-base font-semibold text-[color:var(--sf-text-secondary)]">
                       Q{q.fiscal_quarter}
                     </span>
@@ -451,9 +461,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
                       Rev:
                       <span className="ml-1 font-semibold text-green-400">{fmtMoney(q.won_amount)}</span>
                     </span>
-                    <span className={`ml-auto text-base font-bold ${qColor}`}>
-                        {qAttain !== null ? `${Math.round(qAttain * 100)}%` : "—"} {qIcon}
-                      </span>
+                    <span className={`text-base font-bold ${qColor}`}>{qAttain !== null ? `${Math.round(qAttain * 100)}%` : "—"} {qIcon}</span>
                   </div>
                 );
               })
@@ -469,7 +477,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           <div className="mb-3 text-xs font-bold uppercase tracking-wider text-[color:var(--sf-text-secondary)]">
             Pipeline
           </div>
-          <div className="grid grid-cols-2 gap-2 text-xs xl:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 text-xs md:grid-cols-4 xl:grid-cols-6">
             <div>
               <div className="text-base text-[color:var(--sf-text-secondary)]">Q Coverage</div>
               <div className={`text-base font-semibold ${coverageColor}`}>{qCoverage.toFixed(1)}x</div>
@@ -491,6 +499,24 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
             <div>
               <div className="text-base text-[color:var(--sf-text-secondary)]">AOV</div>
               <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(pipelineAov)}</div>
+            </div>
+            <div>
+              <div className="text-base text-[color:var(--sf-text-secondary)]">Avg Age Won</div>
+              <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">
+                {args.avgDaysWon != null ? `${Math.round(args.avgDaysWon)}d` : "—"}
+              </div>
+            </div>
+            <div>
+              <div className="text-base text-[color:var(--sf-text-secondary)]">Avg Age Lost</div>
+              <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">
+                {args.avgDaysLost != null ? `${Math.round(args.avgDaysLost)}d` : "—"}
+              </div>
+            </div>
+            <div>
+              <div className="text-base text-[color:var(--sf-text-secondary)]">Avg Age Pipeline</div>
+              <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">
+                {args.avgDaysActive != null ? `${Math.round(args.avgDaysActive)}d` : "—"}
+              </div>
             </div>
           </div>
         </div>
@@ -569,6 +595,9 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           fyQuarters,
           activePipelineAmount: Number(rep.active_amount) || 0,
           wonCount: Number(rep.won_count) || 0,
+          avgDaysWon: rep.avg_days_won ?? null,
+          avgDaysLost: rep.avg_days_lost ?? null,
+          avgDaysActive: rep.avg_days_active ?? null,
           repProducts: productSummary.repProducts,
           aov: productSummary.aov,
           avgHealthPct: productSummary.avgHealthPct,
@@ -627,6 +656,9 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           fyQuarters,
           activePipelineAmount: current.activePipelineAmount,
           wonCount: current.wonCount,
+          avgDaysWon: current.avgDaysWon,
+          avgDaysLost: current.avgDaysLost,
+          avgDaysActive: current.avgDaysActive,
           repProducts: productSummary.repProducts,
           aov: productSummary.aov,
           avgHealthPct: productSummary.avgHealthPct,
