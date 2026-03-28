@@ -18,10 +18,9 @@ import { RevenueIntelligenceClient } from "./RevenueIntelligenceClient";
 type ExecutiveGapInsightsClientProps = ComponentProps<typeof ExecutiveGapInsightsClient>;
 
 const TABS: { key: ExecTabKey; label: string }[] = [
-  { key: "forecast", label: "Forecast" },
-  { key: "pipeline", label: "Pipeline" },
+  { key: "pipeline", label: "Pipeline Risk" },
   { key: "coaching", label: "Coaching" },
-  { key: "team", label: "Team" },
+  { key: "team", label: "Team Performance" },
   { key: "channel", label: "Channel" },
   { key: "revenue_mix", label: "Revenue Mix" },
   { key: "revenue_intelligence", label: "Revenue Intelligence" },
@@ -839,11 +838,6 @@ export function ExecutiveTabsShellClient(props: {
       </div>
 
       <div className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-6 text-sm text-[color:var(--sf-text-secondary)]">
-        {activeTab === "forecast" && (
-          <div className="-mx-4 -mt-4">
-            <ExecutiveGapInsightsClient {...props.forecastTabProps} forecastTabOnly={true} viewerRole={props.viewerRole} />
-          </div>
-        )}
         {activeTab === "pipeline" && (
           <div className="space-y-6">
             <div className="-mx-4 -mt-4">

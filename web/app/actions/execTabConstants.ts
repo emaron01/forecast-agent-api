@@ -1,5 +1,4 @@
 export const EXEC_TABS = [
-  "forecast",
   "pipeline",
   "coaching",
   "team",

@@ -1732,7 +1732,7 @@ export default async function ExecutiveDashboardPage({
     repFyQuarterRows = [];
   }
 
-  // Determine active tab: URL param > user preference > forecast
+  // Determine active tab: URL param > user preference > pipeline
   const search = searchParams || {};
   const tabRaw = Array.isArray(search.tab) ? search.tab[0] : search.tab;
   const tabParam = normalizeExecTab(tabRaw);
@@ -1747,7 +1747,7 @@ export default async function ExecutiveDashboardPage({
   } catch {
     prefTab = null;
   }
-  const activeTab: ExecTabKey = tabParam || prefTab || "forecast";
+  const activeTab: ExecTabKey = tabParam || prefTab || "pipeline";
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
