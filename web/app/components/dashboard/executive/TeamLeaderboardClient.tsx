@@ -379,48 +379,48 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
 
         <div className="grid grid-cols-1 gap-4 text-xs xl:grid-cols-3">
           <div className="space-y-1">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+            <div className="mb-3 text-xs font-bold uppercase tracking-wider text-[color:var(--sf-text-secondary)]">
               Current Quarter
             </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-[color:var(--sf-text-secondary)]">{currentPeriodName} Quota</span>
-              <span className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(args.quota)}</span>
+            <div className="flex items-baseline gap-2">
+              <span className="shrink-0 text-sm text-[color:var(--sf-text-secondary)]">{currentPeriodName} Quota</span>
+              <span className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(args.quota)}</span>
             </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-[color:var(--sf-text-secondary)]">Won</span>
-              <span className="font-semibold text-green-400">{fmtMoney(args.wonAmount)}</span>
+            <div className="flex items-baseline gap-2">
+              <span className="shrink-0 text-sm text-[color:var(--sf-text-secondary)]">Won</span>
+              <span className="text-sm font-semibold text-green-400">{fmtMoney(args.wonAmount)}</span>
             </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-[color:var(--sf-text-secondary)]">Attainment</span>
-              <span className={`font-semibold ${attainColor}`}>{args.attainPct}%</span>
+            <div className="flex items-baseline gap-2">
+              <span className="shrink-0 text-sm text-[color:var(--sf-text-secondary)]">Attainment</span>
+              <span className={`text-sm font-semibold ${attainColor}`}>{args.attainPct}%</span>
             </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-[color:var(--sf-text-secondary)]">Pace</span>
-              <span className={`font-semibold ${paceColor}`}>{paceLabel}</span>
+            <div className="flex items-baseline gap-2">
+              <span className="shrink-0 text-sm text-[color:var(--sf-text-secondary)]">Pace</span>
+              <span className={`text-sm font-semibold ${paceColor}`}>{paceLabel}</span>
             </div>
           </div>
 
           <div className="space-y-1">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+            <div className="mb-3 text-xs font-bold uppercase tracking-wider text-[color:var(--sf-text-secondary)]">
               Full Year
             </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-[color:var(--sf-text-secondary)]">Annual Quota</span>
-              <span className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(args.annualQuota)}</span>
+            <div className="flex items-baseline gap-2">
+              <span className="shrink-0 text-sm text-[color:var(--sf-text-secondary)]">Annual Quota</span>
+              <span className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(args.annualQuota)}</span>
             </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-[color:var(--sf-text-secondary)]">YTD Revenue</span>
-              <span className="font-semibold text-green-400">{fmtMoney(args.ytdRevenue)}</span>
+            <div className="flex items-baseline gap-2">
+              <span className="shrink-0 text-sm text-[color:var(--sf-text-secondary)]">YTD Revenue</span>
+              <span className="text-sm font-semibold text-green-400">{fmtMoney(args.ytdRevenue)}</span>
             </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-[color:var(--sf-text-secondary)]">YTD Attainment</span>
-              <span className={`font-semibold ${ytdAttainColor}`}>{args.ytdAttainPct}%</span>
+            <div className="flex items-baseline gap-2">
+              <span className="shrink-0 text-sm text-[color:var(--sf-text-secondary)]">YTD Attainment</span>
+              <span className={`text-sm font-semibold ${ytdAttainColor}`}>{args.ytdAttainPct}%</span>
             </div>
           </div>
 
           <div className="space-y-1">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
-              Quarterly Trend
+            <div className="mb-3 text-xs font-bold uppercase tracking-wider text-[color:var(--sf-text-secondary)]">
+              Quarter over Quarter
             </div>
             {args.fyQuarters.length ? (
               args.fyQuarters.map((q) => {
@@ -453,27 +453,27 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
         <div className="my-3 border-t border-[color:var(--sf-border)]" />
 
         <div className="space-y-1">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+          <div className="mb-3 text-xs font-bold uppercase tracking-wider text-[color:var(--sf-text-secondary)]">
             Pipeline
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs xl:grid-cols-4">
             <div>
-              <div className="text-[color:var(--sf-text-secondary)]">Q Coverage</div>
-              <div className={`font-semibold ${coverageColor}`}>{qCoverage.toFixed(1)}x</div>
+              <div className="text-sm text-[color:var(--sf-text-secondary)]">Q Coverage</div>
+              <div className={`text-sm font-semibold ${coverageColor}`}>{qCoverage.toFixed(1)}x</div>
             </div>
             <div>
-              <div className="text-[color:var(--sf-text-secondary)]">Annual Coverage</div>
-              <div className={`font-semibold ${annualCoverageColor}`}>{annualCoverage.toFixed(1)}x</div>
+              <div className="text-sm text-[color:var(--sf-text-secondary)]">Annual Coverage</div>
+              <div className={`text-sm font-semibold ${annualCoverageColor}`}>{annualCoverage.toFixed(1)}x</div>
             </div>
             <div>
-              <div className="text-[color:var(--sf-text-secondary)]">Avg Health</div>
-              <div className={`font-semibold ${healthColor}`}>
+              <div className="text-sm text-[color:var(--sf-text-secondary)]">Avg Health</div>
+              <div className={`text-sm font-semibold ${healthColor}`}>
                 {args.avgHealthPct != null ? `${args.avgHealthPct}%` : "—"}
               </div>
             </div>
             <div>
-              <div className="text-[color:var(--sf-text-secondary)]">Pipeline Risk</div>
-              <div className={`font-semibold ${riskColor}`}>{riskLabel}</div>
+              <div className="text-sm text-[color:var(--sf-text-secondary)]">Pipeline Risk</div>
+              <div className={`text-sm font-semibold ${riskColor}`}>{riskLabel}</div>
             </div>
           </div>
         </div>
@@ -481,7 +481,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
         <div className="my-3 border-t border-[color:var(--sf-border)]" />
 
         <div>
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+          <div className="mb-3 text-xs font-bold uppercase tracking-wider text-[color:var(--sf-text-secondary)]">
             Products Sold (this quarter)
           </div>
           <div className="flex flex-wrap gap-3 text-xs">
@@ -519,7 +519,23 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const quota = Number(rep.quota) || 0;
     const wonAmount = Number(rep.won_amount) || 0;
     const paceStatus = calcPaceStatus(wonAmount, quota, paceRatio);
-    const fyQuarters = aggregateFyQuarterRows((allPeriodRows ?? []).filter((r) => String(r.rep_id) === String(rep.rep_id)));
+    const repPublicId = String(rep.rep_id ?? "");
+    console.log("[fyQuarters debug]", {
+      repPublicId,
+      rowRepId: rep.rep_id,
+      allPeriodRowsCount: allPeriodRows?.length,
+      firstRow: allPeriodRows?.[0],
+    });
+    const fyQuarters = aggregateFyQuarterRows(
+      (allPeriodRows ?? [])
+        .filter(
+          (r) =>
+            r.rep_id === repPublicId ||
+            r.rep_id === String(rep.rep_id) ||
+            r.rep_id === (rep.rep_id as any)
+        )
+        .sort((a, b) => Number(a.fiscal_quarter) - Number(b.fiscal_quarter))
+    );
     const annualQuota = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.quota, 0) : quota * 4;
     const ytdRevenue = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.won_amount, 0) : wonAmount;
     const ytdAttainPct = annualQuota > 0 ? Math.round((ytdRevenue / annualQuota) * 100) : 0;
