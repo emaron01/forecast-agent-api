@@ -71,6 +71,9 @@ type ReportData = {
 };
 type BreakdownSelection = { label: string; repIds: string[] };
 type BreakdownResult = { label: string; data: ReportData };
+type DealVolumeMetric = "won_count" | "lost_count" | "pipeline_count" | "win_rate" | "won_amount" | "lost_amount";
+type VelocityMetric = "avg_days_won" | "avg_days_lost" | "avg_days_pipeline";
+type HealthMetric = "avg_health_won" | "avg_health_lost" | "avg_health_pipeline";
 
 const CHART_COLORS = [
   "#00BCD4",
@@ -92,6 +95,37 @@ const outlineQuickBtn =
 
 const destructiveOutlineBtn =
   "rounded-md border border-red-400/50 bg-[color:var(--sf-surface-alt)] px-2 py-1 text-xs text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30";
+
+const selectorBtnClass = (active: boolean) =>
+  active
+    ? "rounded-full border px-3 py-1 text-xs font-semibold border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] text-white"
+    : "rounded-full border px-3 py-1 text-xs font-semibold border-[color:var(--sf-border)] text-[color:var(--sf-text-secondary)]";
+
+const drillDownBtnClass = (active: boolean) =>
+  active
+    ? "ml-4 rounded-full border px-3 py-1 text-xs font-semibold border-yellow-500 bg-yellow-500/10 text-yellow-400"
+    : "ml-4 rounded-full border px-3 py-1 text-xs font-semibold border-[color:var(--sf-border)] text-[color:var(--sf-text-secondary)]";
+
+const DEAL_VOLUME_METRICS: Array<{ key: DealVolumeMetric; label: string }> = [
+  { key: "won_count", label: "Won Count" },
+  { key: "lost_count", label: "Lost Count" },
+  { key: "pipeline_count", label: "Pipeline" },
+  { key: "win_rate", label: "Win Rate" },
+  { key: "won_amount", label: "Won $" },
+  { key: "lost_amount", label: "Lost $" },
+];
+
+const VELOCITY_METRICS: Array<{ key: VelocityMetric; label: string }> = [
+  { key: "avg_days_won", label: "Days Won" },
+  { key: "avg_days_lost", label: "Days Lost" },
+  { key: "avg_days_pipeline", label: "Days Pipeline" },
+];
+
+const HEALTH_METRICS: Array<{ key: HealthMetric; label: string }> = [
+  { key: "avg_health_won", label: "Health Won" },
+  { key: "avg_health_lost", label: "Health Lost" },
+  { key: "avg_health_pipeline", label: "Health Pipeline" },
+];
 
 function newId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -164,6 +198,105 @@ type AggRow = {
   avg_budget: number | null;
   products: Record<string, number>;
 };
+
+type BucketSummary = {
+  won_count: number;
+  lost_count: number;
+  pipeline_count: number;
+  won_amount: number;
+  lost_amount: number;
+  pipeline_amount: number;
+  win_rate: number;
+  avg_days_won: number | null;
+  avg_days_lost: number | null;
+  avg_days_pipeline: number | null;
+  avg_health_won: number | null;
+  avg_health_lost: number | null;
+  avg_health_pipeline: number | null;
+};
+
+function aggregateBucketRows(rows: AggRow[], bucketId: string, selectedQuarterIds: Set<string>): BucketSummary | null {
+  const bucketRows = rows.filter((r) => r.bucket_id === bucketId && selectedQuarterIds.has(r.quarter_id));
+  if (!bucketRows.length) return null;
+
+  let won_count = 0;
+  let lost_count = 0;
+  let pipeline_count = 0;
+  let won_amount = 0;
+  let lost_amount = 0;
+  let pipeline_amount = 0;
+
+  let daysWonWeighted = 0;
+  let daysLostWeighted = 0;
+  let daysPipelineWeighted = 0;
+  let healthWonWeighted = 0;
+  let healthLostWeighted = 0;
+  let healthPipelineWeighted = 0;
+
+  for (const row of bucketRows) {
+    won_count += Number(row.won_count || 0);
+    lost_count += Number(row.lost_count || 0);
+    pipeline_count += Number(row.pipeline_count || 0);
+    won_amount += Number(row.won_amount || 0);
+    lost_amount += Number(row.lost_amount || 0);
+    pipeline_amount += Number(row.pipeline_amount || 0);
+
+    if (row.avg_days_won != null) daysWonWeighted += Number(row.avg_days_won) * Number(row.won_count || 0);
+    if (row.avg_days_lost != null) daysLostWeighted += Number(row.avg_days_lost) * Number(row.lost_count || 0);
+    if (row.avg_days_pipeline != null) daysPipelineWeighted += Number(row.avg_days_pipeline) * Number(row.pipeline_count || 0);
+    if (row.avg_health_won != null) healthWonWeighted += Number(row.avg_health_won) * Number(row.won_count || 0);
+    if (row.avg_health_lost != null) healthLostWeighted += Number(row.avg_health_lost) * Number(row.lost_count || 0);
+    if (row.avg_health_pipeline != null) healthPipelineWeighted += Number(row.avg_health_pipeline) * Number(row.pipeline_count || 0);
+  }
+
+  const closed = won_count + lost_count;
+
+  return {
+    won_count,
+    lost_count,
+    pipeline_count,
+    won_amount,
+    lost_amount,
+    pipeline_amount,
+    win_rate: closed > 0 ? won_count / closed : 0,
+    avg_days_won: won_count > 0 ? daysWonWeighted / won_count : null,
+    avg_days_lost: lost_count > 0 ? daysLostWeighted / lost_count : null,
+    avg_days_pipeline: pipeline_count > 0 ? daysPipelineWeighted / pipeline_count : null,
+    avg_health_won: won_count > 0 ? healthWonWeighted / won_count : null,
+    avg_health_lost: lost_count > 0 ? healthLostWeighted / lost_count : null,
+    avg_health_pipeline: pipeline_count > 0 ? healthPipelineWeighted / pipeline_count : null,
+  };
+}
+
+function dealVolumeMetricValue(summary: BucketSummary | null, metric: DealVolumeMetric): number {
+  if (!summary) return 0;
+  return Number(summary[metric] ?? 0);
+}
+
+function velocityMetricValue(summary: BucketSummary | null, metric: VelocityMetric): number {
+  if (!summary) return 0;
+  return Number(summary[metric] ?? 0);
+}
+
+function healthMetricValue(summary: BucketSummary | null, metric: HealthMetric): number {
+  if (!summary) return 0;
+  return healthPctNum(summary[metric] ?? null);
+}
+
+function formatMetricTick(
+  value: number,
+  metric: DealVolumeMetric | VelocityMetric | HealthMetric
+): string | number {
+  if (metric === "win_rate") return fmtPct01(value);
+  if (metric === "won_amount" || metric === "lost_amount") return fmtMoney(value);
+  if (metric === "avg_health_won" || metric === "avg_health_lost" || metric === "avg_health_pipeline") {
+    return fmtHealthPct(value);
+  }
+  if (metric === "won_count" || metric === "lost_count" || metric === "pipeline_count") {
+    return Math.round(Number(value || 0)).toLocaleString("en-US");
+  }
+  return fmtNum(value);
+}
 
 type RepSelectionState = { managers: Set<string>; reps: Set<string> };
 
@@ -333,6 +466,12 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [breakdownResults, setBreakdownResults] = useState<BreakdownResult[]>([]);
   const [breakdownSelections, setBreakdownSelections] = useState<BreakdownSelection[]>([]);
+  const [chartMetric, setChartMetric] = useState<DealVolumeMetric>("won_count");
+  const [drillDown, setDrillDown] = useState(false);
+  const [velocityChartMetric, setVelocityChartMetric] = useState<VelocityMetric>("avg_days_won");
+  const [velocityDrillDown, setVelocityDrillDown] = useState(false);
+  const [healthChartMetric, setHealthChartMetric] = useState<HealthMetric>("avg_health_won");
+  const [healthDrillDown, setHealthDrillDown] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -539,35 +678,6 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [reportData]);
 
-  /**
-   * Panel 1 — Win/Loss Volume chartData: one row per bucket; keys `${quarter.name} Won|Lost|Pipeline`.
-   * Quarters use full `name` from quotaPeriods (via selectedQuartersOrdered).
-   */
-  const panel1ChartData = useMemo(() => {
-    if (!reportData?.rows?.length || !reportData.buckets.length) return [];
-    const rows = reportData.rows;
-    return reportData.buckets.map((b) => {
-      const entries = selectedQuartersOrdered.flatMap((q) => {
-        const row = rows.find((r) => r.bucket_id === b.id && r.quarter_id === q.id);
-        return [
-          [`${q.name} Won`, row?.won_count ?? 0],
-          [`${q.name} Lost`, row?.lost_count ?? 0],
-          [`${q.name} Pipeline`, row?.pipeline_count ?? 0],
-        ] as [string, number][];
-      });
-      const fromPairs = entries.reduce<Record<string, number>>((acc, [k, v]) => ({ ...acc, [k]: v }), {});
-      return { bucket: b.label, ...fromPairs };
-    });
-  }, [reportData, selectedQuartersOrdered]);
-
-  const panel1SeriesKeys = useMemo(() => {
-    const keys: string[] = [];
-    for (const q of selectedQuartersOrdered) {
-      keys.push(`${q.name} Won`, `${q.name} Lost`, `${q.name} Pipeline`);
-    }
-    return keys;
-  }, [selectedQuartersOrdered]);
-
   const breakdownEntries = useMemo(() => {
     return breakdownSelections
       .map((selection, index) => ({
@@ -578,87 +688,46 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
       .filter((entry): entry is BreakdownSelection & { data: ReportData } => Boolean(entry.data));
   }, [breakdownResults, breakdownSelections]);
 
-  const useBreakdownView = reportType === "deal_volume" && breakdownEntries.length > 1;
-
-  const breakdownChartQuarter = useMemo(() => {
-    if (!selectedQuartersOrdered.length) return null;
-    return selectedQuartersOrdered[0];
-  }, [selectedQuartersOrdered]);
-
-  const breakdownChartQuarterLabel = useMemo(() => {
-    if (!breakdownChartQuarter) return "";
-    return quarterLabel([breakdownChartQuarter]);
-  }, [breakdownChartQuarter]);
-
   const bOrder = useMemo(() => {
     if (!reportData?.buckets?.length) return bucketsSortedByMin;
     return reportData.buckets;
   }, [reportData, bucketsSortedByMin]);
 
-  const breakdownChartData = useMemo(() => {
-    if (!useBreakdownView || !breakdownChartQuarter) return [];
-    return bOrder.map((bucket) => {
-      const point: Record<string, string | number> = { bucket: bucket.label };
-      breakdownEntries.forEach((entry) => {
-        const row = entry.data.rows.find(
-          (r) => r.bucket_id === bucket.id && r.quarter_id === breakdownChartQuarter.id
-        );
-        point[`${entry.label} Won`] = row?.won_count ?? 0;
-        point[`${entry.label} Lost`] = row?.lost_count ?? 0;
-        point[`${entry.label} Pipeline`] = row?.pipeline_count ?? 0;
+  const breakdownBucketSummaries = useMemo(() => {
+    return breakdownEntries.map((entry) => ({
+      label: entry.label,
+      buckets: new Map(bOrder.map((bucket) => [bucket.id, aggregateBucketRows(entry.data.rows, bucket.id, selectedQuarterIds)])),
+    }));
+  }, [bOrder, breakdownEntries, selectedQuarterIds]);
+
+  const buildSelectionChartData = useCallback(
+    <T extends DealVolumeMetric | VelocityMetric | HealthMetric>(
+      metric: T,
+      valueForMetric: (summary: BucketSummary | null, metric: T) => number
+    ) => {
+      return bOrder.map((bucket) => {
+        const point: Record<string, string | number> = { bucket: bucket.label };
+        breakdownBucketSummaries.forEach((entry) => {
+          point[entry.label] = valueForMetric(entry.buckets.get(bucket.id) ?? null, metric);
+        });
+        return point;
       });
-      return point;
-    });
-  }, [bOrder, breakdownChartQuarter, breakdownEntries, useBreakdownView]);
+    },
+    [bOrder, breakdownBucketSummaries]
+  );
 
-  const panel2ChartData = useMemo(() => {
-    if (!reportData?.rows?.length || !reportData.buckets.length) return [];
-    const rows = reportData.rows;
-    return reportData.buckets.map((b) => {
-      const entries = selectedQuartersOrdered.flatMap((q) => {
-        const row = rows.find((r) => r.bucket_id === b.id && r.quarter_id === q.id);
-        return [
-          [`${q.name} Avg Days Won`, row?.avg_days_won ?? 0],
-          [`${q.name} Avg Days Lost`, row?.avg_days_lost ?? 0],
-        ] as [string, number][];
-      });
-      const fromPairs = entries.reduce<Record<string, number>>((acc, [k, v]) => ({ ...acc, [k]: v }), {});
-      return { bucket: b.label, ...fromPairs };
-    });
-  }, [reportData, selectedQuartersOrdered]);
-
-  const panel2SeriesKeys = useMemo(() => {
-    const keys: string[] = [];
-    for (const q of selectedQuartersOrdered) {
-      keys.push(`${q.name} Avg Days Won`, `${q.name} Avg Days Lost`);
-    }
-    return keys;
-  }, [selectedQuartersOrdered]);
-
-  const panel3ChartData = useMemo(() => {
-    if (!reportData?.rows?.length || !reportData.buckets.length) return [];
-    const rows = reportData.rows;
-    return reportData.buckets.map((b) => {
-      const entries = selectedQuartersOrdered.flatMap((q) => {
-        const row = rows.find((r) => r.bucket_id === b.id && r.quarter_id === q.id);
-        return [
-          [`${q.name} Health Won`, healthPctNum(row?.avg_health_won ?? null)],
-          [`${q.name} Health Lost`, healthPctNum(row?.avg_health_lost ?? null)],
-          [`${q.name} Health Pipeline`, healthPctNum(row?.avg_health_pipeline ?? null)],
-        ] as [string, number][];
-      });
-      const fromPairs = entries.reduce<Record<string, number>>((acc, [k, v]) => ({ ...acc, [k]: v }), {});
-      return { bucket: b.label, ...fromPairs };
-    });
-  }, [reportData, selectedQuartersOrdered]);
-
-  const panel3SeriesKeys = useMemo(() => {
-    const keys: string[] = [];
-    for (const q of selectedQuartersOrdered) {
-      keys.push(`${q.name} Health Won`, `${q.name} Health Lost`, `${q.name} Health Pipeline`);
-    }
-    return keys;
-  }, [selectedQuartersOrdered]);
+  const panel1ChartData = useMemo(
+    () => buildSelectionChartData(chartMetric, dealVolumeMetricValue),
+    [buildSelectionChartData, chartMetric]
+  );
+  const panel2ChartData = useMemo(
+    () => buildSelectionChartData(velocityChartMetric, velocityMetricValue),
+    [buildSelectionChartData, velocityChartMetric]
+  );
+  const panel3ChartData = useMemo(
+    () => buildSelectionChartData(healthChartMetric, healthMetricValue),
+    [buildSelectionChartData, healthChartMetric]
+  );
 
   const meddpiccRadarRows = useMemo(() => {
     if (!reportData?.rows?.length || !reportData.buckets.length || !meddpiccQuarterId) return [];
@@ -1030,6 +1099,149 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     return reportData?.rows.find((r) => r.bucket_id === bid && r.quarter_id === qid);
   }
 
+  const selectionSeries = useMemo(
+    () =>
+      breakdownBucketSummaries.map((entry, index) => ({
+        key: entry.label,
+        name: entry.label,
+        fill: CHART_COLORS[index % CHART_COLORS.length],
+      })),
+    [breakdownBucketSummaries]
+  );
+
+  const buildMetricFamilyChartData = useCallback(
+    <T extends DealVolumeMetric | VelocityMetric | HealthMetric>(
+      metrics: readonly T[],
+      valueForMetric: (summary: BucketSummary | null, metric: T) => number
+    ) => {
+      return bOrder.map((bucket) => {
+        const point: Record<string, string | number> = { bucket: bucket.label };
+        breakdownBucketSummaries.forEach((entry) => {
+          const summary = entry.buckets.get(bucket.id) ?? null;
+          metrics.forEach((metric) => {
+            point[`${entry.label}::${metric}`] = valueForMetric(summary, metric);
+          });
+        });
+        return point;
+      });
+    },
+    [bOrder, breakdownBucketSummaries]
+  );
+
+  const dealVolumeCountsDrillData = useMemo(
+    () => buildMetricFamilyChartData(["won_count", "lost_count", "pipeline_count"], dealVolumeMetricValue),
+    [buildMetricFamilyChartData]
+  );
+  const dealVolumeRevenueDrillData = useMemo(
+    () => buildMetricFamilyChartData(["won_amount", "lost_amount"], dealVolumeMetricValue),
+    [buildMetricFamilyChartData]
+  );
+  const dealVolumeWinRateDrillData = useMemo(
+    () => buildSelectionChartData("win_rate", dealVolumeMetricValue),
+    [buildSelectionChartData]
+  );
+  const velocityWonChartData = useMemo(
+    () => buildSelectionChartData("avg_days_won", velocityMetricValue),
+    [buildSelectionChartData]
+  );
+  const velocityLostChartData = useMemo(
+    () => buildSelectionChartData("avg_days_lost", velocityMetricValue),
+    [buildSelectionChartData]
+  );
+  const velocityPipelineChartData = useMemo(
+    () => buildSelectionChartData("avg_days_pipeline", velocityMetricValue),
+    [buildSelectionChartData]
+  );
+  const healthWonChartData = useMemo(
+    () => buildSelectionChartData("avg_health_won", healthMetricValue),
+    [buildSelectionChartData]
+  );
+  const healthLostChartData = useMemo(
+    () => buildSelectionChartData("avg_health_lost", healthMetricValue),
+    [buildSelectionChartData]
+  );
+  const healthPipelineChartData = useMemo(
+    () => buildSelectionChartData("avg_health_pipeline", healthMetricValue),
+    [buildSelectionChartData]
+  );
+
+  const renderMetricSelector = (
+    label: string,
+    metrics: Array<{ key: string; label: string }>,
+    selectedMetric: string,
+    setMetric: (metric: any) => void,
+    drillState: boolean,
+    setDrillState: (next: boolean) => void
+  ) => (
+    <div className="mb-4 flex flex-wrap gap-2">
+      <span className="mr-2 self-center text-sm text-[color:var(--sf-text-secondary)]">{label}</span>
+      {metrics.map((metric) => (
+        <button
+          key={metric.key}
+          type="button"
+          onClick={() => setMetric(metric.key)}
+          className={selectorBtnClass(selectedMetric === metric.key)}
+        >
+          {metric.label}
+        </button>
+      ))}
+      <button type="button" onClick={() => setDrillState(!drillState)} className={drillDownBtnClass(drillState)}>
+        {drillState ? "▲ Simple View" : "▼ Drill Down"}
+      </button>
+    </div>
+  );
+
+  const renderGroupedChart = ({
+    data,
+    metric,
+    height = 320,
+    yAxisDomain,
+    series = selectionSeries,
+  }: {
+    data: Array<Record<string, string | number>>;
+    metric: DealVolumeMetric | VelocityMetric | HealthMetric;
+    height?: number;
+    yAxisDomain?: [number, number];
+    series?: Array<{ key: string; name: string; fill: string; fillOpacity?: number }>;
+  }) => (
+    <ResponsiveContainer width="100%" height={height}>
+      <BarChart data={data} margin={{ top: 10, right: 20, left: 20, bottom: 60 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" vertical={false} />
+        <XAxis dataKey="bucket" tick={{ fill: "var(--sf-text-secondary)", fontSize: 12 }} />
+        <YAxis
+          tick={{ fill: "var(--sf-text-secondary)", fontSize: 11 }}
+          tickFormatter={(value) => String(formatMetricTick(Number(value ?? 0), metric))}
+          domain={yAxisDomain}
+        />
+        <Tooltip
+          contentStyle={{
+            background: "var(--sf-surface)",
+            border: "1px solid var(--sf-border)",
+            color: "var(--sf-text-primary)",
+          }}
+          formatter={(value: number, name: string) => [formatMetricTick(Number(value ?? 0), metric), name]}
+        />
+        <Legend
+          wrapperStyle={{
+            color: "var(--sf-text-secondary)",
+            fontSize: 12,
+            paddingTop: 8,
+          }}
+        />
+        {series.map((seriesEntry) => (
+          <Bar
+            key={seriesEntry.key}
+            dataKey={seriesEntry.key}
+            name={seriesEntry.name}
+            fill={seriesEntry.fill}
+            fillOpacity={seriesEntry.fillOpacity}
+            radius={[4, 4, 0, 0]}
+          />
+        ))}
+      </BarChart>
+    </ResponsiveContainer>
+  );
+
   return (
     <div className="text-[color:var(--sf-text-primary)]" data-org-id={orgId}>
       <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -1355,14 +1567,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">
-                  Win / Loss by Revenue Segment
-                  {useBreakdownView
-                    ? breakdownChartQuarterLabel
-                      ? ` — ${breakdownChartQuarterLabel}`
-                      : ""
-                    : panelQuarterLabel
-                      ? ` — ${panelQuarterLabel}`
-                      : ""}
+                  Win / Loss by Revenue Segment{panelQuarterLabel ? ` — ${panelQuarterLabel}` : ""}
                 </h3>
                 <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">Scope: {selectionLabel}</div>
               </div>
@@ -1374,77 +1579,50 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                 Download PNG
               </button>
             </div>
+            {renderMetricSelector("Metric:", DEAL_VOLUME_METRICS, chartMetric, setChartMetric, drillDown, setDrillDown)}
             <div>
-              <ResponsiveContainer width="100%" height={320}>
-                <BarChart data={useBreakdownView ? breakdownChartData : panel1ChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
-                  <XAxis dataKey="bucket" tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} />
-                  <YAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} />
-                  <Tooltip
-                    contentStyle={{
-                      background: "var(--sf-surface)",
-                      border: "1px solid var(--sf-border)",
-                      color: "var(--sf-text-primary)",
-                    }}
-                  />
-                  <Legend wrapperStyle={{ color: "var(--sf-text-secondary)", fontSize: 11 }} />
-                  {useBreakdownView
-                    ? breakdownEntries.flatMap((entry, index) => [
-                        <Bar
-                          key={`${entry.label}-won`}
-                          dataKey={`${entry.label} Won`}
-                          name={`${entry.label} Won`}
-                          fill={CHART_COLORS[index % CHART_COLORS.length]}
-                          radius={[4, 4, 0, 0]}
-                        />,
-                        <Bar
-                          key={`${entry.label}-lost`}
-                          dataKey={`${entry.label} Lost`}
-                          name={`${entry.label} Lost`}
-                          fill={CHART_COLORS[index % CHART_COLORS.length]}
-                          fillOpacity={0.55}
-                          radius={[4, 4, 0, 0]}
-                        />,
-                        <Bar
-                          key={`${entry.label}-pipeline`}
-                          dataKey={`${entry.label} Pipeline`}
-                          name={`${entry.label} Pipeline`}
-                          fill={CHART_COLORS[index % CHART_COLORS.length]}
-                          fillOpacity={0.3}
-                          radius={[4, 4, 0, 0]}
-                        />,
-                      ])
-                    : [
-                        ...selectedQuartersOrdered.map((q, qi) => (
-                          <Bar
-                            key={`${q.id}-won`}
-                            dataKey={`${q.name} Won`}
-                            fill={WON_SHADES[qi % WON_SHADES.length]}
-                            radius={[2, 2, 0, 0]}
-                          />
-                        )),
-                        ...selectedQuartersOrdered.map((q, qi) => (
-                          <Bar
-                            key={`${q.id}-lost`}
-                            dataKey={`${q.name} Lost`}
-                            fill={LOST_SHADES[qi % LOST_SHADES.length]}
-                            radius={[2, 2, 0, 0]}
-                          />
-                        )),
-                        ...selectedQuartersOrdered.map((q, qi) => (
-                          <Bar
-                            key={`${q.id}-pipe`}
-                            dataKey={`${q.name} Pipeline`}
-                            fill={PIPE_SHADES[qi % PIPE_SHADES.length]}
-                            radius={[2, 2, 0, 0]}
-                          />
-                        )),
-                      ]}
-                </BarChart>
-              </ResponsiveContainer>
+              {drillDown ? (
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                  <div className="rounded-lg border border-[color:var(--sf-border)] p-3">
+                    <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Counts</div>
+                    {renderGroupedChart({
+                      data: dealVolumeCountsDrillData,
+                      metric: "won_count",
+                      height: 200,
+                      series: selectionSeries.flatMap((entry) => [
+                        { key: `${entry.key}::won_count`, name: `${entry.name} Won`, fill: entry.fill, fillOpacity: 1 },
+                        { key: `${entry.key}::lost_count`, name: `${entry.name} Lost`, fill: entry.fill, fillOpacity: 0.5 },
+                        { key: `${entry.key}::pipeline_count`, name: `${entry.name} Pipeline`, fill: entry.fill, fillOpacity: 0.25 },
+                      ]),
+                    })}
+                  </div>
+                  <div className="rounded-lg border border-[color:var(--sf-border)] p-3">
+                    <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Revenue</div>
+                    {renderGroupedChart({
+                      data: dealVolumeRevenueDrillData,
+                      metric: "won_amount",
+                      height: 200,
+                      series: selectionSeries.flatMap((entry) => [
+                        { key: `${entry.key}::won_amount`, name: `${entry.name} Won $`, fill: entry.fill, fillOpacity: 1 },
+                        { key: `${entry.key}::lost_amount`, name: `${entry.name} Lost $`, fill: entry.fill, fillOpacity: 0.5 },
+                      ]),
+                    })}
+                  </div>
+                  <div className="rounded-lg border border-[color:var(--sf-border)] p-3">
+                    <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Win Rate</div>
+                    {renderGroupedChart({
+                      data: dealVolumeWinRateDrillData,
+                      metric: "win_rate",
+                      height: 200,
+                    })}
+                  </div>
+                </div>
+              ) : (
+                renderGroupedChart({ data: panel1ChartData, metric: chartMetric })
+              )}
             </div>
             <div className="mt-4 overflow-x-auto space-y-6">
-              {useBreakdownView
+              {breakdownEntries.length > 1
                 ? breakdownEntries.map((entry) => (
                     <div key={entry.label} className="space-y-4">
                       <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{entry.label}</div>
@@ -1546,38 +1724,33 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                 Download PNG
               </button>
             </div>
+            {renderMetricSelector(
+              "Metric:",
+              VELOCITY_METRICS,
+              velocityChartMetric,
+              setVelocityChartMetric,
+              velocityDrillDown,
+              setVelocityDrillDown
+            )}
             <div>
-              <ResponsiveContainer width="100%" height={320}>
-                <BarChart data={panel2ChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
-                  <XAxis dataKey="bucket" tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} />
-                  <YAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} />
-                  <Tooltip
-                    contentStyle={{
-                      background: "var(--sf-surface)",
-                      border: "1px solid var(--sf-border)",
-                      color: "var(--sf-text-primary)",
-                    }}
-                  />
-                  <Legend wrapperStyle={{ color: "var(--sf-text-secondary)", fontSize: 11 }} />
-                  {selectedQuartersOrdered.map((q) => (
-                    <Bar
-                      key={`${q.id}-dw`}
-                      dataKey={`${q.name} Avg Days Won`}
-                      fill="#14B8A6"
-                      radius={[2, 2, 0, 0]}
-                    />
-                  ))}
-                  {selectedQuartersOrdered.map((q) => (
-                    <Bar
-                      key={`${q.id}-dl`}
-                      dataKey={`${q.name} Avg Days Lost`}
-                      fill="#E74C3C"
-                      radius={[2, 2, 0, 0]}
-                    />
-                  ))}
-                </BarChart>
-              </ResponsiveContainer>
+              {velocityDrillDown ? (
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                  <div className="rounded-lg border border-[color:var(--sf-border)] p-3">
+                    <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Days Won</div>
+                    {renderGroupedChart({ data: velocityWonChartData, metric: "avg_days_won", height: 200 })}
+                  </div>
+                  <div className="rounded-lg border border-[color:var(--sf-border)] p-3">
+                    <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Days Lost</div>
+                    {renderGroupedChart({ data: velocityLostChartData, metric: "avg_days_lost", height: 200 })}
+                  </div>
+                  <div className="rounded-lg border border-[color:var(--sf-border)] p-3">
+                    <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Days Pipeline</div>
+                    {renderGroupedChart({ data: velocityPipelineChartData, metric: "avg_days_pipeline", height: 200 })}
+                  </div>
+                </div>
+              ) : (
+                renderGroupedChart({ data: panel2ChartData, metric: velocityChartMetric })
+              )}
             </div>
             <div className="mt-4 overflow-x-auto">
               <div className="mb-2 text-xs text-[color:var(--sf-text-secondary)]">Showing: {selectionLabel}</div>
@@ -1654,32 +1827,38 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                 Download PNG
               </button>
             </div>
+            {renderMetricSelector(
+              "Metric:",
+              HEALTH_METRICS,
+              healthChartMetric,
+              setHealthChartMetric,
+              healthDrillDown,
+              setHealthDrillDown
+            )}
             <div>
-              <ResponsiveContainer width="100%" height={320}>
-                <BarChart data={panel3ChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
-                  <XAxis dataKey="bucket" tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} />
-                  <YAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} domain={[0, 100]} />
-                  <Tooltip
-                    contentStyle={{
-                      background: "var(--sf-surface)",
-                      border: "1px solid var(--sf-border)",
-                      color: "var(--sf-text-primary)",
-                    }}
-                    formatter={(v: number) => [`${Number(v).toFixed(0)}%`, ""]}
-                  />
-                  <Legend wrapperStyle={{ color: "var(--sf-text-secondary)", fontSize: 11 }} />
-                  {selectedQuartersOrdered.map((q) => (
-                    <Bar key={`${q.id}-hw`} dataKey={`${q.name} Health Won`} fill="#16A34A" radius={[2, 2, 0, 0]} />
-                  ))}
-                  {selectedQuartersOrdered.map((q) => (
-                    <Bar key={`${q.id}-hl`} dataKey={`${q.name} Health Lost`} fill="#E74C3C" radius={[2, 2, 0, 0]} />
-                  ))}
-                  {selectedQuartersOrdered.map((q) => (
-                    <Bar key={`${q.id}-hp`} dataKey={`${q.name} Health Pipeline`} fill="#F1C40F" radius={[2, 2, 0, 0]} />
-                  ))}
-                </BarChart>
-              </ResponsiveContainer>
+              {healthDrillDown ? (
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                  <div className="rounded-lg border border-[color:var(--sf-border)] p-3">
+                    <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Health Won</div>
+                    {renderGroupedChart({ data: healthWonChartData, metric: "avg_health_won", height: 200, yAxisDomain: [0, 100] })}
+                  </div>
+                  <div className="rounded-lg border border-[color:var(--sf-border)] p-3">
+                    <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Health Lost</div>
+                    {renderGroupedChart({ data: healthLostChartData, metric: "avg_health_lost", height: 200, yAxisDomain: [0, 100] })}
+                  </div>
+                  <div className="rounded-lg border border-[color:var(--sf-border)] p-3">
+                    <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Health Pipeline</div>
+                    {renderGroupedChart({
+                      data: healthPipelineChartData,
+                      metric: "avg_health_pipeline",
+                      height: 200,
+                      yAxisDomain: [0, 100],
+                    })}
+                  </div>
+                </div>
+              ) : (
+                renderGroupedChart({ data: panel3ChartData, metric: healthChartMetric, yAxisDomain: [0, 100] })
+              )}
             </div>
             <div className="mt-4 overflow-x-auto">
               <div className="mb-2 text-xs text-[color:var(--sf-text-secondary)]">Showing: {selectionLabel}</div>
