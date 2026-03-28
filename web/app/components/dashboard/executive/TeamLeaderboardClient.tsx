@@ -163,7 +163,7 @@ function aggregateCurrentTeam(reps: RepManagerRepRow[]) {
   const activePipelineAmount = reps.reduce((sum, rep) => sum + (Number(rep.active_amount) || 0), 0);
   const wonCount = reps.reduce((sum, rep) => sum + (Number(rep.won_count) || 0), 0);
   const aov = wonCount > 0 ? wonAmount / wonCount : 0;
-  return { quota, wonAmount, activePipelineAmount, aov };
+  return { quota, wonAmount, activePipelineAmount, wonCount, aov };
 }
 
 function aggregateFyQuarterRows(rows: TeamLeaderboardFyQuarterRow[]): TeamLeaderboardFyQuarterRow[] {
@@ -338,6 +338,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     ytdAttainPct: number;
     fyQuarters: TeamLeaderboardFyQuarterRow[];
     activePipelineAmount: number;
+    wonCount: number;
     repProducts: Array<{ product: string; amount: number }>;
     aov: number;
     avgHealthPct: number | null;
@@ -360,6 +361,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const annualCoverageColor = coverageTextClass(annualCoverage);
     const { label: riskLabel, color: riskColor } = riskFromCoverage(annualCoverage);
     const healthColor = healthTextClass(args.avgHealthPct);
+    const pipelineAov = args.wonCount > 0 ? args.wonAmount / args.wonCount : 0;
     const sortedProducts = [...args.repProducts].sort((a, b) => b.amount - a.amount);
 
     return (
@@ -437,12 +439,24 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
                         : "text-red-400";
                 const qIcon = qAttain === null ? "—" : qAttain >= 0.9 ? "✅" : qAttain >= 0.7 ? "⚠️" : "🔴";
                 return (
-                  <div key={q.period_id} className="grid grid-cols-[auto_auto_1fr] items-center gap-2">
-                    <span className="text-[color:var(--sf-text-secondary)]">{q.fiscal_quarter}</span>
-                    <span className="font-mono text-xs text-[color:var(--sf-text-primary)]">{fmtMoney(q.won_amount)}</span>
-                    <span className={`justify-self-end font-semibold ${qColor}`}>
-                      {qAttain !== null ? `${Math.round(qAttain * 100)}%` : "—"} {qIcon}
-                    </span>
+                  <div key={q.period_id} className="space-y-0.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-sm font-semibold text-[color:var(--sf-text-secondary)]">Q{q.fiscal_quarter}</span>
+                      <span className={`text-sm font-bold ${qColor}`}>
+                        {qAttain !== null ? `${Math.round(qAttain * 100)}%` : "—"} {qIcon}
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-2 text-xs text-[color:var(--sf-text-secondary)]">
+                      <span>
+                        Quota:
+                        <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(q.quota)}</span>
+                      </span>
+                      <span>·</span>
+                      <span>
+                        Rev:
+                        <span className="ml-1 font-semibold text-green-400">{fmtMoney(q.won_amount)}</span>
+                      </span>
+                    </div>
                   </div>
                 );
               })
@@ -458,7 +472,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           <div className="mb-3 text-xs font-bold uppercase tracking-wider text-[color:var(--sf-text-secondary)]">
             Pipeline
           </div>
-          <div className="grid grid-cols-2 gap-2 text-xs xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 text-xs xl:grid-cols-5">
             <div>
               <div className="text-sm text-[color:var(--sf-text-secondary)]">Q Coverage</div>
               <div className={`text-sm font-semibold ${coverageColor}`}>{qCoverage.toFixed(1)}x</div>
@@ -476,6 +490,10 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
             <div>
               <div className="text-sm text-[color:var(--sf-text-secondary)]">Pipeline Risk</div>
               <div className={`text-sm font-semibold ${riskColor}`}>{riskLabel}</div>
+            </div>
+            <div>
+              <div className="text-sm text-[color:var(--sf-text-secondary)]">AOV</div>
+              <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(pipelineAov)}</div>
             </div>
           </div>
         </div>
@@ -557,6 +575,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           ytdAttainPct,
           fyQuarters,
           activePipelineAmount: Number(rep.active_amount) || 0,
+          wonCount: Number(rep.won_count) || 0,
           repProducts: productSummary.repProducts,
           aov: productSummary.aov,
           avgHealthPct: productSummary.avgHealthPct,
@@ -614,6 +633,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           ytdAttainPct,
           fyQuarters,
           activePipelineAmount: current.activePipelineAmount,
+          wonCount: current.wonCount,
           repProducts: productSummary.repProducts,
           aov: productSummary.aov,
           avgHealthPct: productSummary.avgHealthPct,
