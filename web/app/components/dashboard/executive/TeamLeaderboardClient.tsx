@@ -368,14 +368,14 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
       <div className={`rounded-xl border p-5 ${paceStatusCardClass(args.paceStatus)}`}>
         <div className="flex items-start justify-between">
           <div>
-            <div className="font-bold text-lg text-[color:var(--sf-text-primary)]">{args.name}</div>
-            <div className={`mt-0.5 text-xs font-semibold ${paceColor}`}>
+            <div className="font-bold text-xl text-[color:var(--sf-text-primary)]">{args.name}</div>
+            <div className={`mt-0.5 text-sm font-semibold ${paceColor}`}>
               {paceIcon} {paceLabel}
             </div>
           </div>
           <div className="text-right">
-            <div className={`text-2xl font-bold ${attainColor}`}>{args.attainPct}%</div>
-            <div className="text-xs text-[color:var(--sf-text-secondary)]">Q attainment</div>
+            <div className={`text-3xl font-bold ${attainColor}`}>{args.attainPct}%</div>
+            <div className="text-sm text-[color:var(--sf-text-secondary)]">Q attainment</div>
           </div>
         </div>
 
@@ -387,20 +387,20 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
               Current Quarter
             </div>
             <div className="flex items-baseline gap-2">
-              <span className="shrink-0 text-sm text-[color:var(--sf-text-secondary)]">{currentPeriodName} Quota</span>
-              <span className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(args.quota)}</span>
+              <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">{currentPeriodName} Quota</span>
+              <span className="text-base font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(args.quota)}</span>
             </div>
             <div className="flex items-baseline gap-2">
-              <span className="shrink-0 text-sm text-[color:var(--sf-text-secondary)]">Won</span>
-              <span className="text-sm font-semibold text-green-400">{fmtMoney(args.wonAmount)}</span>
+              <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">Won</span>
+              <span className="text-base font-semibold text-green-400">{fmtMoney(args.wonAmount)}</span>
             </div>
             <div className="flex items-baseline gap-2">
-              <span className="shrink-0 text-sm text-[color:var(--sf-text-secondary)]">Attainment</span>
-              <span className={`text-sm font-semibold ${attainColor}`}>{args.attainPct}%</span>
+              <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">Attainment</span>
+              <span className={`text-base font-semibold ${attainColor}`}>{args.attainPct}%</span>
             </div>
             <div className="flex items-baseline gap-2">
-              <span className="shrink-0 text-sm text-[color:var(--sf-text-secondary)]">Pace</span>
-              <span className={`text-sm font-semibold ${paceColor}`}>{paceLabel}</span>
+              <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">Pace</span>
+              <span className={`text-base font-semibold ${paceColor}`}>{paceLabel}</span>
             </div>
           </div>
 
@@ -409,16 +409,16 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
               Full Year
             </div>
             <div className="flex items-baseline gap-2">
-              <span className="shrink-0 text-sm text-[color:var(--sf-text-secondary)]">Annual Quota</span>
-              <span className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(args.annualQuota)}</span>
+              <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">Annual Quota</span>
+              <span className="text-base font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(args.annualQuota)}</span>
             </div>
             <div className="flex items-baseline gap-2">
-              <span className="shrink-0 text-sm text-[color:var(--sf-text-secondary)]">YTD Revenue</span>
-              <span className="text-sm font-semibold text-green-400">{fmtMoney(args.ytdRevenue)}</span>
+              <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">YTD Revenue</span>
+              <span className="text-base font-semibold text-green-400">{fmtMoney(args.ytdRevenue)}</span>
             </div>
             <div className="flex items-baseline gap-2">
-              <span className="shrink-0 text-sm text-[color:var(--sf-text-secondary)]">YTD Attainment</span>
-              <span className={`text-sm font-semibold ${ytdAttainColor}`}>{args.ytdAttainPct}%</span>
+              <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">YTD Attainment</span>
+              <span className={`text-base font-semibold ${ytdAttainColor}`}>{args.ytdAttainPct}%</span>
             </div>
           </div>
 
@@ -439,24 +439,21 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
                         : "text-red-400";
                 const qIcon = qAttain === null ? "—" : qAttain >= 0.9 ? "✅" : qAttain >= 0.7 ? "⚠️" : "🔴";
                 return (
-                  <div key={q.period_id} className="space-y-0.5">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-sm font-semibold text-[color:var(--sf-text-secondary)]">Q{q.fiscal_quarter}</span>
-                      <span className={`text-sm font-bold ${qColor}`}>
+                  <div key={q.period_id} className="flex items-center gap-3 py-0.5">
+                    <span className="w-6 shrink-0 text-base font-semibold text-[color:var(--sf-text-secondary)]">
+                      Q{q.fiscal_quarter}
+                    </span>
+                    <span className="text-base text-[color:var(--sf-text-secondary)]">
+                      Quota:
+                      <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(q.quota)}</span>
+                    </span>
+                    <span className="text-base text-[color:var(--sf-text-secondary)]">
+                      Rev:
+                      <span className="ml-1 font-semibold text-green-400">{fmtMoney(q.won_amount)}</span>
+                    </span>
+                    <span className={`ml-auto text-base font-bold ${qColor}`}>
                         {qAttain !== null ? `${Math.round(qAttain * 100)}%` : "—"} {qIcon}
                       </span>
-                    </div>
-                    <div className="flex items-baseline gap-2 text-xs text-[color:var(--sf-text-secondary)]">
-                      <span>
-                        Quota:
-                        <span className="ml-1 font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(q.quota)}</span>
-                      </span>
-                      <span>·</span>
-                      <span>
-                        Rev:
-                        <span className="ml-1 font-semibold text-green-400">{fmtMoney(q.won_amount)}</span>
-                      </span>
-                    </div>
                   </div>
                 );
               })
@@ -474,26 +471,26 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs xl:grid-cols-5">
             <div>
-              <div className="text-sm text-[color:var(--sf-text-secondary)]">Q Coverage</div>
-              <div className={`text-sm font-semibold ${coverageColor}`}>{qCoverage.toFixed(1)}x</div>
+              <div className="text-base text-[color:var(--sf-text-secondary)]">Q Coverage</div>
+              <div className={`text-base font-semibold ${coverageColor}`}>{qCoverage.toFixed(1)}x</div>
             </div>
             <div>
-              <div className="text-sm text-[color:var(--sf-text-secondary)]">Annual Coverage</div>
-              <div className={`text-sm font-semibold ${annualCoverageColor}`}>{annualCoverage.toFixed(1)}x</div>
+              <div className="text-base text-[color:var(--sf-text-secondary)]">Annual Coverage</div>
+              <div className={`text-base font-semibold ${annualCoverageColor}`}>{annualCoverage.toFixed(1)}x</div>
             </div>
             <div>
-              <div className="text-sm text-[color:var(--sf-text-secondary)]">Avg Health</div>
-              <div className={`text-sm font-semibold ${healthColor}`}>
+              <div className="text-base text-[color:var(--sf-text-secondary)]">Avg Health</div>
+              <div className={`text-base font-semibold ${healthColor}`}>
                 {args.avgHealthPct != null ? `${args.avgHealthPct}%` : "—"}
               </div>
             </div>
             <div>
-              <div className="text-sm text-[color:var(--sf-text-secondary)]">Pipeline Risk</div>
-              <div className={`text-sm font-semibold ${riskColor}`}>{riskLabel}</div>
+              <div className="text-base text-[color:var(--sf-text-secondary)]">Pipeline Risk</div>
+              <div className={`text-base font-semibold ${riskColor}`}>{riskLabel}</div>
             </div>
             <div>
-              <div className="text-sm text-[color:var(--sf-text-secondary)]">AOV</div>
-              <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(pipelineAov)}</div>
+              <div className="text-base text-[color:var(--sf-text-secondary)]">AOV</div>
+              <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(pipelineAov)}</div>
             </div>
           </div>
         </div>
@@ -504,7 +501,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           <div className="mb-3 text-xs font-bold uppercase tracking-wider text-[color:var(--sf-text-secondary)]">
             Products Sold (this quarter)
           </div>
-          <div className="flex flex-wrap gap-3 text-xs">
+          <div className="flex flex-wrap gap-3 text-base">
             {sortedProducts.length ? (
               sortedProducts.map((p) => (
                 <div key={p.product} className="flex items-center gap-1">
@@ -515,10 +512,6 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
             ) : (
               <div className="text-[color:var(--sf-text-secondary)]">—</div>
             )}
-            <div className="ml-auto flex items-center gap-1">
-              <span className="text-[color:var(--sf-text-secondary)]">AOV:</span>
-              <span className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(args.aov)}</span>
-            </div>
           </div>
         </div>
 
