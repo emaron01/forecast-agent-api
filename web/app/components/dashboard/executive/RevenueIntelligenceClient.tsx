@@ -64,6 +64,13 @@ function quarterLabel(quarters: { id: string; name: string }[]): string {
 
 type BucketRow = { id: string; label: string; min: number; max: number | null };
 type ReportType = "deal_volume" | "meddpicc_health" | "product_mix";
+type ReportData = {
+  quarters: { id: string; name: string }[];
+  buckets: BucketRow[];
+  rows: AggRow[];
+};
+type BreakdownSelection = { label: string; repIds: number[] };
+type BreakdownResult = { label: string; data: ReportData };
 
 const CHART_COLORS = [
   "#00BCD4",
@@ -323,11 +330,9 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
 
   const [reportType, setReportType] = useState<ReportType>("deal_volume");
 
-  const [reportData, setReportData] = useState<{
-    quarters: { id: string; name: string }[];
-    buckets: BucketRow[];
-    rows: AggRow[];
-  } | null>(null);
+  const [reportData, setReportData] = useState<ReportData | null>(null);
+  const [breakdownResults, setBreakdownResults] = useState<BreakdownResult[]>([]);
+  const [breakdownSelections, setBreakdownSelections] = useState<BreakdownSelection[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -405,6 +410,77 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
 
   /** By min $ only for API payloads, charts, tables, CSV — not for editable bucket row order. */
   const bucketsSortedByMin = useMemo(() => [...buckets].sort((a, b) => Number(a.min) - Number(b.min)), [buckets]);
+
+  const fetchReportData = useCallback(
+    async (repIds: Array<string | number> | null): Promise<ReportData> => {
+      const res = await fetch("/api/revenue-intelligence/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          buckets: bucketsSortedByMin.map((b) => ({
+            id: b.id,
+            label: b.label,
+            min: b.min,
+            max: b.max,
+          })),
+          quarterIds: Array.from(selectedQuarterIds),
+          repIds,
+          reportType,
+        }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j?.ok) {
+        throw new Error(String(j?.error || `Request failed (${res.status})`));
+      }
+      return {
+        quarters: j.quarters || [],
+        buckets: j.buckets || bucketsSortedByMin,
+        rows: j.rows || [],
+      };
+    },
+    [bucketsSortedByMin, reportType, selectedQuarterIds]
+  );
+
+  const fetchBreakdown = useCallback(async (): Promise<{ selections: BreakdownSelection[]; results: BreakdownResult[] }> => {
+    const selections: BreakdownSelection[] = [];
+
+    Array.from(selectedManagerIds).forEach((id) => {
+      const mgr = repDirectory.find((r) => String(r.id) === id);
+      if (!mgr) return;
+      const teamRepIds = repDirectory
+        .filter((r) => r.role === "REP" && r.manager_rep_id === mgr.id)
+        .map((r) => r.id);
+      selections.push({
+        label: `${mgr.name}'s Team`,
+        repIds: teamRepIds,
+      });
+    });
+
+    Array.from(selectedRepIds).forEach((id) => {
+      const rep = repDirectory.find((r) => String(r.id) === id);
+      if (!rep) return;
+      selections.push({
+        label: rep.name,
+        repIds: [rep.id],
+      });
+    });
+
+    if (selections.length === 0) {
+      selections.push({
+        label: "All Reps",
+        repIds: repDirectory.filter((r) => r.role === "REP").map((r) => r.id),
+      });
+    }
+
+    const results = await Promise.all(
+      selections.map(async (selection) => ({
+        label: selection.label,
+        data: await fetchReportData(selection.repIds),
+      }))
+    );
+
+    return { selections, results };
+  }, [fetchReportData, repDirectory, selectedManagerIds, selectedRepIds]);
 
   const addBucket = () => {
     setBuckets((prev) => [
@@ -491,6 +567,49 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     }
     return keys;
   }, [selectedQuartersOrdered]);
+
+  const breakdownEntries = useMemo(() => {
+    return breakdownSelections
+      .map((selection, index) => ({
+        label: selection.label,
+        repIds: selection.repIds,
+        data: breakdownResults[index]?.data ?? null,
+      }))
+      .filter((entry): entry is BreakdownSelection & { data: ReportData } => Boolean(entry.data));
+  }, [breakdownResults, breakdownSelections]);
+
+  const useBreakdownView = reportType === "deal_volume" && breakdownEntries.length > 1;
+
+  const breakdownChartQuarter = useMemo(() => {
+    if (!selectedQuartersOrdered.length) return null;
+    return selectedQuartersOrdered[0];
+  }, [selectedQuartersOrdered]);
+
+  const breakdownChartQuarterLabel = useMemo(() => {
+    if (!breakdownChartQuarter) return "";
+    return quarterLabel([breakdownChartQuarter]);
+  }, [breakdownChartQuarter]);
+
+  const bOrder = useMemo(() => {
+    if (!reportData?.buckets?.length) return bucketsSortedByMin;
+    return reportData.buckets;
+  }, [reportData, bucketsSortedByMin]);
+
+  const breakdownChartData = useMemo(() => {
+    if (!useBreakdownView || !breakdownChartQuarter) return [];
+    return bOrder.map((bucket) => {
+      const point: Record<string, string | number> = { bucket: bucket.label };
+      breakdownEntries.forEach((entry) => {
+        const row = entry.data.rows.find(
+          (r) => r.bucket_id === bucket.id && r.quarter_id === breakdownChartQuarter.id
+        );
+        point[`${entry.label} Won`] = row?.won_count ?? 0;
+        point[`${entry.label} Lost`] = row?.lost_count ?? 0;
+        point[`${entry.label} Pipeline`] = row?.pipeline_count ?? 0;
+      });
+      return point;
+    });
+  }, [bOrder, breakdownChartQuarter, breakdownEntries, useBreakdownView]);
 
   const panel2ChartData = useMemo(() => {
     if (!reportData?.rows?.length || !reportData.buckets.length) return [];
@@ -585,36 +704,23 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     setLoading(true);
     try {
       const repIds = resolveRepIdsForApi();
-      const res = await fetch("/api/revenue-intelligence/data", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          buckets: bucketsSortedByMin.map((b) => ({
-            id: b.id,
-            label: b.label,
-            min: b.min,
-            max: b.max,
-          })),
-          quarterIds: Array.from(selectedQuarterIds),
-          repIds,
-          reportType,
-        }),
-      });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok || !j?.ok) {
-        setError(String(j?.error || `Request failed (${res.status})`));
-        setReportData(null);
-        return;
+      if (reportType === "deal_volume") {
+        const [combinedData, breakdown] = await Promise.all([fetchReportData(repIds), fetchBreakdown()]);
+        setReportData(combinedData);
+        setBreakdownSelections(breakdown.selections);
+        setBreakdownResults(breakdown.results);
+      } else {
+        const combinedData = await fetchReportData(repIds);
+        setReportData(combinedData);
+        setBreakdownSelections([]);
+        setBreakdownResults([]);
       }
-      setReportData({
-        quarters: j.quarters || [],
-        buckets: j.buckets || bucketsSortedByMin,
-        rows: j.rows || [],
-      });
       setControlsOpen(false);
     } catch (e: any) {
       setError(String(e?.message || e));
       setReportData(null);
+      setBreakdownSelections([]);
+      setBreakdownResults([]);
     } finally {
       setLoading(false);
     }
@@ -923,11 +1029,6 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   function findAgg(bid: string, qid: string): AggRow | undefined {
     return reportData?.rows.find((r) => r.bucket_id === bid && r.quarter_id === qid);
   }
-
-  const bOrder = useMemo(() => {
-    if (!reportData?.buckets?.length) return bucketsSortedByMin;
-    return reportData.buckets;
-  }, [reportData, bucketsSortedByMin]);
 
   return (
     <div className="text-[color:var(--sf-text-primary)]" data-org-id={orgId}>
@@ -1254,7 +1355,14 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">
-                  Win / Loss by Revenue Segment{panelQuarterLabel ? ` — ${panelQuarterLabel}` : ""}
+                  Win / Loss by Revenue Segment
+                  {useBreakdownView
+                    ? breakdownChartQuarterLabel
+                      ? ` — ${breakdownChartQuarterLabel}`
+                      : ""
+                    : panelQuarterLabel
+                      ? ` — ${panelQuarterLabel}`
+                      : ""}
                 </h3>
                 <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">Scope: {selectionLabel}</div>
               </div>
@@ -1268,7 +1376,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
             </div>
             <div>
               <ResponsiveContainer width="100%" height={320}>
-                <BarChart data={panel1ChartData}>
+                <BarChart data={useBreakdownView ? breakdownChartData : panel1ChartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
                   <XAxis dataKey="bucket" tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} />
                   <YAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} />
@@ -1280,71 +1388,142 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                     }}
                   />
                   <Legend wrapperStyle={{ color: "var(--sf-text-secondary)", fontSize: 11 }} />
-                  {selectedQuartersOrdered.map((q, qi) => (
-                    <Bar
-                      key={`${q.id}-won`}
-                      dataKey={`${q.name} Won`}
-                      fill={WON_SHADES[qi % WON_SHADES.length]}
-                      radius={[2, 2, 0, 0]}
-                    />
-                  ))}
-                  {selectedQuartersOrdered.map((q, qi) => (
-                    <Bar
-                      key={`${q.id}-lost`}
-                      dataKey={`${q.name} Lost`}
-                      fill={LOST_SHADES[qi % LOST_SHADES.length]}
-                      radius={[2, 2, 0, 0]}
-                    />
-                  ))}
-                  {selectedQuartersOrdered.map((q, qi) => (
-                    <Bar
-                      key={`${q.id}-pipe`}
-                      dataKey={`${q.name} Pipeline`}
-                      fill={PIPE_SHADES[qi % PIPE_SHADES.length]}
-                      radius={[2, 2, 0, 0]}
-                    />
-                  ))}
+                  {useBreakdownView
+                    ? breakdownEntries.flatMap((entry, index) => [
+                        <Bar
+                          key={`${entry.label}-won`}
+                          dataKey={`${entry.label} Won`}
+                          name={`${entry.label} Won`}
+                          fill={CHART_COLORS[index % CHART_COLORS.length]}
+                          radius={[4, 4, 0, 0]}
+                        />,
+                        <Bar
+                          key={`${entry.label}-lost`}
+                          dataKey={`${entry.label} Lost`}
+                          name={`${entry.label} Lost`}
+                          fill={CHART_COLORS[index % CHART_COLORS.length]}
+                          fillOpacity={0.55}
+                          radius={[4, 4, 0, 0]}
+                        />,
+                        <Bar
+                          key={`${entry.label}-pipeline`}
+                          dataKey={`${entry.label} Pipeline`}
+                          name={`${entry.label} Pipeline`}
+                          fill={CHART_COLORS[index % CHART_COLORS.length]}
+                          fillOpacity={0.3}
+                          radius={[4, 4, 0, 0]}
+                        />,
+                      ])
+                    : [
+                        ...selectedQuartersOrdered.map((q, qi) => (
+                          <Bar
+                            key={`${q.id}-won`}
+                            dataKey={`${q.name} Won`}
+                            fill={WON_SHADES[qi % WON_SHADES.length]}
+                            radius={[2, 2, 0, 0]}
+                          />
+                        )),
+                        ...selectedQuartersOrdered.map((q, qi) => (
+                          <Bar
+                            key={`${q.id}-lost`}
+                            dataKey={`${q.name} Lost`}
+                            fill={LOST_SHADES[qi % LOST_SHADES.length]}
+                            radius={[2, 2, 0, 0]}
+                          />
+                        )),
+                        ...selectedQuartersOrdered.map((q, qi) => (
+                          <Bar
+                            key={`${q.id}-pipe`}
+                            dataKey={`${q.name} Pipeline`}
+                            fill={PIPE_SHADES[qi % PIPE_SHADES.length]}
+                            radius={[2, 2, 0, 0]}
+                          />
+                        )),
+                      ]}
                 </BarChart>
               </ResponsiveContainer>
             </div>
             <div className="mt-4 overflow-x-auto space-y-6">
-              {selectedQuartersOrdered.map((q) => (
-                <div key={q.id}>
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
-                    {quarterLabel([q])}
-                  </div>
-                  <div className="mb-2 text-xs text-[color:var(--sf-text-secondary)]">Showing: {selectionLabel}</div>
-                  <table className="w-full min-w-[640px] border-collapse text-left text-sm">
-                    <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
-                      <tr>
-                        <th className="border-b border-[color:var(--sf-border)] px-3 py-2">Bucket</th>
-                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Won</th>
-                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Lost</th>
-                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Pipeline</th>
-                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Win Rate</th>
-                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Won $</th>
-                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Lost $</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bOrder.map((b) => {
-                        const rr = findAgg(b.id, q.id);
-                        return (
-                          <tr key={`${b.id}-${q.id}-p1`} className="border-t border-[color:var(--sf-border)]">
-                            <td className="px-3 py-2 font-medium">{b.label}</td>
-                            <td className="px-2 py-2 text-right">{rr ? rr.won_count : "—"}</td>
-                            <td className="px-2 py-2 text-right">{rr ? rr.lost_count : "—"}</td>
-                            <td className="px-2 py-2 text-right">{rr ? rr.pipeline_count : "—"}</td>
-                            <td className="px-2 py-2 text-right">{rr ? fmtPct01(rr.win_rate) : "—"}</td>
-                            <td className="px-2 py-2 text-right font-mono text-xs">{rr ? fmtMoney(rr.won_amount) : "—"}</td>
-                            <td className="px-2 py-2 text-right font-mono text-xs">{rr ? fmtMoney(rr.lost_amount) : "—"}</td>
+              {useBreakdownView
+                ? breakdownEntries.map((entry) => (
+                    <div key={entry.label} className="space-y-4">
+                      <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{entry.label}</div>
+                      {selectedQuartersOrdered.map((q) => (
+                        <div key={`${entry.label}-${q.id}`}>
+                          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                            {quarterLabel([q])}
+                          </div>
+                          <div className="mb-2 text-xs text-[color:var(--sf-text-secondary)]">Showing: {entry.label}</div>
+                          <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                            <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                              <tr>
+                                <th className="border-b border-[color:var(--sf-border)] px-3 py-2">Bucket</th>
+                                <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Won</th>
+                                <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Lost</th>
+                                <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Pipeline</th>
+                                <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Win Rate</th>
+                                <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Won $</th>
+                                <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Lost $</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {bOrder.map((b) => {
+                                const rr = entry.data.rows.find((r) => r.bucket_id === b.id && r.quarter_id === q.id);
+                                return (
+                                  <tr key={`${entry.label}-${b.id}-${q.id}-p1`} className="border-t border-[color:var(--sf-border)]">
+                                    <td className="px-3 py-2 font-medium">{b.label}</td>
+                                    <td className="px-2 py-2 text-right">{rr ? rr.won_count : "—"}</td>
+                                    <td className="px-2 py-2 text-right">{rr ? rr.lost_count : "—"}</td>
+                                    <td className="px-2 py-2 text-right">{rr ? rr.pipeline_count : "—"}</td>
+                                    <td className="px-2 py-2 text-right">{rr ? fmtPct01(rr.win_rate) : "—"}</td>
+                                    <td className="px-2 py-2 text-right font-mono text-xs">{rr ? fmtMoney(rr.won_amount) : "—"}</td>
+                                    <td className="px-2 py-2 text-right font-mono text-xs">{rr ? fmtMoney(rr.lost_amount) : "—"}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      ))}
+                    </div>
+                  ))
+                : selectedQuartersOrdered.map((q) => (
+                    <div key={q.id}>
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                        {quarterLabel([q])}
+                      </div>
+                      <div className="mb-2 text-xs text-[color:var(--sf-text-secondary)]">Showing: {selectionLabel}</div>
+                      <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                        <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                          <tr>
+                            <th className="border-b border-[color:var(--sf-border)] px-3 py-2">Bucket</th>
+                            <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Won</th>
+                            <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Lost</th>
+                            <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Pipeline</th>
+                            <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Win Rate</th>
+                            <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Won $</th>
+                            <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Lost $</th>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
+                        </thead>
+                        <tbody>
+                          {bOrder.map((b) => {
+                            const rr = findAgg(b.id, q.id);
+                            return (
+                              <tr key={`${b.id}-${q.id}-p1`} className="border-t border-[color:var(--sf-border)]">
+                                <td className="px-3 py-2 font-medium">{b.label}</td>
+                                <td className="px-2 py-2 text-right">{rr ? rr.won_count : "—"}</td>
+                                <td className="px-2 py-2 text-right">{rr ? rr.lost_count : "—"}</td>
+                                <td className="px-2 py-2 text-right">{rr ? rr.pipeline_count : "—"}</td>
+                                <td className="px-2 py-2 text-right">{rr ? fmtPct01(rr.win_rate) : "—"}</td>
+                                <td className="px-2 py-2 text-right font-mono text-xs">{rr ? fmtMoney(rr.won_amount) : "—"}</td>
+                                <td className="px-2 py-2 text-right font-mono text-xs">{rr ? fmtMoney(rr.lost_amount) : "—"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
             </div>
           </section>
 
