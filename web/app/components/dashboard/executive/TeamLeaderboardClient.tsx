@@ -573,7 +573,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
       .sort((a, b) => {
         const aa = a.attainment == null || !Number.isFinite(a.attainment) ? Number.POSITIVE_INFINITY : Number(a.attainment);
         const bb = b.attainment == null || !Number.isFinite(b.attainment) ? Number.POSITIVE_INFINITY : Number(b.attainment);
-        return aa - bb || a.rep_name.localeCompare(b.rep_name);
+        return bb - aa || a.rep_name.localeCompare(b.rep_name);
       });
     const mgrMeta = managerRows.find((m) => String(m.manager_id || "") === String(managerId || ""));
     const managerLabel =
@@ -656,7 +656,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
               .sort((a, b) => {
                 const aa = a.attainment == null || !Number.isFinite(a.attainment) ? Number.POSITIVE_INFINITY : Number(a.attainment);
                 const bb = b.attainment == null || !Number.isFinite(b.attainment) ? Number.POSITIVE_INFINITY : Number(b.attainment);
-                return aa - bb || a.rep_name.localeCompare(b.rep_name);
+                return bb - aa || a.rep_name.localeCompare(b.rep_name);
               })
               .map((r) => renderRepCard(r))}
       </div>
