@@ -1109,32 +1109,13 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     [breakdownBucketSummaries]
   );
 
-  const buildMetricFamilyChartData = useCallback(
-    <T extends DealVolumeMetric | VelocityMetric | HealthMetric>(
-      metrics: readonly T[],
-      valueForMetric: (summary: BucketSummary | null, metric: T) => number
-    ) => {
-      return bOrder.map((bucket) => {
-        const point: Record<string, string | number> = { bucket: bucket.label };
-        breakdownBucketSummaries.forEach((entry) => {
-          const summary = entry.buckets.get(bucket.id) ?? null;
-          metrics.forEach((metric) => {
-            point[`${entry.label}::${metric}`] = valueForMetric(summary, metric);
-          });
-        });
-        return point;
-      });
-    },
-    [bOrder, breakdownBucketSummaries]
+  const dealVolumeWonCountDrillData = useMemo(
+    () => buildSelectionChartData("won_count", dealVolumeMetricValue),
+    [buildSelectionChartData]
   );
-
-  const dealVolumeCountsDrillData = useMemo(
-    () => buildMetricFamilyChartData(["won_count", "lost_count", "pipeline_count"], dealVolumeMetricValue),
-    [buildMetricFamilyChartData]
-  );
-  const dealVolumeRevenueDrillData = useMemo(
-    () => buildMetricFamilyChartData(["won_amount", "lost_amount"], dealVolumeMetricValue),
-    [buildMetricFamilyChartData]
+  const dealVolumeWonAmountDrillData = useMemo(
+    () => buildSelectionChartData("won_amount", dealVolumeMetricValue),
+    [buildSelectionChartData]
   );
   const dealVolumeWinRateDrillData = useMemo(
     () => buildSelectionChartData("win_rate", dealVolumeMetricValue),
@@ -1186,7 +1167,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         </button>
       ))}
       <button type="button" onClick={() => setDrillState(!drillState)} className={drillDownBtnClass(drillState)}>
-        {drillState ? "▲ Simple View" : "▼ Drill Down"}
+        {drillState ? "▲ Snapshot" : "▼ Drill Down"}
       </button>
     </div>
   );
@@ -1584,37 +1565,16 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
               {drillDown ? (
                 <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
                   <div className="rounded-lg border border-[color:var(--sf-border)] p-3">
-                    <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Counts</div>
-                    {renderGroupedChart({
-                      data: dealVolumeCountsDrillData,
-                      metric: "won_count",
-                      height: 200,
-                      series: selectionSeries.flatMap((entry) => [
-                        { key: `${entry.key}::won_count`, name: `${entry.name} Won`, fill: entry.fill, fillOpacity: 1 },
-                        { key: `${entry.key}::lost_count`, name: `${entry.name} Lost`, fill: entry.fill, fillOpacity: 0.5 },
-                        { key: `${entry.key}::pipeline_count`, name: `${entry.name} Pipeline`, fill: entry.fill, fillOpacity: 0.25 },
-                      ]),
-                    })}
+                    <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Won Deals by Segment</div>
+                    {renderGroupedChart({ data: dealVolumeWonCountDrillData, metric: "won_count", height: 220 })}
                   </div>
                   <div className="rounded-lg border border-[color:var(--sf-border)] p-3">
-                    <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Revenue</div>
-                    {renderGroupedChart({
-                      data: dealVolumeRevenueDrillData,
-                      metric: "won_amount",
-                      height: 200,
-                      series: selectionSeries.flatMap((entry) => [
-                        { key: `${entry.key}::won_amount`, name: `${entry.name} Won $`, fill: entry.fill, fillOpacity: 1 },
-                        { key: `${entry.key}::lost_amount`, name: `${entry.name} Lost $`, fill: entry.fill, fillOpacity: 0.5 },
-                      ]),
-                    })}
+                    <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Revenue Won by Segment</div>
+                    {renderGroupedChart({ data: dealVolumeWonAmountDrillData, metric: "won_amount", height: 220 })}
                   </div>
                   <div className="rounded-lg border border-[color:var(--sf-border)] p-3">
-                    <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Win Rate</div>
-                    {renderGroupedChart({
-                      data: dealVolumeWinRateDrillData,
-                      metric: "win_rate",
-                      height: 200,
-                    })}
+                    <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Win Rate by Segment</div>
+                    {renderGroupedChart({ data: dealVolumeWinRateDrillData, metric: "win_rate", height: 220 })}
                   </div>
                 </div>
               ) : (
