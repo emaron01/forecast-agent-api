@@ -1959,6 +1959,12 @@ export function ExecutiveGapInsightsClient(props: {
     const nextQuarterPipeline = summarizeDeals(nextPeriodDeals.filter((d) => classifyForecastStage(d) === "pipeline"));
     const nextQuarterTotal = summarizeDeals(nextPeriodDeals);
     const nextQuarterDenom = nextQuarterTotal.amount > 0 ? nextQuarterTotal.amount : null;
+    const nextQuarterMixTotal =
+      nextQuarterCommit.amount + nextQuarterBest.amount + nextQuarterWon.amount + nextQuarterLost.amount + nextQuarterPipeline.amount;
+    const nextQuarterWonPct = nextQuarterMixTotal > 0 ? nextQuarterWon.amount / nextQuarterMixTotal : 0;
+    const nextQuarterCommitPct = nextQuarterMixTotal > 0 ? nextQuarterCommit.amount / nextQuarterMixTotal : 0;
+    const nextQuarterBestPct = nextQuarterMixTotal > 0 ? nextQuarterBest.amount / nextQuarterMixTotal : 0;
+    const nextQuarterPipelinePct = nextQuarterMixTotal > 0 ? nextQuarterPipeline.amount / nextQuarterMixTotal : 0;
 
     const fyPeriodsInYear = currentPeriod
       ? sortedPeriods.filter((p) => String(p.fiscal_year) === String(currentPeriod.fiscal_year))
@@ -1990,6 +1996,10 @@ export function ExecutiveGapInsightsClient(props: {
     const openDealCount = fyRemainingDeals.length;
     const remainingQuota = quotaGap;
     const coverageRatio = remainingQuota != null && remainingQuota > 0 ? totalRemainingPipeline / remainingQuota : null;
+    const fyTotal = annualQuota ?? 0;
+    const fyWonPct = fyTotal > 0 && closedWonYtd != null ? closedWonYtd / fyTotal : 0;
+    const fyPipelinePct = fyTotal > 0 ? totalRemainingPipeline / fyTotal : 0;
+    const fyGapPct = Math.max(0, 1 - fyWonPct - fyPipelinePct);
     const annualGoalColor = pctToAnnualGoal == null ? "text-[color:var(--sf-text-primary)]" : pctToAnnualGoal >= 0.8 ? "text-[#2ECC71]" : pctToAnnualGoal >= 0.5 ? "text-[#F1C40F]" : "text-[#E74C3C]";
     const coverageColor = coverageRatio == null ? "text-[color:var(--sf-text-primary)]" : coverageRatio >= 3 ? "text-[#2ECC71]" : coverageRatio >= 2 ? "text-[#F1C40F]" : "text-[#E74C3C]";
     const coveragePillLabel = coverageRatio == null ? "—" : coverageRatio >= 3 ? "STRONG" : coverageRatio >= 2 ? "MODERATE" : "HIGH RISK";
@@ -2563,6 +2573,12 @@ export function ExecutiveGapInsightsClient(props: {
                   {nextPeriod.period_start} → {nextPeriod.period_end}
                 </p>
               </div>
+              <div className="mt-3 mb-4 h-2 w-full rounded-full overflow-hidden flex">
+                <div className="h-full bg-green-500" style={{ width: `${nextQuarterWonPct * 100}%` }} />
+                <div className="h-full bg-teal-500" style={{ width: `${nextQuarterCommitPct * 100}%` }} />
+                <div className="h-full bg-blue-500" style={{ width: `${nextQuarterBestPct * 100}%` }} />
+                <div className="h-full bg-red-500" style={{ width: `${nextQuarterPipelinePct * 100}%` }} />
+              </div>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 mt-3">
                 {renderStageSetupCard({
                   label: "COMMIT",
@@ -2622,6 +2638,11 @@ export function ExecutiveGapInsightsClient(props: {
                 <p className="text-xs text-[color:var(--sf-text-secondary)]">
                   {fyRemainingPeriods.length} quarters remaining including current
                 </p>
+              </div>
+              <div className="mt-3 mb-4 h-2 w-full rounded-full overflow-hidden flex">
+                <div className="h-full bg-green-500" style={{ width: `${fyWonPct * 100}%` }} />
+                <div className="h-full bg-blue-500/60" style={{ width: `${fyPipelinePct * 100}%` }} />
+                <div className="h-full bg-[color:var(--sf-surface-alt)]" style={{ width: `${fyGapPct * 100}%` }} />
               </div>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 mt-3">
                 <div className={heroCard}>
