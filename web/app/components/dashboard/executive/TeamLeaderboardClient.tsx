@@ -178,6 +178,7 @@ function aggregateFyQuarterRows(rows: TeamLeaderboardFyQuarterRow[]): TeamLeader
     } else {
       byPeriod.set(key, {
         rep_id: String(row.rep_id),
+        rep_int_id: String(row.rep_int_id),
         period_id: String(row.period_id),
         period_name: String(row.period_name || ""),
         fiscal_quarter: String(row.fiscal_quarter || ""),
