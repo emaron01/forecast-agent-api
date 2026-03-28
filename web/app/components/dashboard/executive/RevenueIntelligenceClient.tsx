@@ -303,6 +303,23 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   const [repSelection, dispatchRep] = useReducer(repSelectionReducer, { managers: new Set<string>(), reps: new Set<string>() });
   const selectedManagerIds = repSelection.managers;
   const selectedRepIds = repSelection.reps;
+  const selectionLabel = useMemo(() => {
+    const parts: string[] = [];
+
+    Array.from(selectedManagerIds).forEach((id) => {
+      const mgr = repDirectory.find((r) => String(r.id) === id);
+      if (mgr) parts.push(`${mgr.name}'s Team`);
+    });
+
+    Array.from(selectedRepIds).forEach((id) => {
+      const rep = repDirectory.find((r) => String(r.id) === id);
+      if (rep) parts.push(rep.name);
+    });
+
+    if (parts.length === 0) return "All Reps";
+    if (parts.length <= 3) return parts.join(", ");
+    return `${parts.slice(0, 3).join(", ")} +${parts.length - 3} more`;
+  }, [selectedManagerIds, selectedRepIds, repDirectory]);
 
   const [reportType, setReportType] = useState<ReportType>("deal_volume");
 
@@ -1235,9 +1252,12 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
             className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
           >
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">
-                Win / Loss by Revenue Segment{panelQuarterLabel ? ` — ${panelQuarterLabel}` : ""}
-              </h3>
+              <div>
+                <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">
+                  Win / Loss by Revenue Segment{panelQuarterLabel ? ` — ${panelQuarterLabel}` : ""}
+                </h3>
+                <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">Scope: {selectionLabel}</div>
+              </div>
               <button
                 type="button"
                 onClick={() => void downloadPanelPng(panel1Ref, "win-loss-by-segment.png")}
@@ -1293,6 +1313,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                   <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
                     {quarterLabel([q])}
                   </div>
+                  <div className="mb-2 text-xs text-[color:var(--sf-text-secondary)]">Showing: {selectionLabel}</div>
                   <table className="w-full min-w-[640px] border-collapse text-left text-sm">
                     <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
                       <tr>
@@ -1332,9 +1353,12 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
             className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
           >
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">
-                Avg Days to Close by Revenue Segment{panelQuarterLabel ? ` — ${panelQuarterLabel}` : ""}
-              </h3>
+              <div>
+                <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">
+                  Avg Days to Close by Revenue Segment{panelQuarterLabel ? ` — ${panelQuarterLabel}` : ""}
+                </h3>
+                <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">Scope: {selectionLabel}</div>
+              </div>
               <button
                 type="button"
                 onClick={() => void downloadPanelPng(panel2Ref, "avg-days-by-segment.png")}
@@ -1377,6 +1401,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
               </ResponsiveContainer>
             </div>
             <div className="mt-4 overflow-x-auto">
+              <div className="mb-2 text-xs text-[color:var(--sf-text-secondary)]">Showing: {selectionLabel}</div>
               <table className="w-full min-w-[560px] border-collapse text-left text-sm">
                 <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
                   <tr>
@@ -1436,9 +1461,12 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
             className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
           >
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">
-                Avg Health Score by Revenue Segment{panelQuarterLabel ? ` — ${panelQuarterLabel}` : ""}
-              </h3>
+              <div>
+                <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">
+                  Avg Health Score by Revenue Segment{panelQuarterLabel ? ` — ${panelQuarterLabel}` : ""}
+                </h3>
+                <div className="mt-0.5 text-xs text-[color:var(--sf-text-secondary)]">Scope: {selectionLabel}</div>
+              </div>
               <button
                 type="button"
                 onClick={() => void downloadPanelPng(panel3Ref, "health-score-by-segment.png")}
@@ -1475,6 +1503,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
               </ResponsiveContainer>
             </div>
             <div className="mt-4 overflow-x-auto">
+              <div className="mb-2 text-xs text-[color:var(--sf-text-secondary)]">Showing: {selectionLabel}</div>
               <table className="w-full min-w-[560px] border-collapse text-left text-sm">
                 <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
                   <tr>
