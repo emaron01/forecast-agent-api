@@ -7,7 +7,7 @@ import { UserTopNav } from "../../_components/UserTopNav";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
-import { HIERARCHY, isChannelRep, isChannelRole } from "../../../lib/roleHelpers";
+import { CHANNEL_HIERARCHY_LEVELS, HIERARCHY, isChannelRep, isChannelRole } from "../../../lib/roleHelpers";
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
 import { ChannelTopPartnerDealsTablesClient, type TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
 
@@ -322,10 +322,26 @@ export default async function ChannelDashboardPage({
     myRepId: null as number | null,
   }));
 
-  const visibleRepIds: number[] =
+  const salesTeamRepIds: number[] =
     scope.allowedRepIds !== null && scope.allowedRepIds.length > 0
       ? scope.allowedRepIds
       : scope.repDirectory
+          .map((r) => r.id)
+          .filter((n) => Number.isFinite(n) && n > 0);
+
+  const channelScopedRepIds =
+    selectedPeriodId && ctx.kind === "user"
+      ? await listChannelScopedRepIds({
+          orgId: ctx.user.org_id,
+          userId: ctx.user.id,
+        }).catch(() => [])
+      : [];
+
+  const visibleRepIds: number[] =
+    channelScopedRepIds.length > 0
+      ? channelScopedRepIds
+      : scope.repDirectory
+          .filter((r) => CHANNEL_HIERARCHY_LEVELS.includes(Number(r.hierarchy_level)))
           .map((r) => r.id)
           .filter((n) => Number.isFinite(n) && n > 0);
 
@@ -387,13 +403,6 @@ export default async function ChannelDashboardPage({
       .trim() || "—";
   const fiscalQuarter =
     String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—";
-  const channelScopedRepIds =
-    selectedPeriodId && ctx.kind === "user"
-      ? await listChannelScopedRepIds({
-          orgId: ctx.user.org_id,
-          userId: ctx.user.id,
-        }).catch(() => [])
-      : [];
   const fallbackScopedRepId = scope.myRepId ?? summary.myRepId ?? null;
   const currentChannelRepId =
     selectedPeriodId && ctx.kind === "user"
@@ -405,8 +414,8 @@ export default async function ChannelDashboardPage({
       : null;
   const viewerChannelRoleLevel = Number(ctx.user.hierarchy_level);
   const effectiveChannelRepIds =
-    channelScopedRepIds.length > 0
-      ? channelScopedRepIds
+    visibleRepIds.length > 0
+      ? visibleRepIds
       : currentChannelRepId != null
         ? [currentChannelRepId]
         : [];
@@ -417,7 +426,7 @@ export default async function ChannelDashboardPage({
       orgId: ctx.user.org_id,
       quotaPeriodId: selectedPeriodId,
       channelRepIds: effectiveChannelRepIds,
-      salesTeamRepIds: visibleRepIds,
+      salesTeamRepIds,
       viewerRoleLevel: viewerChannelRoleLevel,
       viewerChannelRepId: currentChannelRepId,
     }).catch(() => null);

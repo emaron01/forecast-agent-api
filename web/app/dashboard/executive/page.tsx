@@ -836,6 +836,7 @@ export default async function ExecutiveDashboardPage({
       name: string;
       manager_rep_id: number | null;
       role: string;
+      hierarchy_level: number;
     };
 
     const filtered: BuilderDirRow[] = repDirectory
@@ -846,23 +847,21 @@ export default async function ExecutiveDashboardPage({
           name: r.name,
           manager_rep_id: r.manager_rep_id ?? null,
           role,
+          hierarchy_level: Number(r.hierarchy_level ?? 99),
         };
       })
-      .filter((r) => {
-        const level = Number((r as any).hierarchy_level);
-        return level >= HIERARCHY.EXEC_MANAGER && level <= HIERARCHY.REP;
-      });
+      .filter((r) => r.hierarchy_level >= HIERARCHY.EXEC_MANAGER && r.hierarchy_level <= HIERARCHY.REP);
 
     const execs = filtered
-      .filter((r) => Number((r as any).hierarchy_level) === HIERARCHY.EXEC_MANAGER)
+      .filter((r) => r.hierarchy_level === HIERARCHY.EXEC_MANAGER)
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
     const managers = filtered
-      .filter((r) => Number((r as any).hierarchy_level) === HIERARCHY.MANAGER)
+      .filter((r) => r.hierarchy_level === HIERARCHY.MANAGER)
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
     const reps = filtered
-      .filter((r) => Number((r as any).hierarchy_level) === HIERARCHY.REP)
+      .filter((r) => r.hierarchy_level === HIERARCHY.REP)
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
 
@@ -900,6 +899,7 @@ export default async function ExecutiveDashboardPage({
         name: exec.name,
         manager_rep_id: exec.manager_rep_id ?? null,
         role: exec.role,
+        hierarchy_level: exec.hierarchy_level,
       });
 
       const execManagers = (managersByExecId.get(exec.id) || []).slice();
@@ -911,6 +911,7 @@ export default async function ExecutiveDashboardPage({
           name: mgr.name,
           manager_rep_id: mgr.manager_rep_id ?? null,
           role: mgr.role,
+          hierarchy_level: mgr.hierarchy_level,
         });
 
         const mgrReps = (repsByManagerId.get(mgr.id) || []).slice();
@@ -922,6 +923,7 @@ export default async function ExecutiveDashboardPage({
             name: rep.name,
             manager_rep_id: rep.manager_rep_id ?? null,
             role: rep.role,
+            hierarchy_level: rep.hierarchy_level,
           });
         }
       }
@@ -934,6 +936,7 @@ export default async function ExecutiveDashboardPage({
         name: mgr.name,
         manager_rep_id: mgr.manager_rep_id ?? null,
         role: mgr.role,
+        hierarchy_level: mgr.hierarchy_level,
       });
 
       const mgrReps = (repsByManagerId.get(mgr.id) || []).slice();
@@ -944,6 +947,7 @@ export default async function ExecutiveDashboardPage({
           name: rep.name,
           manager_rep_id: rep.manager_rep_id ?? null,
           role: rep.role,
+          hierarchy_level: rep.hierarchy_level,
         });
       }
     }
@@ -955,6 +959,7 @@ export default async function ExecutiveDashboardPage({
         name: rep.name,
         manager_rep_id: rep.manager_rep_id ?? null,
         role: rep.role,
+        hierarchy_level: rep.hierarchy_level,
       });
     }
 
