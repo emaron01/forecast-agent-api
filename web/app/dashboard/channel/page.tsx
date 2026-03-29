@@ -7,7 +7,7 @@ import { UserTopNav } from "../../_components/UserTopNav";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
-import { CHANNEL_HIERARCHY_LEVELS, HIERARCHY, isChannelRep, isChannelRole } from "../../../lib/roleHelpers";
+import { HIERARCHY, isChannelRep, isChannelRole } from "../../../lib/roleHelpers";
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
 import { ChannelTopPartnerDealsTablesClient, type TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
 
@@ -337,13 +337,7 @@ export default async function ChannelDashboardPage({
         }).catch(() => [])
       : [];
 
-  const visibleRepIds: number[] =
-    channelScopedRepIds.length > 0
-      ? channelScopedRepIds
-      : scope.repDirectory
-          .filter((r) => CHANNEL_HIERARCHY_LEVELS.includes(Number(r.hierarchy_level)))
-          .map((r) => r.id)
-          .filter((n) => Number.isFinite(n) && n > 0);
+  const visibleRepIds: number[] = salesTeamRepIds;
 
   const periodIdx = summary.periods.findIndex((p) => String(p.id) === String(selectedPeriodId));
   const prevPeriod = periodIdx >= 0 ? summary.periods[periodIdx + 1] : null;
@@ -414,8 +408,8 @@ export default async function ChannelDashboardPage({
       : null;
   const viewerChannelRoleLevel = Number(ctx.user.hierarchy_level);
   const effectiveChannelRepIds =
-    visibleRepIds.length > 0
-      ? visibleRepIds
+    channelScopedRepIds.length > 0
+      ? channelScopedRepIds
       : currentChannelRepId != null
         ? [currentChannelRepId]
         : [];
