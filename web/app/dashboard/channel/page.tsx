@@ -7,6 +7,7 @@ import { UserTopNav } from "../../_components/UserTopNav";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
+import { ChannelRepHeroCards } from "../../../components/dashboard/channel/ChannelRepHeroCards";
 import { isChannelRepOnly } from "../../../lib/userRoles";
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
 import { ChannelTopPartnerDealsTablesClient, type TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
@@ -81,6 +82,163 @@ async function listTopPartnerDealsChannel(args: {
     ]
   );
   return rows || [];
+}
+
+type ChannelDashboardHeroMetrics = {
+  channelQuota: number | null;
+  channelClosedWon: number;
+  salesTeamClosedWon: number;
+};
+
+async function listChannelScopedRepIds(args: {
+  orgId: number;
+  userId: number;
+}): Promise<number[]> {
+  const { rows } = await pool.query<{ id: number }>(
+    `
+    WITH RECURSIVE my_channel_rep AS (
+      SELECT r.id, ARRAY[r.id] AS path
+      FROM reps r
+      WHERE r.organization_id = $1::bigint
+        AND r.user_id = $2::bigint
+        AND r.role IN ('CHANNEL_EXECUTIVE', 'CHANNEL_DIRECTOR', 'CHANNEL_REP')
+      ORDER BY r.id DESC
+      LIMIT 1
+    ),
+    tree AS (
+      SELECT id, path
+      FROM my_channel_rep
+
+      UNION ALL
+
+      SELECT c.id, (t.path || c.id)
+      FROM reps c
+      JOIN tree t
+        ON c.manager_rep_id = t.id
+      WHERE c.organization_id = $1::bigint
+        AND (c.active IS TRUE OR c.active IS NULL)
+        AND c.role IN ('CHANNEL_EXECUTIVE', 'CHANNEL_DIRECTOR', 'CHANNEL_REP')
+        AND NOT (c.id = ANY(t.path))
+    )
+    SELECT DISTINCT id
+    FROM tree
+    ORDER BY id ASC
+    `,
+    [args.orgId, args.userId]
+  );
+  return (rows || [])
+    .map((row) => Number(row.id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+}
+
+async function getChannelDashboardHeroMetrics(args: {
+  orgId: number;
+  quotaPeriodId: string;
+  channelRepIds: number[];
+  salesTeamRepIds: number[];
+}): Promise<ChannelDashboardHeroMetrics> {
+  const useSalesTeamFilter = args.salesTeamRepIds.length > 0;
+  const { rows } = await pool.query<{
+    channel_quota: number | null;
+    channel_closed_won: number | null;
+    sales_team_closed_won: number | null;
+  }>(
+    `
+    WITH qp AS (
+      SELECT
+        id::bigint AS quota_period_id,
+        period_start::date AS period_start,
+        period_end::date AS period_end
+      FROM quota_periods
+      WHERE org_id = $1::bigint
+        AND id = $2::bigint
+      LIMIT 1
+    ),
+    channel_quota AS (
+      SELECT COALESCE(SUM(q.quota_amount), 0)::float8 AS channel_quota
+      FROM quotas q
+      JOIN qp ON qp.quota_period_id = q.quota_period_id
+      WHERE q.org_id = $1::bigint
+        AND q.role_level = 3
+        AND q.rep_id = ANY($3::bigint[])
+    ),
+    channel_closed_won AS (
+      SELECT COALESCE(SUM(COALESCE(o.amount, 0)), 0)::float8 AS channel_closed_won
+      FROM (
+        SELECT
+          o.amount,
+          o.partner_name,
+          o.forecast_stage,
+          o.sales_stage,
+          CASE
+            WHEN o.close_date IS NULL THEN NULL
+            WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+            WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+              to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
+            ELSE NULL
+          END AS close_d
+        FROM opportunities o
+        WHERE o.org_id = $1::bigint
+          AND o.rep_id = ANY($3::bigint[])
+      ) o
+      JOIN qp ON TRUE
+      WHERE o.close_d IS NOT NULL
+        AND o.close_d >= qp.period_start
+        AND o.close_d <= qp.period_end
+        AND o.partner_name IS NOT NULL
+        AND btrim(o.partner_name) <> ''
+        AND (
+          (' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ')
+          LIKE '% won %'
+        )
+    ),
+    sales_team_closed_won AS (
+      SELECT COALESCE(SUM(COALESCE(o.amount, 0)), 0)::float8 AS sales_team_closed_won
+      FROM (
+        SELECT
+          o.amount,
+          o.forecast_stage,
+          o.sales_stage,
+          CASE
+            WHEN o.close_date IS NULL THEN NULL
+            WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+            WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+              to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
+            ELSE NULL
+          END AS close_d
+        FROM opportunities o
+        WHERE o.org_id = $1::bigint
+          AND $5::boolean
+          AND o.rep_id = ANY($4::bigint[])
+      ) o
+      JOIN qp ON TRUE
+      WHERE o.close_d IS NOT NULL
+        AND o.close_d >= qp.period_start
+        AND o.close_d <= qp.period_end
+        AND (
+          (' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ')
+          LIKE '% won %'
+        )
+    )
+    SELECT
+      COALESCE(cq.channel_quota, 0)::float8 AS channel_quota,
+      COALESCE(ccw.channel_closed_won, 0)::float8 AS channel_closed_won,
+      COALESCE(stcw.sales_team_closed_won, 0)::float8 AS sales_team_closed_won
+    FROM qp
+    LEFT JOIN channel_quota cq ON TRUE
+    LEFT JOIN channel_closed_won ccw ON TRUE
+    LEFT JOIN sales_team_closed_won stcw ON TRUE
+    LIMIT 1
+    `,
+    [args.orgId, args.quotaPeriodId, args.channelRepIds, args.salesTeamRepIds, useSalesTeamFilter]
+  );
+
+  const row = rows[0];
+  return {
+    channelQuota: row?.channel_quota == null ? null : Number(row.channel_quota) || 0,
+    channelClosedWon: Number(row?.channel_closed_won || 0) || 0,
+    salesTeamClosedWon: Number(row?.sales_team_closed_won || 0) || 0,
+  };
 }
 
 export default async function ChannelDashboardPage({
@@ -188,6 +346,37 @@ export default async function ChannelDashboardPage({
       .trim() || "—";
   const fiscalQuarter =
     String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—";
+  const isChannelRep = ctx.user.role === "CHANNEL_REP";
+  const channelScopedRepIds =
+    selectedPeriodId && ctx.kind === "user"
+      ? await listChannelScopedRepIds({
+          orgId: ctx.user.org_id,
+          userId: ctx.user.id,
+        }).catch(() => [])
+      : [];
+
+  let channelHeroMetrics: ChannelDashboardHeroMetrics | null = null;
+  if (selectedPeriodId && channelScopedRepIds.length > 0) {
+    channelHeroMetrics = await getChannelDashboardHeroMetrics({
+      orgId: ctx.user.org_id,
+      quotaPeriodId: selectedPeriodId,
+      channelRepIds: channelScopedRepIds,
+      salesTeamRepIds: visibleRepIds,
+    }).catch(() => null);
+  }
+
+  const channelQuota = channelHeroMetrics?.channelQuota ?? null;
+  const channelClosedWon = channelHeroMetrics?.channelClosedWon ?? 0;
+  const salesTeamClosedWon = channelHeroMetrics?.salesTeamClosedWon ?? 0;
+  const contributionPct =
+    salesTeamClosedWon > 0 ? (channelClosedWon / salesTeamClosedWon) * 100 : null;
+  const gapToQuota = channelQuota == null ? null : Math.max(0, channelQuota - channelClosedWon);
+  const gapToQuotaRaw = channelQuota == null ? null : channelQuota - channelClosedWon;
+  const landingZone =
+    summary.aiForecast?.weighted_forecast != null &&
+    Number.isFinite(Number(summary.aiForecast.weighted_forecast))
+      ? Number(summary.aiForecast.weighted_forecast)
+      : null;
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -205,7 +394,17 @@ export default async function ChannelDashboardPage({
           selectedFiscalYear={summary.selectedFiscalYear}
           selectedPeriodId={summary.selectedQuotaPeriodId}
         />
-        {partnerHero ? (
+        {isChannelRep ? (
+          <div className="mt-4">
+            <ChannelRepHeroCards
+              closedWon={channelClosedWon}
+              quota={channelQuota}
+              contributionPct={contributionPct}
+              gapToQuota={gapToQuota}
+              landingZone={landingZone}
+            />
+          </div>
+        ) : partnerHero ? (
           <div className="mt-4">
             <ExecutiveGapInsightsClient
               heroOnly
@@ -236,6 +435,9 @@ export default async function ChannelDashboardPage({
               }}
               partnersExecutive={summary.partnersExecutive}
               quota={partnerHero.quota}
+              heroQuotaOverride={channelQuota}
+              heroGapToQuotaOverride={gapToQuotaRaw}
+              heroContributionPct={contributionPct}
               aiForecast={partnerHero.aiForecast}
               crmForecast={partnerHero.crmForecastWeighted}
               gap={partnerHero.forecastGap}
