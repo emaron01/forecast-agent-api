@@ -7,7 +7,6 @@ import { UserTopNav } from "../../_components/UserTopNav";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
-import { ChannelRepHeroCards } from "../../../components/dashboard/channel/ChannelRepHeroCards";
 import { HIERARCHY, isChannelRep, isChannelRole } from "../../../lib/roleHelpers";
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
 import { ChannelTopPartnerDealsTablesClient, type TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
@@ -392,12 +391,54 @@ export default async function ChannelDashboardPage({
           selectedPeriodId={summary.selectedQuotaPeriodId}
         />
         <div className="mt-4">
-          <ChannelRepHeroCards
-            closedWon={channelClosedWon}
-            quota={channelQuota}
+          <ExecutiveGapInsightsClient
+            basePath="/dashboard/channel"
+            channelTabOnly={true}
+            channelTopPartnerDealsOnPage={true}
+            viewerRole={ctx.user.role}
+            periods={summary.periods}
+            quotaPeriodId={summary.selectedQuotaPeriodId}
+            orgId={ctx.user.org_id}
+            reps={summary.reps}
+            fiscalYear={fiscalYear}
+            fiscalQuarter={fiscalQuarter}
+            stageProbabilities={summary.stageProbabilities}
+            healthModifiers={partnerHero?.healthModifiers ?? summary.healthModifiers}
+            repDirectory={summary.repDirectory}
+            myRepId={summary.myRepId}
+            repRollups={summary.repRollups}
+            productsClosedWon={partnerHero?.productsClosedWon ?? summary.productsClosedWon}
+            productsClosedWonPrevSummary={partnerHero?.productsClosedWonPrevSummary ?? summary.productsClosedWonPrevSummary}
+            productsClosedWonByRep={summary.productsClosedWonByRep}
+            quarterKpis={partnerHero?.quarterKpis ?? summary.quarterKpis}
+            pipelineMomentum={partnerHero?.pipelineMomentum ?? summary.pipelineMomentum}
+            crmTotals={{
+              commit_amount: partnerHero?.crmForecast.commit_amount ?? summary.crmForecast.commit_amount,
+              best_case_amount: partnerHero?.crmForecast.best_case_amount ?? summary.crmForecast.best_case_amount,
+              pipeline_amount: partnerHero?.crmForecast.pipeline_amount ?? summary.crmForecast.pipeline_amount,
+              won_amount: partnerHero?.crmForecast.won_amount ?? summary.crmForecast.won_amount,
+            }}
+            partnersExecutive={summary.partnersExecutive}
+            quota={partnerHero?.quota ?? summary.quota}
+            heroQuotaOverride={channelQuota}
+            heroGapToQuotaOverride={gapToQuotaRaw}
+            heroContributionPct={contributionPct}
             contributionPct={contributionPct}
-            gapToQuota={gapToQuotaRaw}
-            landingZone={landingZone}
+            aiForecast={partnerHero?.aiForecast ?? summary.aiForecast.weighted_forecast}
+            crmForecast={partnerHero?.crmForecastWeighted ?? summary.crmForecast.weighted_forecast}
+            gap={partnerHero?.forecastGap ?? summary.forecastGap}
+            bucketDeltas={{
+              commit: partnerHero?.bucketDeltas.commit ?? summary.bucketDeltas.commit,
+              best_case: partnerHero?.bucketDeltas.best_case ?? summary.bucketDeltas.best_case,
+              pipeline: partnerHero?.bucketDeltas.pipeline ?? summary.bucketDeltas.pipeline,
+            }}
+            aiPctToGoal={partnerHero?.pctToGoal ?? summary.pctToGoal}
+            leftToGo={partnerHero?.leftToGo ?? summary.leftToGo}
+            commitAdmission={partnerHero?.commitAdmission ?? summary.commitAdmission}
+            commitDealPanels={partnerHero?.commitDealPanels ?? summary.commitDealPanels}
+            defaultTopN={5}
+            topPartnerWon={topPartnerWon}
+            topPartnerLost={topPartnerLost}
           />
         </div>
         {ledFedRows.length > 0 ? (
