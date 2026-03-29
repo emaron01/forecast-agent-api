@@ -7,7 +7,7 @@ import { UserTopNav } from "../../_components/UserTopNav";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
-import { isChannelRepOnly } from "../../../lib/userRoles";
+import { channelRoleHierarchyLevel, isChannelRepOnly } from "../../../lib/userRoles";
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
 import { ChannelTopPartnerDealsTablesClient, type TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
 
@@ -130,11 +130,33 @@ async function listChannelScopedRepIds(args: {
     .filter((id) => Number.isFinite(id) && id > 0);
 }
 
+async function getCurrentChannelRepId(args: {
+  orgId: number;
+  userId: number;
+}): Promise<number | null> {
+  const { rows } = await pool.query<{ id: number }>(
+    `
+    SELECT r.id
+    FROM reps r
+    WHERE r.organization_id = $1::bigint
+      AND r.user_id = $2::bigint
+      AND r.role IN ('CHANNEL_EXECUTIVE', 'CHANNEL_DIRECTOR', 'CHANNEL_REP')
+    ORDER BY r.id DESC
+    LIMIT 1
+    `,
+    [args.orgId, args.userId]
+  );
+  const id = Number(rows?.[0]?.id);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
 async function getChannelDashboardHeroMetrics(args: {
   orgId: number;
   quotaPeriodId: string;
   channelRepIds: number[];
   salesTeamRepIds: number[];
+  viewerRoleLevel: number;
+  viewerChannelRepId: number;
 }): Promise<ChannelDashboardHeroMetrics> {
   const useSalesTeamFilter = args.salesTeamRepIds.length > 0;
   const { rows } = await pool.query<{
@@ -154,12 +176,17 @@ async function getChannelDashboardHeroMetrics(args: {
       LIMIT 1
     ),
     channel_quota AS (
-      SELECT COALESCE(SUM(q.quota_amount), 0)::float8 AS channel_quota
+      SELECT q.quota_amount::float8 AS channel_quota
       FROM quotas q
       JOIN qp ON qp.quota_period_id = q.quota_period_id
       WHERE q.org_id = $1::bigint
-        AND q.role_level = 3
-        AND q.rep_id = ANY($3::bigint[])
+        AND q.role_level = $6::int
+        AND (
+          ($6::int = 8 AND q.rep_id = $7::bigint)
+          OR ($6::int IN (6, 7) AND q.manager_id = $7::bigint)
+        )
+      ORDER BY q.updated_at DESC NULLS LAST, q.id DESC
+      LIMIT 1
     ),
     channel_closed_won AS (
       SELECT COALESCE(SUM(COALESCE(o.amount, 0)), 0)::float8 AS channel_closed_won
@@ -229,7 +256,15 @@ async function getChannelDashboardHeroMetrics(args: {
     LEFT JOIN sales_team_closed_won stcw ON TRUE
     LIMIT 1
     `,
-    [args.orgId, args.quotaPeriodId, args.channelRepIds, args.salesTeamRepIds, useSalesTeamFilter]
+    [
+      args.orgId,
+      args.quotaPeriodId,
+      args.channelRepIds,
+      args.salesTeamRepIds,
+      useSalesTeamFilter,
+      args.viewerRoleLevel,
+      args.viewerChannelRepId,
+    ]
   );
 
   const row = rows[0];
@@ -352,14 +387,24 @@ export default async function ChannelDashboardPage({
           userId: ctx.user.id,
         }).catch(() => [])
       : [];
+  const currentChannelRepId =
+    selectedPeriodId && ctx.kind === "user"
+      ? await getCurrentChannelRepId({
+          orgId: ctx.user.org_id,
+          userId: ctx.user.id,
+        }).catch(() => null)
+      : null;
+  const viewerChannelRoleLevel = channelRoleHierarchyLevel(ctx.user.role);
 
   let channelHeroMetrics: ChannelDashboardHeroMetrics | null = null;
-  if (selectedPeriodId && channelScopedRepIds.length > 0) {
+  if (selectedPeriodId && channelScopedRepIds.length > 0 && currentChannelRepId) {
     channelHeroMetrics = await getChannelDashboardHeroMetrics({
       orgId: ctx.user.org_id,
       quotaPeriodId: selectedPeriodId,
       channelRepIds: channelScopedRepIds,
       salesTeamRepIds: visibleRepIds,
+      viewerRoleLevel: viewerChannelRoleLevel,
+      viewerChannelRepId: currentChannelRepId,
     }).catch(() => null);
   }
 
