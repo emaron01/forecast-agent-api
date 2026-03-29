@@ -89,6 +89,19 @@ type ChannelDashboardHeroMetrics = {
   salesTeamClosedWon: number;
 };
 
+function channelHierarchyToQuotaRoleLevel(level: number | null | undefined): number | null {
+  switch (Number(level)) {
+    case HIERARCHY.CHANNEL_EXEC:
+      return 4;
+    case HIERARCHY.CHANNEL_MANAGER:
+      return 5;
+    case HIERARCHY.CHANNEL_REP:
+      return 6;
+    default:
+      return null;
+  }
+}
+
 async function listChannelScopedRepIds(args: {
   orgId: number;
   userId: number;
@@ -167,7 +180,7 @@ async function getChannelDashboardHeroMetrics(args: {
   quotaPeriodId: string;
   channelRepIds: number[];
   salesTeamRepIds: number[];
-  viewerRoleLevel: number;
+  viewerQuotaRoleLevel: number;
   viewerChannelRepId: number;
 }): Promise<ChannelDashboardHeroMetrics> {
   const useSalesTeamFilter = args.salesTeamRepIds.length > 0;
@@ -194,8 +207,8 @@ async function getChannelDashboardHeroMetrics(args: {
       WHERE q.org_id = $1::bigint
         AND q.role_level = $6::int
         AND (
-          ($6::int = 8 AND q.rep_id = $7::bigint)
-          OR ($6::int IN (6, 7) AND q.manager_id = $7::bigint)
+          ($6::int = 6 AND q.rep_id = $7::bigint)
+          OR ($6::int IN (4, 5) AND q.manager_id = $7::bigint)
         )
       ORDER BY q.updated_at DESC NULLS LAST, q.id DESC
       LIMIT 1
@@ -274,7 +287,7 @@ async function getChannelDashboardHeroMetrics(args: {
       args.channelRepIds,
       args.salesTeamRepIds,
       useSalesTeamFilter,
-      args.viewerRoleLevel,
+      args.viewerQuotaRoleLevel,
       args.viewerChannelRepId,
     ]
   );
@@ -406,7 +419,7 @@ export default async function ChannelDashboardPage({
           fallbackRepId: fallbackScopedRepId,
         }).catch(() => null)
       : null;
-  const viewerChannelRoleLevel = Number(ctx.user.hierarchy_level);
+  const viewerChannelQuotaRoleLevel = channelHierarchyToQuotaRoleLevel(ctx.user.hierarchy_level);
   const effectiveChannelRepIds =
     channelScopedRepIds.length > 0
       ? channelScopedRepIds
@@ -415,13 +428,13 @@ export default async function ChannelDashboardPage({
         : [];
 
   let channelHeroMetrics: ChannelDashboardHeroMetrics | null = null;
-  if (selectedPeriodId && effectiveChannelRepIds.length > 0 && currentChannelRepId) {
+  if (selectedPeriodId && effectiveChannelRepIds.length > 0 && currentChannelRepId && viewerChannelQuotaRoleLevel != null) {
     channelHeroMetrics = await getChannelDashboardHeroMetrics({
       orgId: ctx.user.org_id,
       quotaPeriodId: selectedPeriodId,
       channelRepIds: effectiveChannelRepIds,
       salesTeamRepIds,
-      viewerRoleLevel: viewerChannelRoleLevel,
+      viewerQuotaRoleLevel: viewerChannelQuotaRoleLevel,
       viewerChannelRepId: currentChannelRepId,
     }).catch(() => null);
   }
