@@ -7,7 +7,6 @@ import { UserTopNav } from "../../_components/UserTopNav";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
-import { ChannelRepHeroCards } from "../../../components/dashboard/channel/ChannelRepHeroCards";
 import { isChannelRepOnly } from "../../../lib/userRoles";
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
 import { ChannelTopPartnerDealsTablesClient, type TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
@@ -346,7 +345,6 @@ export default async function ChannelDashboardPage({
       .trim() || "—";
   const fiscalQuarter =
     String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—";
-  const isChannelRep = ctx.user.role === "CHANNEL_REP";
   const channelScopedRepIds =
     selectedPeriodId && ctx.kind === "user"
       ? await listChannelScopedRepIds({
@@ -394,17 +392,7 @@ export default async function ChannelDashboardPage({
           selectedFiscalYear={summary.selectedFiscalYear}
           selectedPeriodId={summary.selectedQuotaPeriodId}
         />
-        {isChannelRep ? (
-          <div className="mt-4">
-            <ChannelRepHeroCards
-              closedWon={channelClosedWon}
-              quota={channelQuota}
-              contributionPct={contributionPct}
-              gapToQuota={gapToQuota}
-              landingZone={landingZone}
-            />
-          </div>
-        ) : partnerHero ? (
+        {partnerHero ? (
           <div className="mt-4">
             <ExecutiveGapInsightsClient
               heroOnly
