@@ -390,57 +390,55 @@ export default async function ChannelDashboardPage({
           selectedFiscalYear={summary.selectedFiscalYear}
           selectedPeriodId={summary.selectedQuotaPeriodId}
         />
-        {partnerHero ? (
-          <div className="mt-4">
-            <ExecutiveGapInsightsClient
-              basePath="/dashboard/channel"
-              channelTabOnly={true}
-              channelTopPartnerDealsOnPage={true}
-              viewerRole={ctx.user.role}
-              periods={summary.periods}
-              quotaPeriodId={summary.selectedQuotaPeriodId}
-              orgId={ctx.user.org_id}
-              reps={summary.reps}
-              fiscalYear={fiscalYear}
-              fiscalQuarter={fiscalQuarter}
-              stageProbabilities={summary.stageProbabilities}
-              healthModifiers={partnerHero.healthModifiers}
-              repDirectory={summary.repDirectory}
-              myRepId={summary.myRepId}
-              repRollups={summary.repRollups}
-              productsClosedWon={partnerHero.productsClosedWon}
-              productsClosedWonPrevSummary={partnerHero.productsClosedWonPrevSummary}
-              productsClosedWonByRep={summary.productsClosedWonByRep}
-              quarterKpis={partnerHero.quarterKpis}
-              pipelineMomentum={partnerHero.pipelineMomentum}
-              crmTotals={{
-                commit_amount: partnerHero.crmForecast.commit_amount,
-                best_case_amount: partnerHero.crmForecast.best_case_amount,
-                pipeline_amount: partnerHero.crmForecast.pipeline_amount,
-                won_amount: partnerHero.crmForecast.won_amount,
-              }}
-              partnersExecutive={summary.partnersExecutive}
-              quota={partnerHero.quota}
-              heroQuotaOverride={channelQuota}
-              heroGapToQuotaOverride={gapToQuotaRaw}
-              heroContributionPct={contributionPct}
-              contributionPct={contributionPct}
-              aiForecast={partnerHero.aiForecast}
-              crmForecast={partnerHero.crmForecastWeighted}
-              gap={partnerHero.forecastGap}
-              bucketDeltas={{
-                commit: partnerHero.bucketDeltas.commit,
-                best_case: partnerHero.bucketDeltas.best_case,
-                pipeline: partnerHero.bucketDeltas.pipeline,
-              }}
-              aiPctToGoal={partnerHero.pctToGoal}
-              leftToGo={partnerHero.leftToGo}
-              commitAdmission={partnerHero.commitAdmission}
-              commitDealPanels={partnerHero.commitDealPanels}
-              defaultTopN={5}
-            />
-          </div>
-        ) : null}
+        <div className="mt-4">
+          <ExecutiveGapInsightsClient
+            basePath="/dashboard/channel"
+            channelTabOnly={true}
+            channelTopPartnerDealsOnPage={true}
+            viewerRole={ctx.user.role}
+            periods={summary.periods}
+            quotaPeriodId={summary.selectedQuotaPeriodId}
+            orgId={ctx.user.org_id}
+            reps={summary.reps}
+            fiscalYear={fiscalYear}
+            fiscalQuarter={fiscalQuarter}
+            stageProbabilities={summary.stageProbabilities}
+            healthModifiers={partnerHero?.healthModifiers ?? summary.healthModifiers}
+            repDirectory={summary.repDirectory}
+            myRepId={summary.myRepId}
+            repRollups={summary.repRollups}
+            productsClosedWon={partnerHero?.productsClosedWon ?? summary.productsClosedWon}
+            productsClosedWonPrevSummary={partnerHero?.productsClosedWonPrevSummary ?? summary.productsClosedWonPrevSummary}
+            productsClosedWonByRep={summary.productsClosedWonByRep}
+            quarterKpis={partnerHero?.quarterKpis ?? summary.quarterKpis}
+            pipelineMomentum={partnerHero?.pipelineMomentum ?? summary.pipelineMomentum}
+            crmTotals={{
+              commit_amount: partnerHero?.crmForecast.commit_amount ?? summary.crmForecast.commit_amount,
+              best_case_amount: partnerHero?.crmForecast.best_case_amount ?? summary.crmForecast.best_case_amount,
+              pipeline_amount: partnerHero?.crmForecast.pipeline_amount ?? summary.crmForecast.pipeline_amount,
+              won_amount: partnerHero?.crmForecast.won_amount ?? summary.crmForecast.won_amount,
+            }}
+            partnersExecutive={summary.partnersExecutive}
+            quota={partnerHero?.quota ?? summary.quota}
+            heroQuotaOverride={channelQuota}
+            heroGapToQuotaOverride={gapToQuotaRaw}
+            heroContributionPct={contributionPct}
+            contributionPct={contributionPct}
+            aiForecast={partnerHero?.aiForecast ?? summary.aiForecast.weighted_forecast}
+            crmForecast={partnerHero?.crmForecastWeighted ?? summary.crmForecast.weighted_forecast}
+            gap={partnerHero?.forecastGap ?? summary.forecastGap}
+            bucketDeltas={{
+              commit: partnerHero?.bucketDeltas.commit ?? summary.bucketDeltas.commit,
+              best_case: partnerHero?.bucketDeltas.best_case ?? summary.bucketDeltas.best_case,
+              pipeline: partnerHero?.bucketDeltas.pipeline ?? summary.bucketDeltas.pipeline,
+            }}
+            aiPctToGoal={partnerHero?.pctToGoal ?? summary.pctToGoal}
+            leftToGo={partnerHero?.leftToGo ?? summary.leftToGo}
+            commitAdmission={partnerHero?.commitAdmission ?? summary.commitAdmission}
+            commitDealPanels={partnerHero?.commitDealPanels ?? summary.commitDealPanels}
+            defaultTopN={5}
+          />
+        </div>
         {ledFedRows.length > 0 ? (
           <div className="mt-4 w-full overflow-x-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm">
             <table className="w-full min-w-[640px] border-collapse text-sm">

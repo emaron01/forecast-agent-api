@@ -27,6 +27,7 @@ import { PartnerMotionPerformanceSection } from "./PartnerMotionPerformanceSecti
 import { useAiTakeaway } from "../../../app/components/ai/useAiTakeaway";
 import { AiTakeawayTimestamp } from "../../../app/components/ai/aiTakeawayUiMeta";
 import { HIERARCHY, isExecManagerLevel, isManagerLevel, isRepLevel, roleToHierarchyLevel } from "../../../lib/roleHelpers";
+import { ChannelRepHeroCards } from "../channel/ChannelRepHeroCards";
 
 type RiskCategoryKey =
   | "pain"
@@ -3490,70 +3491,20 @@ export function ExecutiveGapInsightsClient(props: {
         ? null
         : Number(props.heroGapToQuotaOverride);
     const contributionPct =
-      props.contributionPct == null || !Number.isFinite(Number(props.contributionPct))
+      (props.heroContributionPct ?? props.contributionPct) == null ||
+      !Number.isFinite(Number(props.heroContributionPct ?? props.contributionPct))
         ? null
-        : Number(props.contributionPct);
-    const gapColor = gapToQuota != null && gapToQuota > 0 ? "text-[#E74C3C]" : "text-[color:var(--sf-text-primary)]";
+        : Number(props.heroContributionPct ?? props.contributionPct);
 
     return (
       <div className="space-y-5">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
-              Closed Won
-            </div>
-            <div className="mt-1 text-2xl font-bold text-[color:var(--sf-text-primary)]">
-              {fmtMoney(wonAmount)}
-            </div>
-            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-              channel revenue
-            </div>
-          </div>
-          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
-              Quota
-            </div>
-            <div className="mt-1 text-2xl font-bold text-[color:var(--sf-text-primary)]">
-              {channelQuota != null ? fmtMoney(channelQuota) : "—"}
-            </div>
-            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-              channel quota
-            </div>
-          </div>
-          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
-              Contribution
-            </div>
-            <div className="mt-1 text-2xl font-bold text-[color:var(--sf-text-primary)]">
-              {contributionPct != null ? `${Math.round(contributionPct)}%` : "—"}
-            </div>
-            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-              of territory revenue
-            </div>
-          </div>
-          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
-              Gap to Quota
-            </div>
-            <div className={`mt-1 text-2xl font-bold ${gapColor}`}>
-              {gapToQuota != null ? fmtMoney(gapToQuota) : "—"}
-            </div>
-            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-              remaining to quota
-            </div>
-          </div>
-          <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
-              Landing Zone
-            </div>
-            <div className="mt-1 text-2xl font-bold text-[color:var(--sf-text-primary)]">
-              {fmtMoney(props.aiForecast)}
-            </div>
-            <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-              AI weighted forecast
-            </div>
-          </div>
-        </div>
+        <ChannelRepHeroCards
+          closedWon={wonAmount}
+          quota={channelQuota}
+          contributionPct={contributionPct}
+          gapToQuota={gapToQuota}
+          landingZone={props.aiForecast}
+        />
         {partnersDecisionEngine ? (
           <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-3">
