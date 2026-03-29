@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { pool } from "../../../lib/pool";
 import { getAuth } from "../../../lib/auth";
 import { resolvePublicId } from "../../../lib/publicId";
+import { isAdmin } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -27,7 +28,7 @@ export async function GET(req: Request) {
 
     const auth = await getAuth();
     if (!auth) return withCors(req, NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 }));
-    if (auth.kind === "user" && auth.user.role !== "ADMIN") {
+    if (auth.kind === "user" && !isAdmin(auth.user)) {
       return withCors(req, NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 }));
     }
 

@@ -3,6 +3,7 @@ import { requireAuth } from "../../lib/auth";
 import { getOrganization } from "../../lib/db";
 import { updateMyPasswordAction } from "./actions";
 import { UserTopNav } from "../_components/UserTopNav";
+import { isAdmin } from "../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -25,7 +26,7 @@ export default async function AccountPage() {
     );
   }
 
-  if (ctx.user.role === "ADMIN") {
+  if (isAdmin(ctx.user)) {
     return (
       <main className="mx-auto max-w-2xl p-6">
         <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Account</h1>

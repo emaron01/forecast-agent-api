@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { pool } from "./pool";
 import type { PoolClient } from "pg";
+import type { AuthUser } from "./auth";
+import { ALL_HIERARCHY_LEVELS, HIERARCHY, canSeeFullOrg, isAdminLevel, isChannelExec, isRep } from "./roleHelpers";
 
 /**
  * DB contract + helpers (INTERNAL).
@@ -211,9 +213,9 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
      WHERE COALESCE(r.organization_id, r.org_id::bigint) = u.org_id
        AND r.user_id = u.id
        AND u.org_id = $1
-       AND u.role IN ('REP', 'MANAGER', 'EXEC_MANAGER', 'CHANNEL_EXECUTIVE', 'CHANNEL_DIRECTOR', 'CHANNEL_REP')
+      AND COALESCE(u.hierarchy_level, 99) = ANY($2::int[])
     `,
-    [organizationId]
+    [organizationId, ALL_HIERARCHY_LEVELS]
   );
 
   // 1b) Insert missing rep rows for users (by user_id).
@@ -248,7 +250,7 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
       u.org_id AS organization_id
     FROM users u
     WHERE u.org_id = $1
-      AND u.role IN ('REP', 'MANAGER', 'EXEC_MANAGER', 'CHANNEL_EXECUTIVE', 'CHANNEL_DIRECTOR', 'CHANNEL_REP')
+      AND COALESCE(u.hierarchy_level, 99) = ANY($2::int[])
       AND COALESCE(
         NULLIF(btrim(u.display_name), ''),
         NULLIF(btrim(u.account_owner_name), ''),
@@ -261,7 +263,7 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
            AND r.user_id = u.id
       )
     `,
-    [organizationId]
+    [organizationId, ALL_HIERARCHY_LEVELS]
   );
 
   // 2) Align manager_rep_id based on manager_user_id -> manager's rep row.
@@ -274,11 +276,11 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
      WHERE COALESCE(r.organization_id, r.org_id::bigint) = u.org_id
        AND r.user_id = u.id
        AND u.org_id = $1
-       AND u.role IN ('REP', 'MANAGER', 'CHANNEL_DIRECTOR', 'CHANNEL_REP')
+      AND COALESCE(u.hierarchy_level, 99) = ANY($2::int[])
        AND u.manager_user_id IS NOT NULL
        AND (r.manager_rep_id IS DISTINCT FROM mgr.id)
     `,
-    [organizationId]
+    [organizationId, [HIERARCHY.REP, HIERARCHY.MANAGER, HIERARCHY.CHANNEL_MANAGER, HIERARCHY.CHANNEL_REP]]
   );
 
   return { ok: true as const };
@@ -1728,33 +1730,22 @@ export async function listOrganizationDescendantIds(args: { orgId: number }) {
 }
 
 export async function getVisibleUsers(args: {
-  currentUserId: number;
   orgId: number;
-  role:
-    | "ADMIN"
-    | "EXEC_MANAGER"
-    | "MANAGER"
-    | "REP"
-    | "CHANNEL_EXECUTIVE"
-    | "CHANNEL_DIRECTOR"
-    | "CHANNEL_REP";
-  hierarchy_level?: number;
-  see_all_visibility?: boolean;
+  user: AuthUser;
 }) {
-  const currentUserId = zUserId.parse(args.currentUserId);
+  const currentUserId = zUserId.parse(args.user.id);
   const orgId = zOrganizationId.parse(args.orgId);
-  const role = zUserRole.parse(args.role);
-  const hierarchy_level = Number.isFinite(Number(args.hierarchy_level)) ? Number(args.hierarchy_level) : null;
-  const seeAll = !!args.see_all_visibility;
+  const hierarchy_level = Number.isFinite(Number(args.user.hierarchy_level)) ? Number(args.user.hierarchy_level) : null;
+  const seeAll = !!args.user.see_all_visibility;
 
   // REP + channel rep: only themselves.
-  if (role === "REP" || role === "CHANNEL_REP") {
+  if (isRep(args.user) || args.user.hierarchy_level === 8) {
     const u = await getUserById({ orgId, userId: currentUserId }).catch(() => null);
     return u ? ([u] as UserPublicRow[]) : ([] as UserPublicRow[]);
   }
 
   // Channel Executive: full-org visibility (see-all / full analytics).
-  if (role === "CHANNEL_EXECUTIVE") {
+  if (isChannelExec(args.user)) {
     const { rows } = await pool.query(
       `
       SELECT
@@ -1786,7 +1777,7 @@ export async function getVisibleUsers(args: {
   }
 
   // ADMIN: always sees all (in-org).
-  if (role === "ADMIN") {
+  if (canSeeFullOrg(args.user)) {
     const { rows } = await pool.query(
       `
       SELECT
@@ -2529,7 +2520,7 @@ export async function replaceManagerVisibility(args: {
           [orgId, visibleUserIds]
         );
         const allowedIds = (targetsRes.rows || [])
-          .filter((r: any) => r && r.role !== "ADMIN" && Number(r.hierarchy_level) >= 2)
+          .filter((r: any) => r && !isAdminLevel(r.hierarchy_level) && Number(r.hierarchy_level) >= 2)
           .map((r: any) => Number(r.id))
           .filter((n) => Number.isFinite(n) && n > 0);
 

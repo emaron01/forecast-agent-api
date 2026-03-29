@@ -18,6 +18,7 @@ import {
   UpdateQuotaPeriodSchema,
   UpdateQuotaSchema,
 } from "./schemas";
+import { HIERARCHY, isAdmin, isExecManager, isManager, isRep } from "../../../lib/roleHelpers";
 
 async function authOrg() {
   const ctx = await requireAuth();
@@ -55,14 +56,14 @@ async function directRepIdsForManagerRep(args: { orgId: number; managerRepId: nu
   return (rows || []).map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0);
 }
 
-function ensureNotRep(role: string) {
-  return role !== "REP";
+function ensureNotRep(hierarchyLevel: number) {
+  return hierarchyLevel !== HIERARCHY.REP;
 }
 
 export async function getQuotaPeriods(): Promise<ActionResult<QuotaPeriodRow[]>> {
   const a = await authOrg();
   if (!a.ok) return { ok: false, error: a.error };
-  if (!ensureNotRep(a.ctx.user.role)) return { ok: false, error: "forbidden" };
+  if (!ensureNotRep(a.ctx.user.hierarchy_level)) return { ok: false, error: "forbidden" };
 
   GetQuotaPeriodsSchema.parse({});
 
@@ -90,7 +91,7 @@ export async function getQuotaPeriods(): Promise<ActionResult<QuotaPeriodRow[]>>
 export async function getDistinctFiscalYears(): Promise<ActionResult<Array<{ fiscal_year: string }>>> {
   const a = await authOrg();
   if (!a.ok) return { ok: false, error: a.error };
-  if (!ensureNotRep(a.ctx.user.role)) return { ok: false, error: "forbidden" };
+  if (!ensureNotRep(a.ctx.user.hierarchy_level)) return { ok: false, error: "forbidden" };
 
   GetDistinctFiscalYearsSchema.parse({});
 
@@ -119,7 +120,7 @@ export async function createQuotaPeriod(input: {
 }): Promise<ActionResult<QuotaPeriodRow>> {
   const a = await authOrg();
   if (!a.ok) return { ok: false, error: a.error };
-  if (a.ctx.user.role !== "ADMIN") return { ok: false, error: "forbidden" };
+  if (!isAdmin(a.ctx.user)) return { ok: false, error: "forbidden" };
 
   const parsed = CreateQuotaPeriodSchema.parse(input);
 
@@ -168,7 +169,7 @@ export async function updateQuotaPeriod(input: {
 }): Promise<ActionResult<QuotaPeriodRow>> {
   const a = await authOrg();
   if (!a.ok) return { ok: false, error: a.error };
-  if (a.ctx.user.role !== "ADMIN") return { ok: false, error: "forbidden" };
+  if (!isAdmin(a.ctx.user)) return { ok: false, error: "forbidden" };
 
   const parsed = UpdateQuotaPeriodSchema.parse(input);
 
@@ -209,16 +210,15 @@ function normalizeQuotaRow(rows: any[]): QuotaRow | null {
 export async function assignQuotaToUser(input: z.input<typeof AssignQuotaToUserSchema>): Promise<ActionResult<QuotaRow>> {
   const a = await authOrg();
   if (!a.ok) return { ok: false, error: a.error };
-  if (!ensureNotRep(a.ctx.user.role)) return { ok: false, error: "forbidden" };
+  if (!ensureNotRep(a.ctx.user.hierarchy_level)) return { ok: false, error: "forbidden" };
 
   const parsed = AssignQuotaToUserSchema.parse(input);
-  const role = a.ctx.user.role;
 
   const roleLevel = Number(parsed.role_level);
   const repId = parsed.rep_id ? String(parsed.rep_id) : null;
   const managerId = parsed.manager_id ? String(parsed.manager_id) : null;
 
-  if (role === "MANAGER") {
+  if (isManager(a.ctx.user)) {
     // Managers can only assign rep quotas for direct reports (role_level = 3).
     if (roleLevel !== 3) return { ok: false, error: "forbidden" };
     if (!repId) return { ok: false, error: "invalid_rep_id" };
@@ -227,7 +227,7 @@ export async function assignQuotaToUser(input: z.input<typeof AssignQuotaToUserS
     if (!mgrRepId) return { ok: false, error: "forbidden" };
     const directRepIds = await directRepIdsForManagerRep({ orgId: a.orgId, managerRepId: mgrRepId });
     if (!directRepIds.includes(Number(repId))) return { ok: false, error: "forbidden" };
-  } else if (role !== "ADMIN") {
+  } else if (!isAdmin(a.ctx.user)) {
     // EXEC_MANAGER can view company rollups; assignment flows are admin/manager only.
     return { ok: false, error: "forbidden" };
   }
@@ -349,14 +349,13 @@ export async function assignQuotaToUser(input: z.input<typeof AssignQuotaToUserS
 export async function updateQuota(input: z.input<typeof UpdateQuotaSchema>): Promise<ActionResult<QuotaRow>> {
   const a = await authOrg();
   if (!a.ok) return { ok: false, error: a.error };
-  if (!ensureNotRep(a.ctx.user.role)) return { ok: false, error: "forbidden" };
+  if (!ensureNotRep(a.ctx.user.hierarchy_level)) return { ok: false, error: "forbidden" };
 
   const parsed = UpdateQuotaSchema.parse(input);
-  const role = a.ctx.user.role;
 
-  if (role !== "ADMIN" && role !== "MANAGER") return { ok: false, error: "forbidden" };
+  if (!isAdmin(a.ctx.user) && !isManager(a.ctx.user)) return { ok: false, error: "forbidden" };
 
-  if (role === "MANAGER") {
+  if (isManager(a.ctx.user)) {
     const mgrRepId = await managerRepIdForUser({ orgId: a.orgId, userId: a.ctx.user.id });
     if (!mgrRepId) return { ok: false, error: "forbidden" };
     const directRepIds = await directRepIdsForManagerRep({ orgId: a.orgId, managerRepId: mgrRepId });
@@ -424,12 +423,11 @@ export async function updateQuota(input: z.input<typeof UpdateQuotaSchema>): Pro
 export async function getQuotaByUser(input: z.input<typeof GetQuotaByUserSchema>): Promise<ActionResult<QuotaRow | null>> {
   const a = await authOrg();
   if (!a.ok) return { ok: false, error: a.error };
-  if (!ensureNotRep(a.ctx.user.role)) return { ok: false, error: "forbidden" };
+  if (!ensureNotRep(a.ctx.user.hierarchy_level)) return { ok: false, error: "forbidden" };
 
   const parsed = GetQuotaByUserSchema.parse(input);
-  const role = a.ctx.user.role;
 
-  if (role !== "ADMIN" && parsed.user_id !== a.ctx.user.id) return { ok: false, error: "forbidden" };
+  if (!isAdmin(a.ctx.user) && parsed.user_id !== a.ctx.user.id) return { ok: false, error: "forbidden" };
 
   const { rows: repRows } = await pool.query<{ id: number | null }>(
     `
@@ -443,7 +441,7 @@ export async function getQuotaByUser(input: z.input<typeof GetQuotaByUserSchema>
   );
   const repId = repRows?.[0]?.id ? Number(repRows[0].id) : null;
 
-  const userRoleLevel = role === "ADMIN" ? 0 : role === "EXEC_MANAGER" ? 1 : role === "MANAGER" ? 2 : 3;
+  const userRoleLevel = Number(a.ctx.user.hierarchy_level);
 
   if (userRoleLevel !== 0 && !repId) return { ok: true, data: null };
 
@@ -487,7 +485,7 @@ export type ManagerQuotaRollup = {
 export async function getQuotaRollupByManager(input: z.input<typeof GetQuotaRollupByManagerSchema>): Promise<ActionResult<ManagerQuotaRollup>> {
   const a = await authOrg();
   if (!a.ok) return { ok: false, error: a.error };
-  if (a.ctx.user.role !== "MANAGER") return { ok: false, error: "forbidden" };
+  if (!isManager(a.ctx.user)) return { ok: false, error: "forbidden" };
 
   const parsed = GetQuotaRollupByManagerSchema.parse(input);
 
@@ -546,7 +544,7 @@ export type CompanyQuotaRollup = {
 export async function getQuotaRollupCompany(input: z.input<typeof GetQuotaRollupCompanySchema>): Promise<ActionResult<CompanyQuotaRollup>> {
   const a = await authOrg();
   if (!a.ok) return { ok: false, error: a.error };
-  if (a.ctx.user.role !== "EXEC_MANAGER" && a.ctx.user.role !== "ADMIN") return { ok: false, error: "forbidden" };
+  if (!isExecManager(a.ctx.user) && !isAdmin(a.ctx.user)) return { ok: false, error: "forbidden" };
 
   const parsed = GetQuotaRollupCompanySchema.parse(input);
 

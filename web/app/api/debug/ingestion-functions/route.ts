@@ -3,13 +3,14 @@ import { randomUUID } from "node:crypto";
 import { pool } from "../../../../lib/pool";
 import { getAuth } from "../../../../lib/auth";
 import { startSpan, endSpan, orgIdFromAuth } from "../../../../lib/perf";
+import { isAdmin } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   const auth = await getAuth();
   if (!auth) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  if (auth.kind === "user" && auth.user.role !== "ADMIN") {
+  if (auth.kind === "user" && !isAdmin(auth.user)) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 

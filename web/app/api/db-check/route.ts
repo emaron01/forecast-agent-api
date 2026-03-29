@@ -3,6 +3,7 @@ import { pool } from "../../../lib/pool";
 import { getAuth } from "../../../lib/auth";
 import { getOrganization } from "../../../lib/db";
 import { resolvePublicId } from "../../../lib/publicId";
+import { isAdmin } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -29,7 +30,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const auth = await getAuth();
   if (!auth) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  if (auth.kind === "user" && auth.user.role !== "ADMIN") {
+  if (auth.kind === "user" && !isAdmin(auth.user)) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 

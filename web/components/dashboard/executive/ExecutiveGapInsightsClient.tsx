@@ -26,6 +26,7 @@ import { DealCoachingCard, type DealCoachingCardDeal } from "../../../app/compon
 import { PartnerMotionPerformanceSection } from "./PartnerMotionPerformanceSection";
 import { useAiTakeaway } from "../../../app/components/ai/useAiTakeaway";
 import { AiTakeawayTimestamp } from "../../../app/components/ai/aiTakeawayUiMeta";
+import { HIERARCHY, isExecManagerLevel, isManagerLevel, isRepLevel, roleToHierarchyLevel } from "../../../lib/roleHelpers";
 
 type RiskCategoryKey =
   | "pain"
@@ -154,14 +155,24 @@ function healthLostHeroColorClass(pct: number | null) {
 }
 
 function rankRole(r: RepDirectoryRow) {
-  const role = String(r.role || "").trim().toUpperCase();
-  if (role === "EXEC_MANAGER") return 0;
-  if (role === "MANAGER") return 1;
-  if (role === "CHANNEL_EXECUTIVE") return 1;
-  if (role === "CHANNEL_DIRECTOR") return 1;
-  if (role === "REP") return 2;
-  if (role === "CHANNEL_REP") return 2;
+  const level = roleToHierarchyLevel(String(r.role || ""));
+  if (level === HIERARCHY.EXEC_MANAGER) return 0;
+  if (level === HIERARCHY.MANAGER || level === HIERARCHY.CHANNEL_EXEC || level === HIERARCHY.CHANNEL_MANAGER) return 1;
+  if (level === HIERARCHY.REP || level === HIERARCHY.CHANNEL_REP) return 2;
   return 9;
+}
+
+function repRowLevel(r: Pick<RepDirectoryRow, "role">) {
+  return roleToHierarchyLevel(String(r.role || ""));
+}
+
+function isLeafSalesRepRow(r: Pick<RepDirectoryRow, "role">) {
+  return isRepLevel(repRowLevel(r));
+}
+
+function isManagerLikeRow(r: Pick<RepDirectoryRow, "role">) {
+  const level = repRowLevel(r);
+  return isManagerLevel(level) || isExecManagerLevel(level);
 }
 
 function managerColorForId(id: number) {
@@ -2265,7 +2276,7 @@ export function ExecutiveGapInsightsClient(props: {
                       const rootId = props.myRepId != null && Number.isFinite(props.myRepId) ? Number(props.myRepId) : null;
                       const roots: RepDirectoryRow[] =
                         rootId != null
-                          ? (children.get(rootId) || []).filter((r) => String(r.role || "").trim().toUpperCase() !== "REP")
+                          ? (children.get(rootId) || []).filter((r) => !isLeafSalesRepRow(r))
                           : dir.filter((r) => r.manager_rep_id == null);
 
                       const out: Array<{ id: number; label: string }> = [];
@@ -2275,8 +2286,7 @@ export function ExecutiveGapInsightsClient(props: {
                         if (!Number.isFinite(id) || id <= 0) return;
                         if (seen.has(id)) return;
                         seen.add(id);
-                        const role = String(node.role || "").trim().toUpperCase();
-                        const isMgr = role === "MANAGER" || role === "EXEC_MANAGER";
+                        const isMgr = isManagerLikeRow(node);
                         const prefix = depth > 0 ? `${" ".repeat(Math.min(8, depth * 2))}↳ ` : "";
                         const tag = isMgr ? "[Manager] " : "";
                         out.push({ id, label: `${prefix}${tag}${node.name}` });
@@ -2302,8 +2312,7 @@ export function ExecutiveGapInsightsClient(props: {
                             .map((r) => ({
                               id: Number(r.id),
                               label: `${
-                                String(r.role || "").toUpperCase() === "MANAGER" ||
-                                String(r.role || "").toUpperCase() === "EXEC_MANAGER"
+                                isManagerLikeRow(r)
                                   ? "[Manager] "
                                   : ""
                               }${r.name}`,
@@ -4581,7 +4590,7 @@ export function ExecutiveGapInsightsClient(props: {
                 const rootId = props.myRepId != null && Number.isFinite(props.myRepId) ? Number(props.myRepId) : null;
                 const roots: RepDirectoryRow[] =
                   rootId != null
-                    ? (children.get(rootId) || []).filter((r) => String(r.role || "").trim().toUpperCase() !== "REP")
+                    ? (children.get(rootId) || []).filter((r) => !isLeafSalesRepRow(r))
                     : dir.filter((r) => r.manager_rep_id == null);
 
                 const out: Array<{ id: number; label: string }> = [];
@@ -4591,8 +4600,7 @@ export function ExecutiveGapInsightsClient(props: {
                   if (!Number.isFinite(id) || id <= 0) return;
                   if (seen.has(id)) return;
                   seen.add(id);
-                  const role = String(node.role || "").trim().toUpperCase();
-                  const isMgr = role === "MANAGER" || role === "EXEC_MANAGER";
+                  const isMgr = isManagerLikeRow(node);
                   const prefix = depth > 0 ? `${" ".repeat(Math.min(8, depth * 2))}↳ ` : "";
                   const tag = isMgr ? "[Manager] " : "";
                   out.push({ id, label: `${prefix}${tag}${node.name}` });
@@ -4619,7 +4627,7 @@ export function ExecutiveGapInsightsClient(props: {
                       })
                       .map((r) => ({
                         id: Number(r.id),
-                        label: `${(String(r.role || "").toUpperCase() === "MANAGER" || String(r.role || "").toUpperCase() === "EXEC_MANAGER") ? "[Manager] " : ""}${r.name}`,
+                        label: `${isManagerLikeRow(r) ? "[Manager] " : ""}${r.name}`,
                       }));
 
                 return fallback.map((o) => (
@@ -5203,12 +5211,11 @@ export function ExecutiveGapInsightsClient(props: {
                     const tAmt = st.commitAmount + st.bestAmount + st.pipelineAmount;
                     const tCnt = st.commitCount + st.bestCount + st.pipelineCount;
 
-                    const kids = (tree.children.get(id) || []).filter((c) => String(c.role || "").trim().toUpperCase() !== "REP");
-                    const leafReps = (tree.children.get(id) || []).filter((c) => String(c.role || "").trim().toUpperCase() === "REP");
+                    const kids = (tree.children.get(id) || []).filter((c) => !isLeafSalesRepRow(c));
+                    const leafReps = (tree.children.get(id) || []).filter((c) => isLeafSalesRepRow(c));
 
                     const hasChildren = kids.length > 0 || leafReps.length > 0;
-                    const labelRole = String(node.role || "").trim().toUpperCase();
-                    const isMgr = labelRole === "MANAGER" || labelRole === "EXEC_MANAGER";
+                    const isMgr = isManagerLikeRow(node);
                     const indent = depth > 0 ? `${" ".repeat(Math.min(10, depth * 2))}↳ ` : "";
 
                     const header = (
@@ -5332,7 +5339,7 @@ export function ExecutiveGapInsightsClient(props: {
                           </thead>
                           <tbody>
                             {leaders
-                              .filter((l) => String(l.role || "").trim().toUpperCase() !== "REP")
+                              .filter((l) => !isLeafSalesRepRow(l))
                               .slice()
                               .sort((a, b) => a.name.localeCompare(b.name))
                               .map((l) => {
@@ -5376,13 +5383,12 @@ export function ExecutiveGapInsightsClient(props: {
           <div className="mt-3 grid gap-2">
             {quarterAnalytics.directReports.length ? (
               quarterAnalytics.directReports.map((dr) => {
-                const drRole = String(dr.role || "").trim().toUpperCase();
                 const repIds = quarterAnalytics.descendantRepIds(Number(dr.id));
                 const st = quarterAnalytics.statsForRepIds(repIds);
-                const isManager = drRole === "MANAGER" || drRole === "EXEC_MANAGER";
+                const isManager = isManagerLikeRow(dr);
                 const mgrColor = isManager ? managerColorForId(Number(dr.id)) : null;
                 const childReps = (quarterAnalytics.children.get(Number(dr.id)) || []).filter(
-                  (c) => String(c.role || "").trim().toUpperCase() === "REP"
+                  (c) => isLeafSalesRepRow(c)
                 );
 
                 const header = (

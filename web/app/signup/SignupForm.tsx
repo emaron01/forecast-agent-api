@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { HIERARCHY, isManagerLevel, isRepLevel, roleToHierarchyLevel } from "../../lib/roleHelpers";
 
 type Role = "ADMIN" | "MANAGER" | "REP";
 
@@ -32,7 +33,7 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
 
   const managerEmails = useMemo(() => {
     return users
-      .filter((u) => u.role === "MANAGER")
+      .filter((u) => isManagerLevel(roleToHierarchyLevel(u.role)))
       .map((u) => (u.email || "").trim().toLowerCase())
       .filter(Boolean);
   }, [users]);
@@ -219,7 +220,7 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
                       onChange={(e) => setUser(i, { account_owner_name: e.target.value })}
                       className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none transition placeholder:text-[color:var(--sf-text-disabled)] focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
                       placeholder="Jane Doe"
-                      required={u.role === "REP"}
+                      required={isRepLevel(roleToHierarchyLevel(u.role))}
                     />
                     <p className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Required for Reps only.</p>
                   </div>
@@ -236,7 +237,7 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
                     />
                   </div>
 
-                  {u.role === "REP" ? (
+                  {isRepLevel(roleToHierarchyLevel(u.role)) ? (
                     <div className="grid gap-1.5 md:col-span-2">
                       <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Manager (optional)</label>
                       <select
@@ -292,7 +293,7 @@ export function SignupForm({ action, error }: { action: (formData: FormData) => 
                       </td>
                       <td className="px-4 py-3">{u.email}</td>
                       <td className="px-4 py-3">{u.account_owner_name}</td>
-                      <td className="px-4 py-3">{u.role === "REP" ? (u.manager_email || "") : ""}</td>
+                      <td className="px-4 py-3">{isRepLevel(roleToHierarchyLevel(u.role)) ? (u.manager_email || "") : ""}</td>
                       <td className="px-4 py-3 text-right">
                         <div className="inline-flex items-center gap-2">
                           <span className="inline-flex items-center rounded-full border border-[#2ECC71] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-[11px] font-medium text-[#2ECC71]">

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuth } from "../../../../lib/auth";
 import { pool } from "../../../../lib/pool";
+import { isAdmin } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -27,7 +28,7 @@ export async function GET(req: Request) {
     if (auth.kind === "master") {
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
-    if (auth.user.role !== "ADMIN") {
+    if (!isAdmin(auth.user)) {
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
 
@@ -89,7 +90,7 @@ export async function PATCH(req: Request) {
     if (auth.kind === "master") {
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
-    if (auth.user.role !== "ADMIN") {
+    if (!isAdmin(auth.user)) {
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }
 

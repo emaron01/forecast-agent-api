@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireOrgContext } from "../../../lib/auth";
+import { isAdmin } from "../../../lib/roleHelpers";
 
 function Card({ href, title, desc }: { href: string; title: string; desc: string }) {
   return (
@@ -16,7 +17,7 @@ function Card({ href, title, desc }: { href: string; title: string; desc: string
 
 export default async function AdminAnalyticsHome() {
   const { ctx } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
   const hasFullAnalyticsAccess = ctx.kind === "master" || (ctx.kind === "user" && !!ctx.user.admin_has_full_analytics_access);
 
   return (

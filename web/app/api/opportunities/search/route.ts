@@ -3,6 +3,7 @@ import { z } from "zod";
 import { pool } from "../../../../lib/pool";
 import { getAuth } from "../../../../lib/auth";
 import { getVisibleUsers } from "../../../../lib/db";
+import { HIERARCHY, isChannelRole, isSalesLeader, isSalesRep } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -36,34 +37,25 @@ export async function GET(req: Request) {
     // - ADMIN/master: unrestricted within org (optionally filter by repName)
     const scope =
       auth.kind === "user"
-        ? auth.user.role === "REP" || auth.user.role === "CHANNEL_REP"
+        ? isSalesRep(auth.user) || auth.user.hierarchy_level === 8
           ? { kind: "rep" as const, repName: auth.user.account_owner_name || "" }
-          : auth.user.role === "MANAGER" ||
-              auth.user.role === "EXEC_MANAGER" ||
-              auth.user.role === "CHANNEL_EXECUTIVE" ||
-              auth.user.role === "CHANNEL_DIRECTOR"
+          : isSalesLeader(auth.user) || isChannelRole(auth.user)
             ? {
                 kind: "scoped" as const,
                 userId: auth.user.id,
-                role: auth.user.role,
-                hierarchy_level: auth.user.hierarchy_level,
-                see_all_visibility: auth.user.see_all_visibility,
               }
             : { kind: "admin" as const }
         : { kind: "admin" as const };
 
     const scopedAllowedRepNames =
-      scope.kind === "scoped"
+      scope.kind === "scoped" && auth.kind === "user"
         ? (
             await getVisibleUsers({
-              currentUserId: scope.userId,
               orgId,
-              role: scope.role,
-              hierarchy_level: scope.hierarchy_level,
-              see_all_visibility: scope.see_all_visibility,
+              user: auth.user,
             }).catch(() => [])
           )
-            .filter((u) => (u.role === "REP" || u.role === "CHANNEL_REP") && u.active)
+            .filter((u) => (Number(u.hierarchy_level) === HIERARCHY.REP || Number(u.hierarchy_level) === HIERARCHY.CHANNEL_REP) && u.active)
             .map((u) => u.account_owner_name)
             .filter(Boolean)
         : [];

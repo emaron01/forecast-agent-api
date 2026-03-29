@@ -1,19 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuth } from "../../../../lib/auth";
 import { getScopedRepDirectory } from "../../../../lib/repScope";
+import { HIERARCHY, isAdmin, isSalesLeader, isSalesRep } from "../../../../lib/roleHelpers";
 import { computeTrainingReadiness } from "../../../../lib/trainingReadiness";
 
 export const runtime = "nodejs";
 
-/** Roles that see executive summary only (CRO/SVP/VP/Manager) */
-const EXECUTIVE_ROLES = ["EXEC_MANAGER", "MANAGER"] as const;
-
-/** Roles that see full diagnostics (Admin/Owner) */
-const FULL_ACCESS_ROLES = ["ADMIN"] as const;
-
 /** Admin or admin_has_full_analytics_access gets full payload */
-function hasFullAccess(role: string, adminHasFullAnalytics: boolean): boolean {
-  return role === "ADMIN" || adminHasFullAnalytics;
+function hasFullAccess(hierarchyLevel: number, adminHasFullAnalytics: boolean): boolean {
+  return hierarchyLevel === HIERARCHY.ADMIN || adminHasFullAnalytics;
 }
 
 export async function GET(req: NextRequest) {
@@ -22,12 +17,11 @@ export async function GET(req: NextRequest) {
     if (!auth) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     if (auth.kind !== "user") return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
-    const role = String(auth.user.role || "").trim();
-    if (role === "REP" || role === "CHANNEL_REP") {
+    if (isSalesRep(auth.user) || auth.user.hierarchy_level === HIERARCHY.CHANNEL_REP) {
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     }
 
-    if (!EXECUTIVE_ROLES.includes(role as any) && !FULL_ACCESS_ROLES.includes(role as any) && !hasFullAccess(role, auth.user.admin_has_full_analytics_access)) {
+    if (!isSalesLeader(auth.user) && !isAdmin(auth.user) && !hasFullAccess(auth.user.hierarchy_level, auth.user.admin_has_full_analytics_access)) {
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     }
 
@@ -46,18 +40,10 @@ export async function GET(req: NextRequest) {
         .split(",")
         .map((s) => Number(s.trim()))
         .filter((n) => Number.isFinite(n) && n > 0);
-    } else if (role !== "ADMIN" && !auth.user.admin_has_full_analytics_access) {
+    } else if (!isAdmin(auth.user) && !auth.user.admin_has_full_analytics_access) {
       const scope = await getScopedRepDirectory({
         orgId,
-        userId: auth.user.id,
-        role: role as
-          | "ADMIN"
-          | "EXEC_MANAGER"
-          | "MANAGER"
-          | "REP"
-          | "CHANNEL_EXECUTIVE"
-          | "CHANNEL_DIRECTOR"
-          | "CHANNEL_REP",
+        user: auth.user,
       }).catch(() => ({ allowedRepIds: [] }));
       repIds = scope.allowedRepIds ?? undefined;
     }
@@ -72,7 +58,7 @@ export async function GET(req: NextRequest) {
       snapshot_offset_days,
     });
 
-    const isFullAccess = hasFullAccess(role, auth.user.admin_has_full_analytics_access);
+    const isFullAccess = hasFullAccess(auth.user.hierarchy_level, auth.user.admin_has_full_analytics_access);
 
     if (isFullAccess) {
       return NextResponse.json({

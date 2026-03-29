@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireOrgContext } from "../../../../lib/auth";
 import { DEFAULT_FORECAST_STAGE_PROBABILITIES, getForecastStageProbabilities, upsertForecastStageProbabilities } from "../../../../lib/forecastStageProbabilities";
+import { isAdmin } from "../../../../lib/roleHelpers";
 
 function pct(v: number) {
   return Math.round(v * 1000) / 10;
@@ -18,7 +19,7 @@ function parsePct01(raw: FormDataEntryValue | null) {
 async function saveAction(formData: FormData) {
   "use server";
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   const commit = parsePct01(formData.get("commit_pct"));
   const best_case = parsePct01(formData.get("best_case_pct"));
@@ -32,7 +33,7 @@ async function saveAction(formData: FormData) {
 
 export default async function AdminForecastProbabilitiesPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   const saved = String((searchParams as any)?.saved || "") === "1";
   const error = String((searchParams as any)?.error || "").trim();

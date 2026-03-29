@@ -17,6 +17,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { isExecManagerLevel, isManagerLevel, isRepLevel, roleToHierarchyLevel } from "../../../../lib/roleHelpers";
 
 export type RevenueIntelligenceProps = {
   orgId: number;
@@ -28,6 +29,19 @@ export type RevenueIntelligenceProps = {
     manager_rep_id: number | null;
   }>;
 };
+
+function rowLevel(role: string | null | undefined) {
+  return roleToHierarchyLevel(role);
+}
+
+function isLeaderRow(role: string | null | undefined) {
+  const level = rowLevel(role);
+  return isManagerLevel(level) || isExecManagerLevel(level);
+}
+
+function isRepRow(role: string | null | undefined) {
+  return isRepLevel(rowLevel(role));
+}
 
 type QuotaPeriodRow = RevenueIntelligenceProps["quotaPeriods"][number];
 
@@ -337,21 +351,21 @@ function repSelectionReducer(state: RepSelectionState, action: RepSelectionActio
     case "quickAll":
       return {
         managers: new Set(
-          action.repDirectory.filter((r) => r.role === "MANAGER" || r.role === "EXEC_MANAGER").map((r) => String(r.id))
+          action.repDirectory.filter((r) => isLeaderRow(r.role)).map((r) => String(r.id))
         ),
-        reps: new Set(action.repDirectory.filter((r) => r.role === "REP").map((r) => String(r.id))),
+        reps: new Set(action.repDirectory.filter((r) => isRepRow(r.role)).map((r) => String(r.id))),
       };
     case "quickClear":
       return { managers: new Set(), reps: new Set() };
     case "quickRepsOnly":
       return {
         managers: new Set(),
-        reps: new Set(action.repDirectory.filter((r) => r.role === "REP").map((r) => String(r.id))),
+        reps: new Set(action.repDirectory.filter((r) => isRepRow(r.role)).map((r) => String(r.id))),
       };
     case "quickLeadersOnly":
       return {
         managers: new Set(
-          action.repDirectory.filter((r) => r.role === "MANAGER" || r.role === "EXEC_MANAGER").map((r) => String(r.id))
+          action.repDirectory.filter((r) => isLeaderRow(r.role)).map((r) => String(r.id))
         ),
         reps: new Set(),
       };
@@ -506,8 +520,8 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   }, []);
 
   const managerGroups = useMemo(() => {
-    const managers = repDirectory.filter((r) => r.role === "MANAGER" || r.role === "EXEC_MANAGER");
-    const dirReps = repDirectory.filter((r) => r.role === "REP");
+    const managers = repDirectory.filter((r) => isLeaderRow(r.role));
+    const dirReps = repDirectory.filter((r) => isRepRow(r.role));
     const groups = managers.map((mgr) => ({
       manager: mgr,
       reps: dirReps.filter((r) => r.manager_rep_id === mgr.id),
@@ -534,13 +548,13 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     const out = new Set<number>();
     for (const id of selectedRepIds) {
       const r = repDirectory.find((x) => String(x.id) === id);
-      if (r?.role === "REP") out.add(r.id);
+      if (isRepRow(r?.role)) out.add(r.id);
     }
     for (const mid of selectedManagerIds) {
       const m = repDirectory.find((x) => String(x.id) === mid);
       if (!m) continue;
       for (const r of repDirectory) {
-        if (r.role === "REP" && r.manager_rep_id === m.id) out.add(r.id);
+        if (isRepRow(r.role) && r.manager_rep_id === m.id) out.add(r.id);
       }
     }
     if (out.size === 0) return null;
@@ -587,7 +601,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
       const mgr = repDirectory.find((r) => String(r.id) === id);
       if (!mgr) return;
       const teamRepIds = repDirectory
-        .filter((r) => r.role === "REP" && r.manager_rep_id === mgr.id)
+        .filter((r) => isRepRow(r.role) && r.manager_rep_id === mgr.id)
         .map((r) => String(r.id));
       selections.push({
         label: `${mgr.name}'s Team`,
@@ -607,7 +621,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     if (selections.length === 0) {
       selections.push({
         label: "All Reps",
-        repIds: repDirectory.filter((r) => r.role === "REP").map((r) => String(r.id)),
+        repIds: repDirectory.filter((r) => isRepRow(r.role)).map((r) => String(r.id)),
       });
     }
 

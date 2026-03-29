@@ -1269,28 +1269,9 @@ export async function getExecutiveForecastDashboardSummary(args: {
     fiscalYearsSorted[0] ||
     "";
 
-  const roleRaw = String(args.user.role || "").trim();
-  const scopedRole =
-    roleRaw === "ADMIN" ||
-    roleRaw === "EXEC_MANAGER" ||
-    roleRaw === "MANAGER" ||
-    roleRaw === "REP" ||
-    roleRaw === "CHANNEL_EXECUTIVE" ||
-    roleRaw === "CHANNEL_DIRECTOR" ||
-    roleRaw === "CHANNEL_REP"
-      ? (roleRaw as
-          | "ADMIN"
-          | "EXEC_MANAGER"
-          | "MANAGER"
-          | "REP"
-          | "CHANNEL_EXECUTIVE"
-          | "CHANNEL_DIRECTOR"
-          | "CHANNEL_REP")
-      : ("REP" as const);
-
-  let scope = await getScopedRepDirectory({ orgId: args.orgId, userId: args.user.id, role: scopedRole }).catch(() => ({
+  let scope = await getScopedRepDirectory({ orgId: args.orgId, user: args.user }).catch(() => ({
     repDirectory: [],
-    allowedRepIds: scopedRole === "ADMIN" ? (null as number[] | null) : ([0] as number[]),
+    allowedRepIds: args.user.hierarchy_level === 0 ? (null as number[] | null) : ([0] as number[]),
     myRepId: null as number | null,
   }));
 
@@ -1326,7 +1307,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
   const prevQpId = String(prevPeriod?.id || "").trim();
 
   // If we can't resolve any scope for a non-admin, fail closed (align with other dashboards).
-  const useScopedRepIds = scopedRole !== "ADMIN";
+  const useScopedRepIds = args.user.hierarchy_level !== 0;
   if (useScopedRepIds && scope.allowedRepIds !== null && (!Array.isArray(scope.allowedRepIds) || scope.allowedRepIds.length === 0)) {
     return {
       periods,

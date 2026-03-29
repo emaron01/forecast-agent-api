@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createRep, deleteRep, getRep, getUserById, updateRep } from "../../../lib/db";
 import { requireOrgContext } from "../../../lib/auth";
 import { resolvePublicId } from "../../../lib/publicId";
+import { isAdmin } from "../../../lib/roleHelpers";
 
 const RepUpsertSchema = z.object({
   public_id: z.string().uuid().optional(),
@@ -29,7 +30,7 @@ function emptyToNull(s: string | undefined) {
 
 export async function createRepAction(formData: FormData) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   const parsed = RepUpsertSchema.parse({
     rep_name: formData.get("rep_name"),
@@ -72,7 +73,7 @@ export async function createRepAction(formData: FormData) {
 
 export async function updateRepAction(formData: FormData) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   const parsed = RepUpsertSchema.extend({ public_id: z.string().uuid() }).parse({
     public_id: formData.get("public_id"),
@@ -120,7 +121,7 @@ export async function updateRepAction(formData: FormData) {
 
 export async function deleteRepAction(formData: FormData) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   const parsed = z
     .object({

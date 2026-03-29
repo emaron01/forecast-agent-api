@@ -12,6 +12,7 @@ import { RepCoachingBriefClient } from "./_components/RepCoachingBriefClient";
 import { RepDashboardHeroWrapper } from "./_components/RepDashboardHeroWrapper";
 import { ReviewRequestBanner } from "./_components/ReviewRequestBanner";
 import { SimpleForecastDashboardClient } from "../forecast/simple/simpleClient";
+import { isAdmin, isChannelRole, isSalesLeader } from "../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -37,16 +38,12 @@ export default async function DashboardPage({
 }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (
-    ctx.user.role === "CHANNEL_EXECUTIVE" ||
-    ctx.user.role === "CHANNEL_DIRECTOR" ||
-    ctx.user.role === "CHANNEL_REP"
-  ) {
+  if (isChannelRole(ctx.user)) {
     redirect("/dashboard/channel");
   }
-  if (ctx.user.role === "ADMIN") redirect("/admin");
+  if (isAdmin(ctx.user)) redirect("/admin");
   // Make the Executive Dashboard the primary dashboard for leadership roles.
-  if (ctx.user.role === "MANAGER" || ctx.user.role === "EXEC_MANAGER") redirect("/dashboard/executive");
+  if (isSalesLeader(ctx.user)) redirect("/dashboard/executive");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";

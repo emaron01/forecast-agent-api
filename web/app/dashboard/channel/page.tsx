@@ -7,7 +7,7 @@ import { UserTopNav } from "../../_components/UserTopNav";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
-import { channelRoleHierarchyLevel, isChannelRepOnly } from "../../../lib/userRoles";
+import { HIERARCHY, isChannelRep, isChannelRole } from "../../../lib/roleHelpers";
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
 import { ChannelTopPartnerDealsTablesClient, type TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
 
@@ -98,9 +98,12 @@ async function listChannelScopedRepIds(args: {
     WITH RECURSIVE my_channel_rep AS (
       SELECT r.id, ARRAY[r.id] AS path
       FROM reps r
+      LEFT JOIN users u
+        ON u.org_id = $1::bigint
+       AND u.id = r.user_id
       WHERE r.organization_id = $1::bigint
         AND r.user_id = $2::bigint
-        AND r.role IN ('CHANNEL_EXECUTIVE', 'CHANNEL_DIRECTOR', 'CHANNEL_REP')
+        AND COALESCE(u.hierarchy_level, 99) BETWEEN $3::int AND $4::int
       ORDER BY r.id DESC
       LIMIT 1
     ),
@@ -114,16 +117,19 @@ async function listChannelScopedRepIds(args: {
       FROM reps c
       JOIN tree t
         ON c.manager_rep_id = t.id
+      LEFT JOIN users uc
+        ON uc.org_id = $1::bigint
+       AND uc.id = c.user_id
       WHERE c.organization_id = $1::bigint
         AND (c.active IS TRUE OR c.active IS NULL)
-        AND c.role IN ('CHANNEL_EXECUTIVE', 'CHANNEL_DIRECTOR', 'CHANNEL_REP')
+        AND COALESCE(uc.hierarchy_level, 99) BETWEEN $3::int AND $4::int
         AND NOT (c.id = ANY(t.path))
     )
     SELECT DISTINCT id
     FROM tree
     ORDER BY id ASC
     `,
-    [args.orgId, args.userId]
+    [args.orgId, args.userId, HIERARCHY.CHANNEL_EXEC, HIERARCHY.CHANNEL_REP]
   );
   return (rows || [])
     .map((row) => Number(row.id))
@@ -133,18 +139,24 @@ async function listChannelScopedRepIds(args: {
 async function getCurrentChannelRepId(args: {
   orgId: number;
   userId: number;
+  fallbackRepId?: number | null;
 }): Promise<number | null> {
+  const fallbackRepId = Number(args.fallbackRepId);
+  if (Number.isFinite(fallbackRepId) && fallbackRepId > 0) return fallbackRepId;
   const { rows } = await pool.query<{ id: number }>(
     `
     SELECT r.id
     FROM reps r
+    LEFT JOIN users u
+      ON u.org_id = $1::bigint
+     AND u.id = r.user_id
     WHERE r.organization_id = $1::bigint
       AND r.user_id = $2::bigint
-      AND r.role IN ('CHANNEL_EXECUTIVE', 'CHANNEL_DIRECTOR', 'CHANNEL_REP')
+      AND COALESCE(u.hierarchy_level, 99) BETWEEN $3::int AND $4::int
     ORDER BY r.id DESC
     LIMIT 1
     `,
-    [args.orgId, args.userId]
+    [args.orgId, args.userId, HIERARCHY.CHANNEL_EXEC, HIERARCHY.CHANNEL_REP]
   );
   const id = Number(rows?.[0]?.id);
   return Number.isFinite(id) && id > 0 ? id : null;
@@ -247,7 +259,7 @@ async function getChannelDashboardHeroMetrics(args: {
         )
     )
     SELECT
-      COALESCE(cq.channel_quota, 0)::float8 AS channel_quota,
+      cq.channel_quota::float8 AS channel_quota,
       COALESCE(ccw.channel_closed_won, 0)::float8 AS channel_closed_won,
       COALESCE(stcw.sales_team_closed_won, 0)::float8 AS sales_team_closed_won
     FROM qp
@@ -282,11 +294,7 @@ export default async function ChannelDashboardPage({
 }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (
-    ctx.user.role !== "CHANNEL_EXECUTIVE" &&
-    ctx.user.role !== "CHANNEL_DIRECTOR" &&
-    ctx.user.role !== "CHANNEL_REP"
-  ) {
+  if (!isChannelRole(ctx.user)) {
     redirect("/dashboard");
   }
 
@@ -307,8 +315,7 @@ export default async function ChannelDashboardPage({
 
   const scope = await getScopedRepDirectory({
     orgId,
-    userId: ctx.user.id,
-    role: ctx.user.role,
+    user: ctx.user,
   }).catch(() => ({
     repDirectory: [],
     allowedRepIds: null as number[] | null,
@@ -387,21 +394,29 @@ export default async function ChannelDashboardPage({
           userId: ctx.user.id,
         }).catch(() => [])
       : [];
+  const fallbackScopedRepId = scope.myRepId ?? summary.myRepId ?? null;
   const currentChannelRepId =
     selectedPeriodId && ctx.kind === "user"
       ? await getCurrentChannelRepId({
           orgId: ctx.user.org_id,
           userId: ctx.user.id,
+          fallbackRepId: fallbackScopedRepId,
         }).catch(() => null)
       : null;
-  const viewerChannelRoleLevel = channelRoleHierarchyLevel(ctx.user.role);
+  const viewerChannelRoleLevel = Number(ctx.user.hierarchy_level);
+  const effectiveChannelRepIds =
+    channelScopedRepIds.length > 0
+      ? channelScopedRepIds
+      : currentChannelRepId != null
+        ? [currentChannelRepId]
+        : [];
 
   let channelHeroMetrics: ChannelDashboardHeroMetrics | null = null;
-  if (selectedPeriodId && channelScopedRepIds.length > 0 && currentChannelRepId) {
+  if (selectedPeriodId && effectiveChannelRepIds.length > 0 && currentChannelRepId) {
     channelHeroMetrics = await getChannelDashboardHeroMetrics({
       orgId: ctx.user.org_id,
       quotaPeriodId: selectedPeriodId,
-      channelRepIds: channelScopedRepIds,
+      channelRepIds: effectiveChannelRepIds,
       salesTeamRepIds: visibleRepIds,
       viewerRoleLevel: viewerChannelRoleLevel,
       viewerChannelRepId: currentChannelRepId,
@@ -442,7 +457,7 @@ export default async function ChannelDashboardPage({
             <ExecutiveGapInsightsClient
               heroOnly
               basePath="/dashboard/channel"
-              channelTabOnly={isChannelRepOnly(ctx.user.role)}
+              channelTabOnly={isChannelRep(ctx.user)}
               viewerRole={ctx.user.role}
               periods={summary.periods}
               quotaPeriodId={summary.selectedQuotaPeriodId}
@@ -551,7 +566,7 @@ export default async function ChannelDashboardPage({
           <ExecutiveGapInsightsClient
             basePath="/dashboard/channel"
             salesHeroLayout
-            channelTabOnly={isChannelRepOnly(ctx.user.role)}
+            channelTabOnly={isChannelRep(ctx.user)}
             channelTopPartnerDealsOnPage={!!selectedPeriod}
             viewerRole={ctx.user.role}
             periods={summary.periods}

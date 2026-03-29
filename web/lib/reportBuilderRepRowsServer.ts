@@ -6,41 +6,37 @@ import { getQuotaByRepPeriod, getRepKpisByPeriod } from "./executiveRepKpis";
 import { getMeddpiccAveragesByRepByPeriods } from "./meddpiccHealth";
 import { pool } from "./pool";
 import { getScopedRepDirectory } from "./repScope";
+import { HIERARCHY } from "./roleHelpers";
 
 type BuilderDirRow = {
   id: number;
   name: string;
   manager_rep_id: number | null;
-  role: string;
+  hierarchy_level: number | null;
 };
 
-function buildDirectoryInScope(repDirectory: { id: number; name: string; manager_rep_id: number | null; role: string }[]): BuilderDirRow[] {
+function buildDirectoryInScope(
+  repDirectory: { id: number; name: string; manager_rep_id: number | null; hierarchy_level?: number | null }[]
+): BuilderDirRow[] {
   const filtered: BuilderDirRow[] = repDirectory
-    .map((r) => {
-      const role = String(r.role || "").trim();
-      return {
-        id: r.id,
-        name: r.name,
-        manager_rep_id: r.manager_rep_id ?? null,
-        role,
-      };
-    })
-    .filter((r) => {
-      if (!r.role) return false;
-      if (r.role.includes("CHANNEL")) return false;
-      return r.role === "REP" || r.role === "MANAGER" || r.role === "EXEC_MANAGER";
-    });
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      manager_rep_id: r.manager_rep_id ?? null,
+      hierarchy_level: Number.isFinite(Number(r.hierarchy_level)) ? Number(r.hierarchy_level) : null,
+    }))
+    .filter((r) => r.hierarchy_level != null && r.hierarchy_level >= HIERARCHY.EXEC_MANAGER && r.hierarchy_level <= HIERARCHY.REP);
 
   const execs = filtered
-    .filter((r) => r.role === "EXEC_MANAGER")
+    .filter((r) => r.hierarchy_level === HIERARCHY.EXEC_MANAGER)
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
   const managers = filtered
-    .filter((r) => r.role === "MANAGER")
+    .filter((r) => r.hierarchy_level === HIERARCHY.MANAGER)
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
   const reps = filtered
-    .filter((r) => r.role === "REP")
+    .filter((r) => r.hierarchy_level === HIERARCHY.REP)
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
 
@@ -77,7 +73,7 @@ function buildDirectoryInScope(repDirectory: { id: number; name: string; manager
       id: exec.id,
       name: exec.name,
       manager_rep_id: exec.manager_rep_id ?? null,
-      role: exec.role,
+      hierarchy_level: exec.hierarchy_level,
     });
 
     const execManagers = (managersByExecId.get(exec.id) || []).slice();
@@ -88,7 +84,7 @@ function buildDirectoryInScope(repDirectory: { id: number; name: string; manager
         id: mgr.id,
         name: mgr.name,
         manager_rep_id: mgr.manager_rep_id ?? null,
-        role: mgr.role,
+        hierarchy_level: mgr.hierarchy_level,
       });
 
       const mgrReps = (repsByManagerId.get(mgr.id) || []).slice();
@@ -99,7 +95,7 @@ function buildDirectoryInScope(repDirectory: { id: number; name: string; manager
           id: rep.id,
           name: rep.name,
           manager_rep_id: rep.manager_rep_id ?? null,
-          role: rep.role,
+          hierarchy_level: rep.hierarchy_level,
         });
       }
     }
@@ -111,7 +107,7 @@ function buildDirectoryInScope(repDirectory: { id: number; name: string; manager
       id: mgr.id,
       name: mgr.name,
       manager_rep_id: mgr.manager_rep_id ?? null,
-      role: mgr.role,
+      hierarchy_level: mgr.hierarchy_level,
     });
 
     const mgrReps = (repsByManagerId.get(mgr.id) || []).slice();
@@ -121,7 +117,7 @@ function buildDirectoryInScope(repDirectory: { id: number; name: string; manager
         id: rep.id,
         name: rep.name,
         manager_rep_id: rep.manager_rep_id ?? null,
-        role: rep.role,
+        hierarchy_level: rep.hierarchy_level,
       });
     }
   }
@@ -132,26 +128,11 @@ function buildDirectoryInScope(repDirectory: { id: number; name: string; manager
       id: rep.id,
       name: rep.name,
       manager_rep_id: rep.manager_rep_id ?? null,
-      role: rep.role,
+      hierarchy_level: rep.hierarchy_level,
     });
   }
 
   return out;
-}
-
-function scopedRoleForReportBuilder(userRole: AuthUser["role"]): AuthUser["role"] {
-  if (
-    userRole === "ADMIN" ||
-    userRole === "EXEC_MANAGER" ||
-    userRole === "MANAGER" ||
-    userRole === "REP" ||
-    userRole === "CHANNEL_EXECUTIVE" ||
-    userRole === "CHANNEL_DIRECTOR" ||
-    userRole === "CHANNEL_REP"
-  ) {
-    return userRole;
-  }
-  return "MANAGER";
 }
 
 /**
@@ -160,11 +141,10 @@ function scopedRoleForReportBuilder(userRole: AuthUser["role"]): AuthUser["role"
  */
 export async function loadReportBuilderRepRowsForUser(args: {
   orgId: number;
-  userId: number;
-  userRole: AuthUser["role"];
+  user: AuthUser;
   periodId: string;
 }): Promise<{ repRows: any[]; periodLabel: string }> {
-  const { orgId, userId, userRole, periodId } = args;
+  const { orgId, user, periodId } = args;
   const selectedPeriodId = String(periodId || "").trim();
   if (!selectedPeriodId) {
     return { repRows: [], periodLabel: "—" };
@@ -172,10 +152,9 @@ export async function loadReportBuilderRepRowsForUser(args: {
 
   const scope = await getScopedRepDirectory({
     orgId,
-    userId,
-    role: scopedRoleForReportBuilder(userRole),
+    user,
   }).catch(() => ({
-    repDirectory: [] as { id: number; name: string; manager_rep_id: number | null; role: string }[],
+    repDirectory: [] as { id: number; name: string; manager_rep_id: number | null; hierarchy_level?: number | null }[],
     allowedRepIds: null as number[] | null,
     myRepId: null as number | null,
   }));

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireOrgContext } from "../../../lib/auth";
 import { pool } from "../../../lib/pool";
 import { listUsers, syncRepsFromUsers } from "../../../lib/db";
+import { HIERARCHY, isAdmin, isSalesLeader } from "../../../lib/roleHelpers";
 
 function isNextRedirectError(e: unknown) {
   return typeof (e as any)?.digest === "string" && String((e as any).digest).startsWith("NEXT_REDIRECT");
@@ -47,7 +48,7 @@ function detectCycle(nextManagerByUserId: Map<number, number | null>) {
 export async function updateSalesOrgChartAction(formData: FormData) {
   try {
     const { ctx, orgId } = await requireOrgContext();
-    if (ctx.kind === "user" && ctx.user.role !== "ADMIN" && ctx.user.role !== "EXEC_MANAGER" && ctx.user.role !== "MANAGER") redirect("/admin/users");
+    if (ctx.kind === "user" && !isAdmin(ctx.user) && !isSalesLeader(ctx.user)) redirect("/admin/users");
 
     const users = await listUsers({ orgId, includeInactive: true }).catch(() => []);
     const byPublicId = new Map<string, (typeof users)[number]>();
@@ -132,7 +133,9 @@ export async function updateSalesOrgChartAction(formData: FormData) {
         active: boolean;
       }>;
 
-      const managers = all.filter((u) => (u.hierarchy_level === 1 || u.hierarchy_level === 2) && u.role !== "ADMIN");
+      const managers = all.filter(
+        (u) => u.hierarchy_level === HIERARCHY.EXEC_MANAGER || u.hierarchy_level === HIERARCHY.MANAGER
+      );
       const managerIds = managers.map((m) => m.id);
 
       if (managerIds.length) {
@@ -143,7 +146,7 @@ export async function updateSalesOrgChartAction(formData: FormData) {
       const byManager = new Map<number, number[]>();
       for (const u of all) {
         if (!u.active) continue;
-        if (u.role === "ADMIN") continue;
+        if (u.hierarchy_level === HIERARCHY.ADMIN) continue;
         if (u.hierarchy_level < 2) continue; // visibility targets: managers + reps
         if (u.manager_user_id == null) continue;
         if (!byManager.has(u.manager_user_id)) byManager.set(u.manager_user_id, []);

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { requireOrgContext } from "../../../../lib/auth";
 import { TrainingReadinessAdminClient } from "./TrainingReadinessAdminClient";
 import { listQuotaPeriods } from "../../actions/quotas";
+import { isAdmin } from "../../../../lib/roleHelpers";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -15,7 +16,7 @@ export default async function TrainingReadinessAdminPage({
 }) {
   const { ctx } = await requireOrgContext();
   if (ctx.kind !== "user") redirect("/admin/organizations");
-  if (ctx.user.role !== "ADMIN" && !ctx.user.admin_has_full_analytics_access) redirect("/admin/users");
+  if (!isAdmin(ctx.user) && !ctx.user.admin_has_full_analytics_access) redirect("/admin/users");
 
   const periods = await listQuotaPeriods().catch(() => []);
   const quotaPeriodId = String(sp(searchParams.quota_period_id) || "").trim();

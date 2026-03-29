@@ -5,6 +5,7 @@ import { Modal } from "../../_components/Modal";
 import { createQuotaPeriod, deleteQuotaPeriod, listQuotaPeriods, updateQuotaPeriod } from "../../actions/quotas";
 import { requireOrgContext } from "../../../../lib/auth";
 import { dateOnly } from "../../../../lib/dateOnly";
+import { isAdmin } from "../../../../lib/roleHelpers";
 
 const QUARTERS: Array<{ label: string; n: "1" | "2" | "3" | "4" }> = [
   { label: "1st Quarter", n: "1" },
@@ -88,7 +89,7 @@ export default async function QuotaPeriodsPage({
   searchParams: Record<string, string | string[] | undefined>;
 }) {
   const { ctx } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   const modal = sp(searchParams.modal) || "";
   const id = sp(searchParams.id) || "";

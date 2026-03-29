@@ -5,6 +5,7 @@ import { getVisibleUsers } from "../../../lib/db";
 import { getScopedRepDirectory } from "../../../lib/repScope";
 import { getForecastStageProbabilities } from "../../../lib/forecastStageProbabilities";
 import { computeSalesVsVerdictForecastSummary } from "../../../lib/forecastSummary";
+import { HIERARCHY, isChannelRep, isSalesRep } from "../../../lib/roleHelpers";
 import { ForecastPeriodFiltersClient } from "./ForecastPeriodFiltersClient";
 import { GapDrivingDealsClient } from "../../analytics/meddpicc-tb/gap-driving-deals/ui/GapDrivingDealsClient";
 import { ExportQuarterlySalesForecastExcelButton, type QuarterlySalesForecastExportData } from "./ExportQuarterlySalesForecastExcelButton";
@@ -175,17 +176,13 @@ export async function QuarterSalesForecastSummary(props: {
 
   const qpId = selected ? String(selected.id) : "";
 
-  const role = props.user.role;
   const visibleUsers = await getVisibleUsers({
-    currentUserId: props.user.id,
     orgId: props.orgId,
-    role,
-    hierarchy_level: props.user.hierarchy_level,
-    see_all_visibility: props.user.see_all_visibility,
+    user: props.user,
   }).catch(() => []);
 
   const visibleRepUsers = (visibleUsers || []).filter(
-    (u) => u && (u.role === "REP" || u.role === "CHANNEL_REP") && u.active
+    (u) => u && (Number(u.hierarchy_level) === HIERARCHY.REP || Number(u.hierarchy_level) === HIERARCHY.CHANNEL_REP) && u.active
   );
   const visibleRepUserIds = Array.from(new Set(visibleRepUsers.map((u) => Number(u.id)).filter((n) => Number.isFinite(n) && n > 0)));
   // Improve matching: some orgs store opp rep_name as user display_name (not account_owner_name).
@@ -227,24 +224,7 @@ export async function QuarterSalesForecastSummary(props: {
 
   const scope = await getScopedRepDirectory({
     orgId: props.orgId,
-    userId: props.user.id,
-    role:
-      role === "ADMIN" ||
-      role === "EXEC_MANAGER" ||
-      role === "MANAGER" ||
-      role === "REP" ||
-      role === "CHANNEL_EXECUTIVE" ||
-      role === "CHANNEL_DIRECTOR" ||
-      role === "CHANNEL_REP"
-        ? (role as
-            | "ADMIN"
-            | "EXEC_MANAGER"
-            | "MANAGER"
-            | "REP"
-            | "CHANNEL_EXECUTIVE"
-            | "CHANNEL_DIRECTOR"
-            | "CHANNEL_REP")
-        : ("REP" as const),
+    user: props.user,
   }).catch(() => null);
   const allowedRepIds = scope?.allowedRepIds ?? [];
   const useScoped = scope?.allowedRepIds !== null;
@@ -258,20 +238,27 @@ export async function QuarterSalesForecastSummary(props: {
       FROM reps
       WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
         AND (active IS TRUE OR active IS NULL)
-        AND role IN ('REP', 'CHANNEL_REP')
+        AND EXISTS (
+          SELECT 1
+          FROM users u
+          WHERE u.org_id = $1::bigint
+            AND u.id = reps.user_id
+            AND COALESCE(u.hierarchy_level, 99) IN ($4::int, $5::int)
+        )
         AND (NOT $2::boolean OR id = ANY($3::bigint[]))
       ORDER BY name ASC, id ASC
       `,
-      [props.orgId, useScoped, Array.isArray(allowedRepIds) ? allowedRepIds : []]
+      [props.orgId, useScoped, Array.isArray(allowedRepIds) ? allowedRepIds : [], HIERARCHY.REP, HIERARCHY.CHANNEL_REP]
     )
     .then((r) => (r.rows || []).map((x: any) => ({ public_id: String(x.public_id), name: String(x.name || "").trim() || "(Unnamed)" })))
     .catch(() => []);
 
   // For REP users, keep a friendly headline; for managers/admins, show a team headline.
   const repNameForHeadline =
-    role === "REP" || role === "CHANNEL_REP"
+    isSalesRep(props.user) || props.user.hierarchy_level === HIERARCHY.CHANNEL_REP
       ? (userRepName || String(props.user.display_name || "").trim())
       : String(props.user.display_name || "").trim();
+  const viewerIsRep = isSalesRep(props.user) || isChannelRep(props.user);
 
   const canCompute = !!qpId && (repIdsToUse.length > 0 || visibleRepNameKeys.length > 0);
 
@@ -1014,7 +1001,7 @@ export async function QuarterSalesForecastSummary(props: {
   // Gap for "Left To Go" is based on the Left To Go values: (CRM Left To Go) − (Verdict Left To Go).
   const gapLeftToGo = leftCrmWeighted - leftVerdictWeighted;
   const headline =
-    role === "REP" || role === "CHANNEL_REP"
+    isSalesRep(props.user) || props.user.hierarchy_level === HIERARCHY.CHANNEL_REP
       ? repNameForHeadline
         ? `${repNameForHeadline}'s Quarterly Sales Forecast`
         : "Quarterly Sales Forecast"
@@ -1099,7 +1086,7 @@ export async function QuarterSalesForecastSummary(props: {
             selectedFiscalYear={yearToUse}
             selectedPeriodId={qpId}
           />
-          {(role === "REP" || role === "CHANNEL_REP") && !userRepName ? (
+          {(isSalesRep(props.user) || props.user.hierarchy_level === HIERARCHY.CHANNEL_REP) && !userRepName ? (
             <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
               Rep visibility is restricted to your own records, but your account is missing `account_owner_name`.
             </div>
@@ -1279,11 +1266,11 @@ export async function QuarterSalesForecastSummary(props: {
           reps={repsForGapReport}
           initialQuotaPeriodId={qpId}
           hideQuotaPeriodSelect={true}
-          defaultRepName={role === "REP" || role === "CHANNEL_REP" ? (userRepName || String(props.user.display_name || "").trim() || null) : null}
+          defaultRepName={isSalesRep(props.user) || props.user.hierarchy_level === HIERARCHY.CHANNEL_REP ? (userRepName || String(props.user.display_name || "").trim() || null) : null}
         />
       </div>
 
-      {role !== "REP" && role !== "CHANNEL_REP" && repRollups.length ? (
+      {!viewerIsRep && repRollups.length ? (
         <details className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
           <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">
             Rep CRM Actual Forecast Stages with Health Scores ({repRollups.length})
@@ -1369,7 +1356,7 @@ export async function QuarterSalesForecastSummary(props: {
       {products.length ? (
         <section className="mt-4 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
           <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">
-            {role === "REP" || role === "CHANNEL_REP" ? "Revenue by product (Closed Won)" : "Team revenue by product (Closed Won)"}
+            {isSalesRep(props.user) || props.user.hierarchy_level === HIERARCHY.CHANNEL_REP ? "Revenue by product (Closed Won)" : "Team revenue by product (Closed Won)"}
           </div>
           <div className="mt-3 overflow-x-auto">
             <table className="min-w-[760px] table-auto border-collapse text-sm">
@@ -1403,7 +1390,7 @@ export async function QuarterSalesForecastSummary(props: {
             </table>
           </div>
 
-          {role !== "REP" && role !== "CHANNEL_REP" ? (
+          {!viewerIsRep ? (
             <details className="mt-3">
               <summary className="cursor-pointer text-sm font-semibold text-[color:var(--sf-text-primary)]">
                 Rep breakdown (by product)
@@ -1471,7 +1458,7 @@ export async function QuarterSalesForecastSummary(props: {
                     yearToUse,
                     selectedFiscalYearParam: selectedFiscalYear || null,
                     selectedQuotaPeriodIdParam: selectedQuotaPeriodId || null,
-                    role,
+                    user_role: props.user.role,
                     hierarchy_level: props.user.hierarchy_level,
                     see_all_visibility: props.user.see_all_visibility,
                     userRepName,

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { pool } from "../../../lib/pool";
 import { requireOrgContext } from "../../../lib/auth";
 import type { QuotaPeriodRow, QuotaRow } from "../../../lib/quotaModels";
+import { isAdmin } from "../../../lib/roleHelpers";
 
 const zBigintText = z.string().regex(/^\d+$/);
 const zUuidText = z.string().uuid();
@@ -36,7 +37,7 @@ const DeleteQuotaPeriodSchema = z.object({
 
 export async function createQuotaPeriod(formData: FormData): Promise<QuotaPeriodRow> {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
   const orgIdParam = orgIdBigintParam(orgId);
 
   const parsed = CreateQuotaPeriodSchema.parse({
@@ -85,7 +86,7 @@ export async function createQuotaPeriod(formData: FormData): Promise<QuotaPeriod
 
 export async function updateQuotaPeriod(formData: FormData): Promise<QuotaPeriodRow> {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
   const orgIdParam = orgIdBigintParam(orgId);
 
   const parsed = UpdateQuotaPeriodSchema.parse({
@@ -129,7 +130,7 @@ export async function updateQuotaPeriod(formData: FormData): Promise<QuotaPeriod
 
 export async function listQuotaPeriods(): Promise<QuotaPeriodRow[]> {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
   const orgIdParam = orgIdBigintParam(orgId);
 
   const { rows } = await pool.query<QuotaPeriodRow>(
@@ -165,7 +166,7 @@ export async function listQuotaPeriods(): Promise<QuotaPeriodRow[]> {
 
 export async function deleteQuotaPeriod(formData: FormData): Promise<{ ok: true }> {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
   const orgIdParam = orgIdBigintParam(orgId);
 
   const parsed = DeleteQuotaPeriodSchema.parse({
@@ -256,7 +257,7 @@ async function getQuarterPeriodIdsForYear(args: { orgId: number; fiscal_year: st
 
 export async function createQuota(formData: FormData): Promise<QuotaRow> {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   const parsed = CreateQuotaSchema.parse({
     rep_id: formData.get("rep_id") || undefined,
@@ -326,7 +327,7 @@ export async function createQuota(formData: FormData): Promise<QuotaRow> {
 
 export async function updateQuota(formData: FormData): Promise<QuotaRow> {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   const parsed = UpdateQuotaSchema.parse({
     id: formData.get("id"),
@@ -389,7 +390,7 @@ export async function updateQuota(formData: FormData): Promise<QuotaRow> {
 
 export async function upsertRepQuotaSet(formData: FormData): Promise<{ ok: true }> {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   const parsed = UpsertRepQuotaSetSchema.parse({
     rep_id: formData.get("rep_id"),
@@ -506,7 +507,7 @@ export async function upsertRepQuotaSet(formData: FormData): Promise<{ ok: true 
 
 export async function deleteRepQuotaSet(formData: FormData): Promise<{ ok: true }> {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   const parsed = DeleteRepQuotaSetSchema.parse({
     rep_id: formData.get("rep_id"),
@@ -533,7 +534,7 @@ export async function deleteRepQuotaSet(formData: FormData): Promise<{ ok: true 
 
 export async function listQuotasByRep(args: { rep_id: string }): Promise<QuotaRow[]> {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   const parsed = z.object({ rep_id: zBigintText }).parse(args);
 
@@ -563,7 +564,7 @@ export async function listQuotasByRep(args: { rep_id: string }): Promise<QuotaRo
 
 export async function listQuotasByManager(args: { manager_id: string }): Promise<QuotaRow[]> {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   const parsed = z.object({ manager_id: zBigintText }).parse(args);
 
@@ -593,7 +594,7 @@ export async function listQuotasByManager(args: { manager_id: string }): Promise
 
 export async function listQuotasByVP(): Promise<QuotaRow[]> {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   // role_level mapping aligns with hierarchy_levels.level:
   // 1 = Executive Manager (used as VP in quota assignment flows).
@@ -623,7 +624,7 @@ export async function listQuotasByVP(): Promise<QuotaRow[]> {
 
 export async function listQuotasByCRO(): Promise<QuotaRow[]> {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   // role_level mapping aligns with hierarchy_levels.level:
   // 0 = Admin (used as CRO/company level in quota assignment flows).

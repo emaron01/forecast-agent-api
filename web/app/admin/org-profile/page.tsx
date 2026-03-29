@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { requireOrgContext } from "../../../lib/auth";
 import { getOrganization, listOrganizations } from "../../../lib/db";
 import { updateOrgProfileAction } from "../actions/orgProfile";
+import { isAdmin } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -16,7 +17,7 @@ export default async function OrgProfilePage({
   searchParams: Record<string, string | string[] | undefined>;
 }) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   const saved = sp(searchParams.saved) || "";
   const org = await getOrganization({ id: orgId }).catch(() => null);

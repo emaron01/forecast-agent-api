@@ -3,6 +3,7 @@ import { requireAuth } from "../../lib/auth";
 import { getOrganization } from "../../lib/db";
 import { UserTopNav } from "../_components/UserTopNav";
 import Link from "next/link";
+import { HIERARCHY, isAdmin, isManager, isSalesLeader } from "../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -21,17 +22,17 @@ function Card({ href, title, desc }: { href: string; title: string; desc: string
 export default async function AnalyticsPage() {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role === "REP" || ctx.user.role === "CHANNEL_REP") redirect("/dashboard");
+  if (ctx.user.hierarchy_level === HIERARCHY.REP || ctx.user.hierarchy_level === HIERARCHY.CHANNEL_REP) redirect("/dashboard");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
 
-  const r = ctx.user.role;
+  const u = ctx.user;
   const cardCount =
-    (r === "ADMIN" ? 1 : 0) +
-    (r === "MANAGER" ? 1 : 0) +
-    (r === "EXEC_MANAGER" || r === "MANAGER" ? 1 : 0) +
-    (r === "EXEC_MANAGER" || r === "MANAGER" ? 1 : 0);
+    (isAdmin(u) ? 1 : 0) +
+    (isManager(u) ? 1 : 0) +
+    (isSalesLeader(u) ? 1 : 0) +
+    (isSalesLeader(u) ? 1 : 0);
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -53,16 +54,16 @@ export default async function AnalyticsPage() {
         ) : null}
 
         <section className="mt-6 grid gap-4 md:grid-cols-2">
-          {ctx.user.role === "ADMIN" ? (
+          {isAdmin(ctx.user) ? (
             <Card href="/analytics/quotas/admin" title="Quotas (Admin)" desc="Admin quota management." />
           ) : null}
-          {ctx.user.role === "MANAGER" ? (
+          {isManager(ctx.user) ? (
             <Card href="/analytics/quotas/manager" title="Team Quotas" desc="Assign quotas to direct reports + team rollups." />
           ) : null}
-          {(ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER") ? (
+          {isSalesLeader(ctx.user) ? (
             <Card href="/analytics/quotas/executive" title="Top Deals" desc="Top Won + Closed Loss deals for the selected quarter (sortable)." />
           ) : null}
-          {(ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "MANAGER") ? (
+          {isSalesLeader(ctx.user) ? (
             <Card
               href="/analytics/executive/sales-opportunities"
               title="Sales Opportunities (Exec)"

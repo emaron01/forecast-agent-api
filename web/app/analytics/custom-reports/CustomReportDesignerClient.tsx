@@ -19,6 +19,7 @@ import {
   YAxis,
 } from "recharts";
 import { ExportToExcelButton } from "../../_components/ExportToExcelButton";
+import { isExecManagerLevel, isManagerLevel, isRepLevel, roleToHierarchyLevel } from "../../../lib/roleHelpers";
 
 type RepRow = {
   rep_id: string;
@@ -68,6 +69,19 @@ type RepRow = {
   mix_commit: number | null;
   mix_won: number | null;
 };
+
+function rowLevel(role: string | null | undefined) {
+  return roleToHierarchyLevel(role);
+}
+
+function isLeaderRow(role: string | null | undefined) {
+  const level = rowLevel(role);
+  return isManagerLevel(level) || isExecManagerLevel(level);
+}
+
+function isRepRow(role: string | null | undefined) {
+  return isRepLevel(rowLevel(role));
+}
 
 type SavedReportRow = {
   id: string;
@@ -678,7 +692,7 @@ export function CustomReportDesignerClient(props: {
   const [chartType, setChartType] = useState<ChartType>("table");
 
   const execHeaderName = useMemo(() => {
-    const exec = repDirectory.find((r) => String(r.role || "").trim() === "EXEC_MANAGER");
+    const exec = repDirectory.find((r) => isExecManagerLevel(rowLevel(r.role)));
     if (exec) {
       const nm = String(exec.name || "").trim();
       return nm || `Executive ${exec.id}`;
@@ -712,14 +726,13 @@ export function CustomReportDesignerClient(props: {
     for (const d of repDirectory) {
       const sid = String(d.id);
       if (!selectedIds.has(sid)) continue;
-      const role = String(d.role || "").trim();
-      if (role === "REP") {
+      if (isRepRow(d.role)) {
         const row = byId.get(sid);
         if (row) out.push(row);
         continue;
       }
-      if (role === "MANAGER" || role === "EXEC_MANAGER") {
-        const directDirReps = repDirectory.filter((r) => r.role === "REP" && r.manager_rep_id === d.id);
+      if (isLeaderRow(d.role)) {
+        const directDirReps = repDirectory.filter((r) => isRepRow(r.role) && r.manager_rep_id === d.id);
         const metricRows = directDirReps.map((r) => byId.get(String(r.id))).filter(Boolean) as RepRow[];
         const displayName = String(d.name || "").trim() || `Rep ${d.id}`;
         out.push({
@@ -799,8 +812,8 @@ export function CustomReportDesignerClient(props: {
   }, [showQvqComparison, qvqPeriodResults, execHeaderName]);
 
   const pickerGroups = useMemo(() => {
-    const managers = repDirectory.filter((r) => r.role === "MANAGER" || r.role === "EXEC_MANAGER");
-    const dirReps = repDirectory.filter((r) => r.role === "REP");
+    const managers = repDirectory.filter((r) => isLeaderRow(r.role));
+    const dirReps = repDirectory.filter((r) => isRepRow(r.role));
     const groups = managers.map((mgr) => ({
       manager: mgr,
       reps: dirReps.filter((r) => r.manager_rep_id === mgr.id),
@@ -1108,12 +1121,12 @@ export function CustomReportDesignerClient(props: {
   }
 
   function quickSelectRepsOnly() {
-    setSelectedIds(new Set(repDirectory.filter((r) => r.role === "REP").map((r) => String(r.id))));
+    setSelectedIds(new Set(repDirectory.filter((r) => isRepRow(r.role)).map((r) => String(r.id))));
   }
 
   function quickSelectLeadersOnly() {
     setSelectedIds(
-      new Set(repDirectory.filter((r) => r.role === "MANAGER" || r.role === "EXEC_MANAGER").map((r) => String(r.id)))
+      new Set(repDirectory.filter((r) => isLeaderRow(r.role)).map((r) => String(r.id)))
     );
   }
 

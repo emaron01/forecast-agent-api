@@ -4,6 +4,7 @@ import { getOrganization } from "../../../lib/db";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ForecastDashboardClient } from "../ForecastDashboardClient";
 import { QuarterSalesForecastSummary } from "../_components/QuarterSalesForecastSummary";
+import { HIERARCHY, isAdmin, isSalesRep } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -14,12 +15,12 @@ export default async function OpportunityScoreCardsViewPage({
 }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role === "ADMIN") redirect("/admin");
+  if (isAdmin(ctx.user)) redirect("/admin");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
 
-  const repFilterLocked = ctx.user.role === "REP" || ctx.user.role === "CHANNEL_REP";
+  const repFilterLocked = isSalesRep(ctx.user) || ctx.user.hierarchy_level === HIERARCHY.CHANNEL_REP;
   const defaultRepName = repFilterLocked ? String(ctx.user.account_owner_name || "") : "";
 
   return (

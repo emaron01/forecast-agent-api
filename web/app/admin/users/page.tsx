@@ -13,6 +13,17 @@ import {
   updateUserAction,
 } from "../actions/users";
 import { RoleSelect } from "../../../components/admin/RoleSelect";
+import {
+  HIERARCHY,
+  isAdmin as isAdminUser,
+  isAdminLevel,
+  isExecManagerLevel,
+  isManager as isManagerUser,
+  isManagerLevel,
+  isRepLevel,
+  isSalesLeaderLevel,
+  roleToHierarchyLevel,
+} from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -61,8 +72,8 @@ export default async function UsersPage({
   const prefillAnalytics = sp(searchParams.admin_has_full_analytics_access) || "";
   const prefillActive = sp(searchParams.active) || "";
 
-  const isManager = ctx.kind === "user" && ctx.user.role === "MANAGER";
-  const isAdmin = ctx.kind === "master" || (ctx.kind === "user" && ctx.user.role === "ADMIN");
+  const isManager = ctx.kind === "user" && isManagerUser(ctx.user);
+  const isAdmin = ctx.kind === "master" || (ctx.kind === "user" && isAdminUser(ctx.user));
 
   const roleOptions = [
     { role: "ADMIN" as const, label: roleLabel("ADMIN") },
@@ -88,9 +99,9 @@ export default async function UsersPage({
         })
       : usersRaw;
 
-  const execManagers = isAdmin ? usersRaw.filter((u) => u.role === "EXEC_MANAGER" && u.active) : [];
-  const managers = isAdmin ? usersRaw.filter((u) => u.role === "MANAGER" && u.active) : [];
-  const admins = isAdmin ? usersRaw.filter((u) => u.role === "ADMIN" && u.active) : [];
+  const execManagers = isAdmin ? usersRaw.filter((u) => isExecManagerLevel(roleToHierarchyLevel(u.role)) && u.active) : [];
+  const managers = isAdmin ? usersRaw.filter((u) => isManagerLevel(roleToHierarchyLevel(u.role)) && u.active) : [];
+  const admins = isAdmin ? usersRaw.filter((u) => isAdminLevel(roleToHierarchyLevel(u.role)) && u.active) : [];
 
   /** Active org users only — dedicated query so the alignment dropdown is always populated for admins (not derived from filtered usersRaw). */
   const salesLeaderAlignmentCandidates = isAdmin
@@ -418,7 +429,7 @@ export default async function UsersPage({
                 <div className="mt-2 grid gap-2">
                   {users
                     .filter((u) => u.active)
-                    .filter((u) => u.role !== "ADMIN")
+                    .filter((u) => !isAdminLevel(roleToHierarchyLevel(u.role)))
                     .map((u) => (
                       <label key={u.public_id} className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
                         <input type="checkbox" name="visible_user_public_id" value={String(u.public_id)} className="h-4 w-4" />
@@ -641,7 +652,7 @@ export default async function UsersPage({
                 <div
                   className="grid gap-1 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3"
                   data-show-roles="EXEC_MANAGER,MANAGER"
-                  hidden={!(user.role === "EXEC_MANAGER" || user.role === "MANAGER")}
+                  hidden={!isSalesLeaderLevel(roleToHierarchyLevel(user.role))}
                 >
                   <label className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Can View All User Data</label>
                   <label className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
@@ -658,7 +669,7 @@ export default async function UsersPage({
               </div>
             ) : null}
 
-            <div className="grid gap-1" data-show-roles="REP" hidden={user.role !== "REP"}>
+            <div className="grid gap-1" data-show-roles="REP" hidden={!isRepLevel(roleToHierarchyLevel(user.role))}>
               <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Name As It Appears In CRM</label>
               <input
                 name="account_owner_name"
@@ -675,7 +686,7 @@ export default async function UsersPage({
               <div
                 className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3"
                 data-show-roles="EXEC_MANAGER,MANAGER"
-                hidden={!(user.role === "EXEC_MANAGER" || user.role === "MANAGER")}
+                hidden={!isSalesLeaderLevel(roleToHierarchyLevel(user.role))}
               >
                 <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct reports (assignments)</div>
                 <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
@@ -686,7 +697,7 @@ export default async function UsersPage({
                   {users
                     .filter((u) => u.active)
                     .filter((u) => u.id !== user.id)
-                    .filter((u) => u.role !== "ADMIN")
+                    .filter((u) => !isAdminLevel(roleToHierarchyLevel(u.role)))
                     .map((u) => (
                       <label key={u.public_id} className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
                         <input
@@ -799,7 +810,7 @@ export default async function UsersPage({
 
             <div className="grid gap-3 md:grid-cols-2">
               {isAdmin ? (
-                <div className="grid gap-1" data-show-roles="ADMIN" hidden={user.role !== "ADMIN"}>
+                <div className="grid gap-1" data-show-roles="ADMIN" hidden={!isAdminLevel(roleToHierarchyLevel(user.role))}>
                   <label className="flex items-center gap-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">
                     <input
                       name="admin_has_full_analytics_access"

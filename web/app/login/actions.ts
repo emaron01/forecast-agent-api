@@ -14,6 +14,7 @@ import {
   sha256Hex,
 } from "../../lib/auth";
 import { verifyPassword } from "../../lib/password";
+import { isAdmin } from "../../lib/roleHelpers";
 
 const Schema = z.object({
   email: z.string().min(1),
@@ -92,7 +93,7 @@ export async function loginAction(formData: FormData) {
     clearMasterSessionCookie();
     setUserSessionCookie(token);
 
-    if (user.role === "ADMIN") redirect("/admin");
+    if (isAdmin(user as any)) redirect("/admin");
     redirect("/dashboard");
   } catch (e) {
     if (isNextRedirectError(e)) throw e;

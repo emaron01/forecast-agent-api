@@ -85,16 +85,9 @@ export async function GET(req: Request) {
       .parse(String(url.searchParams.get("quota_period_id") || "").trim() || undefined);
     const limit = z.coerce.number().int().min(1).max(2000).catch(200).parse(url.searchParams.get("limit"));
 
-    const roleRaw = String(auth.user.role || "").trim();
-    const scopedRole =
-      roleRaw === "ADMIN" || roleRaw === "EXEC_MANAGER" || roleRaw === "MANAGER" || roleRaw === "REP"
-        ? (roleRaw as "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP")
-        : ("REP" as const);
-
     const scope = await getScopedRepDirectory({
       orgId: auth.user.org_id,
-      userId: auth.user.id,
-      role: scopedRole,
+      user: auth.user,
     });
     const allowedRepIds = scope.allowedRepIds; // null => admin (no filter)
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "../../../../lib/auth";
-import { isChannelRole } from "../../../../lib/userRoles";
+import { isAdmin, isChannelRole, isSalesLeader } from "../../../../lib/roleHelpers";
 import { pool } from "../../../../lib/pool";
 
 export const runtime = "nodejs";
@@ -132,9 +132,7 @@ export async function GET(req: Request) {
     if (!auth) return jsonError(401, "Unauthorized");
     if (auth.kind !== "user") return jsonError(403, "Forbidden");
 
-    const role = String(auth.user.role || "").trim();
-    const canViewDealCard =
-      role === "MANAGER" || role === "EXEC_MANAGER" || role === "ADMIN" || isChannelRole(role);
+    const canViewDealCard = isSalesLeader(auth.user) || isAdmin(auth.user) || isChannelRole(auth.user);
     if (!canViewDealCard) return jsonError(403, "Forbidden");
 
     const url = new URL(req.url);

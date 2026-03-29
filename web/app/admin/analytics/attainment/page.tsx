@@ -4,6 +4,7 @@ import { requireOrgContext } from "../../../../lib/auth";
 import { listQuotaPeriods } from "../../actions/quotas";
 import { listCroAttainment, listManagerAttainment, listRepAttainment, listVpAttainment } from "../../../../lib/quotaRollups";
 import { dateOnly } from "../../../../lib/dateOnly";
+import { isAdmin } from "../../../../lib/roleHelpers";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -15,7 +16,7 @@ export default async function AttainmentDashboardsPage({
   searchParams: Record<string, string | string[] | undefined>;
 }) {
   const { ctx } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
   if (ctx.kind === "user" && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
 
   const periods = await listQuotaPeriods().catch(() => []);

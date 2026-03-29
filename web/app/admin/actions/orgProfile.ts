@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { requireOrgContext } from "../../../lib/auth";
 import { getOrganization, updateOrganization } from "../../../lib/db";
 import { resolvePublicId } from "../../../lib/publicId";
+import { isAdmin } from "../../../lib/roleHelpers";
 
 const Schema = z.object({
   billing_plan: z.string().optional(),
@@ -25,7 +26,7 @@ function norm(v: unknown) {
 
 export async function updateOrgProfileAction(formData: FormData) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   const org = await getOrganization({ id: orgId });
   if (!org) redirect("/admin");

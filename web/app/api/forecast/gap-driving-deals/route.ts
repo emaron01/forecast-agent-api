@@ -7,6 +7,7 @@ import { resolvePublicId, zPublicId } from "../../../../lib/publicId";
 import { getForecastStageProbabilities } from "../../../../lib/forecastStageProbabilities";
 import { computeCommitAdmission } from "../../../../lib/commitAdmission";
 import { computeAiForecastFromHealthScore, toOpenStage } from "../../../../lib/aiForecast";
+import { isAdmin, isSalesRep } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -451,37 +452,15 @@ export async function GET(req: Request) {
     // Query a larger candidate pool for both modes (unless caller explicitly sets limit).
     const limit = !limitParamPresent ? 2000 : limitRaw;
 
-    const roleRaw = String(auth.user.role || "").trim();
-    const scopedRole =
-      roleRaw === "ADMIN" ||
-      roleRaw === "EXEC_MANAGER" ||
-      roleRaw === "MANAGER" ||
-      roleRaw === "REP" ||
-      roleRaw === "CHANNEL_EXECUTIVE" ||
-      roleRaw === "CHANNEL_DIRECTOR" ||
-      roleRaw === "CHANNEL_REP"
-        ? (roleRaw as
-            | "ADMIN"
-            | "EXEC_MANAGER"
-            | "MANAGER"
-            | "REP"
-            | "CHANNEL_EXECUTIVE"
-            | "CHANNEL_DIRECTOR"
-            | "CHANNEL_REP")
-        : ("REP" as const);
-
     // IMPORTANT: Forecast summary uses getVisibleUsers() to determine visibility. To avoid mismatches
     // (missing reps, totals not lining up), this report uses the same scoping model.
     const visibleUsers = await getVisibleUsers({
-      currentUserId: auth.user.id,
       orgId: auth.user.org_id,
-      role: scopedRole,
-      hierarchy_level: (auth.user as any).hierarchy_level,
-      see_all_visibility: (auth.user as any).see_all_visibility,
+      user: auth.user,
     }).catch(() => []);
 
     const visibleRepUsers = (visibleUsers || []).filter(
-      (u: any) => u && (u.role === "REP" || u.role === "CHANNEL_REP") && u.active
+      (u: any) => u && (isSalesRep(u) || Number(u.hierarchy_level) === 8) && u.active
     );
     const visibleRepUserIds = Array.from(
       new Set(visibleRepUsers.map((u: any) => Number(u.id)).filter((n: number) => Number.isFinite(n) && n > 0))
@@ -533,7 +512,7 @@ export async function GET(req: Request) {
             .catch(() => [] as number[])
         : ([] as number[]);
 
-    const useScopedRepIds = scopedRole !== "ADMIN";
+    const useScopedRepIds = !isAdmin(auth.user);
 
     // Fail-closed if we can't resolve a scope for a non-admin (align with Forecast: REP sees themselves; managers see their visible reps).
     if (useScopedRepIds && repIdsToUse.length === 0 && visibleRepNameKeys.length === 0) {
@@ -551,7 +530,7 @@ export async function GET(req: Request) {
         debug: debug
           ? {
               reason: "scope_empty",
-              scopedRole,
+              viewer_hierarchy_level: auth.user.hierarchy_level,
               org_id: auth.user.org_id,
               visible_rep_users: visibleRepUsers.length,
               visible_rep_user_ids: visibleRepUserIds.slice(0, 25),
@@ -1452,7 +1431,7 @@ export async function GET(req: Request) {
 
     const debugOut = debug
       ? {
-          scopedRole,
+          viewer_hierarchy_level: auth.user.hierarchy_level,
           org_id: auth.user.org_id,
           quota_period_id: String(quotaPeriodId),
           quota_period_ids: effectiveQuarterIds,

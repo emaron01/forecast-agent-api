@@ -4,6 +4,7 @@ import { getOrganization } from "../../../lib/db";
 import { updatePasswordAction } from "./actions";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { redirect } from "next/navigation";
+import { isAdmin } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -18,7 +19,7 @@ export default async function SettingsPasswordPage({
 }) {
   const ctx = await requireAuth();
   if (ctx.kind !== "user") return null;
-  if (ctx.user.role === "ADMIN") redirect("/admin");
+  if (isAdmin(ctx.user)) redirect("/admin");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";

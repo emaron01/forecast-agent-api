@@ -11,6 +11,7 @@ import {
 } from "../../../../lib/db";
 import { resolvePublicId } from "../../../../lib/publicId";
 import { CreateUserSchema } from "../../../../lib/validation";
+import { HIERARCHY, isAdmin, isExecManagerLevel, isManagerLevel, roleToHierarchyLevel } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -50,7 +51,7 @@ export async function GET(req: Request) {
       });
     }
 
-    if (auth.user.role !== "ADMIN") return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+    if (!isAdmin(auth.user)) return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     const users = await listUsers({ orgId: auth.user.org_id, includeInactive });
     return NextResponse.json({
       ok: true,
@@ -79,7 +80,7 @@ export async function POST(req: Request) {
     const orgId = auth.kind === "user" ? auth.user.org_id : explicitOrgId || cookieOrgId || 0;
     if (!orgId) return NextResponse.json({ ok: false, error: "missing_org" }, { status: 400 });
 
-    if (auth.kind === "user" && auth.user.role !== "ADMIN") return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+    if (auth.kind === "user" && !isAdmin(auth.user)) return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
 
     const manager_user_id =
       parsed.data.manager_user_public_id != null
@@ -90,8 +91,7 @@ export async function POST(req: Request) {
       if (!mgr) return NextResponse.json({ ok: false, error: "invalid_manager_user" }, { status: 400 });
     }
 
-    const expectedLevel =
-      parsed.data.role === "ADMIN" ? 0 : parsed.data.role === "EXEC_MANAGER" ? 1 : parsed.data.role === "MANAGER" ? 2 : 3;
+    const expectedLevel = roleToHierarchyLevel(parsed.data.role) ?? HIERARCHY.REP;
     const hierarchy_level = parsed.data.hierarchy_level ?? expectedLevel;
 
     const password_hash = await hashPassword(parsed.data.password);
@@ -112,7 +112,7 @@ export async function POST(req: Request) {
     });
 
     // Visibility setup.
-    if (hierarchy_level === 1 || hierarchy_level === 2) {
+    if (isExecManagerLevel(hierarchy_level) || isManagerLevel(hierarchy_level)) {
       const visibleIds: number[] = [];
       for (const pid of parsed.data.visible_user_public_ids || []) {
         visibleIds.push(await resolvePublicId("users", pid));

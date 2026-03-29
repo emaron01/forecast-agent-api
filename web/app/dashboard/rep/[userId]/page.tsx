@@ -6,6 +6,7 @@ import { resolvePublicId } from "../../../../lib/publicId";
 import { UserTopNav } from "../../../_components/UserTopNav";
 import { QuarterSalesForecastSummary } from "../../../forecast/_components/QuarterSalesForecastSummary";
 import { QuarterRepAnalytics } from "../../_components/QuarterRepAnalytics";
+import { HIERARCHY, isAdmin, isSalesLeader, isSalesRep } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -18,24 +19,21 @@ export default async function RepDashboardPage({
 }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role !== "ADMIN" && ctx.user.role !== "EXEC_MANAGER" && ctx.user.role !== "MANAGER") redirect("/dashboard");
+  if (!isAdmin(ctx.user) && !isSalesLeader(ctx.user)) redirect("/dashboard");
 
   const userId = await resolvePublicId("users", params.userId).catch(() => 0);
   if (!userId) redirect("/dashboard");
 
   const repUser = await getUserById({ orgId: ctx.user.org_id, userId });
-  if (!repUser || repUser.role !== "REP") redirect("/dashboard");
+  if (!repUser || !isSalesRep(repUser as any)) redirect("/dashboard");
 
-  if (ctx.user.role === "MANAGER" || ctx.user.role === "EXEC_MANAGER") {
+  if (isSalesLeader(ctx.user)) {
     // Managers can only view dashboards for visible reps.
     const visible = await getVisibleUsers({
-      currentUserId: ctx.user.id,
       orgId: ctx.user.org_id,
-      role: ctx.user.role,
-      hierarchy_level: ctx.user.hierarchy_level,
-      see_all_visibility: ctx.user.see_all_visibility,
+      user: ctx.user,
     }).catch(() => []);
-    if (!visible.some((u) => u.id === repUser.id && u.role === "REP")) redirect("/dashboard");
+    if (!visible.some((u) => u.id === repUser.id && Number(u.hierarchy_level) === HIERARCHY.REP)) redirect("/dashboard");
   }
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);

@@ -27,8 +27,7 @@ export async function POST(req: Request) {
   try {
     const { repRows, periodLabel } = await loadReportBuilderRepRowsForUser({
       orgId: ctx.user.org_id,
-      userId: ctx.user.id,
-      userRole: ctx.user.role,
+      user: ctx.user,
       periodId: body.periodId,
     });
     return NextResponse.json({ ok: true, repRows, periodLabel });

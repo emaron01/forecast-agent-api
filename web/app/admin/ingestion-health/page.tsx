@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { requireManagerAdminOrMaster } from "../../../lib/auth";
 import { pool } from "../../../lib/pool";
+import { isAdmin } from "../../../lib/roleHelpers";
 
 type Row = {
   org_id: number;
@@ -38,7 +39,7 @@ function statusColor(status: string): string {
 
 export default async function IngestionHealthPage() {
   const ctx = await requireManagerAdminOrMaster();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   const { rows } = await pool.query<Row>(
     `

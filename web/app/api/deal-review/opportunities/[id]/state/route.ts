@@ -5,6 +5,7 @@ import { getAuth } from "../../../../../../lib/auth";
 import { resolvePublicId } from "../../../../../../lib/publicId";
 import { closedOutcomeFromOpportunityRow } from "../../../../../../lib/opportunityOutcome";
 import { startSpan, endSpan, orgIdFromAuth } from "../../../../../../lib/perf";
+import { HIERARCHY, isManager, isSalesRep } from "../../../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -53,7 +54,7 @@ function ensureOpportunityVisible(args: {
   const { auth, opportunityRepName } = args;
   if (!auth) return { ok: false as const, status: 401 as const, error: "Unauthorized" };
   if (auth.kind !== "user") return { ok: false as const, status: 403 as const, error: "Forbidden" };
-  if (auth.user.role === "REP" || auth.user.role === "CHANNEL_REP") {
+  if (isSalesRep(auth.user) || auth.user.hierarchy_level === HIERARCHY.CHANNEL_REP) {
     if (!opportunityRepName || opportunityRepName !== auth.user.account_owner_name) {
       return { ok: false as const, status: 403 as const, error: "Forbidden" };
     }
@@ -66,14 +67,14 @@ async function ensureManagerCanSeeRep(args: { orgId: number; managerUserId: numb
     `
     SELECT 1
       FROM users
-     WHERE org_id = $1
-       AND role IN ('REP', 'CHANNEL_REP')
+    WHERE org_id = $1
+      AND COALESCE(hierarchy_level, 99) IN ($4::int, $5::int)
        AND active IS TRUE
        AND manager_user_id = $2
        AND account_owner_name = $3
      LIMIT 1
     `,
-    [args.orgId, args.managerUserId, args.repName]
+    [args.orgId, args.managerUserId, args.repName, HIERARCHY.REP, HIERARCHY.CHANNEL_REP]
   );
   return !!rows?.length;
 }
@@ -125,7 +126,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
       return NextResponse.json({ ok: false, error: vis.error }, { status: vis.status });
     }
 
-    if (auth.kind === "user" && auth.user.role === "MANAGER") {
+    if (auth.kind === "user" && isManager(auth.user)) {
       if (!repName) {
         endSpan(reqSpan!, { status: "error", http_status: 403 });
         return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });

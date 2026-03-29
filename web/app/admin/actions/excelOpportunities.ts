@@ -4,6 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import * as XLSX from "xlsx";
 import { requireOrgContext } from "../../../lib/auth";
+import { isAdmin } from "../../../lib/roleHelpers";
 import { pool } from "../../../lib/pool";
 import {
   createFieldMappingSet,
@@ -338,7 +339,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
 
     // Delete by CRM ID (ADMIN only) — deletes specific opportunities by crm_opp_id, not by account.
     if (intent === "delete_accounts") {
-      if (!(ctx.kind === "user" && ctx.user.role === "ADMIN")) {
+      if (!(ctx.kind === "user" && isAdmin(ctx.user))) {
         return err(intent, "Forbidden.", ["Only ADMIN users can delete by CRM ID."]);
       }
       const confirm = String(formData.get("confirm_delete_accounts") || "").trim().toUpperCase();

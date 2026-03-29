@@ -6,6 +6,7 @@ import { pool } from "../../../../lib/pool";
 import { UserTopNav } from "../../../_components/UserTopNav";
 import { getScopedRepDirectory } from "../../../../lib/repScope";
 import { GapDrivingDealsClient } from "./ui/GapDrivingDealsClient";
+import { HIERARCHY } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -31,7 +32,7 @@ export default async function GapDrivingDealsReportPage({
 }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role === "REP" || ctx.user.role === "CHANNEL_REP") redirect("/dashboard");
+  if (ctx.user.hierarchy_level === HIERARCHY.REP || ctx.user.hierarchy_level === HIERARCHY.CHANNEL_REP) redirect("/dashboard");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
@@ -61,16 +62,9 @@ export default async function GapDrivingDealsReportPage({
 
   const initialQuotaPeriodId = String(sp(searchParams?.quota_period_id) || defaultQuotaPeriodId).trim();
 
-  const roleRaw = String(ctx.user.role || "").trim();
-  const scopedRole =
-    roleRaw === "ADMIN" || roleRaw === "EXEC_MANAGER" || roleRaw === "MANAGER" || roleRaw === "REP"
-      ? (roleRaw as "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP")
-      : ("REP" as const);
-
   const scope = await getScopedRepDirectory({
     orgId: ctx.user.org_id,
-    userId: ctx.user.id,
-    role: scopedRole,
+    user: ctx.user,
   }).catch(() => null);
 
   const allowedRepIds = scope?.allowedRepIds ?? [];

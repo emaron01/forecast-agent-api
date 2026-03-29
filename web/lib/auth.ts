@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { pool } from "./pool";
+import { isAdmin, isSalesLeader } from "./roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -258,14 +259,14 @@ export async function requireAuth() {
 export async function requireAdminOrMaster() {
   const ctx = await requireAuth();
   if (ctx.kind === "master") return ctx;
-  if (ctx.user.role !== "ADMIN") redirect("/dashboard");
+  if (!isAdmin(ctx.user)) redirect("/dashboard");
   return ctx;
 }
 
 export async function requireManagerAdminOrMaster() {
   const ctx = await requireAuth();
   if (ctx.kind === "master") return ctx;
-  if (ctx.user.role !== "ADMIN" && ctx.user.role !== "EXEC_MANAGER" && ctx.user.role !== "MANAGER") redirect("/dashboard");
+  if (!isAdmin(ctx.user) && !isSalesLeader(ctx.user)) redirect("/dashboard");
   return ctx;
 }
 

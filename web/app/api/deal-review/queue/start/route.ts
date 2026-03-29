@@ -9,6 +9,7 @@ import { pool } from "../../../../../lib/pool";
 import { resolvePublicId } from "../../../../../lib/publicId";
 import { closedOutcomeFromOpportunityRow } from "../../../../../lib/opportunityOutcome";
 import { startSpan, endSpan } from "../../../../../lib/perf";
+import { HIERARCHY, isManager, isSalesRep } from "../../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -22,27 +23,26 @@ async function assertOpportunityVisible(args: {
   if (!auth) return { ok: false as const, status: 401 as const, error: "Unauthorized" };
   if (auth.kind !== "user") return { ok: false as const, status: 403 as const, error: "Forbidden" };
 
-  const role = auth.user.role;
-  if (role === "REP" || role === "CHANNEL_REP") {
+  if (isSalesRep(auth.user) || auth.user.hierarchy_level === HIERARCHY.CHANNEL_REP) {
     if (!opportunityRepName || opportunityRepName !== auth.user.account_owner_name) {
       return { ok: false as const, status: 403 as const, error: "Forbidden" };
     }
   }
 
-  if (role === "MANAGER") {
+  if (isManager(auth.user)) {
     if (!opportunityRepName) return { ok: false as const, status: 403 as const, error: "Forbidden" };
     const { rows } = await pool.query(
       `
       SELECT 1
         FROM users
        WHERE org_id = $1
-         AND role IN ('REP', 'CHANNEL_REP')
+         AND COALESCE(hierarchy_level, 99) IN ($4::int, $5::int)
          AND active IS TRUE
          AND manager_user_id = $2
          AND account_owner_name = $3
        LIMIT 1
       `,
-      [orgId, auth.user.id, opportunityRepName]
+      [orgId, auth.user.id, opportunityRepName, HIERARCHY.REP, HIERARCHY.CHANNEL_REP]
     );
     if (!rows?.length) return { ok: false as const, status: 403 as const, error: "Forbidden" };
   }

@@ -6,6 +6,7 @@ import { deleteRepQuotaSet, listQuotaPeriods, listQuotasByRep, upsertRepQuotaSet
 import { requireOrgContext } from "../../../../lib/auth";
 import { listReps, syncRepsFromUsers } from "../../../../lib/db";
 import { RepQuotaSetFormClient } from "./RepQuotaSetFormClient";
+import { isAdmin } from "../../../../lib/roleHelpers";
 
 function repLabel(r: any) {
   const dn = String(r?.display_name || "").trim();
@@ -65,7 +66,7 @@ export default async function QuotasPage({
   searchParams: Record<string, string | string[] | undefined>;
 }) {
   const { ctx, orgId } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
   const modal = sp(searchParams.modal) || "";
   const rep_id = sp(searchParams.rep_id) || "";

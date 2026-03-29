@@ -4,6 +4,7 @@ import { getOpportunity, listOpportunityAuditEvents } from "../../../../../lib/d
 import { getAuth } from "../../../../../lib/auth";
 import { pool } from "../../../../../lib/pool";
 import { resolvePublicId } from "../../../../../lib/publicId";
+import { HIERARCHY, isManager, isSalesRep } from "../../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -25,24 +26,24 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
 
     // Role scoping
     if (auth.kind === "user") {
-      if (auth.user.role === "REP" || auth.user.role === "CHANNEL_REP") {
+      if (isSalesRep(auth.user) || auth.user.hierarchy_level === HIERARCHY.CHANNEL_REP) {
         if (!opportunity.rep_name || opportunity.rep_name !== auth.user.account_owner_name) {
           return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
         }
-      } else if (auth.user.role === "MANAGER") {
+      } else if (isManager(auth.user)) {
         if (!opportunity.rep_name) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
         const { rows } = await pool.query(
           `
           SELECT 1
             FROM users
            WHERE org_id = $1
-             AND role IN ('REP', 'CHANNEL_REP')
+             AND COALESCE(hierarchy_level, 99) IN ($4::int, $5::int)
              AND active IS TRUE
              AND manager_user_id = $2
              AND account_owner_name = $3
            LIMIT 1
           `,
-          [orgId, auth.user.id, opportunity.rep_name]
+          [orgId, auth.user.id, opportunity.rep_name, HIERARCHY.REP, HIERARCHY.CHANNEL_REP]
         );
         if (!rows?.length) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
       }

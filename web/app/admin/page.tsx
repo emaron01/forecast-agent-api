@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireManagerAdminOrMaster } from "../../lib/auth";
+import { isAdmin, isManager } from "../../lib/roleHelpers";
 
 function Card({ href, title, desc }: { href: string; title: string; desc: string }) {
   return (
@@ -16,11 +17,11 @@ function Card({ href, title, desc }: { href: string; title: string; desc: string
 
 export default async function AdminHome() {
   const ctx = await requireManagerAdminOrMaster();
-  if (ctx.kind === "user" && ctx.user.role === "MANAGER") redirect("/admin/users");
+  if (ctx.kind === "user" && isManager(ctx.user)) redirect("/admin/users");
 
-  const hasQuotaSetupAccess = ctx.kind === "master" || (ctx.kind === "user" && ctx.user.role === "ADMIN");
+  const hasQuotaSetupAccess = ctx.kind === "master" || (ctx.kind === "user" && isAdmin(ctx.user));
   const hasFullAnalyticsAccess =
-    ctx.kind === "master" || (ctx.kind === "user" && ctx.user.role === "ADMIN" && !!ctx.user.admin_has_full_analytics_access);
+    ctx.kind === "master" || (ctx.kind === "user" && isAdmin(ctx.user) && !!ctx.user.admin_has_full_analytics_access);
 
   return (
     <main className="grid gap-4 md:grid-cols-3">

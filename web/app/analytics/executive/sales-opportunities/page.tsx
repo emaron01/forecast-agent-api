@@ -3,6 +3,7 @@ import { requireAuth } from "../../../../lib/auth";
 import { getOrganization } from "../../../../lib/db";
 import { UserTopNav } from "../../../_components/UserTopNav";
 import { SimpleForecastDashboardClient } from "../../../forecast/simple/simpleClient";
+import { HIERARCHY, isSalesRep } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -13,7 +14,7 @@ export default async function ExecutiveSalesOpportunitiesPage({
 }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role === "REP" || ctx.user.role === "CHANNEL_REP") redirect("/dashboard");
+  if (isSalesRep(ctx.user) || ctx.user.hierarchy_level === HIERARCHY.CHANNEL_REP) redirect("/dashboard");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";

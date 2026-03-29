@@ -11,6 +11,7 @@ import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
 import { getHealthAveragesByPeriods } from "../../../../lib/analyticsHealth";
 import { AverageHealthScorePanel } from "../../../_components/AverageHealthScorePanel";
 import { getScopedRepDirectory } from "../../../../lib/repScope";
+import { isAdmin, isSalesLeader } from "../../../../lib/roleHelpers";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -170,8 +171,8 @@ export default async function AnalyticsQuotasExecutivePage({
 }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role === "ADMIN" && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
-  if (ctx.user.role !== "EXEC_MANAGER" && ctx.user.role !== "MANAGER" && ctx.user.role !== "ADMIN") redirect("/dashboard");
+  if (isAdmin(ctx.user) && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
+  if (!isSalesLeader(ctx.user) && !isAdmin(ctx.user)) redirect("/dashboard");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
@@ -202,14 +203,14 @@ export default async function AnalyticsQuotasExecutivePage({
     (quotaPeriodId && periods.find((p) => String(p.id) === quotaPeriodId)) || currentForYear || periods[0] || null;
 
   const scope =
-    ctx.user.role === "ADMIN"
+    isAdmin(ctx.user)
       ? { allowedRepIds: null as number[] | null }
-      : await getScopedRepDirectory({ orgId: ctx.user.org_id, userId: ctx.user.id, role: ctx.user.role as "EXEC_MANAGER" | "MANAGER" }).catch(() => ({
+      : await getScopedRepDirectory({ orgId: ctx.user.org_id, user: ctx.user }).catch(() => ({
           repDirectory: [],
           allowedRepIds: [0] as number[],
           myRepId: null as number | null,
         }));
-  const scopeRepIds = ctx.user.role === "ADMIN" ? null : (scope as any).allowedRepIds;
+  const scopeRepIds = isAdmin(ctx.user) ? null : (scope as any).allowedRepIds;
 
   const topWonRaw = selected ? await listTopDeals({ orgId: ctx.user.org_id, quotaPeriodId: String(selected.id), repIds: scopeRepIds, outcome: "won", limit: 10 }).catch(() => []) : [];
   const topLostRaw = selected ? await listTopDeals({ orgId: ctx.user.org_id, quotaPeriodId: String(selected.id), repIds: scopeRepIds, outcome: "lost", limit: 10 }).catch(() => []) : [];

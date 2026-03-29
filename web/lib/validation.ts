@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { roleHierarchyLevel } from "./userRoles";
+import { HIERARCHY, isExecManagerLevel, isManagerLevel, roleToHierarchyLevel } from "./roleHelpers";
 
 /**
  * External request validation schemas (PUBLIC surfaces).
@@ -79,7 +79,7 @@ export const CreateUserSchema = z
       ctx.addIssue({ code: "custom", path: ["confirm_password"], message: "passwords do not match" });
     }
 
-    const expectedLevel = roleHierarchyLevel(v.role);
+    const expectedLevel = roleToHierarchyLevel(v.role) ?? HIERARCHY.REP;
     const effectiveLevel = v.hierarchy_level == null ? expectedLevel : v.hierarchy_level;
     if (v.hierarchy_level != null && v.hierarchy_level !== expectedLevel) {
       ctx.addIssue({
@@ -102,7 +102,7 @@ export const CreateUserSchema = z
       });
     }
 
-    if (v.role !== "MANAGER" && v.role !== "EXEC_MANAGER" && v.role !== "CHANNEL_EXECUTIVE" && v.see_all_visibility) {
+    if (!isManagerLevel(effectiveLevel) && !isExecManagerLevel(effectiveLevel) && effectiveLevel !== HIERARCHY.CHANNEL_EXEC && v.see_all_visibility) {
       ctx.addIssue({
         code: "custom",
         path: ["see_all_visibility"],
@@ -135,7 +135,7 @@ export const UpdateUserSchema = z
     manager_user_public_id: z.string().uuid().nullable().optional(),
   })
   .superRefine((v, ctx) => {
-    const expectedLevel = roleHierarchyLevel(v.role);
+    const expectedLevel = roleToHierarchyLevel(v.role) ?? HIERARCHY.REP;
     const effectiveLevel = v.hierarchy_level == null ? expectedLevel : v.hierarchy_level;
     if (v.hierarchy_level != null && v.hierarchy_level !== expectedLevel) {
       ctx.addIssue({

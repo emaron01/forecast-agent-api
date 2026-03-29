@@ -2,6 +2,7 @@ import Link from "next/link";
 import "../globals.css";
 import { requireManagerAdminOrMaster } from "../../lib/auth";
 import { getOrganization } from "../../lib/db";
+import { isAdmin, isSalesLeader } from "../../lib/roleHelpers";
 import { UserProfileBadge } from "../_components/UserProfileBadge";
 
 function NavLink({ href, label }: { href: string; label: string }) {
@@ -23,7 +24,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const orgName = org?.name || (ctx.kind === "master" ? "SaaS Owner" : "Organization");
   const displayName = ctx.kind === "user" ? ctx.user.display_name : ctx.email;
   const email = ctx.kind === "user" ? ctx.user.email : ctx.email;
-  const hasQuotaSetupAccess = ctx.kind === "master" || (ctx.kind === "user" && ctx.user.role === "ADMIN");
+  const hasQuotaSetupAccess = ctx.kind === "master" || (ctx.kind === "user" && isAdmin(ctx.user));
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -48,14 +49,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <NavLink href="/admin/users" label="Users" />
               <NavLink href="/admin/excel-opportunities" label="Excel Upload" />
               <NavLink href="/admin/ingest-comments" label="Ingest Comments" />
-              {(ctx.kind === "user" && ctx.user.role === "MANAGER") || (ctx.kind === "user" && ctx.user.role === "EXEC_MANAGER") ? (
+              {ctx.kind === "user" && isSalesLeader(ctx.user) ? (
                 <>
                   <NavLink href="/admin/hierarchy" label="Sales Organization" />
                 </>
               ) : (
                 <>
                   <NavLink href="/admin/org-profile" label="Org Profile" />
-                  {ctx.kind === "user" && ctx.user.role === "ADMIN" ? (
+                  {ctx.kind === "user" && isAdmin(ctx.user) ? (
                     <>
                       <NavLink href="/admin/stage-mapping" label="Stage Mapping" />
                       <NavLink href="/admin/ingestion-health" label="Ingestion Health" />

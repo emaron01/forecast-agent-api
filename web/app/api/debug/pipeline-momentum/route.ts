@@ -3,6 +3,7 @@ import { z } from "zod";
 import { pool } from "../../../../lib/pool";
 import { getAuth } from "../../../../lib/auth";
 import { getScopedRepDirectory } from "../../../../lib/repScope";
+import { isAdmin, isSalesLeader } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -23,8 +24,7 @@ export async function GET(req: Request) {
   if (auth.kind !== "user") return jsonError(403, "Forbidden");
 
   // Keep this as a "power-user" debug endpoint (exec/admin/manager only).
-  const role = String(auth.user.role || "").trim().toUpperCase();
-  if (role !== "ADMIN" && role !== "EXEC_MANAGER" && role !== "MANAGER") {
+  if (!isAdmin(auth.user) && !isSalesLeader(auth.user)) {
     return jsonError(403, "Forbidden");
   }
 
@@ -34,18 +34,12 @@ export async function GET(req: Request) {
     .regex(/^\d+$/)
     .parse(String(url.searchParams.get("quota_period_id") || "").trim() || "");
 
-  const scopedRole =
-    role === "ADMIN" || role === "EXEC_MANAGER" || role === "MANAGER" || role === "REP"
-      ? (role as "ADMIN" | "EXEC_MANAGER" | "MANAGER" | "REP")
-      : ("REP" as const);
-
   const scope = await getScopedRepDirectory({
     orgId: auth.user.org_id,
-    userId: auth.user.id,
-    role: scopedRole,
+    user: auth.user,
   }).catch(() => ({
     repDirectory: [],
-    allowedRepIds: role === "ADMIN" ? (null as number[] | null) : ([] as number[]),
+    allowedRepIds: auth.user.hierarchy_level === 0 ? (null as number[] | null) : ([] as number[]),
     myRepId: null as number | null,
   }));
 

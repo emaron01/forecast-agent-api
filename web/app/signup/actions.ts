@@ -4,6 +4,7 @@ import { z } from "zod";
 import { redirect } from "next/navigation";
 import { pool } from "../../lib/pool";
 import { hashPassword } from "../../lib/password";
+import { HIERARCHY, isAdminLevel, isManagerLevel, isRepLevel, roleToHierarchyLevel } from "../../lib/roleHelpers";
 
 const UserInputSchema = z.object({
   email: z.string().min(1),
@@ -72,7 +73,7 @@ export async function signupAction(formData: FormData) {
     });
 
     // Must include at least one ADMIN user.
-    if (!users.some((u) => u.role === "ADMIN")) throw new Error("At least one ADMIN user is required");
+    if (!users.some((u) => isAdminLevel(roleToHierarchyLevel(u.role)))) throw new Error("At least one ADMIN user is required");
 
     // Ensure unique emails within request.
     const seen = new Set<string>();
@@ -122,9 +123,9 @@ export async function signupAction(formData: FormData) {
         const password_hash = passwordHashes[i];
         const display_name = `${String(u.first_name || "").trim()} ${String(u.last_name || "").trim()}`.trim();
         if (!display_name) redirectError("invalid_request");
-        const hierarchy_level = u.role === "ADMIN" ? 0 : u.role === "MANAGER" ? 2 : 3;
+        const hierarchy_level = roleToHierarchyLevel(u.role) ?? HIERARCHY.REP;
         const account_owner_name = String(u.account_owner_name || "").trim() || null;
-        if (hierarchy_level === 3 && !account_owner_name) throw new Error("REP account_owner_name is required");
+        if (isRepLevel(hierarchy_level) && !account_owner_name) throw new Error("REP account_owner_name is required");
         const res = await c.query(
           `
           INSERT INTO users
@@ -147,13 +148,15 @@ export async function signupAction(formData: FormData) {
       );
 
       for (const u of users) {
-        if (u.role !== "REP") continue;
+        if (!isRepLevel(roleToHierarchyLevel(u.role))) continue;
         if (!u.manager_email) continue;
 
         const repRow = byEmail.get(u.email);
         const mgrRow = byEmail.get(u.manager_email);
         if (!repRow) throw new Error("Internal error: missing inserted rep user");
-        if (!mgrRow || mgrRow.role !== "MANAGER") throw new Error("REP manager must be a MANAGER user in this signup list");
+        if (!mgrRow || !isManagerLevel(roleToHierarchyLevel(mgrRow.role))) {
+          throw new Error("REP manager must be a MANAGER user in this signup list");
+        }
 
         await c.query(`UPDATE users SET manager_user_id = $3, updated_at = NOW() WHERE org_id = $1 AND id = $2`, [
           orgId,

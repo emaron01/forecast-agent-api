@@ -5,6 +5,7 @@ import { listFieldMappings, listFieldMappingSets } from "../../../lib/db";
 import { resolvePublicTextId } from "../../../lib/publicId";
 import { uploadExcelOpportunitiesAction } from "../actions/excelOpportunities";
 import { ExcelUploadClient } from "./ExcelUploadClient";
+import { isAdmin } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -60,7 +61,7 @@ export default async function ExcelOpportunitiesPage({
         prefillSetPublicId={mappingSetPublicId}
         prefillMappings={prefillMappings}
         action={uploadExcelOpportunitiesAction}
-        allowDeleteAccounts={ctx.kind === "user" && ctx.user.role === "ADMIN"}
+        allowDeleteAccounts={ctx.kind === "user" && isAdmin(ctx.user)}
       />
     </main>
   );

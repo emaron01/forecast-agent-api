@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuth, randomToken, sha256Hex } from "../../../../../../lib/auth";
 import { createPasswordResetToken, getUserById } from "../../../../../../lib/db";
 import { resolvePublicId } from "../../../../../../lib/publicId";
+import { isAdmin } from "../../../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -29,7 +30,7 @@ export async function POST(req: Request) {
     const orgId = auth.kind === "user" ? auth.user.org_id : explicitOrgId || cookieOrgId || 0;
     if (!orgId) return NextResponse.json({ ok: false, error: "missing_org" }, { status: 400 });
 
-    if (auth.kind === "user" && auth.user.role !== "ADMIN") return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+    if (auth.kind === "user" && !isAdmin(auth.user)) return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
 
     const u = await getUserById({ orgId, userId });
     if (!u) return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });

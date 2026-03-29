@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { listReps } from "../../../lib/db";
 import { getAuth } from "../../../lib/auth";
+import { HIERARCHY, isSalesRep } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -10,7 +11,7 @@ export async function GET(req: Request) {
     const auth = await getAuth();
     if (!auth) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-    if (auth.kind === "user" && (auth.user.role === "REP" || auth.user.role === "CHANNEL_REP")) {
+    if (auth.kind === "user" && (isSalesRep(auth.user) || auth.user.hierarchy_level === HIERARCHY.CHANNEL_REP)) {
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     }
 

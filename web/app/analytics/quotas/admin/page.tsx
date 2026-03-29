@@ -14,6 +14,7 @@ import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
 import { getHealthAveragesByPeriods } from "../../../../lib/analyticsHealth";
 import { AverageHealthScorePanel } from "../../../_components/AverageHealthScorePanel";
 import { RepQuotaSetupClient } from "./RepQuotaSetupClient";
+import { isAdmin } from "../../../../lib/roleHelpers";
 import {
   assignQuotaToUser,
   createQuotaPeriod,
@@ -135,7 +136,7 @@ async function saveRepQuotaSetupAction(formData: FormData) {
   }
 
   const ctx = await requireAuth();
-  if (ctx.kind !== "user" || ctx.user.role !== "ADMIN") redirect("/dashboard");
+  if (ctx.kind !== "user" || !isAdmin(ctx.user)) redirect("/dashboard");
 
   const repId = await resolveRepIdByPublicId({ orgId: ctx.user.org_id, repPublicId: rep_public_id });
   const managerId = await resolveRepIdByPublicId({ orgId: ctx.user.org_id, repPublicId: manager_public_id });
@@ -245,7 +246,7 @@ export default async function AnalyticsQuotasAdminPage({
 }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role !== "ADMIN") redirect("/dashboard");
+  if (!isAdmin(ctx.user)) redirect("/dashboard");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";

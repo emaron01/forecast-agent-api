@@ -3,6 +3,7 @@ import { getAuth } from "../../../../../../lib/auth";
 import { getUserById, replaceManagerVisibility } from "../../../../../../lib/db";
 import { resolvePublicId } from "../../../../../../lib/publicId";
 import { ManagerVisibilitySchema } from "../../../../../../lib/validation";
+import { isAdmin } from "../../../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
     const orgId = auth.kind === "user" ? auth.user.org_id : explicitOrgId || cookieOrgId || 0;
     if (!orgId) return NextResponse.json({ ok: false, error: "missing_org" }, { status: 400 });
 
-    if (auth.kind === "user" && auth.user.role !== "ADMIN") return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+    if (auth.kind === "user" && !isAdmin(auth.user)) return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
 
     const json = await req.json().catch(() => ({}));
     const parsed = ManagerVisibilitySchema.safeParse(json);

@@ -6,6 +6,7 @@ import { DealReviewClient } from "./DealReviewClient";
 import { pool } from "../../../../lib/pool";
 import { resolvePublicId } from "../../../../lib/publicId";
 import { closedOutcomeFromOpportunityRow } from "../../../../lib/opportunityOutcome";
+import { isAdmin } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -19,7 +20,7 @@ export default async function DealReviewPage(
 ) {
   const auth = await requireAuth();
   if (auth.kind === "master") redirect("/admin/organizations");
-  if (auth.user.role === "ADMIN") redirect("/admin");
+  if (isAdmin(auth.user)) redirect("/admin");
 
   const org = await getOrganization({ id: auth.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";

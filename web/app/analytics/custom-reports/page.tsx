@@ -9,6 +9,7 @@ import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
 import { TopDealsFiltersClient } from "../quotas/executive/TopDealsFiltersClient";
 import { getScopedRepDirectory } from "../../../lib/repScope";
 import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
+import { HIERARCHY, isAdmin, isChannelExec, isChannelManager, isExecManager, isRep } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -201,7 +202,7 @@ function safeDiv(n: number, d: number) {
 export default async function AnalyticsCustomReportsPage({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role === "ADMIN" && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
+  if (isAdmin(ctx.user) && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
@@ -227,13 +228,11 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
   // - MANAGER: their reps (+ self)
   // - EXEC_MANAGER: their managers + reps (+ self)
   // - ADMIN: all
-  const scope = await getScopedRepDirectory({ orgId: ctx.user.org_id, userId: ctx.user.id, role: ctx.user.role as any }).catch(() => null);
+  const scope = await getScopedRepDirectory({ orgId: ctx.user.org_id, user: ctx.user }).catch(() => null);
   const repDirectoryFull = scope?.repDirectory || [];
   const allowedRepIds = scope?.allowedRepIds ?? null;
   const executiveRepIdForMyTeam =
-    (ctx.user.role === "EXEC_MANAGER" ||
-      ctx.user.role === "CHANNEL_EXECUTIVE" ||
-      ctx.user.role === "CHANNEL_DIRECTOR") &&
+    (isExecManager(ctx.user) || isChannelExec(ctx.user) || isChannelManager(ctx.user)) &&
     scope?.myRepId != null
       ? String(scope.myRepId)
       : null;
@@ -245,7 +244,7 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
   }));
 
   // REP users should see the page, but only for themselves.
-  if ((ctx.user.role === "REP" || ctx.user.role === "CHANNEL_REP") && !repOptions.length) redirect("/dashboard");
+  if ((isRep(ctx.user) || ctx.user.hierarchy_level === HIERARCHY.CHANNEL_REP) && !repOptions.length) redirect("/dashboard");
 
   const repIdToManagerId = new Map<string, string>();
   const managerNameById = new Map<string, string>();

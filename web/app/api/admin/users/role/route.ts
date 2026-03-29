@@ -3,6 +3,16 @@ import { z } from "zod";
 import { getAuth } from "../../../../../lib/auth";
 import { pool } from "../../../../../lib/pool";
 import { syncRepsFromUsers } from "../../../../../lib/db";
+import {
+  HIERARCHY,
+  isAdmin,
+  isAdminLevel,
+  isChannelRoleLevel,
+  isExecManagerLevel,
+  isManagerLevel,
+  isRepLevel,
+  roleToHierarchyLevel,
+} from "../../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -23,32 +33,11 @@ const UpdateUserRoleSchema = z.object({
   orgId: z.coerce.number().int().positive().optional(),
 });
 
-function roleToHierarchyLevel(role: RoleOption): number {
-  switch (role) {
-    case "ADMIN":
-      return 0;
-    case "EXEC_MANAGER":
-      return 1;
-    case "MANAGER":
-      return 2;
-    case "REP":
-      return 3;
-    case "CHANNEL_EXECUTIVE":
-      return 6;
-    case "CHANNEL_DIRECTOR":
-      return 7;
-    case "CHANNEL_REP":
-      return 8;
-    default:
-      return 3;
-  }
-}
-
 export async function PATCH(req: Request) {
   try {
     const auth = await getAuth();
     if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    if (auth.kind === "user" && auth.user.role !== "ADMIN") return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    if (auth.kind === "user" && !isAdmin(auth.user)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
     const json = await req.json().catch(() => ({}));
     const parsed = UpdateUserRoleSchema.safeParse(json);
@@ -76,7 +65,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }
     const nextRole = rawRole as RoleOption;
-    const nextHierarchyLevel = roleToHierarchyLevel(nextRole);
+    const nextHierarchyLevel = roleToHierarchyLevel(nextRole) ?? HIERARCHY.REP;
 
     // Fetch current user + manager role before updating.
     const existingRes = await pool.query(
@@ -111,51 +100,46 @@ export async function PATCH(req: Request) {
     if (!existing) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
     const currentManagerUserId: number | null = existing.manager_user_id == null ? null : Number(existing.manager_user_id);
-    const currentManagerRole: string | null = existing.manager_role == null ? null : String(existing.manager_role);
-
-    const isChannelRole =
-      nextRole === "CHANNEL_EXECUTIVE" || nextRole === "CHANNEL_DIRECTOR" || nextRole === "CHANNEL_REP";
+    const currentManagerLevel = roleToHierarchyLevel(existing.manager_role);
 
     // Validate manager_user_id compatibility for incoming role (sales roles only; channel roles allow free alignment).
     let nextManagerUserId: number | null = currentManagerUserId;
 
-    if (isChannelRole) {
+    if (isChannelRoleLevel(nextHierarchyLevel)) {
       // Keep current manager_user_id as-is (no role-based compatibility checks).
-    } else if (nextRole === "REP") {
+    } else if (isRepLevel(nextHierarchyLevel)) {
       if (currentManagerUserId == null) {
         nextManagerUserId = null;
-      } else if (currentManagerRole === "MANAGER" || currentManagerRole === "EXEC_MANAGER") {
+      } else if (isManagerLevel(currentManagerLevel) || isExecManagerLevel(currentManagerLevel)) {
         nextManagerUserId = currentManagerUserId;
       } else {
         return NextResponse.json(
           {
-            error: `invalid_manager_user_id_for_role: REP requires manager_role in (MANAGER, EXEC_MANAGER) or null; got ${currentManagerRole}`,
+            error: `invalid_manager_user_id_for_role: REP requires manager_role in (MANAGER, EXEC_MANAGER) or null; got ${existing.manager_role}`,
           },
           { status: 400 }
         );
       }
-    } else if (nextRole === "MANAGER") {
+    } else if (isManagerLevel(nextHierarchyLevel)) {
       if (currentManagerUserId == null) {
         nextManagerUserId = null;
-      } else if (currentManagerRole === "EXEC_MANAGER") {
+      } else if (isExecManagerLevel(currentManagerLevel)) {
         nextManagerUserId = currentManagerUserId;
       } else {
         return NextResponse.json(
           {
-            error: `invalid_manager_user_id_for_role: MANAGER requires manager_role EXEC_MANAGER or null; got ${currentManagerRole}`,
+            error: `invalid_manager_user_id_for_role: MANAGER requires manager_role EXEC_MANAGER or null; got ${existing.manager_role}`,
           },
           { status: 400 }
         );
       }
-    } else if (nextRole === "EXEC_MANAGER" || nextRole === "ADMIN") {
+    } else if (isExecManagerLevel(nextHierarchyLevel) || isAdminLevel(nextHierarchyLevel)) {
       nextManagerUserId = null;
     }
 
     // Compute the field updates based on the new role.
-    const nextAdminHasFullAnalyticsAccess =
-      nextRole === "ADMIN" || nextRole === "EXEC_MANAGER" || nextRole === "CHANNEL_EXECUTIVE";
-    const nextSeeAllVisibility =
-      nextRole === "ADMIN" || nextRole === "EXEC_MANAGER" || nextRole === "CHANNEL_EXECUTIVE";
+    const nextAdminHasFullAnalyticsAccess = isAdminLevel(nextHierarchyLevel) || isExecManagerLevel(nextHierarchyLevel) || nextHierarchyLevel === HIERARCHY.CHANNEL_EXEC;
+    const nextSeeAllVisibility = isAdminLevel(nextHierarchyLevel) || isExecManagerLevel(nextHierarchyLevel) || nextHierarchyLevel === HIERARCHY.CHANNEL_EXEC;
 
     // Single UPDATE with all affected columns.
     const result = await pool.query(

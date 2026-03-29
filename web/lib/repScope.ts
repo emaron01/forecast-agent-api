@@ -1,41 +1,21 @@
 import { pool } from "./pool";
-import { isChannelRole } from "./userRoles";
-
-function roleStringToScopedRole(
-  role: string
-):
-  | "ADMIN"
-  | "EXEC_MANAGER"
-  | "MANAGER"
-  | "REP"
-  | "CHANNEL_EXECUTIVE"
-  | "CHANNEL_DIRECTOR"
-  | "CHANNEL_REP" {
-  const r = String(role || "").trim();
-  switch (r) {
-    case "ADMIN":
-      return "ADMIN";
-    case "EXEC_MANAGER":
-      return "EXEC_MANAGER";
-    case "MANAGER":
-      return "MANAGER";
-    case "REP":
-      return "REP";
-    case "CHANNEL_EXECUTIVE":
-      return "CHANNEL_EXECUTIVE";
-    case "CHANNEL_DIRECTOR":
-      return "CHANNEL_DIRECTOR";
-    case "CHANNEL_REP":
-      return "CHANNEL_REP";
-    default:
-      return "REP";
-  }
-}
+import type { AuthUser } from "./auth";
+import {
+  HIERARCHY,
+  isAdmin,
+  isChannelExec,
+  isChannelManager,
+  isChannelRep,
+  isChannelRole,
+  isManager,
+  isRep,
+} from "./roleHelpers";
 
 export type RepDirectoryRow = {
   id: number;
   name: string;
   role: string | null;
+  hierarchy_level: number | null;
   manager_rep_id: number | null;
   user_id: number | null;
   active: boolean | null;
@@ -45,24 +25,23 @@ async function listActiveRepsForOrg(orgId: number): Promise<RepDirectoryRow[]> {
   const { rows } = await pool.query(
     `
     SELECT
-      id,
-      COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), '(Unnamed)') AS name,
-      role,
-      manager_rep_id,
-      user_id,
-      active
-    FROM reps
-    WHERE organization_id = $1::bigint
-      AND (active IS TRUE OR active IS NULL)
+      r.id,
+      COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), '(Unnamed)') AS name,
+      r.role,
+      u.hierarchy_level,
+      r.manager_rep_id,
+      r.user_id,
+      r.active
+    FROM reps r
+    LEFT JOIN users u
+      ON u.org_id = $1::bigint
+     AND u.id = r.user_id
+    WHERE r.organization_id = $1::bigint
+      AND (r.active IS TRUE OR r.active IS NULL)
     ORDER BY
-      CASE
-        WHEN role = 'EXEC_MANAGER' THEN 0
-        WHEN role = 'MANAGER' THEN 1
-        WHEN role = 'REP' THEN 2
-        ELSE 9
-      END,
+      COALESCE(u.hierarchy_level, 99) ASC,
       name ASC,
-      id ASC
+      r.id ASC
     `,
     [orgId]
   );
@@ -70,6 +49,7 @@ async function listActiveRepsForOrg(orgId: number): Promise<RepDirectoryRow[]> {
     id: Number(r.id),
     name: String(r.name || "").trim() || "(Unnamed)",
     role: r.role == null ? null : String(r.role),
+    hierarchy_level: r.hierarchy_level == null ? null : Number(r.hierarchy_level),
     manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
     user_id: r.user_id == null ? null : Number(r.user_id),
     active: r.active == null ? null : !!r.active,
@@ -80,16 +60,20 @@ async function getRepForUser(orgId: number, userId: number): Promise<RepDirector
   const { rows } = await pool.query(
     `
     SELECT
-      id,
-      COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), '(Unnamed)') AS name,
-      role,
-      manager_rep_id,
-      user_id,
-      active
-    FROM reps
-    WHERE organization_id = $1::bigint
-      AND user_id = $2::bigint
-    ORDER BY id DESC
+      r.id,
+      COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), '(Unnamed)') AS name,
+      r.role,
+      u.hierarchy_level,
+      r.manager_rep_id,
+      r.user_id,
+      r.active
+    FROM reps r
+    LEFT JOIN users u
+      ON u.org_id = $1::bigint
+     AND u.id = r.user_id
+    WHERE r.organization_id = $1::bigint
+      AND r.user_id = $2::bigint
+    ORDER BY r.id DESC
     LIMIT 1
     `,
     [orgId, userId]
@@ -100,6 +84,7 @@ async function getRepForUser(orgId: number, userId: number): Promise<RepDirector
     id: Number(r.id),
     name: String(r.name || "").trim() || "(Unnamed)",
     role: r.role == null ? null : String(r.role),
+    hierarchy_level: r.hierarchy_level == null ? null : Number(r.hierarchy_level),
     manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
     user_id: r.user_id == null ? null : Number(r.user_id),
     active: r.active == null ? null : !!r.active,
@@ -110,15 +95,19 @@ async function getRepById(orgId: number, repId: number): Promise<RepDirectoryRow
   const { rows } = await pool.query(
     `
     SELECT
-      id,
-      COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), '(Unnamed)') AS name,
-      role,
-      manager_rep_id,
-      user_id,
-      active
-    FROM reps
-    WHERE organization_id = $1::bigint
-      AND id = $2::bigint
+      r.id,
+      COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), '(Unnamed)') AS name,
+      r.role,
+      u.hierarchy_level,
+      r.manager_rep_id,
+      r.user_id,
+      r.active
+    FROM reps r
+    LEFT JOIN users u
+      ON u.org_id = $1::bigint
+     AND u.id = r.user_id
+    WHERE r.organization_id = $1::bigint
+      AND r.id = $2::bigint
     LIMIT 1
     `,
     [orgId, repId]
@@ -129,6 +118,7 @@ async function getRepById(orgId: number, repId: number): Promise<RepDirectoryRow
     id: Number(r.id),
     name: String(r.name || "").trim() || "(Unnamed)",
     role: r.role == null ? null : String(r.role),
+    hierarchy_level: r.hierarchy_level == null ? null : Number(r.hierarchy_level),
     manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
     user_id: r.user_id == null ? null : Number(r.user_id),
     active: r.active == null ? null : !!r.active,
@@ -137,15 +127,7 @@ async function getRepById(orgId: number, repId: number): Promise<RepDirectoryRow
 
 export async function getScopedRepDirectory(args: {
   orgId: number;
-  userId: number;
-  role:
-    | "ADMIN"
-    | "EXEC_MANAGER"
-    | "MANAGER"
-    | "REP"
-    | "CHANNEL_EXECUTIVE"
-    | "CHANNEL_DIRECTOR"
-    | "CHANNEL_REP";
+  user: AuthUser;
   /** Prevents infinite recursion when following users.manager_user_id alignment chains. */
   depth?: number;
 }): Promise<{
@@ -154,8 +136,7 @@ export async function getScopedRepDirectory(args: {
   myRepId: number | null;
 }> {
   const orgId = Number(args.orgId);
-  const userId = Number(args.userId);
-  const role = args.role;
+  const userId = Number(args.user.id);
   const depth = args.depth ?? 0;
 
   if (!Number.isFinite(orgId) || orgId <= 0) return { repDirectory: [], allowedRepIds: [], myRepId: null };
@@ -167,13 +148,13 @@ export async function getScopedRepDirectory(args: {
     return { repDirectory: [me], allowedRepIds: [me.id], myRepId: me.id };
   }
 
-  if (role === "ADMIN") {
+  if (isAdmin(args.user)) {
     const all = await listActiveRepsForOrg(orgId).catch(() => []);
     return { repDirectory: all, allowedRepIds: null, myRepId: null };
   }
 
   // Channel roles: optional users.manager_user_id aligns data scope to that user (sales leader / anchor).
-  if (isChannelRole(role)) {
+  if (isChannelRole(args.user)) {
     const { rows: muRows } = await pool.query(
       `SELECT manager_user_id FROM users WHERE org_id = $1 AND id = $2 LIMIT 1`,
       [orgId, userId]
@@ -183,19 +164,36 @@ export async function getScopedRepDirectory(args: {
       const anchorUserId = Number(mid);
       if (Number.isFinite(anchorUserId) && anchorUserId > 0 && anchorUserId !== userId) {
         const { rows: arRows } = await pool.query(
-          `SELECT role::text AS role FROM users WHERE org_id = $1 AND id = $2 LIMIT 1`,
+          `SELECT id, public_id::text AS public_id, org_id, email, role::text AS role, hierarchy_level, display_name, account_owner_name, manager_user_id, admin_has_full_analytics_access, see_all_visibility, active
+             FROM users
+            WHERE org_id = $1 AND id = $2 LIMIT 1`,
           [orgId, anchorUserId]
         );
-        const anchorRole = roleStringToScopedRole(String(arRows?.[0]?.role || "REP"));
+        const anchorUser = arRows?.[0]
+          ? ({
+              id: Number(arRows[0].id),
+              public_id: String(arRows[0].public_id || ""),
+              org_id: Number(arRows[0].org_id),
+              email: String(arRows[0].email || ""),
+              role: arRows[0].role as AuthUser["role"],
+              hierarchy_level: Number(arRows[0].hierarchy_level ?? HIERARCHY.REP) || HIERARCHY.REP,
+              display_name: String(arRows[0].display_name || ""),
+              account_owner_name: arRows[0].account_owner_name == null ? null : String(arRows[0].account_owner_name || ""),
+              manager_user_id: arRows[0].manager_user_id == null ? null : Number(arRows[0].manager_user_id),
+              admin_has_full_analytics_access: !!arRows[0].admin_has_full_analytics_access,
+              see_all_visibility: !!arRows[0].see_all_visibility,
+              active: !!arRows[0].active,
+            } satisfies AuthUser)
+          : null;
+        if (!anchorUser) return { repDirectory: [], allowedRepIds: [], myRepId: null };
         return getScopedRepDirectory({
           orgId,
-          userId: anchorUserId,
-          role: anchorRole,
+          user: anchorUser,
           depth: depth + 1,
         });
       }
     }
-    if (role === "CHANNEL_EXECUTIVE" || role === "CHANNEL_DIRECTOR") {
+    if (isChannelExec(args.user) || isChannelManager(args.user)) {
       const me = await getRepForUser(orgId, userId).catch(() => null);
       if (!me) return { repDirectory: [], allowedRepIds: [], myRepId: null };
       return { repDirectory: [me], allowedRepIds: [me.id], myRepId: me.id };
@@ -206,7 +204,7 @@ export async function getScopedRepDirectory(args: {
   const me = await getRepForUser(orgId, userId).catch(() => null);
   if (!me) return { repDirectory: [], allowedRepIds: [], myRepId: null };
 
-  if (role === "REP" || role === "CHANNEL_REP") {
+  if (isRep(args.user) || isChannelRep(args.user)) {
     const manager = me.manager_rep_id ? await getRepById(orgId, me.manager_rep_id).catch(() => null) : null;
     const exec = manager?.manager_rep_id ? await getRepById(orgId, manager.manager_rep_id).catch(() => null) : null;
     const list = [exec, manager, me].filter(Boolean) as RepDirectoryRow[];
@@ -214,30 +212,35 @@ export async function getScopedRepDirectory(args: {
     return { repDirectory: uniq, allowedRepIds: [me.id], myRepId: me.id };
   }
 
-  if (role === "MANAGER") {
+  if (isManager(args.user)) {
     const exec = me.manager_rep_id ? await getRepById(orgId, me.manager_rep_id).catch(() => null) : null;
     const { rows } = await pool.query(
       `
       SELECT
-        id,
-        COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), '(Unnamed)') AS name,
-        role,
-        manager_rep_id,
-        user_id,
-        active
-      FROM reps
-      WHERE organization_id = $1::bigint
-        AND role = 'REP'
-        AND manager_rep_id = $2::bigint
-        AND (active IS TRUE OR active IS NULL)
+        r.id,
+        COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), '(Unnamed)') AS name,
+        r.role,
+        u.hierarchy_level,
+        r.manager_rep_id,
+        r.user_id,
+        r.active
+      FROM reps r
+      LEFT JOIN users u
+        ON u.org_id = $1::bigint
+       AND u.id = r.user_id
+      WHERE r.organization_id = $1::bigint
+        AND COALESCE(u.hierarchy_level, 99) = $3::int
+        AND r.manager_rep_id = $2::bigint
+        AND (r.active IS TRUE OR r.active IS NULL)
       ORDER BY name ASC, id ASC
       `,
-      [orgId, me.id]
+      [orgId, me.id, HIERARCHY.REP]
     );
     const reps = (rows || []).map((r: any) => ({
       id: Number(r.id),
       name: String(r.name || "").trim() || "(Unnamed)",
       role: r.role == null ? null : String(r.role),
+      hierarchy_level: r.hierarchy_level == null ? null : Number(r.hierarchy_level),
       manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
       user_id: r.user_id == null ? null : Number(r.user_id),
       active: r.active == null ? null : !!r.active,
@@ -258,11 +261,15 @@ export async function getScopedRepDirectory(args: {
         r.id,
         COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), '(Unnamed)') AS name,
         r.role,
+        u.hierarchy_level,
         r.manager_rep_id,
         r.user_id,
         r.active,
         ARRAY[r.id] AS path
       FROM reps r
+      LEFT JOIN users u
+        ON u.org_id = $1::bigint
+       AND u.id = r.user_id
       WHERE r.organization_id = $1::bigint
         AND r.id = $2::bigint
 
@@ -272,6 +279,7 @@ export async function getScopedRepDirectory(args: {
         c.id,
         COALESCE(NULLIF(btrim(c.display_name), ''), NULLIF(btrim(c.rep_name), ''), '(Unnamed)') AS name,
         c.role,
+        uc.hierarchy_level,
         c.manager_rep_id,
         c.user_id,
         c.active,
@@ -279,6 +287,9 @@ export async function getScopedRepDirectory(args: {
       FROM reps c
       JOIN tree t
         ON c.manager_rep_id = t.id
+      LEFT JOIN users uc
+        ON uc.org_id = $1::bigint
+       AND uc.id = c.user_id
       WHERE c.organization_id = $1::bigint
         AND (c.active IS TRUE OR c.active IS NULL)
         AND NOT (c.id = ANY(t.path))
@@ -287,18 +298,14 @@ export async function getScopedRepDirectory(args: {
       id,
       name,
       role,
+      hierarchy_level,
       manager_rep_id,
       user_id,
       active
     FROM tree
     ORDER BY
       id ASC,
-      CASE
-        WHEN role = 'EXEC_MANAGER' THEN 0
-        WHEN role = 'MANAGER' THEN 1
-        WHEN role = 'REP' THEN 2
-        ELSE 9
-      END,
+      COALESCE(hierarchy_level, 99) ASC,
       name ASC
     `,
     [orgId, me.id]
@@ -308,6 +315,7 @@ export async function getScopedRepDirectory(args: {
     id: Number(r.id),
     name: String(r.name || "").trim() || "(Unnamed)",
     role: r.role == null ? null : String(r.role),
+    hierarchy_level: r.hierarchy_level == null ? null : Number(r.hierarchy_level),
     manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
     user_id: r.user_id == null ? null : Number(r.user_id),
     active: r.active == null ? null : !!r.active,
@@ -315,7 +323,7 @@ export async function getScopedRepDirectory(args: {
 
   // Keep stable ordering: exec → managers → reps, alphabetical.
   list.sort((a, b) => {
-    const rank = (x: RepDirectoryRow) => (x.role === "EXEC_MANAGER" ? 0 : x.role === "MANAGER" ? 1 : x.role === "REP" ? 2 : 9);
+    const rank = (x: RepDirectoryRow) => Number.isFinite(Number(x.hierarchy_level)) ? Number(x.hierarchy_level) : 99;
     const dr = rank(a) - rank(b);
     if (dr !== 0) return dr;
     const dn = a.name.localeCompare(b.name);

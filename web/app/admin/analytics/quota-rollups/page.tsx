@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { listQuotasByCRO, listQuotasByVP } from "../../actions/quotas";
 import { requireOrgContext } from "../../../../lib/auth";
+import { isAdmin } from "../../../../lib/roleHelpers";
 
 type RollupRow = { quota_period_id: string; total_quota_amount: number };
 
@@ -18,7 +19,7 @@ function rollupByPeriod(quotas: Array<{ quota_period_id: string; quota_amount: n
 
 export default async function QuotaRollupsPage() {
   const { ctx } = await requireOrgContext();
-  if (ctx.kind === "user" && ctx.user.role !== "ADMIN") redirect("/admin/users");
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
   if (ctx.kind === "user" && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
 
   const vp = await listQuotasByVP().catch(() => []);

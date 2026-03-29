@@ -28,6 +28,7 @@ import {
 } from "../../../lib/channelPartnerHeroData";
 import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
 import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
+import { HIERARCHY, isAdmin, isSalesLeader } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -41,8 +42,8 @@ export default async function ExecutiveDashboardPage({
   try {
     const ctx = await requireAuth();
     if (ctx.kind === "master") redirect("/admin/organizations");
-    if (ctx.user.role === "ADMIN") redirect("/admin");
-    if (ctx.user.role === "REP" || ctx.user.role === "CHANNEL_REP") redirect("/dashboard");
+    if (isAdmin(ctx.user)) redirect("/admin");
+    if (ctx.user.hierarchy_level === HIERARCHY.REP || ctx.user.hierarchy_level === HIERARCHY.CHANNEL_REP) redirect("/dashboard");
 
     const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
     const orgName = org?.name || "Organization";
@@ -78,20 +79,9 @@ export default async function ExecutiveDashboardPage({
         ? [String(selectedPeriod.id)]
         : [];
 
-    const scopedRole =
-      ctx.user.role === "ADMIN" ||
-      ctx.user.role === "EXEC_MANAGER" ||
-      ctx.user.role === "MANAGER" ||
-      ctx.user.role === "REP" ||
-      ctx.user.role === "CHANNEL_EXECUTIVE" ||
-      ctx.user.role === "CHANNEL_DIRECTOR" ||
-      ctx.user.role === "CHANNEL_REP"
-        ? ctx.user.role
-        : "MANAGER";
     const scope = await getScopedRepDirectory({
       orgId,
-      userId: ctx.user.id,
-      role: scopedRole,
+      user: ctx.user,
     }).catch(() => ({
       repDirectory: [],
       allowedRepIds: null as number[] | null,
@@ -119,7 +109,7 @@ export default async function ExecutiveDashboardPage({
     const leaders = repDirectory
       .filter(
         (r) =>
-          (r.role === "EXEC_MANAGER" || r.role === "MANAGER") &&
+          (Number(r.hierarchy_level) === HIERARCHY.EXEC_MANAGER || Number(r.hierarchy_level) === HIERARCHY.MANAGER) &&
           (childrenByManagerRepId.get(r.id)?.length ?? 0) > 0
       )
       .map((r) => ({ id: r.id, display_name: r.name }))
@@ -151,12 +141,18 @@ export default async function ExecutiveDashboardPage({
     /** Hygiene tables: exclude leaders from peer rep rows; they only appear as rollup rows (negative rep_id). */
     const managerRoleRepIds = new Set(
       repDirectory
-        .filter((r) => r.role === "EXEC_MANAGER" || r.role === "MANAGER")
+        .filter((r) => Number(r.hierarchy_level) === HIERARCHY.EXEC_MANAGER || Number(r.hierarchy_level) === HIERARCHY.MANAGER)
         .map((r) => r.id)
     );
 
-    /** Only REP / MANAGER / EXEC_MANAGER â€” excludes channel roles (and any other rep.role values). */
-    const hygieneRepRoleSql = `AND r.role IN ('REP', 'MANAGER', 'EXEC_MANAGER')`;
+    /** Only sales hierarchy users (excludes channel users by hierarchy level). */
+    const hygieneRepRoleSql = `AND EXISTS (
+      SELECT 1
+      FROM users ux
+      WHERE ux.org_id = $1::bigint
+        AND ux.id = r.user_id
+        AND ux.hierarchy_level BETWEEN 1 AND 3
+    )`;
 
     type CoverageRow = {
       rep_id: number;
@@ -384,11 +380,13 @@ export default async function ExecutiveDashboardPage({
       FROM opportunities opp
       JOIN reps r_h ON r_h.id = opp.rep_id
         AND COALESCE(r_h.organization_id, r_h.org_id::bigint) = $1::bigint
+      JOIN users u_h ON u_h.id = r_h.user_id
+        AND u_h.org_id = $1::bigint
       WHERE opp.rep_id = ANY($4::bigint[])
         AND opp.org_id = $1
         AND opp.close_date >= $2::timestamptz
         AND opp.close_date < $3::timestamptz
-        AND r_h.role IN ('REP', 'MANAGER', 'EXEC_MANAGER')
+        AND u_h.hierarchy_level BETWEEN 1 AND 3
         AND EXISTS (
           SELECT 1 FROM opportunity_audit_events oae
           WHERE oae.opportunity_id = opp.id AND oae.org_id = $1
@@ -851,21 +849,20 @@ export default async function ExecutiveDashboardPage({
         };
       })
       .filter((r) => {
-        if (!r.role) return false;
-        if (r.role.includes("CHANNEL")) return false;
-        return r.role === "REP" || r.role === "MANAGER" || r.role === "EXEC_MANAGER";
+        const level = Number((r as any).hierarchy_level);
+        return level >= HIERARCHY.EXEC_MANAGER && level <= HIERARCHY.REP;
       });
 
     const execs = filtered
-      .filter((r) => r.role === "EXEC_MANAGER")
+      .filter((r) => Number((r as any).hierarchy_level) === HIERARCHY.EXEC_MANAGER)
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
     const managers = filtered
-      .filter((r) => r.role === "MANAGER")
+      .filter((r) => Number((r as any).hierarchy_level) === HIERARCHY.MANAGER)
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
     const reps = filtered
-      .filter((r) => r.role === "REP")
+      .filter((r) => Number((r as any).hierarchy_level) === HIERARCHY.REP)
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
 
@@ -1134,7 +1131,7 @@ export default async function ExecutiveDashboardPage({
     managerNameById.set(id, String(r.name || "").trim() || `Rep ${r.id}`);
   }
   for (const r of repDirectory) {
-    if (r.role === "EXEC_MANAGER" || r.role === "MANAGER") {
+    if (Number(r.hierarchy_level) === HIERARCHY.EXEC_MANAGER || Number(r.hierarchy_level) === HIERARCHY.MANAGER) {
       const id = String(r.id);
       if (!managerNameById.has(id)) managerNameById.set(id, String(r.name || "").trim() || `Manager ${r.id}`);
     }
@@ -1155,8 +1152,7 @@ export default async function ExecutiveDashboardPage({
     attainment: number | null;
   }[] = [];
 
-  const showManagerReviewQueue =
-    ctx.user.role === "MANAGER" || ctx.user.role === "EXEC_MANAGER" || ctx.user.role === "ADMIN";
+  const showManagerReviewQueue = isSalesLeader(ctx.user) || isAdmin(ctx.user);
   type ReviewQueueDealRow = {
     id: string;
     opp_name: string | null;

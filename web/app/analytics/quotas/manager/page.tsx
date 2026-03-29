@@ -11,6 +11,7 @@ import { FiscalYearSelector } from "../../../../components/quotas/FiscalYearSele
 import { assignQuotaToUser, getDistinctFiscalYears, getQuotaPeriods } from "../actions";
 import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
 import { RepQuotaSetupClient } from "./RepQuotaSetupClient";
+import { isManager } from "../../../../lib/roleHelpers";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -143,7 +144,7 @@ async function saveRepQuotasForYearAction(formData: FormData) {
   }
 
   const ctx = await requireAuth();
-  if (ctx.kind !== "user" || ctx.user.role !== "MANAGER") redirect("/dashboard");
+  if (ctx.kind !== "user" || !isManager(ctx.user)) redirect("/dashboard");
 
   const mgrRepId = await managerRepIdForUser({ orgId: ctx.user.org_id, userId: ctx.user.id });
   if (!mgrRepId) redirect("/dashboard");
@@ -212,7 +213,7 @@ export default async function AnalyticsQuotasManagerPage({
 }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (ctx.user.role !== "MANAGER") redirect("/dashboard");
+  if (!isManager(ctx.user)) redirect("/dashboard");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
