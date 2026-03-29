@@ -2909,8 +2909,9 @@ export function ExecutiveGapInsightsClient(props: {
                     props.heroContributionPct == null || !Number.isFinite(Number(props.heroContributionPct))
                       ? null
                       : Number(props.heroContributionPct);
+                  const showContributionCard = String(props.basePath || "").trim() === "/dashboard/channel" || contributionPct != null;
                   return (
-                    <div className={`mt-4 grid grid-cols-2 gap-4 sm:grid-cols-2 ${contributionPct == null ? "lg:grid-cols-4" : "lg:grid-cols-5"}`}>
+                    <div className={`mt-4 grid grid-cols-2 gap-4 sm:grid-cols-2 ${showContributionCard ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
                       <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
                         <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-primary)]">Closed Won</div>
                         <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-green-400 sm:text-2xl">{fmtMoney(wonAmount)}</div>
@@ -2919,13 +2920,13 @@ export function ExecutiveGapInsightsClient(props: {
                         <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quota</div>
                         <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{fmtMoney(quotaNum)}</div>
                       </div>
-                      {contributionPct == null ? null : (
+                      {showContributionCard ? (
                         <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
                           <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Contribution</div>
-                          <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{`${contributionPct.toFixed(1)}%`}</div>
+                          <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{contributionPct == null ? "—" : `${contributionPct.toFixed(1)}%`}</div>
                           <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Channel closed won vs assigned sales team</div>
                         </div>
-                      )}
+                      ) : null}
                       <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
                         <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Gap to Quota</div>
                         <div className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${gapColor}`}>{fmtMoney(gapToQuota)}</div>
