@@ -89,66 +89,6 @@ type ChannelDashboardHeroMetrics = {
   salesTeamClosedWon: number;
 };
 
-function channelHierarchyToQuotaRoleLevel(level: number | null | undefined): number | null {
-  switch (Number(level)) {
-    case HIERARCHY.CHANNEL_EXEC:
-      return 4;
-    case HIERARCHY.CHANNEL_MANAGER:
-      return 5;
-    case HIERARCHY.CHANNEL_REP:
-      return 6;
-    default:
-      return null;
-  }
-}
-
-async function listChannelScopedRepIds(args: {
-  orgId: number;
-  userId: number;
-}): Promise<number[]> {
-  const { rows } = await pool.query<{ id: number }>(
-    `
-    WITH RECURSIVE my_channel_rep AS (
-      SELECT r.id, ARRAY[r.id] AS path
-      FROM reps r
-      LEFT JOIN users u
-        ON u.org_id = $1::bigint
-       AND u.id = r.user_id
-      WHERE r.organization_id = $1::bigint
-        AND r.user_id = $2::bigint
-        AND COALESCE(u.hierarchy_level, 99) BETWEEN $3::int AND $4::int
-      ORDER BY r.id DESC
-      LIMIT 1
-    ),
-    tree AS (
-      SELECT id, path
-      FROM my_channel_rep
-
-      UNION ALL
-
-      SELECT c.id, (t.path || c.id)
-      FROM reps c
-      JOIN tree t
-        ON c.manager_rep_id = t.id
-      LEFT JOIN users uc
-        ON uc.org_id = $1::bigint
-       AND uc.id = c.user_id
-      WHERE c.organization_id = $1::bigint
-        AND (c.active IS TRUE OR c.active IS NULL)
-        AND COALESCE(uc.hierarchy_level, 99) BETWEEN $3::int AND $4::int
-        AND NOT (c.id = ANY(t.path))
-    )
-    SELECT DISTINCT id
-    FROM tree
-    ORDER BY id ASC
-    `,
-    [args.orgId, args.userId, HIERARCHY.CHANNEL_EXEC, HIERARCHY.CHANNEL_REP]
-  );
-  return (rows || [])
-    .map((row) => Number(row.id))
-    .filter((id) => Number.isFinite(id) && id > 0);
-}
-
 async function getCurrentChannelRepId(args: {
   orgId: number;
   userId: number;
@@ -178,12 +118,11 @@ async function getCurrentChannelRepId(args: {
 async function getChannelDashboardHeroMetrics(args: {
   orgId: number;
   quotaPeriodId: string;
-  channelRepIds: number[];
-  salesTeamRepIds: number[];
+  territoryRepIds: number[];
   viewerQuotaRoleLevel: number;
   viewerChannelRepId: number;
 }): Promise<ChannelDashboardHeroMetrics> {
-  const useSalesTeamFilter = args.salesTeamRepIds.length > 0;
+  const useTerritoryFilter = args.territoryRepIds.length > 0;
   const { rows } = await pool.query<{
     channel_quota: number | null;
     channel_closed_won: number | null;
@@ -207,8 +146,8 @@ async function getChannelDashboardHeroMetrics(args: {
       WHERE q.org_id = $1::bigint
         AND q.role_level = $6::int
         AND (
-          ($6::int = 6 AND q.rep_id = $7::bigint)
-          OR ($6::int IN (4, 5) AND q.manager_id = $7::bigint)
+          ($6::int = 8 AND q.rep_id = $7::bigint)
+          OR ($6::int IN (6, 7) AND q.manager_id = $7::bigint)
         )
       ORDER BY q.updated_at DESC NULLS LAST, q.id DESC
       LIMIT 1
@@ -230,6 +169,7 @@ async function getChannelDashboardHeroMetrics(args: {
           END AS close_d
         FROM opportunities o
         WHERE o.org_id = $1::bigint
+          AND $5::boolean
           AND o.rep_id = ANY($3::bigint[])
       ) o
       JOIN qp ON TRUE
@@ -260,7 +200,7 @@ async function getChannelDashboardHeroMetrics(args: {
         FROM opportunities o
         WHERE o.org_id = $1::bigint
           AND $5::boolean
-          AND o.rep_id = ANY($4::bigint[])
+          AND o.rep_id = ANY($3::bigint[])
       ) o
       JOIN qp ON TRUE
       WHERE o.close_d IS NOT NULL
@@ -284,9 +224,9 @@ async function getChannelDashboardHeroMetrics(args: {
     [
       args.orgId,
       args.quotaPeriodId,
-      args.channelRepIds,
-      args.salesTeamRepIds,
-      useSalesTeamFilter,
+      args.territoryRepIds,
+      args.territoryRepIds,
+      useTerritoryFilter,
       args.viewerQuotaRoleLevel,
       args.viewerChannelRepId,
     ]
@@ -335,22 +275,14 @@ export default async function ChannelDashboardPage({
     myRepId: null as number | null,
   }));
 
-  const salesTeamRepIds: number[] =
+  const territoryRepIds: number[] =
     scope.allowedRepIds !== null && scope.allowedRepIds.length > 0
       ? scope.allowedRepIds
       : scope.repDirectory
           .map((r) => r.id)
           .filter((n) => Number.isFinite(n) && n > 0);
 
-  const channelScopedRepIds =
-    selectedPeriodId && ctx.kind === "user"
-      ? await listChannelScopedRepIds({
-          orgId: ctx.user.org_id,
-          userId: ctx.user.id,
-        }).catch(() => [])
-      : [];
-
-  const visibleRepIds: number[] = salesTeamRepIds;
+  const visibleRepIds: number[] = territoryRepIds;
 
   const periodIdx = summary.periods.findIndex((p) => String(p.id) === String(selectedPeriodId));
   const prevPeriod = periodIdx >= 0 ? summary.periods[periodIdx + 1] : null;
@@ -419,22 +351,15 @@ export default async function ChannelDashboardPage({
           fallbackRepId: fallbackScopedRepId,
         }).catch(() => null)
       : null;
-  const viewerChannelQuotaRoleLevel = channelHierarchyToQuotaRoleLevel(ctx.user.hierarchy_level);
-  const effectiveChannelRepIds =
-    channelScopedRepIds.length > 0
-      ? channelScopedRepIds
-      : currentChannelRepId != null
-        ? [currentChannelRepId]
-        : [];
+  const viewerQuotaRoleLevel = Number(ctx.user.hierarchy_level);
 
   let channelHeroMetrics: ChannelDashboardHeroMetrics | null = null;
-  if (selectedPeriodId && effectiveChannelRepIds.length > 0 && currentChannelRepId && viewerChannelQuotaRoleLevel != null) {
+  if (selectedPeriodId && territoryRepIds.length > 0 && currentChannelRepId && Number.isFinite(viewerQuotaRoleLevel)) {
     channelHeroMetrics = await getChannelDashboardHeroMetrics({
       orgId: ctx.user.org_id,
       quotaPeriodId: selectedPeriodId,
-      channelRepIds: effectiveChannelRepIds,
-      salesTeamRepIds,
-      viewerQuotaRoleLevel: viewerChannelQuotaRoleLevel,
+      territoryRepIds,
+      viewerQuotaRoleLevel,
       viewerChannelRepId: currentChannelRepId,
     }).catch(() => null);
   }
