@@ -393,8 +393,7 @@ export default async function ChannelDashboardPage({
         <div className="mt-4">
           <ExecutiveGapInsightsClient
             basePath="/dashboard/channel"
-            channelTabOnly={true}
-            channelTopPartnerDealsOnPage={true}
+            heroOnly={true}
             viewerRole={ctx.user.role}
             periods={summary.periods}
             quotaPeriodId={summary.selectedQuotaPeriodId}
@@ -423,7 +422,6 @@ export default async function ChannelDashboardPage({
             heroQuotaOverride={channelQuota}
             heroGapToQuotaOverride={gapToQuotaRaw}
             heroContributionPct={contributionPct}
-            contributionPct={contributionPct}
             aiForecast={partnerHero?.aiForecast ?? summary.aiForecast.weighted_forecast}
             crmForecast={partnerHero?.crmForecastWeighted ?? summary.crmForecast.weighted_forecast}
             gap={partnerHero?.forecastGap ?? summary.forecastGap}
@@ -437,8 +435,6 @@ export default async function ChannelDashboardPage({
             commitAdmission={partnerHero?.commitAdmission ?? summary.commitAdmission}
             commitDealPanels={partnerHero?.commitDealPanels ?? summary.commitDealPanels}
             defaultTopN={5}
-            topPartnerWon={topPartnerWon}
-            topPartnerLost={topPartnerLost}
           />
         </div>
         {ledFedRows.length > 0 ? (
