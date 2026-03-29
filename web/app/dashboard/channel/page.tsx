@@ -94,8 +94,6 @@ async function getCurrentChannelRepId(args: {
   userId: number;
   fallbackRepId?: number | null;
 }): Promise<number | null> {
-  const fallbackRepId = Number(args.fallbackRepId);
-  if (Number.isFinite(fallbackRepId) && fallbackRepId > 0) return fallbackRepId;
   const { rows } = await pool.query<{ id: number }>(
     `
     SELECT r.id
@@ -112,7 +110,9 @@ async function getCurrentChannelRepId(args: {
     [args.orgId, args.userId, HIERARCHY.CHANNEL_EXEC, HIERARCHY.CHANNEL_REP]
   );
   const id = Number(rows?.[0]?.id);
-  return Number.isFinite(id) && id > 0 ? id : null;
+  if (Number.isFinite(id) && id > 0) return id;
+  const fallbackRepId = Number(args.fallbackRepId);
+  return Number.isFinite(fallbackRepId) && fallbackRepId > 0 ? fallbackRepId : null;
 }
 
 async function getChannelDashboardHeroMetrics(args: {
@@ -145,10 +145,7 @@ async function getChannelDashboardHeroMetrics(args: {
       JOIN qp ON qp.quota_period_id = q.quota_period_id
       WHERE q.org_id = $1::bigint
         AND q.role_level = $6::int
-        AND (
-          ($6::int = 8 AND q.rep_id = $7::bigint)
-          OR ($6::int IN (6, 7) AND q.manager_id = $7::bigint)
-        )
+        AND (q.rep_id = $7::bigint OR q.manager_id = $7::bigint)
       ORDER BY q.updated_at DESC NULLS LAST, q.id DESC
       LIMIT 1
     ),
@@ -396,9 +393,9 @@ export default async function ChannelDashboardPage({
         {partnerHero ? (
           <div className="mt-4">
             <ExecutiveGapInsightsClient
-              heroOnly
               basePath="/dashboard/channel"
-              channelTabOnly={isChannelRep(ctx.user)}
+              channelTabOnly={true}
+              channelTopPartnerDealsOnPage={true}
               viewerRole={ctx.user.role}
               periods={summary.periods}
               quotaPeriodId={summary.selectedQuotaPeriodId}
@@ -427,6 +424,7 @@ export default async function ChannelDashboardPage({
               heroQuotaOverride={channelQuota}
               heroGapToQuotaOverride={gapToQuotaRaw}
               heroContributionPct={contributionPct}
+              contributionPct={contributionPct}
               aiForecast={partnerHero.aiForecast}
               crmForecast={partnerHero.crmForecastWeighted}
               gap={partnerHero.forecastGap}
