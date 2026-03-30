@@ -465,7 +465,13 @@ export async function upsertRepQuotaSet(formData: FormData): Promise<{ ok: true 
              updated_at = NOW()
        WHERE org_id = $1::bigint
          AND rep_id = $2::bigint
-         AND role_level = 3
+         AND role_level = (
+           SELECT COALESCE(u.hierarchy_level, 3)
+             FROM reps r
+             JOIN users u ON u.id = r.user_id
+            WHERE r.id = $2::bigint
+            LIMIT 1
+         )
          AND quota_period_id = $3::bigint
       RETURNING id::text AS id
       `,
@@ -490,7 +496,13 @@ export async function upsertRepQuotaSet(formData: FormData): Promise<{ ok: true 
         $1::bigint,
         $2::bigint,
         $3::bigint,
-        3,
+        (
+          SELECT COALESCE(u.hierarchy_level, 3)
+            FROM reps r
+            JOIN users u ON u.id = r.user_id
+           WHERE r.id = $2::bigint
+           LIMIT 1
+        ),
         $4::bigint,
         $5::numeric,
         $6::numeric,
@@ -523,7 +535,13 @@ export async function deleteRepQuotaSet(formData: FormData): Promise<{ ok: true 
     DELETE FROM quotas
      WHERE org_id = $1::bigint
        AND rep_id = $2::bigint
-       AND role_level = 3
+       AND role_level = (
+         SELECT COALESCE(u.hierarchy_level, 3)
+           FROM reps r
+           JOIN users u ON u.id = r.user_id
+          WHERE r.id = $2::bigint
+          LIMIT 1
+       )
        AND quota_period_id = ANY($3::bigint[])
     `,
     [orgId, parsed.rep_id, ids]

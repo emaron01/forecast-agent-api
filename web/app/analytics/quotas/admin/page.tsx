@@ -58,19 +58,29 @@ type RepLite = {
   active: boolean | null;
 };
 
-async function resolveRepIdByPublicId(args: { orgId: number; repPublicId: string }) {
-  const { rows } = await pool.query<{ id: number }>(
+async function resolveRepByPublicId(args: { orgId: number; repPublicId: string }) {
+  const { rows } = await pool.query<{ id: number; hierarchy_level: number | null }>(
     `
-    SELECT r.id
+    SELECT
+      r.id,
+      u.hierarchy_level
       FROM reps r
+      LEFT JOIN users u
+        ON u.id = r.user_id
+       AND u.org_id = r.organization_id
      WHERE r.organization_id = $1
        AND r.public_id::text = $2
      LIMIT 1
     `,
     [args.orgId, args.repPublicId]
   );
-  const id = rows?.[0]?.id;
-  return Number.isFinite(id) ? Number(id) : null;
+  const row = rows?.[0];
+  const id = row?.id;
+  if (!Number.isFinite(id)) return null;
+  return {
+    id: Number(id),
+    hierarchy_level: row?.hierarchy_level == null ? null : Number(row.hierarchy_level),
+  };
 }
 
 async function updateQuotaPeriodAction(formData: FormData) {
@@ -138,8 +148,10 @@ async function saveRepQuotaSetupAction(formData: FormData) {
   const ctx = await requireAuth();
   if (ctx.kind !== "user" || !isAdmin(ctx.user)) redirect("/dashboard");
 
-  const repId = await resolveRepIdByPublicId({ orgId: ctx.user.org_id, repPublicId: rep_public_id });
-  const managerId = await resolveRepIdByPublicId({ orgId: ctx.user.org_id, repPublicId: manager_public_id });
+  const selectedRep = await resolveRepByPublicId({ orgId: ctx.user.org_id, repPublicId: rep_public_id });
+  const selectedManager = await resolveRepByPublicId({ orgId: ctx.user.org_id, repPublicId: manager_public_id });
+  const repId = selectedRep?.id ?? null;
+  const managerId = selectedManager?.id ?? null;
   if (!repId) redirect(`/analytics/quotas/admin?error=${encodeURIComponent("rep not found")}`);
   if (!managerId) redirect(`/analytics/quotas/admin?error=${encodeURIComponent("manager not found")}`);
 
@@ -202,7 +214,7 @@ async function saveRepQuotaSetupAction(formData: FormData) {
     if (!quota_period_id) continue;
     const r = await assignQuotaToUser({
       quota_period_id,
-      role_level: 3,
+      role_level: selectedRep?.hierarchy_level ?? 3,
       rep_id: String(repId),
       manager_id: String(managerId),
       quota_amount: q.quota_amount,
@@ -327,7 +339,13 @@ export default async function AnalyticsQuotasAdminPage({
               annual_target::float8 AS annual_target
             FROM quotas
             WHERE org_id = $1::bigint
-              AND role_level = 3
+              AND role_level = (
+                SELECT COALESCE(u.hierarchy_level, 3)
+                  FROM reps r
+                  JOIN users u ON u.id = r.user_id
+                 WHERE r.id = $2::bigint
+                 LIMIT 1
+              )
               AND rep_id = $2::bigint
               AND quota_period_id = ANY($3::bigint[])
             ORDER BY id DESC

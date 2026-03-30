@@ -48,7 +48,7 @@ async function managerRepIdForUser(args: { orgId: number; userId: number }) {
   return Number.isFinite(id) ? Number(id) : null;
 }
 
-type DirectRep = { id: number; public_id: string; rep_name: string | null };
+type DirectRep = { id: number; public_id: string; rep_name: string | null; hierarchy_level: number | null };
 
 async function listDirectReps(args: { orgId: number; managerRepId: number }): Promise<DirectRep[]> {
   const { rows } = await pool.query<DirectRep>(
@@ -56,8 +56,12 @@ async function listDirectReps(args: { orgId: number; managerRepId: number }): Pr
     SELECT
       r.id,
       r.public_id::text AS public_id,
-      COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), ('Rep ' || r.id::text)) AS rep_name
+      COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), ('Rep ' || r.id::text)) AS rep_name,
+      u.hierarchy_level
       FROM reps r
+      LEFT JOIN users u
+        ON u.id = r.user_id
+       AND u.org_id = r.organization_id
      WHERE r.organization_id = $1
        AND r.manager_rep_id = $2
        AND r.active IS TRUE
@@ -68,19 +72,29 @@ async function listDirectReps(args: { orgId: number; managerRepId: number }): Pr
   return rows as DirectRep[];
 }
 
-async function resolveRepIdByPublicId(args: { orgId: number; repPublicId: string }) {
-  const { rows } = await pool.query<{ id: number }>(
+async function resolveRepByPublicId(args: { orgId: number; repPublicId: string }) {
+  const { rows } = await pool.query<{ id: number; hierarchy_level: number | null }>(
     `
-    SELECT r.id
+    SELECT
+      r.id,
+      u.hierarchy_level
       FROM reps r
+      LEFT JOIN users u
+        ON u.id = r.user_id
+       AND u.org_id = r.organization_id
      WHERE r.organization_id = $1
        AND r.public_id::text = $2
      LIMIT 1
     `,
     [args.orgId, args.repPublicId]
   );
-  const id = rows?.[0]?.id;
-  return Number.isFinite(id) ? Number(id) : null;
+  const row = rows?.[0];
+  const id = row?.id;
+  if (!Number.isFinite(id)) return null;
+  return {
+    id: Number(id),
+    hierarchy_level: row?.hierarchy_level == null ? null : Number(row.hierarchy_level),
+  };
 }
 
 async function listRepQuotasByPeriodIds(args: { orgId: number; repId: number; quotaPeriodIds: string[] }): Promise<QuotaRow[]> {
@@ -102,7 +116,13 @@ async function listRepQuotasByPeriodIds(args: { orgId: number; repId: number; qu
       updated_at::text AS updated_at
     FROM quotas
     WHERE org_id = $1::bigint
-      AND role_level = 3
+      AND role_level = (
+        SELECT COALESCE(u.hierarchy_level, 3)
+          FROM reps r
+          JOIN users u ON u.id = r.user_id
+         WHERE r.id = $2::bigint
+         LIMIT 1
+      )
       AND rep_id = $2::bigint
       AND quota_period_id = ANY($3::bigint[])
     ORDER BY quota_period_id DESC, id DESC
@@ -149,7 +169,8 @@ async function saveRepQuotasForYearAction(formData: FormData) {
   const mgrRepId = await managerRepIdForUser({ orgId: ctx.user.org_id, userId: ctx.user.id });
   if (!mgrRepId) redirect("/dashboard");
 
-  const repId = await resolveRepIdByPublicId({ orgId: ctx.user.org_id, repPublicId: rep_public_id });
+  const rep = await resolveRepByPublicId({ orgId: ctx.user.org_id, repPublicId: rep_public_id });
+  const repId = rep?.id ?? null;
   if (!repId)
     redirect(`/analytics/quotas/manager?fiscal_year=${encodeURIComponent(fiscal_year)}&rep_public_id=${encodeURIComponent(rep_public_id)}&error=${encodeURIComponent("rep not found")}`);
 
@@ -182,7 +203,7 @@ async function saveRepQuotasForYearAction(formData: FormData) {
   for (const qa of quarterAssignments) {
     const r = await assignQuotaToUser({
       quota_period_id: qa.quota_period_id,
-      role_level: 3,
+      role_level: rep?.hierarchy_level ?? 3,
       rep_id: String(repId),
       manager_id: String(mgrRepId),
       quota_amount: qa.quota_amount,
@@ -259,7 +280,8 @@ export default async function AnalyticsQuotasManagerPage({
   const q4p = byQuarter.get("Q4") || null;
   const quarterPeriodIds = [q1p?.id, q2p?.id, q3p?.id, q4p?.id].filter(Boolean).map(String);
 
-  const selectedRepId = selectedRepPublicId ? await resolveRepIdByPublicId({ orgId: ctx.user.org_id, repPublicId: selectedRepPublicId }) : null;
+  const selectedRep = selectedRepPublicId ? await resolveRepByPublicId({ orgId: ctx.user.org_id, repPublicId: selectedRepPublicId }) : null;
+  const selectedRepId = selectedRep?.id ?? null;
   const quotas =
     selectedRepId && quarterPeriodIds.length
       ? await listRepQuotasByPeriodIds({ orgId: ctx.user.org_id, repId: selectedRepId, quotaPeriodIds: quarterPeriodIds }).catch(() => [])
@@ -298,14 +320,20 @@ export default async function AnalyticsQuotasManagerPage({
           .query<{ rep_id: string; quota_period_id: string; quota_amount: number }>(
             `
             SELECT
-              rep_id::text AS rep_id,
-              quota_period_id::text AS quota_period_id,
-              COALESCE(quota_amount, 0)::float8 AS quota_amount
-            FROM quotas
-            WHERE org_id = $1::bigint
-              AND role_level = 3
-              AND rep_id = ANY($2::bigint[])
-              AND quota_period_id = ANY($3::bigint[])
+              q.rep_id::text AS rep_id,
+              q.quota_period_id::text AS quota_period_id,
+              COALESCE(q.quota_amount, 0)::float8 AS quota_amount
+            FROM quotas q
+            JOIN reps r
+              ON r.id = q.rep_id
+             AND r.organization_id = q.org_id
+            JOIN users u
+              ON u.id = r.user_id
+             AND u.org_id = q.org_id
+            WHERE q.org_id = $1::bigint
+              AND q.role_level = COALESCE(u.hierarchy_level, 3)
+              AND q.rep_id = ANY($2::bigint[])
+              AND q.quota_period_id = ANY($3::bigint[])
             `,
             [ctx.user.org_id, directRepIds, quarterIds]
           )

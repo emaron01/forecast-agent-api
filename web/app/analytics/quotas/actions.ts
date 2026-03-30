@@ -20,6 +20,8 @@ import {
 } from "./schemas";
 import { HIERARCHY, isAdmin, isExecManager, isManager, isRep } from "../../../lib/roleHelpers";
 
+const VALID_QUOTA_LEVELS = [1, 2, 3, 6, 7, 8];
+
 async function authOrg() {
   const ctx = await requireAuth();
   if (ctx.kind !== "user") return { ok: false as const, error: "forbidden" };
@@ -218,9 +220,9 @@ export async function assignQuotaToUser(input: z.input<typeof AssignQuotaToUserS
   const repId = parsed.rep_id ? String(parsed.rep_id) : null;
   const managerId = parsed.manager_id ? String(parsed.manager_id) : null;
 
+  if (!VALID_QUOTA_LEVELS.includes(roleLevel)) return { ok: false, error: "forbidden" };
+
   if (isManager(a.ctx.user)) {
-    // Managers can only assign rep quotas for direct reports (role_level = 3).
-    if (roleLevel !== 3) return { ok: false, error: "forbidden" };
     if (!repId) return { ok: false, error: "invalid_rep_id" };
 
     const mgrRepId = await managerRepIdForUser({ orgId: a.orgId, userId: a.ctx.user.id });
@@ -366,7 +368,7 @@ export async function updateQuota(input: z.input<typeof UpdateQuotaSchema>): Pro
     );
     const q = qrows?.[0];
     if (!q) return { ok: false, error: "not_found" };
-    if (Number(q.role_level) !== 3) return { ok: false, error: "forbidden" };
+    if (!VALID_QUOTA_LEVELS.includes(Number(q.role_level))) return { ok: false, error: "forbidden" };
     if (!q.rep_id || !directRepIds.includes(Number(q.rep_id))) return { ok: false, error: "forbidden" };
   }
 
