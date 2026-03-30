@@ -431,7 +431,7 @@ export default async function ChannelDashboardPage({
               won_amount: partnerHero?.crmForecast.won_amount ?? summary.crmForecast.won_amount,
             }}
             partnersExecutive={summary.partnersExecutive}
-            quota={partnerHero?.quota ?? summary.quota}
+            quota={channelHeroMetrics?.channelQuota ?? 0}
             heroQuotaOverride={channelQuota}
             heroGapToQuotaOverride={gapToQuotaRaw}
             heroContributionPct={contributionPct}
