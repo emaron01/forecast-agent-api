@@ -89,6 +89,19 @@ type ChannelDashboardHeroMetrics = {
   salesTeamClosedWon: number;
 };
 
+function mapChannelHierarchyToQuotaRoleLevel(level: number | null | undefined): number | null {
+  switch (Number(level)) {
+    case HIERARCHY.CHANNEL_EXEC:
+      return 4;
+    case HIERARCHY.CHANNEL_MANAGER:
+      return 5;
+    case HIERARCHY.CHANNEL_REP:
+      return 6;
+    default:
+      return null;
+  }
+}
+
 async function getCurrentChannelRepId(args: {
   orgId: number;
   userId: number;
@@ -348,10 +361,10 @@ export default async function ChannelDashboardPage({
           fallbackRepId: fallbackScopedRepId,
         }).catch(() => null)
       : null;
-  const viewerQuotaRoleLevel = Number(ctx.user.hierarchy_level);
+  const viewerQuotaRoleLevel = mapChannelHierarchyToQuotaRoleLevel(ctx.user.hierarchy_level);
 
   let channelHeroMetrics: ChannelDashboardHeroMetrics | null = null;
-  if (selectedPeriodId && territoryRepIds.length > 0 && currentChannelRepId && Number.isFinite(viewerQuotaRoleLevel)) {
+  if (selectedPeriodId && territoryRepIds.length > 0 && currentChannelRepId && viewerQuotaRoleLevel != null) {
     channelHeroMetrics = await getChannelDashboardHeroMetrics({
       orgId: ctx.user.org_id,
       quotaPeriodId: selectedPeriodId,
