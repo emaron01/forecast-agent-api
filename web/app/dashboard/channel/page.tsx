@@ -90,16 +90,11 @@ type ChannelDashboardHeroMetrics = {
 };
 
 function mapChannelHierarchyToQuotaRoleLevel(level: number | null | undefined): number | null {
-  switch (Number(level)) {
-    case HIERARCHY.CHANNEL_EXEC:
-      return 4;
-    case HIERARCHY.CHANNEL_MANAGER:
-      return 5;
-    case HIERARCHY.CHANNEL_REP:
-      return 6;
-    default:
-      return null;
-  }
+  if (level == null) return null;
+  const n = Number(level);
+  if (!Number.isFinite(n)) return null;
+  // Quota role_level now matches user hierarchy_level directly.
+  return n;
 }
 
 async function getCurrentChannelRepId(args: {

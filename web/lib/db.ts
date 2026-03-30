@@ -160,10 +160,19 @@ export async function listReps(args: { organizationId: number; activeOnly?: bool
       r.active,
       r.organization_id
     FROM reps r
-    LEFT JOIN users u ON u.id = r.user_id
+    LEFT JOIN users u
+      ON u.id = r.user_id
+     AND u.org_id = COALESCE(r.organization_id, r.org_id::bigint)
     LEFT JOIN reps mgr ON mgr.id = r.manager_rep_id
     WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1
-      AND ($2::bool IS FALSE OR r.active IS TRUE)
+      AND (
+        $2::bool IS FALSE
+        OR (
+          r.active IS TRUE
+          AND u.id IS NOT NULL
+          AND COALESCE(u.active, TRUE) IS TRUE
+        )
+      )
     ORDER BY r.rep_name ASC, r.id ASC
     `,
     [organizationId, activeOnly]

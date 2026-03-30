@@ -65,6 +65,8 @@ async function listDirectReps(args: { orgId: number; managerRepId: number }): Pr
      WHERE r.organization_id = $1
        AND r.manager_rep_id = $2
        AND r.active IS TRUE
+       AND u.id IS NOT NULL
+       AND COALESCE(u.active, TRUE) IS TRUE
      ORDER BY rep_name ASC, r.id ASC
     `,
     [args.orgId, args.managerRepId]
