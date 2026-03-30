@@ -148,14 +148,12 @@ async function getChannelDashboardHeroMetrics(args: {
       LIMIT 1
     ),
     channel_quota AS (
-      SELECT q.quota_amount::float8 AS channel_quota
+      SELECT COALESCE(SUM(q.quota_amount), 0)::float8 AS channel_quota
       FROM quotas q
-      JOIN qp ON qp.quota_period_id = q.quota_period_id
       WHERE q.org_id = $1::bigint
         AND q.role_level = $6::int
-        AND (q.rep_id = $7::bigint OR q.manager_id = $7::bigint)
-      ORDER BY q.updated_at DESC NULLS LAST, q.id DESC
-      LIMIT 1
+        AND q.quota_period_id = $2::bigint
+        AND q.rep_id = $7::bigint
     ),
     channel_closed_won AS (
       SELECT COALESCE(SUM(COALESCE(o.amount, 0)), 0)::float8 AS channel_closed_won
