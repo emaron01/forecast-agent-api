@@ -522,7 +522,7 @@ export default async function ChannelDashboardPage({
             pipelineMomentum={summary.pipelineMomentum}
             crmTotals={summary.crmForecast}
             partnersExecutive={summary.partnersExecutive}
-            quota={summary.quota}
+            quota={channelHeroMetrics?.channelQuota ?? 0}
             aiForecast={summary.aiForecast.weighted_forecast}
             crmForecast={summary.crmForecast.weighted_forecast}
             gap={summary.forecastGap}
