@@ -355,6 +355,13 @@ export default async function ChannelDashboardPage({
         }).catch(() => null)
       : null;
   const viewerQuotaRoleLevel = mapChannelHierarchyToQuotaRoleLevel(ctx.user.hierarchy_level);
+  console.log("[channel debug]", {
+    currentChannelRepId,
+    viewerQuotaRoleLevel,
+    selectedPeriodId,
+    territoryRepIds: territoryRepIds.slice(0, 3),
+    ctxUserId: ctx.kind === "user" ? ctx.user.id : null,
+  });
 
   let channelHeroMetrics: ChannelDashboardHeroMetrics | null = null;
   if (selectedPeriodId && territoryRepIds.length > 0 && currentChannelRepId && viewerQuotaRoleLevel != null) {
