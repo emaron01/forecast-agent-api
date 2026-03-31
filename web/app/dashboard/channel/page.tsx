@@ -86,6 +86,9 @@ async function listTopPartnerDealsChannel(args: {
 type ChannelDashboardHeroMetrics = {
   channelQuota: number | null;
   channelClosedWon: number;
+  channelCommit: number;
+  channelBestCase: number;
+  channelPipeline: number;
   salesTeamClosedWon: number;
 };
 
@@ -135,6 +138,9 @@ async function getChannelDashboardHeroMetrics(args: {
   const { rows } = await pool.query<{
     channel_quota: number | null;
     channel_closed_won: number | null;
+    channel_commit: number | null;
+    channel_best_case: number | null;
+    channel_pipeline: number | null;
     sales_team_closed_won: number | null;
   }>(
     `
@@ -167,7 +173,52 @@ async function getChannelDashboardHeroMetrics(args: {
         )
     ),
     channel_closed_won AS (
-      SELECT COALESCE(SUM(COALESCE(o.amount, 0)), 0)::float8 AS channel_closed_won
+      SELECT
+        COALESCE(
+          SUM(
+            CASE
+              WHEN o.crm_bucket = 'won' THEN COALESCE(o.amount, 0)
+              ELSE 0
+            END
+          ),
+          0
+        )::float8 AS channel_closed_won,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN o.crm_bucket = 'commit'
+                AND o.partner_name IS NOT NULL
+                AND btrim(o.partner_name) <> ''
+              THEN COALESCE(o.amount, 0)
+              ELSE 0
+            END
+          ),
+          0
+        )::float8 AS channel_commit,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN o.crm_bucket = 'best_case'
+                AND o.partner_name IS NOT NULL
+                AND btrim(o.partner_name) <> ''
+              THEN COALESCE(o.amount, 0)
+              ELSE 0
+            END
+          ),
+          0
+        )::float8 AS channel_best_case,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN o.crm_bucket NOT IN ('won', 'lost', 'excluded')
+                AND o.partner_name IS NOT NULL
+                AND btrim(o.partner_name) <> ''
+              THEN COALESCE(o.amount, 0)
+              ELSE 0
+            END
+          ),
+          0
+        )::float8 AS channel_pipeline
       FROM (
         SELECT
           o.amount,
@@ -207,7 +258,6 @@ async function getChannelDashboardHeroMetrics(args: {
         AND o.close_d <= qp.period_end
         AND o.partner_name IS NOT NULL
         AND btrim(o.partner_name) <> ''
-        AND o.crm_bucket = 'won'
     ),
     sales_team_closed_won AS (
       SELECT COALESCE(SUM(COALESCE(o.amount, 0)), 0)::float8 AS sales_team_closed_won
@@ -252,6 +302,9 @@ async function getChannelDashboardHeroMetrics(args: {
     SELECT
       cq.channel_quota::float8 AS channel_quota,
       COALESCE(ccw.channel_closed_won, 0)::float8 AS channel_closed_won,
+      COALESCE(ccw.channel_commit, 0)::float8 AS channel_commit,
+      COALESCE(ccw.channel_best_case, 0)::float8 AS channel_best_case,
+      COALESCE(ccw.channel_pipeline, 0)::float8 AS channel_pipeline,
       COALESCE(stcw.sales_team_closed_won, 0)::float8 AS sales_team_closed_won
     FROM qp
     LEFT JOIN channel_quota cq ON TRUE
@@ -274,6 +327,9 @@ async function getChannelDashboardHeroMetrics(args: {
   return {
     channelQuota: row?.channel_quota == null ? null : Number(row.channel_quota) || 0,
     channelClosedWon: Number(row?.channel_closed_won || 0) || 0,
+    channelCommit: Number(row?.channel_commit || 0) || 0,
+    channelBestCase: Number(row?.channel_best_case || 0) || 0,
+    channelPipeline: Number(row?.channel_pipeline || 0) || 0,
     salesTeamClosedWon: Number(row?.sales_team_closed_won || 0) || 0,
   };
 }
@@ -418,13 +474,17 @@ export default async function ChannelDashboardPage({
       });
   }
 
-  const channelQuota = channelHeroMetrics?.channelQuota ?? null;
+  const channelQuota = channelHeroMetrics?.channelQuota ?? 0;
   const channelClosedWon = channelHeroMetrics?.channelClosedWon ?? 0;
+  const channelCommit = channelHeroMetrics?.channelCommit ?? 0;
+  const channelBestCase = channelHeroMetrics?.channelBestCase ?? 0;
+  const channelPipeline = channelHeroMetrics?.channelPipeline ?? 0;
   const salesTeamClosedWon = channelHeroMetrics?.salesTeamClosedWon ?? 0;
   const contributionPct =
     salesTeamClosedWon > 0 ? (channelClosedWon / salesTeamClosedWon) * 100 : null;
-  const gapToQuota = channelQuota == null ? null : Math.max(0, channelQuota - channelClosedWon);
-  const gapToQuotaRaw = channelQuota == null ? null : channelQuota - channelClosedWon;
+  const channelGap = Math.max(0, channelQuota - channelClosedWon);
+  const channelOutlook = channelQuota > 0 ? Math.min(1, (channelClosedWon + channelPipeline * 0.3) / channelQuota) : 0;
+  const channelCrmForecast = channelClosedWon + channelPipeline;
   const landingZone =
     summary.aiForecast?.weighted_forecast != null &&
     Number.isFinite(Number(summary.aiForecast.weighted_forecast))
@@ -469,26 +529,27 @@ export default async function ChannelDashboardPage({
             quarterKpis={partnerHero?.quarterKpis ?? summary.quarterKpis}
             pipelineMomentum={partnerHero?.pipelineMomentum ?? summary.pipelineMomentum}
             crmTotals={{
-              commit_amount: partnerHero?.crmForecast.commit_amount ?? summary.crmForecast.commit_amount,
-              best_case_amount: partnerHero?.crmForecast.best_case_amount ?? summary.crmForecast.best_case_amount,
-              pipeline_amount: partnerHero?.crmForecast.pipeline_amount ?? summary.crmForecast.pipeline_amount,
-              won_amount: partnerHero?.crmForecast.won_amount ?? summary.crmForecast.won_amount,
+              ...summary.crmForecast,
+              commit_amount: channelCommit,
+              best_case_amount: channelBestCase,
+              pipeline_amount: channelPipeline,
+              won_amount: channelClosedWon,
             }}
             partnersExecutive={summary.partnersExecutive}
-            quota={channelHeroMetrics?.channelQuota ?? 0}
+            quota={channelQuota}
             heroQuotaOverride={channelQuota}
-            heroGapToQuotaOverride={gapToQuotaRaw}
+            heroGapToQuotaOverride={channelGap}
             heroContributionPct={contributionPct}
-            aiForecast={partnerHero?.aiForecast ?? summary.aiForecast.weighted_forecast}
-            crmForecast={partnerHero?.crmForecastWeighted ?? summary.crmForecast.weighted_forecast}
-            gap={partnerHero?.forecastGap ?? summary.forecastGap}
+            aiForecast={channelOutlook * channelQuota}
+            crmForecast={channelCrmForecast}
+            gap={channelGap}
             bucketDeltas={{
               commit: partnerHero?.bucketDeltas.commit ?? summary.bucketDeltas.commit,
               best_case: partnerHero?.bucketDeltas.best_case ?? summary.bucketDeltas.best_case,
               pipeline: partnerHero?.bucketDeltas.pipeline ?? summary.bucketDeltas.pipeline,
             }}
-            aiPctToGoal={partnerHero?.pctToGoal ?? summary.pctToGoal}
-            leftToGo={partnerHero?.leftToGo ?? summary.leftToGo}
+            aiPctToGoal={channelOutlook}
+            leftToGo={channelGap}
             commitAdmission={partnerHero?.commitAdmission ?? summary.commitAdmission}
             commitDealPanels={partnerHero?.commitDealPanels ?? summary.commitDealPanels}
             defaultTopN={5}
@@ -577,19 +638,25 @@ export default async function ChannelDashboardPage({
             productsClosedWonByRep={summary.productsClosedWonByRep}
             quarterKpis={summary.quarterKpis}
             pipelineMomentum={summary.pipelineMomentum}
-            crmTotals={summary.crmForecast}
+            crmTotals={{
+              ...summary.crmForecast,
+              commit_amount: channelCommit,
+              best_case_amount: channelBestCase,
+              pipeline_amount: channelPipeline,
+              won_amount: channelClosedWon,
+            }}
             partnersExecutive={summary.partnersExecutive}
-            quota={channelHeroMetrics?.channelQuota ?? 0}
-            aiForecast={summary.aiForecast.weighted_forecast}
-            crmForecast={summary.crmForecast.weighted_forecast}
-            gap={summary.forecastGap}
+            quota={channelQuota}
+            aiForecast={channelOutlook * channelQuota}
+            crmForecast={channelCrmForecast}
+            gap={channelGap}
             bucketDeltas={{
               commit: summary.bucketDeltas.commit,
               best_case: summary.bucketDeltas.best_case,
               pipeline: summary.bucketDeltas.pipeline,
             }}
-            aiPctToGoal={summary.pctToGoal}
-            leftToGo={summary.leftToGo}
+            aiPctToGoal={channelOutlook}
+            leftToGo={channelGap}
             commitAdmission={summary.commitAdmission}
             commitDealPanels={summary.commitDealPanels}
             defaultTopN={5}
