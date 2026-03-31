@@ -3,6 +3,7 @@ import { requireAuth } from "../../../lib/auth";
 import { getOrganization } from "../../../lib/db";
 import { pool } from "../../../lib/pool";
 import { getScopedRepDirectory } from "../../../lib/repScope";
+import { getChannelDashboardSummary } from "../../../lib/channelDashboard";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ExecutiveTabsShellClient } from "../../components/dashboard/executive/ExecutiveTabsShellClient";
 import { normalizeExecTab, type ExecTabKey } from "../../actions/execTabConstants";
@@ -12,7 +13,7 @@ import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveFore
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
 import { HIERARCHY, isChannelRep, isChannelRole } from "../../../lib/roleHelpers";
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
-import { ChannelTopPartnerDealsTablesClient, type TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
+import type { TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
 
 export const runtime = "nodejs";
 
@@ -127,6 +128,76 @@ async function getCurrentChannelRepId(args: {
   if (Number.isFinite(id) && id > 0) return id;
   const fallbackRepId = Number(args.fallbackRepId);
   return Number.isFinite(fallbackRepId) && fallbackRepId > 0 ? fallbackRepId : null;
+}
+
+async function listChannelScopedRepIds(args: {
+  orgId: number;
+  hierarchyLevel: number;
+  viewerChannelRepId: number | null;
+  viewerUserId: number;
+}): Promise<number[]> {
+  try {
+    const { rows } = await pool.query<{ id: number }>(
+      `
+      SELECT r.id
+      FROM reps r
+      LEFT JOIN users u
+        ON u.org_id = $1::bigint
+       AND u.id = r.user_id
+      WHERE r.organization_id = $1::bigint
+        AND (r.active IS TRUE OR r.active IS NULL)
+        AND COALESCE(u.hierarchy_level, 99) = $2::int
+        AND (
+          ($3::int = $2::int AND $4::bigint IS NOT NULL AND r.id = $4::bigint)
+          OR ($3::int = $5::int AND u.manager_user_id = $6::bigint)
+          OR ($3::int = $7::int)
+        )
+      ORDER BY r.id ASC
+      `,
+      [
+        args.orgId,
+        HIERARCHY.CHANNEL_REP,
+        args.hierarchyLevel,
+        args.viewerChannelRepId,
+        HIERARCHY.CHANNEL_MANAGER,
+        args.viewerUserId,
+        HIERARCHY.CHANNEL_EXEC,
+      ]
+    );
+    return (rows || [])
+      .map((row) => Number(row.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+  } catch (error) {
+    console.error("[channel page] listChannelScopedRepIds error", error);
+    return [];
+  }
+}
+
+function mapChannelDealToTopDealRow(d: {
+  id: string;
+  deal_name: string;
+  account_name: string;
+  partner_name: string;
+  rep_name: string;
+  amount: number;
+  close_date: string;
+  health_score: number | null;
+}) {
+  return {
+    opportunity_public_id: d.id,
+    id: d.id,
+    account_name: d.account_name,
+    opportunity_name: d.deal_name,
+    amount: d.amount,
+    close_date: d.close_date,
+    forecast_stage: "",
+    rep_name: d.rep_name,
+    health_score: d.health_score,
+    partner_name: d.partner_name,
+    product: "",
+    create_date: null,
+    baseline_health_score: null,
+  };
 }
 
 async function getChannelDashboardHeroMetrics(args: {
@@ -448,6 +519,25 @@ export default async function ChannelDashboardPage({
           fallbackRepId: fallbackScopedRepId,
         }).catch(() => null)
       : null;
+  const channelScopedRepIds = await listChannelScopedRepIds({
+    orgId: ctx.user.org_id,
+    hierarchyLevel: Number(ctx.user.hierarchy_level),
+    viewerChannelRepId: currentChannelRepId,
+    viewerUserId: ctx.user.id,
+  });
+  const channelSummary = await getChannelDashboardSummary({
+    orgId: ctx.user.org_id,
+    userId: ctx.user.id,
+    hierarchyLevel: Number(ctx.user.hierarchy_level),
+    selectedQuotaPeriodId: selectedPeriodId ?? "",
+    territoryRepIds,
+    channelRepIds: channelScopedRepIds.length > 0 ? channelScopedRepIds : [],
+    viewerChannelRepId: currentChannelRepId,
+    viewerUserId: ctx.user.id,
+  }).catch((err) => {
+    console.error("[channel page] getChannelDashboardSummary error", err);
+    return null;
+  });
   const viewerQuotaRoleLevel = mapChannelHierarchyToQuotaRoleLevel(ctx.user.hierarchy_level);
   console.log("[channel debug]", {
     currentChannelRepId,
@@ -509,11 +599,42 @@ export default async function ChannelDashboardPage({
   }
   const activeTab: ExecTabKey = tabParam || prefTab || "pipeline";
 
+  const channelPartnerTopRows =
+    channelSummary?.partnerSummary?.map((row) => ({
+      partner_name: row.partner_name,
+      opps: row.won_count + row.pipeline_count + row.lost_count,
+      won_opps: row.won_count,
+      lost_opps: row.lost_count,
+      win_rate: row.win_rate,
+      aov: row.won_count > 0 ? row.won_amount / row.won_count : null,
+      avg_days: null,
+      avg_health_score: row.avg_health,
+      won_amount: row.won_amount,
+      open_pipeline: row.pipeline_amount,
+    })) ?? [];
+
+  const channelPartnersExecutive =
+    summary.partnersExecutive && channelSummary
+      ? {
+          ...summary.partnersExecutive,
+          top_partners: channelPartnerTopRows,
+        }
+      : summary.partnersExecutive;
+
+  const channelTopPartnerWon =
+    channelSummary?.topPartnerDealsWon.map((d) => mapChannelDealToTopDealRow(d)) ?? topPartnerWon;
+  const channelTopPartnerLost =
+    channelSummary?.topPartnerDealsLost.map((d) => mapChannelDealToTopDealRow(d)) ?? topPartnerLost;
+  const topDealsWonRows =
+    channelSummary?.topPartnerDealsWon.map((d) => mapChannelDealToTopDealRow(d)) ?? [];
+  const topDealsLostRows =
+    channelSummary?.topPartnerDealsLost.map((d) => mapChannelDealToTopDealRow(d)) ?? [];
+
   const channelTabProps = {
     basePath: "/dashboard/channel",
     viewerRole: ctx.user.role,
-    periods: summary.periods,
-    quotaPeriodId: summary.selectedQuotaPeriodId,
+    periods: channelSummary?.periods ?? summary.periods,
+    quotaPeriodId: selectedPeriodId ?? "",
     orgId: ctx.user.org_id,
     reps: summary.reps,
     fiscalYear,
@@ -535,7 +656,7 @@ export default async function ChannelDashboardPage({
       pipeline_amount: channelPipeline,
       won_amount: channelClosedWon,
     },
-    partnersExecutive: summary.partnersExecutive,
+    partnersExecutive: channelPartnersExecutive,
     quota: channelQuota,
     aiForecast: channelOutlook * channelQuota,
     crmForecast: channelCrmForecast,
@@ -550,10 +671,10 @@ export default async function ChannelDashboardPage({
     commitAdmission: summary.commitAdmission,
     commitDealPanels: summary.commitDealPanels,
     defaultTopN: 5,
-    topPartnerWon,
-    topPartnerLost,
+    topPartnerWon: channelTopPartnerWon,
+    topPartnerLost: channelTopPartnerLost,
     periodName: selectedPeriod?.period_name ?? "",
-    channelTopPartnerDealsOnPage: !!selectedPeriod,
+    channelTopPartnerDealsOnPage: false,
   };
 
   const emptyPipelineHygiene = {
@@ -564,7 +685,40 @@ export default async function ChannelDashboardPage({
   };
 
   const emptyTeamPayload = {
-    repRows: [],
+    repRows:
+      channelSummary?.channelRepRows.map((r) => ({
+        rep_id: r.rep_id,
+        rep_name: r.rep_name,
+        manager_id: "",
+        manager_name: r.manager_name,
+        quota: r.quota,
+        total_count: 0,
+        won_amount: r.won_amount,
+        won_count: r.won_count,
+        lost_count: 0,
+        active_amount: r.pipeline_amount,
+        commit_amount: 0,
+        best_amount: 0,
+        pipeline_amount: r.pipeline_amount,
+        created_amount: 0,
+        created_count: 0,
+        win_rate: null,
+        opp_to_win: null,
+        aov: null,
+        attainment: r.attainment,
+        commit_coverage: null,
+        best_coverage: null,
+        partner_contribution: r.contribution_pct,
+        partner_win_rate: null,
+        avg_days_won: null,
+        avg_days_lost: null,
+        avg_days_active: null,
+        mix_pipeline: null,
+        mix_best: null,
+        mix_commit: null,
+        mix_won: null,
+        qoq_attainment_delta: null,
+      })) ?? [],
     managerRows: [],
     periodName: selectedPeriod?.period_name ?? "",
     periodStart: selectedPeriod?.period_start ?? "",
@@ -643,106 +797,51 @@ export default async function ChannelDashboardPage({
             defaultTopN={5}
           />
         </div>
-        {ledFedRows.length > 0 ? (
-          <div className="mt-4 w-full overflow-x-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm">
-            <table className="w-full min-w-[640px] border-collapse text-sm">
-              <thead>
-                <tr className="bg-[color:var(--sf-surface-alt)] text-left text-cardLabel font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
-                  <th className="border-b border-[color:var(--sf-border)] px-4 py-3">Metric</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-4 py-3 text-right">Channel Led (Deal Reg)</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-4 py-3 text-right">Channel Fed (No Deal Reg)</th>
-                  <th className="border-b border-[color:var(--sf-border)] px-4 py-3 text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody className="text-[color:var(--sf-text-primary)]">
-                {ledFedRows.map((row) => {
-                  const tone =
-                    row.valueTone === "won" ? "text-green-400" : row.valueTone === "lost" ? "text-red-400" : "";
-                  return (
-                  <tr key={row.metric} className="border-b border-[color:var(--sf-border)] last:border-b-0">
-                    <td className="px-4 py-3 font-medium">{row.metric}</td>
-                    <td className={["px-4 py-3 text-right font-[tabular-nums]", tone].filter(Boolean).join(" ")}>
-                      {row.isCurrency
-                        ? row.channelLed.toLocaleString("en-US", {
-                            style: "currency",
-                            currency: "USD",
-                            maximumFractionDigits: 0,
-                          })
-                        : row.channelLed.toLocaleString("en-US")}
-                    </td>
-                    <td className={["px-4 py-3 text-right font-[tabular-nums]", tone].filter(Boolean).join(" ")}>
-                      {row.isCurrency
-                        ? row.channelFed.toLocaleString("en-US", {
-                            style: "currency",
-                            currency: "USD",
-                            maximumFractionDigits: 0,
-                          })
-                        : row.channelFed.toLocaleString("en-US")}
-                    </td>
-                    <td className={["px-4 py-3 text-right font-[tabular-nums] font-semibold", tone].filter(Boolean).join(" ")}>
-                      {row.isCurrency
-                        ? row.total.toLocaleString("en-US", {
-                            style: "currency",
-                            currency: "USD",
-                            maximumFractionDigits: 0,
-                          })
-                        : row.total.toLocaleString("en-US")}
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        {!isChannelRep(ctx.user) ? (
+          <div className="mt-4">
+            <ExecutiveTabsShellClient
+              basePath="/dashboard/channel"
+              initialTab={activeTab}
+              setDefaultTab={setExecDefaultTabAction}
+              orgId={ctx.user.org_id}
+              orgName={orgName}
+              viewerRole={ctx.user.role}
+              forecastTabProps={channelTabProps}
+              pipelineTabProps={channelTabProps}
+              pipelineHygiene={emptyPipelineHygiene}
+              teamTabProps={channelTabProps}
+              teamRepManagerPayload={emptyTeamPayload}
+              reviewQueueDeals={[]}
+              currentUserId={ctx.user.id}
+              showManagerReviewQueue={false}
+              revenueTabProps={channelTabProps}
+              topPartnerWon={channelTopPartnerWon}
+              topPartnerLost={channelTopPartnerLost}
+              topDealsWon={topDealsWonRows}
+              topDealsLost={topDealsLostRows}
+              reportBuilderRepRows={[]}
+              reportBuilderSavedReports={[]}
+              reportBuilderPeriodLabel={selectedPeriod?.period_name ?? ""}
+              reportBuilderRepDirectory={scopedDirectory}
+              reportBuilderQuotaPeriods={(channelSummary?.periods ?? summary.periods).map((p) => ({
+                id: String(p.id),
+                name: p.period_name ? `${p.period_name}` : String(p.id),
+              }))}
+              reportBuilderOrgId={orgId}
+              reportBuilderInitialPeriodId={selectedPeriodId}
+              revenueIntelligenceOrgId={orgId}
+              revenueIntelligenceQuotaPeriods={(channelSummary?.periods ?? summary.periods).map((p) => ({
+                id: String(p.id),
+                name: p.period_name,
+                fiscal_year: String(p.fiscal_year ?? ""),
+              }))}
+              revenueIntelligenceRepDirectory={scopedDirectory}
+              showChannelContribution={ledFedRows.length > 0}
+              channelContributionHero={partnerHero}
+              channelContributionRows={ledFedRows}
+            />
           </div>
         ) : null}
-        {selectedPeriod ? (
-          <ChannelTopPartnerDealsTablesClient
-            won={topPartnerWon}
-            lost={topPartnerLost}
-            periodStart={selectedPeriod.period_start}
-            periodEnd={selectedPeriod.period_end}
-          />
-        ) : null}
-        <div className="mt-4">
-          <ExecutiveTabsShellClient
-            basePath="/dashboard/channel"
-            initialTab={activeTab}
-            setDefaultTab={setExecDefaultTabAction}
-            orgId={ctx.user.org_id}
-            orgName={orgName}
-            viewerRole={ctx.user.role}
-            forecastTabProps={channelTabProps}
-            pipelineTabProps={channelTabProps}
-            pipelineHygiene={emptyPipelineHygiene}
-            teamTabProps={channelTabProps}
-            teamRepManagerPayload={emptyTeamPayload}
-            reviewQueueDeals={[]}
-            currentUserId={ctx.user.id}
-            showManagerReviewQueue={false}
-            revenueTabProps={channelTabProps}
-            topPartnerWon={topPartnerWon}
-            topPartnerLost={topPartnerLost}
-            topDealsWon={[]}
-            topDealsLost={[]}
-            reportBuilderRepRows={[]}
-            reportBuilderSavedReports={[]}
-            reportBuilderPeriodLabel={selectedPeriod?.period_name ?? ""}
-            reportBuilderRepDirectory={scopedDirectory}
-            reportBuilderQuotaPeriods={summary.periods.map((p) => ({
-              id: String(p.id),
-              name: p.period_name ? `${p.period_name}` : String(p.id),
-            }))}
-            reportBuilderOrgId={orgId}
-            reportBuilderInitialPeriodId={selectedPeriodId}
-            revenueIntelligenceOrgId={orgId}
-            revenueIntelligenceQuotaPeriods={summary.periods.map((p) => ({
-              id: String(p.id),
-              name: p.period_name,
-              fiscal_year: String(p.fiscal_year ?? ""),
-            }))}
-            revenueIntelligenceRepDirectory={scopedDirectory}
-          />
-        </div>
       </main>
     </div>
   );
