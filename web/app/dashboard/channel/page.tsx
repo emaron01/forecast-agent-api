@@ -4,6 +4,9 @@ import { getOrganization } from "../../../lib/db";
 import { pool } from "../../../lib/pool";
 import { getScopedRepDirectory } from "../../../lib/repScope";
 import { UserTopNav } from "../../_components/UserTopNav";
+import { ExecutiveTabsShellClient } from "../../components/dashboard/executive/ExecutiveTabsShellClient";
+import { normalizeExecTab, type ExecTabKey } from "../../actions/execTabConstants";
+import { setExecDefaultTabAction } from "../../actions/execTabPreferences";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
@@ -491,6 +494,91 @@ export default async function ChannelDashboardPage({
       ? Number(summary.aiForecast.weighted_forecast)
       : null;
 
+  const tabRaw = Array.isArray(searchParams?.tab) ? searchParams?.tab[0] : searchParams?.tab;
+  const tabParam = normalizeExecTab(typeof tabRaw === "string" ? tabRaw : null);
+  let prefTab: ExecTabKey | null = null;
+  try {
+    const prefRows = await pool.query<{ user_preferences: any }>(
+      `SELECT user_preferences FROM users WHERE id = $1::bigint`,
+      [ctx.user.id]
+    );
+    const prefs = (prefRows.rows?.[0]?.user_preferences as any) || {};
+    prefTab = normalizeExecTab(prefs.exec_default_tab);
+  } catch {
+    prefTab = null;
+  }
+  const activeTab: ExecTabKey = tabParam || prefTab || "pipeline";
+
+  const channelTabProps = {
+    basePath: "/dashboard/channel",
+    viewerRole: ctx.user.role,
+    periods: summary.periods,
+    quotaPeriodId: summary.selectedQuotaPeriodId,
+    orgId: ctx.user.org_id,
+    reps: summary.reps,
+    fiscalYear,
+    fiscalQuarter,
+    stageProbabilities: summary.stageProbabilities,
+    healthModifiers: summary.healthModifiers,
+    repDirectory: summary.repDirectory,
+    myRepId: summary.myRepId,
+    repRollups: summary.repRollups,
+    productsClosedWon: summary.productsClosedWon,
+    productsClosedWonPrevSummary: summary.productsClosedWonPrevSummary,
+    productsClosedWonByRep: summary.productsClosedWonByRep,
+    quarterKpis: summary.quarterKpis,
+    pipelineMomentum: summary.pipelineMomentum,
+    crmTotals: {
+      ...summary.crmForecast,
+      commit_amount: channelCommit,
+      best_case_amount: channelBestCase,
+      pipeline_amount: channelPipeline,
+      won_amount: channelClosedWon,
+    },
+    partnersExecutive: summary.partnersExecutive,
+    quota: channelQuota,
+    aiForecast: channelOutlook * channelQuota,
+    crmForecast: channelCrmForecast,
+    gap: channelGap,
+    bucketDeltas: {
+      commit: summary.bucketDeltas.commit,
+      best_case: summary.bucketDeltas.best_case,
+      pipeline: summary.bucketDeltas.pipeline,
+    },
+    aiPctToGoal: channelOutlook,
+    leftToGo: channelGap,
+    commitAdmission: summary.commitAdmission,
+    commitDealPanels: summary.commitDealPanels,
+    defaultTopN: 5,
+    topPartnerWon,
+    topPartnerLost,
+    periodName: selectedPeriod?.period_name ?? "",
+    channelTopPartnerDealsOnPage: !!selectedPeriod,
+  };
+
+  const emptyPipelineHygiene = {
+    coverageRows: [],
+    assessmentRows: [],
+    velocitySummaries: [],
+    progressionSummaries: [],
+  };
+
+  const emptyTeamPayload = {
+    repRows: [],
+    managerRows: [],
+    periodName: selectedPeriod?.period_name ?? "",
+    periodStart: selectedPeriod?.period_start ?? "",
+    periodEnd: selectedPeriod?.period_end ?? "",
+    repFyQuarterRows: [],
+  };
+
+  const scopedDirectory = summary.repDirectory.map((r) => ({
+    id: r.id,
+    name: r.name,
+    manager_rep_id: r.manager_rep_id ?? null,
+    role: r.role ?? "REP",
+  }));
+
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
@@ -616,52 +704,43 @@ export default async function ChannelDashboardPage({
           />
         ) : null}
         <div className="mt-4">
-          <ExecutiveGapInsightsClient
+          <ExecutiveTabsShellClient
             basePath="/dashboard/channel"
-            salesHeroLayout
-            channelTabOnly={isChannelRep(ctx.user)}
-            channelTopPartnerDealsOnPage={!!selectedPeriod}
-            viewerRole={ctx.user.role}
-            periods={summary.periods}
-            quotaPeriodId={summary.selectedQuotaPeriodId}
+            initialTab={activeTab}
+            setDefaultTab={setExecDefaultTabAction}
             orgId={ctx.user.org_id}
-            reps={summary.reps}
-            fiscalYear={fiscalYear}
-            fiscalQuarter={fiscalQuarter}
-            stageProbabilities={summary.stageProbabilities}
-            healthModifiers={summary.healthModifiers}
-            repDirectory={summary.repDirectory}
-            myRepId={summary.myRepId}
-            repRollups={summary.repRollups}
-            productsClosedWon={summary.productsClosedWon}
-            productsClosedWonPrevSummary={summary.productsClosedWonPrevSummary}
-            productsClosedWonByRep={summary.productsClosedWonByRep}
-            quarterKpis={summary.quarterKpis}
-            pipelineMomentum={summary.pipelineMomentum}
-            crmTotals={{
-              ...summary.crmForecast,
-              commit_amount: channelCommit,
-              best_case_amount: channelBestCase,
-              pipeline_amount: channelPipeline,
-              won_amount: channelClosedWon,
-            }}
-            partnersExecutive={summary.partnersExecutive}
-            quota={channelQuota}
-            aiForecast={channelOutlook * channelQuota}
-            crmForecast={channelCrmForecast}
-            gap={channelGap}
-            bucketDeltas={{
-              commit: summary.bucketDeltas.commit,
-              best_case: summary.bucketDeltas.best_case,
-              pipeline: summary.bucketDeltas.pipeline,
-            }}
-            aiPctToGoal={channelOutlook}
-            leftToGo={channelGap}
-            commitAdmission={summary.commitAdmission}
-            commitDealPanels={summary.commitDealPanels}
-            defaultTopN={5}
+            orgName={orgName}
+            viewerRole={ctx.user.role}
+            forecastTabProps={channelTabProps}
+            pipelineTabProps={channelTabProps}
+            pipelineHygiene={emptyPipelineHygiene}
+            teamTabProps={channelTabProps}
+            teamRepManagerPayload={emptyTeamPayload}
+            reviewQueueDeals={[]}
+            currentUserId={ctx.user.id}
+            showManagerReviewQueue={false}
+            revenueTabProps={channelTabProps}
             topPartnerWon={topPartnerWon}
             topPartnerLost={topPartnerLost}
+            topDealsWon={[]}
+            topDealsLost={[]}
+            reportBuilderRepRows={[]}
+            reportBuilderSavedReports={[]}
+            reportBuilderPeriodLabel={selectedPeriod?.period_name ?? ""}
+            reportBuilderRepDirectory={scopedDirectory}
+            reportBuilderQuotaPeriods={summary.periods.map((p) => ({
+              id: String(p.id),
+              name: p.period_name ? `${p.period_name}` : String(p.id),
+            }))}
+            reportBuilderOrgId={orgId}
+            reportBuilderInitialPeriodId={selectedPeriodId}
+            revenueIntelligenceOrgId={orgId}
+            revenueIntelligenceQuotaPeriods={summary.periods.map((p) => ({
+              id: String(p.id),
+              name: p.period_name,
+              fiscal_year: String(p.fiscal_year ?? ""),
+            }))}
+            revenueIntelligenceRepDirectory={scopedDirectory}
           />
         </div>
       </main>
