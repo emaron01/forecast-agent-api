@@ -28,10 +28,11 @@ export default async function HierarchyPage({
   );
   const labelForLevel = (level: number, fallback: string) => hierarchyLabelByLevel.get(level) || fallback;
 
-  const users = await listUsers({ orgId, includeInactive: true }).catch(() => []);
-  const executives = users.filter((u) => u.hierarchy_level === 1 && u.active);
-  const managers = users.filter((u) => u.hierarchy_level === 2 && u.active);
-  const reps = users.filter((u) => u.hierarchy_level === 3 && u.active);
+  const users = await listUsers({ orgId, includeInactive: false }).catch(() => []);
+  const activeUsers = users.filter((u) => u.active ?? true);
+  const executives = activeUsers.filter((u) => u.hierarchy_level === 1);
+  const managers = activeUsers.filter((u) => u.hierarchy_level === 2);
+  const reps = activeUsers.filter((u) => u.hierarchy_level !== 0 && u.hierarchy_level !== 1 && u.hierarchy_level !== 2);
 
   const managersByExecId = new Map<number, typeof managers>();
   for (const m of managers) {
