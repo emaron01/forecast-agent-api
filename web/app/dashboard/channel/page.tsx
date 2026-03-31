@@ -127,8 +127,9 @@ async function getChannelDashboardHeroMetrics(args: {
   orgId: number;
   quotaPeriodId: string;
   territoryRepIds: number[];
-  viewerQuotaRoleLevel: number;
+  viewerHierarchyLevel: number;
   viewerChannelRepId: number;
+  viewerUserId: number;
 }): Promise<ChannelDashboardHeroMetrics> {
   const useTerritoryFilter = args.territoryRepIds.length > 0;
   const { rows } = await pool.query<{
@@ -150,10 +151,20 @@ async function getChannelDashboardHeroMetrics(args: {
     channel_quota AS (
       SELECT COALESCE(SUM(q.quota_amount), 0)::float8 AS channel_quota
       FROM quotas q
+      JOIN reps r
+        ON r.id = q.rep_id
+       AND r.organization_id = q.org_id
+      JOIN users u
+        ON u.id = r.user_id
+       AND u.org_id = q.org_id
       WHERE q.org_id = $1::bigint
-        AND q.role_level = $5::int
         AND q.quota_period_id = $2::bigint
-        AND q.rep_id = $6::bigint
+        AND u.hierarchy_level = 8
+        AND (
+          ($5::int = 8 AND q.rep_id = $6::bigint)
+          OR ($5::int = 7 AND u.manager_user_id = $7::bigint)
+          OR ($5::int = 6)
+        )
     ),
     channel_closed_won AS (
       SELECT COALESCE(SUM(COALESCE(o.amount, 0)), 0)::float8 AS channel_closed_won
@@ -164,6 +175,13 @@ async function getChannelDashboardHeroMetrics(args: {
           o.forecast_stage,
           o.sales_stage,
           CASE
+            WHEN stm.bucket IS NOT NULL THEN stm.bucket
+            WHEN fcm.bucket IS NOT NULL THEN fcm.bucket
+            WHEN lower(btrim(COALESCE(o.forecast_stage, ''))) IN ('closed won', 'won') THEN 'won'
+            WHEN lower(btrim(COALESCE(o.sales_stage, ''))) LIKE '%lost%' THEN 'lost'
+            ELSE 'pipeline'
+          END AS crm_bucket,
+          CASE
             WHEN o.close_date IS NULL THEN NULL
             WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
             WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
@@ -171,6 +189,14 @@ async function getChannelDashboardHeroMetrics(args: {
             ELSE NULL
           END AS close_d
         FROM opportunities o
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND stm.stage_value = o.sales_stage
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND fcm.stage_value = o.forecast_stage
         WHERE o.org_id = $1::bigint
           AND $4::boolean
           AND o.rep_id = ANY($3::bigint[])
@@ -181,10 +207,7 @@ async function getChannelDashboardHeroMetrics(args: {
         AND o.close_d <= qp.period_end
         AND o.partner_name IS NOT NULL
         AND btrim(o.partner_name) <> ''
-        AND (
-          (' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ')
-          LIKE '% won %'
-        )
+        AND o.crm_bucket = 'won'
     ),
     sales_team_closed_won AS (
       SELECT COALESCE(SUM(COALESCE(o.amount, 0)), 0)::float8 AS sales_team_closed_won
@@ -194,6 +217,13 @@ async function getChannelDashboardHeroMetrics(args: {
           o.forecast_stage,
           o.sales_stage,
           CASE
+            WHEN stm.bucket IS NOT NULL THEN stm.bucket
+            WHEN fcm.bucket IS NOT NULL THEN fcm.bucket
+            WHEN lower(btrim(COALESCE(o.forecast_stage, ''))) IN ('closed won', 'won') THEN 'won'
+            WHEN lower(btrim(COALESCE(o.sales_stage, ''))) LIKE '%lost%' THEN 'lost'
+            ELSE 'pipeline'
+          END AS crm_bucket,
+          CASE
             WHEN o.close_date IS NULL THEN NULL
             WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
             WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
@@ -201,6 +231,14 @@ async function getChannelDashboardHeroMetrics(args: {
             ELSE NULL
           END AS close_d
         FROM opportunities o
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND stm.stage_value = o.sales_stage
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND fcm.stage_value = o.forecast_stage
         WHERE o.org_id = $1::bigint
           AND $4::boolean
           AND o.rep_id = ANY($3::bigint[])
@@ -209,10 +247,7 @@ async function getChannelDashboardHeroMetrics(args: {
       WHERE o.close_d IS NOT NULL
         AND o.close_d >= qp.period_start
         AND o.close_d <= qp.period_end
-        AND (
-          (' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ')
-          LIKE '% won %'
-        )
+        AND o.crm_bucket = 'won'
     )
     SELECT
       cq.channel_quota::float8 AS channel_quota,
@@ -229,8 +264,9 @@ async function getChannelDashboardHeroMetrics(args: {
       args.quotaPeriodId,
       args.territoryRepIds,
       useTerritoryFilter,
-      args.viewerQuotaRoleLevel,
+      args.viewerHierarchyLevel,
       args.viewerChannelRepId,
+      args.viewerUserId,
     ]
   );
 
@@ -368,8 +404,9 @@ export default async function ChannelDashboardPage({
       orgId: ctx.user.org_id,
       quotaPeriodId: selectedPeriodId,
       territoryRepIds,
-      viewerQuotaRoleLevel,
+      viewerHierarchyLevel: Number(ctx.user.hierarchy_level),
       viewerChannelRepId: currentChannelRepId,
+      viewerUserId: ctx.user.id,
     })
       .then((result) => {
         console.log("[channelHeroMetrics result]", JSON.stringify(result));
