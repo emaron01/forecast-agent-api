@@ -371,7 +371,15 @@ export default async function ChannelDashboardPage({
       territoryRepIds,
       viewerQuotaRoleLevel,
       viewerChannelRepId: currentChannelRepId,
-    }).catch(() => null);
+    })
+      .then((result) => {
+        console.log("[channelHeroMetrics result]", JSON.stringify(result));
+        return result;
+      })
+      .catch((err) => {
+        console.error("[channelHeroMetrics error]", err);
+        return null;
+      });
   }
 
   const channelQuota = channelHeroMetrics?.channelQuota ?? null;
