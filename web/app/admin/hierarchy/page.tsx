@@ -32,25 +32,71 @@ export default async function HierarchyPage({
   const activeUsers = users.filter((u) => u.active ?? true);
   const executives = activeUsers.filter((u) => u.hierarchy_level === 1);
   const managers = activeUsers.filter((u) => u.hierarchy_level === 2);
-  const reps = activeUsers.filter((u) => u.hierarchy_level !== 0 && u.hierarchy_level !== 1 && u.hierarchy_level !== 2);
-
-  const managersByExecId = new Map<number, typeof managers>();
-  for (const m of managers) {
-    const execId = m.manager_user_id || 0;
-    if (!managersByExecId.has(execId)) managersByExecId.set(execId, [] as any);
-    (managersByExecId.get(execId) as any).push(m);
+  const nonAdminUsers = activeUsers.filter((u) => u.hierarchy_level !== 0);
+  const userById = new Map(nonAdminUsers.map((u) => [u.id, u] as const));
+  const directReportsByManagerId = new Map<number, typeof nonAdminUsers>();
+  for (const user of nonAdminUsers) {
+    const managerId = user.manager_user_id;
+    if (managerId == null) continue;
+    if (!directReportsByManagerId.has(managerId)) directReportsByManagerId.set(managerId, []);
+    directReportsByManagerId.get(managerId)!.push(user);
   }
 
-  const repsByManagerId = new Map<number, typeof reps>();
-  for (const r of reps) {
-    const mgrId = r.manager_user_id || 0;
-    if (!repsByManagerId.has(mgrId)) repsByManagerId.set(mgrId, [] as any);
-    (repsByManagerId.get(mgrId) as any).push(r);
+  const roots = executives;
+  const unassignedUsers = nonAdminUsers.filter((u) => u.hierarchy_level !== 1 && u.manager_user_id == null);
+
+  function managerOptionsForUser(user: (typeof nonAdminUsers)[number]) {
+    if (user.hierarchy_level === 2) return executives;
+    return [...executives, ...managers];
   }
 
-  // Reps can report to managers (level 2) or executives (level 1) for flat orgs
-  const unassignedManagers = managersByExecId.get(0) || [];
-  const unassignedReps = repsByManagerId.get(0) || [];
+  function renderNode(user: (typeof nonAdminUsers)[number], isRoot = false): React.JSX.Element {
+    const directReports = directReportsByManagerId.get(user.id) || [];
+    const managerOptions = managerOptionsForUser(user);
+    const currentManagerPublicId =
+      user.manager_user_id == null ? "" : String(userById.get(user.manager_user_id)?.public_id || "");
+
+    return (
+      <div key={user.id} className={`rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] ${isRoot ? "p-4" : "p-3"}`}>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <div className={`${isRoot ? "text-sm" : "text-sm"} font-semibold text-[color:var(--sf-text-primary)]`}>
+              {labelForLevel(Number(user.hierarchy_level), String(user.role || "User"))}: {user.display_name}
+            </div>
+            <div className="text-xs text-[color:var(--sf-text-disabled)]">
+              {user.title ? `${user.title} · ` : ""}
+              {user.email}
+            </div>
+          </div>
+          {isRoot ? <div className="text-xs text-[color:var(--sf-text-disabled)]">{user.public_id}</div> : null}
+        </div>
+
+        {!isRoot ? (
+          <div className="mt-3 flex items-center gap-2">
+            <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Managed by</label>
+            <select
+              name={`mgr_${user.public_id}`}
+              defaultValue={currentManagerPublicId}
+              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-sm text-[color:var(--sf-text-primary)]"
+            >
+              <option value="">(unassigned)</option>
+              {managerOptions.map((manager) => (
+                <option key={manager.public_id} value={String(manager.public_id)}>
+                  {manager.display_name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+
+        {directReports.length > 0 ? (
+          <div className="ml-6 mt-4 grid gap-3">
+            {directReports.map((report) => renderNode(report))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <main className="grid gap-4">
@@ -102,154 +148,9 @@ export default async function HierarchyPage({
             </button>
           </div>
 
-          {executives.length ? (
+          {roots.length ? (
             <div className="grid gap-4 md:grid-cols-3">
-              {executives.map((exec) => {
-                const myManagers = managersByExecId.get(exec.id) || [];
-                const directReps = repsByManagerId.get(exec.id) || [];
-                const hasContent = myManagers.length > 0 || directReps.length > 0;
-                return (
-                  <section key={exec.id} className="rounded-xl border border-[color:var(--sf-border)] p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">
-                          {labelForLevel(1, "Executive Manager")}: {exec.display_name}
-                        </div>
-                        <div className="text-xs text-[color:var(--sf-text-disabled)]">
-                          {exec.title ? `${exec.title} · ` : ""}
-                          {exec.email}
-                        </div>
-                      </div>
-                      <div className="text-xs text-[color:var(--sf-text-disabled)]">{exec.public_id}</div>
-                    </div>
-
-                    <div className="mt-4 grid gap-3">
-                      {directReps.length > 0 ? (
-                        <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
-                          <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Direct reports (reps)</div>
-                          <ul className="mt-2 grid gap-2">
-                            {directReps.map((r) => (
-                              <li
-                                key={r.id}
-                                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[color:var(--sf-border)] px-3 py-2"
-                              >
-                                <div>
-                                  <div className="text-sm text-[color:var(--sf-text-primary)]">{r.display_name}</div>
-                                  <div className="text-xs text-[color:var(--sf-text-disabled)]">
-                                    {r.title ? `${r.title} · ` : ""}
-                                    {r.email}
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Managed by</label>
-                                  <select
-                                    name={`mgr_${r.public_id}`}
-                                    defaultValue={exec.public_id}
-                                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-sm text-[color:var(--sf-text-primary)]"
-                                  >
-                                    <option value="">(unassigned)</option>
-                                    {executives.map((e) => (
-                                      <option key={e.public_id} value={String(e.public_id)}>
-                                        {e.display_name}
-                                      </option>
-                                    ))}
-                                    {managers.map((mm) => (
-                                      <option key={mm.public_id} value={String(mm.public_id)}>
-                                        {mm.display_name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </div>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
-                      {myManagers.length > 0 ? (
-                        myManagers.map((m) => {
-                          const myReps = repsByManagerId.get(m.id) || [];
-                          return (
-                            <div key={m.id} className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">
-                                  {labelForLevel(2, "Manager")}: {m.display_name}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Managed by</label>
-                                  <select
-                                    name={`mgr_${m.public_id}`}
-                                    defaultValue={exec.public_id}
-                                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-sm text-[color:var(--sf-text-primary)]"
-                                  >
-                                    <option value="">(unassigned)</option>
-                                    {executives.map((e) => (
-                                      <option key={e.public_id} value={String(e.public_id)}>
-                                        {e.display_name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </div>
-                              </div>
-
-                              <div className="mt-2 text-xs text-[color:var(--sf-text-disabled)]">
-                                {m.title ? `${m.title} · ` : ""}
-                                {m.email}
-                              </div>
-
-                              <div className="mt-3">
-                                <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Reps</div>
-                                {myReps.length ? (
-                                  <ul className="mt-2 grid gap-2">
-                                    {myReps.map((r) => (
-                                      <li
-                                        key={r.id}
-                                        className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[color:var(--sf-border)] px-3 py-2"
-                                      >
-                                        <div>
-                                          <div className="text-sm text-[color:var(--sf-text-primary)]">{r.display_name}</div>
-                                          <div className="text-xs text-[color:var(--sf-text-disabled)]">
-                                            {r.title ? `${r.title} · ` : ""}
-                                            {r.email}
-                                          </div>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                          <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Managed by</label>
-                                          <select
-                                            name={`mgr_${r.public_id}`}
-                                            defaultValue={m.public_id}
-                                            className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-sm text-[color:var(--sf-text-primary)]"
-                                          >
-                                            <option value="">(unassigned)</option>
-                                            {executives.map((e) => (
-                                              <option key={e.public_id} value={String(e.public_id)}>
-                                                {e.display_name}
-                                              </option>
-                                            ))}
-                                            {managers.map((mm) => (
-                                              <option key={mm.public_id} value={String(mm.public_id)}>
-                                                {mm.display_name}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        </div>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                ) : (
-                                  <div className="mt-2 text-sm text-[color:var(--sf-text-disabled)]">No reps assigned.</div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })
-                      ) : null}
-                      {!hasContent ? (
-                        <div className="text-sm text-[color:var(--sf-text-disabled)]">No managers or direct reps assigned. Assign managers and/or reps below (Unassigned section) or add users first.</div>
-                      ) : null}
-                    </div>
-                  </section>
-                );
-              })}
+              {roots.map((root) => renderNode(root, true))}
             </div>
           ) : (
             <div className="text-sm text-[color:var(--sf-text-secondary)]">
@@ -257,91 +158,16 @@ export default async function HierarchyPage({
             </div>
           )}
 
-          {(unassignedManagers.length || unassignedReps.length) ? (
+          {unassignedUsers.length ? (
             <section className="rounded-xl border border-[#F1C40F] bg-[color:var(--sf-surface-alt)] p-4">
               <div className="text-sm font-semibold text-[#F1C40F]">Unassigned</div>
               <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
                 These users do not currently have a manager assigned.
               </p>
 
-              {unassignedManagers.length ? (
-                <div className="mt-3">
-                  <div className="text-xs font-semibold text-[#F1C40F]">Managers</div>
-                  <ul className="mt-2 grid gap-2">
-                    {unassignedManagers.map((m) => (
-                      <li
-                        key={m.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[#F1C40F] bg-[color:var(--sf-surface)] px-3 py-2"
-                      >
-                        <div>
-                          <div className="text-sm text-[color:var(--sf-text-primary)]">{m.display_name}</div>
-                          <div className="text-xs text-[color:var(--sf-text-disabled)]">
-                            {m.title ? `${m.title} · ` : ""}
-                            {m.email}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Managed by</label>
-                          <select
-                            name={`mgr_${m.public_id}`}
-                            defaultValue=""
-                            className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-sm text-[color:var(--sf-text-primary)]"
-                          >
-                            <option value="">(unassigned)</option>
-                            {executives.map((e) => (
-                              <option key={e.public_id} value={String(e.public_id)}>
-                                {e.display_name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
-              {unassignedReps.length ? (
-                <div className="mt-3">
-                  <div className="text-xs font-semibold text-[#F1C40F]">Reps</div>
-                  <ul className="mt-2 grid gap-2">
-                    {unassignedReps.map((r) => (
-                      <li
-                        key={r.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[#F1C40F] bg-[color:var(--sf-surface)] px-3 py-2"
-                      >
-                        <div>
-                          <div className="text-sm text-[color:var(--sf-text-primary)]">{r.display_name}</div>
-                          <div className="text-xs text-[color:var(--sf-text-disabled)]">
-                            {r.title ? `${r.title} · ` : ""}
-                            {r.email}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Managed by</label>
-                          <select
-                            name={`mgr_${r.public_id}`}
-                            defaultValue=""
-                            className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-sm text-[color:var(--sf-text-primary)]"
-                          >
-                            <option value="">(unassigned)</option>
-                            {executives.map((e) => (
-                              <option key={e.public_id} value={String(e.public_id)}>
-                                {e.display_name}
-                              </option>
-                            ))}
-                            {managers.map((m) => (
-                              <option key={m.public_id} value={String(m.public_id)}>
-                                {m.display_name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
+              <div className="mt-3 grid gap-3">
+                {unassignedUsers.map((user) => renderNode(user))}
+              </div>
             </section>
           ) : null}
 
