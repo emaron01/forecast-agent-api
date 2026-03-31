@@ -151,9 +151,9 @@ async function getChannelDashboardHeroMetrics(args: {
       SELECT COALESCE(SUM(q.quota_amount), 0)::float8 AS channel_quota
       FROM quotas q
       WHERE q.org_id = $1::bigint
-        AND q.role_level = $6::int
+        AND q.role_level = $5::int
         AND q.quota_period_id = $2::bigint
-        AND q.rep_id = $7::bigint
+        AND q.rep_id = $6::bigint
     ),
     channel_closed_won AS (
       SELECT COALESCE(SUM(COALESCE(o.amount, 0)), 0)::float8 AS channel_closed_won
@@ -172,7 +172,7 @@ async function getChannelDashboardHeroMetrics(args: {
           END AS close_d
         FROM opportunities o
         WHERE o.org_id = $1::bigint
-          AND $5::boolean
+          AND $4::boolean
           AND o.rep_id = ANY($3::bigint[])
       ) o
       JOIN qp ON TRUE
@@ -202,7 +202,7 @@ async function getChannelDashboardHeroMetrics(args: {
           END AS close_d
         FROM opportunities o
         WHERE o.org_id = $1::bigint
-          AND $5::boolean
+          AND $4::boolean
           AND o.rep_id = ANY($3::bigint[])
       ) o
       JOIN qp ON TRUE
@@ -227,7 +227,6 @@ async function getChannelDashboardHeroMetrics(args: {
     [
       args.orgId,
       args.quotaPeriodId,
-      args.territoryRepIds,
       args.territoryRepIds,
       useTerritoryFilter,
       args.viewerQuotaRoleLevel,
