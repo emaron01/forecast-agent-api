@@ -42,8 +42,15 @@ export default async function HierarchyPage({
     directReportsByManagerId.get(managerId)!.push(user);
   }
 
-  const roots = executives;
-  const unassignedUsers = nonAdminUsers.filter((u) => u.hierarchy_level !== 1 && u.manager_user_id == null);
+  const roots = nonAdminUsers.filter((u) => u.manager_user_id == null || !userById.has(u.manager_user_id));
+  const attachedIds = new Set(
+    nonAdminUsers
+      .filter((u) => u.manager_user_id != null && userById.has(u.manager_user_id))
+      .map((u) => u.id)
+  );
+  const unassignedUsers = roots.length > 0
+    ? nonAdminUsers.filter((u) => !attachedIds.has(u.id) && !roots.find((r) => r.id === u.id))
+    : [];
 
   function managerOptionsForUser(user: (typeof nonAdminUsers)[number]) {
     if (user.hierarchy_level === 2) return executives;
