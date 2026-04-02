@@ -147,7 +147,7 @@ export default async function UsersPage({
           const base = channelAndSalesLeaders.filter((u) => u.id !== user.id);
           const mid = user.manager_user_id;
           if (mid != null && !base.some((u) => u.id === mid)) {
-            const mgr = userById.get(Number(mid));
+            const mgr = userById?.get(Number(mid));
             if (mgr) base.unshift(mgr as (typeof base)[number]);
           }
           return base;
@@ -270,8 +270,8 @@ export default async function UsersPage({
                   <td className="px-4 py-3">
                     {u.manager_user_id != null ? (
                       <span className="text-[color:var(--sf-text-primary)]">
-                        {String((userById.get(u.manager_user_id) as any)?.display_name || "").trim() ||
-                          String((userById.get(u.manager_user_id) as any)?.email || "").trim() ||
+                        {String((userById?.get(u.manager_user_id) as any)?.display_name || "").trim() ||
+                          String((userById?.get(u.manager_user_id) as any)?.email || "").trim() ||
                           ""}
                       </span>
                     ) : (
@@ -752,7 +752,7 @@ export default async function UsersPage({
                     defaultValue={
                       user.manager_user_id == null
                         ? ""
-                        : String(userById.get(user.manager_user_id)?.public_id || "")
+                        : String(userById?.get(user.manager_user_id)?.public_id || "")
                     }
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
@@ -775,7 +775,7 @@ export default async function UsersPage({
                     defaultValue={
                       user.manager_user_id == null
                         ? ""
-                        : String(userById.get(user.manager_user_id)?.public_id || "")
+                        : String(userById?.get(user.manager_user_id)?.public_id || "")
                     }
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
@@ -795,7 +795,7 @@ export default async function UsersPage({
                   <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
                   <select
                     name="manager_user_public_id"
-                    defaultValue={user.manager_user_id == null ? "" : String(userById.get(user.manager_user_id)?.public_id || "")}
+                    defaultValue={user.manager_user_id == null ? "" : String(userById?.get(user.manager_user_id)?.public_id || "")}
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
                     <option value="">(none)</option>
@@ -815,7 +815,7 @@ export default async function UsersPage({
                   <select
                     key={`channel-manager-${user.public_id}`}
                     name="manager_user_public_id"
-                    defaultValue={user.manager_user_id == null ? "" : String(userById.get(user.manager_user_id)?.public_id || "")}
+                    defaultValue={user.manager_user_id == null ? "" : String(userById?.get(user.manager_user_id)?.public_id || "")}
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
                     <option value="">(none)</option>

@@ -438,7 +438,11 @@ export async function updateUserAction(formData: FormData) {
       const mgr = mgrRes.rows?.[0] as { id?: number; hierarchy_level?: number } | undefined;
       if (!mgr) throw new Error("manager_user_id not found in org");
       const mgrLevel = Number(mgr.hierarchy_level);
-      const isConfigurable = mgrLevel === HIERARCHY.EXEC_MANAGER || mgrLevel === HIERARCHY.MANAGER;
+      const isConfigurable =
+        mgrLevel === HIERARCHY.EXEC_MANAGER ||
+        mgrLevel === HIERARCHY.MANAGER ||
+        mgrLevel === HIERARCHY.CHANNEL_EXEC ||
+        mgrLevel === HIERARCHY.CHANNEL_MANAGER;
       if (!isConfigurable && (see_all_visibility || checkedRepIds.length)) {
         throw new Error("visibility is only configurable for EXEC_MANAGER (level 1) and MANAGER (level 2)");
       }
