@@ -2,6 +2,38 @@
 
 import { useLayoutEffect } from "react";
 
+function hierarchyLevelForRole(role: string) {
+  switch (String(role || "").trim()) {
+    case "ADMIN":
+      return 0;
+    case "EXEC_MANAGER":
+      return 1;
+    case "MANAGER":
+      return 2;
+    case "REP":
+      return 3;
+    case "CHANNEL_EXECUTIVE":
+      return 6;
+    case "CHANNEL_DIRECTOR":
+      return 7;
+    case "CHANNEL_REP":
+      return 8;
+    default:
+      return null;
+  }
+}
+
+function canAssignDirectReportLevel(role: string, targetLevelRaw: string | null) {
+  const managerLevel = hierarchyLevelForRole(role);
+  const targetLevel = Number(targetLevelRaw);
+  if (!Number.isFinite(targetLevel) || managerLevel == null || targetLevel === 0) return false;
+  if (managerLevel === 1) return targetLevel >= 1;
+  if (managerLevel === 2) return targetLevel >= 2;
+  if (managerLevel === 6) return targetLevel >= 6;
+  if (managerLevel === 7) return targetLevel >= 7;
+  return false;
+}
+
 function syncUserFormRoleSections(form: HTMLFormElement) {
   const roleSelect = form.querySelector<HTMLSelectElement>('select[name="role"]');
   const role = roleSelect ? String(roleSelect.value || "") : "REP";
@@ -14,6 +46,17 @@ function syncUserFormRoleSections(form: HTMLFormElement) {
       .map((s) => String(s || "").trim())
       .filter(Boolean);
     const shouldShow = roles.includes(role);
+    el.hidden = !shouldShow;
+    el.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>(
+      "input, select, textarea, button"
+    ).forEach((field) => {
+      field.disabled = !shouldShow;
+    });
+  });
+
+  const directReportRows = form.querySelectorAll<HTMLElement>("[data-direct-report-level]");
+  directReportRows.forEach((el) => {
+    const shouldShow = canAssignDirectReportLevel(role, el.getAttribute("data-direct-report-level"));
     el.hidden = !shouldShow;
     el.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>(
       "input, select, textarea, button"

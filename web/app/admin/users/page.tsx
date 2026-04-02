@@ -41,6 +41,17 @@ function YesNoPill(props: { value: any }) {
   return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${cls}`}>{v ? "Yes" : "No"}</span>;
 }
 
+function canAssignDirectReportLevel(managerLevel: number | null | undefined, targetLevel: number | null | undefined) {
+  const manager = Number(managerLevel);
+  const target = Number(targetLevel);
+  if (!Number.isFinite(manager) || !Number.isFinite(target) || target === HIERARCHY.ADMIN) return false;
+  if (manager === HIERARCHY.EXEC_MANAGER) return target >= HIERARCHY.EXEC_MANAGER;
+  if (manager === HIERARCHY.MANAGER) return target >= HIERARCHY.MANAGER;
+  if (manager === HIERARCHY.CHANNEL_EXEC) return target >= HIERARCHY.CHANNEL_EXEC;
+  if (manager === HIERARCHY.CHANNEL_MANAGER) return target >= HIERARCHY.CHANNEL_MANAGER;
+  return false;
+}
+
 export default async function UsersPage({
   searchParams,
 }: {
@@ -435,21 +446,20 @@ export default async function UsersPage({
               >
                 <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct reports (assignments)</div>
                 <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-                  If creating an EXEC_MANAGER/MANAGER and <span className="font-mono">Can View All User Data</span> is unchecked, select who reports to them.
-                  These selections also control their visibility scope.
+                  Select which existing users report to this leader. These selections also control their visibility scope.
                 </p>
                 <div className="mt-2 grid gap-2">
                   {users
                     .filter((u) => u.active)
                     .filter((u) => u.id !== user?.id)
                     .filter((u) => !isAdminLevel(roleToHierarchyLevel(u.role)))
-                    .filter((u) => {
-                      const level = Number(u.hierarchy_level);
-                      const selectedLevel = Number(prefillRole ? roleToHierarchyLevel(prefillRole) : HIERARCHY.REP);
-                      return isSalesLeaderLevel(selectedLevel) ? level === HIERARCHY.REP : level >= HIERARCHY.CHANNEL_MANAGER && level <= HIERARCHY.CHANNEL_REP;
-                    })
                     .map((u) => (
-                      <label key={u.public_id} className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                      <label
+                        key={u.public_id}
+                        className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]"
+                        data-direct-report-level={String(Number(u.hierarchy_level ?? ""))}
+                        hidden={!canAssignDirectReportLevel(roleToHierarchyLevel(prefillRole || "REP"), u.hierarchy_level)}
+                      >
                         <input type="checkbox" name="visible_user_public_id" value={String(u.public_id)} className="h-4 w-4" />
                         <span>
                           {u.display_name}{" "}
@@ -708,22 +718,20 @@ export default async function UsersPage({
               >
                 <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct reports (assignments)</div>
                 <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-                  If editing an EXEC_MANAGER/MANAGER and <span className="font-mono">Can View All User Data</span> is unchecked, select which users
-                  report to them. These selections also control their visibility scope.
+                  Select which existing users report to this leader. These selections also control their visibility scope.
                 </p>
                 <div className="mt-2 grid gap-2">
                   {users
                     .filter((u) => u.active)
                     .filter((u) => u.id !== user.id)
                     .filter((u) => !isAdminLevel(roleToHierarchyLevel(u.role)))
-                    .filter((u) => {
-                      const level = Number(u.hierarchy_level);
-                      return isSalesLeaderLevel(roleToHierarchyLevel(user.role))
-                        ? level === HIERARCHY.REP
-                        : level >= HIERARCHY.CHANNEL_MANAGER && level <= HIERARCHY.CHANNEL_REP;
-                    })
                     .map((u) => (
-                      <label key={u.public_id} className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                      <label
+                        key={u.public_id}
+                        className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]"
+                        data-direct-report-level={String(Number(u.hierarchy_level ?? ""))}
+                        hidden={!canAssignDirectReportLevel(roleToHierarchyLevel(user.role), u.hierarchy_level)}
+                      >
                         <input
                           type="checkbox"
                           name="visible_user_public_id"
