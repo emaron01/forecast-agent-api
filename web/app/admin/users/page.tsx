@@ -95,6 +95,18 @@ export default async function UsersPage({
   const execManagers = isAdmin ? usersRaw.filter((u) => isExecManagerLevel(roleToHierarchyLevel(u.role)) && u.active) : [];
   const managers = isAdmin ? usersRaw.filter((u) => isManagerLevel(roleToHierarchyLevel(u.role)) && u.active) : [];
   const admins = isAdmin ? usersRaw.filter((u) => isAdminLevel(roleToHierarchyLevel(u.role)) && u.active) : [];
+  const repManagerCandidates = isAdmin
+    ? usersRaw.filter((u) => {
+        const level = Number(u.hierarchy_level);
+        return !!u.active && (level === HIERARCHY.EXEC_MANAGER || level === HIERARCHY.MANAGER);
+      })
+    : [];
+  const execManagerCandidates = isAdmin
+    ? usersRaw.filter((u) => {
+        const level = Number(u.hierarchy_level);
+        return !!u.active && (level === HIERARCHY.ADMIN || level === HIERARCHY.EXEC_MANAGER);
+      })
+    : [];
 
   /** Active org users only — dedicated query so manager dropdowns stay populated for admins. */
   const allActiveUsers = isAdmin
@@ -461,13 +473,13 @@ export default async function UsersPage({
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
                     <option value="">(none)</option>
-                    {managers.map((m) => (
+                    {repManagerCandidates.map((m) => (
                       <option key={m.public_id} value={String(m.public_id)}>
-                        {m.display_name}
+                        {m.display_name} ({m.role})
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-[color:var(--sf-text-disabled)]">For reps, this must be a Manager.</p>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">Optional. Sets the reporting line for this rep.</p>
                 </div>
 
                 <div className="grid gap-1" data-show-roles="MANAGER" hidden>
@@ -495,13 +507,13 @@ export default async function UsersPage({
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
                     <option value="">(none)</option>
-                    {admins.map((a) => (
-                      <option key={a.public_id} value={String(a.public_id)}>
-                        {a.display_name}
+                    {execManagerCandidates.map((u) => (
+                      <option key={u.public_id} value={String(u.public_id)}>
+                        {u.display_name} ({u.role})
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-[color:var(--sf-text-disabled)]">For executive managers, this must be an Admin.</p>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">Optional. Sets the reporting line for this executive.</p>
                 </div>
 
                 <div className="grid gap-1" data-show-roles="CHANNEL_EXECUTIVE,CHANNEL_DIRECTOR,CHANNEL_REP" hidden>
@@ -745,15 +757,15 @@ export default async function UsersPage({
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
                     <option value="">(none)</option>
-                    {managers
+                    {repManagerCandidates
                       .filter((m) => m.id !== user.id)
                       .map((m) => (
                         <option key={m.public_id} value={String(m.public_id)}>
-                          {m.display_name}
+                          {m.display_name} ({m.role})
                         </option>
                       ))}
                   </select>
-                  <p className="text-xs text-[color:var(--sf-text-disabled)]">For reps, this must be a Manager.</p>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">Optional. Sets the reporting line for this rep.</p>
                 </div>
 
                 <div className="grid gap-1" data-show-roles="MANAGER" hidden>
@@ -787,15 +799,15 @@ export default async function UsersPage({
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
                     <option value="">(none)</option>
-                    {admins
-                      .filter((a) => a.id !== user.id)
-                      .map((a) => (
-                        <option key={a.public_id} value={String(a.public_id)}>
-                          {a.display_name}
+                    {execManagerCandidates
+                      .filter((u) => u.id !== user.id)
+                      .map((u) => (
+                        <option key={u.public_id} value={String(u.public_id)}>
+                          {u.display_name} ({u.role})
                         </option>
                       ))}
                   </select>
-                  <p className="text-xs text-[color:var(--sf-text-disabled)]">For executive managers, this must be an Admin.</p>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">Optional. Sets the reporting line for this executive.</p>
                 </div>
 
                 <div className="grid gap-1" data-show-roles="CHANNEL_EXECUTIVE,CHANNEL_DIRECTOR,CHANNEL_REP" hidden>
