@@ -210,8 +210,8 @@ export async function createUserAction(formData: FormData) {
         if (isManagerLevel(hierarchy_level) && !isExecManagerLevel(managerHierarchyLevel)) {
           throw new Error("MANAGER manager must be an EXEC_MANAGER user in this org");
         }
-        if (isExecManagerLevel(hierarchy_level) && !isAdminLevel(managerHierarchyLevel)) {
-          throw new Error("EXEC_MANAGER manager must be an ADMIN user in this org");
+        if (isExecManagerLevel(hierarchy_level) && Number(managerHierarchyLevel) > HIERARCHY.EXEC_MANAGER) {
+          throw new Error("Executive managers must report to an admin or another executive manager");
         }
         effectiveManagerId = id;
       }
@@ -372,8 +372,8 @@ export async function updateUserAction(formData: FormData) {
       if (isManagerLevel(hierarchy_level) && !isExecManagerLevel(managerHierarchyLevel)) {
         throw new Error("MANAGER manager must be an EXEC_MANAGER user in this org");
       }
-      if (isExecManagerLevel(hierarchy_level) && !isAdminLevel(managerHierarchyLevel)) {
-        throw new Error("EXEC_MANAGER manager must be an ADMIN user in this org");
+      if (isExecManagerLevel(hierarchy_level) && Number(managerHierarchyLevel) > HIERARCHY.EXEC_MANAGER) {
+        throw new Error("Executive managers must report to an admin or another executive manager");
       }
       effectiveManagerId = id;
     }
