@@ -4,13 +4,14 @@ import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireOrgContext } from "../../../lib/auth";
+import { pool } from "../../../lib/pool";
 import {
   createPasswordResetToken,
-  replaceManagerVisibility,
   createUser,
   deleteUser,
   getUserById,
   listUsers,
+  replaceManagerVisibility,
   setUserManagerUserId,
   syncRepsFromUsers,
   updateUser,
@@ -417,27 +418,126 @@ export async function updateUserAction(formData: FormData) {
   const visiblePublicIds = formData.getAll("visible_user_public_id").map(String).filter(Boolean);
   const visibleIds: number[] = [];
   for (const pid of visiblePublicIds) {
-    visibleIds.push(await resolvePublicId("users", pid));
+    const resolvedId = await resolvePublicId("users", pid);
+    if (resolvedId !== userId) visibleIds.push(resolvedId);
   }
+  const checkedRepIds = Array.from(new Set(visibleIds)).filter((id) => Number.isFinite(id) && id > 0);
   if (isManagerLevel(hierarchy_level) && !see_all_visibility && visibleIds.length === 0) {
     throw new Error("MANAGER must have visibility assignments unless see_all_visibility is enabled");
   }
-  if (isExecManagerLevel(hierarchy_level) || isManagerLevel(hierarchy_level)) {
-    await replaceManagerVisibility({
-      orgId,
-      managerUserId: userId,
-      visibleUserIds: visibleIds,
-      see_all_visibility: !!see_all_visibility,
-    });
-    await syncDirectReportsFromVisibility({
-      orgId,
-      managerUserId: userId,
-      managerHierarchyLevel: hierarchy_level,
-      visibleUserIds: visibleIds,
-    });
-  } else {
-    // Non-manager: clear edges + disable see-all.
-    await replaceManagerVisibility({ orgId, managerUserId: userId, visibleUserIds: [], see_all_visibility: false }).catch(() => null);
+  const isSalesLeader = isExecManagerLevel(hierarchy_level) || isManagerLevel(hierarchy_level);
+  const supportsDirectReportAssignments =
+    isSalesLeader || hierarchy_level === HIERARCHY.CHANNEL_EXEC || hierarchy_level === HIERARCHY.CHANNEL_MANAGER;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    if (isSalesLeader) {
+      const mgrRes = await client.query(`SELECT id, hierarchy_level FROM users WHERE id = $1 AND org_id = $2 LIMIT 1`, [userId, orgId]);
+      const mgr = mgrRes.rows?.[0] as { id?: number; hierarchy_level?: number } | undefined;
+      if (!mgr) throw new Error("manager_user_id not found in org");
+      const mgrLevel = Number(mgr.hierarchy_level);
+      const isConfigurable = mgrLevel === HIERARCHY.EXEC_MANAGER || mgrLevel === HIERARCHY.MANAGER;
+      if (!isConfigurable && (see_all_visibility || checkedRepIds.length)) {
+        throw new Error("visibility is only configurable for EXEC_MANAGER (level 1) and MANAGER (level 2)");
+      }
+
+      await client.query(`UPDATE users SET see_all_visibility = $3, updated_at = NOW() WHERE id = $1 AND org_id = $2`, [
+        userId,
+        orgId,
+        !!see_all_visibility,
+      ]);
+
+      await client.query(`DELETE FROM manager_visibility WHERE manager_user_id = $1`, [userId]);
+
+      if (checkedRepIds.length) {
+        const targetsRes = await client.query(
+          `
+          SELECT id, role, hierarchy_level
+            FROM users
+           WHERE org_id = $1
+             AND id = ANY($2::int[])
+          `,
+          [orgId, checkedRepIds]
+        );
+        const allowedIds = (targetsRes.rows || [])
+          .filter((r: any) => r && !isAdminLevel(r.hierarchy_level) && Number(r.hierarchy_level) >= 2)
+          .map((r: any) => Number(r.id))
+          .filter((n) => Number.isFinite(n) && n > 0);
+
+        const uniq = Array.from(new Set(allowedIds)).filter((n) => n !== userId);
+        if (uniq.length) {
+          const cycleRes = await client.query(
+            `
+            WITH RECURSIVE walk(start_id, id) AS (
+              SELECT x AS start_id, x AS id
+                FROM unnest($1::int[]) AS x
+              UNION ALL
+              SELECT w.start_id, mv.visible_user_id
+                FROM walk w
+                JOIN manager_visibility mv ON mv.manager_user_id = w.id
+            )
+            SELECT DISTINCT start_id
+              FROM walk
+             WHERE id = $2
+             LIMIT 1
+            `,
+            [uniq, userId]
+          );
+          if (cycleRes.rows?.length) {
+            throw new Error("invalid visibility: would create a circular visibility assignment");
+          }
+
+          const values: Array<number> = [];
+          const rowsSql: string[] = [];
+          let p = 0;
+          for (const id of uniq) {
+            values.push(userId, id);
+            rowsSql.push(`($${p + 1}, $${p + 2})`);
+            p += 2;
+          }
+          await client.query(`INSERT INTO manager_visibility (manager_user_id, visible_user_id) VALUES ${rowsSql.join(", ")}`, values);
+        }
+      }
+    } else {
+      await client.query(`UPDATE users SET see_all_visibility = FALSE, updated_at = NOW() WHERE id = $1 AND org_id = $2`, [userId, orgId]);
+      await client.query(`DELETE FROM manager_visibility WHERE manager_user_id = $1`, [userId]);
+    }
+
+    if (supportsDirectReportAssignments) {
+      if (checkedRepIds.length) {
+        await client.query(
+          `
+          UPDATE users
+             SET manager_user_id = $1,
+                 updated_at = NOW()
+           WHERE org_id = $2
+             AND id = ANY($3::int[])
+          `,
+          [userId, orgId, checkedRepIds]
+        );
+      }
+
+      await client.query(
+        `
+        UPDATE users
+           SET manager_user_id = NULL,
+               updated_at = NOW()
+         WHERE org_id = $1
+           AND manager_user_id = $2
+           AND id != ALL($3::int[])
+        `,
+        [orgId, userId, checkedRepIds]
+      );
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
   }
 
   // Keep the `reps` directory in sync with `users` (names + hierarchy).
