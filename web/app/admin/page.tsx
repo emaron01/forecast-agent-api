@@ -38,6 +38,16 @@ export default async function AdminHome() {
       <Card href="/admin/excel-opportunities" title="Excel Upload" desc="Upload an Excel of opportunities and map fields." />
       <Card href="/admin/org-profile" title="Org Profile" desc="Manage organization profile fields." />
       <Card href="/admin/hierarchy" title="Sales Organization" desc="set-up, edit and review Sales Org Assignmnets." />
+      <Card
+        href="/admin/channel-alignment"
+        title="Channel Alignment"
+        desc="Align channel team members to sales territories."
+      />
+      <Card
+        href="/admin/partner-assignments"
+        title="Partner Assignments"
+        desc="Assign partners to channel reps for deal attribution."
+      />
       {ctx.kind === "master" ? (
         <Card href="/admin/mapping-sets" title="Mapping Sets" desc="Owner-only: manage mapping sets and their field mappings." />
       ) : null}
