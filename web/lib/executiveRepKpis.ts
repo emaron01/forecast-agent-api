@@ -40,16 +40,18 @@ export async function getQuotaByRepPeriod(args: {
   const { rows } = await pool.query<QuotaByRepPeriodRow>(
     `
     SELECT
-      quota_period_id::text AS quota_period_id,
-      rep_id::text AS rep_id,
-      COALESCE(SUM(quota_amount), 0)::float8 AS quota_amount
-    FROM quotas
-    WHERE org_id = $1::bigint
-      AND role_level = 3
-      AND rep_id IS NOT NULL
-      AND quota_period_id = ANY($2::bigint[])
-      AND (NOT $4::boolean OR rep_id = ANY($3::bigint[]))
-    GROUP BY quota_period_id, rep_id
+      q.quota_period_id::text AS quota_period_id,
+      q.rep_id::text AS rep_id,
+      COALESCE(SUM(q.quota_amount), 0)::float8 AS quota_amount
+    FROM quotas q
+    JOIN reps r
+      ON r.id = q.rep_id
+    WHERE q.org_id = $1::bigint
+      AND r.hierarchy_level IN (1, 2, 3)
+      AND q.rep_id IS NOT NULL
+      AND q.quota_period_id = ANY($2::bigint[])
+      AND (NOT $4::boolean OR q.rep_id = ANY($3::bigint[]))
+    GROUP BY q.quota_period_id, q.rep_id
     ORDER BY quota_period_id DESC, rep_id ASC
     `,
     [args.orgId, args.quotaPeriodIds, args.repIds || [], useRepFilter]

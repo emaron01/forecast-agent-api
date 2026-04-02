@@ -957,12 +957,14 @@ export async function QuarterSalesForecastSummary(props: {
       ? await pool
           .query<{ quota_amount: number }>(
             `
-            SELECT COALESCE(SUM(quota_amount), 0)::float8 AS quota_amount
-              FROM quotas
-             WHERE org_id = $1::bigint
-               AND role_level = 3
-               AND quota_period_id = $2::bigint
-               AND rep_id = ANY($3::bigint[])
+            SELECT COALESCE(SUM(q.quota_amount), 0)::float8 AS quota_amount
+              FROM quotas q
+              JOIN reps r
+                ON r.id = q.rep_id
+             WHERE q.org_id = $1::bigint
+               AND r.hierarchy_level IN (1, 2, 3)
+               AND q.quota_period_id = $2::bigint
+               AND q.rep_id = ANY($3::bigint[])
             `,
             [props.orgId, qpId, repIdsToUse]
           )

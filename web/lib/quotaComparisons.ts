@@ -153,12 +153,12 @@ export async function getCompanyAttainmentForPeriod(args: {
     quarterly_company_quota AS (
       SELECT COALESCE(SUM(q.quota_amount), 0)::float8 AS amt
         FROM quotas q
+        JOIN reps r
+          ON r.id = q.rep_id
        WHERE q.org_id = $1::bigint
+         AND r.hierarchy_level IN (1, 2, 3)
          AND q.quota_period_id = $2::bigint
-         AND (
-           ((NOT $3::boolean) AND q.role_level = 0)
-           OR ($3::boolean AND q.role_level = 3 AND q.rep_id = ANY($4::bigint[]))
-         )
+         AND (NOT $3::boolean OR q.rep_id = ANY($4::bigint[]))
     ),
     annual_actual AS (
       SELECT COALESCE(SUM(o.amount), 0)::float8 AS amt
@@ -173,12 +173,12 @@ export async function getCompanyAttainmentForPeriod(args: {
     annual_company_quota AS (
       SELECT COALESCE(SUM(q.quota_amount), 0)::float8 AS amt
         FROM quotas q
+        JOIN reps r
+          ON r.id = q.rep_id
         JOIN quota_periods p ON p.id = q.quota_period_id
        WHERE q.org_id = $1::bigint
-         AND (
-           ((NOT $3::boolean) AND q.role_level = 0)
-           OR ($3::boolean AND q.role_level = 3 AND q.rep_id = ANY($4::bigint[]))
-         )
+         AND r.hierarchy_level IN (1, 2, 3)
+         AND (NOT $3::boolean OR q.rep_id = ANY($4::bigint[]))
          AND p.org_id = $1::bigint
          AND p.fiscal_year = (SELECT fiscal_year FROM qp)
     )
