@@ -316,7 +316,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
     const byCat = new Map<string, any>();
     for (const row of oppState?.categories || []) byCat.set(String(row.category), row);
     return categories.map((c) => {
-      const r = byCat.get(c.key) || {};
+      const r = byCat?.get(c.key) || {};
       const canonical = (MEDDPICC_CANONICAL as any)[c.key] || { titleLine: c.key, meaningLine: "" };
       return {
         key: c.key,

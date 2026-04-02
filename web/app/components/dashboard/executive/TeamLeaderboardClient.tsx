@@ -310,7 +310,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
   }, [managerRows, repsByManager]);
 
   const managerIdsWithReps = useMemo(
-    () => orderedManagerIds.filter((mid) => (repsByManager.get(mid) || []).length > 0),
+    () => orderedManagerIds.filter((mid) => (repsByManager?.get(mid) || []).length > 0),
     [orderedManagerIds, repsByManager]
   );
 
@@ -609,7 +609,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
   };
 
   const renderManagerCard = (managerId: string) => {
-    const repsUnder = (repsByManager.get(managerId) || [])
+    const repsUnder = (repsByManager?.get(managerId) || [])
       .slice()
       .sort((a, b) => {
         const aa = a.attainment == null || !Number.isFinite(a.attainment) ? Number.POSITIVE_INFINITY : Number(a.attainment);

@@ -830,12 +830,12 @@ export function CustomReportDesignerClient(props: {
     return m;
   }, []);
   const metricList = useMemo(
-    () => Array.from(selectedMetrics.values()).sort((a, b) => (labelForMetric.get(a) || String(a)).localeCompare(labelForMetric.get(b) || String(b))),
+    () => Array.from(selectedMetrics.values()).sort((a, b) => (labelForMetric?.get(a) || String(a)).localeCompare(labelForMetric?.get(b) || String(b))),
     [selectedMetrics, labelForMetric]
   );
 
   const selectedFields = useMemo(
-    () => metricList.map((k) => ({ key: k, label: labelForMetric.get(k) || String(k) })),
+    () => metricList.map((k) => ({ key: k, label: labelForMetric?.get(k) || String(k) })),
     [metricList, labelForMetric]
   );
   const chartPreviewRows = previewRows;
@@ -1093,7 +1093,7 @@ export function CustomReportDesignerClient(props: {
         team: teamStr,
       };
       for (const k of metricList) {
-        out[labelForMetric.get(k) || k] = renderMetricValue(k, r);
+        out[labelForMetric?.get(k) || k] = renderMetricValue(k, r);
       }
       return out;
     });

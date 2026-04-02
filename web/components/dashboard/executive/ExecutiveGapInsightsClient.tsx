@@ -1137,7 +1137,7 @@ export function ExecutiveGapInsightsClient(props: {
     const counts = new Map<string, number>();
     for (const d of flattenedDeals) {
       const uniqKeys = new Set<string>((d.risk_flags || []).map((x) => String(x.key)));
-      for (const k of uniqKeys) counts.set(k, (counts.get(k) || 0) + 1);
+      for (const k of uniqKeys) counts.set(k, (counts?.get(k) || 0) + 1);
     }
     return counts;
   }, [flattenedDeals]);
