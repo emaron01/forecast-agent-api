@@ -86,23 +86,23 @@ export default async function UsersPage({
 
   const users =
     roleFilter
-      ? usersRaw.filter((u) => {
+      ? (usersRaw ?? []).filter((u) => {
           if (roleFilter && u.role !== roleFilter) return false;
           return true;
         })
       : usersRaw;
 
-  const execManagers = isAdmin ? usersRaw.filter((u) => isExecManagerLevel(roleToHierarchyLevel(u.role)) && u.active) : [];
-  const managers = isAdmin ? usersRaw.filter((u) => isManagerLevel(roleToHierarchyLevel(u.role)) && u.active) : [];
-  const admins = isAdmin ? usersRaw.filter((u) => isAdminLevel(roleToHierarchyLevel(u.role)) && u.active) : [];
+  const execManagers = isAdmin ? (usersRaw ?? []).filter((u) => isExecManagerLevel(roleToHierarchyLevel(u.role)) && u.active) : [];
+  const managers = isAdmin ? (usersRaw ?? []).filter((u) => isManagerLevel(roleToHierarchyLevel(u.role)) && u.active) : [];
+  const admins = isAdmin ? (usersRaw ?? []).filter((u) => isAdminLevel(roleToHierarchyLevel(u.role)) && u.active) : [];
   const repManagerCandidates = isAdmin
-    ? usersRaw.filter((u) => {
+    ? (usersRaw ?? []).filter((u) => {
         const level = Number(u.hierarchy_level);
         return !!u.active && (level === HIERARCHY.EXEC_MANAGER || level === HIERARCHY.MANAGER);
       })
     : [];
   const execManagerCandidates = isAdmin
-    ? usersRaw.filter((u) => {
+    ? (usersRaw ?? []).filter((u) => {
         const level = Number(u.hierarchy_level);
         return !!u.active && (level === HIERARCHY.ADMIN || level === HIERARCHY.EXEC_MANAGER);
       })
@@ -120,7 +120,7 @@ export default async function UsersPage({
     const level = Number(u.hierarchy_level);
     return !!u.active && u.hierarchy_level !== 0 && (level <= 2 || (level >= 6 && level <= 7));
   });
-  const userById = new Map<number, (typeof usersRaw)[number]>(usersRaw.map((u) => [u.id, u]));
+  const userById = new Map<number, (typeof usersRaw)[number]>((usersRaw ?? []).map((u) => [u.id, u]));
   for (const u of allActiveUsers) {
     if (!userById.has(u.id)) userById.set(u.id, u as any);
   }
@@ -130,7 +130,7 @@ export default async function UsersPage({
     userById.set(ctx.user.id, ctx.user as any);
   }
 
-  const createdUser = created ? usersRaw.find((u) => String(u.public_id) === String(created)) || null : null;
+  const createdUser = created ? (usersRaw ?? []).find((u) => String(u.public_id) === String(created)) || null : null;
 
   const userId = userPublicId ? await resolvePublicId("users", userPublicId).catch(() => 0) : 0;
   const user =
