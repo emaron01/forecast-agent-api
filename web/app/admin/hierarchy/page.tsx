@@ -53,8 +53,7 @@ export default async function HierarchyPage({
     : [];
 
   function managerOptionsForUser(user: (typeof nonAdminUsers)[number]) {
-    if (user.hierarchy_level === 2) return executives;
-    return [...executives, ...managers];
+    return activeUsers.filter((u) => u.id !== user.id && u.hierarchy_level !== 0 && (u.active ?? true));
   }
 
   function renderNode(user: (typeof nonAdminUsers)[number], isRoot = false): React.JSX.Element {
