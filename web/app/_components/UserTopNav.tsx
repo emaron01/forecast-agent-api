@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { AuthUser } from "../../lib/auth";
-import { isAdmin, isSalesLeader, isSalesRep } from "../../lib/roleHelpers";
+import { isAdmin, isChannelExec, isChannelManager, isSalesLeader, isSalesRep } from "../../lib/roleHelpers";
 import { UserProfileBadge } from "./UserProfileBadge";
 
 function NavLink({ href, label }: { href: string; label: string }) {
@@ -18,6 +18,7 @@ function NavLink({ href, label }: { href: string; label: string }) {
 export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser }) {
   const dashHref = isSalesLeader(user) ? "/dashboard/executive" : "/dashboard";
   const salesOpportunitiesHref = isSalesRep(user) || user.hierarchy_level === 8 ? "/forecast" : "/analytics/executive/sales-opportunities";
+  const isChannelLeader = isChannelExec(user) || isChannelManager(user);
   return (
     <header className="overflow-visible border-b border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
       <div className="flex h-[65px] w-full items-center justify-between overflow-visible px-6">
@@ -38,6 +39,10 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
             <NavLink href={dashHref} label="Dashboard" />
             <NavLink href={salesOpportunitiesHref} label="Sales Opportunities" />
             {isAdmin(user) && <NavLink href="/analytics" label="Analytics" />}
+            {isSalesLeader(user) && <NavLink href="/analytics/quotas/manager" label="Quotas" />}
+            {isChannelLeader ? <NavLink href="/analytics/quotas/manager" label="Quotas" /> : null}
+            {isChannelLeader ? <NavLink href="/admin/channel-alignment" label="Channel Alignment" /> : null}
+            {isChannelLeader ? <NavLink href="/admin/partner-assignments" label="Partner Assignments" /> : null}
             <NavLink href="/dashboard/excel-upload" label="Upload" />
           </nav>
         </div>

@@ -8,10 +8,16 @@ import type { QuotaPeriodRow, QuotaRow } from "../../../../lib/quotaModels";
 import { UserTopNav } from "../../../_components/UserTopNav";
 import { dateOnly } from "../../../../lib/dateOnly";
 import { FiscalYearSelector } from "../../../../components/quotas/FiscalYearSelector";
-import { assignQuotaToUser, getDistinctFiscalYears, getQuotaPeriods } from "../actions";
+import { getDistinctFiscalYears, getQuotaPeriods } from "../actions";
 import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
 import { RepQuotaSetupClient } from "./RepQuotaSetupClient";
-import { isManager } from "../../../../lib/roleHelpers";
+import {
+  isChannelExec,
+  isChannelManager,
+  isChannelRep,
+  isExecManager,
+  isManager,
+} from "../../../../lib/roleHelpers";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -72,6 +78,147 @@ async function listDirectReps(args: { orgId: number; managerRepId: number }): Pr
     [args.orgId, args.managerRepId]
   );
   return rows as DirectRep[];
+}
+
+async function listChannelDirectReps(args: { orgId: number; channelLeaderUserId: number }): Promise<DirectRep[]> {
+  const { rows } = await pool.query<DirectRep>(
+    `
+    SELECT
+      r.id,
+      r.public_id::text AS public_id,
+      COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), ('Rep ' || r.id::text)) AS rep_name,
+      u.hierarchy_level
+    FROM reps r
+    JOIN users u
+      ON u.id = r.user_id
+     AND u.org_id = r.organization_id
+    WHERE r.organization_id = $1
+      AND u.manager_user_id = $2
+      AND u.hierarchy_level = 8
+      AND r.active IS TRUE
+      AND COALESCE(u.active, TRUE) IS TRUE
+    ORDER BY rep_name ASC, r.id ASC
+    `,
+    [args.orgId, args.channelLeaderUserId]
+  );
+  return rows as DirectRep[];
+}
+
+async function listSelfRep(args: { orgId: number; userId: number }): Promise<DirectRep[]> {
+  const { rows } = await pool.query<DirectRep>(
+    `
+    SELECT
+      r.id,
+      r.public_id::text AS public_id,
+      COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), ('Rep ' || r.id::text)) AS rep_name,
+      u.hierarchy_level
+    FROM reps r
+    JOIN users u
+      ON u.id = r.user_id
+     AND u.org_id = r.organization_id
+    WHERE r.organization_id = $1
+      AND r.user_id = $2
+      AND r.active IS TRUE
+      AND COALESCE(u.active, TRUE) IS TRUE
+    ORDER BY r.id DESC
+    LIMIT 1
+    `,
+    [args.orgId, args.userId]
+  );
+  return rows as DirectRep[];
+}
+
+async function listQuotaScopedReps(args: {
+  orgId: number;
+  user: Awaited<ReturnType<typeof requireAuth>> extends { kind: "user"; user: infer U } ? U : never;
+}) {
+  const managerRepId = await managerRepIdForUser({ orgId: args.orgId, userId: args.user.id });
+
+  if (isChannelRep(args.user)) {
+    const selfRep = await listSelfRep({ orgId: args.orgId, userId: args.user.id }).catch(() => []);
+    return { managerRepId, reps: selfRep, showTeam: false };
+  }
+
+  if (isChannelExec(args.user) || isChannelManager(args.user)) {
+    const reps = await listChannelDirectReps({
+      orgId: args.orgId,
+      channelLeaderUserId: args.user.id,
+    }).catch(() => []);
+    return { managerRepId, reps, showTeam: true };
+  }
+
+  if (isManager(args.user) || isExecManager(args.user)) {
+    const reps = managerRepId
+      ? await listDirectReps({ orgId: args.orgId, managerRepId }).catch(() => [])
+      : [];
+    return { managerRepId, reps, showTeam: true };
+  }
+
+  return { managerRepId, reps: [] as DirectRep[], showTeam: false };
+}
+
+async function upsertRepQuota(args: {
+  orgId: number;
+  repId: number;
+  managerId: number | null;
+  roleLevel: number;
+  quotaPeriodId: string;
+  quotaAmount: number;
+  annualTarget: number;
+}) {
+  const existing = await pool.query<{ id: string }>(
+    `
+    SELECT id::text AS id
+      FROM quotas
+     WHERE org_id = $1::bigint
+       AND quota_period_id = $2::bigint
+       AND role_level = $3::int
+       AND COALESCE(rep_id, 0) = COALESCE($4::bigint, 0)
+       AND COALESCE(manager_id, 0) = COALESCE($5::bigint, 0)
+     ORDER BY id DESC
+     LIMIT 1
+    `,
+    [args.orgId, args.quotaPeriodId, args.roleLevel, args.repId, args.managerId]
+  );
+
+  const id = String(existing.rows?.[0]?.id || "").trim();
+  if (id) {
+    await pool.query(
+      `
+      UPDATE quotas
+         SET quota_amount = $6::numeric,
+             annual_target = $7::numeric,
+             updated_at = NOW()
+       WHERE org_id = $1::bigint
+         AND id = $2::uuid
+      `,
+      [args.orgId, id, args.repId, args.managerId, args.roleLevel, args.quotaAmount, args.annualTarget]
+    );
+    return;
+  }
+
+  await pool.query(
+    `
+    INSERT INTO quotas (
+      org_id,
+      rep_id,
+      manager_id,
+      role_level,
+      quota_period_id,
+      quota_amount,
+      annual_target
+    ) VALUES (
+      $1::bigint,
+      $2::bigint,
+      $3::bigint,
+      $4::int,
+      $5::bigint,
+      $6::numeric,
+      $7::numeric
+    )
+    `,
+    [args.orgId, args.repId, args.managerId, args.roleLevel, args.quotaPeriodId, args.quotaAmount, args.annualTarget]
+  );
 }
 
 async function resolveRepByPublicId(args: { orgId: number; repPublicId: string }) {
@@ -166,14 +313,19 @@ async function saveRepQuotasForYearAction(formData: FormData) {
   }
 
   const ctx = await requireAuth();
-  if (ctx.kind !== "user" || !isManager(ctx.user)) redirect("/dashboard");
+  if (
+    ctx.kind !== "user" ||
+    (!isExecManager(ctx.user) && !isManager(ctx.user) && !isChannelExec(ctx.user) && !isChannelManager(ctx.user) && !isChannelRep(ctx.user))
+  ) {
+    redirect("/dashboard");
+  }
 
-  const mgrRepId = await managerRepIdForUser({ orgId: ctx.user.org_id, userId: ctx.user.id });
-  if (!mgrRepId) redirect("/dashboard");
+  const quotaScope = await listQuotaScopedReps({ orgId: ctx.user.org_id, user: ctx.user });
+  const allowedRepIds = new Set(quotaScope.reps.map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0));
 
   const rep = await resolveRepByPublicId({ orgId: ctx.user.org_id, repPublicId: rep_public_id });
   const repId = rep?.id ?? null;
-  if (!repId)
+  if (!repId || !allowedRepIds.has(repId))
     redirect(`/analytics/quotas/manager?fiscal_year=${encodeURIComponent(fiscal_year)}&rep_public_id=${encodeURIComponent(rep_public_id)}&error=${encodeURIComponent("rep not found")}`);
 
   const periodsRes = await getQuotaPeriods().catch(() => ({ ok: true as const, data: [] as QuotaPeriodRow[] }));
@@ -203,24 +355,20 @@ async function saveRepQuotasForYearAction(formData: FormData) {
     { quota_period_id: String(q4p.id), quota_amount: q4_quota },
   ];
   for (const qa of quarterAssignments) {
-    const r = await assignQuotaToUser({
-      quota_period_id: qa.quota_period_id,
-      role_level: rep?.hierarchy_level ?? 3,
-      rep_id: String(repId),
-      manager_id: String(mgrRepId),
-      quota_amount: qa.quota_amount,
-      annual_target: annualTarget,
+    await upsertRepQuota({
+      orgId: ctx.user.org_id,
+      repId,
+      managerId: quotaScope.managerRepId ?? null,
+      roleLevel: rep?.hierarchy_level ?? 3,
+      quotaPeriodId: qa.quota_period_id,
+      quotaAmount: qa.quota_amount,
+      annualTarget,
     });
-    if ("error" in r) {
-      redirect(
-        `/analytics/quotas/manager?fiscal_year=${encodeURIComponent(fiscal_year)}&rep_public_id=${encodeURIComponent(rep_public_id)}&error=${encodeURIComponent(r.error)}`
-      );
-    }
   }
 
   revalidatePath("/analytics/quotas/manager");
 
-  const directReps = await listDirectReps({ orgId: ctx.user.org_id, managerRepId: mgrRepId }).catch(() => []);
+  const directReps = quotaScope.reps;
   const repList = (directReps || []).map((r) => String(r.public_id || "")).filter(Boolean);
   const idx = repList.findIndex((x) => x === rep_public_id);
   const nextRep = idx >= 0 && idx + 1 < repList.length ? repList[idx + 1] : rep_public_id;
@@ -236,7 +384,15 @@ export default async function AnalyticsQuotasManagerPage({
 }) {
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
-  if (!isManager(ctx.user)) redirect("/dashboard");
+  if (
+    !isExecManager(ctx.user) &&
+    !isManager(ctx.user) &&
+    !isChannelExec(ctx.user) &&
+    !isChannelManager(ctx.user) &&
+    !isChannelRep(ctx.user)
+  ) {
+    redirect("/dashboard");
+  }
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
@@ -257,10 +413,8 @@ export default async function AnalyticsQuotasManagerPage({
   const fiscal_year = fiscal_year_raw || defaultYear;
   const periods = fiscal_year ? allPeriods.filter((p) => String(p.fiscal_year) === fiscal_year) : allPeriods;
 
-  const mgrRepId = await managerRepIdForUser({ orgId: ctx.user.org_id, userId: ctx.user.id });
-  if (!mgrRepId) redirect("/dashboard");
-
-  const directReps = await listDirectReps({ orgId: ctx.user.org_id, managerRepId: mgrRepId }).catch(() => []);
+  const quotaScope = await listQuotaScopedReps({ orgId: ctx.user.org_id, user: ctx.user });
+  const directReps = quotaScope.reps;
   const directRepIds = (directReps || [])
     .map((r) => Number(r.id))
     .filter((n) => Number.isFinite(n) && n > 0);
@@ -465,7 +619,7 @@ export default async function AnalyticsQuotasManagerPage({
           </section>
         ) : null}
 
-        {fiscal_year ? (
+        {fiscal_year && quotaScope.showTeam ? (
           <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
             <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Rep quota setup</h2>
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">

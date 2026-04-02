@@ -2,7 +2,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAuth } from "../../../lib/auth";
 import { listUsers } from "../../../lib/db";
-import { isAdmin } from "../../../lib/roleHelpers";
+import { isAdmin, isChannelExec, isChannelManager, isChannelRole } from "../../../lib/roleHelpers";
 import {
   deleteChannelAlignment,
   listChannelAlignments,
@@ -15,7 +15,9 @@ async function saveChannelAlignmentAction(formData: FormData) {
   "use server";
 
   const ctx = await requireAuth();
-  if (ctx.kind !== "user" || !isAdmin(ctx.user)) redirect("/admin");
+  if (ctx.kind !== "user" || (!isAdmin(ctx.user) && !isChannelExec(ctx.user) && !isChannelManager(ctx.user))) {
+    redirect("/dashboard/channel");
+  }
 
   const orgId = ctx.user.org_id;
   await saveChannelAlignment({
@@ -31,7 +33,9 @@ async function deleteChannelAlignmentAction(formData: FormData) {
   "use server";
 
   const ctx = await requireAuth();
-  if (ctx.kind !== "user" || !isAdmin(ctx.user)) redirect("/admin");
+  if (ctx.kind !== "user" || (!isAdmin(ctx.user) && !isChannelExec(ctx.user) && !isChannelManager(ctx.user))) {
+    redirect("/dashboard/channel");
+  }
 
   const orgId = ctx.user.org_id;
   await deleteChannelAlignment({
@@ -44,15 +48,21 @@ async function deleteChannelAlignmentAction(formData: FormData) {
 
 export default async function ChannelAlignmentPage() {
   const ctx = await requireAuth();
-  if (ctx.kind !== "user" || !isAdmin(ctx.user)) redirect("/admin");
+  if (ctx.kind !== "user" || (!isAdmin(ctx.user) && !isChannelExec(ctx.user) && !isChannelManager(ctx.user))) {
+    redirect("/dashboard/channel");
+  }
 
   const orgId = ctx.user.org_id;
-  const users = await listUsers({ orgId, includeInactive: false }).catch(() => []);
-  const channelUsers = users
-    .filter((user) => [6, 7, 8].includes(Number(user.hierarchy_level)))
+  const allUsers = await listUsers({ orgId, includeInactive: false }).catch(() => []);
+  const channelUsers = allUsers
+    .filter((user) =>
+      isAdmin(ctx.user)
+        ? isChannelRole(user)
+        : user.manager_user_id === ctx.user.id && isChannelRole(user)
+    )
     .filter((user) => user.active ?? true)
     .sort((a, b) => String(a.display_name || "").localeCompare(String(b.display_name || "")));
-  const salesLeaders = users
+  const salesLeaders = allUsers
     .filter((user) => [1, 2].includes(Number(user.hierarchy_level)))
     .filter((user) => user.active ?? true)
     .sort((a, b) => String(a.display_name || "").localeCompare(String(b.display_name || "")));

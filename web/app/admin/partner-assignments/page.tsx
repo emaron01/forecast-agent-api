@@ -2,9 +2,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAuth } from "../../../lib/auth";
 import { listUsers } from "../../../lib/db";
-import { isAdmin } from "../../../lib/roleHelpers";
+import { isAdmin, isChannelExec, isChannelManager } from "../../../lib/roleHelpers";
 import {
   listDistinctPartners,
+  listDistinctPartnersForTerritory,
   listPartnerAssignments,
   savePartnerAssignment,
 } from "../actions/partnerAssignments";
@@ -15,7 +16,9 @@ async function savePartnerAssignmentAction(formData: FormData) {
   "use server";
 
   const ctx = await requireAuth();
-  if (ctx.kind !== "user" || !isAdmin(ctx.user)) redirect("/admin");
+  if (ctx.kind !== "user" || (!isAdmin(ctx.user) && !isChannelExec(ctx.user) && !isChannelManager(ctx.user))) {
+    redirect("/dashboard/channel");
+  }
 
   const orgId = ctx.user.org_id;
   const channelRepIdRaw = String(formData.get("channel_rep_id") || "").trim();
@@ -30,11 +33,15 @@ async function savePartnerAssignmentAction(formData: FormData) {
 
 export default async function PartnerAssignmentsPage() {
   const ctx = await requireAuth();
-  if (ctx.kind !== "user" || !isAdmin(ctx.user)) redirect("/admin");
+  if (ctx.kind !== "user" || (!isAdmin(ctx.user) && !isChannelExec(ctx.user) && !isChannelManager(ctx.user))) {
+    redirect("/dashboard/channel");
+  }
 
   const orgId = ctx.user.org_id;
-  const [distinctPartners, partnerAssignments, users] = await Promise.all([
-    listDistinctPartners(orgId).catch(() => []),
+  const [territoryPartners, partnerAssignments, users] = await Promise.all([
+    isAdmin(ctx.user)
+      ? listDistinctPartners(orgId).catch(() => [])
+      : listDistinctPartnersForTerritory(orgId, ctx.user.id).catch(() => []),
     listPartnerAssignments(orgId).catch(() => ({ assignments: [], unassignedPartners: [] })),
     listUsers({ orgId, includeInactive: false }).catch(() => []),
   ]);
@@ -44,10 +51,16 @@ export default async function PartnerAssignmentsPage() {
     .filter((user) => user.active ?? true)
     .sort((a, b) => String(a.display_name || "").localeCompare(String(b.display_name || "")));
 
+  const visiblePartnerSet = new Set(territoryPartners.map((partner) => partner.trim().toLowerCase()));
+  const assignments = isAdmin(ctx.user)
+    ? partnerAssignments.assignments
+    : partnerAssignments.assignments.filter((assignment) =>
+        visiblePartnerSet.has(String(assignment.partner_name || "").trim().toLowerCase())
+      );
   const allPartners = Array.from(
     new Set([
-      ...distinctPartners,
-      ...partnerAssignments.assignments.map((assignment) => String(assignment.partner_name || "").trim()),
+      ...territoryPartners,
+      ...assignments.map((assignment) => String(assignment.partner_name || "").trim()),
     ].filter(Boolean))
   ).sort((a, b) => a.localeCompare(b));
 
@@ -71,7 +84,7 @@ export default async function PartnerAssignmentsPage() {
           </thead>
           <tbody>
             {allPartners.map((partner) => {
-              const assignment = partnerAssignments.assignments.find((item) => item.partner_name === partner);
+              const assignment = assignments.find((item) => item.partner_name === partner);
 
               return (
                 <tr key={partner} className="border-b border-[color:var(--sf-border)] last:border-b-0">

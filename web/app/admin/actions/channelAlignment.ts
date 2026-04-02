@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { requireOrgContext } from "../../../lib/auth";
 import { pool } from "../../../lib/pool";
-import { isAdmin } from "../../../lib/roleHelpers";
+import { isAdmin, isChannelExec, isChannelManager } from "../../../lib/roleHelpers";
 
 type ChannelAlignmentRow = {
   id: string;
@@ -33,7 +33,10 @@ const DeleteChannelAlignmentSchema = z.object({
 });
 
 function canManage(ctx: Awaited<ReturnType<typeof requireOrgContext>>["ctx"]) {
-  return ctx.kind === "master" || (ctx.kind === "user" && isAdmin(ctx.user));
+  return (
+    ctx.kind === "master" ||
+    (ctx.kind === "user" && (isAdmin(ctx.user) || isChannelExec(ctx.user) || isChannelManager(ctx.user)))
+  );
 }
 
 export async function listChannelAlignments(orgId: number): Promise<ChannelAlignmentRow[]> {

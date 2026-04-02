@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { requireOrgContext } from "../../../lib/auth";
 import { pool } from "../../../lib/pool";
-import { isAdmin } from "../../../lib/roleHelpers";
+import { isAdmin, isChannelExec, isChannelManager } from "../../../lib/roleHelpers";
 
 type PartnerAssignmentRow = {
   id: string;
@@ -28,7 +28,10 @@ const SavePartnerAssignmentSchema = z.object({
 });
 
 function canManage(ctx: Awaited<ReturnType<typeof requireOrgContext>>["ctx"]) {
-  return ctx.kind === "master" || (ctx.kind === "user" && isAdmin(ctx.user));
+  return (
+    ctx.kind === "master" ||
+    (ctx.kind === "user" && (isAdmin(ctx.user) || isChannelExec(ctx.user) || isChannelManager(ctx.user)))
+  );
 }
 
 function normalizePartnerName(name: string) {
@@ -50,6 +53,65 @@ export async function listDistinctPartners(orgId: number): Promise<string[]> {
     ORDER BY partner_name ASC
     `,
     [orgId]
+  );
+
+  return (rows || []).map((row) => String(row.partner_name || "").trim()).filter(Boolean);
+}
+
+export async function listDistinctPartnersForTerritory(
+  orgId: number,
+  channelUserId: number
+): Promise<string[]> {
+  const { ctx, orgId: scopedOrgId } = await requireOrgContext();
+  if (!canManage(ctx)) return [];
+  if (Number(orgId) !== Number(scopedOrgId)) return [];
+
+  const { rows } = await pool.query<{ partner_name: string }>(
+    `
+    WITH territory_reps AS (
+      SELECT DISTINCT r.id AS rep_id
+      FROM channel_territory_alignments cta
+      JOIN users sales_leader
+        ON sales_leader.id = cta.sales_leader_id
+      JOIN reps r
+        ON r.user_id = sales_leader.id
+        OR r.id IN (
+          SELECT r2.id
+          FROM reps r2
+          JOIN users u2
+            ON u2.id = r2.user_id
+          WHERE u2.manager_user_id = sales_leader.id
+        )
+      WHERE cta.org_id = $1::bigint
+        AND cta.channel_user_id = $2::int
+
+      UNION
+
+      SELECT r.id AS rep_id
+      FROM users u
+      JOIN users mgr
+        ON mgr.id = u.manager_user_id
+      JOIN users exec_mgr
+        ON exec_mgr.id = mgr.manager_user_id
+      JOIN reps r
+        ON r.user_id = u.id
+      WHERE u.org_id = $1::bigint
+        AND (
+          mgr.id = $2::int
+          OR exec_mgr.id = $2::int
+        )
+        AND u.hierarchy_level = 3
+    )
+    SELECT DISTINCT btrim(o.partner_name) AS partner_name
+    FROM opportunities o
+    JOIN territory_reps tr
+      ON tr.rep_id = o.rep_id
+    WHERE o.org_id = $1::bigint
+      AND o.partner_name IS NOT NULL
+      AND btrim(o.partner_name) <> ''
+    ORDER BY partner_name ASC
+    `,
+    [orgId, channelUserId]
   );
 
   return (rows || []).map((row) => String(row.partner_name || "").trim()).filter(Boolean);
