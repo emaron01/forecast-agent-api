@@ -466,7 +466,7 @@ export async function updateUserAction(formData: FormData) {
           .map((r: any) => Number(r.id))
           .filter((n) => Number.isFinite(n) && n > 0);
 
-        const uniq = Array.from(new Set(allowedIds)).filter((n) => n !== userId);
+        const uniq: number[] = Array.from(new Set<number>(allowedIds)).filter((n) => n !== userId);
         if (uniq.length) {
           const cycleRes = await client.query(
             `
