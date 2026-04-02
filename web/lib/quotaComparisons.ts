@@ -155,8 +155,11 @@ export async function getCompanyAttainmentForPeriod(args: {
         FROM quotas q
         JOIN reps r
           ON r.id = q.rep_id
+        JOIN users u
+          ON u.id = r.user_id
+         AND u.org_id = q.org_id
        WHERE q.org_id = $1::bigint
-         AND r.hierarchy_level IN (1, 2, 3)
+         AND u.hierarchy_level IN (1, 2, 3)
          AND q.quota_period_id = $2::bigint
          AND (NOT $3::boolean OR q.rep_id = ANY($4::bigint[]))
     ),
@@ -175,9 +178,12 @@ export async function getCompanyAttainmentForPeriod(args: {
         FROM quotas q
         JOIN reps r
           ON r.id = q.rep_id
+        JOIN users u
+          ON u.id = r.user_id
+         AND u.org_id = q.org_id
         JOIN quota_periods p ON p.id = q.quota_period_id
        WHERE q.org_id = $1::bigint
-         AND r.hierarchy_level IN (1, 2, 3)
+         AND u.hierarchy_level IN (1, 2, 3)
          AND (NOT $3::boolean OR q.rep_id = ANY($4::bigint[]))
          AND p.org_id = $1::bigint
          AND p.fiscal_year = (SELECT fiscal_year FROM qp)
