@@ -9,6 +9,7 @@ import {
   isChannelRole,
   isManager,
   isRep,
+  isSalesLeader,
 } from "./roleHelpers";
 
 export type RepDirectoryRow = {
@@ -151,6 +152,15 @@ export async function getScopedRepDirectory(args: {
   if (isAdmin(args.user)) {
     const all = await listActiveRepsForOrg(orgId).catch(() => []);
     return { repDirectory: all, allowedRepIds: null, myRepId: null };
+  }
+
+  if (isSalesLeader(args.user) && args.user.see_all_visibility) {
+    const allReps = await listActiveRepsForOrg(orgId).catch(() => []);
+    return {
+      repDirectory: allReps,
+      allowedRepIds: null,
+      myRepId: null,
+    };
   }
 
   // Channel roles: optional users.manager_user_id aligns data scope to that user (sales leader / anchor).

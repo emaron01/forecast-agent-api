@@ -17,6 +17,8 @@ import {
   HIERARCHY,
   isAdmin as isAdminUser,
   isAdminLevel,
+  isChannelExec,
+  isChannelManager,
   isExecManagerLevel,
   isManager as isManagerUser,
   isManagerLevel,
@@ -37,15 +39,6 @@ function YesNoPill(props: { value: any }) {
     ? "border-[#16A34A] bg-[#ECFDF5] text-[#16A34A]"
     : "border-[#E74C3C] bg-[#FEF2F2] text-[#E74C3C]";
   return <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${cls}`}>{v ? "Yes" : "No"}</span>;
-}
-
-function salesLeaderOptionLabel(u: { display_name?: string | null; first_name?: string | null; last_name?: string | null; email?: string | null; role: string | null }) {
-  const name =
-    String(u.display_name || "").trim() ||
-    `${String(u.first_name || "").trim()} ${String(u.last_name || "").trim()}`.trim() ||
-    String(u.email || "").trim() ||
-    "User";
-  return `${name} (${roleLabel(String(u.role || ""))})`;
 }
 
 export default async function UsersPage({
@@ -103,17 +96,20 @@ export default async function UsersPage({
   const managers = isAdmin ? usersRaw.filter((u) => isManagerLevel(roleToHierarchyLevel(u.role)) && u.active) : [];
   const admins = isAdmin ? usersRaw.filter((u) => isAdminLevel(roleToHierarchyLevel(u.role)) && u.active) : [];
 
-  /** Active org users only — dedicated query so the alignment dropdown is always populated for admins (not derived from filtered usersRaw). */
-  const salesLeaderAlignmentCandidates = isAdmin
+  /** Active org users only — dedicated query so manager dropdowns stay populated for admins. */
+  const allActiveUsers = isAdmin
     ? (await listUsers({ orgId, includeInactive: false }).catch(() => [])).slice().sort((a, b) => {
         const an = String(a.display_name || a.email || "").toLocaleLowerCase();
         const bn = String(b.display_name || b.email || "").toLocaleLowerCase();
         return an.localeCompare(bn);
       })
     : [];
-  const alignToSalesLeaderUsersNew = salesLeaderAlignmentCandidates;
+  const channelAndSalesLeaders = allActiveUsers.filter((u) => {
+    const level = Number(u.hierarchy_level);
+    return !!u.active && u.hierarchy_level !== 0 && (level <= 2 || (level >= 6 && level <= 7));
+  });
   const userById = new Map<number, (typeof usersRaw)[number]>(usersRaw.map((u) => [u.id, u]));
-  for (const u of salesLeaderAlignmentCandidates) {
+  for (const u of allActiveUsers) {
     if (!userById.has(u.id)) userById.set(u.id, u as any);
   }
   // When a MANAGER views their REP list, `usersRaw` intentionally only contains REPs.
@@ -133,10 +129,10 @@ export default async function UsersPage({
       ? await listManagerVisibility({ orgId, managerUserId: user.id }).catch(() => [])
       : [];
 
-  const alignToSalesLeaderUsersEdit =
+  const channelAndSalesLeadersEdit =
     isAdmin && user
       ? (() => {
-          const base = salesLeaderAlignmentCandidates.filter((u) => u.id !== user.id);
+          const base = channelAndSalesLeaders.filter((u) => u.id !== user.id);
           const mid = user.manager_user_id;
           if (mid != null && !base.some((u) => u.id === mid)) {
             const mgr = userById.get(Number(mid));
@@ -420,7 +416,11 @@ export default async function UsersPage({
             </div>
 
             {isAdmin ? (
-              <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3" data-show-roles="EXEC_MANAGER,MANAGER" hidden>
+              <div
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3"
+                data-show-roles="EXEC_MANAGER,MANAGER,CHANNEL_EXECUTIVE,CHANNEL_DIRECTOR"
+                hidden
+              >
                 <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct reports (assignments)</div>
                 <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
                   If creating an EXEC_MANAGER/MANAGER and <span className="font-mono">Can View All User Data</span> is unchecked, select who reports to them.
@@ -429,7 +429,13 @@ export default async function UsersPage({
                 <div className="mt-2 grid gap-2">
                   {users
                     .filter((u) => u.active)
+                    .filter((u) => u.id !== user?.id)
                     .filter((u) => !isAdminLevel(roleToHierarchyLevel(u.role)))
+                    .filter((u) => {
+                      const level = Number(u.hierarchy_level);
+                      const selectedLevel = Number(prefillRole ? roleToHierarchyLevel(prefillRole) : HIERARCHY.REP);
+                      return isSalesLeaderLevel(selectedLevel) ? level === HIERARCHY.REP : level >= HIERARCHY.CHANNEL_MANAGER && level <= HIERARCHY.CHANNEL_REP;
+                    })
                     .map((u) => (
                       <label key={u.public_id} className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
                         <input type="checkbox" name="visible_user_public_id" value={String(u.public_id)} className="h-4 w-4" />
@@ -499,21 +505,21 @@ export default async function UsersPage({
                 </div>
 
                 <div className="grid gap-1" data-show-roles="CHANNEL_EXECUTIVE,CHANNEL_DIRECTOR,CHANNEL_REP" hidden>
-                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Align to Sales Leader (optional)</label>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
                   <select
                     name="manager_user_public_id"
                     defaultValue={prefillManagerUserPublicId || ""}
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
-                    <option value="">-- Select Sales Leader --</option>
-                    {alignToSalesLeaderUsersNew.map((u) => (
+                    <option value="">(none)</option>
+                    {channelAndSalesLeaders.map((u) => (
                       <option key={u.public_id} value={String(u.public_id)}>
-                        {salesLeaderOptionLabel(u)}
+                        {u.display_name} ({u.role})
                       </option>
                     ))}
                   </select>
                   <p className="text-xs text-[color:var(--sf-text-disabled)]">
-                    Optional. Scopes this user&apos;s channel data to the same visibility as the selected user.
+                    Sets the reporting line for this channel user. Also controls territory scope if no Channel Alignment is set.
                   </p>
                 </div>
               </div>
@@ -685,8 +691,8 @@ export default async function UsersPage({
             {isAdmin ? (
               <div
                 className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3"
-                data-show-roles="EXEC_MANAGER,MANAGER"
-                hidden={!isSalesLeaderLevel(roleToHierarchyLevel(user.role))}
+                data-show-roles="EXEC_MANAGER,MANAGER,CHANNEL_EXECUTIVE,CHANNEL_DIRECTOR"
+                hidden={!isSalesLeaderLevel(roleToHierarchyLevel(user.role)) && !isChannelExec(user) && !isChannelManager(user)}
               >
                 <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct reports (assignments)</div>
                 <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
@@ -698,6 +704,12 @@ export default async function UsersPage({
                     .filter((u) => u.active)
                     .filter((u) => u.id !== user.id)
                     .filter((u) => !isAdminLevel(roleToHierarchyLevel(u.role)))
+                    .filter((u) => {
+                      const level = Number(u.hierarchy_level);
+                      return isSalesLeaderLevel(roleToHierarchyLevel(user.role))
+                        ? level === HIERARCHY.REP
+                        : level >= HIERARCHY.CHANNEL_MANAGER && level <= HIERARCHY.CHANNEL_REP;
+                    })
                     .map((u) => (
                       <label key={u.public_id} className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
                         <input
@@ -787,22 +799,22 @@ export default async function UsersPage({
                 </div>
 
                 <div className="grid gap-1" data-show-roles="CHANNEL_EXECUTIVE,CHANNEL_DIRECTOR,CHANNEL_REP" hidden>
-                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Align to Sales Leader (optional)</label>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
                   <select
-                    key={`channel-align-${user.public_id}`}
+                    key={`channel-manager-${user.public_id}`}
                     name="manager_user_public_id"
                     defaultValue={user.manager_user_id == null ? "" : String(userById.get(user.manager_user_id)?.public_id || "")}
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
-                    <option value="">-- Select Sales Leader --</option>
-                    {alignToSalesLeaderUsersEdit.map((u) => (
+                    <option value="">(none)</option>
+                    {channelAndSalesLeadersEdit.map((u) => (
                       <option key={u.public_id} value={String(u.public_id)}>
-                        {salesLeaderOptionLabel(u)}
+                        {u.display_name} ({u.role})
                       </option>
                     ))}
                   </select>
                   <p className="text-xs text-[color:var(--sf-text-disabled)]">
-                    Optional. Scopes this user&apos;s channel data to the same visibility as the selected user.
+                    Sets the reporting line for this channel user. Also controls territory scope if no Channel Alignment is set.
                   </p>
                 </div>
               </div>
