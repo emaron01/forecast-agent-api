@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { requireAuth } from "../../../../lib/auth";
+import { requireAuth, type AuthUser } from "../../../../lib/auth";
 import { getOrganization } from "../../../../lib/db";
 import { pool } from "../../../../lib/pool";
 import type { QuotaPeriodRow, QuotaRow } from "../../../../lib/quotaModels";
@@ -130,7 +130,7 @@ async function listSelfRep(args: { orgId: number; userId: number }): Promise<Dir
 
 async function listQuotaScopedReps(args: {
   orgId: number;
-  user: Awaited<ReturnType<typeof requireAuth>> extends { kind: "user"; user: infer U } ? U : never;
+  user: AuthUser;
 }) {
   const managerRepId = await managerRepIdForUser({ orgId: args.orgId, userId: args.user.id });
 
