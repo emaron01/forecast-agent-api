@@ -434,6 +434,7 @@ export async function updateUserAction(formData: FormData) {
     const resolvedId = await resolvePublicId("users", pid);
     if (resolvedId !== userId) visibleIds.push(resolvedId);
   }
+  const directReportsSubmitted = formData.get("direct_reports_submitted") === "1";
   const checkedRepIds = Array.from(new Set(visibleIds)).filter((id) => Number.isFinite(id) && id > 0);
   if (isManagerLevel(hierarchy_level) && !see_all_visibility && visibleIds.length === 0) {
     throw new Error("MANAGER must have visibility assignments unless see_all_visibility is enabled");
@@ -522,7 +523,7 @@ export async function updateUserAction(formData: FormData) {
       await client.query(`DELETE FROM manager_visibility WHERE manager_user_id = $1`, [userId]);
     }
 
-    if (supportsDirectReportAssignments) {
+    if (supportsDirectReportAssignments && directReportsSubmitted) {
       if (checkedRepIds.length) {
         await client.query(
           `

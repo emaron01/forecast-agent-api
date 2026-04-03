@@ -722,6 +722,7 @@ export default async function UsersPage({
                 data-show-roles="EXEC_MANAGER,MANAGER,CHANNEL_EXECUTIVE,CHANNEL_DIRECTOR"
                 hidden={!isSalesLeaderLevel(roleToHierarchyLevel(user.role)) && !isChannelExec(user) && !isChannelManager(user)}
               >
+                <input type="hidden" name="direct_reports_submitted" value="1" />
                 <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct reports (assignments)</div>
                 <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
                   Select which existing users report to this leader. These selections also control their visibility scope.
