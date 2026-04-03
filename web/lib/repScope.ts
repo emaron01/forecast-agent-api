@@ -57,6 +57,39 @@ async function listActiveRepsForOrg(orgId: number): Promise<RepDirectoryRow[]> {
   }));
 }
 
+async function listActiveSalesRepsForOrg(orgId: number): Promise<RepDirectoryRow[]> {
+  const { rows } = await pool.query(
+    `
+    SELECT
+      r.id,
+      COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), '(Unnamed)') AS name,
+      r.role,
+      u.hierarchy_level,
+      r.manager_rep_id,
+      r.user_id,
+      r.active
+    FROM reps r
+    JOIN users u
+      ON u.id = r.user_id
+     AND u.org_id = $1::bigint
+    WHERE r.organization_id = $1::bigint
+      AND (r.active IS TRUE OR r.active IS NULL)
+      AND u.hierarchy_level BETWEEN 1 AND 3
+    ORDER BY name ASC, r.id ASC
+    `,
+    [orgId]
+  );
+  return (rows || []).map((r: any) => ({
+    id: Number(r.id),
+    name: String(r.name || "").trim() || "(Unnamed)",
+    role: r.role == null ? null : String(r.role),
+    hierarchy_level: r.hierarchy_level == null ? null : Number(r.hierarchy_level),
+    manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
+    user_id: r.user_id == null ? null : Number(r.user_id),
+    active: r.active == null ? null : !!r.active,
+  }));
+}
+
 async function getRepForUser(orgId: number, userId: number): Promise<RepDirectoryRow | null> {
   const { rows } = await pool.query(
     `
@@ -155,7 +188,7 @@ export async function getScopedRepDirectory(args: {
   }
 
   if (isSalesLeader(args.user) && args.user.see_all_visibility) {
-    const allReps = await listActiveRepsForOrg(orgId).catch(() => []);
+    const allReps = await listActiveSalesRepsForOrg(orgId).catch(() => []);
     return {
       repDirectory: allReps,
       allowedRepIds: null,

@@ -397,6 +397,7 @@ export async function updateUserAction(formData: FormData) {
   if (isRepLevel(hierarchy_level) && !account_owner_name) {
     throw new Error("account_owner_name is required for REPs");
   }
+  const displayName = buildDisplayName(parsed.first_name, parsed.last_name);
 
   await updateUser({
     org_id: orgId,
@@ -406,7 +407,7 @@ export async function updateUserAction(formData: FormData) {
     hierarchy_level,
     first_name: parsed.first_name,
     last_name: parsed.last_name,
-    display_name: buildDisplayName(parsed.first_name, parsed.last_name),
+    display_name: displayName,
     title: String(parsed.title || "").trim() || null,
     account_owner_name: account_owner_name || null,
     manager_user_id: effectiveManagerId,
@@ -414,6 +415,18 @@ export async function updateUserAction(formData: FormData) {
     see_all_visibility,
     active: parsed.active ?? true,
   });
+
+  await pool.query(
+    `
+    UPDATE reps
+       SET rep_name = $3,
+           display_name = $3,
+           updated_at = NOW()
+     WHERE org_id = $1
+       AND user_id = $2
+    `,
+    [orgId, userId, displayName]
+  );
 
   const visiblePublicIds = formData.getAll("visible_user_public_id").map(String).filter(Boolean);
   const visibleIds: number[] = [];
