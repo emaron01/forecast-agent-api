@@ -119,16 +119,15 @@ function mapChannelHierarchyToQuotaRoleLevel(level: number | null | undefined): 
   return n;
 }
 
-async function getCurrentChannelRepId(args: {
+async function getCurrentChannelUserId(args: {
   orgId: number;
   userId: number;
-  fallbackRepId?: number | null;
 }): Promise<number | null> {
   const { rows } = await pool.query<{ id: number }>(
     `
-    SELECT r.id
+    SELECT u.id
     FROM reps r
-    LEFT JOIN users u
+    JOIN users u
       ON u.org_id = $1::bigint
      AND u.id = r.user_id
     WHERE r.organization_id = $1::bigint
@@ -141,8 +140,7 @@ async function getCurrentChannelRepId(args: {
   );
   const id = Number(rows?.[0]?.id);
   if (Number.isFinite(id) && id > 0) return id;
-  const fallbackRepId = Number(args.fallbackRepId);
-  return Number.isFinite(fallbackRepId) && fallbackRepId > 0 ? fallbackRepId : null;
+  return null;
 }
 
 async function listChannelScopedRepIds(args: {
@@ -507,17 +505,20 @@ export default async function ChannelDashboardPage({
   const prevQpId = prevPeriod ? String(prevPeriod.id) : "";
   const fallbackScopedRepId = scope.myRepId ?? summary.myRepId ?? null;
   const currentChannelRepId =
+    Number.isFinite(Number(fallbackScopedRepId)) && Number(fallbackScopedRepId) > 0
+      ? Number(fallbackScopedRepId)
+      : null;
+  const currentChannelUserId =
     selectedPeriodId && ctx.kind === "user"
-      ? await getCurrentChannelRepId({
+      ? await getCurrentChannelUserId({
           orgId: ctx.user.org_id,
           userId: ctx.user.id,
-          fallbackRepId: fallbackScopedRepId,
         }).catch(() => null)
       : null;
   const assignedPartnerNames = await listAssignedPartnerNames({
     orgId: ctx.user.org_id,
     hierarchyLevel: Number(ctx.user.hierarchy_level),
-    channelRepId: currentChannelRepId,
+    channelRepId: currentChannelUserId,
   });
 
   let topPartnerWon: TopPartnerDealRow[] = [];
@@ -599,6 +600,7 @@ export default async function ChannelDashboardPage({
   const viewerQuotaRoleLevel = mapChannelHierarchyToQuotaRoleLevel(ctx.user.hierarchy_level);
   console.log("[channel debug]", {
     currentChannelRepId,
+    currentChannelUserId,
     viewerQuotaRoleLevel,
     selectedPeriodId,
     territoryRepIds: territoryRepIds.slice(0, 3),
