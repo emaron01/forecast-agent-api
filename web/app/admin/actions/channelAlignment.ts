@@ -122,15 +122,6 @@ export async function saveChannelAlignment(args: {
     try {
       await client.query("BEGIN");
 
-      await client.query(
-        `
-        DELETE FROM channel_territory_alignments
-        WHERE org_id = $1::bigint
-          AND channel_user_id = $2::int
-        `,
-        [parsed.orgId, parsed.channelUserId]
-      );
-
       for (const salesLeaderId of salesLeaderIds) {
         await client.query(
           `
@@ -141,6 +132,8 @@ export async function saveChannelAlignment(args: {
             align_full_team
           )
           VALUES ($1::bigint, $2::int, $3::int, $4::boolean)
+          ON CONFLICT (org_id, channel_user_id, sales_leader_id)
+          DO NOTHING
           `,
           [parsed.orgId, parsed.channelUserId, salesLeaderId, parsed.alignFullTeam]
         );
