@@ -18,6 +18,19 @@ import type { TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
 
 export const runtime = "nodejs";
 
+function partnerScopeSql(rowAlias: string, parameterIndex: number) {
+  return `(
+    CASE
+      WHEN $${parameterIndex}::text[] = '{}'::text[]
+      THEN (
+        ${rowAlias}.partner_name IS NOT NULL
+        AND btrim(${rowAlias}.partner_name) <> ''
+      )
+      ELSE lower(btrim(${rowAlias}.partner_name)) = ANY($${parameterIndex}::text[])
+    END
+  )`;
+}
+
 async function listTopPartnerDealsChannel(args: {
   orgId: number;
   quotaPeriodId: string;
@@ -26,6 +39,7 @@ async function listTopPartnerDealsChannel(args: {
   dateStart?: string | null;
   dateEnd?: string | null;
   repIds: number[] | null;
+  assignedPartnerNames: string[];
 }): Promise<TopPartnerDealRow[]> {
   const wantWon = args.outcome === "won";
   const useRepFilter = !!(args.repIds && args.repIds.length);
@@ -57,8 +71,7 @@ async function listTopPartnerDealsChannel(args: {
     JOIN qp ON TRUE
     WHERE o.org_id = $1
       AND (NOT $8::boolean OR o.rep_id = ANY($7::bigint[]))
-      AND o.partner_name IS NOT NULL
-      AND btrim(o.partner_name) <> ''
+      AND ${partnerScopeSql("o", 9)}
       AND o.close_date IS NOT NULL
       AND o.close_date >= qp.range_start
       AND o.close_date <= qp.range_end
@@ -83,6 +96,7 @@ async function listTopPartnerDealsChannel(args: {
       args.dateEnd || null,
       args.repIds || [],
       useRepFilter,
+      args.assignedPartnerNames,
     ]
   );
   return rows || [];
@@ -174,6 +188,45 @@ async function listChannelScopedRepIds(args: {
   }
 }
 
+async function listAssignedPartnerNames(args: {
+  orgId: number;
+  hierarchyLevel: number;
+  channelRepId: number | null;
+}): Promise<string[]> {
+  const hierarchyLevel = Number(args.hierarchyLevel);
+  if (
+    hierarchyLevel === HIERARCHY.CHANNEL_EXEC ||
+    hierarchyLevel === HIERARCHY.CHANNEL_MANAGER ||
+    hierarchyLevel !== HIERARCHY.CHANNEL_REP ||
+    args.channelRepId == null
+  ) {
+    return [];
+  }
+
+  try {
+    const { rows } = await pool.query<{ partner_name: string | null }>(
+      `
+      SELECT lower(btrim(partner_name)) AS partner_name
+      FROM partner_channel_assignments
+      WHERE org_id = $1::bigint
+        AND channel_rep_id = $2::int
+      `,
+      [args.orgId, args.channelRepId]
+    );
+
+    return Array.from(
+      new Set(
+        (rows || [])
+          .map((row) => String(row.partner_name ?? "").trim().toLowerCase())
+          .filter(Boolean)
+      )
+    );
+  } catch (error) {
+    console.error("[channel page] listAssignedPartnerNames error", error);
+    return [];
+  }
+}
+
 function mapChannelDealToTopDealRow(d: {
   id: string;
   deal_name: string;
@@ -208,6 +261,7 @@ async function getChannelDashboardHeroMetrics(args: {
   viewerHierarchyLevel: number;
   viewerChannelRepId: number;
   viewerUserId: number;
+  assignedPartnerNames: string[];
 }): Promise<ChannelDashboardHeroMetrics> {
   const useTerritoryFilter = args.territoryRepIds.length > 0;
   const { rows } = await pool.query<{
@@ -262,8 +316,7 @@ async function getChannelDashboardHeroMetrics(args: {
           SUM(
             CASE
               WHEN o.crm_bucket = 'commit'
-                AND o.partner_name IS NOT NULL
-                AND btrim(o.partner_name) <> ''
+                AND ${partnerScopeSql("o", 8)}
               THEN COALESCE(o.amount, 0)
               ELSE 0
             END
@@ -274,8 +327,7 @@ async function getChannelDashboardHeroMetrics(args: {
           SUM(
             CASE
               WHEN o.crm_bucket = 'best_case'
-                AND o.partner_name IS NOT NULL
-                AND btrim(o.partner_name) <> ''
+                AND ${partnerScopeSql("o", 8)}
               THEN COALESCE(o.amount, 0)
               ELSE 0
             END
@@ -286,8 +338,7 @@ async function getChannelDashboardHeroMetrics(args: {
           SUM(
             CASE
               WHEN o.crm_bucket NOT IN ('won', 'lost', 'excluded')
-                AND o.partner_name IS NOT NULL
-                AND btrim(o.partner_name) <> ''
+                AND ${partnerScopeSql("o", 8)}
               THEN COALESCE(o.amount, 0)
               ELSE 0
             END
@@ -331,8 +382,7 @@ async function getChannelDashboardHeroMetrics(args: {
       WHERE o.close_d IS NOT NULL
         AND o.close_d >= qp.period_start
         AND o.close_d <= qp.period_end
-        AND o.partner_name IS NOT NULL
-        AND btrim(o.partner_name) <> ''
+        AND ${partnerScopeSql("o", 8)}
     ),
     sales_team_closed_won AS (
       SELECT COALESCE(SUM(COALESCE(o.amount, 0)), 0)::float8 AS sales_team_closed_won
@@ -395,6 +445,7 @@ async function getChannelDashboardHeroMetrics(args: {
       args.viewerHierarchyLevel,
       args.viewerChannelRepId,
       args.viewerUserId,
+      args.assignedPartnerNames,
     ]
   );
 
@@ -454,6 +505,20 @@ export default async function ChannelDashboardPage({
   const periodIdx = summary.periods.findIndex((p) => String(p.id) === String(selectedPeriodId));
   const prevPeriod = periodIdx >= 0 ? summary.periods[periodIdx + 1] : null;
   const prevQpId = prevPeriod ? String(prevPeriod.id) : "";
+  const fallbackScopedRepId = scope.myRepId ?? summary.myRepId ?? null;
+  const currentChannelRepId =
+    selectedPeriodId && ctx.kind === "user"
+      ? await getCurrentChannelRepId({
+          orgId: ctx.user.org_id,
+          userId: ctx.user.id,
+          fallbackRepId: fallbackScopedRepId,
+        }).catch(() => null)
+      : null;
+  const assignedPartnerNames = await listAssignedPartnerNames({
+    orgId: ctx.user.org_id,
+    hierarchyLevel: Number(ctx.user.hierarchy_level),
+    channelRepId: currentChannelRepId,
+  });
 
   let topPartnerWon: TopPartnerDealRow[] = [];
   let topPartnerLost: TopPartnerDealRow[] = [];
@@ -470,6 +535,7 @@ export default async function ChannelDashboardPage({
           dateStart: selectedPeriod.period_start,
           dateEnd: selectedPeriod.period_end,
           repIds: visibleRepIds,
+          assignedPartnerNames,
         }),
         listTopPartnerDealsChannel({
           orgId: ctx.user.org_id,
@@ -479,6 +545,7 @@ export default async function ChannelDashboardPage({
           dateStart: selectedPeriod.period_start,
           dateEnd: selectedPeriod.period_end,
           repIds: visibleRepIds,
+          assignedPartnerNames,
         }),
         loadChannelPartnerHeroProps({
           orgId: ctx.user.org_id,
@@ -509,15 +576,6 @@ export default async function ChannelDashboardPage({
       .trim() || "—";
   const fiscalQuarter =
     String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—";
-  const fallbackScopedRepId = scope.myRepId ?? summary.myRepId ?? null;
-  const currentChannelRepId =
-    selectedPeriodId && ctx.kind === "user"
-      ? await getCurrentChannelRepId({
-          orgId: ctx.user.org_id,
-          userId: ctx.user.id,
-          fallbackRepId: fallbackScopedRepId,
-        }).catch(() => null)
-      : null;
   const channelScopedRepIds = await listChannelScopedRepIds({
     orgId: ctx.user.org_id,
     hierarchyLevel: Number(ctx.user.hierarchy_level),
@@ -531,6 +589,7 @@ export default async function ChannelDashboardPage({
     selectedQuotaPeriodId: selectedPeriodId ?? "",
     territoryRepIds,
     channelRepIds: channelScopedRepIds.length > 0 ? channelScopedRepIds : [],
+    assignedPartnerNames,
     viewerChannelRepId: currentChannelRepId,
     viewerUserId: ctx.user.id,
   }).catch((err) => {
@@ -555,6 +614,7 @@ export default async function ChannelDashboardPage({
       viewerHierarchyLevel: Number(ctx.user.hierarchy_level),
       viewerChannelRepId: currentChannelRepId,
       viewerUserId: ctx.user.id,
+      assignedPartnerNames,
     })
       .then((result) => {
         console.log("[channelHeroMetrics result]", JSON.stringify(result));

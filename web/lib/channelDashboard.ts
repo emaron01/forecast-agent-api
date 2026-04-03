@@ -203,6 +203,29 @@ function parsedCloseDateSql(rowAlias: string) {
   `.trim();
 }
 
+function partnerScopeSql(rowAlias: string, parameterIndex: number) {
+  return `(
+    CASE
+      WHEN $${parameterIndex}::text[] = '{}'::text[]
+      THEN (
+        ${rowAlias}.partner_name IS NOT NULL
+        AND btrim(${rowAlias}.partner_name) <> ''
+      )
+      ELSE lower(btrim(${rowAlias}.partner_name)) = ANY($${parameterIndex}::text[])
+    END
+  )`;
+}
+
+function normalizePartnerNames(values: Array<string | null | undefined>) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => cleanText(value).trim().toLowerCase())
+        .filter(Boolean)
+    )
+  );
+}
+
 function emptySummary(selectedQuotaPeriodId: string): ChannelDashboardSummary {
   return {
     periods: [],
@@ -309,6 +332,7 @@ async function loadChannelRevenue(args: {
   orgId: number;
   selectedQuotaPeriodId: string;
   territoryRepIds: number[];
+  assignedPartnerNames: string[];
 }): Promise<ChannelRevenueRow> {
   const empty: ChannelRevenueRow = {
     channel_closed_won: 0,
@@ -347,8 +371,7 @@ async function loadChannelRevenue(args: {
          AND fcm.stage_value = o.forecast_stage
         WHERE o.org_id = $1::bigint
           AND o.rep_id = ANY($3::bigint[])
-          AND o.partner_name IS NOT NULL
-          AND btrim(o.partner_name) <> ''
+          AND ${partnerScopeSql("o", 4)}
       ),
       deals_in_period AS (
         SELECT d.*
@@ -367,7 +390,7 @@ async function loadChannelRevenue(args: {
         COALESCE(SUM(CASE WHEN crm_bucket NOT IN ('won', 'lost', 'excluded') THEN 1 ELSE 0 END), 0)::int AS channel_pipeline_count
       FROM deals_in_period
       `,
-      [args.orgId, args.selectedQuotaPeriodId, args.territoryRepIds]
+      [args.orgId, args.selectedQuotaPeriodId, args.territoryRepIds, args.assignedPartnerNames]
     );
     const row = rows?.[0];
     return {
@@ -443,6 +466,7 @@ async function loadPartnerSummary(args: {
   orgId: number;
   selectedQuotaPeriodId: string;
   territoryRepIds: number[];
+  assignedPartnerNames: string[];
 }): Promise<PartnerSummaryRow[]> {
   if (!args.selectedQuotaPeriodId || args.territoryRepIds.length === 0) return [];
   try {
@@ -475,8 +499,7 @@ async function loadPartnerSummary(args: {
          AND fcm.stage_value = o.forecast_stage
         WHERE o.org_id = $1::bigint
           AND o.rep_id = ANY($3::bigint[])
-          AND o.partner_name IS NOT NULL
-          AND btrim(o.partner_name) <> ''
+          AND ${partnerScopeSql("o", 4)}
       ),
       deals_in_period AS (
         SELECT d.*
@@ -505,7 +528,7 @@ async function loadPartnerSummary(args: {
       GROUP BY partner_name
       ORDER BY won_amount DESC, partner_name ASC
       `,
-      [args.orgId, args.selectedQuotaPeriodId, args.territoryRepIds]
+      [args.orgId, args.selectedQuotaPeriodId, args.territoryRepIds, args.assignedPartnerNames]
     );
     return (rows || []).map((row) => ({
       partner_name: cleanText(row.partner_name, "(Unknown Partner)"),
@@ -528,6 +551,7 @@ async function loadTopPartnerDeals(args: {
   orgId: number;
   selectedQuotaPeriodId: string;
   territoryRepIds: number[];
+  assignedPartnerNames: string[];
   mode: "won" | "lost" | "pipeline";
 }): Promise<ChannelDeal[]> {
   if (!args.selectedQuotaPeriodId || args.territoryRepIds.length === 0) return [];
@@ -576,8 +600,7 @@ async function loadTopPartnerDeals(args: {
          AND fcm.stage_value = o.forecast_stage
         WHERE o.org_id = $1::bigint
           AND o.rep_id = ANY($3::bigint[])
-          AND o.partner_name IS NOT NULL
-          AND btrim(o.partner_name) <> ''
+          AND ${partnerScopeSql("o", 4)}
       )
       SELECT
         d.id,
@@ -597,10 +620,10 @@ async function loadTopPartnerDeals(args: {
         AND d.close_d >= qp.period_start
         AND d.close_d <= qp.period_end
         AND (
-          ($4::text = 'won' AND d.crm_bucket = 'won')
-          OR ($4::text = 'lost' AND d.crm_bucket = 'lost')
+          ($5::text = 'won' AND d.crm_bucket = 'won')
+          OR ($5::text = 'lost' AND d.crm_bucket = 'lost')
           OR (
-            $4::text = 'pipeline'
+            $5::text = 'pipeline'
             AND d.crm_bucket NOT IN ('won', 'lost', 'excluded')
             AND d.close_d >= CURRENT_DATE
           )
@@ -608,7 +631,7 @@ async function loadTopPartnerDeals(args: {
       ORDER BY d.amount DESC NULLS LAST, d.id DESC
       LIMIT 20
       `,
-      [args.orgId, args.selectedQuotaPeriodId, args.territoryRepIds, args.mode]
+      [args.orgId, args.selectedQuotaPeriodId, args.territoryRepIds, args.assignedPartnerNames, args.mode]
     );
     return (rows || []).map((row) => ({
       id: cleanText(row.id),
@@ -634,6 +657,7 @@ async function loadChannelRepRows(args: {
   selectedQuotaPeriodId: string;
   channelRepIds: number[];
   territoryRepIds: number[];
+  assignedPartnerNames: string[];
   channelClosedWon: number;
 }): Promise<ChannelRepRow[]> {
   if (!args.selectedQuotaPeriodId || args.channelRepIds.length === 0) return [];
@@ -695,8 +719,7 @@ async function loadChannelRepRows(args: {
          AND fcm.stage_value = o.forecast_stage
         WHERE o.org_id = $1::bigint
           AND o.rep_id = ANY($4::bigint[])
-          AND o.partner_name IS NOT NULL
-          AND btrim(o.partner_name) <> ''
+          AND ${partnerScopeSql("o", 5)}
       ),
       deals_in_period AS (
         SELECT d.*
@@ -734,7 +757,7 @@ async function loadChannelRepRows(args: {
         ON rr.rep_id = rs.rep_id
       ORDER BY rs.rep_name ASC, rs.rep_id ASC
       `,
-      [args.orgId, args.selectedQuotaPeriodId, args.channelRepIds, args.territoryRepIds]
+      [args.orgId, args.selectedQuotaPeriodId, args.channelRepIds, args.territoryRepIds, args.assignedPartnerNames]
     );
     return (rows || []).map((row) => {
       const quota = num(row.quota);
@@ -763,6 +786,7 @@ async function loadProductsViaPartner(args: {
   orgId: number;
   selectedQuotaPeriodId: string;
   territoryRepIds: number[];
+  assignedPartnerNames: string[];
 }): Promise<ProductViaPartnerRow[]> {
   if (!args.selectedQuotaPeriodId || args.territoryRepIds.length === 0) return [];
   try {
@@ -794,8 +818,7 @@ async function loadProductsViaPartner(args: {
          AND fcm.stage_value = o.forecast_stage
         WHERE o.org_id = $1::bigint
           AND o.rep_id = ANY($3::bigint[])
-          AND o.partner_name IS NOT NULL
-          AND btrim(o.partner_name) <> ''
+          AND ${partnerScopeSql("o", 4)}
       ),
       deals_in_period AS (
         SELECT d.*
@@ -814,7 +837,7 @@ async function loadProductsViaPartner(args: {
       HAVING COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN amount ELSE 0 END), 0) > 0
       ORDER BY amount DESC, product_name ASC
       `,
-      [args.orgId, args.selectedQuotaPeriodId, args.territoryRepIds]
+      [args.orgId, args.selectedQuotaPeriodId, args.territoryRepIds, args.assignedPartnerNames]
     );
     return (rows || []).map((row) => ({
       product_name: cleanText(row.product_name, "(Unspecified)"),
@@ -831,6 +854,7 @@ async function loadPipelineByQuarter(args: {
   orgId: number;
   nextPeriodIds: string[];
   territoryRepIds: number[];
+  assignedPartnerNames: string[];
 }): Promise<PipelineQuarterRow[]> {
   if (args.nextPeriodIds.length === 0 || args.territoryRepIds.length === 0) return [];
   try {
@@ -864,8 +888,7 @@ async function loadPipelineByQuarter(args: {
          AND fcm.stage_value = o.forecast_stage
         WHERE o.org_id = $1::bigint
           AND o.rep_id = ANY($3::bigint[])
-          AND o.partner_name IS NOT NULL
-          AND btrim(o.partner_name) <> ''
+          AND ${partnerScopeSql("o", 4)}
       )
       SELECT
         qps.period_id,
@@ -883,7 +906,7 @@ async function loadPipelineByQuarter(args: {
       GROUP BY qps.period_id, qps.period_name, qps.period_start
       ORDER BY qps.period_start ASC, qps.period_id ASC
       `,
-      [args.orgId, args.nextPeriodIds, args.territoryRepIds]
+      [args.orgId, args.nextPeriodIds, args.territoryRepIds, args.assignedPartnerNames]
     );
     return (rows || []).map((row) => ({
       period_id: cleanText(row.period_id),
@@ -955,6 +978,7 @@ export async function getChannelDashboardSummary(args: {
   selectedQuotaPeriodId: string;
   territoryRepIds: number[];
   channelRepIds: number[];
+  assignedPartnerNames: string[];
   viewerChannelRepId: number | null;
   viewerUserId: number;
 }): Promise<ChannelDashboardSummary> {
@@ -973,6 +997,7 @@ export async function getChannelDashboardSummary(args: {
 
   const territoryRepIds = uniqIds(args.territoryRepIds);
   const channelRepIds = uniqIds(args.channelRepIds);
+  const assignedPartnerNames = normalizePartnerNames(args.assignedPartnerNames);
   const periodIdx = periods.findIndex((period) => period.id === selectedQuotaPeriodId);
   const nextPeriodIds =
     periodIdx >= 0
@@ -986,6 +1011,7 @@ export async function getChannelDashboardSummary(args: {
     String(args.userId),
     String(args.viewerUserId),
     args.viewerChannelRepId == null ? "none" : String(args.viewerChannelRepId),
+    assignedPartnerNames.length > 0 ? assignedPartnerNames.join("|") : "all-partners",
   ].join(":");
 
   const [channelQuota, channelRevenue, territoryClosedWon, partnerSummary, topPartnerDealsWon, topPartnerDealsLost, topPartnerDealsPipeline, productsViaPartner, pipelineByQuarter, repDirectory] =
@@ -1001,6 +1027,7 @@ export async function getChannelDashboardSummary(args: {
         orgId: args.orgId,
         selectedQuotaPeriodId,
         territoryRepIds,
+        assignedPartnerNames,
       }),
       loadTerritoryClosedWon({
         orgId: args.orgId,
@@ -1011,34 +1038,40 @@ export async function getChannelDashboardSummary(args: {
         orgId: args.orgId,
         selectedQuotaPeriodId,
         territoryRepIds,
+        assignedPartnerNames,
       }),
       loadTopPartnerDeals({
         orgId: args.orgId,
         selectedQuotaPeriodId,
         territoryRepIds,
+        assignedPartnerNames,
         mode: "won",
       }),
       loadTopPartnerDeals({
         orgId: args.orgId,
         selectedQuotaPeriodId,
         territoryRepIds,
+        assignedPartnerNames,
         mode: "lost",
       }),
       loadTopPartnerDeals({
         orgId: args.orgId,
         selectedQuotaPeriodId,
         territoryRepIds,
+        assignedPartnerNames,
         mode: "pipeline",
       }),
       loadProductsViaPartner({
         orgId: args.orgId,
         selectedQuotaPeriodId,
         territoryRepIds,
+        assignedPartnerNames,
       }),
       loadPipelineByQuarter({
         orgId: args.orgId,
         nextPeriodIds,
         territoryRepIds,
+        assignedPartnerNames,
       }),
       loadRepDirectory({
         orgId: args.orgId,
@@ -1053,6 +1086,7 @@ export async function getChannelDashboardSummary(args: {
     selectedQuotaPeriodId,
     channelRepIds,
     territoryRepIds,
+    assignedPartnerNames,
     channelClosedWon: channelRevenue.channel_closed_won,
   });
 
