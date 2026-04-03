@@ -8,7 +8,6 @@ import { pool } from "../../../lib/pool";
 import {
   createPasswordResetToken,
   createUser,
-  deleteUser,
   getUserById,
   listUsers,
   replaceManagerVisibility,
@@ -565,7 +564,7 @@ export async function updateUserAction(formData: FormData) {
   redirect(closeHref());
 }
 
-export async function deleteUserAction(formData: FormData) {
+export async function deactivateUserAction(formData: FormData) {
   const { ctx, orgId } = await requireOrgContext();
   const parsed = z.object({ public_id: z.string().uuid() }).parse({ public_id: formData.get("public_id") });
   const userId = await resolvePublicId("users", parsed.public_id);
@@ -580,7 +579,63 @@ export async function deleteUserAction(formData: FormData) {
     redirect("/dashboard");
   }
 
-  await deleteUser({ orgId, userId });
+  await pool.query(
+    `
+    UPDATE users
+       SET active = false,
+           updated_at = NOW()
+     WHERE id = $1
+       AND org_id = $2
+    `,
+    [userId, orgId]
+  );
+  await pool.query(
+    `
+    UPDATE reps
+       SET active = false
+     WHERE user_id = $1
+       AND organization_id = $2
+    `,
+    [userId, orgId]
+  );
+  revalidatePath("/admin/users");
+  redirect(closeHref());
+}
+
+export async function reactivateUserAction(formData: FormData) {
+  const { ctx, orgId } = await requireOrgContext();
+  const parsed = z.object({ public_id: z.string().uuid() }).parse({ public_id: formData.get("public_id") });
+  const userId = await resolvePublicId("users", parsed.public_id);
+
+  const existing = await getUserById({ orgId, userId });
+  if (!existing) redirect(closeHref());
+
+  if (ctx.kind === "user" && isManager(ctx.user)) {
+    if (!isRepLevel(roleToHierarchyLevel(existing.role))) redirect(closeHref());
+    if (existing.manager_user_id !== ctx.user.id) redirect(closeHref());
+  } else if (ctx.kind === "user" && !isAdmin(ctx.user)) {
+    redirect("/dashboard");
+  }
+
+  await pool.query(
+    `
+    UPDATE users
+       SET active = true,
+           updated_at = NOW()
+     WHERE id = $1
+       AND org_id = $2
+    `,
+    [userId, orgId]
+  );
+  await pool.query(
+    `
+    UPDATE reps
+       SET active = true
+     WHERE user_id = $1
+       AND organization_id = $2
+    `,
+    [userId, orgId]
+  );
   revalidatePath("/admin/users");
   redirect(closeHref());
 }

@@ -8,8 +8,9 @@ import { resolvePublicId } from "../../../lib/publicId";
 import {
   assignRepToMeAction,
   createUserAction,
-  deleteUserAction,
+  deactivateUserAction,
   generateResetLinkAction,
+  reactivateUserAction,
   updateUserAction,
 } from "../actions/users";
 import { RoleSelect } from "../../../components/admin/RoleSelect";
@@ -267,7 +268,10 @@ export default async function UsersPage({
           <tbody>
             {users.length ? (
               users.map((u) => (
-                <tr key={u.public_id} className="border-t border-[color:var(--sf-border)]">
+                <tr
+                  key={u.public_id}
+                  className={`border-t border-[color:var(--sf-border)] ${u.active ? "" : "bg-[color:var(--sf-surface-alt)] opacity-60"}`}
+                >
                   <td className="px-4 py-3">
                     {isAdmin ? (
                       <RoleSelect
@@ -281,7 +285,16 @@ export default async function UsersPage({
                       roleLabel(u.role)
                     )}
                   </td>
-                  <td className="px-4 py-3">{u.display_name}</td>
+                  <td className="px-4 py-3">
+                    <div className="inline-flex items-center gap-2">
+                      <span>{u.display_name}</span>
+                      {!u.active ? (
+                        <span className="rounded-full border border-[color:var(--sf-border)] px-2 py-0.5 text-xs text-[color:var(--sf-text-secondary)]">
+                          Inactive
+                        </span>
+                      ) : null}
+                    </div>
+                  </td>
                   <td className="px-4 py-3">{u.title || ""}</td>
                   <td className="px-4 py-3">{u.account_owner_name}</td>
                   <td className="px-4 py-3">
@@ -325,12 +338,21 @@ export default async function UsersPage({
                           </button>
                         </form>
                       ) : null}
-                      <Link
-                        href={`/admin/users?modal=delete&id=${encodeURIComponent(String(u.public_id))}`}
-                        className="rounded-md border border-[#E74C3C] px-2 py-1 text-xs text-[#E74C3C] hover:bg-[color:var(--sf-surface-alt)]"
-                      >
-                        Delete
-                      </Link>
+                      {u.active ? (
+                        <Link
+                          href={`/admin/users?modal=delete&id=${encodeURIComponent(String(u.public_id))}`}
+                          className="rounded-md border border-[#E74C3C] px-2 py-1 text-xs text-[#E74C3C] hover:bg-[color:var(--sf-surface-alt)]"
+                        >
+                          Deactivate
+                        </Link>
+                      ) : (
+                        <form action={reactivateUserAction}>
+                          <input type="hidden" name="public_id" value={String(u.public_id)} />
+                          <button className="rounded-md border border-[#16A34A] px-2 py-1 text-xs text-[#16A34A] hover:bg-[color:var(--sf-surface-alt)]">
+                            Reactivate
+                          </button>
+                        </form>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -898,12 +920,12 @@ export default async function UsersPage({
       ) : null}
 
       {modal === "delete" && user ? (
-        <Modal title={`Delete user`} closeHref={closeHref()}>
-          <form action={deleteUserAction} className="grid gap-4">
+        <Modal title={`Deactivate user`} closeHref={closeHref()}>
+          <form action={deactivateUserAction} className="grid gap-4">
             <input type="hidden" name="public_id" value={String(user.public_id)} />
             <p className="text-sm text-[color:var(--sf-text-secondary)]">
-              This will permanently delete <span className="font-semibold">{user.display_name}</span> ({user.email}). This cannot
-              be undone.
+              This will deactivate <span className="font-semibold">{user.display_name}</span> ({user.email}). The record will be kept
+              and can be reactivated later.
             </p>
             <div className="flex items-center justify-end gap-2">
               <Link
@@ -912,7 +934,9 @@ export default async function UsersPage({
               >
                 Cancel
               </Link>
-              <button className="rounded-md bg-[#E74C3C] px-3 py-2 text-sm font-medium text-[color:var(--sf-text-primary)]">Delete</button>
+              <button className="rounded-md bg-[#E74C3C] px-3 py-2 text-sm font-medium text-[color:var(--sf-text-primary)]">
+                Deactivate
+              </button>
             </div>
           </form>
         </Modal>
