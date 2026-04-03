@@ -4,7 +4,7 @@ import { getOrganization } from "../../../lib/db";
 import { pool } from "../../../lib/pool";
 import { getChannelTerritoryRepIds } from "../../../lib/channelTerritoryScope";
 import { getScopedRepDirectory } from "../../../lib/repScope";
-import { getChannelDashboardSummary } from "../../../lib/channelDashboard";
+import { getChannelDashboardSummary, loadChannelRepFyQuarterRows } from "../../../lib/channelDashboard";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ExecutiveTabsShellClient } from "../../components/dashboard/executive/ExecutiveTabsShellClient";
 import { normalizeExecTab, type ExecTabKey } from "../../actions/execTabConstants";
@@ -625,6 +625,18 @@ export default async function ChannelDashboardPage({
     console.error("[channel page] getChannelDashboardSummary error", err);
     return null;
   });
+  const directorRepsId = viewerChannelRepsTableId;
+  const channelFyQuarterRows =
+    fiscalYear && channelScopedRepIds.length > 0
+      ? await loadChannelRepFyQuarterRows({
+          orgId: ctx.user.org_id,
+          fiscalYear,
+          channelRepIds: channelScopedRepIds,
+        }).catch((err) => {
+          console.error("[channel page] loadChannelRepFyQuarterRows error", err);
+          return [];
+        })
+      : [];
   const viewerQuotaRoleLevel = mapChannelHierarchyToQuotaRoleLevel(ctx.user.hierarchy_level);
 
   let channelHeroMetrics: ChannelDashboardHeroMetrics | null = null;
@@ -767,7 +779,7 @@ export default async function ChannelDashboardPage({
       channelSummary?.channelRepRows.map((r) => ({
         rep_id: r.rep_id,
         rep_name: r.rep_name,
-        manager_id: "",
+        manager_id: directorRepsId ? String(directorRepsId) : "",
         manager_name: r.manager_name,
         quota: r.quota,
         total_count: 0,
@@ -801,7 +813,7 @@ export default async function ChannelDashboardPage({
     periodName: selectedPeriod?.period_name ?? "",
     periodStart: selectedPeriod?.period_start ?? "",
     periodEnd: selectedPeriod?.period_end ?? "",
-    repFyQuarterRows: [],
+    repFyQuarterRows: channelFyQuarterRows,
   };
 
   const scopedDirectory = summary.repDirectory.map((r) => ({

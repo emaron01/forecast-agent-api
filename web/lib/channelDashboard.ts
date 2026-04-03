@@ -43,6 +43,17 @@ export type ChannelRepRow = {
   contribution_pct: number | null;
 };
 
+export type ChannelRepFyQuarterRow = {
+  rep_id: string;
+  rep_int_id: string;
+  period_id: string;
+  period_name: string;
+  fiscal_quarter: string;
+  won_amount: number;
+  quota: number;
+  attainment: number | null;
+};
+
 export type ChannelDashboardSummary = {
   periods: QuotaPeriod[];
   selectedPeriod: QuotaPeriod | null;
@@ -861,6 +872,221 @@ async function loadChannelRepRows(args: {
     });
   } catch (error) {
     logError("loadChannelRepRows", error);
+    return [];
+  }
+}
+
+export async function loadChannelRepFyQuarterRows(args: {
+  orgId: number;
+  fiscalYear: string;
+  channelRepIds: number[];
+}): Promise<ChannelRepFyQuarterRow[]> {
+  if (!args.fiscalYear || args.channelRepIds.length === 0) return [];
+
+  try {
+    const [repScopeRes, periodRes] = await Promise.all([
+      pool.query<{
+        rep_id: number;
+        user_id: number;
+      }>(
+        `
+        SELECT
+          r.id AS rep_id,
+          u.id AS user_id
+        FROM reps r
+        JOIN users u
+          ON u.id = r.user_id
+         AND u.org_id = $1::bigint
+        WHERE r.organization_id = $1::bigint
+          AND r.id = ANY($2::bigint[])
+          AND COALESCE(u.hierarchy_level, 99) = 8
+        ORDER BY r.id ASC
+        `,
+        [args.orgId, args.channelRepIds]
+      ),
+      pool.query<{
+        id: number;
+        period_name: string;
+        fiscal_quarter: string;
+        period_start: string;
+        period_end: string;
+      }>(
+        `
+        SELECT
+          id,
+          period_name,
+          fiscal_quarter::text AS fiscal_quarter,
+          period_start::text AS period_start,
+          period_end::text AS period_end
+        FROM quota_periods
+        WHERE org_id = $1::bigint
+          AND fiscal_year::text = $2::text
+        ORDER BY period_start ASC, id ASC
+        `,
+        [args.orgId, args.fiscalYear]
+      ),
+    ]);
+
+    const repScopeRows = repScopeRes.rows || [];
+    const periods = periodRes.rows || [];
+    if (!repScopeRows.length || !periods.length) return [];
+
+    const periodIds = periods
+      .map((row) => Number(row.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (!periodIds.length) return [];
+
+    const quotaRows = await pool
+      .query<{ rep_id: number; period_id: number; quota: number }>(
+        `
+        SELECT
+          q.rep_id,
+          q.quota_period_id AS period_id,
+          COALESCE(SUM(q.quota_amount), 0)::float8 AS quota
+        FROM quotas q
+        WHERE q.org_id = $1::bigint
+          AND q.rep_id = ANY($2::bigint[])
+          AND q.quota_period_id = ANY($3::bigint[])
+        GROUP BY q.rep_id, q.quota_period_id
+        `,
+        [args.orgId, args.channelRepIds, periodIds]
+      )
+      .then((res) => res.rows || [])
+      .catch(() => []);
+
+    const quotaByRepPeriod = new Map<string, number>();
+    for (const row of quotaRows) {
+      const repId = Number(row.rep_id);
+      const periodId = Number(row.period_id);
+      if (!Number.isFinite(repId) || repId <= 0 || !Number.isFinite(periodId) || periodId <= 0) continue;
+      quotaByRepPeriod.set(`${repId}:${periodId}`, num(row.quota));
+    }
+
+    const assignmentRows = await pool
+      .query<{ channel_rep_id: number; partner_name: string | null }>(
+        `
+        SELECT
+          channel_rep_id,
+          lower(btrim(partner_name)) AS partner_name
+        FROM partner_channel_assignments
+        WHERE org_id = $1::bigint
+          AND channel_rep_id = ANY($2::int[])
+        `,
+        [args.orgId, repScopeRows.map((row) => Number(row.user_id))]
+      )
+      .then((res) => res.rows || [])
+      .catch(() => []);
+
+    const partnerNamesByUserId = new Map<number, string[]>();
+    for (const row of assignmentRows) {
+      const userId = Number(row.channel_rep_id);
+      if (!Number.isFinite(userId) || userId <= 0) continue;
+      const current = partnerNamesByUserId.get(userId) || [];
+      const partnerName = cleanText(row.partner_name).toLowerCase();
+      if (partnerName) current.push(partnerName);
+      partnerNamesByUserId.set(userId, current);
+    }
+    for (const [userId, values] of partnerNamesByUserId.entries()) {
+      partnerNamesByUserId.set(userId, Array.from(new Set(values.filter(Boolean))));
+    }
+
+    const wonByRepPeriod = new Map<string, number>();
+    await Promise.all(
+      repScopeRows.map(async (row) => {
+        const repId = Number(row.rep_id);
+        const userId = Number(row.user_id);
+        const territoryRepIds = await getChannelTerritoryRepIds({
+          orgId: args.orgId,
+          channelUserId: userId,
+        }).catch(() => []);
+        if (!territoryRepIds.length) return;
+
+        const assignedPartnerNames = partnerNamesByUserId.get(userId) || [];
+        const { rows } = await pool.query<{ period_id: number; won_amount: number }>(
+          `
+          WITH qp AS (
+            SELECT
+              id,
+              period_start::date AS period_start,
+              period_end::date AS period_end
+            FROM quota_periods
+            WHERE org_id = $1::bigint
+              AND id = ANY($2::bigint[])
+          ),
+          deals AS (
+            SELECT
+              qp.id AS period_id,
+              COALESCE(o.amount, 0)::float8 AS amount,
+              ${crmBucketCaseSql("o")} AS crm_bucket
+            FROM opportunities o
+            JOIN qp
+              ON ${parsedCloseDateSql("o")} IS NOT NULL
+             AND ${parsedCloseDateSql("o")} >= qp.period_start
+             AND ${parsedCloseDateSql("o")} <= qp.period_end
+            LEFT JOIN org_stage_mappings stm
+              ON stm.org_id = o.org_id
+             AND stm.field = 'stage'
+             AND stm.stage_value = o.sales_stage
+            LEFT JOIN org_stage_mappings fcm
+              ON fcm.org_id = o.org_id
+             AND fcm.field = 'forecast_category'
+             AND fcm.stage_value = o.forecast_stage
+            WHERE o.org_id = $1::bigint
+              AND o.rep_id = ANY($3::bigint[])
+              AND ${partnerScopeSql("o", 4)}
+          )
+          SELECT
+            period_id,
+            COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN amount ELSE 0 END), 0)::float8 AS won_amount
+          FROM deals
+          GROUP BY period_id
+          `,
+          [args.orgId, periodIds, territoryRepIds, assignedPartnerNames]
+        );
+
+        for (const wonRow of rows || []) {
+          const periodId = Number(wonRow.period_id);
+          if (!Number.isFinite(periodId) || periodId <= 0) continue;
+          wonByRepPeriod.set(`${repId}:${periodId}`, num(wonRow.won_amount));
+        }
+      })
+    );
+
+    const out: ChannelRepFyQuarterRow[] = [];
+    for (const rep of repScopeRows) {
+      const repId = Number(rep.rep_id);
+      if (!Number.isFinite(repId) || repId <= 0) continue;
+      for (const period of periods) {
+        const periodId = Number(period.id);
+        if (!Number.isFinite(periodId) || periodId <= 0) continue;
+        const quota = quotaByRepPeriod.get(`${repId}:${periodId}`) || 0;
+        const wonAmount = wonByRepPeriod.get(`${repId}:${periodId}`) || 0;
+        out.push({
+          rep_id: String(repId),
+          rep_int_id: String(repId),
+          period_id: String(periodId),
+          period_name: cleanText(period.period_name),
+          fiscal_quarter: cleanText(period.fiscal_quarter),
+          won_amount: wonAmount,
+          quota,
+          attainment: quota > 0 ? wonAmount / quota : null,
+        });
+      }
+    }
+
+    return out.sort((a, b) => {
+      const aq = Number(a.fiscal_quarter);
+      const bq = Number(b.fiscal_quarter);
+      if (Number.isFinite(aq) && Number.isFinite(bq) && aq !== bq) return aq - bq;
+      const ap = Number(a.period_id);
+      const bp = Number(b.period_id);
+      if (Number.isFinite(ap) && Number.isFinite(bp) && ap !== bp) return ap - bp;
+      const ar = Number(a.rep_int_id);
+      const br = Number(b.rep_int_id);
+      return (Number.isFinite(ar) ? ar : 0) - (Number.isFinite(br) ? br : 0);
+    });
+  } catch (error) {
+    logError("loadChannelRepFyQuarterRows", error);
     return [];
   }
 }
