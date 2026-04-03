@@ -598,30 +598,18 @@ export default async function ChannelDashboardPage({
     return null;
   });
   const viewerQuotaRoleLevel = mapChannelHierarchyToQuotaRoleLevel(ctx.user.hierarchy_level);
-  console.log("[channel debug]", {
-    currentChannelRepId,
-    currentChannelUserId,
-    viewerQuotaRoleLevel,
-    selectedPeriodId,
-    territoryRepIds: territoryRepIds.slice(0, 3),
-    ctxUserId: ctx.kind === "user" ? ctx.user.id : null,
-  });
 
   let channelHeroMetrics: ChannelDashboardHeroMetrics | null = null;
-  if (selectedPeriodId && territoryRepIds.length > 0 && currentChannelRepId && viewerQuotaRoleLevel != null) {
+  if (selectedPeriodId && territoryRepIds.length > 0 && viewerQuotaRoleLevel != null) {
     channelHeroMetrics = await getChannelDashboardHeroMetrics({
       orgId: ctx.user.org_id,
       quotaPeriodId: selectedPeriodId,
       territoryRepIds,
       viewerHierarchyLevel: Number(ctx.user.hierarchy_level),
-      viewerChannelRepId: currentChannelRepId,
+      viewerChannelRepId: ctx.user.id,
       viewerUserId: ctx.user.id,
       assignedPartnerNames,
     })
-      .then((result) => {
-        console.log("[channelHeroMetrics result]", JSON.stringify(result));
-        return result;
-      })
       .catch((err) => {
         console.error("[channelHeroMetrics error]", err);
         return null;
