@@ -262,7 +262,7 @@ async function loadPeriods(orgId: number): Promise<QuotaPeriod[]> {
       SELECT
         id::text AS id,
         COALESCE(NULLIF(btrim(fiscal_year), ''), substring(period_start::text from 1 for 4)) AS fiscal_year,
-        COALESCE(NULLIF(btrim(fiscal_quarter), ''), '') AS fiscal_quarter,
+        COALESCE(fiscal_quarter::text, '') AS fiscal_quarter,
         COALESCE(NULLIF(btrim(period_name), ''), period_start::text || ' -> ' || period_end::text) AS period_name,
         period_start::text AS period_start,
         period_end::text AS period_end
