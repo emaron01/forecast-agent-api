@@ -143,6 +143,25 @@ async function getCurrentChannelUserId(args: {
   return null;
 }
 
+async function getCurrentChannelRepsTableId(args: {
+  orgId: number;
+  userId: number;
+}): Promise<number | null> {
+  const { rows } = await pool.query<{ rep_id: number }>(
+    `
+    SELECT r.id AS rep_id
+    FROM reps r
+    WHERE r.user_id = $1::bigint
+      AND r.organization_id = $2::bigint
+      AND r.active = true
+    LIMIT 1
+    `,
+    [args.userId, args.orgId]
+  );
+  const repId = Number(rows?.[0]?.rep_id);
+  return Number.isFinite(repId) && repId > 0 ? repId : null;
+}
+
 async function listChannelScopedRepIds(args: {
   orgId: number;
   hierarchyLevel: number;
@@ -258,6 +277,7 @@ async function getChannelDashboardHeroMetrics(args: {
   territoryRepIds: number[];
   viewerHierarchyLevel: number;
   viewerChannelRepId: number;
+  viewerChannelRepsTableId: number | null;
   viewerUserId: number;
   assignedPartnerNames: string[];
 }): Promise<ChannelDashboardHeroMetrics> {
@@ -294,7 +314,7 @@ async function getChannelDashboardHeroMetrics(args: {
         AND q.quota_period_id = $2::bigint
         AND u.hierarchy_level = 8
         AND (
-          ($5::int = 8 AND q.rep_id = $6::bigint)
+          ($5::int = 8 AND $6::bigint IS NOT NULL AND q.rep_id = $6::bigint)
           OR ($5::int = 7 AND u.manager_user_id = $7::bigint)
           OR ($5::int = 6)
         )
@@ -441,7 +461,7 @@ async function getChannelDashboardHeroMetrics(args: {
       args.territoryRepIds,
       useTerritoryFilter,
       args.viewerHierarchyLevel,
-      args.viewerChannelRepId,
+      args.viewerChannelRepsTableId,
       args.viewerUserId,
       args.assignedPartnerNames,
     ]
@@ -511,6 +531,13 @@ export default async function ChannelDashboardPage({
   const currentChannelUserId =
     selectedPeriodId && ctx.kind === "user"
       ? await getCurrentChannelUserId({
+          orgId: ctx.user.org_id,
+          userId: ctx.user.id,
+        }).catch(() => null)
+      : null;
+  const viewerChannelRepsTableId =
+    selectedPeriodId && ctx.kind === "user"
+      ? await getCurrentChannelRepsTableId({
           orgId: ctx.user.org_id,
           userId: ctx.user.id,
         }).catch(() => null)
@@ -607,6 +634,7 @@ export default async function ChannelDashboardPage({
       territoryRepIds,
       viewerHierarchyLevel: Number(ctx.user.hierarchy_level),
       viewerChannelRepId: ctx.user.id,
+      viewerChannelRepsTableId,
       viewerUserId: ctx.user.id,
       assignedPartnerNames,
     })
