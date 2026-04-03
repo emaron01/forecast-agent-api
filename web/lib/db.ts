@@ -1667,6 +1667,7 @@ export async function deleteOrganization(args: { id: number }) {
     await client.query(`DELETE FROM opportunities WHERE org_id = $1`, [id]);
     await client.query(`DELETE FROM quota_periods WHERE org_id = $1`, [id]);
     await client.query(`DELETE FROM quotas WHERE org_id = $1`, [id]);
+    await client.query(`DELETE FROM revenue_buckets WHERE org_id = $1`, [id]);
     await client.query(`DELETE FROM reps WHERE org_id = $1 OR organization_id = $1`, [id]);
 
     // 4. Nullify self-referencing child orgs (do not delete them)
