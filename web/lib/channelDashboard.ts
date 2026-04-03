@@ -887,11 +887,13 @@ export async function loadChannelRepFyQuarterRows(args: {
     const [repScopeRes, periodRes] = await Promise.all([
       pool.query<{
         rep_id: number;
+        rep_public_id: string;
         user_id: number;
       }>(
         `
         SELECT
           r.id AS rep_id,
+          r.public_id::text AS rep_public_id,
           u.id AS user_id
         FROM reps r
         JOIN users u
@@ -1062,7 +1064,7 @@ export async function loadChannelRepFyQuarterRows(args: {
         const quota = quotaByRepPeriod.get(`${repId}:${periodId}`) || 0;
         const wonAmount = wonByRepPeriod.get(`${repId}:${periodId}`) || 0;
         out.push({
-          rep_id: String(repId),
+          rep_id: cleanText(rep.rep_public_id, String(repId)),
           rep_int_id: String(repId),
           period_id: String(periodId),
           period_name: cleanText(period.period_name),

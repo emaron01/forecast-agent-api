@@ -774,42 +774,64 @@ export default async function ChannelDashboardPage({
     progressionSummaries: [],
   };
 
+  const channelTeamRepRows =
+    channelSummary?.channelRepRows.map((r) => ({
+      rep_id: r.rep_id,
+      rep_name: r.rep_name,
+      manager_id: directorRepsId ? String(directorRepsId) : "",
+      manager_name: r.manager_name,
+      quota: r.quota,
+      total_count: 0,
+      won_amount: r.won_amount,
+      won_count: r.won_count,
+      lost_count: 0,
+      active_amount: r.pipeline_amount,
+      commit_amount: 0,
+      best_amount: 0,
+      pipeline_amount: r.pipeline_amount,
+      created_amount: 0,
+      created_count: 0,
+      win_rate: null,
+      opp_to_win: null,
+      aov: null,
+      attainment: r.attainment,
+      commit_coverage: null,
+      best_coverage: null,
+      partner_contribution: r.contribution_pct,
+      partner_win_rate: null,
+      avg_days_won: null,
+      avg_days_lost: null,
+      avg_days_active: null,
+      mix_pipeline: null,
+      mix_best: null,
+      mix_commit: null,
+      mix_won: null,
+      qoq_attainment_delta: null,
+    })) ?? [];
+
+  const channelManagerRows =
+    directorRepsId && channelTeamRepRows.length > 0
+      ? [
+          {
+            manager_id: String(directorRepsId),
+            manager_name: String(ctx.user.display_name || ctx.user.email || "Channel Director").trim() || "Channel Director",
+            quota: channelTeamRepRows.reduce((sum, row) => sum + (Number(row.quota) || 0), 0),
+            won_amount: channelTeamRepRows.reduce((sum, row) => sum + (Number(row.won_amount) || 0), 0),
+            active_amount: channelTeamRepRows.reduce((sum, row) => sum + (Number(row.pipeline_amount) || 0), 0),
+            attainment: (() => {
+              const quota = channelTeamRepRows.reduce((sum, row) => sum + (Number(row.quota) || 0), 0);
+              const won = channelTeamRepRows.reduce((sum, row) => sum + (Number(row.won_amount) || 0), 0);
+              return quota > 0 ? won / quota : null;
+            })(),
+            win_rate: null,
+            partner_contribution: null,
+          },
+        ]
+      : [];
+
   const emptyTeamPayload = {
-    repRows:
-      channelSummary?.channelRepRows.map((r) => ({
-        rep_id: r.rep_id,
-        rep_name: r.rep_name,
-        manager_id: directorRepsId ? String(directorRepsId) : "",
-        manager_name: r.manager_name,
-        quota: r.quota,
-        total_count: 0,
-        won_amount: r.won_amount,
-        won_count: r.won_count,
-        lost_count: 0,
-        active_amount: r.pipeline_amount,
-        commit_amount: 0,
-        best_amount: 0,
-        pipeline_amount: r.pipeline_amount,
-        created_amount: 0,
-        created_count: 0,
-        win_rate: null,
-        opp_to_win: null,
-        aov: null,
-        attainment: r.attainment,
-        commit_coverage: null,
-        best_coverage: null,
-        partner_contribution: r.contribution_pct,
-        partner_win_rate: null,
-        avg_days_won: null,
-        avg_days_lost: null,
-        avg_days_active: null,
-        mix_pipeline: null,
-        mix_best: null,
-        mix_commit: null,
-        mix_won: null,
-        qoq_attainment_delta: null,
-      })) ?? [],
-    managerRows: [],
+    repRows: channelTeamRepRows,
+    managerRows: channelManagerRows,
     periodName: selectedPeriod?.period_name ?? "",
     periodStart: selectedPeriod?.period_start ?? "",
     periodEnd: selectedPeriod?.period_end ?? "",
