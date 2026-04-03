@@ -14,7 +14,7 @@ import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveFore
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
 import { HIERARCHY, isChannelRep, isChannelRole } from "../../../lib/roleHelpers";
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
-import type { TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
+import { ChannelTopPartnerDealsTablesClient, type TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
 
 export const runtime = "nodejs";
 
@@ -59,6 +59,7 @@ async function listTopPartnerDealsChannel(args: {
     SELECT
       o.public_id::text AS opportunity_public_id,
       btrim(o.partner_name) AS partner_name,
+      o.deal_registration,
       o.account_name,
       o.opportunity_name,
       o.product,
@@ -876,47 +877,65 @@ export default async function ChannelDashboardPage({
         </div>
         {!isChannelRep(ctx.user) ? (
           <div className="mt-4">
-            <ExecutiveTabsShellClient
-              basePath="/dashboard/channel"
-              initialTab={activeTab}
-              setDefaultTab={setExecDefaultTabAction}
-              orgId={ctx.user.org_id}
-              orgName={orgName}
-              viewerRole={ctx.user.role}
-              forecastTabProps={channelTabProps}
-              pipelineTabProps={channelTabProps}
-              pipelineHygiene={emptyPipelineHygiene}
-              teamTabProps={channelTabProps}
-              teamRepManagerPayload={emptyTeamPayload}
-              reviewQueueDeals={[]}
-              currentUserId={ctx.user.id}
-              showManagerReviewQueue={false}
-              revenueTabProps={channelTabProps}
-              topPartnerWon={channelTopPartnerWon}
-              topPartnerLost={channelTopPartnerLost}
-              topDealsWon={topDealsWonRows}
-              topDealsLost={topDealsLostRows}
-              reportBuilderRepRows={[]}
-              reportBuilderSavedReports={[]}
-              reportBuilderPeriodLabel={selectedPeriod?.period_name ?? ""}
-              reportBuilderRepDirectory={scopedDirectory}
-              reportBuilderQuotaPeriods={(channelSummary?.periods ?? summary.periods).map((p) => ({
-                id: String(p.id),
-                name: p.period_name ? `${p.period_name}` : String(p.id),
-              }))}
-              reportBuilderOrgId={orgId}
-              reportBuilderInitialPeriodId={selectedPeriodId}
-              revenueIntelligenceOrgId={orgId}
-              revenueIntelligenceQuotaPeriods={(channelSummary?.periods ?? summary.periods).map((p) => ({
-                id: String(p.id),
-                name: p.period_name,
-                fiscal_year: String(p.fiscal_year ?? ""),
-              }))}
-              revenueIntelligenceRepDirectory={scopedDirectory}
-              showChannelContribution={ledFedRows.length > 0}
-              channelContributionHero={partnerHero}
-              channelContributionRows={ledFedRows}
-            />
+            <div className="channel-tabs-shell" data-channel-top-deals={activeTab === "top_deals" ? "true" : "false"}>
+              <ExecutiveTabsShellClient
+                basePath="/dashboard/channel"
+                initialTab={activeTab}
+                setDefaultTab={setExecDefaultTabAction}
+                orgId={ctx.user.org_id}
+                orgName={orgName}
+                viewerRole={ctx.user.role}
+                forecastTabProps={channelTabProps}
+                pipelineTabProps={channelTabProps}
+                pipelineHygiene={emptyPipelineHygiene}
+                teamTabProps={channelTabProps}
+                teamRepManagerPayload={emptyTeamPayload}
+                reviewQueueDeals={[]}
+                currentUserId={ctx.user.id}
+                showManagerReviewQueue={false}
+                revenueTabProps={channelTabProps}
+                topPartnerWon={channelTopPartnerWon}
+                topPartnerLost={channelTopPartnerLost}
+                topDealsWon={topDealsWonRows}
+                topDealsLost={topDealsLostRows}
+                reportBuilderRepRows={[]}
+                reportBuilderSavedReports={[]}
+                reportBuilderPeriodLabel={selectedPeriod?.period_name ?? ""}
+                reportBuilderRepDirectory={scopedDirectory}
+                reportBuilderQuotaPeriods={(channelSummary?.periods ?? summary.periods).map((p) => ({
+                  id: String(p.id),
+                  name: p.period_name ? `${p.period_name}` : String(p.id),
+                }))}
+                reportBuilderOrgId={orgId}
+                reportBuilderInitialPeriodId={selectedPeriodId}
+                revenueIntelligenceOrgId={orgId}
+                revenueIntelligenceQuotaPeriods={(channelSummary?.periods ?? summary.periods).map((p) => ({
+                  id: String(p.id),
+                  name: p.period_name,
+                  fiscal_year: String(p.fiscal_year ?? ""),
+                }))}
+                revenueIntelligenceRepDirectory={scopedDirectory}
+                showChannelContribution={ledFedRows.length > 0}
+                channelContributionHero={partnerHero}
+                channelContributionRows={ledFedRows}
+              />
+            </div>
+            {activeTab === "top_deals" ? (
+              <ChannelTopPartnerDealsTablesClient
+                won={topPartnerWon}
+                lost={topPartnerLost}
+                periodStart={selectedPeriod?.period_start}
+                periodEnd={selectedPeriod?.period_end}
+              />
+            ) : null}
+            {activeTab === "top_deals" ? (
+              <style
+                dangerouslySetInnerHTML={{
+                  __html:
+                    '.channel-tabs-shell[data-channel-top-deals="true"] > section > div.mt-4.rounded-lg { display: none; }',
+                }}
+              />
+            ) : null}
           </div>
         ) : null}
       </main>

@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 export type TopPartnerDealRow = {
   opportunity_public_id: string;
   partner_name: string;
+  deal_registration: boolean | null;
   account_name: string | null;
   opportunity_name: string | null;
   product: string | null;
@@ -37,6 +38,13 @@ function healthPctChannel(score: number | null | undefined): string {
   const n = Number(score);
   if (!Number.isFinite(n) || n <= 0) return "—";
   return `${Math.max(0, Math.min(100, Math.round((n / 30) * 100)))}%`;
+}
+
+function renderDealRegChannel(value: boolean | null | undefined) {
+  if (value == null) {
+    return <span className="text-[color:var(--sf-text-secondary)]">—</span>;
+  }
+  return value ? <span className="text-[#16A34A]">Y</span> : <span className="text-[#E74C3C]">N</span>;
 }
 
 function toggleSort(
@@ -137,11 +145,12 @@ export function ChannelTopPartnerDealsTablesClient(props: {
           <table className="w-full table-fixed border-collapse text-left text-sm">
             <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
               <tr>
-                {thWon("partner", "partner", "w-[14%] px-3 py-3 text-left")}
-                {thWon("account", "account", "w-[16%] px-3 py-3 text-left")}
-                {thWon("opportunity", "opportunity", "w-[22%] px-3 py-3 text-left")}
+                {thWon("partner", "partner", "w-[12%] px-3 py-3 text-left")}
+                <th className="w-[8%] px-3 py-3 text-center">deal reg</th>
+                {thWon("account", "account", "w-[14%] px-3 py-3 text-left")}
+                {thWon("opportunity", "opportunity", "w-[20%] px-3 py-3 text-left")}
                 {thWon("product", "product", "w-[12%] px-3 py-3 text-left")}
-                {thWon("amount", "revenue", "w-[12%] px-3 py-3 text-right whitespace-nowrap")}
+                {thWon("amount", "revenue", "w-[10%] px-3 py-3 text-right whitespace-nowrap")}
                 {thWon("age", "age", "w-[6%] px-3 py-3 text-right whitespace-nowrap")}
                 {thWon("initial_health", "initial health", "w-[9%] px-2 py-3 text-right whitespace-nowrap")}
                 {thWon("final_health", "final health", "w-[9%] px-2 py-3 text-right whitespace-nowrap")}
@@ -155,6 +164,9 @@ export function ChannelTopPartnerDealsTablesClient(props: {
                     <tr key={d.opportunity_public_id} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
                       <td className={`min-w-0 px-3 py-3 font-medium align-top truncate ${sortCellClass(wonSortKey === "partner")}`} title={d.partner_name}>
                         {d.partner_name}
+                      </td>
+                      <td className="px-3 py-3 text-center font-semibold align-top whitespace-nowrap">
+                        {renderDealRegChannel(d.deal_registration)}
                       </td>
                       <td className={`min-w-0 px-3 py-3 align-top truncate ${sortCellClass(wonSortKey === "account")}`} title={d.account_name || undefined}>
                         {d.account_name || ""}
@@ -182,7 +194,7 @@ export function ChannelTopPartnerDealsTablesClient(props: {
                 })
               ) : (
                 <tr>
-                  <td colSpan={8} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                  <td colSpan={9} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
                     No partner Won deals found for this quarter.
                   </td>
                 </tr>
@@ -206,11 +218,12 @@ export function ChannelTopPartnerDealsTablesClient(props: {
           <table className="w-full table-fixed border-collapse text-left text-sm">
             <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
               <tr>
-                {thLost("partner", "partner", "w-[14%] px-3 py-3 text-left")}
-                {thLost("account", "account", "w-[16%] px-3 py-3 text-left")}
-                {thLost("opportunity", "opportunity", "w-[22%] px-3 py-3 text-left")}
+                {thLost("partner", "partner", "w-[12%] px-3 py-3 text-left")}
+                <th className="w-[8%] px-3 py-3 text-center">deal reg</th>
+                {thLost("account", "account", "w-[14%] px-3 py-3 text-left")}
+                {thLost("opportunity", "opportunity", "w-[20%] px-3 py-3 text-left")}
                 {thLost("product", "product", "w-[12%] px-3 py-3 text-left")}
-                {thLost("amount", "revenue", "w-[12%] px-3 py-3 text-right whitespace-nowrap")}
+                {thLost("amount", "revenue", "w-[10%] px-3 py-3 text-right whitespace-nowrap")}
                 {thLost("age", "age", "w-[6%] px-3 py-3 text-right whitespace-nowrap")}
                 {thLost("initial_health", "initial health", "w-[9%] px-2 py-3 text-right whitespace-nowrap")}
                 {thLost("final_health", "final health", "w-[9%] px-2 py-3 text-right whitespace-nowrap")}
@@ -224,6 +237,9 @@ export function ChannelTopPartnerDealsTablesClient(props: {
                     <tr key={d.opportunity_public_id} className="border-t border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]">
                       <td className={`min-w-0 px-3 py-3 font-medium align-top truncate ${sortCellClass(lostSortKey === "partner")}`} title={d.partner_name}>
                         {d.partner_name}
+                      </td>
+                      <td className="px-3 py-3 text-center font-semibold align-top whitespace-nowrap">
+                        {renderDealRegChannel(d.deal_registration)}
                       </td>
                       <td className={`min-w-0 px-3 py-3 align-top truncate ${sortCellClass(lostSortKey === "account")}`} title={d.account_name || undefined}>
                         {d.account_name || ""}
@@ -251,7 +267,7 @@ export function ChannelTopPartnerDealsTablesClient(props: {
                 })
               ) : (
                 <tr>
-                  <td colSpan={8} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                  <td colSpan={9} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
                     No partner Closed Loss deals found for this quarter.
                   </td>
                 </tr>
