@@ -420,8 +420,7 @@ export async function updateUserAction(formData: FormData) {
     `
     UPDATE reps
        SET rep_name = $3,
-           display_name = $3,
-           updated_at = NOW()
+           display_name = $3
      WHERE org_id = $1
        AND user_id = $2
     `,
