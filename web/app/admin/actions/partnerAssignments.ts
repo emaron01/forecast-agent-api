@@ -34,6 +34,23 @@ function canManage(ctx: Awaited<ReturnType<typeof requireOrgContext>>["ctx"]) {
   );
 }
 
+async function canManageChannelRep(orgId: number, actingUserId: number, channelRepId: number) {
+  const { rows } = await pool.query<{ ok: number }>(
+    `
+    SELECT 1 AS ok
+      FROM users u
+     WHERE u.org_id = $1::bigint
+       AND u.id = $2::int
+       AND u.manager_user_id = $3::int
+       AND COALESCE(u.active, TRUE) IS TRUE
+       AND COALESCE(u.hierarchy_level, 0) = 8
+     LIMIT 1
+    `,
+    [orgId, channelRepId, actingUserId]
+  );
+  return !!rows?.length;
+}
+
 function normalizePartnerName(name: string) {
   return String(name || "").trim();
 }
@@ -174,6 +191,10 @@ export async function savePartnerAssignment(args: {
     if (parsed.orgId !== Number(orgId)) return { ok: false, error: "invalid_org" };
 
     if (!parsed.partnerName) return { ok: false, error: "partner_required" };
+    if (ctx.kind === "user" && !isAdmin(ctx.user) && parsed.channelRepId != null) {
+      const allowed = await canManageChannelRep(parsed.orgId, ctx.user.id, parsed.channelRepId);
+      if (!allowed) return { ok: false, error: "forbidden" };
+    }
 
     if (parsed.channelRepId == null) {
       await pool.query(

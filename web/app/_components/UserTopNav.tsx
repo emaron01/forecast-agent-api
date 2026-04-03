@@ -41,8 +41,8 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
             {isAdmin(user) && <NavLink href="/analytics" label="Analytics" />}
             {isSalesLeader(user) && <NavLink href="/analytics/quotas/manager" label="Quotas" />}
             {isChannelLeader ? <NavLink href="/analytics/quotas/manager" label="Quotas" /> : null}
-            {isChannelLeader ? <NavLink href="/admin/channel-alignment" label="Channel Alignment" /> : null}
-            {isChannelLeader ? <NavLink href="/admin/partner-assignments" label="Partner Assignments" /> : null}
+            {isChannelLeader ? <NavLink href="/channel-alignment" label="Channel Alignment" /> : null}
+            {isChannelLeader ? <NavLink href="/partner-assignments" label="Partner Assignments" /> : null}
             <NavLink href="/dashboard/excel-upload" label="Upload" />
           </nav>
         </div>
