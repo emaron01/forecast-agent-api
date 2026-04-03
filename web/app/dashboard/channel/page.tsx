@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requireAuth } from "../../../lib/auth";
 import { getOrganization } from "../../../lib/db";
 import { pool } from "../../../lib/pool";
+import { getChannelTerritoryRepIds } from "../../../lib/channelTerritoryScope";
 import { getScopedRepDirectory } from "../../../lib/repScope";
 import { getChannelDashboardSummary } from "../../../lib/channelDashboard";
 import { UserTopNav } from "../../_components/UserTopNav";
@@ -434,6 +435,11 @@ export default async function ChannelDashboardPage({
     ? String(summary.selectedQuotaPeriodId)
     : "";
 
+  const territoryRepIds = await getChannelTerritoryRepIds({
+    orgId,
+    channelUserId: ctx.user.id,
+  }).catch(() => []);
+
   const scope = await getScopedRepDirectory({
     orgId,
     user: ctx.user,
@@ -442,13 +448,6 @@ export default async function ChannelDashboardPage({
     allowedRepIds: null as number[] | null,
     myRepId: null as number | null,
   }));
-
-  const territoryRepIds: number[] =
-    scope.allowedRepIds !== null && scope.allowedRepIds.length > 0
-      ? scope.allowedRepIds
-      : scope.repDirectory
-          .map((r) => r.id)
-          .filter((n) => Number.isFinite(n) && n > 0);
 
   const visibleRepIds: number[] = territoryRepIds;
 
