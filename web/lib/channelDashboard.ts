@@ -1,6 +1,7 @@
 import "server-only";
 
 import { pool } from "./pool";
+import { getChannelTerritoryRepIds } from "./channelTerritoryScope";
 import type { RepDirectoryRow } from "./repScope";
 
 const LOG_PREFIX = "[getChannelDashboardSummary]";
@@ -662,117 +663,199 @@ async function loadChannelRepRows(args: {
 }): Promise<ChannelRepRow[]> {
   if (!args.selectedQuotaPeriodId || args.channelRepIds.length === 0) return [];
   try {
-    const { rows } = await pool.query<{
-      rep_id: string;
-      rep_name: string;
-      manager_name: string;
-      quota: number;
+    type ChannelRepMetricRow = {
+      repId: number;
       won_amount: number;
       won_count: number;
       pipeline_amount: number;
       partner_deals_won: number;
       partner_deals_pipeline: number;
-    }>(
-      `
-      WITH qp AS (
-        SELECT period_start::date AS period_start, period_end::date AS period_end
-        FROM quota_periods
-        WHERE org_id = $1::bigint
-          AND id = $2::bigint
-        LIMIT 1
-      ),
-      reps_scope AS (
+    };
+
+    const [repScopeRes, quotaRes] = await Promise.all([
+      pool.query<{
+        rep_id: number;
+        user_id: number;
+        rep_name: string;
+        manager_name: string;
+      }>(
+        `
         SELECT
-          r.id::text AS rep_id,
+          r.id AS rep_id,
+          u.id AS user_id,
           COALESCE(NULLIF(btrim(r.rep_name), ''), NULLIF(btrim(r.display_name), ''), '(Unnamed Rep)') AS rep_name,
           COALESCE(NULLIF(btrim(m.display_name), ''), NULLIF(btrim(m.rep_name), ''), '(No Manager)') AS manager_name
         FROM reps r
+        JOIN users u
+          ON u.id = r.user_id
+         AND u.org_id = $1::bigint
         LEFT JOIN reps m
           ON m.id = r.manager_rep_id
         WHERE r.organization_id = $1::bigint
-          AND r.id = ANY($3::bigint[])
+          AND r.id = ANY($2::bigint[])
+          AND COALESCE(u.hierarchy_level, 99) = 8
+        ORDER BY rep_name ASC, r.id ASC
+        `,
+        [args.orgId, args.channelRepIds]
       ),
-      quota_by_rep AS (
-        SELECT q.rep_id::text AS rep_id, COALESCE(SUM(q.quota_amount), 0)::float8 AS quota
+      pool.query<{ rep_id: number; quota: number }>(
+        `
+        SELECT
+          q.rep_id,
+          COALESCE(SUM(q.quota_amount), 0)::float8 AS quota
         FROM quotas q
         WHERE q.org_id = $1::bigint
           AND q.quota_period_id = $2::bigint
           AND q.rep_id = ANY($3::bigint[])
-        GROUP BY q.rep_id::text
+        GROUP BY q.rep_id
+        `,
+        [args.orgId, args.selectedQuotaPeriodId, args.channelRepIds]
       ),
-      deals AS (
+    ]);
+
+    const repScopeRows = repScopeRes.rows || [];
+    if (!repScopeRows.length) return [];
+
+    const quotaByRepId = new Map<number, number>();
+    for (const row of quotaRes.rows || []) {
+      const repId = Number(row.rep_id);
+      if (Number.isFinite(repId) && repId > 0) {
+        quotaByRepId.set(repId, num(row.quota));
+      }
+    }
+
+    const assignmentRows = await pool
+      .query<{ channel_rep_id: number; partner_name: string | null }>(
+        `
         SELECT
-          o.rep_id::text AS rep_id,
-          COALESCE(o.amount, 0)::float8 AS amount,
-          ${parsedCloseDateSql("o")} AS close_d,
-          o.forecast_stage,
-          o.sales_stage,
-          ${crmBucketCaseSql("o")} AS crm_bucket
-        FROM opportunities o
-        LEFT JOIN org_stage_mappings stm
-          ON stm.org_id = o.org_id
-         AND stm.field = 'stage'
-         AND stm.stage_value = o.sales_stage
-        LEFT JOIN org_stage_mappings fcm
-          ON fcm.org_id = o.org_id
-         AND fcm.field = 'forecast_category'
-         AND fcm.stage_value = o.forecast_stage
-        WHERE o.org_id = $1::bigint
-          AND o.rep_id = ANY($4::bigint[])
-          AND ${partnerScopeSql("o", 5)}
-      ),
-      deals_in_period AS (
-        SELECT d.*
-        FROM deals d
-        JOIN qp ON TRUE
-        WHERE d.close_d IS NOT NULL
-          AND d.close_d >= qp.period_start
-          AND d.close_d <= qp.period_end
-      ),
-      rollup AS (
-        SELECT
-          rep_id,
-          COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN amount ELSE 0 END), 0)::float8 AS won_amount,
-          COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS won_count,
-          COALESCE(SUM(CASE WHEN crm_bucket NOT IN ('won', 'lost', 'excluded') THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
-          COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS partner_deals_won,
-          COALESCE(SUM(CASE WHEN crm_bucket NOT IN ('won', 'lost', 'excluded') THEN 1 ELSE 0 END), 0)::int AS partner_deals_pipeline
-        FROM deals_in_period
-        GROUP BY rep_id
+          channel_rep_id,
+          lower(btrim(partner_name)) AS partner_name
+        FROM partner_channel_assignments
+        WHERE org_id = $1::bigint
+          AND channel_rep_id = ANY($2::int[])
+        `,
+        [args.orgId, repScopeRows.map((row) => Number(row.user_id))]
       )
-      SELECT
-        rs.rep_id,
-        rs.rep_name,
-        rs.manager_name,
-        COALESCE(qr.quota, 0)::float8 AS quota,
-        COALESCE(rr.won_amount, 0)::float8 AS won_amount,
-        COALESCE(rr.won_count, 0)::int AS won_count,
-        COALESCE(rr.pipeline_amount, 0)::float8 AS pipeline_amount,
-        COALESCE(rr.partner_deals_won, 0)::int AS partner_deals_won,
-        COALESCE(rr.partner_deals_pipeline, 0)::int AS partner_deals_pipeline
-      FROM reps_scope rs
-      LEFT JOIN quota_by_rep qr
-        ON qr.rep_id = rs.rep_id
-      LEFT JOIN rollup rr
-        ON rr.rep_id = rs.rep_id
-      ORDER BY rs.rep_name ASC, rs.rep_id ASC
-      `,
-      [args.orgId, args.selectedQuotaPeriodId, args.channelRepIds, args.territoryRepIds, args.assignedPartnerNames]
+      .then((res) => res.rows || [])
+      .catch(() => []);
+
+    const partnerNamesByUserId = new Map<number, string[]>();
+    for (const row of assignmentRows) {
+      const userId = Number(row.channel_rep_id);
+      if (!Number.isFinite(userId) || userId <= 0) continue;
+      const current = partnerNamesByUserId.get(userId) || [];
+      const partnerName = cleanText(row.partner_name).toLowerCase();
+      if (partnerName) current.push(partnerName);
+      partnerNamesByUserId.set(userId, current);
+    }
+    for (const [userId, values] of partnerNamesByUserId.entries()) {
+      partnerNamesByUserId.set(userId, Array.from(new Set(values.filter(Boolean))));
+    }
+
+    const metricRows: ChannelRepMetricRow[] = await Promise.all(
+      repScopeRows.map(async (row) => {
+        const repId = Number(row.rep_id);
+        const userId = Number(row.user_id);
+        const territoryRepIds = await getChannelTerritoryRepIds({
+          orgId: args.orgId,
+          channelUserId: userId,
+        }).catch(() => []);
+        const assignedPartnerNames = partnerNamesByUserId.get(userId) || [];
+
+        if (!territoryRepIds.length) {
+          return {
+            repId,
+            won_amount: 0,
+            won_count: 0,
+            pipeline_amount: 0,
+            partner_deals_won: 0,
+            partner_deals_pipeline: 0,
+          };
+        }
+
+        const { rows } = await pool.query<{
+          won_amount: number;
+          won_count: number;
+          pipeline_amount: number;
+          partner_deals_won: number;
+          partner_deals_pipeline: number;
+        }>(
+          `
+          WITH qp AS (
+            SELECT period_start::date AS period_start, period_end::date AS period_end
+            FROM quota_periods
+            WHERE org_id = $1::bigint
+              AND id = $2::bigint
+            LIMIT 1
+          ),
+          deals AS (
+            SELECT
+              COALESCE(o.amount, 0)::float8 AS amount,
+              ${parsedCloseDateSql("o")} AS close_d,
+              ${crmBucketCaseSql("o")} AS crm_bucket
+            FROM opportunities o
+            LEFT JOIN org_stage_mappings stm
+              ON stm.org_id = o.org_id
+             AND stm.field = 'stage'
+             AND stm.stage_value = o.sales_stage
+            LEFT JOIN org_stage_mappings fcm
+              ON fcm.org_id = o.org_id
+             AND fcm.field = 'forecast_category'
+             AND fcm.stage_value = o.forecast_stage
+            WHERE o.org_id = $1::bigint
+              AND o.rep_id = ANY($3::bigint[])
+              AND ${partnerScopeSql("o", 4)}
+          ),
+          deals_in_period AS (
+            SELECT d.*
+            FROM deals d
+            JOIN qp ON TRUE
+            WHERE d.close_d IS NOT NULL
+              AND d.close_d >= qp.period_start
+              AND d.close_d <= qp.period_end
+          )
+          SELECT
+            COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN amount ELSE 0 END), 0)::float8 AS won_amount,
+            COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS won_count,
+            COALESCE(SUM(CASE WHEN crm_bucket NOT IN ('won', 'lost', 'excluded') THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+            COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS partner_deals_won,
+            COALESCE(SUM(CASE WHEN crm_bucket NOT IN ('won', 'lost', 'excluded') THEN 1 ELSE 0 END), 0)::int AS partner_deals_pipeline
+          FROM deals_in_period
+          `,
+          [args.orgId, args.selectedQuotaPeriodId, territoryRepIds, assignedPartnerNames]
+        );
+
+        return {
+          repId,
+          won_amount: num(rows?.[0]?.won_amount),
+          won_count: intNum(rows?.[0]?.won_count),
+          pipeline_amount: num(rows?.[0]?.pipeline_amount),
+          partner_deals_won: intNum(rows?.[0]?.partner_deals_won),
+          partner_deals_pipeline: intNum(rows?.[0]?.partner_deals_pipeline),
+        };
+      })
     );
-    return (rows || []).map((row) => {
-      const quota = num(row.quota);
-      const wonAmount = num(row.won_amount);
+
+    const metricsByRepId = new Map<number, ChannelRepMetricRow>(
+      metricRows.map((row) => [row.repId, row] as const)
+    );
+
+    return repScopeRows.map((row) => {
+      const repId = Number(row.rep_id);
+      const quota = quotaByRepId.get(repId) || 0;
+      const metrics = metricsByRepId.get(repId);
+      const wonAmount = num(metrics?.won_amount);
       return {
         rep_id: cleanText(row.rep_id),
         rep_name: cleanText(row.rep_name, "(Unnamed Rep)"),
         manager_name: cleanText(row.manager_name, "(No Manager)"),
         quota,
         won_amount: wonAmount,
-        won_count: intNum(row.won_count),
-        pipeline_amount: num(row.pipeline_amount),
+        won_count: intNum(metrics?.won_count),
+        pipeline_amount: num(metrics?.pipeline_amount),
         attainment: quotaPct(wonAmount, quota),
-        partner_deals_won: intNum(row.partner_deals_won),
-        partner_deals_pipeline: intNum(row.partner_deals_pipeline),
+        partner_deals_won: intNum(metrics?.partner_deals_won),
+        partner_deals_pipeline: intNum(metrics?.partner_deals_pipeline),
         contribution_pct: quotaPct(wonAmount, args.channelClosedWon),
       };
     });
