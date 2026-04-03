@@ -550,7 +550,12 @@ async function loadTopPartnerDeals(args: {
           COALESCE(NULLIF(btrim(o.opportunity_name), ''), '(Unnamed Deal)') AS deal_name,
           COALESCE(NULLIF(btrim(o.account_name), ''), '(Unnamed Account)') AS account_name,
           btrim(o.partner_name) AS partner_name,
-          COALESCE(NULLIF(btrim(o.rep_name), ''), '(Unnamed Rep)') AS rep_name,
+          COALESCE(
+            NULLIF(btrim(r.rep_name), ''),
+            NULLIF(btrim(r.display_name), ''),
+            NULLIF(btrim(o.rep_name), ''),
+            '(Unnamed Rep)'
+          ) AS rep_name,
           COALESCE(o.amount, 0)::float8 AS amount,
           ${parsedCloseDateSql("o")} AS close_d,
           COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') AS forecast_stage,
@@ -559,6 +564,8 @@ async function loadTopPartnerDeals(args: {
           o.sales_stage,
           ${crmBucketCaseSql("o")} AS crm_bucket
         FROM opportunities o
+        LEFT JOIN reps r
+          ON r.id = o.rep_id
         LEFT JOIN org_stage_mappings stm
           ON stm.org_id = o.org_id
          AND stm.field = 'stage'
@@ -653,7 +660,7 @@ async function loadChannelRepRows(args: {
       reps_scope AS (
         SELECT
           r.id::text AS rep_id,
-          COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), '(Unnamed Rep)') AS rep_name,
+          COALESCE(NULLIF(btrim(r.rep_name), ''), NULLIF(btrim(r.display_name), ''), '(Unnamed Rep)') AS rep_name,
           COALESCE(NULLIF(btrim(m.display_name), ''), NULLIF(btrim(m.rep_name), ''), '(No Manager)') AS manager_name
         FROM reps r
         LEFT JOIN reps m
