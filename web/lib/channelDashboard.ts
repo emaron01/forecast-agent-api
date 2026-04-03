@@ -629,7 +629,7 @@ async function loadTopPartnerDeals(args: {
           )
         )
       ORDER BY d.amount DESC NULLS LAST, d.id DESC
-      LIMIT 20
+      LIMIT 10
       `,
       [args.orgId, args.selectedQuotaPeriodId, args.territoryRepIds, args.assignedPartnerNames, args.mode]
     );
