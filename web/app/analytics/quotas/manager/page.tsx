@@ -186,13 +186,13 @@ async function upsertRepQuota(args: {
     await pool.query(
       `
       UPDATE quotas
-         SET quota_amount = $6::numeric,
-             annual_target = $7::numeric,
+         SET quota_amount = $3::numeric,
+             annual_target = $4::numeric,
              updated_at = NOW()
        WHERE org_id = $1::bigint
          AND id = $2::uuid
       `,
-      [args.orgId, id, args.repId, args.managerId, args.roleLevel, args.quotaAmount, args.annualTarget]
+      [args.orgId, id, args.quotaAmount, args.annualTarget]
     );
     return;
   }
