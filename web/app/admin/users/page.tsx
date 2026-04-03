@@ -112,6 +112,12 @@ export default async function UsersPage({
         return !!u.active && (level === HIERARCHY.EXEC_MANAGER || level === HIERARCHY.MANAGER);
       })
     : [];
+  const managerManagerCandidates = isAdmin
+    ? (usersRaw ?? []).filter((u) => {
+        const level = Number(u.hierarchy_level);
+        return !!u.active && (level === HIERARCHY.ADMIN || level === HIERARCHY.EXEC_MANAGER);
+      })
+    : [];
   const execManagerCandidates = isAdmin
     ? (usersRaw ?? []).filter((u) => {
         const level = Number(u.hierarchy_level);
@@ -500,13 +506,13 @@ export default async function UsersPage({
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
                     <option value="">(none)</option>
-                    {execManagers.map((m) => (
+                    {managerManagerCandidates.map((m) => (
                       <option key={m.public_id} value={String(m.public_id)}>
-                        {m.display_name}
+                        {m.display_name} ({m.role})
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-[color:var(--sf-text-disabled)]">For managers, this must be an Executive Manager.</p>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">Optional. Sets the reporting line for this manager.</p>
                 </div>
 
                 <div className="grid gap-1" data-show-roles="EXEC_MANAGER" hidden>
@@ -788,15 +794,15 @@ export default async function UsersPage({
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                   >
                     <option value="">(none)</option>
-                    {execManagers
+                    {managerManagerCandidates
                       .filter((m) => m.id !== user.id)
                       .map((m) => (
                         <option key={m.public_id} value={String(m.public_id)}>
-                          {m.display_name}
+                          {m.display_name} ({m.role})
                         </option>
                       ))}
                   </select>
-                  <p className="text-xs text-[color:var(--sf-text-disabled)]">For managers, this must be an Executive Manager.</p>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">Optional. Sets the reporting line for this manager.</p>
                 </div>
 
                 <div className="grid gap-1" data-show-roles="EXEC_MANAGER" hidden>

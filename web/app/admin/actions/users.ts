@@ -102,6 +102,19 @@ function buildDisplayName(first_name: string, last_name: string) {
   return `${String(first_name || "").trim()} ${String(last_name || "").trim()}`.trim();
 }
 
+function isValidSalesManagerForUser(userHierarchyLevel: number, managerHierarchyLevel: number) {
+  if (isRepLevel(userHierarchyLevel)) {
+    return managerHierarchyLevel === HIERARCHY.EXEC_MANAGER || managerHierarchyLevel === HIERARCHY.MANAGER;
+  }
+  if (isManagerLevel(userHierarchyLevel)) {
+    return managerHierarchyLevel === HIERARCHY.ADMIN || managerHierarchyLevel === HIERARCHY.EXEC_MANAGER;
+  }
+  if (isExecManagerLevel(userHierarchyLevel)) {
+    return managerHierarchyLevel === HIERARCHY.ADMIN || managerHierarchyLevel === HIERARCHY.EXEC_MANAGER;
+  }
+  return false;
+}
+
 async function syncDirectReportsFromVisibility(args: {
   orgId: number;
   managerUserId: number;
@@ -204,14 +217,8 @@ export async function createUserAction(formData: FormData) {
         const mgr = await getUserById({ orgId, userId: id });
         if (!mgr) throw new Error("manager_user_id must reference a user in this org");
         const managerHierarchyLevel = roleToHierarchyLevel(mgr.role);
-        if (isRepLevel(hierarchy_level) && !isManagerLevel(managerHierarchyLevel)) {
-          throw new Error("REP manager must be a MANAGER user in this org");
-        }
-        if (isManagerLevel(hierarchy_level) && !isExecManagerLevel(managerHierarchyLevel)) {
-          throw new Error("MANAGER manager must be an EXEC_MANAGER user in this org");
-        }
-        if (isExecManagerLevel(hierarchy_level) && Number(managerHierarchyLevel) > HIERARCHY.EXEC_MANAGER) {
-          throw new Error("Executive managers must report to an admin or another executive manager");
+        if (!isValidSalesManagerForUser(hierarchy_level, Number(managerHierarchyLevel))) {
+          throw new Error("Invalid manager");
         }
         effectiveManagerId = id;
       }
@@ -366,14 +373,8 @@ export async function updateUserAction(formData: FormData) {
       const mgr = await getUserById({ orgId, userId: id });
       if (!mgr) throw new Error("manager_user_id must reference a user in this org");
       const managerHierarchyLevel = roleToHierarchyLevel(mgr.role);
-      if (isRepLevel(hierarchy_level) && !isManagerLevel(managerHierarchyLevel)) {
-        throw new Error("REP manager must be a MANAGER user in this org");
-      }
-      if (isManagerLevel(hierarchy_level) && !isExecManagerLevel(managerHierarchyLevel)) {
-        throw new Error("MANAGER manager must be an EXEC_MANAGER user in this org");
-      }
-      if (isExecManagerLevel(hierarchy_level) && Number(managerHierarchyLevel) > HIERARCHY.EXEC_MANAGER) {
-        throw new Error("Executive managers must report to an admin or another executive manager");
+      if (!isValidSalesManagerForUser(hierarchy_level, Number(managerHierarchyLevel))) {
+        throw new Error("Invalid manager");
       }
       effectiveManagerId = id;
     }
