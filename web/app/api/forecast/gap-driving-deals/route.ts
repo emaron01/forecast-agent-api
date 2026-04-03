@@ -8,6 +8,7 @@ import { getForecastStageProbabilities } from "../../../../lib/forecastStageProb
 import { computeCommitAdmission } from "../../../../lib/commitAdmission";
 import { computeAiForecastFromHealthScore, toOpenStage } from "../../../../lib/aiForecast";
 import { isAdmin, isSalesRep } from "../../../../lib/roleHelpers";
+import { getChannelTerritoryRepIds } from "../../../../lib/channelTerritoryScope";
 
 export const runtime = "nodejs";
 
@@ -368,6 +369,10 @@ export async function GET(req: Request) {
     const auth = await getAuth();
     if (!auth) return jsonError(401, "Unauthorized");
     if (auth.kind !== "user") return jsonError(403, "Forbidden");
+    const isChannelRole =
+      Number(auth.user.hierarchy_level) === 6 ||
+      Number(auth.user.hierarchy_level) === 7 ||
+      Number(auth.user.hierarchy_level) === 8;
 
     const url = new URL(req.url);
     const debug = parseBool(url.searchParams.get("debug"));
@@ -454,25 +459,29 @@ export async function GET(req: Request) {
 
     // IMPORTANT: Forecast summary uses getVisibleUsers() to determine visibility. To avoid mismatches
     // (missing reps, totals not lining up), this report uses the same scoping model.
-    const visibleUsers = await getVisibleUsers({
-      orgId: auth.user.org_id,
-      user: auth.user,
-    }).catch(() => []);
+    const visibleUsers = isChannelRole
+      ? []
+      : await getVisibleUsers({
+          orgId: auth.user.org_id,
+          user: auth.user,
+        }).catch(() => []);
 
-    const visibleRepUsers = (visibleUsers || []).filter(
-      (u: any) => u && (isSalesRep(u) || Number(u.hierarchy_level) === 8) && u.active
-    );
-    const visibleRepUserIds = Array.from(
-      new Set(visibleRepUsers.map((u: any) => Number(u.id)).filter((n: number) => Number.isFinite(n) && n > 0))
-    );
+    const visibleRepUsers = isChannelRole
+      ? []
+      : (visibleUsers || []).filter((u: any) => u && (isSalesRep(u) || Number(u.hierarchy_level) === 8) && u.active);
+    const visibleRepUserIds = isChannelRole
+      ? []
+      : Array.from(new Set(visibleRepUsers.map((u: any) => Number(u.id)).filter((n: number) => Number.isFinite(n) && n > 0)));
 
-    const visibleRepNameKeys = Array.from(
-      new Set(
-        visibleRepUsers
-          .flatMap((u: any) => [normalizeNameKey(u.account_owner_name || ""), normalizeNameKey(u.display_name || ""), normalizeNameKey(u.email || "")])
-          .filter(Boolean)
-      )
-    );
+    const visibleRepNameKeys = isChannelRole
+      ? []
+      : Array.from(
+          new Set(
+            visibleRepUsers
+              .flatMap((u: any) => [normalizeNameKey(u.account_owner_name || ""), normalizeNameKey(u.display_name || ""), normalizeNameKey(u.email || "")])
+              .filter(Boolean)
+          )
+        );
 
     const viewHierarchyLevel = Number((auth.user as any).hierarchy_level ?? 0);
     const excludeChannelRepsFromForecastScope = viewHierarchyLevel <= 3;
@@ -484,8 +493,12 @@ export async function GET(req: Request) {
       : "";
 
     // Map visible REP users -> rep ids when possible (opportunities.rep_id is reps.id).
-    const repIdsToUse =
-      visibleRepUserIds.length || visibleRepNameKeys.length
+    const repIdsToUse = isChannelRole
+      ? await getChannelTerritoryRepIds({
+          orgId: auth.user.org_id,
+          channelUserId: auth.user.id,
+        }).catch(() => [] as number[])
+      : visibleRepUserIds.length || visibleRepNameKeys.length
         ? await pool
             .query<{ id: number }>(
               `
@@ -511,6 +524,29 @@ export async function GET(req: Request) {
             .then((r) => (r.rows || []).map((x) => Number(x.id)).filter((n) => Number.isFinite(n) && n > 0))
             .catch(() => [] as number[])
         : ([] as number[]);
+
+    const assignedPartnerNames = isChannelRole
+      ? await pool
+          .query<{ partner_name: string | null }>(
+            `
+            SELECT lower(btrim(partner_name)) AS partner_name
+            FROM partner_channel_assignments
+            WHERE org_id = $1::bigint
+              AND channel_rep_id = $2::int
+            `,
+            [auth.user.org_id, auth.user.id]
+          )
+          .then((r) =>
+            Array.from(
+              new Set(
+                (r.rows || [])
+                  .map((row) => String(row.partner_name || "").trim().toLowerCase())
+                  .filter(Boolean)
+              )
+            )
+          )
+          .catch(() => [] as string[])
+      : ([] as string[]);
 
     const useScopedRepIds = !isAdmin(auth.user);
 
@@ -775,6 +811,16 @@ export async function GET(req: Request) {
           AND ($4::bigint IS NULL OR o.rep_id = $4::bigint)
           AND ($5::text IS NULL OR btrim(COALESCE(o.rep_name, '')) ILIKE $5::text)
           AND (NOT $19::boolean OR (o.rep_id IS NOT NULL AND o.rep_id = ANY($20::bigint[])))
+          AND (
+            NOT $22::boolean
+            OR (
+              CASE
+                WHEN COALESCE(array_length($23::text[], 1), 0) > 0
+                THEN lower(btrim(COALESCE(o.partner_name, ''))) = ANY($23::text[])
+                ELSE o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''
+              END
+            )
+          )
       ),
       classified AS (
         SELECT
@@ -929,6 +975,8 @@ export async function GET(req: Request) {
           useTeamFilter, // $19
           teamRepIdsFilter, // $20
           effectiveQuarterIdNums, // $21
+          isChannelRole, // $22
+          assignedPartnerNames, // $23
         ]
       );
     };
@@ -1008,7 +1056,17 @@ export async function GET(req: Request) {
             )
             AND ($4::bigint IS NULL OR o.rep_id = $4::bigint)
             AND ($5::text IS NULL OR btrim(COALESCE(o.rep_name, '')) ILIKE $5::text)
-          AND (NOT $19::boolean OR (o.rep_id IS NOT NULL AND o.rep_id = ANY($20::bigint[])))
+            AND (NOT $19::boolean OR (o.rep_id IS NOT NULL AND o.rep_id = ANY($20::bigint[])))
+            AND (
+              NOT $22::boolean
+              OR (
+                CASE
+                  WHEN COALESCE(array_length($23::text[], 1), 0) > 0
+                  THEN lower(btrim(COALESCE(o.partner_name, ''))) = ANY($23::text[])
+                  ELSE o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''
+                END
+              )
+            )
         ),
         classified AS (
           SELECT
@@ -1133,6 +1191,8 @@ export async function GET(req: Request) {
           useTeamFilter, // $19
           teamRepIdsFilter, // $20
           effectiveQuarterIdNums, // $21
+          isChannelRole, // $22
+          assignedPartnerNames, // $23
         ]
       );
     };
@@ -1518,6 +1578,16 @@ export async function GET(req: Request) {
                 AND o.close_date IS NOT NULL
                 AND o.close_date >= qp.period_start
                 AND o.close_date <= qp.period_end
+                AND (
+                  NOT $4::boolean
+                  OR (
+                    CASE
+                      WHEN COALESCE(array_length($5::text[], 1), 0) > 0
+                      THEN lower(btrim(COALESCE(o.partner_name, ''))) = ANY($5::text[])
+                      ELSE o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''
+                    END
+                  )
+                )
             ),
             classified AS (
               SELECT
@@ -1561,7 +1631,7 @@ export async function GET(req: Request) {
             GROUP BY crm_bucket
             ORDER BY crm_bucket ASC
             `,
-            [auth.user.org_id, quotaPeriodId, rep]
+            [auth.user.org_id, quotaPeriodId, rep, isChannelRole, assignedPartnerNames]
           );
 
           const byBucket = new Map<string, AggRow>();
