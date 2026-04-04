@@ -1862,6 +1862,16 @@ export function ExecutiveGapInsightsClient(props: {
   const heroQuotaNum = Number(props.heroQuotaOverride ?? props.quota) || 0;
   const channelHeroCoverageValue =
     channelHeroMode && heroQuotaNum > 0 && Number.isFinite(heroQuotaNum) ? heroBucketAmounts.totalPipeline / heroQuotaNum : null;
+  const landingZone = props.aiForecast;
+  const quota = props.quota;
+  const coverageRatio = channelHeroCoverageValue;
+  const pipelineCoverage = channelHeroCoverageValue;
+  console.log("GAP_INSIGHTS_DEBUG", {
+    landingZone,
+    quota,
+    coverageRatio,
+    pipelineCoverage,
+  });
   const channelHeroCoverageColor =
     channelHeroCoverageValue == null || !Number.isFinite(channelHeroCoverageValue)
       ? "text-[color:var(--sf-text-primary)]"
