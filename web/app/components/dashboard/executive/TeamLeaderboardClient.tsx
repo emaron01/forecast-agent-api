@@ -230,11 +230,6 @@ function getProductSummary(args: {
     let healthWeightedSum = 0;
     let healthWeightedCount = 0;
 
-    console.log("TEAM_LEADERBOARD_PRODUCT_DEBUG", {
-      repNameSet: Array.from(repNameSet.values()),
-      inputRepNames: input.slice(0, 5).map((row) => row.rep_name),
-    });
-
     for (const row of input) {
       if (!repNameSet.has(normalizeNameKey(row.rep_name))) continue;
       const amount = Number(row.won_amount || 0) || 0;

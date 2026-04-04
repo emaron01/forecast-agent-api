@@ -4,8 +4,8 @@ import { getOrganization } from "../../../lib/db";
 import { pool } from "../../../lib/pool";
 import { getChannelTerritoryRepIds } from "../../../lib/channelTerritoryScope";
 import { getScopedRepDirectory } from "../../../lib/repScope";
-import { getChannelDashboardSummary } from "../../../lib/channelDashboard";
-import { getRepKpisByPeriod } from "../../../lib/executiveRepKpis";
+import { getChannelDashboardSummary, loadChannelRepFyQuarterRows } from "../../../lib/channelDashboard";
+import { getRepKpisByPeriod, type RepPeriodKpisRow } from "../../../lib/executiveRepKpis";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ExecutiveTabsShellClient } from "../../components/dashboard/executive/ExecutiveTabsShellClient";
 import { normalizeExecTab, type ExecTabKey } from "../../actions/execTabConstants";
@@ -30,6 +30,138 @@ function partnerScopeSql(rowAlias: string, parameterIndex: number) {
       ELSE lower(btrim(${rowAlias}.partner_name)) = ANY($${parameterIndex}::text[])
     END
   )`;
+}
+
+function aggregateTerritoryRepKpis(
+  rows: RepPeriodKpisRow[],
+  periodId: string,
+  territorySalesRepIdSet: Set<string>
+): RepPeriodKpisRow | null {
+  const filtered = rows.filter(
+    (r) => String(r.quota_period_id) === String(periodId) && territorySalesRepIdSet.has(String(r.rep_id))
+  );
+  if (!filtered.length) return null;
+
+  const sumNum = (key: keyof RepPeriodKpisRow) =>
+    filtered.reduce((acc, r) => acc + (Number((r as Record<string, unknown>)[key as string]) || 0), 0);
+
+  const weightedAvg = (
+    getVal: (r: RepPeriodKpisRow) => number | null | undefined,
+    getWt: (r: RepPeriodKpisRow) => number
+  ): number | null => {
+    let wSum = 0;
+    let wtTot = 0;
+    for (const r of filtered) {
+      const v = getVal(r);
+      const wt = getWt(r);
+      if (v != null && Number.isFinite(Number(v)) && wt > 0) {
+        wSum += Number(v) * wt;
+        wtTot += wt;
+      }
+    }
+    return wtTot > 0 ? wSum / wtTot : null;
+  };
+
+  return {
+    quota_period_id: String(periodId),
+    rep_id: "",
+    rep_name: "",
+    total_count: sumNum("total_count"),
+    won_count: sumNum("won_count"),
+    lost_count: sumNum("lost_count"),
+    active_count: sumNum("active_count"),
+    won_amount: sumNum("won_amount"),
+    active_amount: sumNum("active_amount"),
+    commit_amount: sumNum("commit_amount"),
+    best_amount: sumNum("best_amount"),
+    pipeline_amount: sumNum("pipeline_amount"),
+    partner_closed_amount: sumNum("partner_closed_amount"),
+    closed_amount: sumNum("closed_amount"),
+    partner_won_count: sumNum("partner_won_count"),
+    partner_closed_count: sumNum("partner_closed_count"),
+    avg_days_won: weightedAvg((r) => r.avg_days_won, (r) => Number(r.won_count) || 0),
+    avg_days_lost: weightedAvg((r) => r.avg_days_lost, (r) => Number(r.lost_count) || 0),
+    avg_days_active: weightedAvg((r) => r.avg_days_active, (r) => Number(r.active_count) || 0),
+  };
+}
+
+type ChannelScopedProductRow = {
+  product: string;
+  won_amount: number;
+  won_count: number;
+  avg_order_value: number;
+  avg_health_score: number | null;
+};
+
+async function loadPartnerScopedProductsForTerritory(args: {
+  orgId: number;
+  quotaPeriodId: string;
+  territoryRepIds: number[];
+  assignedPartnerNames: string[];
+}): Promise<ChannelScopedProductRow[]> {
+  if (!args.quotaPeriodId || !args.territoryRepIds.length) return [];
+  const useRepFilter = true;
+  const { rows } = await pool.query<ChannelScopedProductRow>(
+    `
+    WITH qp AS (
+      SELECT period_start::date AS period_start, period_end::date AS period_end
+        FROM quota_periods
+       WHERE org_id = $1::bigint
+         AND id = $2::bigint
+       LIMIT 1
+    ),
+    deals AS (
+      SELECT
+        COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
+        COALESCE(o.amount, 0) AS amount,
+        o.health_score,
+        lower(
+          regexp_replace(
+            COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
+            '[^a-zA-Z]+',
+            ' ',
+            'g'
+          )
+        ) AS fs,
+        CASE
+          WHEN o.close_date IS NULL THEN NULL
+          WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+          WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+            to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
+          ELSE NULL
+        END AS close_d
+      FROM opportunities o
+      WHERE o.org_id = $1
+        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+        AND ${partnerScopeSql("o", 5)}
+    ),
+    deals_in_qtr AS (
+      SELECT d.*
+        FROM deals d
+        JOIN qp ON TRUE
+       WHERE d.close_d IS NOT NULL
+         AND d.close_d >= qp.period_start
+         AND d.close_d <= qp.period_end
+    ),
+    won_deals AS (
+      SELECT *
+        FROM deals_in_qtr
+       WHERE ((' ' || fs || ' ') LIKE '% won %')
+    )
+    SELECT
+      product,
+      COALESCE(SUM(amount), 0)::float8 AS won_amount,
+      COUNT(*)::int AS won_count,
+      CASE WHEN COUNT(*) > 0 THEN (COALESCE(SUM(amount), 0)::float8 / COUNT(*)::float8) ELSE 0 END AS avg_order_value,
+      AVG(NULLIF(health_score, 0))::float8 AS avg_health_score
+    FROM won_deals
+    GROUP BY product
+    ORDER BY won_amount DESC, product ASC
+    LIMIT 30
+    `,
+    [args.orgId, args.quotaPeriodId, args.territoryRepIds, useRepFilter, args.assignedPartnerNames]
+  );
+  return (rows || []) as ChannelScopedProductRow[];
 }
 
 async function listTopPartnerDealsChannel(args: {
@@ -628,85 +760,20 @@ export default async function ChannelDashboardPage({
     return null;
   });
   const directorRepsId = viewerChannelRepsTableId;
-  let channelFyQuarterRows: {
-    rep_id: string;
-    rep_int_id: string;
-    period_id: string;
-    period_name: string;
-    fiscal_quarter: string;
-    won_amount: number;
-    quota: number;
-    attainment: number | null;
-  }[] = [];
-  try {
-    const fyPeriodIds = summary.periods
-      .filter((p) => String(p.fiscal_year) === String(summary.selectedPeriod?.fiscal_year))
-      .map((p) => String(p.id));
-
-    if (fyPeriodIds.length > 0 && channelScopedRepIds.length > 0) {
-      const { rows } = await pool.query<{
-        rep_id: string;
-        rep_int_id: string;
-        period_id: string;
-        period_name: string;
-        fiscal_quarter: string;
-        won_amount: number;
-        quota: number;
-      }>(
-        `
-        SELECT
-          r.public_id::text AS rep_id,
-          r.id::text AS rep_int_id,
-          qp.id::text AS period_id,
-          qp.period_name,
-          qp.fiscal_quarter::text AS fiscal_quarter,
-          COALESCE(SUM(
-            CASE WHEN (
-              lower(btrim(COALESCE(o.forecast_stage,''))) LIKE '%won%'
-              OR lower(btrim(COALESCE(o.sales_stage,''))) LIKE '%won%'
-            ) THEN o.amount ELSE 0 END
-          ), 0)::float8 AS won_amount,
-          COALESCE(MAX(q.quota_amount), 0)::float8 AS quota
-        FROM reps r
-        JOIN quota_periods qp
-          ON qp.org_id = COALESCE(r.organization_id, r.org_id::bigint)
-         AND qp.id = ANY($2::bigint[])
-        LEFT JOIN opportunities o
-          ON o.rep_id = r.id
-         AND o.org_id = COALESCE(r.organization_id, r.org_id::bigint)
-         AND o.close_date >= qp.period_start
-         AND o.close_date <= qp.period_end
-        LEFT JOIN quotas q
-          ON q.rep_id = r.id
-         AND q.quota_period_id = qp.id
-         AND q.org_id = COALESCE(r.organization_id, r.org_id::bigint)
-        WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
-          AND r.id = ANY($3::bigint[])
-        GROUP BY r.id, qp.id, qp.period_name, qp.fiscal_quarter, qp.period_start
-        ORDER BY qp.period_start ASC
-        `,
-        [orgId, fyPeriodIds.map(Number), channelScopedRepIds]
-      );
-
-      channelFyQuarterRows = (rows ?? []).map((r) => {
-        const wonAmount = Number(r.won_amount || 0) || 0;
-        const quota = Number(r.quota || 0) || 0;
-        return {
-          rep_id: String(r.rep_id),
-          rep_int_id: String(r.rep_int_id),
-          period_id: String(r.period_id),
-          period_name: String(r.period_name || ""),
-          fiscal_quarter: String(r.fiscal_quarter || ""),
-          won_amount: wonAmount,
-          quota,
-          attainment: quota > 0 ? wonAmount / quota : null,
-        };
-      });
-    }
-  } catch (e) {
-    console.error("[channel repFyQuarterRows]", e);
-    channelFyQuarterRows = [];
-  }
+  const fyYearKey =
+    String(summary.selectedPeriod?.fiscal_year ?? summary.selectedFiscalYear ?? "")
+      .trim() || "";
+  const channelFyQuarterRows =
+    fyYearKey && channelScopedRepIds.length > 0
+      ? await loadChannelRepFyQuarterRows({
+          orgId,
+          fiscalYear: fyYearKey,
+          channelRepIds: channelScopedRepIds,
+        }).catch((err) => {
+          console.error("[channel page] loadChannelRepFyQuarterRows error", err);
+          return [];
+        })
+      : [];
 
   type ChannelProductWonByRepRow = {
     rep_name: string;
@@ -717,99 +784,110 @@ export default async function ChannelDashboardPage({
     avg_health_score: number | null;
   };
 
-  let channelRepKpisRows: Awaited<ReturnType<typeof getRepKpisByPeriod>> = [];
+  let channelRepKpisRows: RepPeriodKpisRow[] = [];
   let channelProductsClosedWonByRep: ChannelProductWonByRepRow[] = [];
+  const territorySalesIdsByChannelRepId = new Map<number, Set<string>>();
   try {
     if (selectedPeriodId && comparePeriodIds.length && channelScopedRepIds.length > 0) {
-      const useRepFilter = true;
-      const [kpiRows, prodRes] = await Promise.all([
-        getRepKpisByPeriod({
+      const { rows: repUserRows } = await pool.query<{ rep_id: number; user_id: number }>(
+        `
+        SELECT r.id AS rep_id, u.id AS user_id
+        FROM reps r
+        JOIN users u
+          ON u.id = r.user_id
+         AND u.org_id = $1::bigint
+        WHERE r.organization_id = $1::bigint
+          AND r.id = ANY($2::bigint[])
+        `,
+        [orgId, channelScopedRepIds]
+      );
+      const scopeList = repUserRows || [];
+      const assignmentRows = await pool
+        .query<{ channel_rep_id: number; partner_name: string | null }>(
+          `
+          SELECT
+            channel_rep_id,
+            lower(btrim(partner_name)) AS partner_name
+          FROM partner_channel_assignments
+          WHERE org_id = $1::bigint
+            AND channel_rep_id = ANY($2::int[])
+          `,
+          [orgId, scopeList.map((r) => Number(r.user_id))]
+        )
+        .then((res) => res.rows || [])
+        .catch(() => []);
+
+      const partnerNamesByUserId = new Map<number, string[]>();
+      for (const row of assignmentRows) {
+        const uid = Number(row.channel_rep_id);
+        if (!Number.isFinite(uid) || uid <= 0) continue;
+        const pn = String(row.partner_name || "")
+          .trim()
+          .toLowerCase();
+        const cur = partnerNamesByUserId.get(uid) || [];
+        if (pn) cur.push(pn);
+        partnerNamesByUserId.set(uid, cur);
+      }
+      for (const [uid, names] of partnerNamesByUserId.entries()) {
+        partnerNamesByUserId.set(uid, Array.from(new Set(names.filter(Boolean))));
+      }
+
+      const territoryByChannelRepId = new Map<number, number[]>();
+      const allTerritoryIds = new Set<number>();
+      await Promise.all(
+        scopeList.map(async (row) => {
+          const repTableId = Number(row.rep_id);
+          const userId = Number(row.user_id);
+          const t = await getChannelTerritoryRepIds({ orgId, channelUserId: userId }).catch(() => []);
+          territoryByChannelRepId.set(repTableId, t);
+          territorySalesIdsByChannelRepId.set(repTableId, new Set(t.map((id) => String(id))));
+          for (const id of t) allTerritoryIds.add(id);
+        })
+      );
+
+      const territoryIdList = Array.from(allTerritoryIds);
+      if (territoryIdList.length > 0) {
+        channelRepKpisRows = await getRepKpisByPeriod({
           orgId,
           periodIds: comparePeriodIds,
-          repIds: channelScopedRepIds,
-        }),
-        pool.query<ChannelProductWonByRepRow>(
-          `
-          WITH qp AS (
-            SELECT period_start::date AS period_start, period_end::date AS period_end
-              FROM quota_periods
-             WHERE org_id = $1::bigint
-               AND id = $2::bigint
-             LIMIT 1
-          ),
-          deals AS (
-            SELECT
-              COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
-              COALESCE(o.amount, 0) AS amount,
-              o.health_score,
-              o.rep_id,
-              o.rep_name,
-              lower(
-                regexp_replace(
-                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
-                  '[^a-zA-Z]+',
-                  ' ',
-                  'g'
-                )
-              ) AS fs,
-              CASE
-                WHEN o.close_date IS NULL THEN NULL
-                WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
-                WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-                  to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
-                ELSE NULL
-              END AS close_d
-            FROM opportunities o
-            WHERE o.org_id = $1
-              AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
-          ),
-          deals_in_qtr AS (
-            SELECT d.*
-              FROM deals d
-              JOIN qp ON TRUE
-             WHERE d.close_d IS NOT NULL
-               AND d.close_d >= qp.period_start
-               AND d.close_d <= qp.period_end
-          ),
-          won_deals AS (
-            SELECT *
-              FROM deals_in_qtr
-             WHERE ((' ' || fs || ' ') LIKE '% won %')
-          )
-          SELECT
-            COALESCE(
-              NULLIF(btrim(r.display_name), ''),
-              NULLIF(btrim(r.rep_name), ''),
-              NULLIF(btrim(r.crm_owner_name), ''),
-              NULLIF(btrim(d.rep_name), ''),
-              '(Unknown rep)'
-            ) AS rep_name,
-            d.product,
-            COALESCE(SUM(d.amount), 0)::float8 AS won_amount,
-            COUNT(*)::int AS won_count,
-            CASE WHEN COUNT(*) > 0 THEN (COALESCE(SUM(d.amount), 0)::float8 / COUNT(*)::float8) ELSE 0 END AS avg_order_value,
-            AVG(NULLIF(d.health_score, 0))::float8 AS avg_health_score
-          FROM won_deals d
-          LEFT JOIN reps r
-            ON r.id = d.rep_id
-           AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
-          GROUP BY
-            COALESCE(
-              NULLIF(btrim(r.display_name), ''),
-              NULLIF(btrim(r.rep_name), ''),
-              NULLIF(btrim(r.crm_owner_name), ''),
-              NULLIF(btrim(d.rep_name), ''),
-              '(Unknown rep)'
-            ),
-            d.product
-          ORDER BY won_amount DESC, rep_name ASC, product ASC
-          LIMIT 200
-          `,
-          [orgId, selectedPeriodId, channelScopedRepIds, useRepFilter]
-        ),
-      ]);
-      channelRepKpisRows = kpiRows;
-      channelProductsClosedWonByRep = (prodRes.rows || []) as ChannelProductWonByRepRow[];
+          repIds: territoryIdList,
+        });
+      }
+
+      const repNameByChannelRepId = new Map(
+        (channelSummary?.channelRepRows ?? []).map((r) => [String(r.rep_id), r.rep_name] as const)
+      );
+
+      const productRowsNested = await Promise.all(
+        scopeList.map(async (row) => {
+          const repTableId = Number(row.rep_id);
+          const userId = Number(row.user_id);
+          const territoryRepIds = territoryByChannelRepId.get(repTableId) || [];
+          const assigned = partnerNamesByUserId.get(userId) || [];
+          const repLabel =
+            repNameByChannelRepId.get(String(repTableId))?.trim() ||
+            `(Rep ${repTableId})`;
+          if (!territoryRepIds.length) return [] as ChannelProductWonByRepRow[];
+          const prows = await loadPartnerScopedProductsForTerritory({
+            orgId,
+            quotaPeriodId: selectedPeriodId,
+            territoryRepIds,
+            assignedPartnerNames: assigned,
+          });
+          return prows.map((p) => ({
+            rep_name: repLabel,
+            product: p.product,
+            won_amount: Number(p.won_amount || 0) || 0,
+            won_count: Number(p.won_count || 0) || 0,
+            avg_order_value: Number(p.avg_order_value || 0) || 0,
+            avg_health_score:
+              p.avg_health_score == null || !Number.isFinite(Number(p.avg_health_score))
+                ? null
+                : Number(p.avg_health_score),
+          }));
+        })
+      );
+      channelProductsClosedWonByRep = productRowsNested.flat();
     }
   } catch (e) {
     console.error("[channel rep kpis / productsClosedWonByRep]", e);
@@ -927,8 +1005,8 @@ export default async function ChannelDashboardPage({
     productsClosedWon: summary.productsClosedWon,
     productsClosedWonPrevSummary: summary.productsClosedWonPrevSummary,
     productsClosedWonByRep: channelProductsClosedWonByRep,
-    quarterKpis: summary.quarterKpis,
-    pipelineMomentum: summary.pipelineMomentum,
+    quarterKpis: partnerHero?.quarterKpis ?? summary.quarterKpis,
+    pipelineMomentum: partnerHero?.pipelineMomentum ?? summary.pipelineMomentum,
     crmTotals: {
       ...summary.crmForecast,
       commit_amount: channelCommit,
@@ -964,12 +1042,14 @@ export default async function ChannelDashboardPage({
     progressionSummaries: [],
   };
 
-  const channelKpisByRepId = new Map<string, (typeof channelRepKpisRows)[number]>();
-  const channelKpisPrevByRepId = new Map<string, (typeof channelRepKpisRows)[number]>();
-  for (const row of channelRepKpisRows) {
-    const rid = String(row.rep_id);
-    if (String(row.quota_period_id) === String(selectedPeriodId)) channelKpisByRepId.set(rid, row);
-    if (prevQpId && String(row.quota_period_id) === String(prevQpId)) channelKpisPrevByRepId.set(rid, row);
+  const channelKpisByRepId = new Map<string, RepPeriodKpisRow>();
+  const channelKpisPrevByRepId = new Map<string, RepPeriodKpisRow>();
+  for (const crId of channelScopedRepIds) {
+    const salesSet = territorySalesIdsByChannelRepId.get(crId) ?? new Set<string>();
+    const cur = aggregateTerritoryRepKpis(channelRepKpisRows, selectedPeriodId, salesSet);
+    const prev = prevQpId ? aggregateTerritoryRepKpis(channelRepKpisRows, prevQpId, salesSet) : null;
+    if (cur) channelKpisByRepId.set(String(crId), cur);
+    if (prev) channelKpisPrevByRepId.set(String(crId), prev);
   }
 
   function safeDivChannel(n: number, d: number): number | null {
