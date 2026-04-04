@@ -67,6 +67,13 @@ function coverageStatus(r: number | null) {
   return { label: "PIPELINE COVERED", cls: "border-[#2ECC71]/40 bg-[#2ECC71]/10 text-[#2ECC71]" };
 }
 
+function coverageValueColorClass(r: number | null) {
+  if (r == null || !Number.isFinite(r)) return "text-[color:var(--sf-text-primary)]";
+  if (r >= 3) return "text-[#2ECC71]";
+  if (r >= 2) return "text-[#F1C40F]";
+  return "text-[#E74C3C]";
+}
+
 export type CrmHeroBucketAmounts = {
   commitAmount: number;
   bestCaseAmount: number;
@@ -180,7 +187,7 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
 
         <div className={heroCard}>
           <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Pipeline Coverage</div>
-          <div className={heroVal}>{fmtCoverageRatio(coverage, { digits: 1 })}</div>
+          <div className={[heroVal, coverageValueColorClass(coverage)].join(" ")}>{fmtCoverageRatio(coverage, { digits: 1 })}</div>
           <div className="mt-2 min-w-0 overflow-hidden">
             <span className={["inline-flex max-w-full truncate rounded-full border px-2 py-0.5 text-[10px] font-semibold", covStatus.cls].join(" ")}>{covStatus.label}</span>
           </div>
