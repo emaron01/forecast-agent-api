@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import type { PipelineMomentumData } from "../../../lib/pipelineMomentum";
 import type { QuarterKpisSnapshot } from "../../../lib/quarterKpisSnapshot";
 
@@ -88,6 +89,8 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
   pipelineMomentum: PipelineMomentumData | null;
   /** When set (e.g. executive hero), all $ amounts use these mapping-aware totals instead of re-reading crmTotals. */
   heroBucketAmounts?: CrmHeroBucketAmounts | null;
+  /** Rendered after the mix bar and before the Commit/Best Case/Pipeline card row. */
+  gapAttributionBeforeForecastCards?: ReactNode;
 }) {
   const km = props.pipelineMomentum;
 
@@ -165,6 +168,7 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
     <div>
       <div className="text-sectionTitle text-[color:var(--sf-text-primary)]">Remaining Quarterly Forecast</div>
       {mixTotal ? <div className="mt-2">{mixBar}</div> : null}
+      {props.gapAttributionBeforeForecastCards ? <div className="mt-2">{props.gapAttributionBeforeForecastCards}</div> : null}
 
       <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {cards.map((c) => (
