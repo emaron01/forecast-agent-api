@@ -1858,6 +1858,18 @@ export function ExecutiveGapInsightsClient(props: {
   const totalPipeline = commitAmount + bestCaseAmount + pipelineAmount;
   const wonAmount = Number(props.crmTotals?.won_amount ?? 0) || 0;
   const heroBucketAmounts = { commitAmount, bestCaseAmount, pipelineAmount, totalPipeline, wonAmount };
+  const channelHeroMode = String(props.basePath || "").trim() === "/dashboard/channel";
+  const heroQuotaNum = Number(props.heroQuotaOverride ?? props.quota) || 0;
+  const channelHeroCoverageValue =
+    channelHeroMode && heroQuotaNum > 0 && Number.isFinite(heroQuotaNum) ? heroBucketAmounts.totalPipeline / heroQuotaNum : null;
+  const channelHeroCoverageColor =
+    channelHeroCoverageValue == null || !Number.isFinite(channelHeroCoverageValue)
+      ? "text-[color:var(--sf-text-primary)]"
+      : channelHeroCoverageValue >= 3
+        ? "text-green-400"
+        : channelHeroCoverageValue >= 1.5
+          ? "text-yellow-400"
+          : "text-red-400";
 
   const curProd = productViz.summary;
   const prevProd = productKpiPrev;
@@ -2908,14 +2920,32 @@ export function ExecutiveGapInsightsClient(props: {
                 {(() => {
                   const quotaSource = props.heroQuotaOverride ?? props.quota;
                   const quotaNum = Number(quotaSource) || 0;
-                  const isChannelHero = String(props.basePath || "").trim() === "/dashboard/channel";
+                  const isChannelHero = channelHeroMode;
                   const gapSource = props.heroGapToQuotaOverride;
-                  const gapToQuota =
+                  const rawGapToQuota =
                     gapSource == null || !Number.isFinite(Number(gapSource))
                       ? quotaNum - wonAmount
                       : Number(gapSource);
-                  const gapColor = gapToQuota > 0 ? "text-[#E74C3C]" : "text-[#16A34A]";
-                  const gapSubtitle = gapToQuota > 0 ? "Remaining to quota" : wonAmount > quotaNum ? "Quota exceeded" : "Quota met";
+                  const channelGapDelta = wonAmount - quotaNum;
+                  const gapToQuota = isChannelHero ? Math.abs(channelGapDelta) : rawGapToQuota;
+                  const gapColor = isChannelHero
+                    ? channelGapDelta >= 0
+                      ? "text-green-400"
+                      : "text-red-400"
+                    : gapToQuota > 0
+                      ? "text-[#E74C3C]"
+                      : "text-[#16A34A]";
+                  const gapSubtitle = isChannelHero
+                    ? channelGapDelta > 0
+                      ? "Exceeded quota by"
+                      : channelGapDelta < 0
+                        ? "Remaining to quota"
+                        : "Quota met"
+                    : gapToQuota > 0
+                      ? "Remaining to quota"
+                      : wonAmount > quotaNum
+                        ? "Quota exceeded"
+                        : "Quota met";
                   const contributionPct =
                     props.heroContributionPct == null || !Number.isFinite(Number(props.heroContributionPct))
                       ? null
@@ -2954,19 +2984,32 @@ export function ExecutiveGapInsightsClient(props: {
                     </div>
                   );
                 })()}
-                <ExecutiveRemainingQuarterlyForecastBlock
-                  crmTotals={props.crmTotals}
-                  quota={props.quota}
-                  pipelineMomentum={props.pipelineMomentum}
-                  heroBucketAmounts={
-                    String(props.basePath || "").trim() === "/dashboard/channel"
-                      ? {
-                          ...heroBucketAmounts,
-                          wonAmount: 0,
-                        }
-                      : heroBucketAmounts
-                  }
-                />
+                <div data-channel-hero-coverage-tone={channelHeroMode ? channelHeroCoverageColor : undefined}>
+                  <ExecutiveRemainingQuarterlyForecastBlock
+                    crmTotals={props.crmTotals}
+                    quota={props.quota}
+                    pipelineMomentum={props.pipelineMomentum}
+                    heroBucketAmounts={
+                      String(props.basePath || "").trim() === "/dashboard/channel"
+                        ? {
+                            ...heroBucketAmounts,
+                            wonAmount: 0,
+                          }
+                        : heroBucketAmounts
+                    }
+                  />
+                  {channelHeroMode ? (
+                    <style
+                      dangerouslySetInnerHTML={{
+                        __html: `
+                          [data-channel-hero-coverage-tone="text-green-400"] .mt-2.grid > div:last-child .text-kpiValue { color: rgb(74 222 128); }
+                          [data-channel-hero-coverage-tone="text-yellow-400"] .mt-2.grid > div:last-child .text-kpiValue { color: rgb(250 204 21); }
+                          [data-channel-hero-coverage-tone="text-red-400"] .mt-2.grid > div:last-child .text-kpiValue { color: rgb(248 113 113); }
+                        `,
+                      }}
+                    />
+                  ) : null}
+                </div>
               </>
             ) : (
               <>
