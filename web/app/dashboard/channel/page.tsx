@@ -4,7 +4,8 @@ import { getOrganization } from "../../../lib/db";
 import { pool } from "../../../lib/pool";
 import { getChannelTerritoryRepIds } from "../../../lib/channelTerritoryScope";
 import { getScopedRepDirectory } from "../../../lib/repScope";
-import { getChannelDashboardSummary, loadChannelRepFyQuarterRows } from "../../../lib/channelDashboard";
+import { getChannelDashboardSummary } from "../../../lib/channelDashboard";
+import { getRepKpisByPeriod } from "../../../lib/executiveRepKpis";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ExecutiveTabsShellClient } from "../../components/dashboard/executive/ExecutiveTabsShellClient";
 import { normalizeExecTab, type ExecTabKey } from "../../actions/execTabConstants";
@@ -524,6 +525,7 @@ export default async function ChannelDashboardPage({
   const periodIdx = summary.periods.findIndex((p) => String(p.id) === String(selectedPeriodId));
   const prevPeriod = periodIdx >= 0 ? summary.periods[periodIdx + 1] : null;
   const prevQpId = prevPeriod ? String(prevPeriod.id) : "";
+  const comparePeriodIds = [selectedPeriodId, prevQpId].filter(Boolean);
   const fallbackScopedRepId = scope.myRepId ?? summary.myRepId ?? null;
   const currentChannelRepId =
     Number.isFinite(Number(fallbackScopedRepId)) && Number(fallbackScopedRepId) > 0
@@ -626,17 +628,194 @@ export default async function ChannelDashboardPage({
     return null;
   });
   const directorRepsId = viewerChannelRepsTableId;
-  const channelFyQuarterRows =
-    fiscalYear && channelScopedRepIds.length > 0
-      ? await loadChannelRepFyQuarterRows({
-          orgId: ctx.user.org_id,
-          fiscalYear,
-          channelRepIds: channelScopedRepIds,
-        }).catch((err) => {
-          console.error("[channel page] loadChannelRepFyQuarterRows error", err);
-          return [];
-        })
-      : [];
+  let channelFyQuarterRows: {
+    rep_id: string;
+    rep_int_id: string;
+    period_id: string;
+    period_name: string;
+    fiscal_quarter: string;
+    won_amount: number;
+    quota: number;
+    attainment: number | null;
+  }[] = [];
+  try {
+    const fyPeriodIds = summary.periods
+      .filter((p) => String(p.fiscal_year) === String(summary.selectedPeriod?.fiscal_year))
+      .map((p) => String(p.id));
+
+    if (fyPeriodIds.length > 0 && channelScopedRepIds.length > 0) {
+      const { rows } = await pool.query<{
+        rep_id: string;
+        rep_int_id: string;
+        period_id: string;
+        period_name: string;
+        fiscal_quarter: string;
+        won_amount: number;
+        quota: number;
+      }>(
+        `
+        SELECT
+          r.public_id::text AS rep_id,
+          r.id::text AS rep_int_id,
+          qp.id::text AS period_id,
+          qp.period_name,
+          qp.fiscal_quarter::text AS fiscal_quarter,
+          COALESCE(SUM(
+            CASE WHEN (
+              lower(btrim(COALESCE(o.forecast_stage,''))) LIKE '%won%'
+              OR lower(btrim(COALESCE(o.sales_stage,''))) LIKE '%won%'
+            ) THEN o.amount ELSE 0 END
+          ), 0)::float8 AS won_amount,
+          COALESCE(MAX(q.quota_amount), 0)::float8 AS quota
+        FROM reps r
+        JOIN quota_periods qp
+          ON qp.org_id = COALESCE(r.organization_id, r.org_id::bigint)
+         AND qp.id = ANY($2::bigint[])
+        LEFT JOIN opportunities o
+          ON o.rep_id = r.id
+         AND o.org_id = COALESCE(r.organization_id, r.org_id::bigint)
+         AND o.close_date >= qp.period_start
+         AND o.close_date <= qp.period_end
+        LEFT JOIN quotas q
+          ON q.rep_id = r.id
+         AND q.quota_period_id = qp.id
+         AND q.org_id = COALESCE(r.organization_id, r.org_id::bigint)
+        WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+          AND r.id = ANY($3::bigint[])
+        GROUP BY r.id, qp.id, qp.period_name, qp.fiscal_quarter, qp.period_start
+        ORDER BY qp.period_start ASC
+        `,
+        [orgId, fyPeriodIds.map(Number), channelScopedRepIds]
+      );
+
+      channelFyQuarterRows = (rows ?? []).map((r) => {
+        const wonAmount = Number(r.won_amount || 0) || 0;
+        const quota = Number(r.quota || 0) || 0;
+        return {
+          rep_id: String(r.rep_id),
+          rep_int_id: String(r.rep_int_id),
+          period_id: String(r.period_id),
+          period_name: String(r.period_name || ""),
+          fiscal_quarter: String(r.fiscal_quarter || ""),
+          won_amount: wonAmount,
+          quota,
+          attainment: quota > 0 ? wonAmount / quota : null,
+        };
+      });
+    }
+  } catch (e) {
+    console.error("[channel repFyQuarterRows]", e);
+    channelFyQuarterRows = [];
+  }
+
+  type ChannelProductWonByRepRow = {
+    rep_name: string;
+    product: string;
+    won_amount: number;
+    won_count: number;
+    avg_order_value: number;
+    avg_health_score: number | null;
+  };
+
+  let channelRepKpisRows: Awaited<ReturnType<typeof getRepKpisByPeriod>> = [];
+  let channelProductsClosedWonByRep: ChannelProductWonByRepRow[] = [];
+  try {
+    if (selectedPeriodId && comparePeriodIds.length && channelScopedRepIds.length > 0) {
+      const useRepFilter = true;
+      const [kpiRows, prodRes] = await Promise.all([
+        getRepKpisByPeriod({
+          orgId,
+          periodIds: comparePeriodIds,
+          repIds: channelScopedRepIds,
+        }),
+        pool.query<ChannelProductWonByRepRow>(
+          `
+          WITH qp AS (
+            SELECT period_start::date AS period_start, period_end::date AS period_end
+              FROM quota_periods
+             WHERE org_id = $1::bigint
+               AND id = $2::bigint
+             LIMIT 1
+          ),
+          deals AS (
+            SELECT
+              COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
+              COALESCE(o.amount, 0) AS amount,
+              o.health_score,
+              o.rep_id,
+              o.rep_name,
+              lower(
+                regexp_replace(
+                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
+                  '[^a-zA-Z]+',
+                  ' ',
+                  'g'
+                )
+              ) AS fs,
+              CASE
+                WHEN o.close_date IS NULL THEN NULL
+                WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+                WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                  to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
+                ELSE NULL
+              END AS close_d
+            FROM opportunities o
+            WHERE o.org_id = $1
+              AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+          ),
+          deals_in_qtr AS (
+            SELECT d.*
+              FROM deals d
+              JOIN qp ON TRUE
+             WHERE d.close_d IS NOT NULL
+               AND d.close_d >= qp.period_start
+               AND d.close_d <= qp.period_end
+          ),
+          won_deals AS (
+            SELECT *
+              FROM deals_in_qtr
+             WHERE ((' ' || fs || ' ') LIKE '% won %')
+          )
+          SELECT
+            COALESCE(
+              NULLIF(btrim(r.display_name), ''),
+              NULLIF(btrim(r.rep_name), ''),
+              NULLIF(btrim(r.crm_owner_name), ''),
+              NULLIF(btrim(d.rep_name), ''),
+              '(Unknown rep)'
+            ) AS rep_name,
+            d.product,
+            COALESCE(SUM(d.amount), 0)::float8 AS won_amount,
+            COUNT(*)::int AS won_count,
+            CASE WHEN COUNT(*) > 0 THEN (COALESCE(SUM(d.amount), 0)::float8 / COUNT(*)::float8) ELSE 0 END AS avg_order_value,
+            AVG(NULLIF(d.health_score, 0))::float8 AS avg_health_score
+          FROM won_deals d
+          LEFT JOIN reps r
+            ON r.id = d.rep_id
+           AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+          GROUP BY
+            COALESCE(
+              NULLIF(btrim(r.display_name), ''),
+              NULLIF(btrim(r.rep_name), ''),
+              NULLIF(btrim(r.crm_owner_name), ''),
+              NULLIF(btrim(d.rep_name), ''),
+              '(Unknown rep)'
+            ),
+            d.product
+          ORDER BY won_amount DESC, rep_name ASC, product ASC
+          LIMIT 200
+          `,
+          [orgId, selectedPeriodId, channelScopedRepIds, useRepFilter]
+        ),
+      ]);
+      channelRepKpisRows = kpiRows;
+      channelProductsClosedWonByRep = (prodRes.rows || []) as ChannelProductWonByRepRow[];
+    }
+  } catch (e) {
+    console.error("[channel rep kpis / productsClosedWonByRep]", e);
+    channelRepKpisRows = [];
+    channelProductsClosedWonByRep = [];
+  }
   const viewerQuotaRoleLevel = mapChannelHierarchyToQuotaRoleLevel(ctx.user.hierarchy_level);
 
   let channelHeroMetrics: ChannelDashboardHeroMetrics | null = null;
@@ -747,7 +926,7 @@ export default async function ChannelDashboardPage({
     repRollups: summary.repRollups,
     productsClosedWon: summary.productsClosedWon,
     productsClosedWonPrevSummary: summary.productsClosedWonPrevSummary,
-    productsClosedWonByRep: summary.productsClosedWonByRep,
+    productsClosedWonByRep: channelProductsClosedWonByRep,
     quarterKpis: summary.quarterKpis,
     pipelineMomentum: summary.pipelineMomentum,
     crmTotals: {
@@ -785,40 +964,85 @@ export default async function ChannelDashboardPage({
     progressionSummaries: [],
   };
 
+  const channelKpisByRepId = new Map<string, (typeof channelRepKpisRows)[number]>();
+  const channelKpisPrevByRepId = new Map<string, (typeof channelRepKpisRows)[number]>();
+  for (const row of channelRepKpisRows) {
+    const rid = String(row.rep_id);
+    if (String(row.quota_period_id) === String(selectedPeriodId)) channelKpisByRepId.set(rid, row);
+    if (prevQpId && String(row.quota_period_id) === String(prevQpId)) channelKpisPrevByRepId.set(rid, row);
+  }
+
+  function safeDivChannel(n: number, d: number): number | null {
+    if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) return null;
+    return n / d;
+  }
+
   const channelTeamRepRows =
-    channelSummary?.channelRepRows.map((r) => ({
-      rep_id: r.rep_id,
-      rep_name: r.rep_name,
-      manager_id: directorRepsId ? String(directorRepsId) : "",
-      manager_name: r.manager_name,
-      quota: r.quota,
-      total_count: (Number(r.partner_deals_won) || 0) + (Number(r.partner_deals_pipeline) || 0),
-      won_amount: r.won_amount,
-      won_count: r.won_count,
-      lost_count: 0,
-      active_amount: r.pipeline_amount,
-      commit_amount: 0,
-      best_amount: 0,
-      pipeline_amount: r.pipeline_amount,
-      created_amount: 0,
-      created_count: 0,
-      win_rate: null,
-      opp_to_win: null,
-      aov: null,
-      attainment: r.attainment,
-      commit_coverage: null,
-      best_coverage: null,
-      partner_contribution: r.contribution_pct,
-      partner_win_rate: null,
-      avg_days_won: null,
-      avg_days_lost: null,
-      avg_days_active: null,
-      mix_pipeline: null,
-      mix_best: null,
-      mix_commit: null,
-      mix_won: null,
-      qoq_attainment_delta: null,
-    })) ?? [];
+    channelSummary?.channelRepRows.map((r) => {
+      const c = channelKpisByRepId.get(String(r.rep_id)) ?? null;
+      const p = prevQpId ? channelKpisPrevByRepId.get(String(r.rep_id)) ?? null : null;
+      const quota = Number(r.quota) || 0;
+      const won_amount = Number(r.won_amount) || 0;
+      const won_count = Number(r.won_count) || 0;
+      const total_count = c
+        ? Number(c.total_count || 0) || 0
+        : (Number(r.partner_deals_won) || 0) + (Number(r.partner_deals_pipeline) || 0);
+      const lost_count = c ? Number(c.lost_count || 0) || 0 : 0;
+      const commit_amount = c ? Number(c.commit_amount || 0) || 0 : 0;
+      const best_amount = c ? Number(c.best_amount || 0) || 0 : 0;
+      const pipeline_amount = c ? Number(c.pipeline_amount || 0) || 0 : Number(r.pipeline_amount) || 0;
+      const active_amount = c ? Number(c.active_amount || 0) || 0 : Number(r.pipeline_amount) || 0;
+      const win_rate = c
+        ? safeDivChannel(Number(c.won_count || 0) || 0, (Number(c.won_count || 0) || 0) + (Number(c.lost_count || 0) || 0))
+        : null;
+      const opp_to_win = c ? safeDivChannel(Number(c.won_count || 0) || 0, Number(c.total_count || 0) || 0) : null;
+      const aov = c ? safeDivChannel(Number(c.won_amount || 0) || 0, Number(c.won_count || 0) || 0) : null;
+      const attainment = c ? safeDivChannel(Number(c.won_amount || 0) || 0, quota) : r.attainment;
+      const commit_coverage = c ? safeDivChannel(Number(c.commit_amount || 0) || 0, quota) : null;
+      const best_coverage = c ? safeDivChannel(Number(c.best_amount || 0) || 0, quota) : null;
+      const partner_contribution = c
+        ? safeDivChannel(Number(c.partner_closed_amount || 0) || 0, Number(c.closed_amount || 0) || 0)
+        : r.contribution_pct;
+      const partner_win_rate = c
+        ? safeDivChannel(Number(c.partner_won_count || 0) || 0, Number(c.partner_closed_count || 0) || 0)
+        : null;
+      const currAtt = c ? safeDivChannel(Number(c.won_amount || 0) || 0, quota) : null;
+      const prevAtt = p ? safeDivChannel(Number(p.won_amount || 0) || 0, quota) : null;
+      const mixDen = pipeline_amount + best_amount + commit_amount + won_amount;
+      return {
+        rep_id: r.rep_id,
+        rep_name: r.rep_name,
+        manager_id: directorRepsId ? String(directorRepsId) : "",
+        manager_name: r.manager_name,
+        quota: r.quota,
+        total_count,
+        won_amount,
+        won_count,
+        lost_count,
+        active_amount,
+        commit_amount,
+        best_amount,
+        pipeline_amount,
+        created_amount: 0,
+        created_count: 0,
+        win_rate,
+        opp_to_win,
+        aov,
+        attainment: attainment ?? r.attainment,
+        commit_coverage,
+        best_coverage,
+        partner_contribution,
+        partner_win_rate,
+        avg_days_won: c?.avg_days_won ?? null,
+        avg_days_lost: c?.avg_days_lost ?? null,
+        avg_days_active: c?.avg_days_active ?? null,
+        mix_pipeline: safeDivChannel(pipeline_amount, mixDen),
+        mix_best: safeDivChannel(best_amount, mixDen),
+        mix_commit: safeDivChannel(commit_amount, mixDen),
+        mix_won: safeDivChannel(won_amount, mixDen),
+        qoq_attainment_delta: currAtt != null && prevAtt != null ? currAtt - prevAtt : null,
+      };
+    }) ?? [];
 
   const channelManagerRows =
     directorRepsId && channelTeamRepRows.length > 0
@@ -890,7 +1114,7 @@ export default async function ChannelDashboardPage({
             repRollups={summary.repRollups}
             productsClosedWon={partnerHero?.productsClosedWon ?? summary.productsClosedWon}
             productsClosedWonPrevSummary={partnerHero?.productsClosedWonPrevSummary ?? summary.productsClosedWonPrevSummary}
-            productsClosedWonByRep={summary.productsClosedWonByRep}
+            productsClosedWonByRep={channelProductsClosedWonByRep}
             quarterKpis={partnerHero?.quarterKpis ?? summary.quarterKpis}
             pipelineMomentum={partnerHero?.pipelineMomentum ?? summary.pipelineMomentum}
             crmTotals={{
