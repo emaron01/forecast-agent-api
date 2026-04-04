@@ -3017,6 +3017,7 @@ export function ExecutiveGapInsightsClient(props: {
                   const quotaNum = Number(props.quota) || 0;
                   const gapToQuota = quotaNum - wonAmount;
                   const gapColor = gapToQuota > 0 ? "text-[#E74C3C]" : "text-[#16A34A]";
+                  const landingZoneColor = heroColor(Number(props.aiForecast || 0), quotaNum);
                   const lostAmt = Number(props.crmTotals?.lost_amount ?? 0) || 0;
                   const lostCnt = Number(props.crmTotals?.lost_count ?? 0) || 0;
                   return (
@@ -3036,7 +3037,7 @@ export function ExecutiveGapInsightsClient(props: {
                       </div>
                       <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
                         <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Landing Zone</div>
-                        <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{fmtMoney(props.aiForecast)}</div>
+                        <div className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${landingZoneColor}`}>{fmtMoney(props.aiForecast)}</div>
                         <div className="text-xs text-[color:var(--sf-text-secondary)] mt-1">AI weighted forecast</div>
                       </div>
                       <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
