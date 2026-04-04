@@ -4,10 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useTransition, type ComponentProps } from "react";
-import {
-  ExecutiveGapAttributionBeforeForecastCards,
-  ExecutiveGapInsightsClient,
-} from "../../../../components/dashboard/executive/ExecutiveGapInsightsClient";
+import { ExecutiveGapInsightsClient } from "../../../../components/dashboard/executive/ExecutiveGapInsightsClient";
 import { TeamForecastHygienePanels, type PipelineHygienePayload } from "../../../../components/dashboard/executive/TeamForecastHygienePanels";
 import type { ExecTabKey } from "../../../actions/execTabConstants";
 import { type RepManagerManagerRow, type RepManagerRepRow } from "./RepManagerComparisonPanel";
@@ -939,6 +936,11 @@ export function ExecutiveTabsShellClient(props: {
 
                   const avgHealthWon = kpis?.avgHealthWonPct ?? null;
                   const oppToWin = kpis?.oppToWin ?? null;
+                  const bd = hero.bucketDeltas;
+                  const absMax = Math.max(Math.abs(bd.commit), Math.abs(bd.best_case), Math.abs(bd.pipeline), 1);
+                  const bar = (v: number) => `${Math.round(Math.max(0, Math.min(100, (Math.abs(v) / absMax) * 100)))}%`;
+                  const deltaTextClass = (v: number) =>
+                    !Number.isFinite(v) || v === 0 ? "text-[color:var(--sf-text-secondary)]" : v > 0 ? "text-[#2ECC71]" : "text-[#E74C3C]";
 
                   const card = "rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm";
                   const value = "mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl";
@@ -965,8 +967,6 @@ export function ExecutiveTabsShellClient(props: {
                           <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">AI weighted forecast</div>
                         </div>
                       </div>
-
-                      <ExecutiveGapAttributionBeforeForecastCards bucketDeltas={hero.bucketDeltas} />
 
                       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
                         {[
@@ -1021,6 +1021,25 @@ export function ExecutiveTabsShellClient(props: {
                         <div className={card}>
                           <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
                           <div className={value}>{fmtPct01(oppToWin)}</div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Gap Attribution</div>
+                        <div className="mt-2 grid gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                          {[
+                            { label: "Commit", v: bd.commit },
+                            { label: "Best Case", v: bd.best_case },
+                            { label: "Pipeline", v: bd.pipeline },
+                          ].map((x) => (
+                            <div key={x.label} className="grid grid-cols-[90px_minmax(0,1fr)_90px] items-center gap-2">
+                              <div className="text-xs text-[color:var(--sf-text-secondary)]">{x.label}</div>
+                              <div className="h-2 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                                <div className={`h-full rounded-full ${x.v >= 0 ? "bg-[#2ECC71]" : "bg-[#E74C3C]"}`} style={{ width: bar(x.v) }} />
+                              </div>
+                              <div className={`text-right font-[tabular-nums] text-xs ${deltaTextClass(x.v)}`}>{fmtMoney(x.v)}</div>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     </div>

@@ -580,53 +580,6 @@ function CommitIntegrityDealCard(props: {
   );
 }
 
-export type ExecutiveGapAttributionBucketDeltas = { commit: number; best_case: number; pipeline: number };
-
-/** Segmented gap bar + bucket deltas; sits above Commit/Best Case/Pipeline forecast cards (same stack as Remaining Quarterly Forecast mix bar). */
-export function ExecutiveGapAttributionBeforeForecastCards(props: { bucketDeltas: ExecutiveGapAttributionBucketDeltas }) {
-  const bd = props.bucketDeltas;
-  const c = Number(bd.commit) || 0;
-  const b = Number(bd.best_case) || 0;
-  const p = Number(bd.pipeline) || 0;
-  const ac = Math.abs(c);
-  const ab = Math.abs(b);
-  const ap = Math.abs(p);
-  const sumAbs = ac + ab + ap;
-  const pc = sumAbs <= 0 ? 100 / 3 : (ac / sumAbs) * 100;
-  const pb = sumAbs <= 0 ? 100 / 3 : (ab / sumAbs) * 100;
-  const pp = sumAbs <= 0 ? 100 / 3 : (ap / sumAbs) * 100;
-  const totalGap = c + b + p;
-  const gapDeltaTextClass = (v: number) =>
-    !Number.isFinite(v) || v === 0 ? "text-[color:var(--sf-text-secondary)]" : v > 0 ? "text-[#2ECC71]" : "text-[#E74C3C]";
-  const fmtMoney = (v: number) =>
-    v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-
-  return (
-    <>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-sectionTitle text-[color:var(--sf-text-primary)]">GAP ATTRIBUTION</div>
-        <div className="text-sm font-semibold font-[tabular-nums] text-[color:var(--sf-text-primary)]">{fmtMoney(totalGap)}</div>
-      </div>
-      <div
-        className="mt-2 flex h-[10px] w-full min-w-0 overflow-hidden rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]"
-        role="img"
-        aria-label={`Gap attribution: Commit ${fmtMoney(c)}, Best Case ${fmtMoney(b)}, Pipeline ${fmtMoney(p)}`}
-      >
-        <div className="h-full shrink-0 bg-[#2ECC71]" style={{ width: `${pc}%` }} aria-hidden />
-        <div className="h-full shrink-0 bg-[#F1C40F]" style={{ width: `${pb}%` }} aria-hidden />
-        <div className="h-full shrink-0 bg-[#E74C3C]" style={{ width: `${pp}%` }} aria-hidden />
-      </div>
-      <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <div className={`min-w-0 text-sm font-[tabular-nums] lg:text-left ${gapDeltaTextClass(c)}`}>{fmtMoney(c)}</div>
-        <div className={`min-w-0 text-sm font-[tabular-nums] lg:text-left ${gapDeltaTextClass(b)}`}>{fmtMoney(b)}</div>
-        <div className={`min-w-0 text-sm font-[tabular-nums] lg:text-left ${gapDeltaTextClass(p)}`}>{fmtMoney(p)}</div>
-        <div className="hidden min-w-0 lg:block" aria-hidden />
-        <div className="hidden min-w-0 lg:block" aria-hidden />
-      </div>
-    </>
-  );
-}
-
 export function ExecutiveGapInsightsClient(props: {
   basePath: string;
   periods: Array<{ id: string; fiscal_year: string; fiscal_quarter: string; period_name: string; period_start: string; period_end: string }>;
@@ -3066,7 +3019,6 @@ export function ExecutiveGapInsightsClient(props: {
                           }
                         : heroBucketAmounts
                     }
-                    gapAttributionBeforeForecastCards={<ExecutiveGapAttributionBeforeForecastCards bucketDeltas={props.bucketDeltas} />}
                   />
                   {channelHeroMode ? (
                     <style
@@ -3135,7 +3087,6 @@ export function ExecutiveGapInsightsClient(props: {
                     quota={props.quota}
                     pipelineMomentum={props.pipelineMomentum}
                     heroBucketAmounts={heroBucketAmounts}
-                    gapAttributionBeforeForecastCards={<ExecutiveGapAttributionBeforeForecastCards bucketDeltas={props.bucketDeltas} />}
                   />
                 </div>
               </>
@@ -3162,6 +3113,11 @@ export function ExecutiveGapInsightsClient(props: {
           const abs = Math.abs(Math.trunc(v));
           return `${v > 0 ? "+" : "-"}${abs.toLocaleString("en-US")}`;
         };
+        const bd = props.bucketDeltas;
+        const absMax = Math.max(Math.abs(bd.commit), Math.abs(bd.best_case), Math.abs(bd.pipeline), 1);
+        const gapBar = (v: number) => `${Math.round(clamp01(Math.abs(v) / absMax) * 100)}%`;
+        const gapDeltaTextClass = (v: number) =>
+          !Number.isFinite(v) || v === 0 ? "text-[color:var(--sf-text-secondary)]" : v > 0 ? "text-[#2ECC71]" : "text-[#E74C3C]";
         return (
           <div className="mt-4 space-y-4">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
@@ -3246,6 +3202,25 @@ export function ExecutiveGapInsightsClient(props: {
               <div className={heroCard}>
                 <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Opp→Win Conversion</div>
                 <div className={heroVal}>{fmtPct(oppToWin)}</div>
+              </div>
+            </div>
+
+            <div className="w-full rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Gap Attribution</div>
+              <div className="mt-2 grid grid-cols-1 gap-3 text-tableValue text-[color:var(--sf-text-primary)] sm:grid-cols-3">
+                {[
+                  { label: "Commit", v: bd.commit },
+                  { label: "Best Case", v: bd.best_case },
+                  { label: "Pipeline", v: bd.pipeline },
+                ].map((x) => (
+                  <div key={x.label} className="grid grid-cols-[70px_minmax(0,1fr)_68px] items-center gap-2">
+                    <div className="text-tableLabel text-xs">{x.label}</div>
+                    <div className="h-1.5 min-w-0 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                      <div className={`h-full rounded-full ${x.v >= 0 ? "bg-[#2ECC71]" : "bg-[#E74C3C]"}`} style={{ width: gapBar(x.v) }} aria-hidden="true" />
+                    </div>
+                    <div className={`text-right text-xs num-tabular shrink-0 ${gapDeltaTextClass(x.v)}`}>{fmtMoney(x.v)}</div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -4281,7 +4256,6 @@ export function ExecutiveGapInsightsClient(props: {
             quota={props.quota}
             pipelineMomentum={props.pipelineMomentum}
             heroBucketAmounts={heroBucketAmounts}
-            gapAttributionBeforeForecastCards={<ExecutiveGapAttributionBeforeForecastCards bucketDeltas={props.bucketDeltas} />}
           />
 
           <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
