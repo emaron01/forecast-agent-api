@@ -854,8 +854,8 @@ export default async function ChannelDashboardPage({
         });
       }
 
-      const repNameByChannelRepId = new Map(
-        (channelSummary?.channelRepRows ?? []).map((r) => [String(r.rep_id), r.rep_name] as const)
+      const repNameByChannelRepId = new Map<string, string>(
+        (channelSummary?.channelRepRows ?? []).map((r) => [String(r.rep_id), String(r.rep_name || "").trim()] as const)
       );
 
       const productRowsNested = await Promise.all(
