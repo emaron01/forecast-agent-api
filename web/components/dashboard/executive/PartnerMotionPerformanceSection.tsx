@@ -37,6 +37,13 @@ function fmtPct01(n: number | null) {
   return `${Math.round(n * 100)}%`;
 }
 
+function perfColor(value: number | null): string {
+  if (value == null) return "text-[color:var(--sf-text-primary)]";
+  if (value >= 0.8) return "text-green-400";
+  if (value >= 0.5) return "text-yellow-400";
+  return "text-red-400";
+}
+
 function clamp01(v: number) {
   if (v < 0) return 0;
   if (v > 1) return 1;
@@ -284,8 +291,8 @@ export function PartnerMotionPerformanceSection(props: {
                 <span>Win Rate</span>
                 <span
                   className={[
-                    "font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]",
-                    highlightAmong3(row.win, directWin, infWin, srcWin),
+                    "font-mono text-xs font-semibold",
+                    perfColor(row.win),
                   ].join(" ")}
                 >
                   {row.win == null ? "—" : fmtPct01(row.win)}
@@ -295,8 +302,8 @@ export function PartnerMotionPerformanceSection(props: {
                 <span>Avg Health</span>
                 <span
                   className={[
-                    "font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]",
-                    highlightAmong3(row.health, directHealth01, infHealth01, srcHealth01),
+                    "font-mono text-xs font-semibold",
+                    perfColor(row.health),
                   ].join(" ")}
                 >
                   {row.health == null ? "—" : `${Math.round(row.health * 100)}%`}
