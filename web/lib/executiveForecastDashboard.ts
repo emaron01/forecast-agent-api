@@ -1881,7 +1881,10 @@ export async function getExecutiveForecastDashboardSummary(args: {
                 deals_row AS (
                   SELECT
                     COALESCE(o.amount, 0)::float8 AS amount,
-                    o.health_score,
+                    COALESCE(
+                      NULLIF(o.health_score, 0),
+                      NULLIF(o.baseline_health_score, 0)
+                    ) AS effective_health_score,
                     lower(
                       regexp_replace(
                         COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -1906,7 +1909,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
                 deals AS (
                   SELECT
                     r.amount,
-                    r.health_score,
+                    r.effective_health_score,
                     r.fs,
                     r.close_d,
                     (${crmBucketCaseSql("r")}) AS crm_bucket
@@ -1954,9 +1957,9 @@ export async function getExecutiveForecastDashboardSummary(args: {
                          WHEN c.crm_bucket = 'pipeline' THEN 'Pipeline'
                          ELSE mapped_category
                        END
-                       AND c.health_score IS NOT NULL
-                       AND c.health_score >= min_score
-                       AND c.health_score <= max_score
+                       AND c.effective_health_score IS NOT NULL
+                       AND c.effective_health_score >= min_score
+                       AND c.effective_health_score <= max_score
                      ORDER BY min_score DESC
                      LIMIT 1
                   ) hr ON TRUE
