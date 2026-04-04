@@ -119,11 +119,16 @@ async function resetDefaultsAction(formData: FormData) {
     INSERT INTO health_score_rules (org_id, min_score, max_score, mapped_category, suppression, probability_modifier, created_at, updated_at)
     VALUES
       ($1::int, 27, 30, 'Commit', false, 1.0000, NOW(), NOW()),
-      ($1::int, 24, 26, 'Commit', false, 0.9000, NOW(), NOW()),
-      ($1::int, 21, 23, 'Best Case', false, 0.8500, NOW(), NOW()),
-      ($1::int, 18, 20, 'Best Case', false, 0.7000, NOW(), NOW()),
+      ($1::int, 24, 26, 'Commit', false, 0.9500, NOW(), NOW()),
+      ($1::int, 21, 23, 'Commit', false, 0.9000, NOW(), NOW()),
+      ($1::int, 18, 20, 'Commit', false, 0.8500, NOW(), NOW()),
+      ($1::int, 0, 17, 'Commit', false, 0.8000, NOW(), NOW()),
+      ($1::int, 21, 23, 'Best Case', false, 0.9000, NOW(), NOW()),
+      ($1::int, 18, 20, 'Best Case', false, 0.8000, NOW(), NOW()),
+      ($1::int, 12, 17, 'Best Case', false, 0.7000, NOW(), NOW()),
+      ($1::int, 0, 11, 'Best Case', false, 0.6000, NOW(), NOW()),
       ($1::int, 12, 17, 'Pipeline', false, 0.5000, NOW(), NOW()),
-      ($1::int, 0, 11, 'Pipeline', false, 0.2500, NOW(), NOW())
+      ($1::int, 0, 11, 'Pipeline', false, 0.3000, NOW(), NOW())
     `,
     [orgId]
   );

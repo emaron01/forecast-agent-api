@@ -1333,6 +1333,31 @@ export async function getOrganization(args: { id: number }) {
   return (rows?.[0] as OrganizationRow | undefined) || null;
 }
 
+/** Default `health_score_rules` rows for a new organization (master admin reset uses the same set). */
+async function seedDefaultHealthScoreRulesForOrg(
+  client: Pick<PoolClient, "query">,
+  orgId: number
+): Promise<void> {
+  await client.query(
+    `
+    INSERT INTO health_score_rules (org_id, min_score, max_score, mapped_category, suppression, probability_modifier, created_at, updated_at)
+    VALUES
+      ($1::int, 27, 30, 'Commit', false, 1.0000, NOW(), NOW()),
+      ($1::int, 24, 26, 'Commit', false, 0.9500, NOW(), NOW()),
+      ($1::int, 21, 23, 'Commit', false, 0.9000, NOW(), NOW()),
+      ($1::int, 18, 20, 'Commit', false, 0.8500, NOW(), NOW()),
+      ($1::int, 0, 17, 'Commit', false, 0.8000, NOW(), NOW()),
+      ($1::int, 21, 23, 'Best Case', false, 0.9000, NOW(), NOW()),
+      ($1::int, 18, 20, 'Best Case', false, 0.8000, NOW(), NOW()),
+      ($1::int, 12, 17, 'Best Case', false, 0.7000, NOW(), NOW()),
+      ($1::int, 0, 11, 'Best Case', false, 0.6000, NOW(), NOW()),
+      ($1::int, 12, 17, 'Pipeline', false, 0.5000, NOW(), NOW()),
+      ($1::int, 0, 11, 'Pipeline', false, 0.3000, NOW(), NOW())
+    `,
+    [orgId]
+  );
+}
+
 export async function createOrganization(args: {
   name: string;
   active?: boolean;
@@ -1394,7 +1419,9 @@ export async function createOrganization(args: {
       args.hq_country ?? null,
     ]
   );
-  return rows[0] as OrganizationRow;
+  const org = rows[0] as OrganizationRow;
+  await seedDefaultHealthScoreRulesForOrg(pool, org.id);
+  return org;
 }
 
 export async function createOrganizationWithFirstAdmin(args: {
@@ -1492,6 +1519,8 @@ export async function createOrganizationWithFirstAdmin(args: {
         ]
       );
       const org = orgRes.rows[0] as OrganizationRow;
+
+      await seedDefaultHealthScoreRulesForOrg(c, org.id);
 
       const userRes = await c.query(
         `
