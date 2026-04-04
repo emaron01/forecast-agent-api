@@ -1860,8 +1860,10 @@ export function ExecutiveGapInsightsClient(props: {
   const heroBucketAmounts = { commitAmount, bestCaseAmount, pipelineAmount, totalPipeline, wonAmount };
   const channelHeroMode = String(props.basePath || "").trim() === "/dashboard/channel";
   const heroQuotaNum = Number(props.heroQuotaOverride ?? props.quota) || 0;
+  const heroWonAmount = wonAmount;
+  const heroRemainingQuota = Math.max(0, heroQuotaNum - heroWonAmount);
   const channelHeroCoverageValue =
-    channelHeroMode && heroQuotaNum > 0 && Number.isFinite(heroQuotaNum) ? heroBucketAmounts.totalPipeline / heroQuotaNum : null;
+    channelHeroMode && heroRemainingQuota > 0 ? heroBucketAmounts.totalPipeline / heroRemainingQuota : null;
   const landingZone = props.aiForecast;
   const quota = props.quota;
   const coverageRatio = channelHeroCoverageValue;
