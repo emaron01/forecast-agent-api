@@ -668,6 +668,16 @@ export default async function ChannelDashboardPage({
   const channelGap = Math.max(0, channelQuota - channelClosedWon);
   const channelOutlook = channelQuota > 0 ? Math.min(1, (channelClosedWon + channelPipeline * 0.3) / channelQuota) : 0;
   const channelCrmForecast = channelClosedWon + channelPipeline;
+  const channelCrmWeightedForecast =
+    channelClosedWon +
+    channelCommit * Number(summary.stageProbabilities?.commit ?? 0) +
+    channelBestCase * Number(summary.stageProbabilities?.best_case ?? 0) +
+    channelPipeline * Number(summary.stageProbabilities?.pipeline ?? 0);
+  const channelAiWeightedForecast =
+    channelClosedWon +
+    channelCommit * Number(summary.stageProbabilities?.commit ?? 0) * Number(summary.healthModifiers?.commit_modifier ?? 1) +
+    channelBestCase * Number(summary.stageProbabilities?.best_case ?? 0) * Number(summary.healthModifiers?.best_case_modifier ?? 1) +
+    channelPipeline * Number(summary.stageProbabilities?.pipeline ?? 0) * Number(summary.healthModifiers?.pipeline_modifier ?? 1);
   const landingZone =
     summary.aiForecast?.weighted_forecast != null &&
     Number.isFinite(Number(summary.aiForecast.weighted_forecast))
@@ -895,8 +905,8 @@ export default async function ChannelDashboardPage({
             heroQuotaOverride={channelQuota}
             heroGapToQuotaOverride={channelGap}
             heroContributionPct={contributionPct}
-            aiForecast={channelOutlook * channelQuota}
-            crmForecast={channelCrmForecast}
+            aiForecast={channelAiWeightedForecast}
+            crmForecast={channelCrmWeightedForecast}
             gap={channelGap}
             bucketDeltas={{
               commit: partnerHero?.bucketDeltas.commit ?? summary.bucketDeltas.commit,
