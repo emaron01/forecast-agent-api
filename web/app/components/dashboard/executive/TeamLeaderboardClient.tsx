@@ -228,6 +228,11 @@ function getProductSummary(args: {
     let healthWeightedSum = 0;
     let healthWeightedCount = 0;
 
+    console.log("TEAM_LEADERBOARD_PRODUCT_DEBUG", {
+      repNameSet: Array.from(repNameSet.values()),
+      inputRepNames: input.slice(0, 5).map((row) => row.rep_name),
+    });
+
     for (const row of input) {
       if (!repNameSet.has(normalizeNameKey(row.rep_name))) continue;
       const amount = Number(row.won_amount || 0) || 0;
@@ -370,13 +375,15 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const attainColor = attainmentTextClassByPct(args.attainPct);
     const ytdAttainColor = attainmentTextClassByPct(args.ytdAttainPct);
     const remainingQuota = Math.max(0, args.quota - args.wonAmount);
-    const qCoverage = remainingQuota > 0 ? args.activePipelineAmount / remainingQuota : 0;
+    const qCoverage = remainingQuota > 0 ? args.activePipelineAmount / remainingQuota : null;
     const totalFyPipeline = args.activePipelineAmount;
     const annualRemaining = Math.max(0, args.annualQuota - args.ytdRevenue);
-    const annualCoverage = annualRemaining > 0 ? totalFyPipeline / annualRemaining : 0;
-    const coverageColor = coverageTextClass(qCoverage);
-    const annualCoverageColor = coverageTextClass(annualCoverage);
-    const { label: riskLabel, color: riskColor } = riskFromCoverage(annualCoverage);
+    const annualCoverage = annualRemaining > 0 ? totalFyPipeline / annualRemaining : null;
+    const coverageColor = qCoverage == null ? "text-[color:var(--sf-text-secondary)]" : coverageTextClass(qCoverage);
+    const annualCoverageColor =
+      annualCoverage == null ? "text-[color:var(--sf-text-secondary)]" : coverageTextClass(annualCoverage);
+    const { label: riskLabel, color: riskColor } =
+      annualCoverage == null ? { label: "UNKNOWN", color: "text-[color:var(--sf-text-secondary)]" } : riskFromCoverage(annualCoverage);
     const healthColor = healthTextClass(args.avgHealthPct);
     const pipelineCount = Math.max(0, args.totalCount - args.wonCount - args.lostCount);
     const aovWon = args.wonCount > 0 ? args.wonAmount / args.wonCount : 0;
@@ -489,8 +496,8 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           </div>
           <div className="mt-2 flex flex-wrap items-start gap-6">
             {[
-              { label: "Q Coverage", value: `${qCoverage.toFixed(1)}x`, color: coverageColor },
-              { label: "Annual Coverage", value: `${annualCoverage.toFixed(1)}x`, color: annualCoverageColor },
+              { label: "Q Coverage", value: qCoverage == null ? "—" : `${qCoverage.toFixed(1)}x`, color: coverageColor },
+              { label: "Annual Coverage", value: annualCoverage == null ? "—" : `${annualCoverage.toFixed(1)}x`, color: annualCoverageColor },
               { label: "Avg Health", value: args.avgHealthPct != null ? `${args.avgHealthPct}%` : "—", color: healthColor },
               { label: "Pipeline Risk", value: riskLabel, color: riskColor },
               { label: "AOV Won", value: fmtMoney(aovWon), color: "text-green-400" },
