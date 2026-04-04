@@ -792,7 +792,7 @@ export default async function ChannelDashboardPage({
       manager_id: directorRepsId ? String(directorRepsId) : "",
       manager_name: r.manager_name,
       quota: r.quota,
-      total_count: 0,
+      total_count: (Number(r.partner_deals_won) || 0) + (Number(r.partner_deals_pipeline) || 0),
       won_amount: r.won_amount,
       won_count: r.won_count,
       lost_count: 0,

@@ -159,7 +159,9 @@ function healthPctFrom30(score: number | null | undefined): number | null {
 
 function aggregateCurrentTeam(reps: RepManagerRepRow[]) {
   const average = (values: Array<number | null | undefined>) => {
-    const nums = values.map((v) => Number(v)).filter((v) => Number.isFinite(v));
+    const nums = values
+      .filter((v) => v != null && Number.isFinite(Number(v)))
+      .map((v) => Number(v));
     return nums.length ? nums.reduce((sum, v) => sum + v, 0) / nums.length : null;
   };
   const getLostAmount = (rep: RepManagerRepRow) => Number((rep as RepManagerRepRow & { lost_amount?: number }).lost_amount || 0) || 0;
