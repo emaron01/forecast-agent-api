@@ -759,6 +759,7 @@ export function ExecutiveGapInsightsClient(props: {
   pipelineKpisTabOnly?: boolean;
   teamTabOnly?: boolean;
   channelTabOnly?: boolean;
+  channelDashboardMode?: boolean;
   /** When true (e.g. `/dashboard/channel` renders deal tables on the server page), hide duplicate won/lost tables in the channel-tab-only partner section. */
   channelTopPartnerDealsOnPage?: boolean;
   topPartnerWon?: any[];
@@ -3499,13 +3500,15 @@ export function ExecutiveGapInsightsClient(props: {
 
     return (
       <div className="space-y-5">
-        <ChannelRepHeroCards
-          closedWon={wonAmount}
-          quota={channelQuota}
-          contributionPct={contributionPct}
-          gapToQuota={gapToQuota}
-          landingZone={props.aiForecast}
-        />
+        {!props.channelDashboardMode ? (
+          <ChannelRepHeroCards
+            closedWon={wonAmount}
+            quota={channelQuota}
+            contributionPct={contributionPct}
+            gapToQuota={gapToQuota}
+            landingZone={props.aiForecast}
+          />
+        ) : null}
         {partnersDecisionEngine ? (
           <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-3">

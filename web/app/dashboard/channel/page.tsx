@@ -722,6 +722,7 @@ export default async function ChannelDashboardPage({
 
   const channelTabProps = {
     basePath: "/dashboard/channel",
+    channelDashboardMode: true,
     viewerRole: ctx.user.role,
     periods: channelSummary?.periods ?? summary.periods,
     quotaPeriodId: selectedPeriodId ?? "",
