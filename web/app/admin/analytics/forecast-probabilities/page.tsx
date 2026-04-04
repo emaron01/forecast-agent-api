@@ -48,8 +48,8 @@ export default async function AdminForecastProbabilitiesPage({ searchParams }: {
           <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Set default close probability assumptions by forecast category.</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/admin/analytics" className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]">
-            Analytics home
+          <Link href="/admin" className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]">
+            Admin dashboard
           </Link>
         </div>
       </div>

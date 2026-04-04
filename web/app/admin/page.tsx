@@ -55,6 +55,11 @@ export default async function AdminHome() {
         <>
           <Card href="/admin/analytics/quota-periods" title="Quota periods" desc="Manage fiscal calendar (quota periods)." />
           <Card href="/admin/analytics/quotas" title="Quotas" desc="Assign quotas to reps and manage quota sets." />
+          <Card
+            href="/admin/analytics/forecast-probabilities"
+            title="Forecast probabilities"
+            desc="Set close probabilities by forecast category (Commit/Best/Pipeline)."
+          />
           {hasFullAnalyticsAccess ? (
             <>
               <Card href="/dashboard/executive" title="Executive Analytics" desc="Company + manager + rep KPI views." />
