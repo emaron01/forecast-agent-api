@@ -3133,6 +3133,8 @@ export function ExecutiveGapInsightsClient(props: {
         const forecastStyleCard =
           "h-full min-h-[124px] min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm";
         const forecastStyleValue = "mt-2 break-all text-kpiValue font-[tabular-nums]";
+        const gapMoneyColorClass = (v: number) =>
+          !Number.isFinite(v) || v === 0 ? "text-[color:var(--sf-text-secondary)]" : v > 0 ? "text-[#2ECC71]" : "text-[#E74C3C]";
         return (
           <div className="mt-4 space-y-4">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
@@ -3223,7 +3225,7 @@ export function ExecutiveGapInsightsClient(props: {
             <div className="w-full">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-sectionTitle text-[color:var(--sf-text-primary)]">GAP ATTRIBUTION</div>
-                <div className="text-sm font-semibold font-[tabular-nums] text-[color:var(--sf-text-primary)]">{fmtMoney(totalGapSum)}</div>
+                <div className={`text-sm font-semibold font-[tabular-nums] ${gapMoneyColorClass(totalGapSum)}`}>{fmtMoney(totalGapSum)}</div>
               </div>
               <div
                 className="mt-2 flex h-[10px] w-full min-w-0 overflow-hidden rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]"
@@ -3234,7 +3236,7 @@ export function ExecutiveGapInsightsClient(props: {
                 <div className="h-full shrink-0 bg-[#F1C40F]" style={{ width: `${segB}%` }} aria-hidden />
                 <div className="h-full shrink-0 bg-[#E74C3C]" style={{ width: `${segP}%` }} aria-hidden />
               </div>
-              <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div className={forecastStyleCard}>
                   <div className="min-w-0 overflow-hidden text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
                     <span className="inline-flex min-w-0 items-center gap-2 truncate">
@@ -3242,7 +3244,7 @@ export function ExecutiveGapInsightsClient(props: {
                       <span className="min-w-0 truncate">COMMIT GAP</span>
                     </span>
                   </div>
-                  <div className={`${forecastStyleValue} text-[#2ECC71]`}>{fmtMoney(gapCommit)}</div>
+                  <div className={`${forecastStyleValue} ${gapMoneyColorClass(gapCommit)}`}>{fmtMoney(gapCommit)}</div>
                   <div className="mt-2 min-w-0 truncate text-meta text-[color:var(--sf-text-secondary)]">
                     {pctCommitOfTotal == null ? "—" : `${pctCommitOfTotal}% of total gap`}
                   </div>
@@ -3254,7 +3256,7 @@ export function ExecutiveGapInsightsClient(props: {
                       <span className="min-w-0 truncate">BEST CASE GAP</span>
                     </span>
                   </div>
-                  <div className={`${forecastStyleValue} text-[#F1C40F]`}>{fmtMoney(gapBest)}</div>
+                  <div className={`${forecastStyleValue} ${gapMoneyColorClass(gapBest)}`}>{fmtMoney(gapBest)}</div>
                   <div className="mt-2 min-w-0 truncate text-meta text-[color:var(--sf-text-secondary)]">
                     {pctBestOfTotal == null ? "—" : `${pctBestOfTotal}% of total gap`}
                   </div>
@@ -3266,13 +3268,11 @@ export function ExecutiveGapInsightsClient(props: {
                       <span className="min-w-0 truncate">PIPELINE GAP</span>
                     </span>
                   </div>
-                  <div className={`${forecastStyleValue} text-[#E74C3C]`}>{fmtMoney(gapPipe)}</div>
+                  <div className={`${forecastStyleValue} ${gapMoneyColorClass(gapPipe)}`}>{fmtMoney(gapPipe)}</div>
                   <div className="mt-2 min-w-0 truncate text-meta text-[color:var(--sf-text-secondary)]">
                     {pctPipeOfTotal == null ? "—" : `${pctPipeOfTotal}% of total gap`}
                   </div>
                 </div>
-                <div className="hidden min-w-0 lg:block" aria-hidden />
-                <div className="hidden min-w-0 lg:block" aria-hidden />
               </div>
             </div>
           </div>
