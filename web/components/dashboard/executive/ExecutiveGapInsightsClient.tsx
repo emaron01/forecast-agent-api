@@ -188,6 +188,14 @@ function fmtPct01(n: number | null) {
   return `${Math.round(n * 100)}%`;
 }
 
+function heroColor(value: number, quota: number, thresholds: [number, number] = [1.0, 0.8]): string {
+  if (!Number.isFinite(value) || quota <= 0 || !Number.isFinite(quota)) return "text-[color:var(--sf-text-primary)]";
+  const pct = value / quota;
+  if (pct >= thresholds[0]) return "text-green-400";
+  if (pct >= thresholds[1]) return "text-yellow-400";
+  return "text-red-400";
+}
+
 function fmtDeltaCount(n: number) {
   const v = Number(n);
   if (!Number.isFinite(v) || v === 0) return "0";
@@ -2900,17 +2908,22 @@ export function ExecutiveGapInsightsClient(props: {
                 {(() => {
                   const quotaSource = props.heroQuotaOverride ?? props.quota;
                   const quotaNum = Number(quotaSource) || 0;
+                  const isChannelHero = String(props.basePath || "").trim() === "/dashboard/channel";
                   const gapSource = props.heroGapToQuotaOverride;
                   const gapToQuota =
                     gapSource == null || !Number.isFinite(Number(gapSource))
                       ? quotaNum - wonAmount
                       : Number(gapSource);
                   const gapColor = gapToQuota > 0 ? "text-[#E74C3C]" : "text-[#16A34A]";
+                  const gapSubtitle = gapToQuota > 0 ? "Remaining to quota" : wonAmount > quotaNum ? "Quota exceeded" : "Quota met";
                   const contributionPct =
                     props.heroContributionPct == null || !Number.isFinite(Number(props.heroContributionPct))
                       ? null
                       : Number(props.heroContributionPct);
                   const showContributionCard = String(props.basePath || "").trim() === "/dashboard/channel" || contributionPct != null;
+                  const contributionColor =
+                    contributionPct == null ? "text-[color:var(--sf-text-primary)]" : heroColor(contributionPct, 100, [0.8, 0.5]);
+                  const landingZoneColor = isChannelHero ? heroColor(Number(props.aiForecast || 0), quotaNum) : "text-[color:var(--sf-text-primary)]";
                   return (
                     <div className={`mt-4 grid grid-cols-2 gap-4 sm:grid-cols-2 ${showContributionCard ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
                       <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
@@ -2924,18 +2937,18 @@ export function ExecutiveGapInsightsClient(props: {
                       {showContributionCard ? (
                         <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
                           <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Contribution</div>
-                          <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{contributionPct == null ? "—" : `${contributionPct.toFixed(1)}%`}</div>
+                          <div className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${contributionColor}`}>{contributionPct == null ? "—" : `${contributionPct.toFixed(1)}%`}</div>
                           <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Channel closed won vs assigned sales team</div>
                         </div>
                       ) : null}
                       <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
                         <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Gap to Quota</div>
                         <div className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${gapColor}`}>{fmtMoney(gapToQuota)}</div>
-                        <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Remaining to quota</div>
+                        <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">{gapSubtitle}</div>
                       </div>
                       <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
                         <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Landing Zone</div>
-                        <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">{fmtMoney(props.aiForecast)}</div>
+                        <div className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${landingZoneColor}`}>{fmtMoney(props.aiForecast)}</div>
                         <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">AI weighted forecast</div>
                       </div>
                     </div>
@@ -2945,7 +2958,14 @@ export function ExecutiveGapInsightsClient(props: {
                   crmTotals={props.crmTotals}
                   quota={props.quota}
                   pipelineMomentum={props.pipelineMomentum}
-                  heroBucketAmounts={heroBucketAmounts}
+                  heroBucketAmounts={
+                    String(props.basePath || "").trim() === "/dashboard/channel"
+                      ? {
+                          ...heroBucketAmounts,
+                          wonAmount: 0,
+                        }
+                      : heroBucketAmounts
+                  }
                 />
               </>
             ) : (
