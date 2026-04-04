@@ -3114,10 +3114,25 @@ export function ExecutiveGapInsightsClient(props: {
           return `${v > 0 ? "+" : "-"}${abs.toLocaleString("en-US")}`;
         };
         const bd = props.bucketDeltas;
-        const absMax = Math.max(Math.abs(bd.commit), Math.abs(bd.best_case), Math.abs(bd.pipeline), 1);
-        const gapBar = (v: number) => `${Math.round(clamp01(Math.abs(v) / absMax) * 100)}%`;
-        const gapDeltaTextClass = (v: number) =>
-          !Number.isFinite(v) || v === 0 ? "text-[color:var(--sf-text-secondary)]" : v > 0 ? "text-[#2ECC71]" : "text-[#E74C3C]";
+        const gapCommit = Number(bd.commit) || 0;
+        const gapBest = Number(bd.best_case) || 0;
+        const gapPipe = Number(bd.pipeline) || 0;
+        const totalGapSum = gapCommit + gapBest + gapPipe;
+        const absC = Math.abs(gapCommit);
+        const absB = Math.abs(gapBest);
+        const absP = Math.abs(gapPipe);
+        const sumAbsGap = absC + absB + absP;
+        const segC = sumAbsGap <= 0 ? 100 / 3 : (absC / sumAbsGap) * 100;
+        const segB = sumAbsGap <= 0 ? 100 / 3 : (absB / sumAbsGap) * 100;
+        const segP = sumAbsGap <= 0 ? 100 / 3 : (absP / sumAbsGap) * 100;
+        const pctOfTotal = (abs: number) =>
+          sumAbsGap <= 0 || !Number.isFinite(abs) ? null : Math.round((abs / sumAbsGap) * 100);
+        const pctCommitOfTotal = pctOfTotal(absC);
+        const pctBestOfTotal = pctOfTotal(absB);
+        const pctPipeOfTotal = pctOfTotal(absP);
+        const forecastStyleCard =
+          "h-full min-h-[124px] min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm";
+        const forecastStyleValue = "mt-2 break-all text-kpiValue font-[tabular-nums]";
         return (
           <div className="mt-4 space-y-4">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
@@ -3205,22 +3220,59 @@ export function ExecutiveGapInsightsClient(props: {
               </div>
             </div>
 
-            <div className="w-full rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
-              <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Gap Attribution</div>
-              <div className="mt-2 grid grid-cols-1 gap-3 text-tableValue text-[color:var(--sf-text-primary)] sm:grid-cols-3">
-                {[
-                  { label: "Commit", v: bd.commit },
-                  { label: "Best Case", v: bd.best_case },
-                  { label: "Pipeline", v: bd.pipeline },
-                ].map((x) => (
-                  <div key={x.label} className="grid grid-cols-[70px_minmax(0,1fr)_68px] items-center gap-2">
-                    <div className="text-tableLabel text-xs">{x.label}</div>
-                    <div className="h-1.5 min-w-0 rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
-                      <div className={`h-full rounded-full ${x.v >= 0 ? "bg-[#2ECC71]" : "bg-[#E74C3C]"}`} style={{ width: gapBar(x.v) }} aria-hidden="true" />
-                    </div>
-                    <div className={`text-right text-xs num-tabular shrink-0 ${gapDeltaTextClass(x.v)}`}>{fmtMoney(x.v)}</div>
+            <div className="w-full">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sectionTitle text-[color:var(--sf-text-primary)]">GAP ATTRIBUTION</div>
+                <div className="text-sm font-semibold font-[tabular-nums] text-[color:var(--sf-text-primary)]">{fmtMoney(totalGapSum)}</div>
+              </div>
+              <div
+                className="mt-2 flex h-[10px] w-full min-w-0 overflow-hidden rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]"
+                role="img"
+                aria-label={`Gap attribution mix: Commit ${fmtMoney(gapCommit)}, Best Case ${fmtMoney(gapBest)}, Pipeline ${fmtMoney(gapPipe)}`}
+              >
+                <div className="h-full shrink-0 bg-[#2ECC71]" style={{ width: `${segC}%` }} aria-hidden />
+                <div className="h-full shrink-0 bg-[#F1C40F]" style={{ width: `${segB}%` }} aria-hidden />
+                <div className="h-full shrink-0 bg-[#E74C3C]" style={{ width: `${segP}%` }} aria-hidden />
+              </div>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                <div className={forecastStyleCard}>
+                  <div className="min-w-0 overflow-hidden text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
+                    <span className="inline-flex min-w-0 items-center gap-2 truncate">
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-[#2ECC71]" aria-hidden />
+                      <span className="min-w-0 truncate">COMMIT GAP</span>
+                    </span>
                   </div>
-                ))}
+                  <div className={`${forecastStyleValue} text-[#2ECC71]`}>{fmtMoney(gapCommit)}</div>
+                  <div className="mt-2 min-w-0 truncate text-meta text-[color:var(--sf-text-secondary)]">
+                    {pctCommitOfTotal == null ? "—" : `${pctCommitOfTotal}% of total gap`}
+                  </div>
+                </div>
+                <div className={forecastStyleCard}>
+                  <div className="min-w-0 overflow-hidden text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
+                    <span className="inline-flex min-w-0 items-center gap-2 truncate">
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-[#F1C40F]" aria-hidden />
+                      <span className="min-w-0 truncate">BEST CASE GAP</span>
+                    </span>
+                  </div>
+                  <div className={`${forecastStyleValue} text-[#F1C40F]`}>{fmtMoney(gapBest)}</div>
+                  <div className="mt-2 min-w-0 truncate text-meta text-[color:var(--sf-text-secondary)]">
+                    {pctBestOfTotal == null ? "—" : `${pctBestOfTotal}% of total gap`}
+                  </div>
+                </div>
+                <div className={forecastStyleCard}>
+                  <div className="min-w-0 overflow-hidden text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
+                    <span className="inline-flex min-w-0 items-center gap-2 truncate">
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-[#E74C3C]" aria-hidden />
+                      <span className="min-w-0 truncate">PIPELINE GAP</span>
+                    </span>
+                  </div>
+                  <div className={`${forecastStyleValue} text-[#E74C3C]`}>{fmtMoney(gapPipe)}</div>
+                  <div className="mt-2 min-w-0 truncate text-meta text-[color:var(--sf-text-secondary)]">
+                    {pctPipeOfTotal == null ? "—" : `${pctPipeOfTotal}% of total gap`}
+                  </div>
+                </div>
+                <div className="hidden min-w-0 lg:block" aria-hidden />
+                <div className="hidden min-w-0 lg:block" aria-hidden />
               </div>
             </div>
           </div>
