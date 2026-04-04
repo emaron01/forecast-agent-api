@@ -245,7 +245,14 @@ function weakestCategoryLabelsFromScores(scores: Array<{ label: string; score: n
 }
 
 function weakestCategoryLabelsForRows(rows: AssessmentHygieneRow[]): string[] {
-  if (!rows.length) return [];
+  if (!rows.length) {
+    return weakestCategoryLabelsFromScores(
+      MEDDPICC_CATEGORIES.map((c) => ({
+        label: c.label,
+        score: 0,
+      }))
+    );
+  }
   return weakestCategoryLabelsFromScores(
     MEDDPICC_CATEGORIES.map((c) => ({
       label: c.label,
