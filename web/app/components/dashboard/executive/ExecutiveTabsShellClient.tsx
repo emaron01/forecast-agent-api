@@ -889,7 +889,7 @@ export function ExecutiveTabsShellClient(props: {
         )}
         {"channel" === activeTab && (
           <div className="-mx-4 -mt-4 space-y-5">
-            {props.showChannelContribution && props.channelContributionHero ? (
+            {!props.revenueTabProps.channelDashboardMode && props.showChannelContribution && props.channelContributionHero ? (
               <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
                 <h3 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Channel Contribution</h3>
                 {(() => {
