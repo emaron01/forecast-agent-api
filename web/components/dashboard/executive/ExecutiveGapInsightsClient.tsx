@@ -2047,6 +2047,12 @@ export function ExecutiveGapInsightsClient(props: {
     const remainingQuota = quotaGap;
     const coverageRatio = remainingQuota != null && remainingQuota > 0 ? totalRemainingPipeline / remainingQuota : null;
     const annualGoalColor = pctToAnnualGoal == null ? "text-[color:var(--sf-text-primary)]" : pctToAnnualGoal >= 0.8 ? "text-[#2ECC71]" : pctToAnnualGoal >= 0.5 ? "text-[#F1C40F]" : "text-[#E74C3C]";
+    const pipelineCovAnnualExceeded =
+      coverageRatio == null &&
+      annualQuota != null &&
+      annualQuota > 0 &&
+      remainingQuota != null &&
+      remainingQuota === 0;
     const coverageColor = coverageRatio == null ? "text-[color:var(--sf-text-primary)]" : coverageRatio >= 3 ? "text-[#2ECC71]" : coverageRatio >= 2 ? "text-[#F1C40F]" : "text-[#E74C3C]";
     const coveragePillLabel = coverageRatio == null ? "—" : coverageRatio >= 3 ? "STRONG" : coverageRatio >= 2 ? "MODERATE" : "HIGH RISK";
     const coveragePillClass =
@@ -2712,7 +2718,11 @@ export function ExecutiveGapInsightsClient(props: {
                 </div>
                 <div className={heroCard}>
                   <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">PIPELINE COVERAGE</div>
-                  <div className={[heroVal, coverageColor].join(" ")}>{coverageRatio == null ? "—" : `${coverageRatio.toFixed(1)}x`}</div>
+                  <div
+                    className={[heroVal, pipelineCovAnnualExceeded ? "text-[#2ECC71]" : coverageColor].join(" ")}
+                  >
+                    {coverageRatio == null ? (pipelineCovAnnualExceeded ? "Exceeded" : "—") : `${coverageRatio.toFixed(1)}x`}
+                  </div>
                   <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">of remaining quota</div>
                   <span className={["mt-2 inline-flex rounded-full px-2 py-0.5 text-xs font-semibold", coveragePillClass].join(" ")}>
                     {coveragePillLabel}

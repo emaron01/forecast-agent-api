@@ -121,6 +121,11 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
   const remainingQuota = quota > 0 ? Math.max(0, quota - wonAmount) : null;
   const coverage =
     remainingQuota != null && remainingQuota > 0 && totalPipelineAmt > 0 ? totalPipelineAmt / remainingQuota : null;
+  const pipelineCovExceeded = coverage == null && quota > 0 && remainingQuota != null && remainingQuota === 0;
+  const pipelineCovDisplayText = pipelineCovExceeded ? "Exceeded" : fmtCoverageRatio(coverage, { digits: 1 });
+  const pipelineCovDisplayColorClass = pipelineCovExceeded
+    ? "text-[#2ECC71]"
+    : coverageValueColorClass(coverage);
   const covStatus = coverageStatus(coverage);
 
   // Full dollar values for forecast (7-figure)
@@ -187,7 +192,7 @@ export function ExecutiveRemainingQuarterlyForecastBlock(props: {
 
         <div className={heroCard}>
           <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Pipeline Coverage</div>
-          <div className={[heroVal, coverageValueColorClass(coverage)].join(" ")}>{fmtCoverageRatio(coverage, { digits: 1 })}</div>
+          <div className={[heroVal, pipelineCovDisplayColorClass].join(" ")}>{pipelineCovDisplayText}</div>
           <div className="mt-2 min-w-0 overflow-hidden">
             <span className={["inline-flex max-w-full truncate rounded-full border px-2 py-0.5 text-[10px] font-semibold", covStatus.cls].join(" ")}>{covStatus.label}</span>
           </div>

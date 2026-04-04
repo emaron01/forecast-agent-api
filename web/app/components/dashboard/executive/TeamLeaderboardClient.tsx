@@ -376,9 +376,18 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const totalFyPipeline = args.activePipelineAmount;
     const annualRemaining = Math.max(0, args.annualQuota - args.ytdRevenue);
     const annualCoverage = annualRemaining > 0 ? totalFyPipeline / annualRemaining : null;
-    const coverageColor = qCoverage == null ? "text-[color:var(--sf-text-secondary)]" : coverageTextClass(qCoverage);
-    const annualCoverageColor =
-      annualCoverage == null ? "text-[color:var(--sf-text-secondary)]" : coverageTextClass(annualCoverage);
+    const qCovExceeded = qCoverage == null && args.quota > 0 && remainingQuota === 0;
+    const qCovDisplay = qCoverage != null ? `${qCoverage.toFixed(1)}x` : qCovExceeded ? "Exceeded" : "—";
+    const qCovDisplayColor =
+      qCoverage != null ? coverageTextClass(qCoverage) : qCovExceeded ? "text-[#2ECC71]" : "text-[color:var(--sf-text-secondary)]";
+    const annCovExceeded = annualCoverage == null && args.annualQuota > 0 && annualRemaining === 0;
+    const annCovDisplay = annualCoverage != null ? `${annualCoverage.toFixed(1)}x` : annCovExceeded ? "Exceeded" : "—";
+    const annCovDisplayColor =
+      annualCoverage != null
+        ? coverageTextClass(annualCoverage)
+        : annCovExceeded
+          ? "text-[#2ECC71]"
+          : "text-[color:var(--sf-text-secondary)]";
     const { label: riskLabel, color: riskColor } =
       annualCoverage == null ? { label: "UNKNOWN", color: "text-[color:var(--sf-text-secondary)]" } : riskFromCoverage(annualCoverage);
     const healthColor = healthTextClass(args.avgHealthPct);
@@ -493,8 +502,8 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           </div>
           <div className="mt-2 flex flex-wrap items-start gap-6">
             {[
-              { label: "Q Coverage", value: qCoverage == null ? "—" : `${qCoverage.toFixed(1)}x`, color: coverageColor },
-              { label: "Annual Coverage", value: annualCoverage == null ? "—" : `${annualCoverage.toFixed(1)}x`, color: annualCoverageColor },
+              { label: "Q Coverage", value: qCovDisplay, color: qCovDisplayColor },
+              { label: "Annual Coverage", value: annCovDisplay, color: annCovDisplayColor },
               { label: "Avg Health", value: args.avgHealthPct != null ? `${args.avgHealthPct}%` : "—", color: healthColor },
               { label: "Pipeline Risk", value: riskLabel, color: riskColor },
               { label: "AOV Won", value: fmtMoney(aovWon), color: "text-green-400" },

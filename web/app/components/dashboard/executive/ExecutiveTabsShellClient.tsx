@@ -930,6 +930,8 @@ export function ExecutiveTabsShellClient(props: {
                   const totalH = pm?.current_quarter?.avg_health_pct ?? null;
                   const remainingQuota = quota > 0 ? Math.max(0, quota - closedWonRevenue) : null;
                   const coverage = remainingQuota != null && remainingQuota > 0 && totalAmt > 0 ? totalAmt / remainingQuota : null;
+                  const pipelineCovExceeded =
+                    coverage == null && quota > 0 && remainingQuota != null && remainingQuota === 0;
                   const cov = coverageStatus(coverage);
 
                   const avgHealthWon = kpis?.avgHealthWonPct ?? null;
@@ -982,7 +984,13 @@ export function ExecutiveTabsShellClient(props: {
                         ))}
                         <div className={card}>
                           <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Pipeline Coverage</div>
-                          <div className={value}>{coverage == null || !Number.isFinite(coverage) ? "—" : `${coverage.toFixed(1)}x`}</div>
+                          <div className={pipelineCovExceeded ? `${value} text-[#2ECC71]` : value}>
+                            {coverage != null && Number.isFinite(coverage)
+                              ? `${coverage.toFixed(1)}x`
+                              : pipelineCovExceeded
+                                ? "Exceeded"
+                                : "—"}
+                          </div>
                           <div className="mt-2">
                             <span className={["inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold", cov.cls].join(" ")}>{cov.label}</span>
                           </div>
