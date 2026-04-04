@@ -2988,7 +2988,7 @@ export function ExecutiveGapInsightsClient(props: {
                       </div>
                       <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
                         <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Landing Zone</div>
-                        <div className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${landingZoneColor}`}>{fmtMoney(props.aiForecast)}</div>
+                        <div className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${Number(landingZone) > Number(quota) ? "text-[#2ECC71]" : Number(landingZone) >= Number(quota) * 0.8 ? "text-[#F1C40F]" : "text-[#E74C3C]"}`}>{fmtMoney(props.aiForecast)}</div>
                         <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">AI weighted forecast</div>
                       </div>
                     </div>
