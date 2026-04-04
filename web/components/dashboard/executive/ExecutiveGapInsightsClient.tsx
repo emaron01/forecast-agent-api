@@ -3017,7 +3017,15 @@ export function ExecutiveGapInsightsClient(props: {
                   const quotaNum = Number(props.quota) || 0;
                   const gapToQuota = quotaNum - wonAmount;
                   const gapColor = gapToQuota > 0 ? "text-[#E74C3C]" : "text-[#16A34A]";
-                  const landingZoneColor = heroColor(Number(props.aiForecast || 0), quotaNum);
+                  const landingZoneValue = Number(props.aiForecast || 0);
+                  const landingZoneColor =
+                    !Number.isFinite(landingZoneValue) || quotaNum <= 0
+                      ? "text-[color:var(--sf-text-primary)]"
+                      : landingZoneValue > quotaNum
+                        ? "text-[#2ECC71]"
+                        : landingZoneValue >= quotaNum * 0.8
+                          ? "text-[#F1C40F]"
+                          : "text-[#E74C3C]";
                   const lostAmt = Number(props.crmTotals?.lost_amount ?? 0) || 0;
                   const lostCnt = Number(props.crmTotals?.lost_count ?? 0) || 0;
                   return (
