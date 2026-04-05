@@ -11,6 +11,7 @@ import { FiscalYearSelector } from "../../../../components/quotas/FiscalYearSele
 import { getDistinctFiscalYears, getQuotaPeriods } from "../actions";
 import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
 import { RepQuotaSetupClient } from "./RepQuotaSetupClient";
+import { getChannelTerritoryRepIds } from "../../../../lib/channelTerritoryScope";
 import {
   isChannelExec,
   isChannelManager,
@@ -422,6 +423,13 @@ export default async function AnalyticsQuotasManagerPage({
   const directRepIds = (directReps || [])
     .map((r) => Number(r.id))
     .filter((n) => Number.isFinite(n) && n > 0);
+  const closedWonRepIds =
+    isChannelExec(ctx.user) || isChannelManager(ctx.user)
+      ? await getChannelTerritoryRepIds({
+          orgId: ctx.user.org_id,
+          channelUserId: ctx.user.id,
+        }).catch(() => [])
+      : directRepIds;
   const repOptions = (directReps || []).map((r) => ({ public_id: String(r.public_id || ""), rep_name: String(r.rep_name || "") })).filter((r) => !!r.public_id);
   const selectedRepPublicId = rep_public_id || repOptions[0]?.public_id || "";
   const selectedRepName = repOptions.find((r) => r.public_id === selectedRepPublicId)?.rep_name || "";
@@ -502,7 +510,7 @@ export default async function AnalyticsQuotasManagerPage({
       : [];
 
   const repWonRows =
-    fiscal_year && directRepIds.length && quarterIds.length
+    fiscal_year && closedWonRepIds.length && quarterIds.length
       ? await pool
           .query<{ rep_id: string; quota_period_id: string; won_amount: number }>(
             `
@@ -544,7 +552,7 @@ export default async function AnalyticsQuotasManagerPage({
             WHERE ((' ' || d.fs || ' ') LIKE '% won %')
             GROUP BY d.rep_id, p.id
             `,
-            [ctx.user.org_id, quarterIds, directRepIds]
+            [ctx.user.org_id, quarterIds, closedWonRepIds]
           )
           .then((r) => r.rows || [])
           .catch(() => [])
@@ -560,6 +568,19 @@ export default async function AnalyticsQuotasManagerPage({
     const k = `${String(r.rep_id)}|${String(r.quota_period_id)}`;
     wonByRepPeriod.set(k, Number((r as any).won_amount || 0) || 0);
   }
+
+  const channelLeaderClosedWon = isChannelExec(ctx.user) || isChannelManager(ctx.user);
+  const territoryWonByPeriodId = channelLeaderClosedWon
+    ? new Map(
+        quarterIds.map((pid) => {
+          let t = 0;
+          for (const rid of closedWonRepIds) {
+            t += wonByRepPeriod.get(`${rid}|${pid}`) || 0;
+          }
+          return [pid, t] as const;
+        })
+      )
+    : null;
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -711,7 +732,9 @@ export default async function AnalyticsQuotasManagerPage({
                           const pid = String(q.p.id);
                           const repId = String(rep.id);
                           const quota = quotaByRepPeriod.get(`${repId}|${pid}`) || 0;
-                          const won = wonByRepPeriod.get(`${repId}|${pid}`) || 0;
+                          const won = channelLeaderClosedWon
+                            ? territoryWonByPeriodId!.get(pid) || 0
+                            : wonByRepPeriod.get(`${repId}|${pid}`) || 0;
                           return (
                             <td key={`${rep.public_id}:${q.key}`} className="px-4 py-3 align-top">
                               <div className="grid gap-1">
@@ -742,7 +765,9 @@ export default async function AnalyticsQuotasManagerPage({
                         const pid = String(q.p.id);
                         const repId = String(rep.id);
                         const quota = quotaByRepPeriod.get(`${repId}|${pid}`) || 0;
-                        const won = wonByRepPeriod.get(`${repId}|${pid}`) || 0;
+                        const won = channelLeaderClosedWon
+                          ? territoryWonByPeriodId!.get(pid) || 0
+                          : wonByRepPeriod.get(`${repId}|${pid}`) || 0;
                         out[`${q.key}_quota`] = quota;
                         out[`${q.key}_won`] = won;
                       }
