@@ -732,16 +732,19 @@ export default async function AnalyticsQuotasManagerPage({
                           const pid = String(q.p.id);
                           const repId = String(rep.id);
                           const quota = quotaByRepPeriod.get(`${repId}|${pid}`) || 0;
-                          const won = channelLeaderClosedWon
-                            ? territoryWonByPeriodId!.get(pid) || 0
-                            : wonByRepPeriod.get(`${repId}|${pid}`) || 0;
                           return (
                             <td key={`${rep.public_id}:${q.key}`} className="px-4 py-3 align-top">
                               <div className="grid gap-1">
                                 <div className="text-[11px] text-[color:var(--sf-text-secondary)]">quota</div>
                                 <div className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(quota)}</div>
-                                <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">closed won</div>
-                                <div className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(won)}</div>
+                                {!channelLeaderClosedWon ? (
+                                  <>
+                                    <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">closed won</div>
+                                    <div className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
+                                      {fmtMoney(wonByRepPeriod.get(`${repId}|${pid}`) || 0)}
+                                    </div>
+                                  </>
+                                ) : null}
                               </div>
                             </td>
                           );
