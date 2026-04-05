@@ -99,7 +99,6 @@ export default async function QuotasPage({
 
   const quotaByPeriodId = new Map<string, any>();
   for (const q of quotas as any[]) {
-    if (String(q.role_level) !== "3") continue;
     const pid = String(q.quota_period_id || "");
     if (!pid) continue;
     if (!quotaByPeriodId.has(pid)) quotaByPeriodId.set(pid, q);
