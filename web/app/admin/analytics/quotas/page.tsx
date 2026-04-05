@@ -173,7 +173,7 @@ export default async function QuotasPage({
               <option value="">(select)</option>
               {reps.map((r) => (
                 <option key={r.id} value={String(r.id)}>
-                  {repLabel(r)} ({r.id})
+                  {repLabel(r)}
                 </option>
               ))}
             </select>
