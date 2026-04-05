@@ -216,6 +216,10 @@ async function upsertRepQuota(args: {
       $6::numeric,
       $7::numeric
     )
+    ON CONFLICT (org_id, rep_id, quota_period_id)
+    DO UPDATE SET
+      quota_amount = EXCLUDED.quota_amount,
+      updated_at = NOW()
     `,
     [args.orgId, args.repId, args.managerId, args.roleLevel, args.quotaPeriodId, args.quotaAmount, args.annualTarget]
   );
