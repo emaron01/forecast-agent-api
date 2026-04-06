@@ -63,8 +63,6 @@ export type RepManagerManagerRow = {
   attainment: number | null;
   win_rate: number | null;
   partner_contribution: number | null;
-  lost_amount?: number;
-  lost_count?: number;
 };
 
 function getSortValue(r: RepManagerRepRow, col: string): number {

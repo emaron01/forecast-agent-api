@@ -3,7 +3,7 @@ import { requireAuth } from "../../../lib/auth";
 import { getOrganization } from "../../../lib/db";
 import { pool } from "../../../lib/pool";
 import { getChannelTerritoryRepIds } from "../../../lib/channelTerritoryScope";
-import { getScopedRepDirectory } from "../../../lib/repScope";
+import { getScopedRepDirectory, type RepDirectoryRow } from "../../../lib/repScope";
 import { getChannelDashboardSummary, loadChannelRepFyQuarterRows } from "../../../lib/channelDashboard";
 import { getRepKpisByPeriod, type RepPeriodKpisRow } from "../../../lib/executiveRepKpis";
 import { UserTopNav } from "../../_components/UserTopNav";
@@ -83,6 +83,88 @@ function aggregateTerritoryRepKpis(
     avg_days_lost: weightedAvg((r) => r.avg_days_lost, (r) => Number(r.lost_count) || 0),
     avg_days_active: weightedAvg((r) => r.avg_days_active, (r) => Number(r.active_count) || 0),
   };
+}
+
+type ChannelLostDealRow = {
+  id: string;
+  amount: number;
+  rep_id: number;
+  partner_name: string | null;
+};
+
+async function queryChannelLostDealsByTerritoryRepIds(args: {
+  orgId: number;
+  territoryRepIds: number[];
+  periodStart: string;
+  periodEnd: string;
+}): Promise<ChannelLostDealRow[]> {
+  if (!args.territoryRepIds.length) return [];
+  const { rows } = await pool
+    .query<ChannelLostDealRow>(
+      `
+      SELECT
+        o.id::text AS id,
+        COALESCE(o.amount, 0)::float8 AS amount,
+        o.rep_id::int AS rep_id,
+        o.partner_name
+      FROM opportunities o
+      WHERE o.org_id = $1::bigint
+        AND o.rep_id = ANY($2::bigint[])
+        AND o.close_date >= $3::date
+        AND o.close_date <= $4::date
+        AND (
+          (' ' || lower(
+            regexp_replace(
+              COALESCE(NULLIF(btrim(o.forecast_stage),''),'')
+              || ' ' ||
+              COALESCE(NULLIF(btrim(o.sales_stage),''),''),
+              '[^a-zA-Z]+', ' ', 'g'
+            )
+          ) || ' ') LIKE '% lost %'
+        )
+      `,
+      [args.orgId, args.territoryRepIds, args.periodStart, args.periodEnd]
+    )
+    .catch(() => ({ rows: [] as ChannelLostDealRow[] }));
+  return rows || [];
+}
+
+async function queryChannelLostDealsByPartnerNames(args: {
+  orgId: number;
+  partnerNames: string[];
+  periodStart: string;
+  periodEnd: string;
+}): Promise<ChannelLostDealRow[]> {
+  const names = (args.partnerNames || []).map((n) => String(n || "").trim().toLowerCase()).filter(Boolean);
+  if (!names.length) return [];
+  const { rows } = await pool
+    .query<ChannelLostDealRow>(
+      `
+      SELECT
+        o.id::text AS id,
+        COALESCE(o.amount, 0)::float8 AS amount,
+        o.rep_id::int AS rep_id,
+        o.partner_name
+      FROM opportunities o
+      WHERE o.org_id = $1::bigint
+        AND lower(btrim(COALESCE(o.partner_name,''))) = ANY($2::text[])
+        AND o.close_date >= $3::date
+        AND o.close_date <= $4::date
+        AND (
+          (' ' || lower(
+            regexp_replace(
+              COALESCE(NULLIF(btrim(o.forecast_stage),''),'')
+              || ' ' ||
+              COALESCE(NULLIF(btrim(o.sales_stage),''),''),
+              '[^a-zA-Z]+', ' ', 'g'
+            )
+          ) || ' ') LIKE '% lost %'
+        )
+      `,
+      [args.orgId, names, args.periodStart, args.periodEnd]
+    )
+    .catch(() => ({ rows: [] as ChannelLostDealRow[] }));
+  return rows || [];
 }
 
 type ChannelScopedProductRow = {
@@ -788,6 +870,7 @@ export default async function ChannelDashboardPage({
   let channelProductsClosedWonByRep: ChannelProductWonByRepRow[] = [];
   let directorTerritoryLostAmount = 0;
   let directorTerritoryLostCount = 0;
+  let lostDealsByRole8RepId = new Map<number, ChannelLostDealRow[]>();
   const territorySalesIdsByChannelRepId = new Map<number, Set<string>>();
   try {
     if (selectedPeriodId && comparePeriodIds.length && channelScopedRepIds.length > 0) {
@@ -856,46 +939,105 @@ export default async function ChannelDashboardPage({
         });
       }
 
-      if (territoryIdList.length > 0 && selectedPeriod?.period_start && selectedPeriod?.period_end) {
-        const { rows } = await pool
-          .query<{ lost_amount: number; lost_count: number }>(
-            `
-            SELECT
-              COALESCE(SUM(o.amount), 0)::float8 AS lost_amount,
-              COUNT(*)::int AS lost_count
-            FROM opportunities o
-            WHERE o.org_id = $1
-              AND o.rep_id = ANY($2::bigint[])
-              AND o.close_date >= $3::date
-              AND o.close_date <= $4::date
-              AND (
-                lower(
-                  regexp_replace(
-                    COALESCE(NULLIF(btrim(o.forecast_stage),''),'')
-                    || ' ' ||
-                    COALESCE(NULLIF(btrim(o.sales_stage),''),''),
-                    '[^a-zA-Z]+', ' ', 'g'
-                  )
-                ) LIKE '% lost %'
-              )
-            `,
-            [orgId, territoryIdList, selectedPeriod.period_start, selectedPeriod.period_end]
-          )
-          .then((r) => r.rows || [])
-          .catch(() => []);
-        const row0 = rows?.[0] as any;
-        directorTerritoryLostAmount = Number(row0?.lost_amount || 0) || 0;
-        directorTerritoryLostCount = Number(row0?.lost_count || 0) || 0;
+      const partnerNamesByChannelRepId = new Map<number, string[]>();
+      for (const row of scopeList) {
+        const rid = Number(row.rep_id);
+        const uid = Number(row.user_id);
+        partnerNamesByChannelRepId.set(rid, partnerNamesByUserId.get(uid) || []);
+      }
 
-        console.log("CHANNEL_LOST_DEBUG", {
-          territoryIdList,
-          territoryLostAmount: directorTerritoryLostAmount,
-          territoryLostCount: directorTerritoryLostCount,
-          selectedPeriod: {
-            start: selectedPeriod?.period_start,
-            end: selectedPeriod?.period_end,
-          },
+      const repDirById = new Map<number, RepDirectoryRow>(
+        (channelSummary?.repDirectory ?? []).map((d) => [d.id, d] as const)
+      );
+
+      if (selectedPeriod?.period_start && selectedPeriod?.period_end) {
+        const ps = selectedPeriod.period_start;
+        const pe = selectedPeriod.period_end;
+        directorTerritoryLostAmount = 0;
+        directorTerritoryLostCount = 0;
+
+        const role8ScopeRows = scopeList.filter((row) => {
+          const meta = repDirById.get(Number(row.rep_id));
+          return meta?.hierarchy_level === HIERARCHY.CHANNEL_REP;
         });
+
+        const lostResultList = await Promise.all(
+          role8ScopeRows.map(async (row) => {
+            const rid = Number(row.rep_id);
+            const territory = territoryByChannelRepId.get(rid) || [];
+            const partners = partnerNamesByChannelRepId.get(rid) || [];
+            if (territory.length > 0) {
+              const r = await queryChannelLostDealsByTerritoryRepIds({
+                orgId,
+                territoryRepIds: territory,
+                periodStart: ps,
+                periodEnd: pe,
+              });
+              return { rid, rows: r };
+            }
+            if (partners.length > 0) {
+              const r = await queryChannelLostDealsByPartnerNames({
+                orgId,
+                partnerNames: partners,
+                periodStart: ps,
+                periodEnd: pe,
+              });
+              return { rid, rows: r };
+            }
+            return { rid, rows: [] as ChannelLostDealRow[] };
+          })
+        );
+
+        lostDealsByRole8RepId = new Map(lostResultList.map(({ rid, rows }) => [rid, rows]));
+
+        const directorDealMaps = new Map<number, Map<string, number>>();
+        for (const [rep8Id, deals] of lostDealsByRole8RepId) {
+          const meta = repDirById.get(rep8Id);
+          const mgrId = meta?.manager_rep_id;
+          if (mgrId == null || !Number.isFinite(mgrId) || mgrId <= 0) continue;
+          let dm = directorDealMaps.get(mgrId);
+          if (!dm) {
+            dm = new Map();
+            directorDealMaps.set(mgrId, dm);
+          }
+          for (const d of deals) {
+            dm.set(String(d.id), Number(d.amount) || 0);
+          }
+        }
+
+        function sumDedupedChannelLost(m: Map<string, number>) {
+          let amount = 0;
+          for (const v of m.values()) amount += v;
+          return { amount, count: m.size };
+        }
+
+        const hl = Number(ctx.user.hierarchy_level);
+        const viewerRid =
+          viewerChannelRepsTableId != null && Number.isFinite(Number(viewerChannelRepsTableId))
+            ? Number(viewerChannelRepsTableId)
+            : NaN;
+
+        if (hl === HIERARCHY.CHANNEL_MANAGER && Number.isFinite(viewerRid) && viewerRid > 0) {
+          const m = directorDealMaps.get(viewerRid);
+          if (m) {
+            const s = sumDedupedChannelLost(m);
+            directorTerritoryLostAmount = s.amount;
+            directorTerritoryLostCount = s.count;
+          }
+        } else if (hl === HIERARCHY.CHANNEL_EXEC && Number.isFinite(viewerRid) && viewerRid > 0) {
+          const merged = new Map<string, number>();
+          for (const d of channelSummary?.repDirectory ?? []) {
+            if (Number(d.hierarchy_level) !== HIERARCHY.CHANNEL_MANAGER) continue;
+            const execId = d.manager_rep_id == null ? NaN : Number(d.manager_rep_id);
+            if (execId !== viewerRid) continue;
+            const sub = directorDealMaps.get(d.id);
+            if (!sub) continue;
+            for (const [kid, amt] of sub) merged.set(kid, amt);
+          }
+          const s = sumDedupedChannelLost(merged);
+          directorTerritoryLostAmount = s.amount;
+          directorTerritoryLostCount = s.count;
+        }
       }
 
       const repNameByChannelRepId = new Map<string, string>(
@@ -937,6 +1079,9 @@ export default async function ChannelDashboardPage({
     console.error("[channel rep kpis / productsClosedWonByRep]", e);
     channelRepKpisRows = [];
     channelProductsClosedWonByRep = [];
+    lostDealsByRole8RepId = new Map();
+    directorTerritoryLostAmount = 0;
+    directorTerritoryLostCount = 0;
   }
   const viewerQuotaRoleLevel = mapChannelHierarchyToQuotaRoleLevel(ctx.user.hierarchy_level);
 
@@ -1111,8 +1256,9 @@ export default async function ChannelDashboardPage({
       const total_count = c
         ? Number(c.total_count || 0) || 0
         : (Number(r.partner_deals_won) || 0) + (Number(r.partner_deals_pipeline) || 0);
-      const lost_count = 0;
-      const lost_amount = 0;
+      const lostRows = lostDealsByRole8RepId.get(Number(r.rep_id)) ?? [];
+      const lost_count = lostRows.length;
+      const lost_amount = lostRows.reduce((s, d) => s + (Number(d.amount) || 0), 0);
       const commit_amount = c ? Number(c.commit_amount || 0) || 0 : 0;
       const best_amount = c ? Number(c.best_amount || 0) || 0 : 0;
       const pipeline_amount = c ? Number(c.pipeline_amount || 0) || 0 : Number(r.pipeline_amount) || 0;
@@ -1195,6 +1341,8 @@ export default async function ChannelDashboardPage({
   const emptyTeamPayload = {
     repRows: channelTeamRepRows,
     managerRows: channelManagerRows,
+    managerLostAmountOverride: directorTerritoryLostAmount,
+    managerLostCountOverride: directorTerritoryLostCount,
     periodName: selectedPeriod?.period_name ?? "",
     periodStart: selectedPeriod?.period_start ?? "",
     periodEnd: selectedPeriod?.period_end ?? "",

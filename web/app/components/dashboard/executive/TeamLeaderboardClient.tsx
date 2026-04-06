@@ -40,6 +40,8 @@ export type TeamLeaderboardProps = {
   periodEnd: string;
   allPeriodRows?: TeamLeaderboardFyQuarterRow[];
   productsClosedWonByRep?: ProductsClosedWonByRepRow[] | ProductsClosedWonByRepMap;
+  managerLostAmountOverride?: number;
+  managerLostCountOverride?: number;
 };
 
 function fmtMoney(n: unknown) {
@@ -285,6 +287,8 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     periodEnd,
     allPeriodRows,
     productsClosedWonByRep,
+    managerLostAmountOverride,
+    managerLostCountOverride,
   } = props;
 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -355,6 +359,8 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     wonCount: number;
     lostCount: number;
     lostAmount: number;
+    lostAmountOverride?: number;
+    lostCountOverride?: number;
     avgDaysWon: number | null;
     avgDaysLost: number | null;
     avgDaysActive: number | null;
@@ -391,9 +397,11 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const { label: riskLabel, color: riskColor } =
       annualCoverage == null ? { label: "UNKNOWN", color: "text-[color:var(--sf-text-secondary)]" } : riskFromCoverage(annualCoverage);
     const healthColor = healthTextClass(args.avgHealthPct);
-    const pipelineCount = Math.max(0, args.totalCount - args.wonCount - args.lostCount);
+    const lostAmount = args.lostAmountOverride ?? args.lostAmount;
+    const lostCount = args.lostCountOverride ?? args.lostCount;
+    const pipelineCount = Math.max(0, args.totalCount - args.wonCount - lostCount);
     const aovWon = args.wonCount > 0 ? args.wonAmount / args.wonCount : 0;
-    const aovLost = args.lostCount > 0 ? args.lostAmount / args.lostCount : 0;
+    const aovLost = lostCount > 0 ? lostAmount / lostCount : 0;
     const aovPipeline = pipelineCount > 0 ? args.activePipelineAmount / pipelineCount : 0;
     const sortedProducts = [...args.repProducts].sort((a, b) => b.amount - a.amount);
 
@@ -647,11 +655,6 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
       `Manager ${managerId || ""}`;
     const cardKey = `mgr:${managerId || "unassigned"}`;
     const current = aggregateCurrentTeam(repsUnder);
-    const mgrLost = mgrMeta as RepManagerManagerRow & { lost_amount?: number; lost_count?: number } | undefined;
-    const useMgrLost =
-      mgrLost != null && (mgrLost.lost_amount !== undefined || mgrLost.lost_count !== undefined);
-    const lostAmount = useMgrLost ? Number(mgrLost.lost_amount ?? 0) || 0 : current.lostAmount;
-    const lostCount = useMgrLost ? Number(mgrLost.lost_count ?? 0) || 0 : current.lostCount;
     const repIds = repsUnder.map((r) => String(r.rep_id));
     const fyQuarters = aggregateFyQuarterRows(
       (allPeriodRows ?? [])
@@ -687,6 +690,8 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           wonCount: current.wonCount,
           lostCount: current.lostCount,
           lostAmount: current.lostAmount,
+          lostAmountOverride: managerLostAmountOverride,
+          lostCountOverride: managerLostCountOverride,
           avgDaysWon: current.avgDaysWon,
           avgDaysLost: current.avgDaysLost,
           avgDaysActive: current.avgDaysActive,
