@@ -882,7 +882,7 @@ export default async function ChannelDashboardPage({
         directorTerritoryLostCount = Number(row0?.lost_count || 0) || 0;
 
         console.log("CHANNEL_LOST_DEBUG", {
-          channelScopedRepIds,
+          territoryIdList,
           territoryLostAmount: directorTerritoryLostAmount,
           territoryLostCount: directorTerritoryLostCount,
           selectedPeriod: {
