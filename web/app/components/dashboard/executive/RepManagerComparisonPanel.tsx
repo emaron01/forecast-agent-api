@@ -29,6 +29,7 @@ export type RepManagerRepRow = {
   won_amount: number;
   won_count: number;
   lost_count: number;
+  lost_amount?: number;
   active_amount: number;
   commit_amount: number;
   best_amount: number;
