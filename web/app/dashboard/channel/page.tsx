@@ -1068,6 +1068,7 @@ export default async function ChannelDashboardPage({
         ? Number(c.total_count || 0) || 0
         : (Number(r.partner_deals_won) || 0) + (Number(r.partner_deals_pipeline) || 0);
       const lost_count = c ? Number(c.lost_count || 0) || 0 : 0;
+      const lost_amount = c ? Number((c as any).lost_amount || 0) || 0 : 0;
       const commit_amount = c ? Number(c.commit_amount || 0) || 0 : 0;
       const best_amount = c ? Number(c.best_amount || 0) || 0 : 0;
       const pipeline_amount = c ? Number(c.pipeline_amount || 0) || 0 : Number(r.pipeline_amount) || 0;
@@ -1099,6 +1100,7 @@ export default async function ChannelDashboardPage({
         won_amount,
         won_count,
         lost_count,
+        lost_amount,
         active_amount,
         commit_amount,
         best_amount,
