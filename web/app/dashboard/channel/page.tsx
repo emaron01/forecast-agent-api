@@ -786,6 +786,8 @@ export default async function ChannelDashboardPage({
 
   let channelRepKpisRows: RepPeriodKpisRow[] = [];
   let channelProductsClosedWonByRep: ChannelProductWonByRepRow[] = [];
+  let territoryLostTotalAmount = 0;
+  let territoryLostTotalCount = 0;
   const territorySalesIdsByChannelRepId = new Map<number, Set<string>>();
   try {
     if (selectedPeriodId && comparePeriodIds.length && channelScopedRepIds.length > 0) {
@@ -852,6 +854,34 @@ export default async function ChannelDashboardPage({
           periodIds: comparePeriodIds,
           repIds: territoryIdList,
         });
+      }
+
+      if (territoryIdList.length > 0 && selectedPeriod?.period_start && selectedPeriod?.period_end) {
+        const { rows: lostRows } = await pool
+          .query<{ rep_id: string; lost_amount: number; lost_count: number }>(
+            `
+            SELECT
+              o.rep_id::text AS rep_id,
+              COALESCE(SUM(o.amount), 0)::float8 AS lost_amount,
+              COUNT(*)::int AS lost_count
+            FROM opportunities o
+            WHERE o.org_id = $1
+              AND o.rep_id = ANY($2::bigint[])
+              AND o.close_date IS NOT NULL
+              AND o.close_date >= $3::date
+              AND o.close_date <= $4::date
+              AND (
+                lower(COALESCE(o.forecast_stage, '')) LIKE '%lost%'
+                OR lower(COALESCE(o.sales_stage, '')) LIKE '%lost%'
+              )
+            GROUP BY o.rep_id
+            `,
+            [orgId, territoryIdList, selectedPeriod.period_start, selectedPeriod.period_end]
+          )
+          .then((r) => r.rows || [])
+          .catch(() => []);
+        territoryLostTotalAmount = (lostRows || []).reduce((sum, r) => sum + (Number(r.lost_amount) || 0), 0);
+        territoryLostTotalCount = (lostRows || []).reduce((sum, r) => sum + (Number(r.lost_count) || 0), 0);
       }
 
       const repNameByChannelRepId = new Map<string, string>(
@@ -1057,7 +1087,7 @@ export default async function ChannelDashboardPage({
     return n / d;
   }
 
-  const channelTeamRepRows =
+  let channelTeamRepRows =
     channelSummary?.channelRepRows.map((r) => {
       const c = channelKpisByRepId.get(String(r.rep_id)) ?? null;
       const p = prevQpId ? channelKpisPrevByRepId.get(String(r.rep_id)) ?? null : null;
@@ -1125,6 +1155,20 @@ export default async function ChannelDashboardPage({
         qoq_attainment_delta: currAtt != null && prevAtt != null ? currAtt - prevAtt : null,
       };
     }) ?? [];
+
+  if (channelTeamRepRows.length > 0 && (territoryLostTotalAmount !== 0 || territoryLostTotalCount !== 0)) {
+    const wonSum = channelTeamRepRows.reduce((sum, r) => sum + (Number(r.won_amount) || 0), 0);
+    const n = channelTeamRepRows.length;
+    channelTeamRepRows = channelTeamRepRows.map((r) => {
+      const w = Number(r.won_amount) || 0;
+      const ratio = wonSum > 0 ? w / wonSum : 1 / Math.max(1, n);
+      return {
+        ...r,
+        lost_amount: territoryLostTotalAmount * ratio,
+        lost_count: territoryLostTotalCount * ratio,
+      };
+    });
+  }
 
   const channelManagerRows =
     directorRepsId && channelTeamRepRows.length > 0
