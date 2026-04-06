@@ -647,6 +647,11 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
       `Manager ${managerId || ""}`;
     const cardKey = `mgr:${managerId || "unassigned"}`;
     const current = aggregateCurrentTeam(repsUnder);
+    const mgrLost = mgrMeta as RepManagerManagerRow & { lost_amount?: number; lost_count?: number } | undefined;
+    const useMgrLost =
+      mgrLost != null && (mgrLost.lost_amount !== undefined || mgrLost.lost_count !== undefined);
+    const lostAmount = useMgrLost ? Number(mgrLost.lost_amount ?? 0) || 0 : current.lostAmount;
+    const lostCount = useMgrLost ? Number(mgrLost.lost_count ?? 0) || 0 : current.lostCount;
     const repIds = repsUnder.map((r) => String(r.rep_id));
     const fyQuarters = aggregateFyQuarterRows(
       (allPeriodRows ?? [])
