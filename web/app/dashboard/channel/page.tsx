@@ -869,8 +869,14 @@ export default async function ChannelDashboardPage({
               AND o.close_date >= $3::date
               AND o.close_date <= $4::date
               AND (
-                lower(btrim(COALESCE(o.forecast_stage,''))) LIKE '%lost%'
-                OR lower(btrim(COALESCE(o.sales_stage,''))) LIKE '%lost%'
+                lower(
+                  regexp_replace(
+                    COALESCE(NULLIF(btrim(o.forecast_stage),''),'')
+                    || ' ' ||
+                    COALESCE(NULLIF(btrim(o.sales_stage),''),''),
+                    '[^a-zA-Z]+', ' ', 'g'
+                  )
+                ) LIKE '% lost %'
               )
             `,
             [orgId, territoryIdList, selectedPeriod.period_start, selectedPeriod.period_end]
