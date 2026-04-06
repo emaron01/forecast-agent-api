@@ -1523,6 +1523,7 @@ export default async function ExecutiveDashboardPage({
       const won_count = c ? Number(c.won_count || 0) || 0 : 0;
       const active_amount = c ? Number(c.active_amount || 0) || 0 : 0;
       const lost_count = c ? Number((c as { lost_count?: number }).lost_count || 0) || 0 : 0;
+      const lost_amount = c ? Number((c as any).lost_amount || 0) || 0 : 0;
       const commit_amount = c ? Number((c as { commit_amount?: number }).commit_amount || 0) || 0 : 0;
       const best_amount = c ? Number((c as { best_amount?: number }).best_amount || 0) || 0 : 0;
       const pipeline_amount = c ? Number((c as { pipeline_amount?: number }).pipeline_amount || 0) || 0 : 0;
@@ -1568,6 +1569,7 @@ export default async function ExecutiveDashboardPage({
         won_amount,
         won_count,
         lost_count,
+        lost_amount,
         active_amount,
         commit_amount,
         best_amount,
