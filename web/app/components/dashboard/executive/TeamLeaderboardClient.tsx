@@ -506,9 +506,6 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
               { label: "Annual Coverage", value: annCovDisplay, color: annCovDisplayColor },
               { label: "Avg Health", value: args.avgHealthPct != null ? `${args.avgHealthPct}%` : "—", color: healthColor },
               { label: "Pipeline Risk", value: riskLabel, color: riskColor },
-              { label: "AOV Won", value: fmtMoney(aovWon), color: "text-green-400" },
-              { label: "AOV Lost", value: fmtMoney(aovLost), color: "text-red-400" },
-              { label: "AOV Pipeline", value: fmtMoney(aovPipeline), color: "text-[color:var(--sf-text-primary)]" },
             ].map((stat) => (
               <div key={stat.label} className="flex items-baseline gap-1">
                 <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">{stat.label}:</span>
@@ -516,11 +513,25 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
               </div>
             ))}
           </div>
+
           <div className="mt-2 flex flex-wrap items-start gap-6">
             {[
-              { label: "Age Won", value: args.avgDaysWon != null ? `${Math.round(args.avgDaysWon)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
-              { label: "Age Lost", value: args.avgDaysLost != null ? `${Math.round(args.avgDaysLost)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
-              { label: "Age Pipeline", value: args.avgDaysActive != null ? `${Math.round(args.avgDaysActive)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
+              { label: "Q Avg Deal Won", value: fmtMoney(aovWon), color: "text-green-400" },
+              { label: "Q Avg Deal Lost", value: fmtMoney(aovLost), color: "text-red-400" },
+              { label: "Avg Open Deal", value: fmtMoney(aovPipeline), color: "text-[color:var(--sf-text-primary)]" },
+            ].map((stat) => (
+              <div key={stat.label} className="flex items-baseline gap-1">
+                <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">{stat.label}:</span>
+                <span className={`shrink-0 text-base font-semibold ${stat.color}`}>{stat.value}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-2 flex flex-wrap items-start gap-6">
+            {[
+              { label: "Avg Days to Close", value: args.avgDaysWon != null ? `${Math.round(args.avgDaysWon)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
+              { label: "Avg Days Lost", value: args.avgDaysLost != null ? `${Math.round(args.avgDaysLost)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
+              { label: "Avg Deal Age", value: args.avgDaysActive != null ? `${Math.round(args.avgDaysActive)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
             ].map((stat) => (
               <div key={stat.label} className="flex items-baseline gap-1">
                 <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">{stat.label}:</span>
