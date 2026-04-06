@@ -880,6 +880,16 @@ export default async function ChannelDashboardPage({
         const row0 = rows?.[0] as any;
         directorTerritoryLostAmount = Number(row0?.lost_amount || 0) || 0;
         directorTerritoryLostCount = Number(row0?.lost_count || 0) || 0;
+
+        console.log("CHANNEL_LOST_DEBUG", {
+          channelScopedRepIds,
+          territoryLostAmount: directorTerritoryLostAmount,
+          territoryLostCount: directorTerritoryLostCount,
+          selectedPeriod: {
+            start: selectedPeriod?.period_start,
+            end: selectedPeriod?.period_end,
+          },
+        });
       }
 
       const repNameByChannelRepId = new Map<string, string>(
