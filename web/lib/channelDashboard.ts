@@ -907,14 +907,13 @@ export async function loadChannelRepWonDeals(args: {
       [args.orgId, args.channelRepIds]
     );
 
+    const scopeList = repScopeRows || [];
     console.log(
       "[loadChannelRepWonDeals] args:",
-      JSON.stringify({ orgId: args.orgId, selectedQuotaPeriodId: args.selectedQuotaPeriodId, channelRepIds: args.channelRepIds }),
-      "repScopeRows:",
-      repScopeRows.length
+      { orgId: args.orgId, selectedQuotaPeriodId: args.selectedQuotaPeriodId, channelRepIds: args.channelRepIds },
+      "scopeList.length:",
+      scopeList.length
     );
-
-    const scopeList = repScopeRows || [];
     if (!scopeList.length) return out;
 
     const assignmentRows = await pool
@@ -1015,12 +1014,14 @@ export async function loadChannelRepWonDeals(args: {
         );
       })
     );
-
     console.log(
-      "[loadChannelRepWonDeals] result size:",
-      out.size,
-      "total deals:",
-      Array.from(out.values()).flat().length
+      "[loadChannelRepWonDeals] result:",
+      Object.fromEntries(
+        Array.from(out.entries()).map(([k, v]) => [
+          k,
+          { count: v.length, total: v.reduce((s, d) => s + d.amount, 0) },
+        ])
+      )
     );
 
     return out;
