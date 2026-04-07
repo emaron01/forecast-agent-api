@@ -789,6 +789,56 @@ export default async function ChannelDashboardPage({
     channelRepId: currentChannelUserId,
   });
 
+  // For role-7/6 viewers: union all partner names across role-8 reps in their scope.
+  // getChannelTerritoryRepIds for the viewer returns repIds but empty partnerNames for directors,
+  // so we must walk their role-8 reps to collect the full partner name scope for hero queries.
+  let heroScopePartnerNames: string[] = viewerChannelScopePartnerNames;
+  if (
+    viewerChannelScopePartnerNames.length === 0 &&
+    visibleRepIds.length > 0 &&
+    Number(ctx.user.hierarchy_level) !== 8
+  ) {
+    try {
+      const role8UserRows = await pool
+        .query<{ user_id: number }>(
+          `SELECT u.id AS user_id
+           FROM reps r
+           JOIN users u ON u.id = r.user_id AND u.org_id = $1::bigint
+           WHERE r.organization_id = $1::bigint
+             AND r.manager_rep_id IN (
+               SELECT id FROM reps
+               WHERE organization_id = $1::bigint
+                 AND user_id = $2::bigint
+             )
+             AND COALESCE(u.hierarchy_level, 99) = 8`,
+          [orgId, ctx.user.id]
+        )
+        .then((res) => res.rows || [])
+        .catch(() => []);
+
+      if (role8UserRows.length > 0) {
+        const partnerNameSets = await Promise.all(
+          role8UserRows.map((row) =>
+            getChannelTerritoryRepIds({ orgId, channelUserId: Number(row.user_id) })
+              .then((sc) => sc.partnerNames)
+              .catch(() => [] as string[])
+          )
+        );
+        const union = Array.from(
+          new Set(
+            partnerNameSets
+              .flat()
+              .map((n) => n.toLowerCase().trim())
+              .filter(Boolean)
+          )
+        );
+        if (union.length > 0) heroScopePartnerNames = union;
+      }
+    } catch {
+      // fall back to viewerChannelScopePartnerNames (already set above)
+    }
+  }
+
   let topPartnerWon: TopPartnerDealRow[] = [];
   let topPartnerLost: TopPartnerDealRow[] = [];
   let partnerHero: Awaited<ReturnType<typeof loadChannelPartnerHeroProps>> = null;
@@ -804,7 +854,7 @@ export default async function ChannelDashboardPage({
           dateStart: selectedPeriod.period_start,
           dateEnd: selectedPeriod.period_end,
           scopeRepIds: visibleRepIds,
-          scopePartnerNames: viewerChannelScopePartnerNames,
+          scopePartnerNames: heroScopePartnerNames,
           assignedPartnerNames,
         }),
         listTopPartnerDealsChannel({
@@ -815,7 +865,7 @@ export default async function ChannelDashboardPage({
           dateStart: selectedPeriod.period_start,
           dateEnd: selectedPeriod.period_end,
           scopeRepIds: visibleRepIds,
-          scopePartnerNames: viewerChannelScopePartnerNames,
+          scopePartnerNames: heroScopePartnerNames,
           assignedPartnerNames,
         }),
         loadChannelPartnerHeroProps({
@@ -823,13 +873,13 @@ export default async function ChannelDashboardPage({
           quotaPeriodId: selectedPeriodId,
           prevQuotaPeriodId: prevQpId,
           repIds: visibleRepIds,
-          partnerNames: viewerChannelScopePartnerNames,
+          partnerNames: heroScopePartnerNames,
         }),
         loadChannelLedFedRows({
           orgId: ctx.user.org_id,
           quotaPeriodId: selectedPeriodId,
           repIds: visibleRepIds,
-          partnerNames: viewerChannelScopePartnerNames,
+          partnerNames: heroScopePartnerNames,
         }),
       ]);
       topPartnerWon = won ?? [];
@@ -1375,7 +1425,6 @@ export default async function ChannelDashboardPage({
         ]
       : [];
 
-  console.log("[channel page] director won override:", { directorWonAmount, directorWonCount, hl: Number(ctx.user.hierarchy_level), viewerRid: viewerChannelRepsTableId });
   const emptyTeamPayload = {
     repRows: channelTeamRepRows,
     managerRows: channelManagerRows,

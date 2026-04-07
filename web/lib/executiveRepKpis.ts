@@ -17,6 +17,7 @@ export type RepPeriodKpisRow = {
   pipeline_amount: number;
   partner_closed_amount: number;
   closed_amount: number;
+  lost_amount: number;
   partner_won_count: number;
   partner_closed_count: number;
   avg_days_won: number | null;

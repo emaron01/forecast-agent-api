@@ -52,6 +52,14 @@ export type ChannelRepFyQuarterRow = {
   won_amount: number;
   quota: number;
   attainment: number | null;
+  won_count: number;
+  lost_amount: number;
+  lost_count: number;
+  pipeline_amount: number;
+  active_count: number;
+  avg_days_won: number | null;
+  avg_days_lost: number | null;
+  avg_days_active: number | null;
 };
 
 export type ChannelDashboardSummary = {
@@ -908,12 +916,6 @@ export async function loadChannelRepWonDeals(args: {
     );
 
     const scopeList = repScopeRows || [];
-    console.log(
-      "[loadChannelRepWonDeals] args:",
-      { orgId: args.orgId, selectedQuotaPeriodId: args.selectedQuotaPeriodId, channelRepIds: args.channelRepIds },
-      "scopeList.length:",
-      scopeList.length
-    );
     if (!scopeList.length) return out;
 
     const assignmentRows = await pool
@@ -1013,15 +1015,6 @@ export async function loadChannelRepWonDeals(args: {
           }))
         );
       })
-    );
-    console.log(
-      "[loadChannelRepWonDeals] result:",
-      Object.fromEntries(
-        Array.from(out.entries()).map(([k, v]) => [
-          k,
-          { count: v.length, total: v.reduce((s, d) => s + d.amount, 0) },
-        ])
-      )
     );
 
     return out;
@@ -1165,7 +1158,17 @@ export async function loadChannelRepFyQuarterRows(args: {
       partnerNamesByUserId.set(userId, Array.from(new Set(values.filter(Boolean))));
     }
 
-    const wonByRepPeriod = new Map<string, number>();
+    const metricsByRepPeriod = new Map<
+      string,
+      {
+        won_amount: number;
+        won_count: number;
+        lost_amount: number;
+        lost_count: number;
+        pipeline_amount: number;
+        active_count: number;
+      }
+    >();
     await Promise.all(
       repScopeRows.map(async (row) => {
         const repId = Number(row.rep_id);
@@ -1178,7 +1181,15 @@ export async function loadChannelRepFyQuarterRows(args: {
         if (!territoryRepIds.length) return;
 
         const assignedPartnerNames = partnerNamesByUserId.get(userId) || [];
-        const { rows } = await pool.query<{ period_id: number; won_amount: number }>(
+        const { rows } = await pool.query<{
+          period_id: number;
+          won_amount: number;
+          won_count: number;
+          lost_amount: number;
+          lost_count: number;
+          pipeline_amount: number;
+          active_count: number;
+        }>(
           `
           WITH qp AS (
             SELECT
@@ -1213,7 +1224,12 @@ export async function loadChannelRepFyQuarterRows(args: {
           )
           SELECT
             period_id,
-            COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN amount ELSE 0 END), 0)::float8 AS won_amount
+            COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN amount ELSE 0 END), 0)::float8 AS won_amount,
+            COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS won_count,
+            COALESCE(SUM(CASE WHEN crm_bucket = 'lost' THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
+            COALESCE(SUM(CASE WHEN crm_bucket = 'lost' THEN 1 ELSE 0 END), 0)::int AS lost_count,
+            COALESCE(SUM(CASE WHEN crm_bucket NOT IN ('won','lost','excluded') THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+            COALESCE(SUM(CASE WHEN crm_bucket NOT IN ('won','lost','excluded') THEN 1 ELSE 0 END), 0)::int AS active_count
           FROM deals
           GROUP BY period_id
           `,
@@ -1223,7 +1239,14 @@ export async function loadChannelRepFyQuarterRows(args: {
         for (const wonRow of rows || []) {
           const periodId = Number(wonRow.period_id);
           if (!Number.isFinite(periodId) || periodId <= 0) continue;
-          wonByRepPeriod.set(`${repId}:${periodId}`, num(wonRow.won_amount));
+          metricsByRepPeriod.set(`${repId}:${periodId}`, {
+            won_amount: num(wonRow.won_amount),
+            won_count: intNum(wonRow.won_count),
+            lost_amount: num(wonRow.lost_amount),
+            lost_count: intNum(wonRow.lost_count),
+            pipeline_amount: num(wonRow.pipeline_amount),
+            active_count: intNum(wonRow.active_count),
+          });
         }
       })
     );
@@ -1235,8 +1258,9 @@ export async function loadChannelRepFyQuarterRows(args: {
       for (const period of periods) {
         const periodId = Number(period.id);
         if (!Number.isFinite(periodId) || periodId <= 0) continue;
+        const m = metricsByRepPeriod.get(`${repId}:${periodId}`);
+        const wonAmount = m?.won_amount ?? 0;
         const quota = quotaByRepPeriod.get(`${repId}:${periodId}`) || 0;
-        const wonAmount = wonByRepPeriod.get(`${repId}:${periodId}`) || 0;
         out.push({
           rep_id: cleanText(rep.rep_public_id, String(repId)),
           rep_int_id: String(repId),
@@ -1244,6 +1268,14 @@ export async function loadChannelRepFyQuarterRows(args: {
           period_name: cleanText(period.period_name),
           fiscal_quarter: cleanText(period.fiscal_quarter),
           won_amount: wonAmount,
+          won_count: m?.won_count ?? 0,
+          lost_amount: m?.lost_amount ?? 0,
+          lost_count: m?.lost_count ?? 0,
+          pipeline_amount: m?.pipeline_amount ?? 0,
+          active_count: m?.active_count ?? 0,
+          avg_days_won: null,
+          avg_days_lost: null,
+          avg_days_active: null,
           quota,
           attainment: quota > 0 ? wonAmount / quota : null,
         });
