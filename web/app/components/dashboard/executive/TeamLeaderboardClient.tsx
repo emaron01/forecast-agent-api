@@ -670,10 +670,12 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
         .sort((a, b) => Number(a.fiscal_quarter) - Number(b.fiscal_quarter))
     );
     const annualQuota = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.quota, 0) : current.quota * 4;
-    const ytdRevenue = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.won_amount, 0) : current.wonAmount;
+    const effectiveWonAmount = managerWonAmountOverride ?? current.wonAmount;
+    const effectiveWonCount = managerWonCountOverride ?? current.wonCount;
+    const ytdRevenue = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.won_amount, 0) : effectiveWonAmount;
     const ytdAttainPct = annualQuota > 0 ? Math.round((ytdRevenue / annualQuota) * 100) : 0;
-    const attainPct = current.quota > 0 ? Math.round((current.wonAmount / current.quota) * 100) : 0;
-    const paceStatus = calcPaceStatus(current.wonAmount, current.quota, paceRatio);
+    const attainPct = current.quota > 0 ? Math.round((effectiveWonAmount / current.quota) * 100) : 0;
+    const paceStatus = calcPaceStatus(effectiveWonAmount, current.quota, paceRatio);
     const productSummary = getProductSummary({
       input: productsClosedWonByRep,
       repIds,
@@ -688,14 +690,14 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           paceStatus,
           attainPct,
           quota: current.quota,
-          wonAmount: current.wonAmount,
+          wonAmount: effectiveWonAmount,
           annualQuota,
           ytdRevenue,
           ytdAttainPct,
           fyQuarters,
           activePipelineAmount: current.activePipelineAmount,
           totalCount: current.totalCount,
-          wonCount: current.wonCount,
+          wonCount: effectiveWonCount,
           lostCount: current.lostCount,
           lostAmount: current.lostAmount,
           wonAmountOverride: managerWonAmountOverride,
