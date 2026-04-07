@@ -767,10 +767,11 @@ async function loadChannelRepRows(args: {
       repScopeRows.map(async (row) => {
         const repId = Number(row.rep_id);
         const userId = Number(row.user_id);
-        const territoryRepIds = await getChannelTerritoryRepIds({
+        const territoryScope = await getChannelTerritoryRepIds({
           orgId: args.orgId,
           channelUserId: userId,
-        }).catch(() => []);
+        }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }));
+        const territoryRepIds = territoryScope.repIds;
         const assignedPartnerNames = partnerNamesByUserId.get(userId) || [];
 
         if (!territoryRepIds.length) {
@@ -997,10 +998,11 @@ export async function loadChannelRepFyQuarterRows(args: {
       repScopeRows.map(async (row) => {
         const repId = Number(row.rep_id);
         const userId = Number(row.user_id);
-        const territoryRepIds = await getChannelTerritoryRepIds({
+        const territoryScope = await getChannelTerritoryRepIds({
           orgId: args.orgId,
           channelUserId: userId,
-        }).catch(() => []);
+        }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }));
+        const territoryRepIds = territoryScope.repIds;
         if (!territoryRepIds.length) return;
 
         const assignedPartnerNames = partnerNamesByUserId.get(userId) || [];

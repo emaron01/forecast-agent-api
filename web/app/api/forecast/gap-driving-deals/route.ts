@@ -493,11 +493,14 @@ export async function GET(req: Request) {
       : "";
 
     // Map visible REP users -> rep ids when possible (opportunities.rep_id is reps.id).
-    const repIdsToUse = isChannelRole
+    const channelTerritoryScope = isChannelRole
       ? await getChannelTerritoryRepIds({
           orgId: auth.user.org_id,
           channelUserId: auth.user.id,
-        }).catch(() => [] as number[])
+        }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }))
+      : { repIds: [] as number[], partnerNames: [] as string[] };
+    const repIdsToUse = isChannelRole
+      ? channelTerritoryScope.repIds
       : visibleRepUserIds.length || visibleRepNameKeys.length
         ? await pool
             .query<{ id: number }>(
@@ -526,32 +529,14 @@ export async function GET(req: Request) {
         : ([] as number[]);
 
     const assignedPartnerNames = isChannelRole
-      ? await pool
-          .query<{ partner_name: string | null }>(
-            `
-            SELECT lower(btrim(partner_name)) AS partner_name
-            FROM partner_channel_assignments
-            WHERE org_id = $1::bigint
-              AND channel_rep_id = $2::int
-            `,
-            [auth.user.org_id, auth.user.id]
-          )
-          .then((r) =>
-            Array.from(
-              new Set(
-                (r.rows || [])
-                  .map((row) => String(row.partner_name || "").trim().toLowerCase())
-                  .filter(Boolean)
-              )
-            )
-          )
-          .catch(() => [] as string[])
+      ? channelTerritoryScope.partnerNames
       : ([] as string[]);
 
     const useScopedRepIds = !isAdmin(auth.user);
 
     // Fail-closed if we can't resolve a scope for a non-admin (align with Forecast: REP sees themselves; managers see their visible reps).
-    if (useScopedRepIds && repIdsToUse.length === 0 && visibleRepNameKeys.length === 0) {
+    const channelScopeEmpty = isChannelRole && repIdsToUse.length === 0 && assignedPartnerNames.length === 0;
+    if (useScopedRepIds && repIdsToUse.length === 0 && visibleRepNameKeys.length === 0 && channelScopeEmpty) {
       return NextResponse.json({
         ok: true,
         quota_period: null,

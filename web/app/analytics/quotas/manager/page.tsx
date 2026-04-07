@@ -425,10 +425,12 @@ export default async function AnalyticsQuotasManagerPage({
     .filter((n) => Number.isFinite(n) && n > 0);
   const closedWonRepIds =
     isChannelExec(ctx.user) || isChannelManager(ctx.user)
-      ? await getChannelTerritoryRepIds({
-          orgId: ctx.user.org_id,
-          channelUserId: ctx.user.id,
-        }).catch(() => [])
+      ? (
+          await getChannelTerritoryRepIds({
+            orgId: ctx.user.org_id,
+            channelUserId: ctx.user.id,
+          }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }))
+        ).repIds
       : directRepIds;
   const repOptions = (directReps || []).map((r) => ({ public_id: String(r.public_id || ""), rep_name: String(r.rep_name || "") })).filter((r) => !!r.public_id);
   const selectedRepPublicId = rep_public_id || repOptions[0]?.public_id || "";

@@ -85,7 +85,39 @@ function qoqPct(cur: number, prev: number) {
   return ((cur - prev) / prev) * 100;
 }
 
-async function loadPartnerTotals(orgId: number, qpId: string, repIds: number[], useScoped: boolean): Promise<TotalsRow> {
+function normalizeChannelHeroPartnerNames(names: string[]): string[] {
+  return Array.from(
+    new Set((names || []).map((n) => String(n || "").trim().toLowerCase()).filter(Boolean))
+  );
+}
+
+/** OR of rep allowlist and partner allowlist; $3=repIds, $4=partnerNames, $5=rep count, $6=partner count */
+function channelHeroOppScopeSql(alias: string): string {
+  return `(
+    ($5::int > 0 AND ${alias}.rep_id = ANY($3::bigint[]))
+    OR ($6::int > 0 AND lower(btrim(COALESCE(${alias}.partner_name, ''))) = ANY($4::text[]))
+  )`;
+}
+
+async function loadPartnerTotals(orgId: number, qpId: string, repIds: number[], partnerNames: string[]): Promise<TotalsRow> {
+  const repLen = repIds.length;
+  const partnerLen = partnerNames.length;
+  if (repLen === 0 && partnerLen === 0) {
+    return {
+      commit_amount: 0,
+      best_case_amount: 0,
+      pipeline_amount: 0,
+      commit_count: 0,
+      best_case_count: 0,
+      pipeline_count: 0,
+      commit_avg_health_score: null,
+      best_case_avg_health_score: null,
+      pipeline_avg_health_score: null,
+      won_amount: 0,
+      total_active_count: 0,
+      total_active_avg_health_score: null,
+    };
+  }
   const { rows } = await pool
     .query<TotalsRow>(
       `
@@ -119,7 +151,7 @@ async function loadPartnerTotals(orgId: number, qpId: string, repIds: number[], 
         WHERE o.org_id = $1
           AND o.partner_name IS NOT NULL
           AND btrim(o.partner_name) <> ''
-          AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+          AND ${channelHeroOppScopeSql("o")}
       ),
       deals_in_qtr AS (
         SELECT d.*
@@ -164,7 +196,7 @@ async function loadPartnerTotals(orgId: number, qpId: string, repIds: number[], 
         AVG(NULLIF(health_score, 0))::float8 AS total_active_avg_health_score
       FROM open_deals
       `,
-      [orgId, qpId, repIds, useScoped]
+      [orgId, qpId, repIds, partnerNames, repLen, partnerLen]
     )
     .catch(() => ({ rows: [] }));
   return (
@@ -185,7 +217,9 @@ async function loadPartnerTotals(orgId: number, qpId: string, repIds: number[], 
   );
 }
 
-async function loadPartnerVerdictAgg(orgId: number, qpId: string, repIds: number[], useScoped: boolean): Promise<VerdictAggRow> {
+async function loadPartnerVerdictAgg(orgId: number, qpId: string, repIds: number[], partnerNames: string[]): Promise<VerdictAggRow> {
+  const repLen = repIds.length;
+  const partnerLen = partnerNames.length;
   const empty: VerdictAggRow = {
     commit_crm: 0,
     commit_verdict: 0,
@@ -194,6 +228,7 @@ async function loadPartnerVerdictAgg(orgId: number, qpId: string, repIds: number
     pipeline_crm: 0,
     pipeline_verdict: 0,
   };
+  if (repLen === 0 && partnerLen === 0) return empty;
   try {
     const row = await pool
       .query<VerdictAggRow>(
@@ -228,7 +263,7 @@ async function loadPartnerVerdictAgg(orgId: number, qpId: string, repIds: number
           WHERE o.org_id = $1
             AND o.partner_name IS NOT NULL
             AND btrim(o.partner_name) <> ''
-            AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+            AND ${channelHeroOppScopeSql("o")}
         ),
         deals_in_qtr AS (
           SELECT d.*
@@ -294,7 +329,7 @@ async function loadPartnerVerdictAgg(orgId: number, qpId: string, repIds: number
           COALESCE(SUM(CASE WHEN crm_bucket = 'pipeline' THEN amount * health_modifier ELSE 0 END), 0)::float8 AS pipeline_verdict
         FROM with_modifier
         `,
-        [orgId, qpId, repIds, useScoped]
+        [orgId, qpId, repIds, partnerNames, repLen, partnerLen]
       )
       .then((r) => r.rows?.[0] || empty);
     return row;
@@ -303,7 +338,10 @@ async function loadPartnerVerdictAgg(orgId: number, qpId: string, repIds: number
   }
 }
 
-async function loadPartnerPipelineStage(orgId: number, qpId: string, repIds: number[], useRepFilter: boolean): Promise<StageSnap> {
+async function loadPartnerPipelineStage(orgId: number, qpId: string, repIds: number[], partnerNames: string[]): Promise<StageSnap> {
+  const repLen = repIds.length;
+  const partnerLen = partnerNames.length;
+  if (repLen === 0 && partnerLen === 0) return emptyStage;
   const { rows } = await pool
     .query<StageSnap>(
       `
@@ -360,7 +398,7 @@ async function loadPartnerPipelineStage(orgId: number, qpId: string, repIds: num
               ELSE NULL
             END
           ) <= qp.period_end
-          AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+          AND ${channelHeroOppScopeSql("o")}
       ),
       classified AS (
         SELECT
@@ -395,7 +433,7 @@ async function loadPartnerPipelineStage(orgId: number, qpId: string, repIds: num
         COALESCE(SUM(CASE WHEN is_lost THEN 1 ELSE 0 END), 0)::int AS lost_count
       FROM classified
       `,
-      [orgId, qpId, repIds, useRepFilter]
+      [orgId, qpId, repIds, partnerNames, repLen, partnerLen]
     )
     .catch(() => ({ rows: [] }));
 
@@ -410,7 +448,10 @@ type ProductWonRow = {
   avg_health_score: number | null;
 };
 
-async function loadProductsClosedWonPartner(orgId: number, qpId: string, repIds: number[], useScoped: boolean): Promise<ProductWonRow[]> {
+async function loadProductsClosedWonPartner(orgId: number, qpId: string, repIds: number[], partnerNames: string[]): Promise<ProductWonRow[]> {
+  const repLen = repIds.length;
+  const partnerLen = partnerNames.length;
+  if (repLen === 0 && partnerLen === 0) return [];
   return pool
     .query<ProductWonRow>(
       `
@@ -445,7 +486,7 @@ async function loadProductsClosedWonPartner(orgId: number, qpId: string, repIds:
         WHERE o.org_id = $1
           AND o.partner_name IS NOT NULL
           AND btrim(o.partner_name) <> ''
-          AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+          AND ${channelHeroOppScopeSql("o")}
       ),
       deals_in_qtr AS (
         SELECT d.*
@@ -468,10 +509,10 @@ async function loadProductsClosedWonPartner(orgId: number, qpId: string, repIds:
         AVG(NULLIF(health_score, 0))::float8 AS avg_health_score
       FROM won_deals
       GROUP BY product
-      ORDER BY won_amount DESC, product ASC
-      LIMIT 30
-      `,
-      [orgId, qpId, repIds, useScoped]
+    ORDER BY won_amount DESC, product ASC
+    LIMIT 30
+    `,
+      [orgId, qpId, repIds, partnerNames, repLen, partnerLen]
     )
     .then((r) => (r.rows || []) as ProductWonRow[])
     .catch(() => []);
@@ -516,13 +557,15 @@ export async function loadChannelPartnerHeroProps(args: {
   quotaPeriodId: string;
   prevQuotaPeriodId: string;
   repIds: number[];
+  partnerNames?: string[];
 }): Promise<ChannelPartnerHeroProps | null> {
   const qpId = String(args.quotaPeriodId || "").trim();
-  if (!qpId || !args.repIds.length) return null;
+  const partnerNames = normalizeChannelHeroPartnerNames(args.partnerNames ?? []);
+  if (!qpId || (!args.repIds.length && !partnerNames.length)) return null;
 
   const repIds = args.repIds;
-  const useScoped = true;
   const prevQpId = String(args.prevQuotaPeriodId || "").trim();
+  const hasRepScope = repIds.length > 0;
 
   const stageProbabilities = await getForecastStageProbabilities({ orgId: args.orgId }).catch(() => ({
     commit: 0.8,
@@ -542,18 +585,20 @@ export async function loadChannelPartnerHeroProps(args: {
     commitAdmission,
     commitDealPanels,
   ] = await Promise.all([
-    loadPartnerTotals(args.orgId, qpId, repIds, useScoped),
-    loadPartnerVerdictAgg(args.orgId, qpId, repIds, useScoped),
-    loadPartnerPipelineStage(args.orgId, qpId, repIds, useScoped),
-    prevQpId ? loadPartnerPipelineStage(args.orgId, prevQpId, repIds, useScoped) : Promise.resolve(emptyStage),
-    getQuarterKpisSnapshot({
-      orgId: args.orgId,
-      quotaPeriodId: qpId,
-      repIds,
-      requirePartnerName: true,
-    }).catch(() => null),
-    loadProductsClosedWonPartner(args.orgId, qpId, repIds, useScoped),
-    prevQpId ? loadProductsClosedWonPartner(args.orgId, prevQpId, repIds, useScoped) : Promise.resolve([]),
+    loadPartnerTotals(args.orgId, qpId, repIds, partnerNames),
+    loadPartnerVerdictAgg(args.orgId, qpId, repIds, partnerNames),
+    loadPartnerPipelineStage(args.orgId, qpId, repIds, partnerNames),
+    prevQpId ? loadPartnerPipelineStage(args.orgId, prevQpId, repIds, partnerNames) : Promise.resolve(emptyStage),
+    hasRepScope
+      ? getQuarterKpisSnapshot({
+          orgId: args.orgId,
+          quotaPeriodId: qpId,
+          repIds,
+          requirePartnerName: true,
+        }).catch(() => null)
+      : Promise.resolve(null),
+    loadProductsClosedWonPartner(args.orgId, qpId, repIds, partnerNames),
+    prevQpId ? loadProductsClosedWonPartner(args.orgId, prevQpId, repIds, partnerNames) : Promise.resolve([]),
     pool
       .query<{ quota_amount: number }>(
         `
@@ -568,18 +613,22 @@ export async function loadChannelPartnerHeroProps(args: {
       )
       .then((r) => Number(r.rows?.[0]?.quota_amount || 0) || 0)
       .catch(() => 0),
-    getCommitAdmissionAggregates({
-      orgId: args.orgId,
-      quotaPeriodId: qpId,
-      repIds,
-      requirePartnerName: true,
-    }).catch(() => null),
-    getCommitAdmissionDealPanels({
-      orgId: args.orgId,
-      quotaPeriodId: qpId,
-      repIds,
-      requirePartnerName: true,
-    }).catch(() => null),
+    hasRepScope
+      ? getCommitAdmissionAggregates({
+          orgId: args.orgId,
+          quotaPeriodId: qpId,
+          repIds,
+          requirePartnerName: true,
+        }).catch(() => null)
+      : Promise.resolve(null),
+    hasRepScope
+      ? getCommitAdmissionDealPanels({
+          orgId: args.orgId,
+          quotaPeriodId: qpId,
+          repIds,
+          requirePartnerName: true,
+        }).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   const healthModifiers = {
@@ -726,11 +775,15 @@ export async function loadChannelLedFedRows(args: {
   orgId: number;
   quotaPeriodId: string;
   repIds: number[];
+  partnerNames?: string[];
 }): Promise<ChannelLedFedRow[]> {
   const qpId = String(args.quotaPeriodId || "").trim();
-  if (!qpId || !args.repIds.length) return [];
+  const partnerNames = normalizeChannelHeroPartnerNames(args.partnerNames ?? []);
+  const repIds = args.repIds;
+  const repLen = repIds.length;
+  const partnerLen = partnerNames.length;
+  if (!qpId || (repLen === 0 && partnerLen === 0)) return [];
 
-  const useScoped = true;
   const result = await pool
     .query<{
       led_total_pipeline: string | null;
@@ -804,7 +857,7 @@ export async function loadChannelLedFedRows(args: {
               ELSE NULL
             END
           ) <= qp.period_end
-          AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+          AND ${channelHeroOppScopeSql("o")}
       ),
       mapped AS (
         SELECT
@@ -863,7 +916,7 @@ export async function loadChannelLedFedRows(args: {
         COALESCE(COUNT(*) FILTER (WHERE NOT is_led), 0)::float8 AS fed_deal_count
       FROM classified
       `,
-      [args.orgId, qpId, args.repIds, useScoped]
+      [args.orgId, qpId, repIds, partnerNames, repLen, partnerLen]
     )
     .catch(() => ({ rows: [] }));
 

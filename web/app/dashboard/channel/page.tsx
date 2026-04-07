@@ -32,6 +32,14 @@ function partnerScopeSql(rowAlias: string, parameterIndex: number) {
   )`;
 }
 
+/** Top-deals query: $7 repIds, $8 partnerNames, $9 repLen, $10 partnerLen */
+function channelHeroOppScopeSqlTopDeals(alias: string): string {
+  return `(
+    ($9::int > 0 AND ${alias}.rep_id = ANY($7::bigint[]))
+    OR ($10::int > 0 AND lower(btrim(COALESCE(${alias}.partner_name, ''))) = ANY($8::text[]))
+  )`;
+}
+
 function aggregateTerritoryRepKpis(
   rows: RepPeriodKpisRow[],
   periodId: string,
@@ -92,51 +100,19 @@ type ChannelLostDealRow = {
   partner_name: string | null;
 };
 
-async function queryChannelLostDealsByTerritoryRepIds(args: {
+async function queryChannelLostDealsByScope(args: {
   orgId: number;
-  territoryRepIds: number[];
-  periodStart: string;
-  periodEnd: string;
-}): Promise<ChannelLostDealRow[]> {
-  if (!args.territoryRepIds.length) return [];
-  const { rows } = await pool
-    .query<ChannelLostDealRow>(
-      `
-      SELECT
-        o.id::text AS id,
-        COALESCE(o.amount, 0)::float8 AS amount,
-        o.rep_id::int AS rep_id,
-        o.partner_name
-      FROM opportunities o
-      WHERE o.org_id = $1::bigint
-        AND o.rep_id = ANY($2::bigint[])
-        AND o.close_date >= $3::date
-        AND o.close_date <= $4::date
-        AND (
-          (' ' || lower(
-            regexp_replace(
-              COALESCE(NULLIF(btrim(o.forecast_stage),''),'')
-              || ' ' ||
-              COALESCE(NULLIF(btrim(o.sales_stage),''),''),
-              '[^a-zA-Z]+', ' ', 'g'
-            )
-          ) || ' ') LIKE '% lost %'
-        )
-      `,
-      [args.orgId, args.territoryRepIds, args.periodStart, args.periodEnd]
-    )
-    .catch(() => ({ rows: [] as ChannelLostDealRow[] }));
-  return rows || [];
-}
-
-async function queryChannelLostDealsByPartnerNames(args: {
-  orgId: number;
+  repIds: number[];
   partnerNames: string[];
   periodStart: string;
   periodEnd: string;
 }): Promise<ChannelLostDealRow[]> {
-  const names = (args.partnerNames || []).map((n) => String(n || "").trim().toLowerCase()).filter(Boolean);
-  if (!names.length) return [];
+  const repLen = args.repIds.length;
+  const names = Array.from(
+    new Set((args.partnerNames || []).map((n) => String(n || "").trim().toLowerCase()).filter(Boolean))
+  );
+  const partnerLen = names.length;
+  if (repLen === 0 && partnerLen === 0) return [];
   const { rows } = await pool
     .query<ChannelLostDealRow>(
       `
@@ -147,9 +123,12 @@ async function queryChannelLostDealsByPartnerNames(args: {
         o.partner_name
       FROM opportunities o
       WHERE o.org_id = $1::bigint
-        AND lower(btrim(COALESCE(o.partner_name,''))) = ANY($2::text[])
-        AND o.close_date >= $3::date
-        AND o.close_date <= $4::date
+        AND (
+          ($6::int > 0 AND o.rep_id = ANY($2::bigint[]))
+          OR ($7::int > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($3::text[]))
+        )
+        AND o.close_date >= $4::date
+        AND o.close_date <= $5::date
         AND (
           (' ' || lower(
             regexp_replace(
@@ -161,7 +140,7 @@ async function queryChannelLostDealsByPartnerNames(args: {
           ) || ' ') LIKE '% lost %'
         )
       `,
-      [args.orgId, names, args.periodStart, args.periodEnd]
+      [args.orgId, args.repIds, names, args.periodStart, args.periodEnd, repLen, partnerLen]
     )
     .catch(() => ({ rows: [] as ChannelLostDealRow[] }));
   return rows || [];
@@ -179,10 +158,15 @@ async function loadPartnerScopedProductsForTerritory(args: {
   orgId: number;
   quotaPeriodId: string;
   territoryRepIds: number[];
+  scopePartnerNames: string[];
   assignedPartnerNames: string[];
 }): Promise<ChannelScopedProductRow[]> {
-  if (!args.quotaPeriodId || !args.territoryRepIds.length) return [];
-  const useRepFilter = true;
+  const repLen = args.territoryRepIds.length;
+  const scopePn = Array.from(
+    new Set((args.scopePartnerNames || []).map((n) => String(n || "").trim().toLowerCase()).filter(Boolean))
+  );
+  const partnerLen = scopePn.length;
+  if (!args.quotaPeriodId || (repLen === 0 && partnerLen === 0)) return [];
   const { rows } = await pool.query<ChannelScopedProductRow>(
     `
     WITH qp AS (
@@ -214,7 +198,10 @@ async function loadPartnerScopedProductsForTerritory(args: {
         END AS close_d
       FROM opportunities o
       WHERE o.org_id = $1
-        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+        AND (
+          ($6::int > 0 AND o.rep_id = ANY($3::bigint[]))
+          OR ($7::int > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($4::text[]))
+        )
         AND ${partnerScopeSql("o", 5)}
     ),
     deals_in_qtr AS (
@@ -241,7 +228,7 @@ async function loadPartnerScopedProductsForTerritory(args: {
     ORDER BY won_amount DESC, product ASC
     LIMIT 30
     `,
-    [args.orgId, args.quotaPeriodId, args.territoryRepIds, useRepFilter, args.assignedPartnerNames]
+    [args.orgId, args.quotaPeriodId, args.territoryRepIds, scopePn, args.assignedPartnerNames, repLen, partnerLen]
   );
   return (rows || []) as ChannelScopedProductRow[];
 }
@@ -253,11 +240,18 @@ async function listTopPartnerDealsChannel(args: {
   limit: number;
   dateStart?: string | null;
   dateEnd?: string | null;
-  repIds: number[] | null;
+  scopeRepIds: number[];
+  scopePartnerNames: string[];
   assignedPartnerNames: string[];
 }): Promise<TopPartnerDealRow[]> {
   const wantWon = args.outcome === "won";
-  const useRepFilter = !!(args.repIds && args.repIds.length);
+  const scopeRep = args.scopeRepIds || [];
+  const scopePn = Array.from(
+    new Set((args.scopePartnerNames || []).map((n) => String(n || "").trim().toLowerCase()).filter(Boolean))
+  );
+  const repLen = scopeRep.length;
+  const partnerLen = scopePn.length;
+  if (repLen === 0 && partnerLen === 0) return [];
   const { rows } = await pool.query<TopPartnerDealRow>(
     `
     WITH qp AS (
@@ -286,8 +280,10 @@ async function listTopPartnerDealsChannel(args: {
     FROM opportunities o
     JOIN qp ON TRUE
     WHERE o.org_id = $1
-      AND (NOT $8::boolean OR o.rep_id = ANY($7::bigint[]))
-      AND ${partnerScopeSql("o", 9)}
+      AND o.partner_name IS NOT NULL
+      AND btrim(o.partner_name) <> ''
+      AND ${channelHeroOppScopeSqlTopDeals("o")}
+      AND ${partnerScopeSql("o", 11)}
       AND o.close_date IS NOT NULL
       AND o.close_date >= qp.range_start
       AND o.close_date <= qp.range_end
@@ -310,8 +306,10 @@ async function listTopPartnerDealsChannel(args: {
       args.limit,
       args.dateStart || null,
       args.dateEnd || null,
-      args.repIds || [],
-      useRepFilter,
+      scopeRep,
+      scopePn,
+      repLen,
+      partnerLen,
       args.assignedPartnerNames,
     ]
   );
@@ -491,13 +489,28 @@ async function getChannelDashboardHeroMetrics(args: {
   orgId: number;
   quotaPeriodId: string;
   territoryRepIds: number[];
+  scopePartnerNames: string[];
   viewerHierarchyLevel: number;
   viewerChannelRepId: number;
   viewerChannelRepsTableId: number | null;
   viewerUserId: number;
   assignedPartnerNames: string[];
 }): Promise<ChannelDashboardHeroMetrics> {
-  const useTerritoryFilter = args.territoryRepIds.length > 0;
+  const repLen = args.territoryRepIds.length;
+  const scopePn = Array.from(
+    new Set((args.scopePartnerNames || []).map((n) => String(n || "").trim().toLowerCase()).filter(Boolean))
+  );
+  const partnerLen = scopePn.length;
+  if (repLen === 0 && partnerLen === 0) {
+    return {
+      channelQuota: null,
+      channelClosedWon: 0,
+      channelCommit: 0,
+      channelBestCase: 0,
+      channelPipeline: 0,
+      salesTeamClosedWon: 0,
+    };
+  }
   const { rows } = await pool.query<{
     channel_quota: number | null;
     channel_closed_won: number | null;
@@ -530,9 +543,9 @@ async function getChannelDashboardHeroMetrics(args: {
         AND q.quota_period_id = $2::bigint
         AND u.hierarchy_level = 8
         AND (
-          ($5::int = 8 AND $6::bigint IS NOT NULL AND q.rep_id = $6::bigint)
-          OR ($5::int = 7 AND u.manager_user_id = $7::bigint)
-          OR ($5::int = 6)
+          ($4::int = 8 AND $5::bigint IS NOT NULL AND q.rep_id = $5::bigint)
+          OR ($4::int = 7 AND u.manager_user_id = $6::bigint)
+          OR ($4::int = 6)
         )
     ),
     channel_closed_won AS (
@@ -550,7 +563,7 @@ async function getChannelDashboardHeroMetrics(args: {
           SUM(
             CASE
               WHEN o.crm_bucket = 'commit'
-                AND ${partnerScopeSql("o", 8)}
+                AND ${partnerScopeSql("o", 7)}
               THEN COALESCE(o.amount, 0)
               ELSE 0
             END
@@ -561,7 +574,7 @@ async function getChannelDashboardHeroMetrics(args: {
           SUM(
             CASE
               WHEN o.crm_bucket = 'best_case'
-                AND ${partnerScopeSql("o", 8)}
+                AND ${partnerScopeSql("o", 7)}
               THEN COALESCE(o.amount, 0)
               ELSE 0
             END
@@ -572,7 +585,7 @@ async function getChannelDashboardHeroMetrics(args: {
           SUM(
             CASE
               WHEN o.crm_bucket NOT IN ('won', 'lost', 'excluded')
-                AND ${partnerScopeSql("o", 8)}
+                AND ${partnerScopeSql("o", 7)}
               THEN COALESCE(o.amount, 0)
               ELSE 0
             END
@@ -609,14 +622,16 @@ async function getChannelDashboardHeroMetrics(args: {
          AND fcm.field = 'forecast_category'
          AND fcm.stage_value = o.forecast_stage
         WHERE o.org_id = $1::bigint
-          AND $4::boolean
-          AND o.rep_id = ANY($3::bigint[])
+          AND (
+            ($9::int > 0 AND o.rep_id = ANY($3::bigint[]))
+            OR ($10::int > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($8::text[]))
+          )
       ) o
       JOIN qp ON TRUE
       WHERE o.close_d IS NOT NULL
         AND o.close_d >= qp.period_start
         AND o.close_d <= qp.period_end
-        AND ${partnerScopeSql("o", 8)}
+        AND ${partnerScopeSql("o", 7)}
     ),
     sales_team_closed_won AS (
       SELECT COALESCE(SUM(COALESCE(o.amount, 0)), 0)::float8 AS sales_team_closed_won
@@ -649,8 +664,10 @@ async function getChannelDashboardHeroMetrics(args: {
          AND fcm.field = 'forecast_category'
          AND fcm.stage_value = o.forecast_stage
         WHERE o.org_id = $1::bigint
-          AND $4::boolean
-          AND o.rep_id = ANY($3::bigint[])
+          AND (
+            ($9::int > 0 AND o.rep_id = ANY($3::bigint[]))
+            OR ($10::int > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($8::text[]))
+          )
       ) o
       JOIN qp ON TRUE
       WHERE o.close_d IS NOT NULL
@@ -675,11 +692,13 @@ async function getChannelDashboardHeroMetrics(args: {
       args.orgId,
       args.quotaPeriodId,
       args.territoryRepIds,
-      useTerritoryFilter,
       args.viewerHierarchyLevel,
       args.viewerChannelRepsTableId,
       args.viewerUserId,
       args.assignedPartnerNames,
+      scopePn,
+      repLen,
+      partnerLen,
     ]
   );
 
@@ -720,10 +739,13 @@ export default async function ChannelDashboardPage({
     ? String(summary.selectedQuotaPeriodId)
     : "";
 
-  const territoryRepIds = await getChannelTerritoryRepIds({
+  const viewerChannelTerritoryScope = await getChannelTerritoryRepIds({
     orgId,
     channelUserId: ctx.user.id,
-  }).catch(() => []);
+  }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }));
+
+  const territoryRepIds = viewerChannelTerritoryScope.repIds;
+  const viewerChannelScopePartnerNames = viewerChannelTerritoryScope.partnerNames;
 
   const scope = await getScopedRepDirectory({
     orgId,
@@ -735,6 +757,8 @@ export default async function ChannelDashboardPage({
   }));
 
   const visibleRepIds: number[] = territoryRepIds;
+  const channelViewerHasDataScope =
+    visibleRepIds.length > 0 || viewerChannelScopePartnerNames.length > 0;
 
   const periodIdx = summary.periods.findIndex((p) => String(p.id) === String(selectedPeriodId));
   const prevPeriod = periodIdx >= 0 ? summary.periods[periodIdx + 1] : null;
@@ -770,7 +794,7 @@ export default async function ChannelDashboardPage({
   let partnerHero: Awaited<ReturnType<typeof loadChannelPartnerHeroProps>> = null;
   let ledFedRows: Awaited<ReturnType<typeof loadChannelLedFedRows>> = [];
   try {
-    if (selectedPeriod && visibleRepIds.length > 0 && selectedPeriodId) {
+    if (selectedPeriod && channelViewerHasDataScope && selectedPeriodId) {
       const [won, lost, ph, lf] = await Promise.all([
         listTopPartnerDealsChannel({
           orgId: ctx.user.org_id,
@@ -779,7 +803,8 @@ export default async function ChannelDashboardPage({
           limit: 10,
           dateStart: selectedPeriod.period_start,
           dateEnd: selectedPeriod.period_end,
-          repIds: visibleRepIds,
+          scopeRepIds: visibleRepIds,
+          scopePartnerNames: viewerChannelScopePartnerNames,
           assignedPartnerNames,
         }),
         listTopPartnerDealsChannel({
@@ -789,7 +814,8 @@ export default async function ChannelDashboardPage({
           limit: 10,
           dateStart: selectedPeriod.period_start,
           dateEnd: selectedPeriod.period_end,
-          repIds: visibleRepIds,
+          scopeRepIds: visibleRepIds,
+          scopePartnerNames: viewerChannelScopePartnerNames,
           assignedPartnerNames,
         }),
         loadChannelPartnerHeroProps({
@@ -797,11 +823,13 @@ export default async function ChannelDashboardPage({
           quotaPeriodId: selectedPeriodId,
           prevQuotaPeriodId: prevQpId,
           repIds: visibleRepIds,
+          partnerNames: viewerChannelScopePartnerNames,
         }),
         loadChannelLedFedRows({
           orgId: ctx.user.org_id,
           quotaPeriodId: selectedPeriodId,
           repIds: visibleRepIds,
+          partnerNames: viewerChannelScopePartnerNames,
         }),
       ]);
       topPartnerWon = won ?? [];
@@ -918,15 +946,20 @@ export default async function ChannelDashboardPage({
       }
 
       const territoryByChannelRepId = new Map<number, number[]>();
+      const scopePartnerNamesByChannelRepId = new Map<number, string[]>();
       const allTerritoryIds = new Set<number>();
       await Promise.all(
         scopeList.map(async (row) => {
           const repTableId = Number(row.rep_id);
           const userId = Number(row.user_id);
-          const t = await getChannelTerritoryRepIds({ orgId, channelUserId: userId }).catch(() => []);
-          territoryByChannelRepId.set(repTableId, t);
-          territorySalesIdsByChannelRepId.set(repTableId, new Set(t.map((id) => String(id))));
-          for (const id of t) allTerritoryIds.add(id);
+          const sc = await getChannelTerritoryRepIds({ orgId, channelUserId: userId }).catch(() => ({
+            repIds: [] as number[],
+            partnerNames: [] as string[],
+          }));
+          territoryByChannelRepId.set(repTableId, sc.repIds);
+          scopePartnerNamesByChannelRepId.set(repTableId, sc.partnerNames);
+          territorySalesIdsByChannelRepId.set(repTableId, new Set(sc.repIds.map((id) => String(id))));
+          for (const id of sc.repIds) allTerritoryIds.add(id);
         })
       );
 
@@ -937,13 +970,6 @@ export default async function ChannelDashboardPage({
           periodIds: comparePeriodIds,
           repIds: territoryIdList,
         });
-      }
-
-      const partnerNamesByChannelRepId = new Map<number, string[]>();
-      for (const row of scopeList) {
-        const rid = Number(row.rep_id);
-        const uid = Number(row.user_id);
-        partnerNamesByChannelRepId.set(rid, partnerNamesByUserId.get(uid) || []);
       }
 
       const repDirById = new Map<number, RepDirectoryRow>(
@@ -965,26 +991,15 @@ export default async function ChannelDashboardPage({
           role8ScopeRows.map(async (row) => {
             const rid = Number(row.rep_id);
             const territory = territoryByChannelRepId.get(rid) || [];
-            const partners = partnerNamesByChannelRepId.get(rid) || [];
-            if (territory.length > 0) {
-              const r = await queryChannelLostDealsByTerritoryRepIds({
-                orgId,
-                territoryRepIds: territory,
-                periodStart: ps,
-                periodEnd: pe,
-              });
-              return { rid, rows: r };
-            }
-            if (partners.length > 0) {
-              const r = await queryChannelLostDealsByPartnerNames({
-                orgId,
-                partnerNames: partners,
-                periodStart: ps,
-                periodEnd: pe,
-              });
-              return { rid, rows: r };
-            }
-            return { rid, rows: [] as ChannelLostDealRow[] };
+            const scopePn = scopePartnerNamesByChannelRepId.get(rid) || [];
+            const r = await queryChannelLostDealsByScope({
+              orgId,
+              repIds: territory,
+              partnerNames: scopePn,
+              periodStart: ps,
+              periodEnd: pe,
+            });
+            return { rid, rows: r };
           })
         );
 
@@ -1049,15 +1064,17 @@ export default async function ChannelDashboardPage({
           const repTableId = Number(row.rep_id);
           const userId = Number(row.user_id);
           const territoryRepIds = territoryByChannelRepId.get(repTableId) || [];
+          const scopePn = scopePartnerNamesByChannelRepId.get(repTableId) || [];
           const assigned = partnerNamesByUserId.get(userId) || [];
           const repLabel =
             repNameByChannelRepId.get(String(repTableId))?.trim() ||
             `(Rep ${repTableId})`;
-          if (!territoryRepIds.length) return [] as ChannelProductWonByRepRow[];
+          if (!territoryRepIds.length && !scopePn.length) return [] as ChannelProductWonByRepRow[];
           const prows = await loadPartnerScopedProductsForTerritory({
             orgId,
             quotaPeriodId: selectedPeriodId,
             territoryRepIds,
+            scopePartnerNames: scopePn,
             assignedPartnerNames: assigned,
           });
           return prows.map((p) => ({
@@ -1086,11 +1103,12 @@ export default async function ChannelDashboardPage({
   const viewerQuotaRoleLevel = mapChannelHierarchyToQuotaRoleLevel(ctx.user.hierarchy_level);
 
   let channelHeroMetrics: ChannelDashboardHeroMetrics | null = null;
-  if (selectedPeriodId && territoryRepIds.length > 0 && viewerQuotaRoleLevel != null) {
+  if (selectedPeriodId && channelViewerHasDataScope && viewerQuotaRoleLevel != null) {
     channelHeroMetrics = await getChannelDashboardHeroMetrics({
       orgId: ctx.user.org_id,
       quotaPeriodId: selectedPeriodId,
       territoryRepIds,
+      scopePartnerNames: viewerChannelScopePartnerNames,
       viewerHierarchyLevel: Number(ctx.user.hierarchy_level),
       viewerChannelRepId: ctx.user.id,
       viewerChannelRepsTableId,
