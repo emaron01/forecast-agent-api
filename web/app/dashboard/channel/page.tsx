@@ -85,6 +85,7 @@ function aggregateTerritoryRepKpis(
     pipeline_amount: sumNum("pipeline_amount"),
     partner_closed_amount: sumNum("partner_closed_amount"),
     closed_amount: sumNum("closed_amount"),
+    lost_amount: sumNum("lost_amount"),
     partner_won_count: sumNum("partner_won_count"),
     partner_closed_count: sumNum("partner_closed_count"),
     avg_days_won: weightedAvg((r) => r.avg_days_won, (r) => Number(r.won_count) || 0),
