@@ -774,7 +774,7 @@ async function loadChannelRepRows(args: {
         const territoryRepIds = territoryScope.repIds;
         const assignedPartnerNames = partnerNamesByUserId.get(userId) || [];
 
-        if (!territoryRepIds.length) {
+        if (!territoryRepIds.length && !assignedPartnerNames.length) {
           return {
             repId,
             won_amount: 0,
@@ -785,6 +785,7 @@ async function loadChannelRepRows(args: {
           };
         }
 
+        const effectiveTerritoryRepIds = territoryRepIds.length > 0 ? territoryRepIds : [-1];
         const { rows } = await pool.query<{
           won_amount: number;
           won_count: number;
@@ -834,7 +835,7 @@ async function loadChannelRepRows(args: {
             COALESCE(SUM(CASE WHEN crm_bucket NOT IN ('won', 'lost', 'excluded') THEN 1 ELSE 0 END), 0)::int AS partner_deals_pipeline
           FROM deals_in_period
           `,
-          [args.orgId, args.selectedQuotaPeriodId, territoryRepIds, assignedPartnerNames]
+          [args.orgId, args.selectedQuotaPeriodId, effectiveTerritoryRepIds, assignedPartnerNames]
         );
 
         return {
@@ -875,6 +876,162 @@ async function loadChannelRepRows(args: {
     logError("loadChannelRepRows", error);
     return [];
   }
+}
+
+export async function loadChannelRepWonDeals(args: {
+  orgId: number;
+  selectedQuotaPeriodId: string;
+  channelRepIds: number[]; // role-8 rep INTEGER IDs
+}): Promise<Map<number, Array<{ opp_id: number; amount: number }>>> {
+  const out = new Map<number, Array<{ opp_id: number; amount: number }>>();
+  if (!args.selectedQuotaPeriodId || args.channelRepIds.length === 0) return out;
+
+  try {
+    const { rows: repScopeRows } = await pool.query<{
+      rep_id: number;
+      user_id: number;
+    }>(
+      `
+      SELECT
+        r.id AS rep_id,
+        u.id AS user_id
+      FROM reps r
+      JOIN users u
+        ON u.id = r.user_id
+       AND u.org_id = $1::bigint
+      WHERE r.organization_id = $1::bigint
+        AND r.id = ANY($2::bigint[])
+        AND COALESCE(u.hierarchy_level, 99) = 8
+      ORDER BY r.id ASC
+      `,
+      [args.orgId, args.channelRepIds]
+    );
+
+    const scopeList = repScopeRows || [];
+    if (!scopeList.length) return out;
+
+    const assignmentRows = await pool
+      .query<{ channel_rep_id: number; partner_name: string | null }>(
+        `
+        SELECT
+          channel_rep_id,
+          lower(btrim(partner_name)) AS partner_name
+        FROM partner_channel_assignments
+        WHERE org_id = $1::bigint
+          AND channel_rep_id = ANY($2::int[])
+        `,
+        [args.orgId, scopeList.map((r) => Number(r.user_id))]
+      )
+      .then((res) => res.rows || [])
+      .catch(() => []);
+
+    const partnerNamesByUserId = new Map<number, string[]>();
+    for (const row of assignmentRows) {
+      const userId = Number(row.channel_rep_id);
+      if (!Number.isFinite(userId) || userId <= 0) continue;
+      const current = partnerNamesByUserId.get(userId) || [];
+      const partnerName = cleanText(row.partner_name).toLowerCase();
+      if (partnerName) current.push(partnerName);
+      partnerNamesByUserId.set(userId, current);
+    }
+    for (const [userId, values] of partnerNamesByUserId.entries()) {
+      partnerNamesByUserId.set(userId, Array.from(new Set(values.filter(Boolean))));
+    }
+
+    await Promise.all(
+      scopeList.map(async (row) => {
+        const repIntId = Number(row.rep_id);
+        const userId = Number(row.user_id);
+        if (!Number.isFinite(repIntId) || repIntId <= 0) {
+          return;
+        }
+
+        const territoryScope = await getChannelTerritoryRepIds({
+          orgId: args.orgId,
+          channelUserId: userId,
+        }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }));
+
+        const repIds = territoryScope.repIds;
+        const assignedPartnerNames = partnerNamesByUserId.get(userId) || [];
+
+        if (!repIds.length && !assignedPartnerNames.length) {
+          out.set(repIntId, []);
+          return;
+        }
+
+        const effectiveTerritoryRepIds = repIds.length > 0 ? repIds : [-1];
+
+        const { rows: deals } = await pool.query<{ opp_id: number; amount: number }>(
+          `
+          WITH qp AS (
+            SELECT period_start::date AS period_start, period_end::date AS period_end
+            FROM quota_periods
+            WHERE org_id = $1::bigint AND id = $2::bigint
+            LIMIT 1
+          ),
+          deals AS (
+            SELECT
+              o.id AS opp_id,
+              COALESCE(o.amount, 0)::float8 AS amount,
+              ${parsedCloseDateSql("o")} AS close_d,
+              ${crmBucketCaseSql("o")} AS crm_bucket
+            FROM opportunities o
+            LEFT JOIN org_stage_mappings stm
+              ON stm.org_id = o.org_id
+             AND stm.field = 'stage'
+             AND stm.stage_value = o.sales_stage
+            LEFT JOIN org_stage_mappings fcm
+              ON fcm.org_id = o.org_id
+             AND fcm.field = 'forecast_category'
+             AND fcm.stage_value = o.forecast_stage
+            WHERE o.org_id = $1::bigint
+              AND o.rep_id = ANY($3::bigint[])
+              AND ${partnerScopeSql("o", 4)}
+          )
+          SELECT d.opp_id, d.amount
+          FROM deals d
+          JOIN qp ON TRUE
+          WHERE d.close_d IS NOT NULL
+            AND d.close_d >= qp.period_start
+            AND d.close_d <= qp.period_end
+            AND d.crm_bucket = 'won'
+          `,
+          [args.orgId, args.selectedQuotaPeriodId, effectiveTerritoryRepIds, assignedPartnerNames]
+        );
+
+        out.set(
+          repIntId,
+          (deals || []).map((d) => ({
+            opp_id: Number(d.opp_id),
+            amount: Number(d.amount || 0) || 0,
+          }))
+        );
+      })
+    );
+
+    return out;
+  } catch (error) {
+    logError("loadChannelRepWonDeals", error);
+    return out;
+  }
+}
+
+export function deduplicateWonDeals(
+  wonDealsByRep: Map<number, Array<{ opp_id: number; amount: number }>>
+): { wonAmount: number; wonCount: number } {
+  const byOppId = new Map<number, number>();
+  for (const deals of wonDealsByRep.values()) {
+    for (const d of deals || []) {
+      const id = Number(d.opp_id);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      const amt = Number(d.amount || 0) || 0;
+      const prev = byOppId.get(id);
+      byOppId.set(id, prev == null ? amt : Math.max(prev, amt));
+    }
+  }
+  let wonAmount = 0;
+  for (const v of byOppId.values()) wonAmount += v;
+  return { wonAmount, wonCount: byOppId.size };
 }
 
 export async function loadChannelRepFyQuarterRows(args: {

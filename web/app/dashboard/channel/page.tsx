@@ -4,7 +4,7 @@ import { getOrganization } from "../../../lib/db";
 import { pool } from "../../../lib/pool";
 import { getChannelTerritoryRepIds } from "../../../lib/channelTerritoryScope";
 import { getScopedRepDirectory, type RepDirectoryRow } from "../../../lib/repScope";
-import { getChannelDashboardSummary, loadChannelRepFyQuarterRows } from "../../../lib/channelDashboard";
+import { getChannelDashboardSummary, loadChannelRepFyQuarterRows, loadChannelRepWonDeals, deduplicateWonDeals } from "../../../lib/channelDashboard";
 import { getRepKpisByPeriod, type RepPeriodKpisRow } from "../../../lib/executiveRepKpis";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ExecutiveTabsShellClient } from "../../components/dashboard/executive/ExecutiveTabsShellClient";
@@ -898,6 +898,8 @@ export default async function ChannelDashboardPage({
   let channelProductsClosedWonByRep: ChannelProductWonByRepRow[] = [];
   let directorTerritoryLostAmount = 0;
   let directorTerritoryLostCount = 0;
+  let directorWonAmount = 0;
+  let directorWonCount = 0;
   let lostDealsByRole8RepId = new Map<number, ChannelLostDealRow[]>();
   const territorySalesIdsByChannelRepId = new Map<number, Set<string>>();
   try {
@@ -1053,6 +1055,21 @@ export default async function ChannelDashboardPage({
           directorTerritoryLostAmount = s.amount;
           directorTerritoryLostCount = s.count;
         }
+
+        // Won deal dedup — mirrors lost dedup pattern above
+        const wonDealsByRep = await loadChannelRepWonDeals({
+          orgId,
+          selectedQuotaPeriodId: selectedPeriodId,
+          channelRepIds: role8ScopeRows.map((r) => Number(r.rep_id)),
+        });
+        const dedupedWon = deduplicateWonDeals(wonDealsByRep);
+        if (hl === HIERARCHY.CHANNEL_MANAGER && Number.isFinite(viewerRid) && viewerRid > 0) {
+          directorWonAmount = dedupedWon.wonAmount;
+          directorWonCount = dedupedWon.wonCount;
+        } else if (hl === HIERARCHY.CHANNEL_EXEC && Number.isFinite(viewerRid) && viewerRid > 0) {
+          directorWonAmount = dedupedWon.wonAmount;
+          directorWonCount = dedupedWon.wonCount;
+        }
       }
 
       const repNameByChannelRepId = new Map<string, string>(
@@ -1099,6 +1116,8 @@ export default async function ChannelDashboardPage({
     lostDealsByRole8RepId = new Map();
     directorTerritoryLostAmount = 0;
     directorTerritoryLostCount = 0;
+    directorWonAmount = 0;
+    directorWonCount = 0;
   }
   const viewerQuotaRoleLevel = mapChannelHierarchyToQuotaRoleLevel(ctx.user.hierarchy_level);
 
@@ -1361,6 +1380,8 @@ export default async function ChannelDashboardPage({
     managerRows: channelManagerRows,
     managerLostAmountOverride: directorTerritoryLostAmount,
     managerLostCountOverride: directorTerritoryLostCount,
+    managerWonAmountOverride: directorWonAmount,
+    managerWonCountOverride: directorWonCount,
     periodName: selectedPeriod?.period_name ?? "",
     periodStart: selectedPeriod?.period_start ?? "",
     periodEnd: selectedPeriod?.period_end ?? "",

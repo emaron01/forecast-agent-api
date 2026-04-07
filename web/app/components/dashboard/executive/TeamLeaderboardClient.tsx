@@ -40,6 +40,8 @@ export type TeamLeaderboardProps = {
   periodEnd: string;
   allPeriodRows?: TeamLeaderboardFyQuarterRow[];
   productsClosedWonByRep?: ProductsClosedWonByRepRow[] | ProductsClosedWonByRepMap;
+  managerWonAmountOverride?: number;
+  managerWonCountOverride?: number;
   managerLostAmountOverride?: number;
   managerLostCountOverride?: number;
 };
@@ -287,6 +289,8 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     periodEnd,
     allPeriodRows,
     productsClosedWonByRep,
+    managerWonAmountOverride,
+    managerWonCountOverride,
     managerLostAmountOverride,
     managerLostCountOverride,
   } = props;
@@ -359,6 +363,8 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     wonCount: number;
     lostCount: number;
     lostAmount: number;
+    wonAmountOverride?: number;
+    wonCountOverride?: number;
     lostAmountOverride?: number;
     lostCountOverride?: number;
     avgDaysWon: number | null;
@@ -377,7 +383,9 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const paceLabel = paceStatusLabel(args.paceStatus);
     const attainColor = attainmentTextClassByPct(args.attainPct);
     const ytdAttainColor = attainmentTextClassByPct(args.ytdAttainPct);
-    const remainingQuota = Math.max(0, args.quota - args.wonAmount);
+    const wonAmount = args.wonAmountOverride ?? args.wonAmount;
+    const wonCount = args.wonCountOverride ?? args.wonCount;
+    const remainingQuota = Math.max(0, args.quota - wonAmount);
     const qCoverage = remainingQuota > 0 ? args.activePipelineAmount / remainingQuota : null;
     const totalFyPipeline = args.activePipelineAmount;
     const annualRemaining = Math.max(0, args.annualQuota - args.ytdRevenue);
@@ -399,8 +407,8 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const healthColor = healthTextClass(args.avgHealthPct);
     const lostAmount = args.lostAmountOverride ?? args.lostAmount;
     const lostCount = args.lostCountOverride ?? args.lostCount;
-    const pipelineCount = Math.max(0, args.totalCount - args.wonCount - lostCount);
-    const aovWon = args.wonCount > 0 ? args.wonAmount / args.wonCount : 0;
+    const pipelineCount = Math.max(0, args.totalCount - wonCount - lostCount);
+    const aovWon = wonCount > 0 ? wonAmount / wonCount : 0;
     const aovLost = lostCount > 0 ? lostAmount / lostCount : 0;
     const aovPipeline = pipelineCount > 0 ? args.activePipelineAmount / pipelineCount : 0;
     const sortedProducts = [...args.repProducts].sort((a, b) => b.amount - a.amount);
@@ -433,7 +441,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
             </div>
             <div className="flex items-baseline gap-2">
               <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">Won</span>
-              <span className="text-base font-semibold text-green-400">{fmtMoney(args.wonAmount)}</span>
+              <span className="text-base font-semibold text-green-400">{fmtMoney(wonAmount)}</span>
             </div>
             <div className="flex items-baseline gap-2">
               <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">Attainment</span>
@@ -690,6 +698,8 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           wonCount: current.wonCount,
           lostCount: current.lostCount,
           lostAmount: current.lostAmount,
+          wonAmountOverride: managerWonAmountOverride,
+          wonCountOverride: managerWonCountOverride,
           lostAmountOverride: managerLostAmountOverride,
           lostCountOverride: managerLostCountOverride,
           avgDaysWon: current.avgDaysWon,
