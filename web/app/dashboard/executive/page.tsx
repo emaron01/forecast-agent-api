@@ -1153,6 +1153,14 @@ export default async function ExecutiveDashboardPage({
     period_name: string;
     fiscal_quarter: string;
     won_amount: number;
+    won_count: number;
+    lost_amount: number;
+    lost_count: number;
+    pipeline_amount: number;
+    active_count: number;
+    avg_days_won: number | null;
+    avg_days_lost: number | null;
+    avg_days_active: number | null;
     quota: number;
     attainment: number | null;
   }[] = [];
@@ -1678,6 +1686,11 @@ export default async function ExecutiveDashboardPage({
         period_name: string;
         fiscal_quarter: string;
         won_amount: number;
+        won_count: number;
+        lost_amount: number;
+        lost_count: number;
+        pipeline_amount: number;
+        active_count: number;
         quota: number;
       }>(
         `
@@ -1693,6 +1706,39 @@ export default async function ExecutiveDashboardPage({
               OR lower(btrim(COALESCE(o.sales_stage,''))) LIKE '%won%'
             ) THEN o.amount ELSE 0 END
           ), 0)::float8 AS won_amount,
+          COALESCE(SUM(CASE
+            WHEN stm.bucket = 'won' OR fcm.bucket = 'won'
+              OR lower(btrim(COALESCE(o.forecast_stage,''))) LIKE '%won%'
+              OR lower(btrim(COALESCE(o.sales_stage,''))) LIKE '%won%'
+            THEN 1 ELSE 0 END), 0)::int AS won_count,
+          COALESCE(SUM(CASE
+            WHEN stm.bucket = 'lost' OR fcm.bucket = 'lost'
+              OR lower(btrim(COALESCE(o.forecast_stage,''))) LIKE '%lost%'
+              OR lower(btrim(COALESCE(o.sales_stage,''))) LIKE '%lost%'
+            THEN o.amount ELSE 0 END), 0)::float8 AS lost_amount,
+          COALESCE(SUM(CASE
+            WHEN stm.bucket = 'lost' OR fcm.bucket = 'lost'
+              OR lower(btrim(COALESCE(o.forecast_stage,''))) LIKE '%lost%'
+              OR lower(btrim(COALESCE(o.sales_stage,''))) LIKE '%lost%'
+            THEN 1 ELSE 0 END), 0)::int AS lost_count,
+          COALESCE(SUM(CASE
+            WHEN (stm.bucket IS NOT NULL AND stm.bucket NOT IN ('won','lost','excluded'))
+              OR (stm.bucket IS NULL AND fcm.bucket IS NOT NULL AND fcm.bucket NOT IN ('won','lost','excluded'))
+              OR (stm.bucket IS NULL AND fcm.bucket IS NULL
+                AND lower(btrim(COALESCE(o.forecast_stage,''))) NOT LIKE '%won%'
+                AND lower(btrim(COALESCE(o.sales_stage,''))) NOT LIKE '%won%'
+                AND lower(btrim(COALESCE(o.forecast_stage,''))) NOT LIKE '%lost%'
+                AND lower(btrim(COALESCE(o.sales_stage,''))) NOT LIKE '%lost%')
+            THEN o.amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+          COALESCE(SUM(CASE
+            WHEN (stm.bucket IS NOT NULL AND stm.bucket NOT IN ('won','lost','excluded'))
+              OR (stm.bucket IS NULL AND fcm.bucket IS NOT NULL AND fcm.bucket NOT IN ('won','lost','excluded'))
+              OR (stm.bucket IS NULL AND fcm.bucket IS NULL
+                AND lower(btrim(COALESCE(o.forecast_stage,''))) NOT LIKE '%won%'
+                AND lower(btrim(COALESCE(o.sales_stage,''))) NOT LIKE '%won%'
+                AND lower(btrim(COALESCE(o.forecast_stage,''))) NOT LIKE '%lost%'
+                AND lower(btrim(COALESCE(o.sales_stage,''))) NOT LIKE '%lost%')
+            THEN 1 ELSE 0 END), 0)::int AS active_count,
           COALESCE(MAX(q.quota_amount), 0)::float8 AS quota
         FROM reps r
         JOIN quota_periods qp
@@ -1707,6 +1753,14 @@ export default async function ExecutiveDashboardPage({
           ON q.rep_id = r.id
          AND q.quota_period_id = qp.id
          AND q.org_id = COALESCE(r.organization_id, r.org_id::bigint)
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = COALESCE(r.organization_id, r.org_id::bigint)
+         AND stm.field = 'stage'
+         AND stm.stage_value = o.sales_stage
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = COALESCE(r.organization_id, r.org_id::bigint)
+         AND fcm.field = 'forecast_category'
+         AND fcm.stage_value = o.forecast_stage
         WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
           AND r.id = ANY($3::bigint[])
         GROUP BY r.id, qp.id, qp.period_name, qp.fiscal_quarter, qp.period_start
@@ -1725,6 +1779,14 @@ export default async function ExecutiveDashboardPage({
           period_name: String(r.period_name || ""),
           fiscal_quarter: String(r.fiscal_quarter || ""),
           won_amount: wonAmount,
+          won_count: Number(r.won_count || 0) || 0,
+          lost_amount: Number(r.lost_amount || 0) || 0,
+          lost_count: Number(r.lost_count || 0) || 0,
+          pipeline_amount: Number(r.pipeline_amount || 0) || 0,
+          active_count: Number(r.active_count || 0) || 0,
+          avg_days_won: null,
+          avg_days_lost: null,
+          avg_days_active: null,
           quota,
           attainment: quota > 0 ? wonAmount / quota : null,
         };

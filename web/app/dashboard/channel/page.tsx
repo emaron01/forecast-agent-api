@@ -4,7 +4,7 @@ import { getOrganization } from "../../../lib/db";
 import { pool } from "../../../lib/pool";
 import { getChannelTerritoryRepIds } from "../../../lib/channelTerritoryScope";
 import { getScopedRepDirectory, type RepDirectoryRow } from "../../../lib/repScope";
-import { getChannelDashboardSummary, loadChannelRepFyQuarterRows, loadChannelRepWonDeals, deduplicateWonDeals } from "../../../lib/channelDashboard";
+import { getChannelDashboardSummary, loadChannelRepFyQuarterRows, loadChannelRepWonDeals, deduplicateWonDeals, type ChannelRepFyQuarterRow } from "../../../lib/channelDashboard";
 import { getRepKpisByPeriod, type RepPeriodKpisRow } from "../../../lib/executiveRepKpis";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ExecutiveTabsShellClient } from "../../components/dashboard/executive/ExecutiveTabsShellClient";
@@ -924,7 +924,7 @@ export default async function ChannelDashboardPage({
   const fyYearKey =
     String(summary.selectedPeriod?.fiscal_year ?? summary.selectedFiscalYear ?? "")
       .trim() || "";
-  const channelFyQuarterRows =
+  const channelFyQuarterRows: ChannelRepFyQuarterRow[] =
     fyYearKey && channelScopedRepIds.length > 0
       ? await loadChannelRepFyQuarterRows({
           orgId,
@@ -932,7 +932,7 @@ export default async function ChannelDashboardPage({
           channelRepIds: channelScopedRepIds,
         }).catch((err) => {
           console.error("[channel page] loadChannelRepFyQuarterRows error", err);
-          return [];
+          return [] as ChannelRepFyQuarterRow[];
         })
       : [];
 

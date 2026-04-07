@@ -17,11 +17,11 @@ type TeamLeaderboardFyQuarterRow = {
   won_amount: number;
   quota: number;
   attainment: number | null;
-  won_count: number;
-  lost_amount: number;
-  lost_count: number;
-  pipeline_amount: number;
-  active_count: number;
+  won_count?: number;
+  lost_amount?: number;
+  lost_count?: number;
+  pipeline_amount?: number;
+  active_count?: number;
   avg_days_won?: number | null;
   avg_days_lost?: number | null;
   avg_days_active?: number | null;
@@ -194,11 +194,11 @@ function aggregateCurrentTeam(reps: RepManagerRepRow[]) {
 function aggregateAnnualTeam(fyRows: TeamLeaderboardFyQuarterRow[], repIntIds: string[]) {
   const rows = fyRows.filter((r) => repIntIds.includes(r.rep_int_id));
   const wonAmount = rows.reduce((s, r) => s + r.won_amount, 0);
-  const wonCount = rows.reduce((s, r) => s + r.won_count, 0);
-  const lostAmount = rows.reduce((s, r) => s + r.lost_amount, 0);
-  const lostCount = rows.reduce((s, r) => s + r.lost_count, 0);
-  const pipelineAmount = rows.reduce((s, r) => s + r.pipeline_amount, 0);
-  const activeCount = rows.reduce((s, r) => s + r.active_count, 0);
+  const wonCount = rows.reduce((s, r) => s + (r.won_count ?? 0), 0);
+  const lostAmount = rows.reduce((s, r) => s + (r.lost_amount ?? 0), 0);
+  const lostCount = rows.reduce((s, r) => s + (r.lost_count ?? 0), 0);
+  const pipelineAmount = rows.reduce((s, r) => s + (r.pipeline_amount ?? 0), 0);
+  const activeCount = rows.reduce((s, r) => s + (r.active_count ?? 0), 0);
   return {
     aovWon: wonCount > 0 ? wonAmount / wonCount : 0,
     aovLost: lostCount > 0 ? lostAmount / lostCount : 0,
