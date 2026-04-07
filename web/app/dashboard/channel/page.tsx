@@ -1375,6 +1375,7 @@ export default async function ChannelDashboardPage({
         ]
       : [];
 
+  console.log("[channel page] director won override:", { directorWonAmount, directorWonCount, hl: Number(ctx.user.hierarchy_level), viewerRid: viewerChannelRepsTableId });
   const emptyTeamPayload = {
     repRows: channelTeamRepRows,
     managerRows: channelManagerRows,
