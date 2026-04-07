@@ -295,6 +295,8 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     managerLostCountOverride,
   } = props;
 
+  console.log("[TeamLeaderboardClient] overrides:", { managerWonAmountOverride, managerWonCountOverride, managerLostAmountOverride, managerLostCountOverride });
+
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [showDetail, setShowDetail] = useState(false);
 
