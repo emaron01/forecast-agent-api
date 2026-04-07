@@ -359,6 +359,14 @@ export type TeamRepManagerPayload = {
     period_name: string;
     fiscal_quarter: string;
     won_amount: number;
+    won_count: number;
+    lost_amount: number;
+    lost_count: number;
+    pipeline_amount: number;
+    active_count: number;
+    avg_days_won?: number | null;
+    avg_days_lost?: number | null;
+    avg_days_active?: number | null;
     quota: number;
     attainment: number | null;
   }[];
