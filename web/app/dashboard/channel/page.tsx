@@ -825,7 +825,7 @@ export default async function ChannelDashboardPage({
               .catch(() => [] as string[])
           )
         );
-        const union = Array.from(
+        const union: string[] = Array.from(
           new Set(
             partnerNameSets
               .flat()
