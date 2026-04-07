@@ -347,6 +347,8 @@ export type TeamRepManagerPayload = {
   managerRows: RepManagerManagerRow[];
   managerLostAmountOverride?: number;
   managerLostCountOverride?: number;
+  managerWonAmountOverride?: number;
+  managerWonCountOverride?: number;
   periodName?: string;
   periodStart?: string;
   periodEnd?: string;
@@ -881,6 +883,8 @@ export function ExecutiveTabsShellClient(props: {
               managerRows={props.teamRepManagerPayload.managerRows}
               managerLostAmountOverride={props.teamRepManagerPayload.managerLostAmountOverride}
               managerLostCountOverride={props.teamRepManagerPayload.managerLostCountOverride}
+              managerWonAmountOverride={props.teamRepManagerPayload.managerWonAmountOverride}
+              managerWonCountOverride={props.teamRepManagerPayload.managerWonCountOverride}
               periodName={props.teamRepManagerPayload.periodName ?? ""}
               quotaPeriodId={String(props.forecastTabProps.quotaPeriodId ?? "")}
               fiscalYear={props.forecastTabProps.fiscalYear}
