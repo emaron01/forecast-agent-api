@@ -907,6 +907,13 @@ export async function loadChannelRepWonDeals(args: {
       [args.orgId, args.channelRepIds]
     );
 
+    console.log(
+      "[loadChannelRepWonDeals] args:",
+      JSON.stringify({ orgId: args.orgId, selectedQuotaPeriodId: args.selectedQuotaPeriodId, channelRepIds: args.channelRepIds }),
+      "repScopeRows:",
+      repScopeRows.length
+    );
+
     const scopeList = repScopeRows || [];
     if (!scopeList.length) return out;
 
@@ -1007,6 +1014,13 @@ export async function loadChannelRepWonDeals(args: {
           }))
         );
       })
+    );
+
+    console.log(
+      "[loadChannelRepWonDeals] result size:",
+      out.size,
+      "total deals:",
+      Array.from(out.values()).flat().length
     );
 
     return out;
