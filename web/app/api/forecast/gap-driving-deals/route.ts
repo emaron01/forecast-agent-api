@@ -134,6 +134,7 @@ type DealRow = {
   rep_id: string | null;
   rep_public_id: string | null;
   rep_name: string | null;
+  partner_name: string | null;
   account_name: string | null;
   opportunity_name: string | null;
   amount: number | null;
@@ -741,6 +742,7 @@ export async function GET(req: Request) {
           o.rep_id::text AS rep_id,
           r.public_id::text AS rep_public_id,
           o.rep_name,
+          NULLIF(btrim(o.partner_name), '') AS partner_name,
           o.account_name,
           o.opportunity_name,
           COALESCE(o.amount, 0)::float8 AS amount,
@@ -878,6 +880,7 @@ export async function GET(req: Request) {
         rep_id,
         rep_public_id,
         rep_name,
+        partner_name,
         account_name,
         opportunity_name,
         amount,
@@ -987,6 +990,7 @@ export async function GET(req: Request) {
             o.rep_id::text AS rep_id,
             r.public_id::text AS rep_public_id,
             o.rep_name,
+            NULLIF(btrim(o.partner_name), '') AS partner_name,
             o.account_name,
             o.opportunity_name,
             COALESCE(o.amount, 0)::float8 AS amount,
@@ -1094,6 +1098,7 @@ export async function GET(req: Request) {
           rep_id,
           rep_public_id,
           rep_name,
+          partner_name,
           account_name,
           opportunity_name,
           amount,
@@ -1202,6 +1207,8 @@ export async function GET(req: Request) {
     type DealOut = {
       id: string;
       rep: { rep_id: string | null; rep_public_id: string | null; rep_name: string | null };
+      /** CRM `opportunities.partner_name` (trimmed). */
+      partner_name: string | null;
       deal_name: { account_name: string | null; opportunity_name: string | null };
       close_date: string | null;
       quarter: { label: string | null };
@@ -1312,6 +1319,7 @@ export async function GET(req: Request) {
           rep_public_id: d.rep_public_id,
           rep_name: d.rep_name,
         },
+        partner_name: String(d.partner_name || "").trim() || null,
         deal_name: {
           account_name: d.account_name,
           opportunity_name: d.opportunity_name,

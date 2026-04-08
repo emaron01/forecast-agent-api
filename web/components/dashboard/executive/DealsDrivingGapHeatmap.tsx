@@ -8,6 +8,8 @@ export type HeatmapDealRow = {
   riskLabel: string;
   dealColor?: string | null;
   dealName: string;
+  /** CRM partner; shown before Sales Rep when set. */
+  partnerName?: string | null;
   repName: string;
   bucketLabel: string;
   amount: number;
@@ -64,10 +66,11 @@ export function DealsDrivingGapHeatmap(props: {
       </div>
 
       <div className="mt-4 overflow-auto rounded-lg border border-[color:var(--sf-border)]">
-        <div className="min-w-[980px]">
-          <div className="grid grid-cols-[120px_1.6fr_140px_140px_120px_110px_140px_40px] gap-0 bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+        <div className="min-w-[1100px]">
+          <div className="grid grid-cols-[120px_1.6fr_120px_140px_140px_120px_110px_140px_40px] gap-0 bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
             <div className="px-3 py-2">Risk</div>
             <div className="px-3 py-2">Deal</div>
+            <div className="px-3 py-2">Partner Name</div>
             <div className="px-3 py-2">Sales Rep</div>
             <div className="px-3 py-2">Stage</div>
             <div className="px-3 py-2 text-right">Amount</div>
@@ -85,7 +88,7 @@ export function DealsDrivingGapHeatmap(props: {
                   key={r.id}
                   type="button"
                   onClick={() => props.onRowClick?.(r)}
-                  className="grid w-full grid-cols-[120px_1.6fr_140px_140px_120px_110px_140px_40px] items-center border-t border-[color:var(--sf-border)] text-left text-sm text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
+                  className="grid w-full grid-cols-[120px_1.6fr_120px_140px_140px_120px_110px_140px_40px] items-center border-t border-[color:var(--sf-border)] text-left text-sm text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
                 >
                   <div className="px-3 py-2">
                     <div className="flex items-center gap-2">
@@ -100,6 +103,7 @@ export function DealsDrivingGapHeatmap(props: {
                     </div>
                   </div>
                   <div className="px-3 py-2 font-medium">{r.dealName}</div>
+                  <div className="px-3 py-2 text-xs text-[color:var(--sf-text-secondary)]">{String(r.partnerName || "").trim() || "—"}</div>
                   <div className="px-3 py-2 text-xs text-[color:var(--sf-text-secondary)]">{r.repName}</div>
                   <div className="px-3 py-2 text-xs text-[color:var(--sf-text-secondary)]">{r.bucketLabel}</div>
                   <div className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(r.amount)}</div>
@@ -111,7 +115,7 @@ export function DealsDrivingGapHeatmap(props: {
                 <Link
                   key={r.id}
                   href={props.rowHref ? props.rowHref(r) : `/opportunities/${encodeURIComponent(r.id)}/deal-review`}
-                  className="grid grid-cols-[120px_1.6fr_140px_140px_120px_110px_140px_40px] items-center border-t border-[color:var(--sf-border)] text-sm text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
+                  className="grid grid-cols-[120px_1.6fr_120px_140px_140px_120px_110px_140px_40px] items-center border-t border-[color:var(--sf-border)] text-sm text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)] focus:outline-none focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
                 >
                 <div className="px-3 py-2">
                   <div className="flex items-center gap-2">
@@ -126,6 +130,7 @@ export function DealsDrivingGapHeatmap(props: {
                   </div>
                 </div>
                 <div className="px-3 py-2 font-medium">{r.dealName}</div>
+                <div className="px-3 py-2 text-xs text-[color:var(--sf-text-secondary)]">{String(r.partnerName || "").trim() || "—"}</div>
                 <div className="px-3 py-2 text-xs text-[color:var(--sf-text-secondary)]">{r.repName}</div>
                 <div className="px-3 py-2 text-xs text-[color:var(--sf-text-secondary)]">{r.bucketLabel}</div>
                 <div className="px-3 py-2 text-right font-mono text-xs">{fmtMoney(r.amount)}</div>

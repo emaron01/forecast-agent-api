@@ -32,6 +32,7 @@ type RiskCategoryKey =
 type DealOut = {
   id: string;
   rep: { rep_id: string | null; rep_public_id: string | null; rep_name: string | null };
+  partner_name?: string | null;
   deal_name: { account_name: string | null; opportunity_name: string | null };
   close_date: string | null;
   crm_stage: { forecast_stage: string | null; bucket: "commit" | "best_case" | "pipeline" | null; label: string };
@@ -949,6 +950,7 @@ export function GapDrivingDealsClient(props: {
                       const crmStageLabel = String(d.crm_stage.label || "").trim() || "—";
                       const aiStageLabel = String(d.ai_verdict_stage || "").trim() || "—";
                       const repLabel = String(d.rep?.rep_name || "").trim() || "—";
+                      const partnerLabel = String(d.partner_name || "").trim();
                       return (
                         <div key={d.id} className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
                           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -956,6 +958,13 @@ export function GapDrivingDealsClient(props: {
                               <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">{title}</div>
                               <div className="mt-1 flex flex-wrap items-center gap-2 text-base text-[color:var(--sf-text-secondary)]">
                                 <span>
+                                  {partnerLabel ? (
+                                    <>
+                                      Partner Name{" "}
+                                      <span className="font-semibold text-[color:var(--sf-text-primary)]">{partnerLabel}</span>
+                                      {" · "}
+                                    </>
+                                  ) : null}
                                   Sales Rep {repLabel} · Close {fmtDateMmddyyyy(d.close_date)} · CRM Forecast Stage{" "}
                                   <span className="font-semibold text-[color:var(--sf-text-primary)]">{crmStageLabel}</span> · AI Verdict Stage{" "}
                                   <span className={["font-semibold", stageDeltaClass(crmStageLabel, aiStageLabel)].join(" ")}>{aiStageLabel}</span>
