@@ -17,6 +17,130 @@ import { ALL_HIERARCHY_LEVELS, HIERARCHY, canSeeFullOrg, isAdminLevel, isChannel
  */
 
 // -----------------------------
+// Deal review question packs
+// -----------------------------
+
+/**
+ * Normalize the category key at the DB boundary so callers can pass either:
+ * - "eb" (internal prefix) OR "economic_buyer" (canonical)
+ *
+ * DB key is always the canonical `question_definitions.category` value.
+ */
+export function normalizeQuestionCategoryKey(category: unknown) {
+  const s = String(category || "").trim();
+  if (!s) return "";
+  if (s === "eb") return "economic_buyer";
+  return s;
+}
+
+/**
+ * Fetch active question definitions for an org/category/type.
+ * - category keys must match `question_definitions.category` (e.g. economic_buyer, not eb)
+ * - criteriaId applies ONLY to rows with a min/max window; rows with NULL window always qualify
+ */
+export async function getQuestionDefinitions(
+  poolLike: Pick<{ query: PoolClient["query"] }, "query">,
+  args: { orgId: number; category: string; questionType: "base" | "clarifier"; criteriaId?: number | null }
+) {
+  const org = Number(args.orgId);
+  const cat = normalizeQuestionCategoryKey(args.category);
+  const qt = String(args.questionType || "").trim();
+  const cId = args.criteriaId == null ? null : Number(args.criteriaId);
+  if (!org) throw new Error("getQuestionDefinitions requires orgId");
+  if (!cat) throw new Error("getQuestionDefinitions requires category");
+  if (qt !== "base" && qt !== "clarifier") throw new Error("getQuestionDefinitions requires questionType base|clarifier");
+
+  const { rows } = await poolLike.query(
+    `
+    SELECT id, question_text, min_criteria_id, max_criteria_id, priority
+      FROM question_definitions
+     WHERE org_id = $1
+       AND category = $2
+       AND question_type = $3
+       AND active = TRUE
+       AND (
+         (min_criteria_id IS NULL AND max_criteria_id IS NULL)
+         OR
+         ($4::int IS NOT NULL AND min_criteria_id <= $4::int AND max_criteria_id >= $4::int)
+       )
+     ORDER BY priority ASC, id ASC
+    `,
+    [org, cat, qt, Number.isFinite(cId) ? cId : null]
+  );
+
+  if (rows && rows.length > 0) return rows;
+
+  const { rows: globalRows } = await poolLike.query(
+    `
+    SELECT id, question_text, min_criteria_id, max_criteria_id, priority
+      FROM question_definitions
+     WHERE org_id = $1
+       AND category = $2
+       AND question_type = $3
+       AND active = TRUE
+       AND (
+         (min_criteria_id IS NULL AND max_criteria_id IS NULL)
+         OR
+         ($4::int IS NOT NULL AND min_criteria_id <= $4::int AND max_criteria_id >= $4::int)
+       )
+     ORDER BY priority ASC, id ASC
+    `,
+    [1, cat, qt, Number.isFinite(cId) ? cId : null]
+  );
+
+  if (globalRows && globalRows.length > 0) {
+    console.log(
+      JSON.stringify({
+        event: "question_definitions_global_fallback",
+        org_id: org,
+        category: cat,
+        question_type: qt,
+      })
+    );
+  }
+
+  return globalRows || [];
+}
+
+/**
+ * Fetch question pack for one category.
+ * - base: all eligible base questions (ordered)
+ * - primary: first base question (or empty string if none)
+ * - clarifiers: all eligible clarifier questions (ordered)
+ */
+export async function getQuestionPack(
+  poolLike: Pick<{ query: PoolClient["query"] }, "query">,
+  args: { orgId: number; category: string; criteriaId?: number | null }
+) {
+  const bases = await getQuestionDefinitions(poolLike, {
+    orgId: args.orgId,
+    category: args.category,
+    questionType: "base",
+    criteriaId: args.criteriaId,
+  });
+  const clar = await getQuestionDefinitions(poolLike, {
+    orgId: args.orgId,
+    category: args.category,
+    questionType: "clarifier",
+    criteriaId: args.criteriaId,
+  });
+
+  const base = (bases || [])
+    .map((r: any) => String(r?.question_text || "").trim())
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const primary = base[0] || "";
+
+  const clarifiers = (clar || [])
+    .map((r: any) => String(r?.question_text || "").trim())
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  return { base, primary, clarifiers };
+}
+
+// -----------------------------
 // Zod helpers (inputs)
 // -----------------------------
 

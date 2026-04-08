@@ -4,7 +4,7 @@ import { loadScoringDiscipline, loadConversationalRules, promptHash } from "./ma
 import { buildTools } from "./tools";
 import { extractSentences } from "./voiceStreaming";
 import { handleFunctionCall } from "../../muscle.js";
-import { getQuestionPack } from "../../db.js";
+import { getQuestionPack } from "./db";
 
 export type ForecastSession = {
   orgId: number;
