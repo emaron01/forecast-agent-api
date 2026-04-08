@@ -737,6 +737,13 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
       repNames: [rep.rep_name],
       fallbackAov: rep.aov ?? 0,
     });
+    const annual = aggregateAnnualTeam(allPeriodRows ?? [], [String(rep.rep_id)]);
+    const ytdProductSummary = getProductSummary({
+      input: productsClosedWonByRepYtd,
+      repIds: [String(rep.rep_id)],
+      repNames: [rep.rep_name],
+      fallbackAov: rep.aov ?? 0,
+    });
 
     return (
       <div key={`rep:${rep.rep_id}`}>
@@ -755,6 +762,13 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           wonCount: Number(rep.won_count) || 0,
           lostCount: Number(rep.lost_count) || 0,
           lostAmount: Number((rep as RepManagerRepRow & { lost_amount?: number }).lost_amount || 0) || 0,
+          annualAovWon: annual.aovWon,
+          annualAovLost: annual.aovLost,
+          annualAovOpen: annual.aovOpen,
+          annualAvgDaysWon: annual.annualAvgDaysWon,
+          annualAvgDaysLost: annual.annualAvgDaysLost,
+          annualAvgDaysActive: annual.annualAvgDaysActive,
+          annualRepProducts: ytdProductSummary.repProducts,
           avgDaysWon: rep.avg_days_won ?? null,
           avgDaysLost: rep.avg_days_lost ?? null,
           avgDaysActive: rep.avg_days_active ?? null,
