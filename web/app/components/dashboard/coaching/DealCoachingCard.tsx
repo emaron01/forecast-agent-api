@@ -164,7 +164,7 @@ export type DealCoachingCardProps = {
   deal: DealCoachingCardDeal;
   onRequestReview?: (dealId: string) => void;
   showRequestReview?: boolean;
-  /** Channel dashboard: hide deal-review / Matthew actions. Partner still shows in the meta line when set. */
+  /** Channel dashboard: hide deal-review / Matthew actions. Partner Name follows AI Verdict Stage in the meta line when set. */
   channelDashboard?: boolean;
 };
 
@@ -192,6 +192,8 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
             <span>
               Sales Rep {repLabel} · Close {fmtDateMmddyyyy(props.deal.close_date)} · CRM Forecast Stage{" "}
               <span className="font-semibold text-[color:var(--sf-text-primary)]">{crmStageLabel}</span>
+              {" · AI Verdict Stage "}
+              <span className={["font-semibold", stageDeltaClass(crmStageLabel, aiStageLabel)].join(" ")}>{aiStageLabel}</span>
               {partnerLabel ? (
                 <>
                   {" "}
@@ -199,8 +201,6 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
                   <span className="font-semibold text-[color:var(--sf-text-primary)]">{partnerLabel}</span>
                 </>
               ) : null}
-              {" · AI Verdict Stage "}
-              <span className={["font-semibold", stageDeltaClass(crmStageLabel, aiStageLabel)].join(" ")}>{aiStageLabel}</span>
               {props.deal.health.suppression ? " · Suppressed Best Case (low score)" : ""}
             </span>
             {(props.deal.crm_stage.bucket === "commit" || props.deal.ai_verdict_stage === "Commit") && props.deal.commit_admission_status === "not_admitted" ? (
