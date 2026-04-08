@@ -3674,10 +3674,6 @@ export function ExecutiveGapInsightsClient(props: {
               <PartnerMotionPerformanceSection
                 engine={partnersDecisionEngine}
                 outerClass=""
-                motionGridClass="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4"
-                motionCardClass="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3"
-                comparisonRowClass="mt-4 grid gap-3 lg:grid-cols-2"
-                comparisonCardClass="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4"
                 ceiRowClass="mt-4 grid gap-3 lg:grid-cols-3"
                 ceiCardClass="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4"
                 ratioCardClass="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4"
@@ -5010,10 +5006,6 @@ export function ExecutiveGapInsightsClient(props: {
             <PartnerMotionPerformanceSection
               engine={partnersDecisionEngine}
               outerClass=""
-              motionGridClass="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
-              motionCardClass="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
-              comparisonRowClass="mt-4 grid gap-3 lg:grid-cols-2"
-              comparisonCardClass="h-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
               ceiRowClass="mt-4 grid gap-3 lg:grid-cols-3"
               ceiCardClass="rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm"
               ratioCardClass="h-fit self-start rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4"

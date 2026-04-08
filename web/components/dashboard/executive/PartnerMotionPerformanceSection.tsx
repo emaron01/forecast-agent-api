@@ -32,16 +32,13 @@ export type PartnerMotionDecisionEngine = {
   cei_prev_partner_sourced_index: number | null;
 };
 
+const COLOR_DIRECT = "#378ADD";
+const COLOR_INFLUENCED = "#1D9E75";
+const COLOR_SOURCED = "#7F77DD";
+
 function fmtPct01(n: number | null) {
   if (n == null || !Number.isFinite(n)) return "—";
   return `${Math.round(n * 100)}%`;
-}
-
-function perfColor(value: number | null): string {
-  if (value == null) return "text-[color:var(--sf-text-primary)]";
-  if (value >= 0.8) return "text-green-400";
-  if (value >= 0.5) return "text-yellow-400";
-  return "text-red-400";
 }
 
 function clamp01(v: number) {
@@ -84,133 +81,45 @@ function fmtCEIDisplay(n: number) {
   return Math.round(n).toLocaleString("en-US");
 }
 
-function highlightAmong3(value: number | null, a: number | null, b: number | null, c: number | null) {
-  if (value == null) return "";
-  const xs = [a, b, c].filter((x): x is number => x != null && Number.isFinite(x));
-  if (xs.length < 2) return "";
-  const max = Math.max(...xs);
-  const min = Math.min(...xs);
-  const denom = Math.max(Math.abs(max), Math.abs(min));
-  if (denom <= 0) return "";
-  if (Math.abs(max - min) / denom <= 0.05) return "";
-  if (value === max) return "text-[#16A34A]";
-  if (value === min) return "text-[#E74C3C]";
-  return "";
-}
-
-/** Lower is better (e.g. cycle days): best (min) = green, worst (max) = red. */
-function highlightAmong3LowerBetter(value: number | null, a: number | null, b: number | null, c: number | null) {
-  return highlightAmong3(value == null ? null : -value, a == null ? null : -a, b == null ? null : -b, c == null ? null : -c);
-}
-
 function fmtAgeDaysCell(n: number | null) {
   if (n == null || !Number.isFinite(n)) return "—";
   return `${Math.round(n)} days`;
 }
 
-function fmtAgeDeltaDays(d: number | null) {
-  if (d == null || !Number.isFinite(d)) return "—";
-  const r = Math.round(Math.abs(d));
-  if (d > 0) return `+${r} days`;
-  if (d < 0) return `-${r} days`;
-  return "0 days";
+/** Max of finite numbers; null if none. */
+function maxOf(vals: (number | null)[]): number | null {
+  const xs = vals.filter((x): x is number => x != null && Number.isFinite(x));
+  if (!xs.length) return null;
+  return Math.max(...xs);
 }
 
-function ComparisonBlock(props: {
-  title: string;
-  directWin: number | null;
-  otherWin: number | null;
-  directHealth01: number | null;
-  otherHealth01: number | null;
-  directAvgAgeDays: number | null;
-  otherAvgAgeDays: number | null;
-  directRev: number | null;
-  otherRev: number | null;
-  directMix: number | null;
-  otherMix: number | null;
-  className?: string;
-}) {
-  const deltaTone = (d: number | null) =>
-    d == null || !Number.isFinite(d)
-      ? "text-[color:var(--sf-text-disabled)]"
-      : d > 0
-        ? "text-[#16A34A]"
-        : d < 0
-          ? "text-[#E74C3C]"
-          : "text-[color:var(--sf-text-primary)]";
-  /** other − direct; positive = partner slower (worse) → red */
-  const deltaAgeTone = (d: number | null) =>
-    d == null || !Number.isFinite(d)
-      ? "text-[color:var(--sf-text-disabled)]"
-      : d > 0
-        ? "text-[#E74C3C]"
-        : d < 0
-          ? "text-[#16A34A]"
-          : "text-[color:var(--sf-text-primary)]";
-  const fmtPp = (d01: number | null) => {
-    if (d01 == null || !Number.isFinite(d01)) return "—";
-    const pp = d01 * 100;
-    const abs = Math.abs(pp);
-    const txt = `${Math.round(abs)}pp`;
-    return `${pp > 0 ? "+" : pp < 0 ? "-" : ""}${txt}`;
-  };
-  const fmtMoneyKSigned = (d: number | null) => {
-    if (d == null || !Number.isFinite(d)) return "—";
-    const k = Math.round(Math.abs(d) / 1000);
-    const txt = `$${k.toLocaleString("en-US")}K`;
-    return `${d > 0 ? "+" : d < 0 ? "-" : ""}${txt}`;
-  };
-  const dWin = props.directWin == null || props.otherWin == null ? null : props.otherWin - props.directWin;
-  const dHealth = props.directHealth01 == null || props.otherHealth01 == null ? null : props.otherHealth01 - props.directHealth01;
-  const dAge =
-    props.directAvgAgeDays == null || props.otherAvgAgeDays == null ? null : props.otherAvgAgeDays - props.directAvgAgeDays;
-  const dRev = props.directRev == null || props.otherRev == null ? null : props.otherRev - props.directRev;
-  const dMix = props.directMix == null || props.otherMix == null ? null : props.otherMix - props.directMix;
+/** Bar width 0–100; scales each value to the row max (longest bar = largest value). For avg age, larger value = worse — same formula yields shortest bar for best (lowest days). */
+function barPctToRowMax(v: number | null, maxVal: number | null): number {
+  if (v == null || !Number.isFinite(v) || maxVal == null || maxVal <= 0) return 0;
+  return Math.min(100, Math.max(0, (v / maxVal) * 100));
+}
 
-  const inner = (
-    <div className="mt-3 grid gap-2 text-[12px] leading-[1.5] text-[color:var(--sf-text-secondary)]">
-      <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-        <span>Win Rate</span>
-        <span className={["font-mono text-[12px] font-semibold leading-[1.5]", deltaTone(dWin)].join(" ")}>{fmtPp(dWin)}</span>
-      </div>
-      <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-        <span>Avg Health</span>
-        <span className={["font-mono text-[12px] font-semibold leading-[1.5]", deltaTone(dHealth)].join(" ")}>{fmtPp(dHealth)}</span>
-      </div>
-      <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-        <span>Avg Age</span>
-        <span className={["font-mono text-[12px] font-semibold leading-[1.5]", deltaAgeTone(dAge)].join(" ")}>{fmtAgeDeltaDays(dAge)}</span>
-      </div>
-      <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-        <span>Revenue</span>
-        <span className={["font-mono text-[12px] font-semibold leading-[1.5]", deltaTone(dRev)].join(" ")}>{fmtMoneyKSigned(dRev)}</span>
-      </div>
-      <div className="grid grid-cols-[1fr_auto] items-center gap-4">
-        <span>Mix</span>
-        <span className={["font-mono text-[12px] font-semibold leading-[1.5]", deltaTone(dMix)].join(" ")}>{fmtPp(dMix)}</span>
-      </div>
+function MotionBar(props: { pct: number; fill: string }) {
+  return (
+    <div className="h-2 w-full overflow-hidden rounded-sm bg-[color:var(--sf-surface-alt)]" aria-hidden>
+      <div className="h-2 rounded-sm transition-[width] duration-150" style={{ width: `${props.pct}%`, backgroundColor: props.fill }} />
     </div>
   );
+}
 
+function MetricCell(props: { display: string; pct: number; fill: string }) {
   return (
-    <div className={props.className}>
-      <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{props.title}</div>
-      {inner}
+    <div className="flex min-w-0 flex-col gap-1">
+      <div className="font-mono text-[13px] font-semibold leading-snug text-[color:var(--sf-text-primary)]">{props.display}</div>
+      <MotionBar pct={props.pct} fill={props.fill} />
     </div>
   );
 }
 
 export function PartnerMotionPerformanceSection(props: {
   engine: PartnerMotionDecisionEngine;
-  /** Card shell for each motion metric column */
-  motionCardClass: string;
-  /** Title + motion grid wrapper */
+  /** Title + snapshot + CEI wrapper */
   outerClass: string;
-  /** Grid for the three motion columns */
-  motionGridClass: string;
-  /** Row: two comparison blocks */
-  comparisonRowClass: string;
-  comparisonCardClass: string;
   /** Row: CEI direct, CEI sourced, ratio/status */
   ceiRowClass: string;
   ceiCardClass: string;
@@ -241,11 +150,17 @@ export function PartnerMotionPerformanceSection(props: {
   const infMix = e.partnerInfluencedMix;
   const srcMix = e.partnerSourcedMix;
 
-  const rows = [
-    { k: "Direct", win: directWin, health: directHealth01, ageDays: directAge, rev: directRev, mix: directMix },
-    { k: "Partner Influenced", win: infWin, health: infHealth01, ageDays: infAge, rev: infRev, mix: infMix },
-    { k: "Partner Sourced", win: srcWin, health: srcHealth01, ageDays: srcAge, rev: srcRev, mix: srcMix },
-  ] as const;
+  const wins = [directWin, infWin, srcWin] as const;
+  const healths = [directHealth01, infHealth01, srcHealth01] as const;
+  const revs = [directRev, infRev, srcRev] as const;
+  const mixes = [directMix, infMix, srcMix] as const;
+  const ages = [directAge, infAge, srcAge] as const;
+
+  const maxWin = maxOf([...wins]);
+  const maxHealth = maxOf([...healths]);
+  const maxRev = maxOf([...revs]);
+  const maxMix = maxOf(mixes.map((m) => (m == null ? null : Number(m))));
+  const maxAge = maxOf([...ages]);
 
   const ceiCurN = e.cei.partner_sourced_index == null ? null : Number(e.cei.partner_sourced_index);
   const ceiPrevN = e.cei_prev_partner_sourced_index == null ? null : Number(e.cei_prev_partner_sourced_index);
@@ -279,104 +194,99 @@ export function PartnerMotionPerformanceSection(props: {
           ? { label: "Declining", arrow: "↓", tone: "bad" as const }
           : { label: "Stable", arrow: "→", tone: "muted" as const };
 
+  const gridCols = "grid grid-cols-[minmax(8.5rem,1.05fr)_repeat(3,minmax(0,1fr))] gap-x-3 gap-y-3";
+
   return (
     <div className={props.outerClass}>
       <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Motion Performance Snapshot</div>
-      <div className={props.motionGridClass}>
-        {rows.map((row) => (
-          <div key={row.k} className={props.motionCardClass}>
-            <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{row.k}</div>
-            <div className="mt-3 flex flex-col gap-1.5 text-[12px] leading-[1.5] text-[color:var(--sf-text-secondary)]">
-              <div className="flex items-center justify-between gap-2">
-                <span>Win Rate</span>
-                <span
-                  className={[
-                    "font-mono text-[12px] font-semibold leading-[1.5]",
-                    perfColor(row.win),
-                  ].join(" ")}
-                >
-                  {row.win == null ? "—" : fmtPct01(row.win)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span>Avg Health</span>
-                <span
-                  className={[
-                    "font-mono text-[12px] font-semibold leading-[1.5]",
-                    perfColor(row.health),
-                  ].join(" ")}
-                >
-                  {row.health == null ? "—" : `${Math.round(row.health * 100)}%`}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span>Avg Age</span>
-                <span
-                  className={[
-                    "font-mono text-[12px] font-semibold leading-[1.5] text-[color:var(--sf-text-primary)]",
-                    highlightAmong3LowerBetter(row.ageDays, directAge, infAge, srcAge),
-                  ].join(" ")}
-                >
-                  {fmtAgeDaysCell(row.ageDays)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span>Revenue</span>
-                <span
-                  className={[
-                    "font-mono text-[12px] font-semibold leading-[1.5] text-[color:var(--sf-text-primary)]",
-                    highlightAmong3(row.rev, directRev, infRev, srcRev),
-                  ].join(" ")}
-                >
-                  {fmtMoneyK(row.rev)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span>Mix</span>
-                <span
-                  className={[
-                    "font-mono text-[12px] font-semibold leading-[1.5] text-[color:var(--sf-text-primary)]",
-                    highlightAmong3(row.mix, directMix, infMix, srcMix),
-                  ].join(" ")}
-                >
-                  {row.mix == null ? "—" : fmtPct01(row.mix)}
-                </span>
-              </div>
+
+      <div className="mt-4 overflow-x-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+        <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px] leading-snug" aria-label="Motion legend">
+          <span className="inline-flex items-center gap-2 text-[color:var(--sf-text-secondary)]">
+            <span className="h-2 w-4 shrink-0 rounded-sm" style={{ backgroundColor: COLOR_DIRECT }} />
+            <span style={{ color: COLOR_DIRECT }}>Direct</span>
+          </span>
+          <span className="inline-flex items-center gap-2 text-[color:var(--sf-text-secondary)]">
+            <span className="h-2 w-4 shrink-0 rounded-sm" style={{ backgroundColor: COLOR_INFLUENCED }} />
+            <span style={{ color: COLOR_INFLUENCED }}>Partner influenced</span>
+          </span>
+          <span className="inline-flex items-center gap-2 text-[color:var(--sf-text-secondary)]">
+            <span className="h-2 w-4 shrink-0 rounded-sm" style={{ backgroundColor: COLOR_SOURCED }} />
+            <span style={{ color: COLOR_SOURCED }}>Partner sourced</span>
+          </span>
+        </div>
+
+        <div className="min-w-[280px]" role="table" aria-label="Motion performance by channel">
+          <div role="row" className={`${gridCols} border-b border-[color:var(--sf-border)] pb-3`}>
+            <div role="columnheader" className="min-w-0" />
+            <div role="columnheader" className="min-w-0 text-center text-[13px] font-semibold" style={{ color: COLOR_DIRECT }}>
+              Direct
+            </div>
+            <div role="columnheader" className="min-w-0 text-center text-[13px] font-semibold" style={{ color: COLOR_INFLUENCED }}>
+              Partner influenced
+            </div>
+            <div role="columnheader" className="min-w-0 text-center text-[13px] font-semibold" style={{ color: COLOR_SOURCED }}>
+              Partner sourced
             </div>
           </div>
-        ))}
-      </div>
 
-      <div className={props.comparisonRowClass}>
-        <div className={props.comparisonCardClass}>
-          <ComparisonBlock
-            title="Partner Sourced vs Direct"
-            directWin={directWin}
-            otherWin={srcWin}
-            directHealth01={directHealth01}
-            otherHealth01={srcHealth01}
-            directAvgAgeDays={directAge}
-            otherAvgAgeDays={srcAge}
-            directRev={directRev}
-            otherRev={srcRev}
-            directMix={directMix}
-            otherMix={srcMix}
-          />
-        </div>
-        <div className={props.comparisonCardClass}>
-          <ComparisonBlock
-            title="Influenced vs Direct"
-            directWin={directWin}
-            otherWin={infWin}
-            directHealth01={directHealth01}
-            otherHealth01={infHealth01}
-            directAvgAgeDays={directAge}
-            otherAvgAgeDays={infAge}
-            directRev={directRev}
-            otherRev={infRev}
-            directMix={directMix}
-            otherMix={infMix}
-          />
+          <div role="row" className={`${gridCols} pt-3`}>
+            <div role="rowheader" className="text-[13px] font-medium text-[color:var(--sf-text-secondary)]">
+              Win rate
+            </div>
+            <MetricCell display={directWin == null ? "—" : fmtPct01(directWin)} pct={barPctToRowMax(directWin, maxWin)} fill={COLOR_DIRECT} />
+            <MetricCell display={infWin == null ? "—" : fmtPct01(infWin)} pct={barPctToRowMax(infWin, maxWin)} fill={COLOR_INFLUENCED} />
+            <MetricCell display={srcWin == null ? "—" : fmtPct01(srcWin)} pct={barPctToRowMax(srcWin, maxWin)} fill={COLOR_SOURCED} />
+          </div>
+
+          <div role="row" className={`${gridCols} pt-3`}>
+            <div role="rowheader" className="text-[13px] font-medium text-[color:var(--sf-text-secondary)]">
+              Avg health
+            </div>
+            <MetricCell
+              display={directHealth01 == null ? "—" : `${Math.round(directHealth01 * 100)}%`}
+              pct={barPctToRowMax(directHealth01, maxHealth)}
+              fill={COLOR_DIRECT}
+            />
+            <MetricCell
+              display={infHealth01 == null ? "—" : `${Math.round(infHealth01 * 100)}%`}
+              pct={barPctToRowMax(infHealth01, maxHealth)}
+              fill={COLOR_INFLUENCED}
+            />
+            <MetricCell
+              display={srcHealth01 == null ? "—" : `${Math.round(srcHealth01 * 100)}%`}
+              pct={barPctToRowMax(srcHealth01, maxHealth)}
+              fill={COLOR_SOURCED}
+            />
+          </div>
+
+          <div role="row" className={`${gridCols} pt-3`}>
+            <div role="rowheader" className="min-w-0 text-[13px] font-medium text-[color:var(--sf-text-secondary)]">
+              <div>Avg age</div>
+              <div className="mt-0.5 text-[11px] font-normal normal-case leading-snug text-[color:var(--sf-text-disabled)]">Lower is better</div>
+            </div>
+            <MetricCell display={fmtAgeDaysCell(directAge)} pct={barPctToRowMax(directAge, maxAge)} fill={COLOR_DIRECT} />
+            <MetricCell display={fmtAgeDaysCell(infAge)} pct={barPctToRowMax(infAge, maxAge)} fill={COLOR_INFLUENCED} />
+            <MetricCell display={fmtAgeDaysCell(srcAge)} pct={barPctToRowMax(srcAge, maxAge)} fill={COLOR_SOURCED} />
+          </div>
+
+          <div role="row" className={`${gridCols} pt-3`}>
+            <div role="rowheader" className="text-[13px] font-medium text-[color:var(--sf-text-secondary)]">
+              Revenue
+            </div>
+            <MetricCell display={fmtMoneyK(directRev)} pct={barPctToRowMax(directRev, maxRev)} fill={COLOR_DIRECT} />
+            <MetricCell display={fmtMoneyK(infRev)} pct={barPctToRowMax(infRev, maxRev)} fill={COLOR_INFLUENCED} />
+            <MetricCell display={fmtMoneyK(srcRev)} pct={barPctToRowMax(srcRev, maxRev)} fill={COLOR_SOURCED} />
+          </div>
+
+          <div role="row" className={`${gridCols} pt-3`}>
+            <div role="rowheader" className="text-[13px] font-medium text-[color:var(--sf-text-secondary)]">
+              Mix
+            </div>
+            <MetricCell display={directMix == null ? "—" : fmtPct01(directMix)} pct={barPctToRowMax(directMix, maxMix)} fill={COLOR_DIRECT} />
+            <MetricCell display={infMix == null ? "—" : fmtPct01(infMix)} pct={barPctToRowMax(infMix, maxMix)} fill={COLOR_INFLUENCED} />
+            <MetricCell display={srcMix == null ? "—" : fmtPct01(srcMix)} pct={barPctToRowMax(srcMix, maxMix)} fill={COLOR_SOURCED} />
+          </div>
         </div>
       </div>
 
