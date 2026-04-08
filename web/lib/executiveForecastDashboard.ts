@@ -1840,6 +1840,111 @@ export async function getExecutiveForecastDashboardSummary(args: {
         .catch(() => [])
     : [];
 
+export async function getProductsClosedWonByRepForPeriods(args: {
+  orgId: number;
+  periodIds: string[];
+  repIds: number[];
+  useScoped: boolean;
+}): Promise<Array<{
+  rep_name: string;
+  product: string;
+  won_amount: number;
+  won_count: number;
+  avg_order_value: number;
+  avg_health_score: number | null;
+}>> {
+  if (!args.periodIds.length) return [];
+  try {
+    const { rows } = await pool.query<{
+      rep_name: string;
+      product: string;
+      won_amount: number;
+      won_count: number;
+      avg_order_value: number;
+      avg_health_score: number | null;
+    }>(
+      `
+      WITH qps AS (
+        SELECT period_start::date AS period_start, period_end::date AS period_end
+          FROM quota_periods
+         WHERE org_id = $1::bigint
+           AND id = ANY($2::bigint[])
+      ),
+      deals AS (
+        SELECT
+          COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
+          COALESCE(o.amount, 0) AS amount,
+          o.health_score,
+          o.rep_id,
+          o.rep_name,
+          lower(
+            regexp_replace(
+              COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
+              '[^a-zA-Z]+',
+              ' ',
+              'g'
+            )
+          ) AS fs,
+          CASE
+            WHEN o.close_date IS NULL THEN NULL
+            WHEN (o.close_date::text ~ '^\\\\d{4}-\\\\d{2}-\\\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+            WHEN (o.close_date::text ~ '^\\\\d{1,2}/\\\\d{1,2}/\\\\d{4}') THEN
+              to_date(substring(o.close_date::text from '^(\\\\d{1,2}/\\\\d{1,2}/\\\\d{4})'), 'FMMM/FMDD/YYYY')
+            ELSE NULL
+          END AS close_d
+        FROM opportunities o
+        WHERE o.org_id = $1
+          AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+      ),
+      deals_in_periods AS (
+        SELECT d.*
+          FROM deals d
+          JOIN qps ON d.close_d IS NOT NULL
+           AND d.close_d >= qps.period_start
+           AND d.close_d <= qps.period_end
+      ),
+      won_deals AS (
+        SELECT *
+          FROM deals_in_periods
+         WHERE ((' ' || fs || ' ') LIKE '% won %')
+      )
+      SELECT
+        COALESCE(
+          NULLIF(btrim(r.display_name), ''),
+          NULLIF(btrim(r.rep_name), ''),
+          NULLIF(btrim(r.crm_owner_name), ''),
+          NULLIF(btrim(d.rep_name), ''),
+          '(Unknown rep)'
+        ) AS rep_name,
+        d.product,
+        COALESCE(SUM(d.amount), 0)::float8 AS won_amount,
+        COUNT(*)::int AS won_count,
+        CASE WHEN COUNT(*) > 0 THEN (COALESCE(SUM(d.amount), 0)::float8 / COUNT(*)::float8) ELSE 0 END AS avg_order_value,
+        AVG(NULLIF(d.health_score, 0))::float8 AS avg_health_score
+      FROM won_deals d
+      LEFT JOIN reps r
+        ON r.id = d.rep_id
+       AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+      GROUP BY
+        COALESCE(
+          NULLIF(btrim(r.display_name), ''),
+          NULLIF(btrim(r.rep_name), ''),
+          NULLIF(btrim(r.crm_owner_name), ''),
+          NULLIF(btrim(d.rep_name), ''),
+          '(Unknown rep)'
+        ),
+        d.product
+      ORDER BY won_amount DESC, rep_name ASC, product ASC
+      LIMIT 500
+      `,
+      [args.orgId, args.periodIds, args.repIds, args.useScoped]
+    );
+    return (rows || []) as any[];
+  } catch {
+    return [];
+  }
+}
+
   const stageProbabilities = await getForecastStageProbabilities({ orgId: args.orgId }).catch(() => ({
     commit: 0.8,
     best_case: 0.325,
