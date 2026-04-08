@@ -177,6 +177,8 @@ export type CommitDealPanelItem = {
   id: string;
   account: string | null;
   name: string | null;
+  /** From `opportunities.partner_name` (CRM channel / partner field). */
+  partner_name: string | null;
   amount: number;
   crmBucket: string | null;
   ai_forecast: "Commit" | "Best Case" | "Pipeline" | null;
@@ -223,6 +225,7 @@ export async function getCommitAdmissionDealPanels(args: {
           o.public_id::text AS id,
           o.account_name,
           o.opportunity_name,
+          NULLIF(btrim(o.partner_name), '') AS partner_name,
           COALESCE(o.amount, 0)::float8 AS amount,
           o.forecast_stage,
           o.sales_stage,
@@ -255,6 +258,7 @@ export async function getCommitAdmissionDealPanels(args: {
         id,
         account_name,
         opportunity_name,
+        partner_name,
         amount,
         forecast_stage,
         sales_stage,
@@ -313,6 +317,7 @@ export async function getCommitAdmissionDealPanels(args: {
       id: String((row as any).id || "").trim() || "",
       account: String((row as any).account_name || "").trim() || null,
       name: String((row as any).opportunity_name || "").trim() || null,
+      partner_name: String((row as any).partner_name || "").trim() || null,
       amount: n0(row.amount),
       crmBucket,
       ai_forecast: toOpenStage(aiForecast),

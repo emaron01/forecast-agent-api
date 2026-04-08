@@ -516,6 +516,12 @@ function CommitIntegrityDealCard(props: {
                 }`}
           </span>
         </div>
+        {d.partner_name ? (
+          <div className="mt-0.5 truncate text-[10px] text-[color:var(--sf-text-secondary)]">
+            Partner Name{" "}
+            <span className="font-semibold text-[color:var(--sf-text-primary)]">{d.partner_name}</span>
+          </div>
+        ) : null}
       </>
     ) : (
       <>
@@ -544,6 +550,12 @@ function CommitIntegrityDealCard(props: {
             </span>
           ))}
         </div>
+        {d.partner_name ? (
+          <div className="mt-0.5 truncate text-[10px] text-[color:var(--sf-text-secondary)]">
+            Partner Name{" "}
+            <span className="font-semibold text-[color:var(--sf-text-primary)]">{d.partner_name}</span>
+          </div>
+        ) : null}
       </>
     );
 
