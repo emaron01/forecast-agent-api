@@ -8,8 +8,10 @@ import {
   isCommitAdmissionApplicable,
   type CommitAdmissionStatus,
 } from "../../../../lib/commitAdmission";
+import { getChannelTerritoryRepIds } from "../../../../lib/channelTerritoryScope";
 import { getScopedRepDirectory } from "../../../../lib/repScope";
 import { computeAiForecastFromHealthScore, toOpenStage } from "../../../../lib/aiForecast";
+import { isAdmin, isChannelRep } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -91,8 +93,21 @@ export async function GET(req: Request) {
     });
     const allowedRepIds = scope.allowedRepIds; // null => admin (no filter)
 
+    const channelTerritoryScope =
+      !isAdmin(auth.user) && isChannelRep(auth.user)
+        ? await getChannelTerritoryRepIds({
+            orgId: auth.user.org_id,
+            channelUserId: auth.user.id,
+          }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }))
+        : { repIds: [] as number[], partnerNames: [] as string[] };
+
+    const useChannelAssignmentScope =
+      !isAdmin(auth.user) &&
+      isChannelRep(auth.user) &&
+      (channelTerritoryScope.repIds.length > 0 || channelTerritoryScope.partnerNames.length > 0);
+
     // If we can't resolve a scope for a non-admin, return no deals (fail closed).
-    if (allowedRepIds !== null && (!allowedRepIds.length || !Number.isFinite(allowedRepIds[0] as any))) {
+    if (!useChannelAssignmentScope && allowedRepIds !== null && (!allowedRepIds.length || !Number.isFinite(allowedRepIds[0] as any))) {
       return NextResponse.json({ ok: true, deals: [] });
     }
 
@@ -142,8 +157,28 @@ export async function GET(req: Request) {
     let p = 1;
     const where: string[] = [`o.org_id = $1`];
 
-    // Visibility scoping (ADMIN sees all; everyone else is scoped by allowed rep IDs).
-    if (allowedRepIds !== null) {
+    // Visibility:
+    // - CHANNEL_REP with territory/partner assignments: same OR model as channel dashboard
+    //   (`channel_territory_alignments` → rep ids, `partner_channel_assignments` → partner names).
+    // - Otherwise: ADMIN sees all; everyone else scoped by allowed rep IDs from getScopedRepDirectory.
+    if (useChannelAssignmentScope) {
+      const repIds = channelTerritoryScope.repIds.filter((id) => Number.isFinite(id) && id > 0);
+      const partnerNames = channelTerritoryScope.partnerNames;
+      const repLen = repIds.length;
+      const partnerLen = partnerNames.length;
+      params.push(repIds);
+      const repIdsParam = ++p;
+      params.push(partnerNames);
+      const partnerNamesParam = ++p;
+      params.push(repLen);
+      const repLenParam = ++p;
+      params.push(partnerLen);
+      const partnerLenParam = ++p;
+      where.push(`(
+        ($${repLenParam}::int > 0 AND o.rep_id IS NOT NULL AND o.rep_id = ANY($${repIdsParam}::bigint[]))
+        OR ($${partnerLenParam}::int > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($${partnerNamesParam}::text[]))
+      )`);
+    } else if (allowedRepIds !== null) {
       params.push(allowedRepIds);
       where.push(`o.rep_id IS NOT NULL`);
       where.push(`o.rep_id = ANY($${++p}::bigint[])`);
