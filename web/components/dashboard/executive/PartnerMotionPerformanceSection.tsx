@@ -168,26 +168,26 @@ function ComparisonBlock(props: {
   const dMix = props.directMix == null || props.otherMix == null ? null : props.otherMix - props.directMix;
 
   const inner = (
-    <div className="mt-3 grid gap-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+    <div className="mt-3 grid gap-2 text-[12px] leading-[1.5] text-[color:var(--sf-text-secondary)]">
       <div className="grid grid-cols-[1fr_auto] items-center gap-4">
         <span>Win Rate</span>
-        <span className={["font-mono text-xs font-semibold", deltaTone(dWin)].join(" ")}>{fmtPp(dWin)}</span>
+        <span className={["font-mono text-[12px] font-semibold leading-[1.5]", deltaTone(dWin)].join(" ")}>{fmtPp(dWin)}</span>
       </div>
       <div className="grid grid-cols-[1fr_auto] items-center gap-4">
         <span>Avg Health</span>
-        <span className={["font-mono text-xs font-semibold", deltaTone(dHealth)].join(" ")}>{fmtPp(dHealth)}</span>
+        <span className={["font-mono text-[12px] font-semibold leading-[1.5]", deltaTone(dHealth)].join(" ")}>{fmtPp(dHealth)}</span>
       </div>
       <div className="grid grid-cols-[1fr_auto] items-center gap-4">
         <span>Avg Age</span>
-        <span className={["font-mono text-xs font-semibold", deltaAgeTone(dAge)].join(" ")}>{fmtAgeDeltaDays(dAge)}</span>
+        <span className={["font-mono text-[12px] font-semibold leading-[1.5]", deltaAgeTone(dAge)].join(" ")}>{fmtAgeDeltaDays(dAge)}</span>
       </div>
       <div className="grid grid-cols-[1fr_auto] items-center gap-4">
         <span>Revenue</span>
-        <span className={["font-mono text-xs font-semibold", deltaTone(dRev)].join(" ")}>{fmtMoneyKSigned(dRev)}</span>
+        <span className={["font-mono text-[12px] font-semibold leading-[1.5]", deltaTone(dRev)].join(" ")}>{fmtMoneyKSigned(dRev)}</span>
       </div>
       <div className="grid grid-cols-[1fr_auto] items-center gap-4">
         <span>Mix</span>
-        <span className={["font-mono text-xs font-semibold", deltaTone(dMix)].join(" ")}>{fmtPp(dMix)}</span>
+        <span className={["font-mono text-[12px] font-semibold leading-[1.5]", deltaTone(dMix)].join(" ")}>{fmtPp(dMix)}</span>
       </div>
     </div>
   );
@@ -286,56 +286,56 @@ export function PartnerMotionPerformanceSection(props: {
         {rows.map((row) => (
           <div key={row.k} className={props.motionCardClass}>
             <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{row.k}</div>
-            <div className="mt-3 text-[11px] text-[color:var(--sf-text-secondary)]">
-              <div className="flex items-center justify-between gap-2 mt-1">
+            <div className="mt-3 flex flex-col gap-1.5 text-[12px] leading-[1.5] text-[color:var(--sf-text-secondary)]">
+              <div className="flex items-center justify-between gap-2">
                 <span>Win Rate</span>
                 <span
                   className={[
-                    "font-mono text-xs font-semibold",
+                    "font-mono text-[12px] font-semibold leading-[1.5]",
                     perfColor(row.win),
                   ].join(" ")}
                 >
                   {row.win == null ? "—" : fmtPct01(row.win)}
                 </span>
               </div>
-              <div className="flex items-center justify-between gap-2 mt-1">
+              <div className="flex items-center justify-between gap-2">
                 <span>Avg Health</span>
                 <span
                   className={[
-                    "font-mono text-xs font-semibold",
+                    "font-mono text-[12px] font-semibold leading-[1.5]",
                     perfColor(row.health),
                   ].join(" ")}
                 >
                   {row.health == null ? "—" : `${Math.round(row.health * 100)}%`}
                 </span>
               </div>
-              <div className="flex items-center justify-between gap-2 mt-1">
+              <div className="flex items-center justify-between gap-2">
                 <span>Avg Age</span>
                 <span
                   className={[
-                    "font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]",
+                    "font-mono text-[12px] font-semibold leading-[1.5] text-[color:var(--sf-text-primary)]",
                     highlightAmong3LowerBetter(row.ageDays, directAge, infAge, srcAge),
                   ].join(" ")}
                 >
                   {fmtAgeDaysCell(row.ageDays)}
                 </span>
               </div>
-              <div className="flex items-center justify-between gap-2 mt-1">
+              <div className="flex items-center justify-between gap-2">
                 <span>Revenue</span>
                 <span
                   className={[
-                    "font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]",
+                    "font-mono text-[12px] font-semibold leading-[1.5] text-[color:var(--sf-text-primary)]",
                     highlightAmong3(row.rev, directRev, infRev, srcRev),
                   ].join(" ")}
                 >
                   {fmtMoneyK(row.rev)}
                 </span>
               </div>
-              <div className="flex items-center justify-between gap-2 mt-1">
+              <div className="flex items-center justify-between gap-2">
                 <span>Mix</span>
                 <span
                   className={[
-                    "font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]",
+                    "font-mono text-[12px] font-semibold leading-[1.5] text-[color:var(--sf-text-primary)]",
                     highlightAmong3(row.mix, directMix, infMix, srcMix),
                   ].join(" ")}
                 >
@@ -382,43 +382,43 @@ export function PartnerMotionPerformanceSection(props: {
 
       <div className={props.ceiRowClass}>
         <div className={props.ceiCardClass}>
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CEI – Direct</div>
+          <div className="text-[12px] font-semibold uppercase tracking-wide leading-[1.5] text-[color:var(--sf-text-secondary)]">CEI – Direct</div>
           <div className="mt-2 font-mono text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtCEIDisplay(e.cei.direct_raw)}</div>
-          <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+          <div className="mt-2 text-[12px] leading-[1.5] text-[color:var(--sf-text-secondary)]">
             Based on {directWonDeals.toLocaleString("en-US")} direct closed-won deal(s).
           </div>
         </div>
 
         <div className={props.ceiCardClass}>
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">CEI – Partner Sourced Only</div>
+          <div className="text-[12px] font-semibold uppercase tracking-wide leading-[1.5] text-[color:var(--sf-text-secondary)]">CEI – Partner Sourced Only</div>
           <div className="mt-2 font-mono text-lg font-semibold text-[color:var(--sf-text-primary)]">{fmtCEIDisplay(e.cei.sourced_raw)}</div>
-          <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+          <div className="mt-2 text-[12px] leading-[1.5] text-[color:var(--sf-text-secondary)]">
             Based on {sourcedWon.toLocaleString("en-US")} partner sourced closed-won deal(s).
           </div>
         </div>
 
         <div className={props.ratioCardClass}>
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Partner Sourced CEI / Direct CEI</div>
-          <div className="mt-2 text-sm text-[color:var(--sf-text-primary)]">
-            <div className="font-mono text-base font-semibold">
+          <div className="text-[12px] font-semibold uppercase tracking-wide leading-[1.5] text-[color:var(--sf-text-secondary)]">Partner Sourced CEI / Direct CEI</div>
+          <div className="mt-2 text-[12px] leading-[1.5] text-[color:var(--sf-text-primary)]">
+            <div className="font-mono text-base font-semibold leading-[1.5]">
               {ceiCurN == null ? "—" : `${Math.round(ceiCurN).toLocaleString("en-US")}%`}{" "}
-              <span className="text-[11px] font-normal text-[color:var(--sf-text-secondary)]">(Direct = 100)</span>
+              <span className="text-[12px] font-normal leading-[1.5] text-[color:var(--sf-text-secondary)]">(Direct = 100)</span>
             </div>
             <div className="mt-3 flex items-center justify-between gap-2">
               <span className="text-[color:var(--sf-text-secondary)]">CEI Status</span>
-              <span className={["inline-flex min-w-[110px] items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold", pillToneClass(status.tone)].join(" ")}>
+              <span className={["inline-flex min-w-[110px] items-center justify-center rounded-full border px-3 py-1 text-[12px] font-semibold leading-[1.5]", pillToneClass(status.tone)].join(" ")}>
                 {status.label}
               </span>
             </div>
             <div className="mt-2 flex items-center justify-between gap-2">
               <span className="text-[color:var(--sf-text-secondary)]">Confidence</span>
-              <span className="font-mono font-semibold">{confBand}</span>
+              <span className="font-mono text-[12px] font-semibold leading-[1.5]">{confBand}</span>
             </div>
             <div className="mt-2 flex items-center justify-between gap-2">
               <span className="text-[color:var(--sf-text-secondary)]">Trend</span>
               <span
                 className={[
-                  "flex items-center gap-1 font-mono font-semibold",
+                  "flex items-center gap-1 font-mono text-[12px] font-semibold leading-[1.5]",
                   trend.tone === "good" ? "text-[#16A34A]" : trend.tone === "bad" ? "text-[#E74C3C]" : "text-[color:var(--sf-text-secondary)]",
                 ].join(" ")}
               >
