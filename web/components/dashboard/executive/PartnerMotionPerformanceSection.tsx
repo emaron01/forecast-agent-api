@@ -109,7 +109,7 @@ function MotionBar(props: { pct: number; fill: string }) {
 
 function MetricCell(props: { display: string; pct: number; fill: string }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1">
+    <div className="flex w-full min-w-0 flex-col gap-1 text-left">
       <div className="font-mono text-[13px] font-semibold leading-snug text-[color:var(--sf-text-primary)]">{props.display}</div>
       <MotionBar pct={props.pct} fill={props.fill} />
     </div>
@@ -194,7 +194,7 @@ export function PartnerMotionPerformanceSection(props: {
           ? { label: "Declining", arrow: "↓", tone: "bad" as const }
           : { label: "Stable", arrow: "→", tone: "muted" as const };
 
-  const gridCols = "grid grid-cols-[minmax(8.5rem,1.05fr)_repeat(3,minmax(0,1fr))] gap-x-3 gap-y-3";
+  const gridCols = "grid w-full grid-cols-[140px_1fr_1fr_1fr] gap-x-3 gap-y-3";
 
   return (
     <div className={props.outerClass}>
@@ -216,9 +216,9 @@ export function PartnerMotionPerformanceSection(props: {
           </span>
         </div>
 
-        <div className="min-w-[280px]" role="table" aria-label="Motion performance by channel">
+        <div className="w-full min-w-0" role="table" aria-label="Motion performance by channel">
           <div role="row" className={`${gridCols} border-b border-[color:var(--sf-border)] pb-3`}>
-            <div role="columnheader" className="min-w-0" />
+            <div role="columnheader" className="w-[140px] shrink-0" />
             <div role="columnheader" className="min-w-0 text-center text-[13px] font-semibold" style={{ color: COLOR_DIRECT }}>
               Direct
             </div>
@@ -231,7 +231,7 @@ export function PartnerMotionPerformanceSection(props: {
           </div>
 
           <div role="row" className={`${gridCols} pt-3`}>
-            <div role="rowheader" className="text-[13px] font-medium text-[color:var(--sf-text-secondary)]">
+            <div role="rowheader" className="w-[140px] shrink-0 text-left text-[13px] font-medium text-[color:var(--sf-text-secondary)]">
               Win rate
             </div>
             <MetricCell display={directWin == null ? "—" : fmtPct01(directWin)} pct={barPctToRowMax(directWin, maxWin)} fill={COLOR_DIRECT} />
@@ -240,7 +240,7 @@ export function PartnerMotionPerformanceSection(props: {
           </div>
 
           <div role="row" className={`${gridCols} pt-3`}>
-            <div role="rowheader" className="text-[13px] font-medium text-[color:var(--sf-text-secondary)]">
+            <div role="rowheader" className="w-[140px] shrink-0 text-left text-[13px] font-medium text-[color:var(--sf-text-secondary)]">
               Avg health
             </div>
             <MetricCell
@@ -261,7 +261,7 @@ export function PartnerMotionPerformanceSection(props: {
           </div>
 
           <div role="row" className={`${gridCols} pt-3`}>
-            <div role="rowheader" className="min-w-0 text-[13px] font-medium text-[color:var(--sf-text-secondary)]">
+            <div role="rowheader" className="w-[140px] shrink-0 text-left text-[13px] font-medium text-[color:var(--sf-text-secondary)]">
               <div>Avg age</div>
               <div className="mt-0.5 text-[11px] font-normal normal-case leading-snug text-[color:var(--sf-text-disabled)]">Lower is better</div>
             </div>
@@ -271,7 +271,7 @@ export function PartnerMotionPerformanceSection(props: {
           </div>
 
           <div role="row" className={`${gridCols} pt-3`}>
-            <div role="rowheader" className="text-[13px] font-medium text-[color:var(--sf-text-secondary)]">
+            <div role="rowheader" className="w-[140px] shrink-0 text-left text-[13px] font-medium text-[color:var(--sf-text-secondary)]">
               Revenue
             </div>
             <MetricCell display={fmtMoneyK(directRev)} pct={barPctToRowMax(directRev, maxRev)} fill={COLOR_DIRECT} />
@@ -280,7 +280,7 @@ export function PartnerMotionPerformanceSection(props: {
           </div>
 
           <div role="row" className={`${gridCols} pt-3`}>
-            <div role="rowheader" className="text-[13px] font-medium text-[color:var(--sf-text-secondary)]">
+            <div role="rowheader" className="w-[140px] shrink-0 text-left text-[13px] font-medium text-[color:var(--sf-text-secondary)]">
               Mix
             </div>
             <MetricCell display={directMix == null ? "—" : fmtPct01(directMix)} pct={barPctToRowMax(directMix, maxMix)} fill={COLOR_DIRECT} />
