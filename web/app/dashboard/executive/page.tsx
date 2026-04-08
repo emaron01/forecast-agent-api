@@ -5,7 +5,7 @@ import { pool } from "../../../lib/pool";
 import { getScopedRepDirectory } from "../../../lib/repScope";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
-import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
+import { getExecutiveForecastDashboardSummary, getProductsClosedWonByRepForPeriods } from "../../../lib/executiveForecastDashboard";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
 import { ExecutiveBriefingProvider } from "../../../components/dashboard/executive/ExecutiveBriefingContext";
 import { ExecutiveTabsShellClient } from "../../components/dashboard/executive/ExecutiveTabsShellClient";
@@ -1146,6 +1146,14 @@ export default async function ExecutiveDashboardPage({
   let teamManagerRows: RepManagerManagerRow[] = [];
   let teamRepsByManager = new Map<string, RepManagerRepRow[]>();
   let teamOrderedManagerIds: string[] = [];
+  let productsClosedWonByRepYtd: Array<{
+    rep_name: string;
+    product: string;
+    won_amount: number;
+    won_count: number;
+    avg_order_value: number;
+    avg_health_score: number | null;
+  }> = [];
   let repFyQuarterRows: {
     rep_id: string;
     rep_int_id: string;
@@ -1797,6 +1805,31 @@ export default async function ExecutiveDashboardPage({
     repFyQuarterRows = [];
   }
 
+  const allowedRepIds = visibleRepIds;
+  const useScoped = scope.allowedRepIds !== null && scope.allowedRepIds.length > 0;
+  try {
+    const fyPeriodIds = summary.periods
+      .filter((p) => String(p.fiscal_year) === String(summary.selectedPeriod?.fiscal_year))
+      .map((p) => String(p.id));
+
+    if (fyPeriodIds.length > 0) {
+      productsClosedWonByRepYtd = await getProductsClosedWonByRepForPeriods({
+        orgId: ctx.user.org_id,
+        periodIds: fyPeriodIds,
+        repIds: allowedRepIds,
+        useScoped,
+      }).catch(() => []);
+    } else {
+      productsClosedWonByRepYtd = Array.isArray(summary.productsClosedWonByRep)
+        ? [...(summary.productsClosedWonByRep as any[])]
+        : [];
+    }
+  } catch {
+    productsClosedWonByRepYtd = Array.isArray(summary.productsClosedWonByRep)
+      ? [...(summary.productsClosedWonByRep as any[])]
+      : [];
+  }
+
   // Determine active tab: URL param > user preference > pipeline
   const search = searchParams || {};
   const tabRaw = Array.isArray(search.tab) ? search.tab[0] : search.tab;
@@ -2015,6 +2048,7 @@ export default async function ExecutiveDashboardPage({
             periodStart: selectedPeriod?.period_start ?? "",
             periodEnd: selectedPeriod?.period_end ?? "",
             repFyQuarterRows,
+            productsClosedWonByRepYtd,
           }}
           reviewQueueDeals={reviewQueueDeals}
           currentUserId={ctx.user.id}
