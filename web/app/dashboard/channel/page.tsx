@@ -124,6 +124,8 @@ async function queryChannelLostDealsByScope(args: {
         o.partner_name
       FROM opportunities o
       WHERE o.org_id = $1::bigint
+        AND o.partner_name IS NOT NULL
+        AND btrim(o.partner_name) <> ''
         AND (
           ($6::int > 0 AND o.rep_id = ANY($2::bigint[]))
           OR ($7::int > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($3::text[]))
