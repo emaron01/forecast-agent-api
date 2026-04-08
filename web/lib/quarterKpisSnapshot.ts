@@ -232,7 +232,8 @@ async function getRepKpisByPeriods(args: {
     GROUP BY quota_period_id, rep_id
     ORDER BY quota_period_id DESC, rep_id ASC
     `,
-    [args.orgId, args.periodIds, args.repIds || [], useRepFilter, requirePartner, normalizedPartnerNames, partnerNames.length]
+    // $6 is an int (count), $7 is a text[] (names)
+    [args.orgId, args.periodIds, args.repIds || [], useRepFilter, requirePartner, partnerNames.length, normalizedPartnerNames]
   );
   return (rows || []) as any[];
 }
