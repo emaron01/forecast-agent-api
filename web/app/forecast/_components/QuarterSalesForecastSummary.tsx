@@ -2,10 +2,11 @@ import Link from "next/link";
 import { pool } from "../../../lib/pool";
 import type { AuthUser } from "../../../lib/auth";
 import { getVisibleUsers } from "../../../lib/db";
+import { getChannelTerritoryRepIds } from "../../../lib/channelTerritoryScope";
 import { getScopedRepDirectory } from "../../../lib/repScope";
 import { getForecastStageProbabilities } from "../../../lib/forecastStageProbabilities";
 import { computeSalesVsVerdictForecastSummary } from "../../../lib/forecastSummary";
-import { HIERARCHY, isChannelRep, isSalesRep } from "../../../lib/roleHelpers";
+import { HIERARCHY, isChannelRep, isChannelRole, isSalesRep } from "../../../lib/roleHelpers";
 import { ForecastPeriodFiltersClient } from "./ForecastPeriodFiltersClient";
 import { GapDrivingDealsClient } from "../../analytics/meddpicc-tb/gap-driving-deals/ui/GapDrivingDealsClient";
 import { ExportQuarterlySalesForecastExcelButton, type QuarterlySalesForecastExportData } from "./ExportQuarterlySalesForecastExcelButton";
@@ -100,6 +101,24 @@ function normalizeNameKey(s: any) {
     .toLowerCase();
 }
 
+/** Channel (6/7/8): $3 = territory rep ids, $4 = partner_channel_assignments names. Same scope shape as GET /api/forecast/gap-driving-deals; partner-attributed opps only. */
+const CHANNEL_DEALS_WHERE_SQL = `
+              AND o.partner_name IS NOT NULL
+              AND btrim(o.partner_name) <> ''
+              AND (
+                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
+                OR (COALESCE(array_length($4::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($4::text[]))
+              )`;
+
+const NON_CHANNEL_DEALS_WHERE_SQL = `
+              AND (
+                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
+                OR (
+                  COALESCE(array_length($4::text[], 1), 0) > 0
+                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+                )
+              )`;
+
 export async function QuarterSalesForecastSummary(props: {
   orgId: number;
   user: AuthUser;
@@ -176,29 +195,49 @@ export async function QuarterSalesForecastSummary(props: {
 
   const qpId = selected ? String(selected.id) : "";
 
-  const visibleUsers = await getVisibleUsers({
-    orgId: props.orgId,
-    user: props.user,
-  }).catch(() => []);
+  const isChannelRoleUser = isChannelRole(props.user);
 
-  const visibleRepUsers = (visibleUsers || []).filter(
-    (u) => u && (Number(u.hierarchy_level) === HIERARCHY.REP || Number(u.hierarchy_level) === HIERARCHY.CHANNEL_REP) && u.active
-  );
-  const visibleRepUserIds = Array.from(new Set(visibleRepUsers.map((u) => Number(u.id)).filter((n) => Number.isFinite(n) && n > 0)));
-  // Improve matching: some orgs store opp rep_name as user display_name (not account_owner_name).
-  const visibleRepNameKeys = Array.from(
-    new Set(
-      visibleRepUsers
-        .flatMap((u) => [normalizeNameKey(u.account_owner_name || ""), normalizeNameKey(u.display_name || ""), normalizeNameKey(u.email || "")])
-        .filter(Boolean)
-    )
-  );
+  const channelTerritoryScope = isChannelRoleUser
+    ? await getChannelTerritoryRepIds({
+        orgId: props.orgId,
+        channelUserId: props.user.id,
+      }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }))
+    : { repIds: [] as number[], partnerNames: [] as string[] };
 
-  // Map visible REP users -> rep ids when possible (opportunities.rep_id is reps.id).
-  const { rows: repRows } = visibleRepUserIds.length
-    ? await pool
-        .query<{ id: number; rep_name: string | null; crm_owner_name: string | null; display_name: string | null; user_id: number | null }>(
-          `
+  const channelScopeEmpty =
+    isChannelRoleUser && channelTerritoryScope.repIds.length === 0 && channelTerritoryScope.partnerNames.length === 0;
+
+  let visibleRepUserIds: number[] = [];
+  let visibleRepNameKeys: string[] = [];
+  let repIdsToUse: number[] = [];
+
+  if (isChannelRoleUser) {
+    repIdsToUse = channelTerritoryScope.repIds.filter((id) => Number.isFinite(id) && id > 0);
+    visibleRepNameKeys = [];
+  } else {
+    const visibleUsers = await getVisibleUsers({
+      orgId: props.orgId,
+      user: props.user,
+    }).catch(() => []);
+
+    const visibleRepUsers = (visibleUsers || []).filter(
+      (u) => u && (Number(u.hierarchy_level) === HIERARCHY.REP || Number(u.hierarchy_level) === HIERARCHY.CHANNEL_REP) && u.active
+    );
+    visibleRepUserIds = Array.from(new Set(visibleRepUsers.map((u) => Number(u.id)).filter((n) => Number.isFinite(n) && n > 0)));
+    // Improve matching: some orgs store opp rep_name as user display_name (not account_owner_name).
+    visibleRepNameKeys = Array.from(
+      new Set(
+        visibleRepUsers
+          .flatMap((u) => [normalizeNameKey(u.account_owner_name || ""), normalizeNameKey(u.display_name || ""), normalizeNameKey(u.email || "")])
+          .filter(Boolean)
+      )
+    );
+
+    // Map visible REP users -> rep ids when possible (opportunities.rep_id is reps.id).
+    const { rows: repRows } = visibleRepUserIds.length
+      ? await pool
+          .query<{ id: number; rep_name: string | null; crm_owner_name: string | null; display_name: string | null; user_id: number | null }>(
+            `
           SELECT r.id, r.rep_name, r.crm_owner_name, r.display_name, r.user_id
             FROM reps r
            WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
@@ -214,13 +253,14 @@ export async function QuarterSalesForecastSummary(props: {
                )
              )
           `,
-          [props.orgId, visibleRepUserIds, visibleRepNameKeys]
-        )
-        .then((r) => ({ rows: (r.rows || []) as any[] }))
-        .catch(() => ({ rows: [] as any[] }))
-    : { rows: [] as any[] };
+            [props.orgId, visibleRepUserIds, visibleRepNameKeys]
+          )
+          .then((r) => ({ rows: (r.rows || []) as any[] }))
+          .catch(() => ({ rows: [] as any[] }))
+      : { rows: [] as any[] };
 
-  const repIdsToUse = Array.from(new Set((repRows || []).map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0)));
+    repIdsToUse = Array.from(new Set((repRows || []).map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0)));
+  }
 
   const scope = await getScopedRepDirectory({
     orgId: props.orgId,
@@ -229,9 +269,37 @@ export async function QuarterSalesForecastSummary(props: {
   const allowedRepIds = scope?.allowedRepIds ?? [];
   const useScoped = scope?.allowedRepIds !== null;
 
-  const repsForGapReport: RepOption[] = await pool
-    .query<RepOption>(
-      `
+  const dealsWhereSql = isChannelRoleUser ? CHANNEL_DEALS_WHERE_SQL : NON_CHANNEL_DEALS_WHERE_SQL;
+
+  const repsForGapReport: RepOption[] = isChannelRoleUser
+    ? repIdsToUse.length > 0
+      ? await pool
+          .query<RepOption>(
+            `
+      SELECT
+        public_id::text AS public_id,
+        COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), NULLIF(btrim(crm_owner_name), ''), '(Unnamed)') AS name
+      FROM reps
+      WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
+        AND (active IS TRUE OR active IS NULL)
+        AND id = ANY($2::bigint[])
+        AND EXISTS (
+          SELECT 1
+          FROM users u
+          WHERE u.org_id = $1::bigint
+            AND u.id = reps.user_id
+            AND COALESCE(u.hierarchy_level, 99) IN ($3::int, $4::int)
+        )
+      ORDER BY name ASC, id ASC
+      `,
+            [props.orgId, repIdsToUse, HIERARCHY.REP, HIERARCHY.CHANNEL_REP]
+          )
+          .then((r) => (r.rows || []).map((x: any) => ({ public_id: String(x.public_id), name: String(x.name || "").trim() || "(Unnamed)" })))
+          .catch(() => [])
+      : []
+    : await pool
+        .query<RepOption>(
+          `
       SELECT
         public_id::text AS public_id,
         COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), NULLIF(btrim(crm_owner_name), ''), '(Unnamed)') AS name
@@ -248,10 +316,10 @@ export async function QuarterSalesForecastSummary(props: {
         AND (NOT $2::boolean OR id = ANY($3::bigint[]))
       ORDER BY name ASC, id ASC
       `,
-      [props.orgId, useScoped, Array.isArray(allowedRepIds) ? allowedRepIds : [], HIERARCHY.REP, HIERARCHY.CHANNEL_REP]
-    )
-    .then((r) => (r.rows || []).map((x: any) => ({ public_id: String(x.public_id), name: String(x.name || "").trim() || "(Unnamed)" })))
-    .catch(() => []);
+          [props.orgId, useScoped, Array.isArray(allowedRepIds) ? allowedRepIds : [], HIERARCHY.REP, HIERARCHY.CHANNEL_REP]
+        )
+        .then((r) => (r.rows || []).map((x: any) => ({ public_id: String(x.public_id), name: String(x.name || "").trim() || "(Unnamed)" })))
+        .catch(() => []);
 
   // For REP users, keep a friendly headline; for managers/admins, show a team headline.
   const repNameForHeadline =
@@ -260,7 +328,29 @@ export async function QuarterSalesForecastSummary(props: {
       : String(props.user.display_name || "").trim();
   const viewerIsRep = isSalesRep(props.user) || isChannelRep(props.user);
 
-  const canCompute = !!qpId && (repIdsToUse.length > 0 || visibleRepNameKeys.length > 0);
+  const canCompute = isChannelRoleUser
+    ? !!qpId && !channelScopeEmpty
+    : !!qpId && (repIdsToUse.length > 0 || visibleRepNameKeys.length > 0);
+
+  const opportunityScopeParams: [number[], string[]] = isChannelRoleUser
+    ? [repIdsToUse, channelTerritoryScope.partnerNames]
+    : [repIdsToUse, visibleRepNameKeys];
+
+  const debugMatchKindSql = isChannelRoleUser
+    ? `CASE
+                  WHEN o.partner_name IS NULL OR btrim(o.partner_name) = '' THEN 'no_partner'
+                  WHEN (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[])) THEN 'rep_id'
+                  WHEN (COALESCE(array_length($4::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($4::text[])) THEN 'partner_name'
+                  ELSE 'none'
+                END AS match_kind`
+    : `CASE
+                  WHEN (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[])) THEN 'rep_id'
+                  WHEN (
+                    COALESCE(array_length($4::text[], 1), 0) > 0
+                    AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
+                  ) THEN 'rep_name'
+                  ELSE 'none'
+                END AS match_kind`;
 
   type RepQuarterRollupRow = {
     rep_id: string; // may be '' when unknown
@@ -317,13 +407,7 @@ export async function QuarterSalesForecastSummary(props: {
               END AS close_d
             FROM opportunities o
             WHERE o.org_id = $1
-              AND (
-                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-                OR (
-                  COALESCE(array_length($4::text[], 1), 0) > 0
-                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-                )
-              )
+            ${dealsWhereSql}
           ),
           deals_in_qtr AS (
             SELECT d.*
@@ -451,7 +535,7 @@ export async function QuarterSalesForecastSummary(props: {
             )
           ORDER BY rep_name ASC, rep_id ASC
           `,
-          [props.orgId, qpId, repIdsToUse, visibleRepNameKeys]
+          [props.orgId, qpId, opportunityScopeParams[0], opportunityScopeParams[1]]
         )
         .then((r) => (r.rows || []) as any[])
         .catch(() => [])
@@ -490,13 +574,7 @@ export async function QuarterSalesForecastSummary(props: {
               END AS close_d
             FROM opportunities o
             WHERE o.org_id = $1
-              AND (
-                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-                OR (
-                  COALESCE(array_length($4::text[], 1), 0) > 0
-                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-                )
-              )
+            ${dealsWhereSql}
           ),
           deals_in_qtr AS (
             SELECT d.*
@@ -522,7 +600,7 @@ export async function QuarterSalesForecastSummary(props: {
           ORDER BY won_amount DESC, product ASC
           LIMIT 30
           `,
-          [props.orgId, qpId, repIdsToUse, visibleRepNameKeys]
+          [props.orgId, qpId, opportunityScopeParams[0], opportunityScopeParams[1]]
         )
         .then((r) => (r.rows || []) as any[])
         .catch(() => [])
@@ -563,13 +641,7 @@ export async function QuarterSalesForecastSummary(props: {
               END AS close_d
             FROM opportunities o
             WHERE o.org_id = $1
-              AND (
-                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-                OR (
-                  COALESCE(array_length($4::text[], 1), 0) > 0
-                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-                )
-              )
+            ${dealsWhereSql}
           ),
           deals_in_qtr AS (
             SELECT d.*
@@ -613,7 +685,7 @@ export async function QuarterSalesForecastSummary(props: {
           ORDER BY won_amount DESC, rep_name ASC, product ASC
           LIMIT 200
           `,
-          [props.orgId, qpId, repIdsToUse, visibleRepNameKeys]
+          [props.orgId, qpId, opportunityScopeParams[0], opportunityScopeParams[1]]
         )
         .then((r) => (r.rows || []) as any[])
         .catch(() => [])
@@ -688,13 +760,7 @@ export async function QuarterSalesForecastSummary(props: {
                   END AS close_d
                 FROM opportunities o
                 WHERE o.org_id = $1
-                  AND (
-                    (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-                    OR (
-                      COALESCE(array_length($4::text[], 1), 0) > 0
-                      AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-                    )
-                  )
+                ${dealsWhereSql}
               ),
               deals_in_qtr AS (
                 SELECT d.*
@@ -760,7 +826,7 @@ export async function QuarterSalesForecastSummary(props: {
                 COALESCE(SUM(CASE WHEN crm_bucket = 'pipeline' THEN amount * health_modifier ELSE 0 END), 0)::float8 AS pipeline_verdict
               FROM with_modifier
               `,
-              [props.orgId, qpId, repIdsToUse, visibleRepNameKeys]
+              [props.orgId, qpId, opportunityScopeParams[0], opportunityScopeParams[1]]
             )
             .then((r) => r.rows?.[0] || empty);
           return row;
@@ -829,23 +895,10 @@ export async function QuarterSalesForecastSummary(props: {
                     to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
                   ELSE NULL
                 END AS close_d,
-                CASE
-                  WHEN (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[])) THEN 'rep_id'
-                  WHEN (
-                    COALESCE(array_length($4::text[], 1), 0) > 0
-                    AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-                  ) THEN 'rep_name'
-                  ELSE 'none'
-                END AS match_kind
+                ${debugMatchKindSql}
               FROM opportunities o
               WHERE o.org_id = $1
-                AND (
-                  (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-                  OR (
-                    COALESCE(array_length($4::text[], 1), 0) > 0
-                    AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-                  )
-                )
+              ${dealsWhereSql}
             ),
             deals_in_qtr AS (
               SELECT d.*
@@ -866,7 +919,7 @@ export async function QuarterSalesForecastSummary(props: {
             GROUP BY diq.match_kind
             ORDER BY diq.match_kind ASC
             `,
-            [props.orgId, qpId, repIdsToUse, visibleRepNameKeys]
+            [props.orgId, qpId, opportunityScopeParams[0], opportunityScopeParams[1]]
           )
           .then((r) => r.rows || [])
           .catch(() => [])
@@ -919,23 +972,10 @@ export async function QuarterSalesForecastSummary(props: {
                     to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
                   ELSE NULL
                 END AS close_d,
-                CASE
-                  WHEN (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[])) THEN 'rep_id'
-                  WHEN (
-                    COALESCE(array_length($4::text[], 1), 0) > 0
-                    AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-                  ) THEN 'rep_name'
-                  ELSE 'none'
-                END AS match_kind
+                ${debugMatchKindSql}
               FROM opportunities o
               WHERE o.org_id = $1
-                AND (
-                  (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-                  OR (
-                    COALESCE(array_length($4::text[], 1), 0) > 0
-                    AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-                  )
-                )
+              ${dealsWhereSql}
             )
             SELECT d.*
               FROM deals d
@@ -946,7 +986,7 @@ export async function QuarterSalesForecastSummary(props: {
              ORDER BY d.close_d ASC, d.amount DESC NULLS LAST, d.id ASC
              LIMIT 25
             `,
-            [props.orgId, qpId, repIdsToUse, visibleRepNameKeys]
+            [props.orgId, qpId, opportunityScopeParams[0], opportunityScopeParams[1]]
           )
           .then((r) => r.rows || [])
           .catch(() => [])

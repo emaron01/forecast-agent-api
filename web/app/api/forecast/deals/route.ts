@@ -11,7 +11,7 @@ import {
 import { getChannelTerritoryRepIds } from "../../../../lib/channelTerritoryScope";
 import { getScopedRepDirectory } from "../../../../lib/repScope";
 import { computeAiForecastFromHealthScore, toOpenStage } from "../../../../lib/aiForecast";
-import { isAdmin, isChannelRep } from "../../../../lib/roleHelpers";
+import { isAdmin, isChannelRole } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -87,27 +87,31 @@ export async function GET(req: Request) {
       .parse(String(url.searchParams.get("quota_period_id") || "").trim() || undefined);
     const limit = z.coerce.number().int().min(1).max(2000).catch(200).parse(url.searchParams.get("limit"));
 
+    const isChannel = !isAdmin(auth.user) && isChannelRole(auth.user);
+
+    const channelTerritoryScope = isChannel
+      ? await getChannelTerritoryRepIds({
+          orgId: auth.user.org_id,
+          channelUserId: auth.user.id,
+        }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }))
+      : { repIds: [] as number[], partnerNames: [] as string[] };
+
+    const useChannelScope =
+      isChannel && (channelTerritoryScope.repIds.length > 0 || channelTerritoryScope.partnerNames.length > 0);
+
+    // Channel roles: same fail-closed empty scope as GET /api/forecast/gap-driving-deals.
+    if (isChannel && !useChannelScope) {
+      return NextResponse.json({ ok: true, deals: [] });
+    }
+
     const scope = await getScopedRepDirectory({
       orgId: auth.user.org_id,
       user: auth.user,
     });
     const allowedRepIds = scope.allowedRepIds; // null => admin (no filter)
 
-    const channelTerritoryScope =
-      !isAdmin(auth.user) && isChannelRep(auth.user)
-        ? await getChannelTerritoryRepIds({
-            orgId: auth.user.org_id,
-            channelUserId: auth.user.id,
-          }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }))
-        : { repIds: [] as number[], partnerNames: [] as string[] };
-
-    const useChannelAssignmentScope =
-      !isAdmin(auth.user) &&
-      isChannelRep(auth.user) &&
-      (channelTerritoryScope.repIds.length > 0 || channelTerritoryScope.partnerNames.length > 0);
-
     // If we can't resolve a scope for a non-admin, return no deals (fail closed).
-    if (!useChannelAssignmentScope && allowedRepIds !== null && (!allowedRepIds.length || !Number.isFinite(allowedRepIds[0] as any))) {
+    if (!useChannelScope && allowedRepIds !== null && (!allowedRepIds.length || !Number.isFinite(allowedRepIds[0] as any))) {
       return NextResponse.json({ ok: true, deals: [] });
     }
 
@@ -157,26 +161,20 @@ export async function GET(req: Request) {
     let p = 1;
     const where: string[] = [`o.org_id = $1`];
 
-    // Visibility:
-    // - CHANNEL_REP with territory/partner assignments: same OR model as channel dashboard
-    //   (`channel_territory_alignments` → rep ids, `partner_channel_assignments` → partner names).
-    // - Otherwise: ADMIN sees all; everyone else scoped by allowed rep IDs from getScopedRepDirectory.
-    if (useChannelAssignmentScope) {
+    // Visibility (channel 6/7/8): align with GET /api/forecast/gap-driving-deals — getChannelTerritoryRepIds +
+    // partner_channel_assignments, and only partner-attributed opps (non-empty partner_name).
+    if (useChannelScope) {
       const repIds = channelTerritoryScope.repIds.filter((id) => Number.isFinite(id) && id > 0);
       const partnerNames = channelTerritoryScope.partnerNames;
-      const repLen = repIds.length;
-      const partnerLen = partnerNames.length;
       params.push(repIds);
-      const repIdsParam = ++p;
+      const repIdsIdx = ++p;
       params.push(partnerNames);
-      const partnerNamesParam = ++p;
-      params.push(repLen);
-      const repLenParam = ++p;
-      params.push(partnerLen);
-      const partnerLenParam = ++p;
+      const partnerNamesIdx = ++p;
+      where.push(`o.partner_name IS NOT NULL`);
+      where.push(`btrim(o.partner_name) <> ''`);
       where.push(`(
-        ($${repLenParam}::int > 0 AND o.rep_id IS NOT NULL AND o.rep_id = ANY($${repIdsParam}::bigint[]))
-        OR ($${partnerLenParam}::int > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($${partnerNamesParam}::text[]))
+        (COALESCE(array_length($${repIdsIdx}::bigint[], 1), 0) > 0 AND o.rep_id IS NOT NULL AND o.rep_id = ANY($${repIdsIdx}::bigint[]))
+        OR (COALESCE(array_length($${partnerNamesIdx}::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($${partnerNamesIdx}::text[]))
       )`);
     } else if (allowedRepIds !== null) {
       params.push(allowedRepIds);
