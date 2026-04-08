@@ -83,41 +83,6 @@ CASE
 END`.trim();
 }
 
-async function listActiveRepsForOrg(orgId: number): Promise<RepDirectoryRow[]> {
-  const { rows } = await pool.query(
-    `
-    SELECT
-      id,
-      COALESCE(NULLIF(btrim(display_name), ''), NULLIF(btrim(rep_name), ''), '(Unnamed)') AS name,
-      role,
-      manager_rep_id,
-      user_id,
-      active
-    FROM reps
-    WHERE organization_id = $1::bigint
-      AND (active IS TRUE OR active IS NULL)
-    ORDER BY
-      CASE
-        WHEN role = 'EXEC_MANAGER' THEN 0
-        WHEN role = 'MANAGER' THEN 1
-        WHEN role = 'REP' THEN 2
-        ELSE 9
-      END,
-      name ASC,
-      id ASC
-    `,
-    [orgId]
-  );
-  return (rows || []).map((r: any) => ({
-    id: Number(r.id),
-    name: String(r.name || "").trim() || "(Unnamed)",
-    role: r.role == null ? null : String(r.role),
-    manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
-    user_id: r.user_id == null ? null : Number(r.user_id),
-    active: r.active == null ? null : !!r.active,
-  }));
-}
-
 export type ExecQuotaPeriodLite = {
   id: string;
   fiscal_year: string;
@@ -898,7 +863,7 @@ async function getPipelineStageSnapshotForPeriodWithNameFallback(args: {
   const useRepFilter = repIds.length > 0 || repNameKeys.length > 0;
   if (!useRepFilter) return empty;
 
-  const { rows } = await pool
+  const rows = await pool
     .query<ExecPipelineStageSnapshot>(
       `
       WITH qp AS (
@@ -1003,7 +968,7 @@ async function getCreatedPipelineByProduct(args: {
   const repNameKeys = Array.isArray(args.repNameKeys) ? args.repNameKeys : [];
   const limit = Math.max(1, Math.min(200, Number(args.limit || 15) || 15));
 
-  const { rows } = await pool
+  const rows = await pool
     .query<CreatedPipelineProductRow>(
       `
       WITH qp AS (
@@ -1209,7 +1174,7 @@ async function getPartnerSpeedSignals(args: {
   const repNameKeys = Array.isArray(args.repNameKeys) ? args.repNameKeys : [];
   const limit = Math.max(1, Math.min(50, Number(args.limit || 10) || 10));
 
-  const { rows } = await pool
+  const rows = await pool
     .query<PartnerSpeedRow>(
       `
       WITH qp AS (
