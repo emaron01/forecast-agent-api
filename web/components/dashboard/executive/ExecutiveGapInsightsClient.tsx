@@ -3687,12 +3687,12 @@ export function ExecutiveGapInsightsClient(props: {
             <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Canonical Scoring Engine: WIC & PQS</div>
+                  <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">Canonical Scoring Engine: WIC & PQS</div>
                 </div>
               </div>
               <div className="mt-4 grid gap-3">
                 <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC + PQS (top partners)</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC + PQS (top partners)</div>
                   <div className="mt-3 flex flex-wrap gap-3">
                     {partnersDecisionEngine.scored
                       .slice(0, 1 + Math.min(15, Math.max(0, partnersDecisionEngine.scored.length - 1)))
@@ -3722,21 +3722,21 @@ export function ExecutiveGapInsightsClient(props: {
                               <div className="min-w-0 truncate text-sm font-semibold text-[color:var(--sf-text-primary)]">{r.label}</div>
                               <span className={["shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase", pillToneClass(bandTone)].join(" ")}>{pill.label}</span>
                             </div>
-                            <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
-                              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">WIC:</span>{" "}
-                              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{Math.round(r.wic).toLocaleString("en-US")}</span>{" "}
+                            <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                              <span className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">WIC:</span>{" "}
+                              <span className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{Math.round(r.wic).toLocaleString("en-US")}</span>{" "}
                               <span className="text-[color:var(--sf-text-secondary)]">|</span>{" "}
-                              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">PQS:</span>{" "}
-                              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{r.pqs == null ? "—" : Math.round(r.pqs).toLocaleString("en-US")}</span>{" "}
+                              <span className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">PQS:</span>{" "}
+                              <span className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{r.pqs == null ? "—" : Math.round(r.pqs).toLocaleString("en-US")}</span>{" "}
                               <span className="text-[color:var(--sf-text-secondary)]">|</span>{" "}
-                              <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">Trend:</span>{" "}
-                              <span className={["font-mono text-base font-bold leading-none", trendCls].join(" ")}>{trendArrow}</span>
+                              <span className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">Trend:</span>{" "}
+                              <span className={["font-mono text-xs font-semibold leading-none", trendCls].join(" ")}>{trendArrow}</span>
                             </div>
                           </div>
                         );
                       })}
                   </div>
-                  <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">WIC computed for Direct + each partner. PQS computed per partner only. Scores are clamped 0–100.</div>
+                  <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">WIC computed for Direct + each partner. PQS computed per partner only. Scores are clamped 0–100.</div>
                 </div>
               </div>
             </section>
@@ -5023,13 +5023,13 @@ export function ExecutiveGapInsightsClient(props: {
           <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Canonical Scoring Engine: WIC & PQS</div>
+                <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">Canonical Scoring Engine: WIC & PQS</div>
               </div>
             </div>
 
             <div className="mt-4 grid gap-3">
               <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC + PQS (top partners)</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">WIC + PQS (top partners)</div>
                 <div className="mt-3 flex flex-wrap gap-3">
                   {partnersDecisionEngine.scored
                     .slice(0, 1 + Math.min(15, Math.max(0, partnersDecisionEngine.scored.length - 1)))
@@ -5075,25 +5075,25 @@ export function ExecutiveGapInsightsClient(props: {
                             </span>
                           </div>
 
-                          <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
-                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">WIC:</span>{" "}
-                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
+                          <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                            <span className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">WIC:</span>{" "}
+                            <span className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
                               {Math.round(r.wic).toLocaleString("en-US")}
                             </span>{" "}
                             <span className="text-[color:var(--sf-text-secondary)]">|</span>{" "}
-                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">PQS:</span>{" "}
-                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">
+                            <span className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">PQS:</span>{" "}
+                            <span className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
                               {r.pqs == null ? "—" : Math.round(r.pqs).toLocaleString("en-US")}
                             </span>{" "}
                             <span className="text-[color:var(--sf-text-secondary)]">|</span>{" "}
-                            <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">Trend:</span>{" "}
-                            <span className={["font-mono text-base font-bold leading-none", trendCls].join(" ")}>{trendArrow}</span>
+                            <span className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">Trend:</span>{" "}
+                            <span className={["font-mono text-xs font-semibold leading-none", trendCls].join(" ")}>{trendArrow}</span>
                           </div>
                         </div>
                       );
                     })}
                 </div>
-                <div className="mt-2 text-[11px] text-[color:var(--sf-text-secondary)]">
+                <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
                   WIC computed for Direct + each partner. PQS computed per partner only. Scores are clamped 0–100.
                 </div>
               </div>
