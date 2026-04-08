@@ -110,9 +110,12 @@ async function getRepKpisByPeriods(args: {
   repIds: number[] | null;
   /** When true, only opportunities with a non-empty partner_name are included (channel partner scope). */
   requirePartnerName?: boolean;
+  partnerNames?: string[];
 }) {
   const useRepFilter = !!(args.repIds && args.repIds.length);
   const requirePartner = !!args.requirePartnerName;
+  const partnerNames = (args.partnerNames || []).map((n) => n.toLowerCase().trim()).filter(Boolean);
+  const normalizedPartnerNames = partnerNames.length > 0 ? partnerNames : [];
   const { rows } = await pool.query<RepPeriodKpisRow>(
     `
     WITH periods AS (
@@ -151,6 +154,7 @@ async function getRepKpisByPeriods(args: {
        AND o.close_date <= p.period_end
        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
        AND (NOT $5::boolean OR (o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''))
+       AND ($6::int = 0 OR lower(btrim(COALESCE(o.partner_name, ''))) = ANY($7::text[]))
     ),
     classified AS (
       SELECT
@@ -228,7 +232,7 @@ async function getRepKpisByPeriods(args: {
     GROUP BY quota_period_id, rep_id
     ORDER BY quota_period_id DESC, rep_id ASC
     `,
-    [args.orgId, args.periodIds, args.repIds || [], useRepFilter, requirePartner]
+    [args.orgId, args.periodIds, args.repIds || [], useRepFilter, requirePartner, normalizedPartnerNames, partnerNames.length]
   );
   return (rows || []) as any[];
 }
@@ -453,6 +457,7 @@ export async function getQuarterKpisSnapshot(args: {
   quotaPeriodId: string;
   repIds: number[] | null;
   requirePartnerName?: boolean;
+  partnerNames?: string[];
 }): Promise<QuarterKpisSnapshot> {
   const periodIds = [String(args.quotaPeriodId || "").trim()].filter(Boolean);
   if (!periodIds.length) {
@@ -503,7 +508,7 @@ export async function getQuarterKpisSnapshot(args: {
 
   const rp = !!args.requirePartnerName;
   const [repRows, createdAggRows, createdByRepRows, healthRows] = await Promise.all([
-    getRepKpisByPeriods({ orgId: args.orgId, periodIds, repIds: args.repIds, requirePartnerName: rp }),
+    getRepKpisByPeriods({ orgId: args.orgId, periodIds, repIds: args.repIds, requirePartnerName: rp, partnerNames: args.partnerNames }),
     getCreatedPipelineAggByPeriods({ orgId: args.orgId, periodIds, repIds: args.repIds, requirePartnerName: rp }),
     getCreatedPipelineByRepByPeriods({ orgId: args.orgId, periodIds, repIds: args.repIds, requirePartnerName: rp }),
     getHealthAveragesByPeriods({ orgId: args.orgId, periodIds, repIds: args.repIds, requirePartnerName: rp }).catch(() => []),

@@ -589,12 +589,13 @@ export async function loadChannelPartnerHeroProps(args: {
     loadPartnerVerdictAgg(args.orgId, qpId, repIds, partnerNames),
     loadPartnerPipelineStage(args.orgId, qpId, repIds, partnerNames),
     prevQpId ? loadPartnerPipelineStage(args.orgId, prevQpId, repIds, partnerNames) : Promise.resolve(emptyStage),
-    hasRepScope
+    hasRepScope || partnerNames.length > 0
       ? getQuarterKpisSnapshot({
           orgId: args.orgId,
           quotaPeriodId: qpId,
           repIds,
           requirePartnerName: true,
+          partnerNames,
         }).catch(() => null)
       : Promise.resolve(null),
     loadProductsClosedWonPartner(args.orgId, qpId, repIds, partnerNames),
