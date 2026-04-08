@@ -1341,7 +1341,7 @@ export default async function ChannelDashboardPage({
     myRepId: summary.myRepId,
     repRollups: summary.repRollups,
     productsClosedWon: summary.productsClosedWon,
-    productsClosedWonPrevSummary: summary.productsClosedWonPrevSummary,
+    productsClosedWonPrevSummary: partnerHero?.productsClosedWonPrevSummary ?? summary.productsClosedWonPrevSummary,
     productsClosedWonByRep: channelProductsClosedWonByRep,
     quarterKpis: partnerHero?.quarterKpis ?? summary.quarterKpis,
     pipelineMomentum: partnerHero?.pipelineMomentum ?? summary.pipelineMomentum,
@@ -1351,8 +1351,10 @@ export default async function ChannelDashboardPage({
       best_case_amount: channelBestCase,
       pipeline_amount: channelPipeline,
       won_amount: channelClosedWon,
-      lost_amount: partnerHero?.crmForecast?.lost_amount ?? summary.crmForecast.lost_amount,
-      lost_count: partnerHero?.crmForecast?.lost_count ?? summary.crmForecast.lost_count,
+      lost_amount:
+        partnerHero != null ? partnerHero.crmForecast.lost_amount : summary.crmForecast.lost_amount,
+      lost_count:
+        partnerHero != null ? partnerHero.crmForecast.lost_count : summary.crmForecast.lost_count,
     },
     partnersExecutive: channelPartnersExecutive,
     quota: channelQuota,
@@ -1553,6 +1555,10 @@ export default async function ChannelDashboardPage({
               best_case_amount: channelBestCase,
               pipeline_amount: channelPipeline,
               won_amount: channelClosedWon,
+              lost_amount:
+                partnerHero != null ? partnerHero.crmForecast.lost_amount : summary.crmForecast.lost_amount,
+              lost_count:
+                partnerHero != null ? partnerHero.crmForecast.lost_count : summary.crmForecast.lost_count,
             }}
             partnersExecutive={summary.partnersExecutive}
             quota={channelQuota}
