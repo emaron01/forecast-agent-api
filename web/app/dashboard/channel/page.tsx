@@ -1351,6 +1351,8 @@ export default async function ChannelDashboardPage({
       best_case_amount: channelBestCase,
       pipeline_amount: channelPipeline,
       won_amount: channelClosedWon,
+      lost_amount: partnerHero?.crmForecast?.lost_amount ?? summary.crmForecast.lost_amount,
+      lost_count: partnerHero?.crmForecast?.lost_count ?? summary.crmForecast.lost_count,
     },
     partnersExecutive: channelPartnersExecutive,
     quota: channelQuota,
