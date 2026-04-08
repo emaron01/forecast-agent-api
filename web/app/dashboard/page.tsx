@@ -223,6 +223,7 @@ export default async function DashboardPage({
               productsClosedWonByRep={summary.productsClosedWonByRep}
               quarterKpis={summary.quarterKpis}
               pipelineMomentum={summary.pipelineMomentum}
+              closedWonFyYtd={summary.closedWonFyYtd}
               crmTotals={summary.crmForecast}
               partnersExecutive={summary.partnersExecutive}
               quota={summary.quota}

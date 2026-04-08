@@ -1887,6 +1887,7 @@ export default async function ExecutiveDashboardPage({
               productsClosedWonByRep={summary.productsClosedWonByRep}
               quarterKpis={summary.quarterKpis}
               pipelineMomentum={summary.pipelineMomentum}
+              closedWonFyYtd={summary.closedWonFyYtd}
               crmTotals={summary.crmForecast}
               partnersExecutive={summary.partnersExecutive}
               quota={summary.quota}
@@ -1934,6 +1935,7 @@ export default async function ExecutiveDashboardPage({
             productsClosedWonByRep: summary.productsClosedWonByRep,
             quarterKpis: summary.quarterKpis,
             pipelineMomentum: summary.pipelineMomentum,
+            closedWonFyYtd: summary.closedWonFyYtd,
             crmTotals: summary.crmForecast,
             partnersExecutive: summary.partnersExecutive,
             quota: summary.quota,
@@ -1982,6 +1984,7 @@ export default async function ExecutiveDashboardPage({
             productsClosedWonByRep: summary.productsClosedWonByRep,
             quarterKpis: summary.quarterKpis,
             pipelineMomentum: summary.pipelineMomentum,
+            closedWonFyYtd: summary.closedWonFyYtd,
             crmTotals: summary.crmForecast,
             partnersExecutive: summary.partnersExecutive,
             quota: summary.quota,
@@ -2024,6 +2027,7 @@ export default async function ExecutiveDashboardPage({
             productsClosedWonByRep: summary.productsClosedWonByRep,
             quarterKpis: summary.quarterKpis,
             pipelineMomentum: summary.pipelineMomentum,
+            closedWonFyYtd: summary.closedWonFyYtd,
             crmTotals: summary.crmForecast,
             partnersExecutive: summary.partnersExecutive,
             quota: summary.quota,
@@ -2101,6 +2105,7 @@ export default async function ExecutiveDashboardPage({
             productsClosedWonByRep: summary.productsClosedWonByRep,
             quarterKpis: summary.quarterKpis,
             pipelineMomentum: summary.pipelineMomentum,
+            closedWonFyYtd: summary.closedWonFyYtd,
             crmTotals: summary.crmForecast,
             partnersExecutive: summary.partnersExecutive,
             quota: summary.quota,

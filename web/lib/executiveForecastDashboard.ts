@@ -140,6 +140,8 @@ export type ExecutiveForecastSummary = {
   quarterKpis: QuarterKpisSnapshot | null;
   pipelineMomentum: PipelineMomentumData | null;
   quota: number;
+  /** Sum of closed-won $ from FY start through min(today, FY end); same scope as crmForecast. */
+  closedWonFyYtd: number | null;
   crmForecast: {
     commit_amount: number;
     best_case_amount: number;
@@ -1398,6 +1400,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
       quarterKpis: null,
       pipelineMomentum: null,
       quota: 0,
+      closedWonFyYtd: null,
       crmForecast: {
         commit_amount: 0,
         best_case_amount: 0,
@@ -1562,6 +1565,79 @@ export async function getExecutiveForecastDashboardSummary(args: {
   const totals: TotalsRow = qpId ? await loadTotalsForQuotaPeriod(qpId) : { ...emptyTotalsRow };
 
   const canCompute = !!qpId && (!useScoped || (Array.isArray(allowedRepIds) && allowedRepIds.length > 0));
+
+  const closedWonFyYtd: number | null = await (async (): Promise<number | null> => {
+    if (!canCompute || !selectedPeriod) return null;
+    const fy = String(selectedPeriod.fiscal_year || "").trim();
+    if (!fy) return null;
+    const fyPeriods = periods.filter((p) => String(p.fiscal_year).trim() === fy);
+    if (!fyPeriods.length) return null;
+    const sorted = fyPeriods
+      .slice()
+      .sort((a, b) => new Date(a.period_start).getTime() - new Date(b.period_start).getTime());
+    const fyStart = String(sorted[0]?.period_start || "").slice(0, 10);
+    const fyEnd = String(sorted[sorted.length - 1]?.period_end || "").slice(0, 10);
+    if (!fyStart || !fyEnd) return null;
+    const today = isoDateOnly(new Date());
+    try {
+      const res = await pool.query<{ won_ytd: string | null }>(
+        `
+        WITH deals_row AS (
+          SELECT
+            COALESCE(o.amount, 0)::float8 AS amount,
+            lower(
+              regexp_replace(
+                COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
+                '[^a-zA-Z]+',
+                ' ',
+                'g'
+              )
+            ) AS fs,
+            o.forecast_stage,
+            o.sales_stage,
+            CASE
+              WHEN o.close_date IS NULL THEN NULL
+              WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+              WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
+              ELSE NULL
+            END AS close_d
+          FROM opportunities o
+          WHERE o.org_id = $1
+            AND (NOT $3::boolean OR o.rep_id = ANY($2::bigint[]))
+        ),
+        deals AS (
+          SELECT
+            r.amount,
+            r.fs,
+            r.close_d,
+            (${crmBucketCaseSql("r")}) AS crm_bucket
+          FROM deals_row r
+          LEFT JOIN org_stage_mappings fcm
+            ON fcm.org_id = $1::bigint
+           AND fcm.field = 'forecast_category'
+           AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(r.forecast_stage::text, '')))
+          LEFT JOIN org_stage_mappings stm
+            ON stm.org_id = $1::bigint
+           AND stm.field = 'stage'
+           AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(r.sales_stage::text, '')))
+        )
+        SELECT COALESCE(SUM(amount), 0)::float8 AS won_ytd
+          FROM deals
+         WHERE close_d IS NOT NULL
+           AND crm_bucket = 'won'
+           AND close_d >= $4::date
+           AND close_d <= LEAST($5::date, $6::date)
+        `,
+        [args.orgId, allowedRepIds, useScoped, fyStart, fyEnd, today]
+      );
+      const v = res.rows?.[0]?.won_ytd;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    } catch {
+      return null;
+    }
+  })();
 
   const prevPeriodTotals: TotalsRow =
     prevQpId && canCompute ? await loadTotalsForQuotaPeriod(prevQpId) : { ...emptyTotalsRow };
@@ -2560,6 +2636,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
     quarterKpis,
     pipelineMomentum,
     quota,
+    closedWonFyYtd,
     crmForecast: {
       commit_amount: Number(totals.commit_amount || 0) || 0,
       best_case_amount: Number(totals.best_case_amount || 0) || 0,

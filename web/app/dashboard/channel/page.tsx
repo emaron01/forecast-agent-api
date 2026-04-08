@@ -1347,6 +1347,7 @@ export default async function ChannelDashboardPage({
     productsClosedWonByRep: channelProductsClosedWonByRep,
     quarterKpis: partnerHero?.quarterKpis ?? summary.quarterKpis,
     pipelineMomentum: partnerHero?.pipelineMomentum ?? summary.pipelineMomentum,
+    closedWonFyYtd: summary.closedWonFyYtd,
     crmTotals: {
       ...summary.crmForecast,
       commit_amount: channelCommit,
@@ -1551,6 +1552,7 @@ export default async function ChannelDashboardPage({
             productsClosedWonByRep={channelProductsClosedWonByRep}
             quarterKpis={partnerHero?.quarterKpis ?? summary.quarterKpis}
             pipelineMomentum={partnerHero?.pipelineMomentum ?? summary.pipelineMomentum}
+            closedWonFyYtd={summary.closedWonFyYtd}
             crmTotals={{
               ...summary.crmForecast,
               commit_amount: channelCommit,

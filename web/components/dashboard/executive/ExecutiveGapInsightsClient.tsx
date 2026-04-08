@@ -635,6 +635,8 @@ export function ExecutiveGapInsightsClient(props: {
     lost_count?: number;
     lost_avg_health_score?: number | null;
   };
+  /** FY closed-won $ from server (FY start → min(today, FY end)); when set, drives CLOSED WON YTD row. */
+  closedWonFyYtd?: number | null;
   partnersExecutive: {
     direct: {
       opps: number;
@@ -2039,7 +2041,12 @@ export function ExecutiveGapInsightsClient(props: {
       : [];
     const annualQuota =
       currentPeriod && Number.isFinite(Number(props.quota)) && fyPeriodCount > 0 ? Number(props.quota) * fyPeriodCount : null;
-    const closedWonYtd = Number.isFinite(Number(props.crmTotals?.won_amount)) ? Number(props.crmTotals?.won_amount) : null;
+    const closedWonYtd =
+      props.closedWonFyYtd != null && Number.isFinite(Number(props.closedWonFyYtd))
+        ? Number(props.closedWonFyYtd)
+        : Number.isFinite(Number(props.crmTotals?.won_amount))
+          ? Number(props.crmTotals?.won_amount)
+          : null;
     const pctToAnnualGoal = annualQuota != null && annualQuota > 0 && closedWonYtd != null ? closedWonYtd / annualQuota : null;
     const quotaGap = annualQuota != null && closedWonYtd != null ? Math.max(annualQuota - closedWonYtd, 0) : null;
     const totalRemainingPipeline = fyRemainingDeals.reduce((sum, d) => sum + (Number(d.amount || 0) || 0), 0);
