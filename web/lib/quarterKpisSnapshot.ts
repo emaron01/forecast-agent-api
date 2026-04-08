@@ -154,7 +154,7 @@ async function getRepKpisByPeriods(args: {
        AND o.close_date <= p.period_end
        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
        AND (NOT $5::boolean OR (o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''))
-       AND ($6::int = 0 OR lower(btrim(COALESCE(o.partner_name, ''))) = ANY($7::text[]))
+       AND ($6::int = 0 OR o.rep_id = ANY($3::bigint[]) OR lower(btrim(COALESCE(o.partner_name, ''))) = ANY($7::text[]))
     ),
     classified AS (
       SELECT
