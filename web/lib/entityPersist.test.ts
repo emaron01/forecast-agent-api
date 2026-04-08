@@ -2,7 +2,7 @@
  * Unit tests for entity persist merge rules (don't overwrite existing with empty; quality comparison).
  * Helpers live in muscle.js and are exported for testing.
  */
-// @ts-expect-error root ESM
+// @ts-ignore root ESM
 import { isBetterName, isBetterTitle, mergeEntityValue } from "../../muscle.js";
 import test from "node:test";
 import assert from "node:assert/strict";

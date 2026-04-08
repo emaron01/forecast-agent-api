@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "next build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "next lint",
     "start": "node scripts/start.mjs",
     "migrate": "node scripts/migrate.mjs",
     "test": "tsc -p tsconfig.tests.json && node --require ./test-node-setup/server-only.cjs --test .test-dist/**/*.test.js"
@@ -28,6 +30,8 @@
     "@types/node": "25.2.0",
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18.3.7",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^14.2.35",
     "sharp": "^0.34.5",
     "typescript": "5.9.3"
   }
