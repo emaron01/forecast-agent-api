@@ -930,6 +930,11 @@ export default async function ChannelDashboardPage({
   const fyYearKey =
     String(summary.selectedPeriod?.fiscal_year ?? summary.selectedFiscalYear ?? "")
       .trim() || "";
+  const fyPeriodIds = fyYearKey
+    ? summary.periods
+        .filter((p) => String(p.fiscal_year).trim() === fyYearKey)
+        .map((p) => String(p.id))
+    : [];
   const channelFyQuarterRows: ChannelRepFyQuarterRow[] =
     fyYearKey && channelScopedRepIds.length > 0
       ? await loadChannelRepFyQuarterRows({
@@ -953,6 +958,7 @@ export default async function ChannelDashboardPage({
 
   let channelRepKpisRows: RepPeriodKpisRow[] = [];
   let channelProductsClosedWonByRep: ChannelProductWonByRepRow[] = [];
+  let channelProductsClosedWonByRepYtd: ChannelProductWonByRepRow[] = [];
   let directorTerritoryLostAmount = 0;
   let directorTerritoryLostCount = 0;
   let directorWonAmount = 0;
@@ -1165,11 +1171,60 @@ export default async function ChannelDashboardPage({
         })
       );
       channelProductsClosedWonByRep = productRowsNested.flat();
+
+      // YTD products — same query per rep but across all FY periods
+      if (fyPeriodIds.length > 1) {
+        const ytdProductRowsNested = await Promise.all(
+          scopeList.map(async (row) => {
+            const repTableId = Number(row.rep_id);
+            const userId = Number(row.user_id);
+            const territoryRepIds = territoryByChannelRepId.get(repTableId) || [];
+            const scopePn = scopePartnerNamesByChannelRepId.get(repTableId) || [];
+            const assigned = partnerNamesByUserId.get(userId) || [];
+            const repLabel =
+              repNameByChannelRepId.get(String(repTableId))?.trim() ||
+              `(Rep ${repTableId})`;
+            if (!territoryRepIds.length && !scopePn.length) return [] as ChannelProductWonByRepRow[];
+            const periodRows = await Promise.all(
+              fyPeriodIds
+                .filter((pid) => pid !== selectedPeriodId)
+                .map((pid) =>
+                  loadPartnerScopedProductsForTerritory({
+                    orgId,
+                    quotaPeriodId: pid,
+                    territoryRepIds,
+                    scopePartnerNames: scopePn,
+                    assignedPartnerNames: assigned,
+                  }).catch(() => [])
+                )
+            );
+            return periodRows.flat().map((p) => ({
+              rep_name: repLabel,
+              product: p.product,
+              won_amount: Number(p.won_amount || 0) || 0,
+              won_count: Number(p.won_count || 0) || 0,
+              avg_order_value: Number(p.avg_order_value || 0) || 0,
+              avg_health_score:
+                p.avg_health_score == null || !Number.isFinite(Number(p.avg_health_score))
+                  ? null
+                  : Number(p.avg_health_score),
+            }));
+          })
+        );
+        // Combine current quarter + prior quarters = full YTD
+        channelProductsClosedWonByRepYtd = [
+          ...channelProductsClosedWonByRep,
+          ...ytdProductRowsNested.flat(),
+        ];
+      } else {
+        channelProductsClosedWonByRepYtd = [...channelProductsClosedWonByRep];
+      }
     }
   } catch (e) {
     console.error("[channel rep kpis / productsClosedWonByRep]", e);
     channelRepKpisRows = [];
     channelProductsClosedWonByRep = [];
+    channelProductsClosedWonByRepYtd = [];
     lostDealsByRole8RepId = new Map();
     directorTerritoryLostAmount = 0;
     directorTerritoryLostCount = 0;
@@ -1439,6 +1494,7 @@ export default async function ChannelDashboardPage({
     managerLostCountOverride: directorTerritoryLostCount,
     managerWonAmountOverride: directorWonAmount,
     managerWonCountOverride: directorWonCount,
+    productsClosedWonByRepYtd: channelProductsClosedWonByRepYtd,
     periodName: selectedPeriod?.period_name ?? "",
     periodStart: selectedPeriod?.period_start ?? "",
     periodEnd: selectedPeriod?.period_end ?? "",

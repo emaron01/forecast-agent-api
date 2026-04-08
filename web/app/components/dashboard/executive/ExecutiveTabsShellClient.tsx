@@ -9,6 +9,7 @@ import { TeamForecastHygienePanels, type PipelineHygienePayload } from "../../..
 import type { ExecTabKey } from "../../../actions/execTabConstants";
 import { type RepManagerManagerRow, type RepManagerRepRow } from "./RepManagerComparisonPanel";
 import { TeamLeaderboardClient } from "./TeamLeaderboardClient";
+import type { ProductsClosedWonByRepMap, ProductsClosedWonByRepRow } from "./TeamLeaderboardClient";
 import { ManagerReviewQueueClient, type ManagerReviewQueueProps } from "./ManagerReviewQueueClient";
 import type { ChannelLedFedRow, ChannelPartnerHeroProps } from "../../../../lib/channelPartnerHeroData";
 import { CustomReportDesignerClient } from "../../../analytics/custom-reports/CustomReportDesignerClient";
@@ -349,6 +350,7 @@ export type TeamRepManagerPayload = {
   managerLostCountOverride?: number;
   managerWonAmountOverride?: number;
   managerWonCountOverride?: number;
+  productsClosedWonByRepYtd?: ProductsClosedWonByRepRow[] | ProductsClosedWonByRepMap;
   periodName?: string;
   periodStart?: string;
   periodEnd?: string;
@@ -900,6 +902,7 @@ export function ExecutiveTabsShellClient(props: {
               periodEnd={props.teamRepManagerPayload.periodEnd ?? ""}
               allPeriodRows={props.teamRepManagerPayload.repFyQuarterRows}
               productsClosedWonByRep={props.forecastTabProps.productsClosedWonByRep}
+              productsClosedWonByRepYtd={props.teamRepManagerPayload.productsClosedWonByRepYtd}
             />
           </div>
         )}

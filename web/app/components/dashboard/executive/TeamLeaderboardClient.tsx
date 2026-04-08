@@ -27,7 +27,7 @@ type TeamLeaderboardFyQuarterRow = {
   avg_days_active?: number | null;
 };
 
-type ProductsClosedWonByRepRow = {
+export type ProductsClosedWonByRepRow = {
   rep_name: string;
   product: string;
   won_amount: number;
@@ -36,7 +36,7 @@ type ProductsClosedWonByRepRow = {
   avg_health_score: number | null;
 };
 
-type ProductsClosedWonByRepMap = Record<string, Record<string, number>>;
+export type ProductsClosedWonByRepMap = Record<string, Record<string, number>>;
 
 export type TeamLeaderboardProps = {
   repRows: RepManagerRepRow[];
@@ -48,6 +48,7 @@ export type TeamLeaderboardProps = {
   periodEnd: string;
   allPeriodRows?: TeamLeaderboardFyQuarterRow[];
   productsClosedWonByRep?: ProductsClosedWonByRepRow[] | ProductsClosedWonByRepMap;
+  productsClosedWonByRepYtd?: ProductsClosedWonByRepRow[] | ProductsClosedWonByRepMap;
   managerWonAmountOverride?: number;
   managerWonCountOverride?: number;
   managerLostAmountOverride?: number;
@@ -199,10 +200,33 @@ function aggregateAnnualTeam(fyRows: TeamLeaderboardFyQuarterRow[], repIntIds: s
   const lostCount = rows.reduce((s, r) => s + (r.lost_count ?? 0), 0);
   const pipelineAmount = rows.reduce((s, r) => s + (r.pipeline_amount ?? 0), 0);
   const activeCount = rows.reduce((s, r) => s + (r.active_count ?? 0), 0);
+  const weightedAvg = (
+    getValue: (r: TeamLeaderboardFyQuarterRow) => number | null | undefined,
+    getWeight: (r: TeamLeaderboardFyQuarterRow) => number
+  ): number | null => {
+    let wSum = 0;
+    let wTot = 0;
+    for (const r of rows) {
+      const v = getValue(r);
+      const w = getWeight(r);
+      if (v != null && Number.isFinite(Number(v)) && w > 0) {
+        wSum += Number(v) * w;
+        wTot += w;
+      }
+    }
+    return wTot > 0 ? wSum / wTot : null;
+  };
+
+  const annualAvgDaysWon = weightedAvg((r) => r.avg_days_won, (r) => r.won_count ?? 0);
+  const annualAvgDaysLost = weightedAvg((r) => r.avg_days_lost, (r) => r.lost_count ?? 0);
+  const annualAvgDaysActive = weightedAvg((r) => r.avg_days_active, (r) => r.active_count ?? 0);
   return {
     aovWon: wonCount > 0 ? wonAmount / wonCount : 0,
     aovLost: lostCount > 0 ? lostAmount / lostCount : 0,
     aovOpen: activeCount > 0 ? pipelineAmount / activeCount : 0,
+    annualAvgDaysWon,
+    annualAvgDaysLost,
+    annualAvgDaysActive,
   };
 }
 
@@ -320,6 +344,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     periodEnd,
     allPeriodRows,
     productsClosedWonByRep,
+    productsClosedWonByRepYtd,
     managerWonAmountOverride,
     managerWonCountOverride,
     managerLostAmountOverride,
@@ -401,11 +426,15 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     annualAovWon?: number;
     annualAovLost?: number;
     annualAovOpen?: number;
+    annualAvgDaysWon?: number | null;
+    annualAvgDaysLost?: number | null;
+    annualAvgDaysActive?: number | null;
     currentQuotaPeriodId?: string;
     avgDaysWon: number | null;
     avgDaysLost: number | null;
     avgDaysActive: number | null;
     repProducts: Array<{ product: string; amount: number }>;
+    annualRepProducts?: Array<{ product: string; amount: number }>;
     aov: number;
     avgHealthPct: number | null;
     isLeader: boolean;
@@ -447,6 +476,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const aovLost = lostCount > 0 ? lostAmount / lostCount : 0;
     const aovPipeline = pipelineCount > 0 ? args.activePipelineAmount / pipelineCount : 0;
     const sortedProducts = [...args.repProducts].sort((a, b) => b.amount - a.amount);
+    const sortedYtdProducts = [...(args.annualRepProducts ?? [])].sort((a, b) => b.amount - a.amount);
 
     return (
       <div className={`rounded-xl border p-5 ${paceStatusCardClass(args.paceStatus)}`}>
@@ -580,9 +610,9 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
             ))}
           </div>
 
-          {(args.annualAovWon != null && args.annualAovWon > 0) ||
+          {((args.annualAovWon != null && args.annualAovWon > 0) ||
           (args.annualAovLost != null && args.annualAovLost > 0) ||
-          (args.annualAovOpen != null && args.annualAovOpen > 0) ? (
+          (args.annualAovOpen != null && args.annualAovOpen > 0)) && (
             <>
               <div className="my-2 border-t border-[color:var(--sf-border)]" />
               <div className="mt-2 flex flex-wrap items-start gap-6">
@@ -598,7 +628,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
                 ))}
               </div>
             </>
-          ) : null}
+          )}
 
           <div className="mt-2 flex flex-wrap items-start gap-6">
             {[
@@ -612,6 +642,24 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
               </div>
             ))}
           </div>
+
+          {(args.annualAvgDaysWon != null || args.annualAvgDaysLost != null || args.annualAvgDaysActive != null) && (
+            <>
+              <div className="my-2 border-t border-[color:var(--sf-border)]" />
+              <div className="mt-2 flex flex-wrap items-start gap-6">
+                {[
+                  { label: "Annual Avg Days to Close", value: args.annualAvgDaysWon != null ? `${Math.round(args.annualAvgDaysWon)}d` : "—" },
+                  { label: "Annual Avg Days Lost", value: args.annualAvgDaysLost != null ? `${Math.round(args.annualAvgDaysLost)}d` : "—" },
+                  { label: "Annual Avg Deal Age", value: args.annualAvgDaysActive != null ? `${Math.round(args.annualAvgDaysActive)}d` : "—" },
+                ].map((stat) => (
+                  <div key={stat.label} className="flex items-baseline gap-1">
+                    <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">{stat.label}:</span>
+                    <span className="shrink-0 text-base font-semibold text-[color:var(--sf-text-primary)]">{stat.value}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         <div className="my-3 border-t border-[color:var(--sf-border)]" />
@@ -633,6 +681,22 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
             )}
           </div>
         </div>
+
+        {sortedYtdProducts.length ? (
+          <div className="mt-3">
+            <div className="mb-3 text-xs font-bold uppercase tracking-wider text-[color:var(--sf-text-secondary)]">
+              Products Sold (YTD)
+            </div>
+            <div className="flex flex-wrap gap-3 text-base">
+              {sortedYtdProducts.map((p) => (
+                <div key={p.product} className="flex items-center gap-1">
+                  <span className="text-[color:var(--sf-text-secondary)]">{p.product}:</span>
+                  <span className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(p.amount)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {args.isLeader && args.onToggle ? (
           <button
@@ -741,6 +805,12 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
       repNames: repsUnder.map((r) => r.rep_name),
       fallbackAov: current.aov,
     });
+    const ytdProductSummary = getProductSummary({
+      input: productsClosedWonByRepYtd,
+      repIds,
+      repNames: repsUnder.map((r) => r.rep_name),
+      fallbackAov: current.aov,
+    });
 
     return (
       <div key={cardKey} className="min-w-0">
@@ -767,10 +837,14 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           annualAovWon: annual.aovWon,
           annualAovLost: annual.aovLost,
           annualAovOpen: annual.aovOpen,
+          annualAvgDaysWon: annual.annualAvgDaysWon,
+          annualAvgDaysLost: annual.annualAvgDaysLost,
+          annualAvgDaysActive: annual.annualAvgDaysActive,
           avgDaysWon: current.avgDaysWon,
           avgDaysLost: current.avgDaysLost,
           avgDaysActive: current.avgDaysActive,
           repProducts: productSummary.repProducts,
+          annualRepProducts: ytdProductSummary.repProducts,
           aov: productSummary.aov,
           avgHealthPct: productSummary.avgHealthPct,
           isLeader: true,
