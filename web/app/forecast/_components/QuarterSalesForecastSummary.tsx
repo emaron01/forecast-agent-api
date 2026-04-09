@@ -101,14 +101,12 @@ function normalizeNameKey(s: any) {
     .toLowerCase();
 }
 
-/** Channel (6/7/8): $3 = territory rep ids, $4 = partner_channel_assignments names. Same scope shape as GET /api/forecast/gap-driving-deals; partner-attributed opps only. */
+/** Channel (6/7/8): $4 = assigned partner names (lowercase). Visibility is partner_name match only; $3 is unused but kept for stable param positions. */
 const CHANNEL_DEALS_WHERE_SQL = `
               AND o.partner_name IS NOT NULL
               AND btrim(o.partner_name) <> ''
-              AND (
-                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
-                OR (COALESCE(array_length($4::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($4::text[]))
-              )`;
+              AND COALESCE(array_length($4::text[], 1), 0) > 0
+              AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($4::text[])`;
 
 const NON_CHANNEL_DEALS_WHERE_SQL = `
               AND (
@@ -204,8 +202,7 @@ export async function QuarterSalesForecastSummary(props: {
       }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }))
     : { repIds: [] as number[], partnerNames: [] as string[] };
 
-  const channelScopeEmpty =
-    isChannelRoleUser && channelTerritoryScope.repIds.length === 0 && channelTerritoryScope.partnerNames.length === 0;
+  const channelScopeEmpty = isChannelRoleUser && channelTerritoryScope.partnerNames.length === 0;
 
   let visibleRepUserIds: number[] = [];
   let visibleRepNameKeys: string[] = [];
@@ -339,8 +336,7 @@ export async function QuarterSalesForecastSummary(props: {
   const debugMatchKindSql = isChannelRoleUser
     ? `CASE
                   WHEN o.partner_name IS NULL OR btrim(o.partner_name) = '' THEN 'no_partner'
-                  WHEN (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[])) THEN 'rep_id'
-                  WHEN (COALESCE(array_length($4::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($4::text[])) THEN 'partner_name'
+                  WHEN COALESCE(array_length($4::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($4::text[]) THEN 'assigned_partner'
                   ELSE 'none'
                 END AS match_kind`
     : `CASE

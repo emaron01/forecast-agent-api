@@ -536,7 +536,7 @@ export async function GET(req: Request) {
     const useScopedRepIds = !isAdmin(auth.user);
 
     // Fail-closed if we can't resolve a scope for a non-admin (align with Forecast: REP sees themselves; managers see their visible reps).
-    const channelScopeEmpty = isChannelRole && repIdsToUse.length === 0 && assignedPartnerNames.length === 0;
+    const channelScopeEmpty = isChannelRole && assignedPartnerNames.length === 0;
     if (useScopedRepIds && repIdsToUse.length === 0 && visibleRepNameKeys.length === 0 && channelScopeEmpty) {
       return NextResponse.json({
         ok: true,
@@ -788,26 +788,24 @@ export async function GET(req: Request) {
           AND (
             NOT $2::boolean
             OR (
-              (o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
-              OR (
-                COALESCE(array_length($18::text[], 1), 0) > 0
-                AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($18::text[])
-              )
+              CASE
+                WHEN $22::boolean THEN
+                  COALESCE(array_length($23::text[], 1), 0) > 0
+                  AND o.partner_name IS NOT NULL
+                  AND btrim(o.partner_name) <> ''
+                  AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($23::text[])
+                ELSE
+                  (o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
+                  OR (
+                    COALESCE(array_length($18::text[], 1), 0) > 0
+                    AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($18::text[])
+                  )
+              END
             )
           )
           AND ($4::bigint IS NULL OR o.rep_id = $4::bigint)
           AND ($5::text IS NULL OR btrim(COALESCE(o.rep_name, '')) ILIKE $5::text)
           AND (NOT $19::boolean OR (o.rep_id IS NOT NULL AND o.rep_id = ANY($20::bigint[])))
-          AND (
-            NOT $22::boolean
-            OR (
-              CASE
-                WHEN COALESCE(array_length($23::text[], 1), 0) > 0
-                THEN lower(btrim(COALESCE(o.partner_name, ''))) = ANY($23::text[])
-                ELSE o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''
-              END
-            )
-          )
       ),
       classified AS (
         SELECT
@@ -1036,26 +1034,24 @@ export async function GET(req: Request) {
             AND (
               NOT $2::boolean
               OR (
-                (o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
-                OR (
-                  COALESCE(array_length($18::text[], 1), 0) > 0
-                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($18::text[])
-                )
+                CASE
+                  WHEN $22::boolean THEN
+                    COALESCE(array_length($23::text[], 1), 0) > 0
+                    AND o.partner_name IS NOT NULL
+                    AND btrim(o.partner_name) <> ''
+                    AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($23::text[])
+                  ELSE
+                    (o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
+                    OR (
+                      COALESCE(array_length($18::text[], 1), 0) > 0
+                      AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($18::text[])
+                    )
+                END
               )
             )
             AND ($4::bigint IS NULL OR o.rep_id = $4::bigint)
             AND ($5::text IS NULL OR btrim(COALESCE(o.rep_name, '')) ILIKE $5::text)
             AND (NOT $19::boolean OR (o.rep_id IS NOT NULL AND o.rep_id = ANY($20::bigint[])))
-            AND (
-              NOT $22::boolean
-              OR (
-                CASE
-                  WHEN COALESCE(array_length($23::text[], 1), 0) > 0
-                  THEN lower(btrim(COALESCE(o.partner_name, ''))) = ANY($23::text[])
-                  ELSE o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''
-                END
-              )
-            )
         ),
         classified AS (
           SELECT
@@ -1574,11 +1570,10 @@ export async function GET(req: Request) {
                 AND (
                   NOT $4::boolean
                   OR (
-                    CASE
-                      WHEN COALESCE(array_length($5::text[], 1), 0) > 0
-                      THEN lower(btrim(COALESCE(o.partner_name, ''))) = ANY($5::text[])
-                      ELSE o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''
-                    END
+                    COALESCE(array_length($5::text[], 1), 0) > 0
+                    AND o.partner_name IS NOT NULL
+                    AND btrim(o.partner_name) <> ''
+                    AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($5::text[])
                   )
                 )
             ),
