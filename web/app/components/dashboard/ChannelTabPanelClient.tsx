@@ -43,6 +43,8 @@ export function ChannelTabPanelClient(props: {
   topPartnerLost?: unknown[];
   /** When false, hides WIC & PQS in the channel tab (e.g. sales rep level 3). Default true for channel exec/director/rep. */
   showWicPqs?: boolean;
+  /** When false, hides CEI cards in the channel tab (e.g. sales rep level 3). Default true. */
+  showCei?: boolean;
 }) {
   const {
     revenueTabProps,
@@ -53,6 +55,7 @@ export function ChannelTabPanelClient(props: {
     topPartnerWon,
     topPartnerLost,
     showWicPqs = true,
+    showCei = true,
   } = props;
 
   return (
@@ -278,6 +281,7 @@ export function ChannelTabPanelClient(props: {
         {...revenueTabProps}
         channelTabOnly={true}
         showWicPqs={showWicPqs}
+        showCei={showCei}
         viewerRole={viewerRole}
         topPartnerWon={topPartnerWon as ExecutiveGapProps["topPartnerWon"]}
         topPartnerLost={topPartnerLost as ExecutiveGapProps["topPartnerLost"]}

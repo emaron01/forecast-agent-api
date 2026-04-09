@@ -653,6 +653,8 @@ export function ExecutiveGapInsightsClient(props: {
   channelTopPartnerDealsOnPage?: boolean;
   /** When false, hide the Canonical Scoring Engine (WIC & PQS) block in the Channel Partners tab. Default true. */
   showWicPqs?: boolean;
+  /** When false, hide CEI cards (Direct vs. Indirect / PartnerMotionPerformanceSection) in the Channel Partners tab. Default true. */
+  showCei?: boolean;
   topPartnerWon?: any[];
   topPartnerLost?: any[];
   topDealsWon?: any[];
@@ -3546,21 +3548,25 @@ export function ExecutiveGapInsightsClient(props: {
         ) : null}
         {partnersDecisionEngine ? (
           <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">Direct vs. Indirect Performance</div>
-              </div>
-            </div>
+            {props.showCei ?? true ? (
+              <>
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">Direct vs. Indirect Performance</div>
+                  </div>
+                </div>
 
-            <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
-              <PartnerMotionPerformanceSection
-                engine={partnersDecisionEngine}
-                outerClass=""
-                ceiRowClass="mt-4 grid gap-3 lg:grid-cols-3"
-                ceiCardClass="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4"
-                ratioCardClass="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4"
-              />
-            </div>
+                <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
+                  <PartnerMotionPerformanceSection
+                    engine={partnersDecisionEngine}
+                    outerClass=""
+                    ceiRowClass="mt-4 grid gap-3 lg:grid-cols-3"
+                    ceiCardClass="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4"
+                    ratioCardClass="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4"
+                  />
+                </div>
+              </>
+            ) : null}
 
             {props.showWicPqs ?? true ? (
             <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">

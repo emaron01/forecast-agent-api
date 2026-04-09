@@ -439,6 +439,7 @@ export default async function DashboardPage({
                   topPartnerWon={repTopPartnerWon}
                   topPartnerLost={repTopPartnerLost}
                   showWicPqs={false}
+                  showCei={false}
                 />
               ),
             }}
