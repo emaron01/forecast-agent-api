@@ -17,8 +17,8 @@ import { HIERARCHY, isChannelRep, isChannelRole } from "../../../lib/roleHelpers
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
 import { listTopPartnerDealsChannelHeroScope } from "../../../lib/channelHeroTopPartnerDeals";
 import { ChannelTopPartnerDealsTablesClient, type TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
-import { SimpleForecastDashboardClient } from "../../forecast/simple/simpleClient";
 import { ScopedDashboardTabsClient } from "../../components/dashboard/ScopedDashboardTabsClient";
+import { ChannelCommitRisksTabClient } from "../../components/dashboard/ChannelCommitRisksTabClient";
 import { ChannelTabPanelClient } from "../../components/dashboard/ChannelTabPanelClient";
 
 export const runtime = "nodejs";
@@ -1331,6 +1331,14 @@ export default async function ChannelDashboardPage({
     channelTopPartnerDealsOnPage: false,
   };
 
+  const channelSalesOpportunitiesTabPanel = (
+    <ChannelCommitRisksTabClient
+      commitAdmission={partnerHero?.commitAdmission ?? null}
+      commitDealPanels={partnerHero?.commitDealPanels ?? null}
+      bucketDeltas={partnerHero?.bucketDeltas ?? null}
+    />
+  );
+
   const emptyPipelineHygiene = {
     coverageRows: [],
     assessmentRows: [],
@@ -1605,10 +1613,7 @@ export default async function ChannelDashboardPage({
                 orgId={ctx.user.org_id}
                 orgName={orgName}
                 viewerRole={ctx.user.role}
-                salesOpportunitiesSimpleProps={{
-                  quotaPeriods: (channelSummary?.periods ?? summary.periods).map(periodToOption),
-                  defaultQuotaPeriodId: selectedPeriodId,
-                }}
+                salesOpportunitiesPanel={channelSalesOpportunitiesTabPanel}
                 forecastTabProps={channelTabProps}
                 pipelineTabProps={channelTabProps}
                 pipelineHygiene={emptyPipelineHygiene}
@@ -1672,16 +1677,7 @@ export default async function ChannelDashboardPage({
               }}
               setDefaultTab={setExecDefaultTabAction}
               panels={{
-                sales_opportunities: (
-                  <div className="-mx-4 -mt-4">
-                    <SimpleForecastDashboardClient
-                      defaultRepName={String(ctx.user.account_owner_name || "").trim()}
-                      repFilterLocked={true}
-                      quotaPeriods={(channelSummary?.periods ?? summary.periods).map(periodToOption)}
-                      defaultQuotaPeriodId={selectedPeriodId}
-                    />
-                  </div>
-                ),
+                sales_opportunities: <div className="-mx-4 -mt-4">{channelSalesOpportunitiesTabPanel}</div>,
                 channel_partners: (
                   <ChannelTabPanelClient
                     revenueTabProps={channelTabProps}

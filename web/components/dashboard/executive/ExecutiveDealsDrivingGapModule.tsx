@@ -147,6 +147,8 @@ export function ExecutiveDealsDrivingGapModule(props: {
   title: string;
   subtitle?: string;
   deals: ExecutiveGapDeal[];
+  /** Channel roles (6/7/8): hide links into Matthew / deal-review. */
+  hideMatthewLinks?: boolean;
 }) {
   const deals = props.deals || [];
   const [expandedDealId, setExpandedDealId] = useState<string>("");
@@ -225,7 +227,9 @@ export function ExecutiveDealsDrivingGapModule(props: {
                           {d.commit_whats_missing || d.verdict_note}
                         </div>
                       ) : null}
-                      {(d.crm_stage?.bucket === "commit" || d.ai_verdict_stage === "Commit") && (d.commit_admission_status === "not_admitted" || d.commit_admission_status === "needs_review" || d.commit_whats_missing) ? (
+                      {(d.crm_stage?.bucket === "commit" || d.ai_verdict_stage === "Commit") &&
+                      (d.commit_admission_status === "not_admitted" || d.commit_admission_status === "needs_review" || d.commit_whats_missing) &&
+                      !props.hideMatthewLinks ? (
                         <Link
                           href={`/opportunities/${encodeURIComponent(d.id)}/deal-review?category=paper&prefill=${encodeURIComponent("Who (legal/procurement contact): \nWhat artifact (PO, MSA, redlines): \nWhen (date / next milestone): \nCurrent status (e.g., procurement cutting PO): ")}`}
                           className="mt-1 inline-block rounded border border-[#F1C40F]/60 bg-[#F1C40F]/10 px-2 py-0.5 text-[11px] font-semibold text-[#F1C40F] hover:bg-[#F1C40F]/20"

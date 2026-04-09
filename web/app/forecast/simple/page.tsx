@@ -5,7 +5,7 @@ import { pool } from "../../../lib/pool";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { SimpleForecastDashboardClient } from "./simpleClient";
 import { QuarterSalesForecastSummary } from "../_components/QuarterSalesForecastSummary";
-import { HIERARCHY, isAdmin, isSalesRep } from "../../../lib/roleHelpers";
+import { HIERARCHY, isAdmin, isChannelRole, isSalesRep } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -91,6 +91,7 @@ export default async function SimpleForecastPage({
           repFilterLocked={repFilterLocked}
           quotaPeriods={quotaPeriodOptions}
           defaultQuotaPeriodId={currentQuotaPeriodId}
+          hideMatthewDealReview={isChannelRole(ctx.user)}
         />
       </main>
     </div>

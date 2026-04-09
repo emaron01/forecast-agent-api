@@ -109,6 +109,8 @@ function ScoreCard(props: { titleLine: string; meaningLine: string; score: any; 
 export function ForecastDashboardClient(props: {
   defaultRepName?: string;
   repFilterLocked?: boolean;
+  /** Channel roles (6/7/8): hide Matthew / deal-review entry points. */
+  hideMatthewDealReview?: boolean;
 }) {
   const [allDeals, setAllDeals] = useState<Deal[]>([]);
   const [search, setSearch] = useState("");
@@ -440,7 +442,7 @@ export function ForecastDashboardClient(props: {
                         >
                           Closed ({closed})
                         </span>
-                      ) : (
+                      ) : props.hideMatthewDealReview ? null : (
                         <Link
                           href={`/opportunities/${encodeURIComponent(dealId)}/deal-review`}
                           className="rounded-full border border-[color:var(--sf-accent-secondary)] bg-[color:var(--sf-surface-alt)] px-3 py-1 text-[color:var(--sf-accent-secondary)] hover:bg-[color:var(--sf-surface)]"

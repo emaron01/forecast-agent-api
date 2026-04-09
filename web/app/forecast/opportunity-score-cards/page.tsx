@@ -4,7 +4,7 @@ import { getOrganization } from "../../../lib/db";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ForecastDashboardClient } from "../ForecastDashboardClient";
 import { QuarterSalesForecastSummary } from "../_components/QuarterSalesForecastSummary";
-import { HIERARCHY, isAdmin, isSalesRep } from "../../../lib/roleHelpers";
+import { HIERARCHY, isAdmin, isChannelRole, isSalesRep } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -28,7 +28,11 @@ export default async function OpportunityScoreCardsViewPage({
       <UserTopNav orgName={orgName} user={ctx.user} />
       <main className="mx-auto max-w-6xl p-6">
         <QuarterSalesForecastSummary orgId={ctx.user.org_id} user={ctx.user} currentPath="/forecast/opportunity-score-cards" searchParams={searchParams} />
-        <ForecastDashboardClient defaultRepName={defaultRepName} repFilterLocked={repFilterLocked} />
+        <ForecastDashboardClient
+          defaultRepName={defaultRepName}
+          repFilterLocked={repFilterLocked}
+          hideMatthewDealReview={isChannelRole(ctx.user)}
+        />
       </main>
     </div>
   );
