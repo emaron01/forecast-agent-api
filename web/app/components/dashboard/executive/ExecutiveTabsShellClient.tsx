@@ -753,8 +753,6 @@ export function ExecutiveTabsShellClient(props: {
   allowedTabKeys?: ExecTabKey[];
   overviewSlot?: ReactNode;
   salesOpportunitiesSimpleProps?: Partial<SimpleForecastDashboardClientProps>;
-  /** When set (e.g. channel dashboard), replaces the default Sales Opportunities list. */
-  salesOpportunitiesPanel?: ReactNode;
   forecastTabProps: ExecutiveGapInsightsClientProps;
   pipelineTabProps: ExecutiveGapInsightsClientProps;
   pipelineHygiene: PipelineHygienePayload;
@@ -873,9 +871,7 @@ export function ExecutiveTabsShellClient(props: {
         {activeTab === "overview" && (props.overviewSlot ?? null)}
         {activeTab === "sales_opportunities" && (
           <div className="-mx-4 -mt-4">
-            {props.salesOpportunitiesPanel ?? (
-              <SimpleForecastDashboardClient {...(props.salesOpportunitiesSimpleProps ?? {})} />
-            )}
+            <SimpleForecastDashboardClient {...(props.salesOpportunitiesSimpleProps ?? {})} />
           </div>
         )}
         {activeTab === "coaching" && (
