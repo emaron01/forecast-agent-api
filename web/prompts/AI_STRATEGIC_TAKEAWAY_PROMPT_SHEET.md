@@ -110,3 +110,15 @@ If the surface is not “risk deals”, adapt the placeholders but keep the stru
 - If you only have a subset of deals (e.g., “top N”), label it clearly.
 - Do not overfit: one deal anecdote is fine, but anchor on the aggregated pattern.
 
+## Channel role context
+
+When the user message includes **Role context: Channel user** (or otherwise indicates a channel role viewer):
+
+- Frame all analysis in terms of **partner-attributed** pipeline and **channel contribution** — not as if the viewer owns the full direct sales forecast.
+- **Reference partner performance and partner-attributed deals** as the primary lens; use direct / sales-team figures only as **benchmark or context** when the payload includes them, never as “the user’s own” core metrics.
+- **Do not** present direct sales team performance as the channel user’s personal or primary scorecard.
+- Emphasize **partner activation**, **partner pipeline gaps**, **coverage and enablement**, and **where channel investment** (MDF, SE support, joint selling) would move the needle.
+- Keep tone appropriate for **channel leadership** (exec / director / rep) operating on scoped partner data.
+
+When the user message includes **Role context: Sales user**, use the standard CRO / sales leadership framing (GAP, rep coaching, direct forecast) as today.
+

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "../../../lib/auth";
 import { pool } from "../../../lib/pool";
+import { aiTakeawayCacheHierarchyGroup } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -32,6 +33,8 @@ export async function GET(req: Request) {
     return jsonError(400, "Missing surface or payload_sha");
   }
 
+  const hierarchyLevelGroup = aiTakeawayCacheHierarchyGroup(auth.user);
+
   try {
     const r = await pool.query<{
       summary: string;
@@ -45,8 +48,9 @@ export async function GET(req: Request) {
        WHERE org_id = $1
          AND surface = $2
          AND payload_sha = $3
+         AND hierarchy_level_group = $4
        LIMIT 1`,
-      [auth.user.org_id, surface, payloadSha]
+      [auth.user.org_id, surface, payloadSha, hierarchyLevelGroup]
     );
     const row = r.rows?.[0];
     if (row?.summary) {
@@ -94,18 +98,20 @@ export async function POST(req: Request) {
     return jsonError(400, "Missing surface, payload_sha, or summary");
   }
 
+  const hierarchyLevelGroup = aiTakeawayCacheHierarchyGroup(auth.user);
+
   try {
     await pool.query(
       `INSERT INTO ai_takeaway_cache
-         (org_id, surface, payload_sha, summary, extended, expires_at)
-       VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '24 hours')
-       ON CONFLICT (org_id, surface, payload_sha)
+         (org_id, surface, payload_sha, hierarchy_level_group, summary, extended, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW() + INTERVAL '24 hours')
+       ON CONFLICT (org_id, surface, payload_sha, hierarchy_level_group)
        DO UPDATE SET
          summary = EXCLUDED.summary,
          extended = EXCLUDED.extended,
          expires_at = NOW() + INTERVAL '24 hours',
          updated_at = NOW()`,
-      [auth.user.org_id, surface, payloadSha, summary, extended]
+      [auth.user.org_id, surface, payloadSha, hierarchyLevelGroup, summary, extended]
     );
     return NextResponse.json({ ok: true });
   } catch (e: any) {

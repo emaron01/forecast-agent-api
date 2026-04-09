@@ -118,6 +118,14 @@ export function isChannelRole(u: UserWithHierarchy) {
   return isChannelRoleLevel(levelOf(u));
 }
 
+/**
+ * Partitions AI takeaway cache so channel roles (6/7/8) never share cached copy with sales-side roles (0–5),
+ * even if payload SHA collides.
+ */
+export function aiTakeawayCacheHierarchyGroup(u: UserWithHierarchy): "channel" | "sales" {
+  return isChannelRole(u) ? "channel" : "sales";
+}
+
 export function isSalesLeader(u: UserWithHierarchy) {
   return levelOf(u) >= HIERARCHY.EXEC_MANAGER && levelOf(u) <= HIERARCHY.MANAGER;
 }

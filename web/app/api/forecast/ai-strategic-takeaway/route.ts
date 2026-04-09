@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuth } from "../../../../lib/auth";
 import { loadAiStrategicTakeawayPrompt } from "../../../../lib/aiStrategicTakeawayPrompt";
+import { isChannelRole } from "../../../../lib/roleHelpers";
 import { createHash } from "node:crypto";
 
 export const runtime = "nodejs";
@@ -186,9 +187,15 @@ export async function POST(req: Request) {
         ? `\n\nPrevious analysis (if still valid, reuse verbatim; only update bullets impacted by changed numbers):\n${String(body.previous_extended || body.previous_summary || "").trim()}\n`
         : "";
 
+    const isChannel = isChannelRole(auth.user);
+    const roleContextLine = isChannel
+      ? "Role context: Channel user — analysis must reflect partner-attributed pipeline only (see prompt sheet: Channel role context)."
+      : "Role context: Sales user";
+
     const userText =
       `Surface: ${body.surface}\n` +
-      `Org: ${auth.user.org_id}\n\n` +
+      `Org: ${auth.user.org_id}\n` +
+      `${roleContextLine}\n\n` +
       `Payload sha256: ${payloadSha}\n` +
       (body.previous_payload_sha256 ? `Previous payload sha256: ${body.previous_payload_sha256}\n` : "") +
       `Input data (JSON):\n${JSON.stringify(body.payload, null, 2)}\n\n` +
