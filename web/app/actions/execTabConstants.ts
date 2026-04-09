@@ -2,8 +2,7 @@ export const EXEC_TABS = [
   "overview",
   "pipeline",
   "sales_opportunities",
-  "channel_performance",
-  "my_focus",
+  "channel_partners",
   "coaching",
   "team",
   "channel",
@@ -19,6 +18,8 @@ export function normalizeExecTab(raw: string | null | undefined): ExecTabKey | n
   const v = String(raw || "").trim().toLowerCase();
   // Legacy tab key (renamed to revenue_mix)
   if (v === "revenue") return "revenue_mix";
+  // Legacy: partner intelligence tab renamed / merged
+  if (v === "channel_performance" || v === "my_focus") return "channel_partners";
   return EXEC_TABS.includes(v as ExecTabKey) ? (v as ExecTabKey) : null;
 }
 

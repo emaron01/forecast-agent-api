@@ -15,8 +15,9 @@ import { SimpleForecastDashboardClient } from "../forecast/simple/simpleClient";
 import { normalizeExecTab, resolveDashboardTab, type ExecTabKey } from "../actions/execTabConstants";
 import { setExecDefaultTabAction } from "../actions/execTabPreferences";
 import { ScopedDashboardTabsClient } from "../components/dashboard/ScopedDashboardTabsClient";
-import { PartnerPerformanceReadOnlyTable } from "../components/dashboard/PartnerPerformanceReadOnlyTable";
-import { loadRepScopedPartnerPerformance } from "../../lib/partnerPerformanceRollups";
+import { ChannelTabPanelClient } from "../components/dashboard/ChannelTabPanelClient";
+import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../lib/channelPartnerHeroData";
+import { listTopPartnerDealsChannelHeroScope } from "../../lib/channelHeroTopPartnerDeals";
 import { isAdmin, isChannelRole, isRepLevel, isSalesLeader } from "../../lib/roleHelpers";
 
 export const runtime = "nodejs";
@@ -182,8 +183,124 @@ export default async function DashboardPage({
   }
 
   const fiscalYear = String(summary.selectedPeriod?.fiscal_year ?? summary.selectedFiscalYear ?? "").trim() || "—";
+  const fiscalQuarter = String(selectedPeriod?.fiscal_quarter || "").trim() || "—";
   const quotaPeriodId = String(summary.selectedQuotaPeriodId ?? "").trim();
   const repNameForBrief = defaultRepName || displayName;
+
+  // Channel Partners tab for Sales Reps (level 3):
+  // Gives reps evidence-based visibility into which partners actually perform
+  // on their deals — so they can make informed decisions when channel reps
+  // ask them to feed deals to specific partners, and proactively identify
+  // which partners they should be pulling into more deals.
+  // Scoped to rep_id = myRepId so data reflects their own book of business only.
+  const selectedQuotaPeriodIdStr = String(summary.selectedQuotaPeriodId ?? "").trim();
+  const periodIdxForChannel = summary.periods.findIndex((p) => String(p.id) === selectedQuotaPeriodIdStr);
+  const prevPeriodForChannel = periodIdxForChannel >= 0 ? summary.periods[periodIdxForChannel + 1] : null;
+  const prevQpIdForChannel = prevPeriodForChannel ? String(prevPeriodForChannel.id) : "";
+
+  let repChannelPartnerHero: Awaited<ReturnType<typeof loadChannelPartnerHeroProps>> = null;
+  let repChannelLedFed: Awaited<ReturnType<typeof loadChannelLedFedRows>> = [];
+  let repTopPartnerWon: Awaited<ReturnType<typeof listTopPartnerDealsChannelHeroScope>> = [];
+  let repTopPartnerLost: Awaited<ReturnType<typeof listTopPartnerDealsChannelHeroScope>> = [];
+
+  if (isRepLevel(ctx.user.hierarchy_level) && repId != null && selectedPeriod && selectedQuotaPeriodIdStr) {
+    try {
+      const [ph, lf, w, l] = await Promise.all([
+        loadChannelPartnerHeroProps({
+          orgId: ctx.user.org_id,
+          quotaPeriodId: selectedQuotaPeriodIdStr,
+          prevQuotaPeriodId: prevQpIdForChannel,
+          repIds: [repId],
+          partnerNames: [],
+        }),
+        loadChannelLedFedRows({
+          orgId: ctx.user.org_id,
+          quotaPeriodId: selectedQuotaPeriodIdStr,
+          repIds: [repId],
+          partnerNames: [],
+        }),
+        listTopPartnerDealsChannelHeroScope({
+          orgId: ctx.user.org_id,
+          quotaPeriodId: selectedQuotaPeriodIdStr,
+          outcome: "won",
+          limit: 10,
+          dateStart: selectedPeriod.period_start,
+          dateEnd: selectedPeriod.period_end,
+          scopeRepIds: [repId],
+          scopePartnerNames: [],
+          assignedPartnerNames: [],
+        }),
+        listTopPartnerDealsChannelHeroScope({
+          orgId: ctx.user.org_id,
+          quotaPeriodId: selectedQuotaPeriodIdStr,
+          outcome: "lost",
+          limit: 10,
+          dateStart: selectedPeriod.period_start,
+          dateEnd: selectedPeriod.period_end,
+          scopeRepIds: [repId],
+          scopePartnerNames: [],
+          assignedPartnerNames: [],
+        }),
+      ]);
+      repChannelPartnerHero = ph;
+      repChannelLedFed = lf ?? [];
+      repTopPartnerWon = w ?? [];
+      repTopPartnerLost = l ?? [];
+    } catch {
+      repChannelPartnerHero = null;
+      repChannelLedFed = [];
+      repTopPartnerWon = [];
+      repTopPartnerLost = [];
+    }
+  }
+
+  const salesRepChannelTabProps = {
+    basePath: "/dashboard",
+    channelDashboardMode: true as const,
+    viewerRole: ctx.user.role,
+    periods: summary.periods,
+    quotaPeriodId: selectedQuotaPeriodIdStr,
+    orgId: ctx.user.org_id,
+    reps: summary.reps,
+    fiscalYear,
+    fiscalQuarter,
+    stageProbabilities: summary.stageProbabilities,
+    healthModifiers: repChannelPartnerHero?.healthModifiers ?? summary.healthModifiers,
+    repDirectory: summary.repDirectory,
+    myRepId: summary.myRepId,
+    repRollups: summary.repRollups,
+    productsClosedWon: repChannelPartnerHero?.productsClosedWon ?? summary.productsClosedWon,
+    productsClosedWonPrevSummary:
+      repChannelPartnerHero?.productsClosedWonPrevSummary ?? summary.productsClosedWonPrevSummary,
+    productsClosedWonByRep: summary.productsClosedWonByRep,
+    quarterKpis: repChannelPartnerHero?.quarterKpis ?? summary.quarterKpis,
+    pipelineMomentum: repChannelPartnerHero?.pipelineMomentum ?? summary.pipelineMomentum,
+    closedWonFyYtd: summary.closedWonFyYtd,
+    crmTotals: {
+      ...summary.crmForecast,
+      commit_amount: repChannelPartnerHero?.crmForecast.commit_amount ?? summary.crmForecast.commit_amount,
+      best_case_amount: repChannelPartnerHero?.crmForecast.best_case_amount ?? summary.crmForecast.best_case_amount,
+      pipeline_amount: repChannelPartnerHero?.crmForecast.pipeline_amount ?? summary.crmForecast.pipeline_amount,
+      won_amount: repChannelPartnerHero?.crmForecast.won_amount ?? summary.crmForecast.won_amount,
+      lost_amount: repChannelPartnerHero?.crmForecast.lost_amount ?? summary.crmForecast.lost_amount,
+      lost_count: repChannelPartnerHero?.crmForecast.lost_count ?? summary.crmForecast.lost_count,
+    },
+    partnersExecutive: summary.partnersExecutive,
+    quota: repChannelPartnerHero?.quota ?? summary.quota,
+    aiForecast: repChannelPartnerHero?.aiForecast ?? summary.aiForecast.weighted_forecast,
+    crmForecast: repChannelPartnerHero?.crmForecastWeighted ?? summary.crmForecast.weighted_forecast,
+    gap: repChannelPartnerHero?.forecastGap ?? summary.forecastGap,
+    bucketDeltas: repChannelPartnerHero?.bucketDeltas ?? summary.bucketDeltas,
+    aiPctToGoal: repChannelPartnerHero?.pctToGoal ?? summary.pctToGoal,
+    leftToGo: repChannelPartnerHero?.leftToGo ?? summary.leftToGo,
+    commitAdmission: repChannelPartnerHero?.commitAdmission ?? summary.commitAdmission,
+    commitDealPanels: repChannelPartnerHero?.commitDealPanels ?? summary.commitDealPanels,
+    defaultTopN: 5,
+    topPartnerWon: repTopPartnerWon,
+    topPartnerLost: repTopPartnerLost,
+    periodName: selectedPeriod?.period_name ?? "",
+    channelTopPartnerDealsOnPage: false,
+  };
 
   const search = searchParams || {};
   const tabRaw = Array.isArray(search.tab) ? search.tab[0] : search.tab;
@@ -203,7 +320,7 @@ export default async function DashboardPage({
   const repDashboardAllowed: ExecTabKey[] = [
     "overview",
     "sales_opportunities",
-    ...(isRepLevel(ctx.user.hierarchy_level) ? (["channel_performance"] as ExecTabKey[]) : []),
+    ...(isRepLevel(ctx.user.hierarchy_level) ? (["channel_partners"] as ExecTabKey[]) : []),
   ];
 
   const activeTab = resolveDashboardTab({
@@ -212,11 +329,6 @@ export default async function DashboardPage({
     allowed: repDashboardAllowed,
     fallback: "overview",
   });
-
-  const repPartnerRows =
-    isRepLevel(ctx.user.hierarchy_level) && repId != null
-      ? await loadRepScopedPartnerPerformance({ orgId: ctx.user.org_id, repId })
-      : [];
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -249,7 +361,7 @@ export default async function DashboardPage({
             tabLabels={{
               overview: "Overview",
               sales_opportunities: "Sales Opportunities",
-              channel_performance: "Channel Performance",
+              channel_partners: "Channel Partners",
             }}
             setDefaultTab={setExecDefaultTabAction}
             panels={{
@@ -318,14 +430,16 @@ export default async function DashboardPage({
                   />
                 </div>
               ),
-              channel_performance: (
-                <div className="space-y-3 text-[color:var(--sf-text-primary)]">
-                  <p className="text-sm text-[color:var(--sf-text-secondary)]">
-                    Partner win rate uses closed won vs. all closed (won + lost) opportunities, scoped to your rep
-                    attribution.
-                  </p>
-                  <PartnerPerformanceReadOnlyTable rows={repPartnerRows} />
-                </div>
+              channel_partners: (
+                <ChannelTabPanelClient
+                  revenueTabProps={salesRepChannelTabProps}
+                  viewerRole={ctx.user.role}
+                  showChannelContribution={repChannelLedFed.length > 0}
+                  channelContributionHero={repChannelPartnerHero}
+                  channelContributionRows={repChannelLedFed}
+                  topPartnerWon={repTopPartnerWon}
+                  topPartnerLost={repTopPartnerLost}
+                />
               ),
             }}
           />

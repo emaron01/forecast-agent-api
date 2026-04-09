@@ -15,12 +15,11 @@ import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveFore
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
 import { HIERARCHY, isChannelRep, isChannelRole } from "../../../lib/roleHelpers";
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
+import { listTopPartnerDealsChannelHeroScope } from "../../../lib/channelHeroTopPartnerDeals";
 import { ChannelTopPartnerDealsTablesClient, type TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
 import { SimpleForecastDashboardClient } from "../../forecast/simple/simpleClient";
 import { ScopedDashboardTabsClient } from "../../components/dashboard/ScopedDashboardTabsClient";
-import { ChannelMyPipelineTableClient } from "../../components/dashboard/ChannelMyPipelineTableClient";
-import { PartnerPerformanceReadOnlyTable } from "../../components/dashboard/PartnerPerformanceReadOnlyTable";
-import { loadChannelDealsScopedPartnerPerformance, type PartnerPerformanceRow } from "../../../lib/partnerPerformanceRollups";
+import { ChannelTabPanelClient } from "../../components/dashboard/ChannelTabPanelClient";
 
 export const runtime = "nodejs";
 
@@ -54,7 +53,7 @@ const CHANNEL_DASHBOARD_LEADER_TABS: ExecTabKey[] = [
   "reports",
 ];
 
-const CHANNEL_REP_DASHBOARD_TABS: ExecTabKey[] = ["sales_opportunities", "my_focus"];
+const CHANNEL_REP_DASHBOARD_TABS: ExecTabKey[] = ["sales_opportunities", "channel_partners"];
 
 function partnerScopeSql(rowAlias: string, parameterIndex: number) {
   return `(
@@ -66,14 +65,6 @@ function partnerScopeSql(rowAlias: string, parameterIndex: number) {
       )
       ELSE lower(btrim(${rowAlias}.partner_name)) = ANY($${parameterIndex}::text[])
     END
-  )`;
-}
-
-/** Top-deals query: $7 repIds, $8 partnerNames, $9 repLen, $10 partnerLen */
-function channelHeroOppScopeSqlTopDeals(alias: string): string {
-  return `(
-    ($9::int > 0 AND ${alias}.rep_id = ANY($7::bigint[]))
-    OR ($10::int > 0 AND lower(btrim(COALESCE(${alias}.partner_name, ''))) = ANY($8::text[]))
   )`;
 }
 
@@ -271,89 +262,6 @@ async function loadPartnerScopedProductsForTerritory(args: {
     [args.orgId, args.quotaPeriodId, args.territoryRepIds, scopePn, args.assignedPartnerNames, repLen, partnerLen]
   );
   return (rows || []) as ChannelScopedProductRow[];
-}
-
-async function listTopPartnerDealsChannel(args: {
-  orgId: number;
-  quotaPeriodId: string;
-  outcome: "won" | "lost";
-  limit: number;
-  dateStart?: string | null;
-  dateEnd?: string | null;
-  scopeRepIds: number[];
-  scopePartnerNames: string[];
-  assignedPartnerNames: string[];
-}): Promise<TopPartnerDealRow[]> {
-  const wantWon = args.outcome === "won";
-  const scopeRep = args.scopeRepIds || [];
-  const scopePn = Array.from(
-    new Set((args.scopePartnerNames || []).map((n) => String(n || "").trim().toLowerCase()).filter(Boolean))
-  );
-  const repLen = scopeRep.length;
-  const partnerLen = scopePn.length;
-  if (repLen === 0 && partnerLen === 0) return [];
-  const { rows } = await pool.query<TopPartnerDealRow>(
-    `
-    WITH qp AS (
-      SELECT
-        period_start::date AS period_start,
-        period_end::date AS period_end,
-        GREATEST(period_start::date, COALESCE($5::date, period_start::date)) AS range_start,
-        LEAST(period_end::date, COALESCE($6::date, period_end::date)) AS range_end
-      FROM quota_periods
-      WHERE org_id = $1::bigint
-        AND id = $2::bigint
-      LIMIT 1
-    )
-    SELECT
-      o.public_id::text AS opportunity_public_id,
-      btrim(o.partner_name) AS partner_name,
-      o.deal_registration,
-      o.account_name,
-      o.opportunity_name,
-      o.product,
-      COALESCE(o.amount, 0)::float8 AS amount,
-      o.create_date::timestamptz::text AS create_date,
-      o.close_date::date::text AS close_date,
-      o.baseline_health_score::float8 AS baseline_health_score,
-      o.health_score::float8 AS health_score
-    FROM opportunities o
-    JOIN qp ON TRUE
-    WHERE o.org_id = $1
-      AND o.partner_name IS NOT NULL
-      AND btrim(o.partner_name) <> ''
-      AND ${channelHeroOppScopeSqlTopDeals("o")}
-      AND ${partnerScopeSql("o", 11)}
-      AND o.close_date IS NOT NULL
-      AND o.close_date >= qp.range_start
-      AND o.close_date <= qp.range_end
-      AND (
-        CASE
-          WHEN $3::boolean THEN ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
-          ELSE (
-            ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
-            OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
-          )
-        END
-      )
-    ORDER BY amount DESC NULLS LAST, o.id DESC
-    LIMIT $4
-    `,
-    [
-      args.orgId,
-      args.quotaPeriodId,
-      wantWon,
-      args.limit,
-      args.dateStart || null,
-      args.dateEnd || null,
-      scopeRep,
-      scopePn,
-      repLen,
-      partnerLen,
-      args.assignedPartnerNames,
-    ]
-  );
-  return rows || [];
 }
 
 type ChannelDashboardHeroMetrics = {
@@ -800,16 +708,6 @@ export default async function ChannelDashboardPage({
   const channelViewerHasDataScope =
     visibleRepIds.length > 0 || viewerChannelScopePartnerNames.length > 0;
 
-  let myFocusPartnerRows: PartnerPerformanceRow[] = [];
-  if (isChannelRep(ctx.user)) {
-    const tr = territoryRepIds.filter((id) => Number.isFinite(id) && id > 0);
-    myFocusPartnerRows = await loadChannelDealsScopedPartnerPerformance({
-      orgId,
-      territoryRepIds: tr,
-      partnerNames: viewerChannelScopePartnerNames,
-    }).catch(() => []);
-  }
-
   const periodIdx = summary.periods.findIndex((p) => String(p.id) === String(selectedPeriodId));
   const prevPeriod = periodIdx >= 0 ? summary.periods[periodIdx + 1] : null;
   const prevQpId = prevPeriod ? String(prevPeriod.id) : "";
@@ -902,7 +800,7 @@ export default async function ChannelDashboardPage({
   try {
     if (selectedPeriod && channelViewerHasDataScope && selectedPeriodId) {
       const [won, lost, ph, lf] = await Promise.all([
-        listTopPartnerDealsChannel({
+        listTopPartnerDealsChannelHeroScope({
           orgId: ctx.user.org_id,
           quotaPeriodId: selectedPeriodId,
           outcome: "won",
@@ -913,7 +811,7 @@ export default async function ChannelDashboardPage({
           scopePartnerNames: heroScopePartnerNames,
           assignedPartnerNames,
         }),
-        listTopPartnerDealsChannel({
+        listTopPartnerDealsChannelHeroScope({
           orgId: ctx.user.org_id,
           quotaPeriodId: selectedPeriodId,
           outcome: "lost",
@@ -1770,7 +1668,7 @@ export default async function ChannelDashboardPage({
               allowedTabKeys={CHANNEL_REP_DASHBOARD_TABS}
               tabLabels={{
                 sales_opportunities: "Sales Opportunities",
-                my_focus: "My Focus",
+                channel_partners: "Channel Partners",
               }}
               setDefaultTab={setExecDefaultTabAction}
               panels={{
@@ -1784,17 +1682,16 @@ export default async function ChannelDashboardPage({
                     />
                   </div>
                 ),
-                my_focus: (
-                  <div className="space-y-8 text-[color:var(--sf-text-primary)]">
-                    <section>
-                      <h3 className="mb-2 text-base font-semibold">My Pipeline</h3>
-                      <ChannelMyPipelineTableClient quotaPeriodId={selectedPeriodId} />
-                    </section>
-                    <section>
-                      <h3 className="mb-2 text-base font-semibold">Partner Performance</h3>
-                      <PartnerPerformanceReadOnlyTable rows={myFocusPartnerRows} />
-                    </section>
-                  </div>
+                channel_partners: (
+                  <ChannelTabPanelClient
+                    revenueTabProps={channelTabProps}
+                    viewerRole={ctx.user.role}
+                    showChannelContribution={ledFedRows.length > 0}
+                    channelContributionHero={partnerHero}
+                    channelContributionRows={ledFedRows}
+                    topPartnerWon={channelTopPartnerWon}
+                    topPartnerLost={channelTopPartnerLost}
+                  />
                 ),
               }}
             />
