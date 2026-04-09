@@ -53,6 +53,12 @@ function normalizeForecastBucket(stageLike: any): "Commit" | "Best Case" | "Pipe
   return "Pipeline";
 }
 
+const FORECAST_SORT_ORDER: Record<string, number> = {
+  Commit: 0,
+  "Best Case": 1,
+  Pipeline: 2,
+};
+
 function isClosedDeal(d: Deal) {
   return closedOutcomeFromOpportunityRow(d) || null;
 }
@@ -93,7 +99,7 @@ export function SimpleForecastDashboardClient(props: {
     const base = !q
       ? openOnly
       : openOnly.filter((d) => {
-          const hay = [d.account_name, d.opportunity_name, normalizeForecastBucket(d.forecast_stage), d.ai_verdict, d.ai_forecast]
+          const hay = [d.account_name, d.opportunity_name, d.partner_name, normalizeForecastBucket(d.forecast_stage), d.ai_verdict, d.ai_forecast]
             .filter(Boolean)
             .join(" ")
             .toLowerCase();
@@ -138,6 +144,13 @@ export function SimpleForecastDashboardClient(props: {
       if (av == null && bv == null) return 0;
       if (av == null) return 1;
       if (bv == null) return -1;
+
+      if (sortKey === "forecast") {
+        const ao = FORECAST_SORT_ORDER[String(av)] ?? 99;
+        const bo = FORECAST_SORT_ORDER[String(bv)] ?? 99;
+        if (ao === bo) return 0;
+        return (ao - bo) * dir;
+      }
 
       if (typeof av === "string" || typeof bv === "string") {
         return av.localeCompare(bv) * dir;
@@ -307,7 +320,7 @@ export function SimpleForecastDashboardClient(props: {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search account, opportunity, stages…"
+              placeholder="Search account, opportunity, partner, stages…"
               className="mt-1 w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)]"
             />
           </div>
@@ -333,7 +346,7 @@ export function SimpleForecastDashboardClient(props: {
                   const nextParams = new URLSearchParams(searchParams.toString());
                   if (next) nextParams.set("quota_period_id", next);
                   else nextParams.delete("quota_period_id");
-                  router.push(`${pathname}?${nextParams.toString()}`);
+                  router.push(`${pathname}?${nextParams.toString()}`, { scroll: false });
                 }}
                 disabled={busy}
                 className="mt-1 w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] outline-none focus:border-[color:var(--sf-accent-primary)] focus:ring-2 focus:ring-[color:var(--sf-accent-primary)] disabled:opacity-60"
