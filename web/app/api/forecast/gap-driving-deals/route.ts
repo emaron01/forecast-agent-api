@@ -7,7 +7,7 @@ import { resolvePublicId, zPublicId } from "../../../../lib/publicId";
 import { getForecastStageProbabilities } from "../../../../lib/forecastStageProbabilities";
 import { computeCommitAdmission } from "../../../../lib/commitAdmission";
 import { computeAiForecastFromHealthScore, toOpenStage } from "../../../../lib/aiForecast";
-import { isAdmin, isSalesRep } from "../../../../lib/roleHelpers";
+import { isAdmin, isChannelRole as authUserIsChannelRole, isSalesRep } from "../../../../lib/roleHelpers";
 import { getChannelTerritoryRepIds } from "../../../../lib/channelTerritoryScope";
 
 export const runtime = "nodejs";
@@ -370,10 +370,7 @@ export async function GET(req: Request) {
     const auth = await getAuth();
     if (!auth) return jsonError(401, "Unauthorized");
     if (auth.kind !== "user") return jsonError(403, "Forbidden");
-    const isChannelRole =
-      Number(auth.user.hierarchy_level) === 6 ||
-      Number(auth.user.hierarchy_level) === 7 ||
-      Number(auth.user.hierarchy_level) === 8;
+    const isChannelRole = authUserIsChannelRole(auth.user);
 
     const url = new URL(req.url);
     const debug = parseBool(url.searchParams.get("debug"));
@@ -536,7 +533,7 @@ export async function GET(req: Request) {
     const useScopedRepIds = !isAdmin(auth.user);
 
     // Fail-closed if we can't resolve a scope for a non-admin (align with Forecast: REP sees themselves; managers see their visible reps).
-    const channelScopeEmpty = isChannelRole && assignedPartnerNames.length === 0;
+    const channelScopeEmpty = isChannelRole && assignedPartnerNames.length === 0 && repIdsToUse.length === 0;
     if (useScopedRepIds && repIdsToUse.length === 0 && visibleRepNameKeys.length === 0 && channelScopeEmpty) {
       return NextResponse.json({
         ok: true,
@@ -790,10 +787,12 @@ export async function GET(req: Request) {
             OR (
               CASE
                 WHEN $22::boolean THEN
-                  COALESCE(array_length($23::text[], 1), 0) > 0
-                  AND o.partner_name IS NOT NULL
+                  o.partner_name IS NOT NULL
                   AND btrim(o.partner_name) <> ''
-                  AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($23::text[])
+                  AND (
+                    (COALESCE(array_length($23::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($23::text[]))
+                    OR (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
+                  )
                 ELSE
                   (o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
                   OR (
@@ -1036,10 +1035,12 @@ export async function GET(req: Request) {
               OR (
                 CASE
                   WHEN $22::boolean THEN
-                    COALESCE(array_length($23::text[], 1), 0) > 0
-                    AND o.partner_name IS NOT NULL
+                    o.partner_name IS NOT NULL
                     AND btrim(o.partner_name) <> ''
-                    AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($23::text[])
+                    AND (
+                      (COALESCE(array_length($23::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($23::text[]))
+                      OR (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
+                    )
                   ELSE
                     (o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
                     OR (
@@ -1570,10 +1571,12 @@ export async function GET(req: Request) {
                 AND (
                   NOT $4::boolean
                   OR (
-                    COALESCE(array_length($5::text[], 1), 0) > 0
-                    AND o.partner_name IS NOT NULL
+                    o.partner_name IS NOT NULL
                     AND btrim(o.partner_name) <> ''
-                    AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($5::text[])
+                    AND (
+                      (COALESCE(array_length($5::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($5::text[]))
+                      OR (COALESCE(array_length($6::bigint[], 1), 0) > 0 AND $3::bigint = ANY($6::bigint[]))
+                    )
                   )
                 )
             ),
@@ -1619,7 +1622,7 @@ export async function GET(req: Request) {
             GROUP BY crm_bucket
             ORDER BY crm_bucket ASC
             `,
-            [auth.user.org_id, quotaPeriodId, rep, isChannelRole, assignedPartnerNames]
+            [auth.user.org_id, quotaPeriodId, rep, isChannelRole, assignedPartnerNames, repIdsToUse]
           );
 
           const byBucket = new Map<string, AggRow>();

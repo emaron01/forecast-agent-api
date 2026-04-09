@@ -75,8 +75,10 @@ export function isChannelRepLevel(level: number | null | undefined) {
   return Number(level) === HIERARCHY.CHANNEL_REP;
 }
 
+/** True only for channel hierarchy levels 6 / 7 / 8 — not `>= 6` (avoids catching unknown future levels). */
 export function isChannelRoleLevel(level: number | null | undefined) {
-  return Number(level) >= HIERARCHY.CHANNEL_EXEC;
+  const n = Number(level);
+  return n === HIERARCHY.CHANNEL_EXEC || n === HIERARCHY.CHANNEL_MANAGER || n === HIERARCHY.CHANNEL_REP;
 }
 
 export function isSalesLeaderLevel(level: number | null | undefined) {
@@ -111,8 +113,9 @@ export function isChannelRep(u: UserWithHierarchy) {
   return levelOf(u) === HIERARCHY.CHANNEL_REP;
 }
 
+/** Channel Executive / Director / Rep only (6, 7, 8). Sales levels 0–5 never match. */
 export function isChannelRole(u: UserWithHierarchy) {
-  return levelOf(u) >= HIERARCHY.CHANNEL_EXEC;
+  return isChannelRoleLevel(levelOf(u));
 }
 
 export function isSalesLeader(u: UserWithHierarchy) {

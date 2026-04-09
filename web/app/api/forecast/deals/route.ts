@@ -96,11 +96,11 @@ export async function GET(req: Request) {
         }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }))
       : { repIds: [] as number[], partnerNames: [] as string[] };
 
-    // Channel visibility is partner-assignment only (territory is used inside getChannelTerritoryRepIds to
-    // derive assignments, not as a standalone rep_id grant on opportunities).
-    const useChannelScope = isChannel && channelTerritoryScope.partnerNames.length > 0;
+    const territoryRepIds = channelTerritoryScope.repIds.filter((id) => Number.isFinite(id) && id > 0);
+    const useChannelScope =
+      isChannel && (channelTerritoryScope.partnerNames.length > 0 || territoryRepIds.length > 0);
 
-    // Channel roles: fail closed when there are no assigned partner names.
+    // Channel roles: fail closed when neither territory nor partner assignments apply.
     if (isChannel && !useChannelScope) {
       return NextResponse.json({ ok: true, deals: [] });
     }
@@ -162,17 +162,19 @@ export async function GET(req: Request) {
     let p = 1;
     const where: string[] = [`o.org_id = $1`];
 
-    // Visibility (channel 6/7/8): partner_name must match partner_channel_assignments for this user (no rep/territory OR).
-    // (from partner_channel_assignments for this user). No rep_id / territory OR branch.
+    // Channel (6/7/8): non-empty partner_name always required; then partner-aligned OR territory rep (never unpartnered via territory).
     if (useChannelScope) {
       const partnerNames = channelTerritoryScope.partnerNames;
+      params.push(territoryRepIds);
+      const territoryIdx = ++p;
       params.push(partnerNames);
       const partnerNamesIdx = ++p;
       where.push(`o.partner_name IS NOT NULL`);
       where.push(`btrim(o.partner_name) <> ''`);
-      where.push(
-        `COALESCE(array_length($${partnerNamesIdx}::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($${partnerNamesIdx}::text[])`
-      );
+      where.push(`(
+        (COALESCE(array_length($${partnerNamesIdx}::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($${partnerNamesIdx}::text[]))
+        OR (COALESCE(array_length($${territoryIdx}::bigint[], 1), 0) > 0 AND o.rep_id IS NOT NULL AND o.rep_id = ANY($${territoryIdx}::bigint[]))
+      )`);
     } else if (allowedRepIds !== null) {
       params.push(allowedRepIds);
       where.push(`o.rep_id IS NOT NULL`);
