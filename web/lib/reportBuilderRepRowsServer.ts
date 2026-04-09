@@ -6,8 +6,8 @@ import { getQuotaByRepPeriod, getRepKpisByPeriod } from "./executiveRepKpis";
 import { getMeddpiccAveragesByRepByPeriods } from "./meddpiccHealth";
 import { getChannelTerritoryRepIds } from "./channelTerritoryScope";
 import { pool } from "./pool";
-import { getScopedRepDirectory } from "./repScope";
-import { HIERARCHY, isChannelRole } from "./roleHelpers";
+import { getChannelSubtreeRepDirectory, getScopedRepDirectory } from "./repScope";
+import { HIERARCHY, isChannelExec, isChannelManager, isChannelRole } from "./roleHelpers";
 
 type BuilderDirRow = {
   id: number;
@@ -136,6 +136,131 @@ function buildDirectoryInScope(
   return out;
 }
 
+function buildChannelDirectoryInScope(
+  repDirectory: { id: number; name: string; manager_rep_id: number | null; hierarchy_level?: number | null }[]
+): BuilderDirRow[] {
+  const filtered: BuilderDirRow[] = repDirectory
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      manager_rep_id: r.manager_rep_id ?? null,
+      hierarchy_level: Number.isFinite(Number(r.hierarchy_level)) ? Number(r.hierarchy_level) : null,
+    }))
+    .filter(
+      (r) =>
+        r.hierarchy_level != null &&
+        r.hierarchy_level >= HIERARCHY.CHANNEL_EXEC &&
+        r.hierarchy_level <= HIERARCHY.CHANNEL_REP
+    );
+
+  const execs = filtered
+    .filter((r) => r.hierarchy_level === HIERARCHY.CHANNEL_EXEC)
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+  const managers = filtered
+    .filter((r) => r.hierarchy_level === HIERARCHY.CHANNEL_MANAGER)
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+  const reps = filtered
+    .filter((r) => r.hierarchy_level === HIERARCHY.CHANNEL_REP)
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+
+  const execIds = new Set<number>(execs.map((e) => e.id));
+  const managerIds = new Set<number>(managers.map((m) => m.id));
+
+  const managersByExecId = new Map<number, BuilderDirRow[]>();
+  const orphanManagers: BuilderDirRow[] = [];
+  for (const m of managers) {
+    if (m.manager_rep_id != null && execIds.has(m.manager_rep_id)) {
+      const arr = managersByExecId.get(m.manager_rep_id) || [];
+      arr.push(m);
+      managersByExecId.set(m.manager_rep_id, arr);
+    } else {
+      orphanManagers.push(m);
+    }
+  }
+
+  const repsByManagerId = new Map<number, BuilderDirRow[]>();
+  const orphanReps: BuilderDirRow[] = [];
+  for (const r of reps) {
+    if (r.manager_rep_id != null && managerIds.has(r.manager_rep_id)) {
+      const arr = repsByManagerId.get(r.manager_rep_id) || [];
+      arr.push(r);
+      repsByManagerId.set(r.manager_rep_id, arr);
+    } else {
+      orphanReps.push(r);
+    }
+  }
+
+  const out: BuilderDirRow[] = [];
+  for (const exec of execs) {
+    out.push({
+      id: exec.id,
+      name: exec.name,
+      manager_rep_id: exec.manager_rep_id ?? null,
+      hierarchy_level: exec.hierarchy_level,
+    });
+
+    const execManagers = (managersByExecId.get(exec.id) || []).slice();
+    execManagers.sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+
+    for (const mgr of execManagers) {
+      out.push({
+        id: mgr.id,
+        name: mgr.name,
+        manager_rep_id: mgr.manager_rep_id ?? null,
+        hierarchy_level: mgr.hierarchy_level,
+      });
+
+      const mgrReps = (repsByManagerId.get(mgr.id) || []).slice();
+      mgrReps.sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+
+      for (const rep of mgrReps) {
+        out.push({
+          id: rep.id,
+          name: rep.name,
+          manager_rep_id: rep.manager_rep_id ?? null,
+          hierarchy_level: rep.hierarchy_level,
+        });
+      }
+    }
+  }
+
+  orphanManagers.sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+  for (const mgr of orphanManagers) {
+    out.push({
+      id: mgr.id,
+      name: mgr.name,
+      manager_rep_id: mgr.manager_rep_id ?? null,
+      hierarchy_level: mgr.hierarchy_level,
+    });
+
+    const mgrReps = (repsByManagerId.get(mgr.id) || []).slice();
+    mgrReps.sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+    for (const rep of mgrReps) {
+      out.push({
+        id: rep.id,
+        name: rep.name,
+        manager_rep_id: rep.manager_rep_id ?? null,
+        hierarchy_level: rep.hierarchy_level,
+      });
+    }
+  }
+
+  orphanReps.sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+  for (const rep of orphanReps) {
+    out.push({
+      id: rep.id,
+      name: rep.name,
+      manager_rep_id: rep.manager_rep_id ?? null,
+      hierarchy_level: rep.hierarchy_level,
+    });
+  }
+
+  return out;
+}
+
 /**
  * Loads report-builder rep rows for the executive dashboard / report builder API.
  * Mirrors the pipeline in `dashboard/executive/page.tsx`.
@@ -162,8 +287,14 @@ export async function loadReportBuilderRepRowsForUser(args: {
 
   let visibleRepIds: number[];
   let repDirectoryForBuilder: typeof scope.repDirectory;
+  let directoryInScope: BuilderDirRow[];
 
-  if (isChannelRole(user)) {
+  if (isChannelExec(user) || isChannelManager(user)) {
+    const chRows = await getChannelSubtreeRepDirectory({ orgId, user }).catch(() => []);
+    visibleRepIds = chRows.map((r) => r.id).filter((n) => Number.isFinite(n) && n > 0);
+    repDirectoryForBuilder = chRows;
+    directoryInScope = buildChannelDirectoryInScope(chRows);
+  } else if (isChannelRole(user)) {
     const channelScope = await getChannelTerritoryRepIds({
       orgId,
       channelUserId: user.id,
@@ -171,19 +302,19 @@ export async function loadReportBuilderRepRowsForUser(args: {
     visibleRepIds = channelScope.repIds.filter((id) => Number.isFinite(id) && id > 0);
     const allowed = new Set(visibleRepIds);
     repDirectoryForBuilder = scope.repDirectory.filter((r) => allowed.has(r.id));
+    directoryInScope = buildDirectoryInScope(repDirectoryForBuilder);
   } else {
     visibleRepIds =
       scope.allowedRepIds !== null && scope.allowedRepIds.length > 0
         ? scope.allowedRepIds
         : scope.repDirectory.map((r) => r.id).filter((n) => Number.isFinite(n) && n > 0);
     repDirectoryForBuilder = scope.repDirectory;
+    directoryInScope = buildDirectoryInScope(repDirectoryForBuilder);
   }
 
   if (visibleRepIds.length === 0) {
     return { repRows: [], periodLabel: "—" };
   }
-
-  const directoryInScope = buildDirectoryInScope(repDirectoryForBuilder);
 
   const { rows: periodRows } = await pool.query<{ period_name: string | null }>(
     `SELECT period_name FROM quota_periods WHERE org_id = $1::bigint AND id = $2::bigint LIMIT 1`,

@@ -3,7 +3,8 @@ import { z } from "zod";
 import { requireAuth } from "../../../../lib/auth";
 import { getChannelTerritoryRepIds } from "../../../../lib/channelTerritoryScope";
 import { pool } from "../../../../lib/pool";
-import { isChannelRole } from "../../../../lib/roleHelpers";
+import { getChannelSubtreeRepDirectory } from "../../../../lib/repScope";
+import { isChannelExec, isChannelManager, isChannelRole } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -116,7 +117,23 @@ export async function POST(req: Request) {
   const quarterIds = parsed.data.quarterIds.map((s) => String(s));
   let repIds: string[] | null = parsed.data.repIds ? parsed.data.repIds.map((s) => String(s)) : null;
 
-  if (isChannelRole(ctx.user)) {
+  if (isChannelExec(ctx.user) || isChannelManager(ctx.user)) {
+    const chRows = await getChannelSubtreeRepDirectory({
+      orgId: ctx.user.org_id,
+      user: ctx.user,
+    }).catch(() => []);
+    const allowedIds = chRows.map((r) => r.id).filter((id) => Number.isFinite(id) && id > 0);
+    const allowedSet = new Set(allowedIds.map(String));
+    if (allowedIds.length > 0) {
+      if (repIds && repIds.length > 0) {
+        repIds = repIds.filter((id) => allowedSet.has(String(id)));
+      } else {
+        repIds = allowedIds.map(String);
+      }
+    } else {
+      repIds = [];
+    }
+  } else if (isChannelRole(ctx.user)) {
     const channelScope = await getChannelTerritoryRepIds({
       orgId: ctx.user.org_id,
       channelUserId: ctx.user.id,

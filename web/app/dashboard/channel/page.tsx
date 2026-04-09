@@ -3,7 +3,7 @@ import { requireAuth } from "../../../lib/auth";
 import { getOrganization } from "../../../lib/db";
 import { pool } from "../../../lib/pool";
 import { getChannelTerritoryRepIds } from "../../../lib/channelTerritoryScope";
-import { getScopedRepDirectory, type RepDirectoryRow } from "../../../lib/repScope";
+import { getChannelSubtreeRepDirectory, getScopedRepDirectory, type RepDirectoryRow } from "../../../lib/repScope";
 import { getChannelDashboardSummary, loadChannelRepFyQuarterRows, loadChannelRepWonDeals, deduplicateWonDeals, type ChannelRepFyQuarterRow } from "../../../lib/channelDashboard";
 import { getRepKpisByPeriod, type RepPeriodKpisRow } from "../../../lib/executiveRepKpis";
 import { UserTopNav } from "../../_components/UserTopNav";
@@ -13,7 +13,7 @@ import { setExecDefaultTabAction } from "../../actions/execTabPreferences";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
-import { HIERARCHY, isChannelRep, isChannelRole, isSalesRep } from "../../../lib/roleHelpers";
+import { HIERARCHY, isChannelExec, isChannelManager, isChannelRep, isChannelRole, isSalesRep } from "../../../lib/roleHelpers";
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
 import { listTopPartnerDealsChannelHeroScope } from "../../../lib/channelHeroTopPartnerDeals";
 import { ChannelTopPartnerDealsTablesClient, type TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
@@ -1575,17 +1575,17 @@ export default async function ChannelDashboardPage({
     repFyQuarterRows: channelFyQuarterRows,
   };
 
-  const territoryRepIdSet = new Set(
-    territoryRepIds.filter((id) => Number.isFinite(id) && id > 0)
-  );
-  const channelScopedDirectory = summary.repDirectory
-    .filter((r) => territoryRepIdSet.has(r.id))
-    .map((r) => ({
-      id: r.id,
-      name: r.name,
-      manager_rep_id: r.manager_rep_id ?? null,
-      role: r.role ?? "REP",
-    }));
+  const channelScopedDirectory =
+    !isChannelRep(ctx.user) && (isChannelExec(ctx.user) || isChannelManager(ctx.user))
+      ? (await getChannelSubtreeRepDirectory({ orgId: ctx.user.org_id, user: ctx.user }).catch(() => [])).map(
+          (r) => ({
+            id: r.id,
+            name: r.name,
+            manager_rep_id: r.manager_rep_id ?? null,
+            role: r.role ?? "REP",
+          })
+        )
+      : [];
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">

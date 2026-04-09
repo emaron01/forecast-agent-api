@@ -17,7 +17,15 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { isExecManagerLevel, isManagerLevel, isRepLevel, roleToHierarchyLevel } from "../../../../lib/roleHelpers";
+import {
+  isChannelExecLevel,
+  isChannelManagerLevel,
+  isChannelRepLevel,
+  isExecManagerLevel,
+  isManagerLevel,
+  isRepLevel,
+  roleToHierarchyLevel,
+} from "../../../../lib/roleHelpers";
 
 export type RevenueIntelligenceProps = {
   orgId: number;
@@ -36,11 +44,17 @@ function rowLevel(role: string | null | undefined) {
 
 function isLeaderRow(role: string | null | undefined) {
   const level = rowLevel(role);
-  return isManagerLevel(level) || isExecManagerLevel(level);
+  return (
+    isManagerLevel(level) ||
+    isExecManagerLevel(level) ||
+    isChannelExecLevel(level) ||
+    isChannelManagerLevel(level)
+  );
 }
 
 function isRepRow(role: string | null | undefined) {
-  return isRepLevel(rowLevel(role));
+  const level = rowLevel(role);
+  return isRepLevel(level) || isChannelRepLevel(level);
 }
 
 type QuotaPeriodRow = RevenueIntelligenceProps["quotaPeriods"][number];

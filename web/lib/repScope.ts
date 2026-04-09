@@ -378,3 +378,74 @@ export async function getScopedRepDirectory(args: {
   return { repDirectory: list, allowedRepIds: allowed, myRepId: me.id };
 }
 
+/**
+ * Channel leadership subtree via users.manager_user_id (not reps.manager_rep_id / sales tree).
+ * Viewer must be CHANNEL_EXEC (6) or CHANNEL_DIRECTOR (7). Returns viewer + descendants with
+ * hierarchy_level in 6–8 only. manager_rep_id on each row is the manager's rep id when the manager
+ * is also a channel user (6–8); otherwise null.
+ */
+export async function getChannelSubtreeRepDirectory(args: { orgId: number; user: AuthUser }): Promise<RepDirectoryRow[]> {
+  const orgId = Number(args.orgId);
+  const userId = Number(args.user.id);
+  if (!Number.isFinite(orgId) || orgId <= 0) return [];
+  if (!Number.isFinite(userId) || userId <= 0) return [];
+  if (!isChannelExec(args.user) && !isChannelManager(args.user)) return [];
+
+  const hlExec = HIERARCHY.CHANNEL_EXEC;
+  const hlMgr = HIERARCHY.CHANNEL_MANAGER;
+  const hlRep = HIERARCHY.CHANNEL_REP;
+
+  const { rows } = await pool.query(
+    `
+    WITH RECURSIVE subtree_users AS (
+      SELECT u.id AS user_id
+      FROM users u
+      WHERE u.org_id = $1::bigint
+        AND u.id = $2::bigint
+        AND u.hierarchy_level IN ($3::int, $4::int)
+
+      UNION
+
+      SELECT u.id
+      FROM users u
+      INNER JOIN subtree_users su ON u.manager_user_id = su.user_id
+      WHERE u.org_id = $1::bigint
+        AND (u.active IS TRUE OR u.active IS NULL)
+        AND u.hierarchy_level BETWEEN $3::int AND $5::int
+    )
+    SELECT
+      r.id,
+      COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), '(Unnamed)') AS name,
+      r.role,
+      ur.hierarchy_level,
+      mgr_r.id AS manager_rep_id,
+      r.user_id,
+      r.active
+    FROM subtree_users su
+    JOIN users ur ON ur.id = su.user_id AND ur.org_id = $1::bigint
+    JOIN reps r ON r.user_id = ur.id AND r.organization_id = $1::bigint
+    LEFT JOIN users mu
+      ON mu.id = ur.manager_user_id
+     AND mu.org_id = $1::bigint
+     AND mu.hierarchy_level BETWEEN $3::int AND $5::int
+    LEFT JOIN reps mgr_r
+      ON mgr_r.user_id = mu.id
+     AND mgr_r.organization_id = $1::bigint
+     AND (mgr_r.active IS TRUE OR mgr_r.active IS NULL)
+    WHERE (r.active IS TRUE OR r.active IS NULL)
+    ORDER BY COALESCE(ur.hierarchy_level, 99) ASC, name ASC, r.id ASC
+    `,
+    [orgId, userId, hlExec, hlMgr, hlRep]
+  );
+
+  return (rows || []).map((r: any) => ({
+    id: Number(r.id),
+    name: String(r.name || "").trim() || "(Unnamed)",
+    role: r.role == null ? null : String(r.role),
+    hierarchy_level: r.hierarchy_level == null ? null : Number(r.hierarchy_level),
+    manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
+    user_id: r.user_id == null ? null : Number(r.user_id),
+    active: r.active == null ? null : !!r.active,
+  }));
+}
+
