@@ -1,8 +1,19 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { AuthUser } from "../../lib/auth";
-import { isAdmin, isChannelExec, isChannelManager, isChannelRole, isSalesLeader, isSalesRep } from "../../lib/roleHelpers";
+import {
+  HIERARCHY,
+  isAdmin,
+  isChannelExec,
+  isChannelManager,
+  isChannelRole,
+  isSalesLeader,
+} from "../../lib/roleHelpers";
 import { UserProfileBadge } from "./UserProfileBadge";
+
+function levelOf(user: AuthUser) {
+  return Number(user.hierarchy_level);
+}
 
 function NavLink({ href, label }: { href: string; label: string }) {
   return (
@@ -24,7 +35,6 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
         : isChannelRole(user)
           ? "/dashboard/channel"
           : "/dashboard";
-  const salesOpportunitiesHref = isSalesRep(user) || user.hierarchy_level === 8 ? "/forecast" : "/analytics/executive/sales-opportunities";
   const isChannelLeader = isChannelExec(user) || isChannelManager(user);
   return (
     <header className="overflow-visible border-b border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
@@ -44,13 +54,14 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
           </Link>
           <nav className="ml-3 flex flex-wrap items-center gap-1">
             <NavLink href={dashHref} label="Dashboard" />
-            <NavLink href={salesOpportunitiesHref} label="Sales Opportunities" />
             {isAdmin(user) && <NavLink href="/analytics" label="Analytics" />}
             {isSalesLeader(user) && <NavLink href="/analytics/quotas/manager" label="Quotas" />}
             {isChannelLeader ? <NavLink href="/analytics/quotas/manager" label="Quotas" /> : null}
             {isChannelLeader ? <NavLink href="/channel-alignment" label="Channel Alignment" /> : null}
             {isChannelLeader ? <NavLink href="/partner-assignments" label="Partner Assignments" /> : null}
-            <NavLink href="/dashboard/excel-upload" label="Upload" />
+            {levelOf(user) !== HIERARCHY.REP && levelOf(user) !== HIERARCHY.CHANNEL_REP && (
+              <NavLink href="/dashboard/excel-upload" label="Upload" />
+            )}
           </nav>
         </div>
 
