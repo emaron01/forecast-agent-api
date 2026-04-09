@@ -65,8 +65,6 @@ export function SimpleForecastDashboardClient(props: {
   repFilterLocked?: boolean;
   quotaPeriods?: Array<{ id: string; label: string }>;
   defaultQuotaPeriodId?: string;
-  /** Channel roles (6/7/8): hide View / Matthew deal-review navigation. */
-  hideMatthewDealReview?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -85,7 +83,6 @@ export function SimpleForecastDashboardClient(props: {
 
   // Deal review workflow is rep-only. Managers/executives can still search and open Deal Score Cards.
   const showDealReviewWorkflow = !!props.repFilterLocked;
-  const hideMatthewDealReview = !!props.hideMatthewDealReview;
 
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const selectedIds = useMemo(() => Object.entries(selected).filter(([, v]) => v).map(([id]) => id), [selected]);
@@ -436,7 +433,7 @@ export function SimpleForecastDashboardClient(props: {
                   ) : null}
                 </button>
               </th>
-              {hideMatthewDealReview ? null : <th className="px-4 py-3"></th>}
+              <th className="px-4 py-3"></th>
             </tr>
           </thead>
               <tbody>
@@ -468,22 +465,20 @@ export function SimpleForecastDashboardClient(props: {
                   <td className={`px-4 py-3 align-top whitespace-nowrap ${healthColorClass(hp)}`}>
                     {hp == null ? "—" : `${hp}%`}
                   </td>
-                  {hideMatthewDealReview ? null : (
-                    <td className="px-4 py-3 align-top">
-                      <Link
-                        className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-xs font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
-                        href={`/opportunities/${encodeURIComponent(id)}/deal-review`}
-                      >
-                        View
-                      </Link>
-                    </td>
-                  )}
+                  <td className="px-4 py-3 align-top">
+                    <Link
+                      className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-xs font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
+                      href={`/opportunities/${encodeURIComponent(id)}/deal-review`}
+                    >
+                      View
+                    </Link>
+                  </td>
                 </tr>
               );
             })}
             {!filtered.length ? (
               <tr>
-                <td className="px-4 py-8 text-center text-[color:var(--sf-text-disabled)]" colSpan={hideMatthewDealReview ? 6 : 7}>
+                <td className="px-4 py-8 text-center text-[color:var(--sf-text-disabled)]" colSpan={7}>
                   No deals found.
                 </td>
               </tr>

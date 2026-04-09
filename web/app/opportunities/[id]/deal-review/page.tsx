@@ -6,7 +6,7 @@ import { DealReviewClient } from "./DealReviewClient";
 import { pool } from "../../../../lib/pool";
 import { resolvePublicId } from "../../../../lib/publicId";
 import { closedOutcomeFromOpportunityRow } from "../../../../lib/opportunityOutcome";
-import { isAdmin } from "../../../../lib/roleHelpers";
+import { isAdmin, isChannelRole } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -51,7 +51,12 @@ export default async function DealReviewPage(
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={auth.user} />
-      <DealReviewClient opportunityId={opportunityPublicId} initialCategory={category} initialPrefill={prefill} />
+      <DealReviewClient
+        opportunityId={opportunityPublicId}
+        initialCategory={category}
+        initialPrefill={prefill}
+        readOnly={isChannelRole(auth.user)}
+      />
     </div>
   );
 }

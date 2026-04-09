@@ -164,7 +164,14 @@ function parseSSE(buffer: string): { messages: any[]; remaining: string } {
   return { messages, remaining };
 }
 
-export function DealReviewClient(props: { opportunityId: string; initialCategory?: string; initialPrefill?: string }) {
+export function DealReviewClient(props: {
+  opportunityId: string;
+  initialCategory?: string;
+  initialPrefill?: string;
+  /** When true (e.g. channel roles 6/7/8): show deal summary and scoring only; hide voice, paste, review actions, and chat. */
+  readOnly?: boolean;
+}) {
+  const readOnly = !!props.readOnly;
   const opportunityId = String(props.opportunityId || "").trim();
   const initialCategory = String(props.initialCategory || "").trim() || undefined;
   const initialPrefill = String(props.initialPrefill || "").trim() || undefined;
@@ -1691,7 +1698,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
   return (
     <main className="wrap">
       {/* Slide-out drawer for Text/Voice category updates */}
-      {qaDrawerOpen ? (
+      {!readOnly && qaDrawerOpen ? (
         <div
           className={`qaOverlay ${qaDrawerOpen ? "open" : ""}`}
           onClick={() => {
@@ -1700,6 +1707,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           }}
         />
       ) : null}
+      {!readOnly ? (
       <aside className={`qaDrawer ${qaDrawerOpen ? "open" : ""}`} aria-hidden={!qaDrawerOpen}>
         <div className="qaHdr">
           <div className="qaTitleBlock">
@@ -1803,13 +1811,15 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           ) : null}
         </div>
       </aside>
+      ) : null}
 
       <div className="top">
         <div>
           <h1>Deal Review</h1>
-          <div className="sub" />
+          <div className="sub">{readOnly ? "Read-only — voice, chat, and review actions are hidden." : ""}</div>
         </div>
 
+        {!readOnly ? (
         <div className="row">
           <label className="small">
             <input type="checkbox" checked={speak} onChange={(e) => setSpeak(e.target.checked)} disabled={busy} /> Speak
@@ -1970,42 +1980,61 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             </div>
           </details>
         </div>
+        ) : null}
       </div>
 
       <div className="status">
-        <div className="row">
-          <span className="pill warn">IDLE</span>
-          <span className="pill">
-            Mode: <b>{mode === "FULL_REVIEW" ? "Full Deal Review" : "Category Update"}</b>
-          </span>
-          <span className="pill">
-            Status: <b>{mode === "CATEGORY_UPDATE" ? (selectedCategory ? "ACTIVE" : "—") : "—"}</b>
-          </span>
-          <span className="pill">
-            Listening: <b>{listening ? "ON" : "OFF"}</b>
-          </span>
-          <span className={`pill ${micOpen ? "ok" : "warn"}`}>
-            Microphone: <b>{micOpen ? "ON" : "OFF"}</b>
-          </span>
-          {voice && mode === "CATEGORY_UPDATE" ? (
-            <span className="bg-white text-black text-xs font-medium px-2 py-0.5 rounded-full shadow-sm" title={micIndicatorLabel}>
-              Mic: <b>{micIndicatorLabel}</b>
-            </span>
-          ) : null}
-          {healthPercent != null ? (
-            <span className={`pill ${healthPillClass(healthPercent)}`}>
-              Health: <b>{healthPercent}%</b>
-            </span>
-          ) : null}
-          {aiForecast ? (
-            <span className="pill blue">
-              AI: <b>{aiForecast}</b>
-            </span>
-          ) : null}
-        </div>
-        <div className="small">
-          Ready.
-        </div>
+        {readOnly ? (
+          <>
+            <div className="row">
+              {healthPercent != null ? (
+                <span className={`pill ${healthPillClass(healthPercent)}`}>
+                  Health: <b>{healthPercent}%</b>
+                </span>
+              ) : null}
+              {aiForecast ? (
+                <span className="pill blue">
+                  AI: <b>{aiForecast}</b>
+                </span>
+              ) : null}
+            </div>
+            <div className="small">Read-only view</div>
+          </>
+        ) : (
+          <>
+            <div className="row">
+              <span className="pill warn">IDLE</span>
+              <span className="pill">
+                Mode: <b>{mode === "FULL_REVIEW" ? "Full Deal Review" : "Category Update"}</b>
+              </span>
+              <span className="pill">
+                Status: <b>{mode === "CATEGORY_UPDATE" ? (selectedCategory ? "ACTIVE" : "—") : "—"}</b>
+              </span>
+              <span className="pill">
+                Listening: <b>{listening ? "ON" : "OFF"}</b>
+              </span>
+              <span className={`pill ${micOpen ? "ok" : "warn"}`}>
+                Microphone: <b>{micOpen ? "ON" : "OFF"}</b>
+              </span>
+              {voice && mode === "CATEGORY_UPDATE" ? (
+                <span className="bg-white text-black text-xs font-medium px-2 py-0.5 rounded-full shadow-sm" title={micIndicatorLabel}>
+                  Mic: <b>{micIndicatorLabel}</b>
+                </span>
+              ) : null}
+              {healthPercent != null ? (
+                <span className={`pill ${healthPillClass(healthPercent)}`}>
+                  Health: <b>{healthPercent}%</b>
+                </span>
+              ) : null}
+              {aiForecast ? (
+                <span className="pill blue">
+                  AI: <b>{aiForecast}</b>
+                </span>
+              ) : null}
+            </div>
+            <div className="small">Ready.</div>
+          </>
+        )}
       </div>
 
       <div className="grid">
@@ -2050,12 +2079,14 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
                 )}
               </div>
             </div>
-            <div className="meta">
-              {mounted ? <span className="pill ok">Mic+STT</span> : <span className="pill">Voice</span>}
-              {micError ? <span className="pill err">Mic error</span> : null}
-              {ttsError ? <span className="pill err">TTS error</span> : null}
-              {sttError ? <span className="pill err">STT error</span> : null}
-            </div>
+            {!readOnly ? (
+              <div className="meta">
+                {mounted ? <span className="pill ok">Mic+STT</span> : <span className="pill">Voice</span>}
+                {micError ? <span className="pill err">Mic error</span> : null}
+                {ttsError ? <span className="pill err">TTS error</span> : null}
+                {sttError ? <span className="pill err">STT error</span> : null}
+              </div>
+            ) : null}
           </div>
 
           <div className="cols">
@@ -2157,31 +2188,37 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             </div>
           ) : null}
 
-          <div style={{ marginTop: 16 }}>
-            <PasteNotesPanel opportunityId={opportunityId} onApplied={loadOpportunityState} />
-          </div>
+          {!readOnly ? (
+            <div style={{ marginTop: 16 }}>
+              <PasteNotesPanel opportunityId={opportunityId} onApplied={loadOpportunityState} />
+            </div>
+          ) : null}
 
-          <div style={{ marginBottom: 10 }}>
-            <button
-              className="btnPrimary"
-              onClick={startFullDealReview}
-              disabled={busy || !opportunityId || isStartingRef.current || fullReviewChainIndex !== null}
-            >
-              {fullReviewButtonLabel}
-            </button>
-          </div>
+          {!readOnly ? (
+            <div style={{ marginBottom: 10 }}>
+              <button
+                className="btnPrimary"
+                onClick={startFullDealReview}
+                disabled={busy || !opportunityId || isStartingRef.current || fullReviewChainIndex !== null}
+              >
+                {fullReviewButtonLabel}
+              </button>
+            </div>
+          ) : null}
 
           <div className="med">
             {tileRows.map((c) => {
               const isActive = highlightCategoryKey === c.key;
               const isCompleted = completedCategoryKey === c.key;
-              const showChipActive = sessionHasActiveCategory && isActive && voice;
+              const showChipActive = !readOnly && sessionHasActiveCategory && isActive && voice;
               const chipState =
-                isCompleted
-                  ? "complete"
-                  : showChipActive
-                    ? micIndicatorState
-                    : null;
+                readOnly
+                  ? null
+                  : isCompleted
+                    ? "complete"
+                    : showChipActive
+                      ? micIndicatorState
+                      : null;
               const mfocusClasses = [
                 highlightCategoryKey === c.key ? "active" : "",
                 sessionHasActiveCategory && isActive ? "mfocus-active" : "",
@@ -2246,20 +2283,22 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
                 <div className="evi">
                   <b>Evidence:</b> {c.evidence || "—"}
                 </div>
-                <div className="catBtnRow">
-                  <button type="button" onClick={() => void startCategoryUpdate(c.key, false)} disabled={busy || !opportunityId}>
-                    Text Update
-                  </button>
-                  <button type="button" onClick={() => void startCategoryUpdate(c.key, true)} disabled={busy || !opportunityId}>
-                    Voice Update
-                  </button>
-                </div>
+                {!readOnly ? (
+                  <div className="catBtnRow">
+                    <button type="button" onClick={() => void startCategoryUpdate(c.key, false)} disabled={busy || !opportunityId}>
+                      Text Update
+                    </button>
+                    <button type="button" onClick={() => void startCategoryUpdate(c.key, true)} disabled={busy || !opportunityId}>
+                      Voice Update
+                    </button>
+                  </div>
+                ) : null}
               </div>
               );
             })}
           </div>
 
-          {mode === "FULL_REVIEW" || mode === "CATEGORY_UPDATE" ? (
+          {!readOnly && (mode === "FULL_REVIEW" || mode === "CATEGORY_UPDATE") ? (
             <>
               <details style={{ marginTop: 12 }} open={mode === "CATEGORY_UPDATE"}>
                 <summary className="small">Conversation &amp; debug</summary>
@@ -2331,6 +2370,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
           ) : null}
         </div>
 
+        {!readOnly ? (
         <div className="card">
           <div className="hdr">
             <div className="title">Audio</div>
@@ -2343,6 +2383,7 @@ export function DealReviewClient(props: { opportunityId: string; initialCategory
             <audio ref={audioRef} controls style={{ width: "100%" }} />
           </div>
         </div>
+        ) : null}
       </div>
 
       <style jsx global>{`
