@@ -5,7 +5,8 @@ import { getAuth } from "../../../../../../lib/auth";
 import { resolvePublicId } from "../../../../../../lib/publicId";
 import { closedOutcomeFromOpportunityRow } from "../../../../../../lib/opportunityOutcome";
 import { startSpan, endSpan, orgIdFromAuth } from "../../../../../../lib/perf";
-import { HIERARCHY, isManager, isSalesRep } from "../../../../../../lib/roleHelpers";
+import { channelUserCanViewOpportunity } from "../../../../../../lib/dealReviewOpportunityScope";
+import { HIERARCHY, isChannelRole, isManager, isSalesRep } from "../../../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -46,6 +47,7 @@ function splitLabelEvidence(summary: any) {
   return { label: "", evidence: s };
 }
 
+/** Sales rep (3) only: own deals by rep_name match. Channel roles use channelUserCanViewOpportunity. */
 function ensureOpportunityVisible(args: {
   auth: Awaited<ReturnType<typeof getAuth>>;
   orgId: number;
@@ -54,7 +56,7 @@ function ensureOpportunityVisible(args: {
   const { auth, opportunityRepName } = args;
   if (!auth) return { ok: false as const, status: 401 as const, error: "Unauthorized" };
   if (auth.kind !== "user") return { ok: false as const, status: 403 as const, error: "Forbidden" };
-  if (isSalesRep(auth.user) || auth.user.hierarchy_level === HIERARCHY.CHANNEL_REP) {
+  if (isSalesRep(auth.user)) {
     if (!opportunityRepName || opportunityRepName !== auth.user.account_owner_name) {
       return { ok: false as const, status: 403 as const, error: "Forbidden" };
     }
@@ -120,10 +122,23 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
     }
 
     const repName = (opportunity as any)?.rep_name ?? null;
-    const vis = ensureOpportunityVisible({ auth, orgId, opportunityRepName: repName });
-    if (!vis.ok) {
-      endSpan(reqSpan!, { status: "error", http_status: vis.status });
-      return NextResponse.json({ ok: false, error: vis.error }, { status: vis.status });
+
+    if (auth.kind === "user" && isChannelRole(auth.user)) {
+      const allowed = await channelUserCanViewOpportunity({
+        orgId,
+        user: auth.user,
+        opportunity: opportunity as { rep_id?: unknown; partner_name?: unknown },
+      });
+      if (!allowed) {
+        endSpan(reqSpan!, { status: "error", http_status: 403 });
+        return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+      }
+    } else {
+      const vis = ensureOpportunityVisible({ auth, orgId, opportunityRepName: repName });
+      if (!vis.ok) {
+        endSpan(reqSpan!, { status: "error", http_status: vis.status });
+        return NextResponse.json({ ok: false, error: vis.error }, { status: vis.status });
+      }
     }
 
     if (auth.kind === "user" && isManager(auth.user)) {
