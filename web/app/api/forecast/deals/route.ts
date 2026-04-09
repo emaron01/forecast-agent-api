@@ -75,6 +75,19 @@ export async function GET(req: Request) {
     if (!auth) return jsonError(401, "Unauthorized");
     if (auth.kind !== "user") return jsonError(403, "Forbidden");
 
+    const user = auth.user;
+    console.log("FORECAST_DEALS_AUTH", {
+      userId: user?.id,
+      email: user?.email,
+      role: user?.role,
+      hierarchy_level: user?.hierarchy_level,
+      hierarchyLevelCamel: (user as Record<string, unknown>)?.hierarchyLevel,
+      isAdmin: isAdmin(user),
+      isChannelRole: isChannelRole(user),
+      isChannelComputed: !isAdmin(user) && isChannelRole(user),
+      rawUser: JSON.stringify(user),
+    });
+
     const url = new URL(req.url);
     const requestedRepName = String(url.searchParams.get("rep_name") || "").trim();
     const atRiskRaw = String(url.searchParams.get("at_risk") || "").trim().toLowerCase();
@@ -87,12 +100,12 @@ export async function GET(req: Request) {
       .parse(String(url.searchParams.get("quota_period_id") || "").trim() || undefined);
     const limit = z.coerce.number().int().min(1).max(2000).catch(200).parse(url.searchParams.get("limit"));
 
-    const isChannel = !isAdmin(auth.user) && isChannelRole(auth.user);
+    const isChannel = !isAdmin(user) && isChannelRole(user);
 
     const channelTerritoryScope = isChannel
       ? await getChannelTerritoryRepIds({
-          orgId: auth.user.org_id,
-          channelUserId: auth.user.id,
+          orgId: user.org_id,
+          channelUserId: user.id,
         }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }))
       : { repIds: [] as number[], partnerNames: [] as string[] };
 
@@ -106,8 +119,8 @@ export async function GET(req: Request) {
     }
 
     const scope = await getScopedRepDirectory({
-      orgId: auth.user.org_id,
-      user: auth.user,
+      orgId: user.org_id,
+      user,
     });
     const allowedRepIds = scope.allowedRepIds; // null => admin (no filter)
 
@@ -158,7 +171,7 @@ export async function GET(req: Request) {
     `;
 
     // Build WHERE/params in a stable, index-safe way.
-    const params: any[] = [auth.user.org_id];
+    const params: any[] = [user.org_id];
     let p = 1;
     const where: string[] = [`o.org_id = $1`];
 

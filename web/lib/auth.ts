@@ -4,7 +4,7 @@ import crypto from "crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { pool } from "./pool";
-import { isAdmin, isSalesLeader } from "./roleHelpers";
+import { isAdmin, isSalesLeader, roleToHierarchyLevel } from "./roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -228,13 +228,24 @@ export async function getAuth(): Promise<AuthContext | null> {
   if (!r.expires_at || new Date(r.expires_at).getTime() <= Date.now()) return null;
   if (!r.user_active || !r.org_active) return null;
 
+  // NULL/invalid hierarchy_level must not become 0 — that makes channel users look like ADMIN and
+  // breaks isChannelRole / forecast scoping. Fall back to role → level when the column is missing.
+  const rawLevel = r.hierarchy_level;
+  let hierarchy_level: number;
+  if (rawLevel != null && String(rawLevel).trim() !== "") {
+    const n = Number(rawLevel);
+    hierarchy_level = Number.isFinite(n) ? n : roleToHierarchyLevel(String(r.role || "")) ?? 0;
+  } else {
+    hierarchy_level = roleToHierarchyLevel(String(r.role || "")) ?? 0;
+  }
+
   const user: AuthUser = {
     id: Number(r.id),
     public_id: String(r.public_id || ""),
     org_id: Number(r.org_id),
     email: String(r.email || ""),
     role: r.role as AuthUser["role"],
-    hierarchy_level: Number(r.hierarchy_level ?? 0) || 0,
+    hierarchy_level,
     display_name: String(r.display_name || ""),
     account_owner_name: r.account_owner_name == null ? null : String(r.account_owner_name || ""),
     manager_user_id: r.manager_user_id == null ? null : Number(r.manager_user_id),
