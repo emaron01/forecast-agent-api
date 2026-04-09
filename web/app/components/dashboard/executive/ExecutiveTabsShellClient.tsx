@@ -185,8 +185,6 @@ function ReportsTabContent(props: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           max_tokens: 600,
-          system:
-            "You are Matthew, a skeptical CRO advisor. Brief the executive on their quarter. Be direct. Lead with verdict, support with data. Plain paragraphs only, no bullets. Four sections with bold headings: Quarter Outlook, Commit Integrity, Pipeline Risk, Channel Performance. Max 350 words.",
           messages: [{ role: "user", content: JSON.stringify(payload) }],
         }),
       });

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAuth } from "../../../lib/auth";
+import { isChannelRole } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -17,12 +18,15 @@ function resolveBaseUrl() {
   return noTrail.endsWith("/v1") ? noTrail : `${noTrail}/v1`;
 }
 
-const EXECUTIVE_BRIEFING_SYSTEM_PROMPT =
+const EXECUTIVE_BRIEFING_SYSTEM_PROMPT_SALES =
   "You are Matthew, a skeptical CRO-level revenue intelligence advisor. Brief the executive on their quarter in plain paragraphs, no bullets, no closing summary. Four sections with bold headings: Quarter Outlook, Commit Integrity, Pipeline Risk, Channel Performance. Lead every section with the problem, not the positive. Be clinical and direct — not dramatic. Format all dollar amounts as currency with $ and commas. Maximum 300 words.";
+
+const EXECUTIVE_BRIEFING_SYSTEM_PROMPT_CHANNEL =
+  "You are Matthew, a skeptical channel revenue advisor. Brief the channel executive on their quarter in plain paragraphs, no bullets, no closing summary. Four sections with bold headings: Channel Contribution, Partner Pipeline Risk, Partner Performance, Recommendations. Focus exclusively on partner-attributed pipeline and channel metrics — do not reference direct sales team performance as the user's own scorecard. Lead every section with the problem, not the positive. Be clinical and direct. Format all dollar amounts as currency with $ and commas. Maximum 300 words.";
 
 const BodySchema = z.object({
   max_tokens: z.number().int().min(1).max(8192).optional(),
-  system: z.string(),
+  system: z.string().optional(),
   messages: z.array(
     z.object({
       role: z.enum(["user", "assistant"]),
@@ -46,11 +50,24 @@ export async function POST(req: Request) {
     if (!apiKey) return jsonError(500, "Missing MODEL_API_KEY");
     if (!model) return jsonError(500, "Missing MODEL_API_NAME");
 
-    const userContent = body.messages?.length
-      ? (typeof body.messages[0].content === "string"
-          ? body.messages[0].content
-          : JSON.stringify(body.messages[0].content))
+    const isChannel = isChannelRole(auth.user);
+    const roleContextLine = isChannel
+      ? "Role context: Channel user — analysis must reflect partner-attributed pipeline only. Frame insights around partner activation, channel contribution, and partner pipeline gaps. Do not frame channel metrics as the user's personal sales scorecard."
+      : "Role context: Sales user — standard CRO revenue analysis.";
+
+    const EXECUTIVE_BRIEFING_SYSTEM_PROMPT = isChannel
+      ? EXECUTIVE_BRIEFING_SYSTEM_PROMPT_CHANNEL
+      : EXECUTIVE_BRIEFING_SYSTEM_PROMPT_SALES;
+
+    const rawUserContent = body.messages?.length
+      ? typeof body.messages[0].content === "string"
+        ? body.messages[0].content
+        : JSON.stringify(body.messages[0].content)
       : "";
+
+    const userContent = rawUserContent.trim()
+      ? `${roleContextLine}\n\n${rawUserContent}`
+      : roleContextLine;
 
     const response = await fetch(`${baseUrl}/responses`, {
       method: "POST",
