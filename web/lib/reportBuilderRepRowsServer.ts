@@ -4,9 +4,10 @@ import type { AuthUser } from "./auth";
 import { getHealthAveragesByRepByPeriods } from "./analyticsHealth";
 import { getQuotaByRepPeriod, getRepKpisByPeriod } from "./executiveRepKpis";
 import { getMeddpiccAveragesByRepByPeriods } from "./meddpiccHealth";
+import { getChannelTerritoryRepIds } from "./channelTerritoryScope";
 import { pool } from "./pool";
 import { getScopedRepDirectory } from "./repScope";
-import { HIERARCHY } from "./roleHelpers";
+import { HIERARCHY, isChannelRole } from "./roleHelpers";
 
 type BuilderDirRow = {
   id: number;
@@ -159,16 +160,30 @@ export async function loadReportBuilderRepRowsForUser(args: {
     myRepId: null as number | null,
   }));
 
-  const visibleRepIds: number[] =
-    scope.allowedRepIds !== null && scope.allowedRepIds.length > 0
-      ? scope.allowedRepIds
-      : scope.repDirectory.map((r) => r.id).filter((n) => Number.isFinite(n) && n > 0);
+  let visibleRepIds: number[];
+  let repDirectoryForBuilder: typeof scope.repDirectory;
+
+  if (isChannelRole(user)) {
+    const channelScope = await getChannelTerritoryRepIds({
+      orgId,
+      channelUserId: user.id,
+    }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }));
+    visibleRepIds = channelScope.repIds.filter((id) => Number.isFinite(id) && id > 0);
+    const allowed = new Set(visibleRepIds);
+    repDirectoryForBuilder = scope.repDirectory.filter((r) => allowed.has(r.id));
+  } else {
+    visibleRepIds =
+      scope.allowedRepIds !== null && scope.allowedRepIds.length > 0
+        ? scope.allowedRepIds
+        : scope.repDirectory.map((r) => r.id).filter((n) => Number.isFinite(n) && n > 0);
+    repDirectoryForBuilder = scope.repDirectory;
+  }
 
   if (visibleRepIds.length === 0) {
     return { repRows: [], periodLabel: "—" };
   }
 
-  const directoryInScope = buildDirectoryInScope(scope.repDirectory);
+  const directoryInScope = buildDirectoryInScope(repDirectoryForBuilder);
 
   const { rows: periodRows } = await pool.query<{ period_name: string | null }>(
     `SELECT period_name FROM quota_periods WHERE org_id = $1::bigint AND id = $2::bigint LIMIT 1`,

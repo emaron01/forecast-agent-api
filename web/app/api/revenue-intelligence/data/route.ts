@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "../../../../lib/auth";
+import { getChannelTerritoryRepIds } from "../../../../lib/channelTerritoryScope";
 import { pool } from "../../../../lib/pool";
+import { isChannelRole } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -112,7 +114,25 @@ export async function POST(req: Request) {
   const orgId = ctx.user.org_id;
   const bucketsRaw = parsed.data.buckets.slice().sort((a, b) => Number(a.min) - Number(b.min));
   const quarterIds = parsed.data.quarterIds.map((s) => String(s));
-  const repIds = parsed.data.repIds ? parsed.data.repIds.map((s) => String(s)) : null;
+  let repIds: string[] | null = parsed.data.repIds ? parsed.data.repIds.map((s) => String(s)) : null;
+
+  if (isChannelRole(ctx.user)) {
+    const channelScope = await getChannelTerritoryRepIds({
+      orgId: ctx.user.org_id,
+      channelUserId: ctx.user.id,
+    }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }));
+    const allowedIds = channelScope.repIds.filter((id) => Number.isFinite(id) && id > 0);
+    const allowedSet = new Set(allowedIds.map(String));
+    if (allowedIds.length > 0) {
+      if (repIds && repIds.length > 0) {
+        repIds = repIds.filter((id) => allowedSet.has(String(id)));
+      } else {
+        repIds = allowedIds.map(String);
+      }
+    } else {
+      repIds = [];
+    }
+  }
 
   const { rows } = await pool.query<OppRow>(
     `

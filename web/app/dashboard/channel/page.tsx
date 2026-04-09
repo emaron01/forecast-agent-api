@@ -1575,12 +1575,17 @@ export default async function ChannelDashboardPage({
     repFyQuarterRows: channelFyQuarterRows,
   };
 
-  const scopedDirectory = summary.repDirectory.map((r) => ({
-    id: r.id,
-    name: r.name,
-    manager_rep_id: r.manager_rep_id ?? null,
-    role: r.role ?? "REP",
-  }));
+  const territoryRepIdSet = new Set(
+    territoryRepIds.filter((id) => Number.isFinite(id) && id > 0)
+  );
+  const channelScopedDirectory = summary.repDirectory
+    .filter((r) => territoryRepIdSet.has(r.id))
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      manager_rep_id: r.manager_rep_id ?? null,
+      role: r.role ?? "REP",
+    }));
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -1679,7 +1684,7 @@ export default async function ChannelDashboardPage({
                 reportBuilderRepRows={[]}
                 reportBuilderSavedReports={[]}
                 reportBuilderPeriodLabel={selectedPeriod?.period_name ?? ""}
-                reportBuilderRepDirectory={scopedDirectory}
+                reportBuilderRepDirectory={channelScopedDirectory}
                 reportBuilderQuotaPeriods={(channelSummary?.periods ?? summary.periods).map((p) => ({
                   id: String(p.id),
                   name: p.period_name ? `${p.period_name}` : String(p.id),
@@ -1692,7 +1697,7 @@ export default async function ChannelDashboardPage({
                   name: p.period_name,
                   fiscal_year: String(p.fiscal_year ?? ""),
                 }))}
-                revenueIntelligenceRepDirectory={scopedDirectory}
+                revenueIntelligenceRepDirectory={channelScopedDirectory}
                 showChannelContribution={ledFedRows.length > 0}
                 channelContributionHero={partnerHero}
                 channelContributionRows={ledFedRows}
