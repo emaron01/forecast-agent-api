@@ -355,6 +355,48 @@ export default async function DashboardPage({
             </div>
           ) : null}
 
+          <div className="mt-6">
+            <RepDashboardHeroWrapper>
+              <ExecutiveGapInsightsClient
+                basePath="/dashboard"
+                periods={summary.periods}
+                quotaPeriodId={summary.selectedQuotaPeriodId}
+                orgId={ctx.user.org_id}
+                reps={summary.reps}
+                fiscalYear={String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "—"}
+                fiscalQuarter={String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—"}
+                stageProbabilities={summary.stageProbabilities}
+                healthModifiers={summary.healthModifiers}
+                repDirectory={summary.repDirectory}
+                myRepId={summary.myRepId}
+                repRollups={summary.repRollups}
+                productsClosedWon={summary.productsClosedWon}
+                productsClosedWonPrevSummary={summary.productsClosedWonPrevSummary}
+                productsClosedWonByRep={summary.productsClosedWonByRep}
+                quarterKpis={summary.quarterKpis}
+                pipelineMomentum={summary.pipelineMomentum}
+                closedWonFyYtd={summary.closedWonFyYtd}
+                crmTotals={summary.crmForecast}
+                partnersExecutive={summary.partnersExecutive}
+                quota={summary.quota}
+                aiForecast={summary.aiForecast.weighted_forecast}
+                crmForecast={summary.crmForecast.weighted_forecast}
+                gap={summary.forecastGap}
+                bucketDeltas={{
+                  commit: summary.bucketDeltas.commit,
+                  best_case: summary.bucketDeltas.best_case,
+                  pipeline: summary.bucketDeltas.pipeline,
+                }}
+                aiPctToGoal={summary.pctToGoal}
+                leftToGo={summary.leftToGo}
+                commitAdmission={summary.commitAdmission}
+                commitDealPanels={summary.commitDealPanels}
+                defaultTopN={5}
+                heroOnly={true}
+              />
+            </RepDashboardHeroWrapper>
+          </div>
+
           <ScopedDashboardTabsClient
             initialTab={activeTab}
             allowedTabKeys={repDashboardAllowed}
@@ -367,57 +409,14 @@ export default async function DashboardPage({
             panels={{
               overview: (
                 <div className="space-y-4">
-                  <div className="mt-4 grid gap-4">
-                    <RepDashboardHeroWrapper>
-                      <ExecutiveGapInsightsClient
-                        basePath="/dashboard"
-                        periods={summary.periods}
-                        quotaPeriodId={summary.selectedQuotaPeriodId}
-                        orgId={ctx.user.org_id}
-                        reps={summary.reps}
-                        fiscalYear={String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "—"}
-                        fiscalQuarter={String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—"}
-                        stageProbabilities={summary.stageProbabilities}
-                        healthModifiers={summary.healthModifiers}
-                        repDirectory={summary.repDirectory}
-                        myRepId={summary.myRepId}
-                        repRollups={summary.repRollups}
-                        productsClosedWon={summary.productsClosedWon}
-                        productsClosedWonPrevSummary={summary.productsClosedWonPrevSummary}
-                        productsClosedWonByRep={summary.productsClosedWonByRep}
-                        quarterKpis={summary.quarterKpis}
-                        pipelineMomentum={summary.pipelineMomentum}
-                        closedWonFyYtd={summary.closedWonFyYtd}
-                        crmTotals={summary.crmForecast}
-                        partnersExecutive={summary.partnersExecutive}
-                        quota={summary.quota}
-                        aiForecast={summary.aiForecast.weighted_forecast}
-                        crmForecast={summary.crmForecast.weighted_forecast}
-                        gap={summary.forecastGap}
-                        bucketDeltas={{
-                          commit: summary.bucketDeltas.commit,
-                          best_case: summary.bucketDeltas.best_case,
-                          pipeline: summary.bucketDeltas.pipeline,
-                        }}
-                        aiPctToGoal={summary.pctToGoal}
-                        leftToGo={summary.leftToGo}
-                        commitAdmission={summary.commitAdmission}
-                        commitDealPanels={summary.commitDealPanels}
-                        defaultTopN={5}
-                        heroOnly={true}
-                      />
-                    </RepDashboardHeroWrapper>
-                  </div>
-                  <div className="mt-2">
-                    <RepCoachingBriefClient
-                      orgId={ctx.user.org_id}
-                      repName={repNameForBrief}
-                      weakestDeals={weakestDeals}
-                      categoryAverages={categoryAverages}
-                      fiscalYear={fiscalYear}
-                      quotaPeriodId={quotaPeriodId}
-                    />
-                  </div>
+                  <RepCoachingBriefClient
+                    orgId={ctx.user.org_id}
+                    repName={repNameForBrief}
+                    weakestDeals={weakestDeals}
+                    categoryAverages={categoryAverages}
+                    fiscalYear={fiscalYear}
+                    quotaPeriodId={quotaPeriodId}
+                  />
                 </div>
               ),
               sales_opportunities: (
@@ -439,6 +438,7 @@ export default async function DashboardPage({
                   channelContributionRows={repChannelLedFed}
                   topPartnerWon={repTopPartnerWon}
                   topPartnerLost={repTopPartnerLost}
+                  showWicPqs={false}
                 />
               ),
             }}

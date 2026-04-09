@@ -41,6 +41,8 @@ export function ChannelTabPanelClient(props: {
   channelContributionRows?: ChannelLedFedRow[];
   topPartnerWon?: unknown[];
   topPartnerLost?: unknown[];
+  /** When false, hides WIC & PQS in the channel tab (e.g. sales rep level 3). Default true for channel exec/director/rep. */
+  showWicPqs?: boolean;
 }) {
   const {
     revenueTabProps,
@@ -50,6 +52,7 @@ export function ChannelTabPanelClient(props: {
     channelContributionRows,
     topPartnerWon,
     topPartnerLost,
+    showWicPqs = true,
   } = props;
 
   return (
@@ -274,6 +277,7 @@ export function ChannelTabPanelClient(props: {
       <ExecutiveGapInsightsClient
         {...revenueTabProps}
         channelTabOnly={true}
+        showWicPqs={showWicPqs}
         viewerRole={viewerRole}
         topPartnerWon={topPartnerWon as ExecutiveGapProps["topPartnerWon"]}
         topPartnerLost={topPartnerLost as ExecutiveGapProps["topPartnerLost"]}

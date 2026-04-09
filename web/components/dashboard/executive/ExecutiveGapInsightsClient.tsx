@@ -784,6 +784,8 @@ export function ExecutiveGapInsightsClient(props: {
   channelDashboardMode?: boolean;
   /** When true (e.g. `/dashboard/channel` renders deal tables on the server page), hide duplicate won/lost tables in the channel-tab-only partner section. */
   channelTopPartnerDealsOnPage?: boolean;
+  /** When false, hide the Canonical Scoring Engine (WIC & PQS) block in the Channel Partners tab. Default true. */
+  showWicPqs?: boolean;
   topPartnerWon?: any[];
   topPartnerLost?: any[];
   topDealsWon?: any[];
@@ -3692,6 +3694,7 @@ export function ExecutiveGapInsightsClient(props: {
               />
             </div>
 
+            {props.showWicPqs ?? true ? (
             <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
@@ -3748,6 +3751,7 @@ export function ExecutiveGapInsightsClient(props: {
                 </div>
               </div>
             </section>
+            ) : null}
 
             <div className="mt-4">
               <PartnersExecutiveAiTakeawayClient
