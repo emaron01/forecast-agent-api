@@ -13,7 +13,7 @@ import type {
   RepManagerManagerRow,
   RepManagerRepRow,
 } from "../../components/dashboard/executive/RepManagerComparisonPanel";
-import { EXEC_TABS, normalizeExecTab, type ExecTabKey } from "../../actions/execTabConstants";
+import { normalizeExecTab, resolveDashboardTab, type ExecTabKey } from "../../actions/execTabConstants";
 import { setExecDefaultTabAction } from "../../actions/execTabPreferences";
 import {
   getCreatedByRep,
@@ -1845,7 +1845,24 @@ export default async function ExecutiveDashboardPage({
   } catch {
     prefTab = null;
   }
-  const activeTab: ExecTabKey = tabParam || prefTab || "pipeline";
+  const EXEC_ALLOWED_TABS: ExecTabKey[] = [
+    "pipeline",
+    "sales_opportunities",
+    "coaching",
+    "team",
+    "channel",
+    "revenue_mix",
+    "revenue_intelligence",
+    "top_deals",
+    "report_builder",
+    "reports",
+  ];
+  const activeTab: ExecTabKey = resolveDashboardTab({
+    tabParam,
+    prefTab,
+    allowed: EXEC_ALLOWED_TABS,
+    fallback: "pipeline",
+  });
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -1913,6 +1930,7 @@ export default async function ExecutiveDashboardPage({
           <ExecutiveTabsShellClient
           basePath="/dashboard/executive"
           initialTab={activeTab}
+          allowedTabKeys={EXEC_ALLOWED_TABS}
           setDefaultTab={setExecDefaultTabAction}
           orgId={ctx.user.org_id}
           orgName={orgName}

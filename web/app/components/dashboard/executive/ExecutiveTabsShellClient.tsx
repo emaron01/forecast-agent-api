@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, useTransition, type ComponentProps } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition, type ComponentProps, type ReactNode } from "react";
 import { ExecutiveGapInsightsClient } from "../../../../components/dashboard/executive/ExecutiveGapInsightsClient";
 import { TeamForecastHygienePanels, type PipelineHygienePayload } from "../../../../components/dashboard/executive/TeamForecastHygienePanels";
 import type { ExecTabKey } from "../../../actions/execTabConstants";
@@ -15,19 +15,42 @@ import type { ChannelLedFedRow, ChannelPartnerHeroProps } from "../../../../lib/
 import { CustomReportDesignerClient } from "../../../analytics/custom-reports/CustomReportDesignerClient";
 import { sha256HexUtf8 } from "../../../../lib/payloadSha256";
 import { RevenueIntelligenceClient } from "./RevenueIntelligenceClient";
+import { SimpleForecastDashboardClient } from "../../../forecast/simple/simpleClient";
+import { PartnerPerformanceReadOnlyTable } from "../PartnerPerformanceReadOnlyTable";
+import { ChannelMyPipelineTableClient } from "../ChannelMyPipelineTableClient";
+import type { PartnerPerformanceRow } from "../../../../lib/partnerPerformanceRollups";
 
 type ExecutiveGapInsightsClientProps = ComponentProps<typeof ExecutiveGapInsightsClient>;
+type SimpleForecastDashboardClientProps = ComponentProps<typeof SimpleForecastDashboardClient>;
 
-const TABS: { key: ExecTabKey; label: string }[] = [
-  { key: "pipeline", label: "Pipeline Risk" },
-  { key: "coaching", label: "Coaching" },
-  { key: "team", label: "Team Performance" },
-  { key: "channel", label: "Channel" },
-  { key: "revenue_mix", label: "Revenue Mix" },
-  { key: "revenue_intelligence", label: "Revenue Intelligence" },
-  { key: "top_deals", label: "Top Deals" },
-  { key: "report_builder", label: "Report Builder" },
-  { key: "reports", label: "Reports" },
+const TAB_LABELS: Record<ExecTabKey, string> = {
+  overview: "Overview",
+  pipeline: "Pipeline Risk",
+  sales_opportunities: "Sales Opportunities",
+  channel_performance: "Channel Performance",
+  my_focus: "My Focus",
+  coaching: "Coaching",
+  team: "Team Performance",
+  channel: "Channel",
+  revenue_mix: "Revenue Mix",
+  revenue_intelligence: "Revenue Intelligence",
+  top_deals: "Top Deals",
+  report_builder: "Report Builder",
+  reports: "Reports",
+};
+
+/** Default tab strip for executive / channel leadership dashboards (no overview / channel_performance / my_focus). */
+const DEFAULT_EXEC_ALLOWED_TABS: ExecTabKey[] = [
+  "pipeline",
+  "sales_opportunities",
+  "coaching",
+  "team",
+  "channel",
+  "revenue_mix",
+  "revenue_intelligence",
+  "top_deals",
+  "report_builder",
+  "reports",
 ];
 
 const REPORT_LINKS = [
@@ -750,6 +773,12 @@ export function ExecutiveTabsShellClient(props: {
   initialTab: ExecTabKey;
   setDefaultTab: (tab: ExecTabKey) => Promise<void>;
   orgId: number;
+  /** When set, restricts which tabs render and their order. */
+  allowedTabKeys?: ExecTabKey[];
+  overviewSlot?: ReactNode;
+  salesOpportunitiesSimpleProps?: Partial<SimpleForecastDashboardClientProps>;
+  partnerPerformanceRows?: PartnerPerformanceRow[];
+  myFocusPartnerRows?: PartnerPerformanceRow[];
   forecastTabProps: ExecutiveGapInsightsClientProps;
   pipelineTabProps: ExecutiveGapInsightsClientProps;
   pipelineHygiene: PipelineHygienePayload;
@@ -796,6 +825,12 @@ export function ExecutiveTabsShellClient(props: {
   const [activeTab, setActiveTab] = useState<ExecTabKey>(props.initialTab);
   const [isPending, startTransition] = useTransition();
 
+  const allowedTabKeys = props.allowedTabKeys ?? DEFAULT_EXEC_ALLOWED_TABS;
+  const visibleTabs = useMemo(
+    () => allowedTabKeys.map((key) => ({ key, label: TAB_LABELS[key] ?? key })),
+    [allowedTabKeys]
+  );
+
   useEffect(() => {
     setActiveTab(props.initialTab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -830,7 +865,7 @@ export function ExecutiveTabsShellClient(props: {
     <section className="mt-6 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
-          {TABS.map((t) => (
+          {visibleTabs.map((t) => (
             <button
               key={t.key}
               type="button"
@@ -857,6 +892,33 @@ export function ExecutiveTabsShellClient(props: {
             <div className="-mx-4 -mt-4">
               <ExecutiveGapInsightsClient {...props.pipelineTabProps} pipelineTabOnly={true} viewerRole={props.viewerRole} />
             </div>
+          </div>
+        )}
+        {activeTab === "overview" && (props.overviewSlot ?? null)}
+        {activeTab === "sales_opportunities" && (
+          <div className="-mx-4 -mt-4">
+            <SimpleForecastDashboardClient {...(props.salesOpportunitiesSimpleProps ?? {})} />
+          </div>
+        )}
+        {activeTab === "channel_performance" && (
+          <div className="space-y-3 text-[color:var(--sf-text-primary)]">
+            <p className="text-sm text-[color:var(--sf-text-secondary)]">
+              Partner win rate uses closed won vs. all closed (won + lost) opportunities, scoped to your rep
+              attribution.
+            </p>
+            <PartnerPerformanceReadOnlyTable rows={props.partnerPerformanceRows ?? []} />
+          </div>
+        )}
+        {activeTab === "my_focus" && (
+          <div className="space-y-8 text-[color:var(--sf-text-primary)]">
+            <section>
+              <h3 className="mb-2 text-base font-semibold">My Pipeline</h3>
+              <ChannelMyPipelineTableClient quotaPeriodId={String(props.forecastTabProps.quotaPeriodId ?? "")} />
+            </section>
+            <section>
+              <h3 className="mb-2 text-base font-semibold">Partner Performance</h3>
+              <PartnerPerformanceReadOnlyTable rows={props.myFocusPartnerRows ?? []} />
+            </section>
           </div>
         )}
         {activeTab === "coaching" && (

@@ -8,7 +8,7 @@ import { getChannelDashboardSummary, loadChannelRepFyQuarterRows, loadChannelRep
 import { getRepKpisByPeriod, type RepPeriodKpisRow } from "../../../lib/executiveRepKpis";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ExecutiveTabsShellClient } from "../../components/dashboard/executive/ExecutiveTabsShellClient";
-import { normalizeExecTab, type ExecTabKey } from "../../actions/execTabConstants";
+import { normalizeExecTab, resolveDashboardTab, type ExecTabKey } from "../../actions/execTabConstants";
 import { setExecDefaultTabAction } from "../../actions/execTabPreferences";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
 import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveForecastDashboard";
@@ -16,8 +16,45 @@ import { ExecutiveGapInsightsClient } from "../../../components/dashboard/execut
 import { HIERARCHY, isChannelRep, isChannelRole } from "../../../lib/roleHelpers";
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
 import { ChannelTopPartnerDealsTablesClient, type TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
+import { SimpleForecastDashboardClient } from "../../forecast/simple/simpleClient";
+import { ScopedDashboardTabsClient } from "../../components/dashboard/ScopedDashboardTabsClient";
+import { ChannelMyPipelineTableClient } from "../../components/dashboard/ChannelMyPipelineTableClient";
+import { PartnerPerformanceReadOnlyTable } from "../../components/dashboard/PartnerPerformanceReadOnlyTable";
+import { loadChannelDealsScopedPartnerPerformance, type PartnerPerformanceRow } from "../../../lib/partnerPerformanceRollups";
 
 export const runtime = "nodejs";
+
+function periodToOption(p: {
+  id: string | number;
+  fiscal_year: string | number;
+  fiscal_quarter: string | number;
+  period_name: string;
+  period_start: string;
+  period_end: string;
+}) {
+  const q = Number.parseInt(String(p.fiscal_quarter || "").trim(), 10);
+  const y = String(p.fiscal_year || "").trim();
+  const ord =
+    q === 1 ? "1st Quarter" : q === 2 ? "2nd Quarter" : q === 3 ? "3rd Quarter" : q === 4 ? "4th Quarter" : `Q${q}`;
+  const label =
+    Number.isFinite(q) && q > 0 && y ? `${ord} ${y}` : String(p.period_name || "").trim() || `${p.period_start} → ${p.period_end}`;
+  return { id: String(p.id), label };
+}
+
+const CHANNEL_DASHBOARD_LEADER_TABS: ExecTabKey[] = [
+  "pipeline",
+  "sales_opportunities",
+  "coaching",
+  "team",
+  "channel",
+  "revenue_mix",
+  "revenue_intelligence",
+  "top_deals",
+  "report_builder",
+  "reports",
+];
+
+const CHANNEL_REP_DASHBOARD_TABS: ExecTabKey[] = ["sales_opportunities", "my_focus"];
 
 function partnerScopeSql(rowAlias: string, parameterIndex: number) {
   return `(
@@ -763,6 +800,16 @@ export default async function ChannelDashboardPage({
   const channelViewerHasDataScope =
     visibleRepIds.length > 0 || viewerChannelScopePartnerNames.length > 0;
 
+  let myFocusPartnerRows: PartnerPerformanceRow[] = [];
+  if (isChannelRep(ctx.user)) {
+    const tr = territoryRepIds.filter((id) => Number.isFinite(id) && id > 0);
+    myFocusPartnerRows = await loadChannelDealsScopedPartnerPerformance({
+      orgId,
+      territoryRepIds: tr,
+      partnerNames: viewerChannelScopePartnerNames,
+    }).catch(() => []);
+  }
+
   const periodIdx = summary.periods.findIndex((p) => String(p.id) === String(selectedPeriodId));
   const prevPeriod = periodIdx >= 0 ? summary.periods[periodIdx + 1] : null;
   const prevQpId = prevPeriod ? String(prevPeriod.id) : "";
@@ -1293,7 +1340,14 @@ export default async function ChannelDashboardPage({
   } catch {
     prefTab = null;
   }
-  const activeTab: ExecTabKey = tabParam || prefTab || "pipeline";
+  const channelTabAllowed = isChannelRep(ctx.user) ? CHANNEL_REP_DASHBOARD_TABS : CHANNEL_DASHBOARD_LEADER_TABS;
+  const channelTabFallback: ExecTabKey = isChannelRep(ctx.user) ? "sales_opportunities" : "pipeline";
+  const activeTab: ExecTabKey = resolveDashboardTab({
+    tabParam,
+    prefTab,
+    allowed: channelTabAllowed,
+    fallback: channelTabFallback,
+  });
 
   const channelPartnerTopRows =
     channelSummary?.partnerSummary?.map((row) => ({
@@ -1648,10 +1702,15 @@ export default async function ChannelDashboardPage({
               <ExecutiveTabsShellClient
                 basePath="/dashboard/channel"
                 initialTab={activeTab}
+                allowedTabKeys={CHANNEL_DASHBOARD_LEADER_TABS}
                 setDefaultTab={setExecDefaultTabAction}
                 orgId={ctx.user.org_id}
                 orgName={orgName}
                 viewerRole={ctx.user.role}
+                salesOpportunitiesSimpleProps={{
+                  quotaPeriods: (channelSummary?.periods ?? summary.periods).map(periodToOption),
+                  defaultQuotaPeriodId: selectedPeriodId,
+                }}
                 forecastTabProps={channelTabProps}
                 pipelineTabProps={channelTabProps}
                 pipelineHygiene={emptyPipelineHygiene}
@@ -1704,7 +1763,43 @@ export default async function ChannelDashboardPage({
               />
             ) : null}
           </div>
-        ) : null}
+        ) : (
+          <div className="mt-4">
+            <ScopedDashboardTabsClient
+              initialTab={activeTab}
+              allowedTabKeys={CHANNEL_REP_DASHBOARD_TABS}
+              tabLabels={{
+                sales_opportunities: "Sales Opportunities",
+                my_focus: "My Focus",
+              }}
+              setDefaultTab={setExecDefaultTabAction}
+              panels={{
+                sales_opportunities: (
+                  <div className="-mx-4 -mt-4">
+                    <SimpleForecastDashboardClient
+                      defaultRepName={String(ctx.user.account_owner_name || "").trim()}
+                      repFilterLocked={true}
+                      quotaPeriods={(channelSummary?.periods ?? summary.periods).map(periodToOption)}
+                      defaultQuotaPeriodId={selectedPeriodId}
+                    />
+                  </div>
+                ),
+                my_focus: (
+                  <div className="space-y-8 text-[color:var(--sf-text-primary)]">
+                    <section>
+                      <h3 className="mb-2 text-base font-semibold">My Pipeline</h3>
+                      <ChannelMyPipelineTableClient quotaPeriodId={selectedPeriodId} />
+                    </section>
+                    <section>
+                      <h3 className="mb-2 text-base font-semibold">Partner Performance</h3>
+                      <PartnerPerformanceReadOnlyTable rows={myFocusPartnerRows} />
+                    </section>
+                  </div>
+                ),
+              }}
+            />
+          </div>
+        )}
       </main>
     </div>
   );

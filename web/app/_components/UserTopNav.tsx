@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { AuthUser } from "../../lib/auth";
-import { isAdmin, isChannelExec, isChannelManager, isSalesLeader, isSalesRep } from "../../lib/roleHelpers";
+import { isAdmin, isChannelExec, isChannelManager, isChannelRole, isSalesLeader, isSalesRep } from "../../lib/roleHelpers";
 import { UserProfileBadge } from "./UserProfileBadge";
 
 function NavLink({ href, label }: { href: string; label: string }) {
@@ -16,7 +16,14 @@ function NavLink({ href, label }: { href: string; label: string }) {
 }
 
 export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser }) {
-  const dashHref = isSalesLeader(user) ? "/dashboard/executive" : "/dashboard";
+  const dashHref =
+    isSalesLeader(user)
+      ? "/dashboard/executive"
+      : isChannelExec(user) || isChannelManager(user)
+        ? "/dashboard/executive"
+        : isChannelRole(user)
+          ? "/dashboard/channel"
+          : "/dashboard";
   const salesOpportunitiesHref = isSalesRep(user) || user.hierarchy_level === 8 ? "/forecast" : "/analytics/executive/sales-opportunities";
   const isChannelLeader = isChannelExec(user) || isChannelManager(user);
   return (

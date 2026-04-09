@@ -12,7 +12,12 @@ import { RepCoachingBriefClient } from "./_components/RepCoachingBriefClient";
 import { RepDashboardHeroWrapper } from "./_components/RepDashboardHeroWrapper";
 import { ReviewRequestBanner } from "./_components/ReviewRequestBanner";
 import { SimpleForecastDashboardClient } from "../forecast/simple/simpleClient";
-import { isAdmin, isChannelRole, isSalesLeader } from "../../lib/roleHelpers";
+import { normalizeExecTab, resolveDashboardTab, type ExecTabKey } from "../actions/execTabConstants";
+import { setExecDefaultTabAction } from "../actions/execTabPreferences";
+import { ScopedDashboardTabsClient } from "../components/dashboard/ScopedDashboardTabsClient";
+import { PartnerPerformanceReadOnlyTable } from "../components/dashboard/PartnerPerformanceReadOnlyTable";
+import { loadRepScopedPartnerPerformance } from "../../lib/partnerPerformanceRollups";
+import { isAdmin, isChannelRole, isRepLevel, isSalesLeader } from "../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -180,7 +185,39 @@ export default async function DashboardPage({
   const quotaPeriodId = String(summary.selectedQuotaPeriodId ?? "").trim();
   const repNameForBrief = defaultRepName || displayName;
 
-  // REP: Executive HERO dashboard (Closed Won, Quota, Gap to Quota, Landing Zone) + Coaching Brief + Sales Opportunities below (no nav tabs).
+  const search = searchParams || {};
+  const tabRaw = Array.isArray(search.tab) ? search.tab[0] : search.tab;
+  const tabParam = normalizeExecTab(typeof tabRaw === "string" ? tabRaw : null);
+  let prefTab: ExecTabKey | null = null;
+  try {
+    const prefRows = await pool.query<{ user_preferences: unknown }>(
+      `SELECT user_preferences FROM users WHERE id = $1::bigint`,
+      [ctx.user.id]
+    );
+    const prefs = (prefRows.rows?.[0]?.user_preferences as Record<string, unknown>) || {};
+    prefTab = normalizeExecTab(typeof prefs.exec_default_tab === "string" ? prefs.exec_default_tab : null);
+  } catch {
+    prefTab = null;
+  }
+
+  const repDashboardAllowed: ExecTabKey[] = [
+    "overview",
+    "sales_opportunities",
+    ...(isRepLevel(ctx.user.hierarchy_level) ? (["channel_performance"] as ExecTabKey[]) : []),
+  ];
+
+  const activeTab = resolveDashboardTab({
+    tabParam,
+    prefTab,
+    allowed: repDashboardAllowed,
+    fallback: "overview",
+  });
+
+  const repPartnerRows =
+    isRepLevel(ctx.user.hierarchy_level) && repId != null
+      ? await loadRepScopedPartnerPerformance({ orgId: ctx.user.org_id, repId })
+      : [];
+
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
       <UserTopNav orgName={orgName} user={ctx.user} />
@@ -200,71 +237,98 @@ export default async function DashboardPage({
         </div>
 
         <ExecutiveBriefingProvider>
-          <div className="mt-4 grid gap-4">
-            {flaggedDeals.length > 0 && (
+          {flaggedDeals.length > 0 ? (
+            <div className="mt-4">
               <ReviewRequestBanner deals={flaggedDeals} />
-            )}
-            <RepDashboardHeroWrapper>
-            <ExecutiveGapInsightsClient
-              basePath="/dashboard"
-              periods={summary.periods}
-              quotaPeriodId={summary.selectedQuotaPeriodId}
-              orgId={ctx.user.org_id}
-              reps={summary.reps}
-              fiscalYear={String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "—"}
-              fiscalQuarter={String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—"}
-              stageProbabilities={summary.stageProbabilities}
-              healthModifiers={summary.healthModifiers}
-              repDirectory={summary.repDirectory}
-              myRepId={summary.myRepId}
-              repRollups={summary.repRollups}
-              productsClosedWon={summary.productsClosedWon}
-              productsClosedWonPrevSummary={summary.productsClosedWonPrevSummary}
-              productsClosedWonByRep={summary.productsClosedWonByRep}
-              quarterKpis={summary.quarterKpis}
-              pipelineMomentum={summary.pipelineMomentum}
-              closedWonFyYtd={summary.closedWonFyYtd}
-              crmTotals={summary.crmForecast}
-              partnersExecutive={summary.partnersExecutive}
-              quota={summary.quota}
-              aiForecast={summary.aiForecast.weighted_forecast}
-              crmForecast={summary.crmForecast.weighted_forecast}
-              gap={summary.forecastGap}
-              bucketDeltas={{
-                commit: summary.bucketDeltas.commit,
-                best_case: summary.bucketDeltas.best_case,
-                pipeline: summary.bucketDeltas.pipeline,
-              }}
-              aiPctToGoal={summary.pctToGoal}
-              leftToGo={summary.leftToGo}
-              commitAdmission={summary.commitAdmission}
-              commitDealPanels={summary.commitDealPanels}
-              defaultTopN={5}
-              heroOnly={true}
-            />
-            </RepDashboardHeroWrapper>
-          </div>
+            </div>
+          ) : null}
 
-          <div className="mt-6">
-            <RepCoachingBriefClient
-              orgId={ctx.user.org_id}
-              repName={repNameForBrief}
-              weakestDeals={weakestDeals}
-              categoryAverages={categoryAverages}
-              fiscalYear={fiscalYear}
-              quotaPeriodId={quotaPeriodId}
-            />
-          </div>
-
-          <section className="mt-6" aria-label="Sales Opportunities">
-            <h2 className="mb-4 text-lg font-semibold text-[color:var(--sf-text-primary)]">Sales Opportunities</h2>
-            <SimpleForecastDashboardClient
-              defaultRepName={defaultRepName}
-              repFilterLocked={true}
-              quotaPeriods={quotaPeriodOptions}
-              defaultQuotaPeriodId={summary.selectedQuotaPeriodId}
-            />
-          </section>
+          <ScopedDashboardTabsClient
+            initialTab={activeTab}
+            allowedTabKeys={repDashboardAllowed}
+            tabLabels={{
+              overview: "Overview",
+              sales_opportunities: "Sales Opportunities",
+              channel_performance: "Channel Performance",
+            }}
+            setDefaultTab={setExecDefaultTabAction}
+            panels={{
+              overview: (
+                <div className="space-y-4">
+                  <div className="mt-4 grid gap-4">
+                    <RepDashboardHeroWrapper>
+                      <ExecutiveGapInsightsClient
+                        basePath="/dashboard"
+                        periods={summary.periods}
+                        quotaPeriodId={summary.selectedQuotaPeriodId}
+                        orgId={ctx.user.org_id}
+                        reps={summary.reps}
+                        fiscalYear={String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "—"}
+                        fiscalQuarter={String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—"}
+                        stageProbabilities={summary.stageProbabilities}
+                        healthModifiers={summary.healthModifiers}
+                        repDirectory={summary.repDirectory}
+                        myRepId={summary.myRepId}
+                        repRollups={summary.repRollups}
+                        productsClosedWon={summary.productsClosedWon}
+                        productsClosedWonPrevSummary={summary.productsClosedWonPrevSummary}
+                        productsClosedWonByRep={summary.productsClosedWonByRep}
+                        quarterKpis={summary.quarterKpis}
+                        pipelineMomentum={summary.pipelineMomentum}
+                        closedWonFyYtd={summary.closedWonFyYtd}
+                        crmTotals={summary.crmForecast}
+                        partnersExecutive={summary.partnersExecutive}
+                        quota={summary.quota}
+                        aiForecast={summary.aiForecast.weighted_forecast}
+                        crmForecast={summary.crmForecast.weighted_forecast}
+                        gap={summary.forecastGap}
+                        bucketDeltas={{
+                          commit: summary.bucketDeltas.commit,
+                          best_case: summary.bucketDeltas.best_case,
+                          pipeline: summary.bucketDeltas.pipeline,
+                        }}
+                        aiPctToGoal={summary.pctToGoal}
+                        leftToGo={summary.leftToGo}
+                        commitAdmission={summary.commitAdmission}
+                        commitDealPanels={summary.commitDealPanels}
+                        defaultTopN={5}
+                        heroOnly={true}
+                      />
+                    </RepDashboardHeroWrapper>
+                  </div>
+                  <div className="mt-2">
+                    <RepCoachingBriefClient
+                      orgId={ctx.user.org_id}
+                      repName={repNameForBrief}
+                      weakestDeals={weakestDeals}
+                      categoryAverages={categoryAverages}
+                      fiscalYear={fiscalYear}
+                      quotaPeriodId={quotaPeriodId}
+                    />
+                  </div>
+                </div>
+              ),
+              sales_opportunities: (
+                <div className="-mx-4 -mt-4">
+                  <SimpleForecastDashboardClient
+                    defaultRepName={defaultRepName}
+                    repFilterLocked={true}
+                    quotaPeriods={quotaPeriodOptions}
+                    defaultQuotaPeriodId={summary.selectedQuotaPeriodId}
+                  />
+                </div>
+              ),
+              channel_performance: (
+                <div className="space-y-3 text-[color:var(--sf-text-primary)]">
+                  <p className="text-sm text-[color:var(--sf-text-secondary)]">
+                    Partner win rate uses closed won vs. all closed (won + lost) opportunities, scoped to your rep
+                    attribution.
+                  </p>
+                  <PartnerPerformanceReadOnlyTable rows={repPartnerRows} />
+                </div>
+              ),
+            }}
+          />
         </ExecutiveBriefingProvider>
       </main>
     </div>
