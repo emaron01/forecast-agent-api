@@ -110,11 +110,28 @@ export async function GET(req: Request) {
       : { repIds: [] as number[], partnerNames: [] as string[] };
 
     const territoryRepIds = channelTerritoryScope.repIds.filter((id) => Number.isFinite(id) && id > 0);
+    const partnerNames = channelTerritoryScope.partnerNames;
+    const channelScopeEmpty = partnerNames.length === 0 && territoryRepIds.length === 0;
     const useChannelScope =
-      isChannel && (channelTerritoryScope.partnerNames.length > 0 || territoryRepIds.length > 0);
+      isChannel && (partnerNames.length > 0 || territoryRepIds.length > 0);
 
     // Channel roles: fail closed when neither territory nor partner assignments apply.
     if (isChannel && !useChannelScope) {
+      console.log("CHANNEL_QUERY_DEBUG", {
+        useChannelScope: false,
+        channelScopeEmpty: true,
+        channelUserId: user.id,
+        partnerNames,
+        territoryRepIds,
+        dealsWhereSql: null,
+        note: "early_return_empty_scope_no_query_executed",
+        hasPartnerNameNullClause: false,
+        channelTerritoryDollarIndex: undefined,
+        channelPartnerDollarIndex: undefined,
+        channelParamSlots: {},
+        paramsArray: [],
+        paramsLength: 0,
+      });
       return NextResponse.json({ ok: true, deals: [] });
     }
 
@@ -175,13 +192,17 @@ export async function GET(req: Request) {
     let p = 1;
     const where: string[] = [`o.org_id = $1`];
 
+    let channelTerritoryDollarIndex: number | undefined;
+    let channelPartnerDollarIndex: number | undefined;
+
     // Channel (6/7/8): non-empty partner_name always required; then partner-aligned OR territory rep (never unpartnered via territory).
     if (useChannelScope) {
-      const partnerNames = channelTerritoryScope.partnerNames;
       params.push(territoryRepIds);
       const territoryIdx = ++p;
+      channelTerritoryDollarIndex = territoryIdx;
       params.push(partnerNames);
       const partnerNamesIdx = ++p;
+      channelPartnerDollarIndex = partnerNamesIdx;
       where.push(`o.partner_name IS NOT NULL`);
       where.push(`btrim(o.partner_name) <> ''`);
       where.push(`(
@@ -242,6 +263,32 @@ export async function GET(req: Request) {
 
     const baseSelectWithJoin = qpJoin ? `${baseSelect}\n      ${qpJoin}` : baseSelect;
     const whereSql = where.length ? `\n      WHERE ${where.join("\n        AND ")}\n` : "\n";
+    const dealsWhereSql = whereSql;
+
+    if (isChannel) {
+      const queryParams = params;
+      const channelParamSlots: Record<string, unknown> = {};
+      if (channelTerritoryDollarIndex != null) {
+        channelParamSlots[`$${channelTerritoryDollarIndex}`] = queryParams[channelTerritoryDollarIndex - 1];
+      }
+      if (channelPartnerDollarIndex != null) {
+        channelParamSlots[`$${channelPartnerDollarIndex}`] = queryParams[channelPartnerDollarIndex - 1];
+      }
+      console.log("CHANNEL_QUERY_DEBUG", {
+        useChannelScope,
+        channelScopeEmpty,
+        channelUserId: user.id,
+        partnerNames,
+        territoryRepIds,
+        dealsWhereSql,
+        hasPartnerNameNullClause: where.some((w) => /partner_name\s+IS\s+NOT\s+NULL/i.test(w)),
+        channelTerritoryDollarIndex,
+        channelPartnerDollarIndex,
+        channelParamSlots,
+        paramsArray: queryParams,
+        paramsLength: queryParams.length,
+      });
+    }
 
     const { rows } = await pool.query(
       `
