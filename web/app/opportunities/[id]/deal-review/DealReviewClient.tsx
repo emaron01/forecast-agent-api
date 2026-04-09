@@ -1647,7 +1647,24 @@ export function DealReviewClient(props: {
   const partnerName = String(opportunity?.partner_name || (opportunity as any)?.partnerName || "");
   const dealRegistrationRaw = (opportunity as any)?.deal_registration ?? (opportunity as any)?.dealRegistration;
   const dealRegistration = dealRegistrationRaw === true || dealRegistrationRaw === false ? dealRegistrationRaw : null;
+  const dealRegDateRaw = (opportunity as any)?.deal_reg_date ?? (opportunity as any)?.dealRegDate;
+  const dealRegDate = dateOnly(dealRegDateRaw) || null;
+  const dealRegId = String((opportunity as any)?.deal_reg_id ?? (opportunity as any)?.dealRegId ?? "").trim() || null;
   const aiForecast = String(opportunity?.ai_verdict || opportunity?.ai_forecast || "");
+
+  // Derived: registered if boolean true OR date present OR ID present
+  const isRegistered = dealRegistration === true || !!dealRegDate || !!dealRegId;
+
+  // Display priority: ID > Date > Boolean
+  const dealRegDisplay = dealRegId
+    ? `Registered — ${dealRegId}`
+    : dealRegDate
+      ? `Registered — ${dealRegDate}`
+      : isRegistered
+        ? "Registered"
+        : dealRegistration === false
+          ? "Not registered"
+          : "—";
 
   const activeMessages = catMessages;
   const highlightCategoryKey = (mode === "CATEGORY_UPDATE" ? selectedCategory : fullReviewHighlightCategory) as CategoryKey | "";
@@ -2056,7 +2073,7 @@ export function DealReviewClient(props: {
                 <b>Rep:</b> {repName || "—"} · <b>Forecast:</b> {forecastStage || "—"} · <b>Close:</b>{" "}
                 {closeDateStr || "—"} · <b>Updated:</b> {safeDate(opportunity?.updated_at)} · <b>Partner:</b>{" "}
                 {partnerName || "—"} · <b>Deal Reg:</b>{" "}
-                <span className="font-mono text-xs">{dealRegistration === true ? "true" : dealRegistration === false ? "false" : "—"}</span>
+                <span className="font-mono text-xs">{dealRegDisplay}</span>
               </div>
               <div className="kv" style={{ marginTop: 8 }}>
                 <b>Internal Sponsor:</b>{" "}

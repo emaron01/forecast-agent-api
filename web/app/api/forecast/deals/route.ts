@@ -168,6 +168,8 @@ export async function GET(req: Request) {
         ai_forecast,
         partner_name,
         deal_registration,
+        deal_reg_date,
+        deal_reg_id,
         health_score,
         risk_summary,
         next_steps,

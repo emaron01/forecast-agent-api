@@ -6,6 +6,8 @@ export type TopPartnerDealRow = {
   opportunity_public_id: string;
   partner_name: string;
   deal_registration: boolean | null;
+  deal_reg_date?: string | null;
+  deal_reg_id?: string | null;
   account_name: string | null;
   opportunity_name: string | null;
   product: string | null;
@@ -40,11 +42,46 @@ function healthPctChannel(score: number | null | undefined): string {
   return `${Math.max(0, Math.min(100, Math.round((n / 30) * 100)))}%`;
 }
 
-function renderDealRegChannel(value: boolean | null | undefined) {
-  if (value == null) {
-    return <span className="text-[color:var(--sf-text-secondary)]">—</span>;
+function renderDealRegChannel(row: Pick<TopPartnerDealRow, "deal_registration" | "deal_reg_date" | "deal_reg_id">) {
+  const dealRegistration = row?.deal_registration;
+  const dealRegId = String(row?.deal_reg_id || "").trim() || null;
+  const dealRegDate = row?.deal_reg_date ? String(row.deal_reg_date).slice(0, 10) : null;
+
+  // Invariant (computed at display time):
+  // isRegistered = deal_registration = true OR deal_reg_date IS NOT NULL OR deal_reg_id is non-empty
+  const isRegistered = dealRegistration === true || !!dealRegDate || !!dealRegId;
+
+  const tooltip = dealRegId
+    ? `Registered — ${dealRegId}`
+    : dealRegDate
+      ? `Registered — ${dealRegDate}`
+      : isRegistered
+        ? "Registered"
+        : dealRegistration === false
+          ? "Not registered"
+          : "—";
+
+  if (!isRegistered && dealRegistration == null && !dealRegDate && !dealRegId) {
+    return (
+      <span className="text-[color:var(--sf-text-secondary)]" title={tooltip}>
+        —
+      </span>
+    );
   }
-  return value ? <span className="text-[#16A34A]">Y</span> : <span className="text-[#E74C3C]">N</span>;
+
+  if (isRegistered) {
+    return (
+      <span className="text-[#16A34A]" title={tooltip}>
+        Y
+      </span>
+    );
+  }
+
+  return (
+    <span className="text-[#E74C3C]" title={tooltip}>
+      N
+    </span>
+  );
 }
 
 function toggleSort(
@@ -166,7 +203,7 @@ export function ChannelTopPartnerDealsTablesClient(props: {
                         {d.partner_name}
                       </td>
                       <td className="px-3 py-3 text-center font-semibold align-top whitespace-nowrap">
-                        {renderDealRegChannel(d.deal_registration)}
+                        {renderDealRegChannel(d)}
                       </td>
                       <td className={`min-w-0 px-3 py-3 align-top truncate ${sortCellClass(wonSortKey === "account")}`} title={d.account_name || undefined}>
                         {d.account_name || ""}
@@ -239,7 +276,7 @@ export function ChannelTopPartnerDealsTablesClient(props: {
                         {d.partner_name}
                       </td>
                       <td className="px-3 py-3 text-center font-semibold align-top whitespace-nowrap">
-                        {renderDealRegChannel(d.deal_registration)}
+                        {renderDealRegChannel(d)}
                       </td>
                       <td className={`min-w-0 px-3 py-3 align-top truncate ${sortCellClass(lostSortKey === "account")}`} title={d.account_name || undefined}>
                         {d.account_name || ""}

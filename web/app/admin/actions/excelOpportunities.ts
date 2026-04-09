@@ -37,6 +37,8 @@ const OPPORTUNITY_TARGETS = [
   "close_date",
   "partner_name",
   "deal_registration",
+  "deal_reg_date",
+  "deal_reg_id",
 ] as const;
 
 function mappingsForOpportunitiesOnly(
@@ -60,6 +62,8 @@ const TargetField = z.enum([
   "close_date",
   "partner_name",
   "deal_registration",
+  "deal_reg_date",
+  "deal_reg_id",
   "comments", // Optional; used for AI scoring only; NOT stored in field_mappings (not an opportunity column).
 ]);
 
@@ -153,21 +157,26 @@ function normalizeBooleanCell(v: unknown): boolean | null {
     if (v === 1) return true;
     if (v === 0) return false;
   }
-  const s = String(v)
+  const raw = String(v)
     .replaceAll("\u00A0", " ") // normalize non-breaking spaces from Excel exports
-    .trim()
-    .toLowerCase();
-  if (!s) return null;
+    .trim();
+  if (!raw) return null;
+  const s = raw.toLowerCase();
   // Common truthy/falsey values from Excel exports.
   // - "checked"/"unchecked" often appear from checkbox exports
   // - "on"/"off" from HTML-like sources
   // - "x" / "✔" used by some templates
+  // - Align with public.upsert_opportunity deal_registration normalization (CRM strings).
   if (
     s === "true" ||
     s === "t" ||
     s === "yes" ||
     s === "y" ||
     s === "1" ||
+    s === "registered" ||
+    s === "approved" ||
+    s === "active" ||
+    s === "pending" ||
     s === "checked" ||
     s === "check" ||
     s === "x" ||
@@ -184,12 +193,17 @@ function normalizeBooleanCell(v: unknown): boolean | null {
     s === "unchecked" ||
     s === "off" ||
     s === "null" ||
+    s === "none" ||
+    s === "expired" ||
     // Common "not provided / not applicable" shorthands seen in uploads.
     s === "np" ||
     s === "n/p"
   )
     return false;
-  return null;
+  // Date-like CRM values (e.g. registration submitted date).
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return true;
+  // Non-empty token not explicitly false → true (e.g. registration IDs like DR-12345).
+  return true;
 }
 
 type ExcelUploadState =
@@ -286,6 +300,10 @@ function friendlyTargetName(t: string) {
       return "Partner Name";
     case "deal_registration":
       return "Deal Registration";
+    case "deal_reg_date":
+      return "Deal Registration Date";
+    case "deal_reg_id":
+      return "Deal Registration ID / Number";
     default:
       return t;
   }
@@ -625,6 +643,35 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
               row[src] = b;
             }
           }
+        }
+      }
+
+      // Deal Registration Date: optional; normalize to YYYY-MM-DD in-place.
+      {
+        const src = byTarget.get("deal_reg_date") || "";
+        if (src) {
+          const v = row?.[src];
+          if (isBlankCell(v)) {
+            row[src] = null;
+          } else {
+            const d = tryParseAnyDate(v);
+            if (!d) {
+              issues.push(`Row ${rowNum}: Deal Registration Date is not a valid date (column "${src}")`);
+            } else {
+              row[src] = isoDateOnly(d);
+            }
+          }
+        }
+      }
+
+      // Deal Registration ID / Number: optional; trim, null if empty.
+      {
+        const src = byTarget.get("deal_reg_id") || "";
+        if (src) {
+          const raw = String(row?.[src] ?? "")
+            .replaceAll("\u00A0", " ")
+            .trim();
+          row[src] = raw ? raw : null;
         }
       }
 

@@ -37,6 +37,8 @@ const TARGETS: Array<{ key: TargetField; label: string; required?: boolean }> = 
   { key: "forecast_stage", label: "Forecast Stage" },
   { key: "partner_name", label: "Partner Name (optional)" },
   { key: "deal_registration", label: "Deal Registration (optional)" },
+  { key: "deal_reg_date", label: "Deal Registration Date (optional)" },
+  { key: "deal_reg_id", label: "Deal Registration ID / Number (optional)" },
   { key: "crm_opp_id", label: "CRM Opportunity ID", required: true },
   { key: "create_date_raw", label: "Create Date", required: true },
   { key: "close_date", label: "Close Date", required: true },
@@ -53,6 +55,8 @@ type TargetField =
   | "forecast_stage"
   | "partner_name"
   | "deal_registration"
+  | "deal_reg_date"
+  | "deal_reg_id"
   | "crm_opp_id"
   | "create_date_raw"
   | "close_date"
@@ -82,6 +86,25 @@ function guessMapping(headers: string[]) {
         s === "deal reg" ||
         s === "deal_reg" ||
         s.includes("deal registration")
+    ),
+    deal_reg_date: pick(
+      (s) =>
+        s === "deal reg date" ||
+        s === "registration date" ||
+        s === "deal registration date" ||
+        s === "dr date" ||
+        s.includes("deal reg date") ||
+        (s.includes("registration") && s.includes("date"))
+    ),
+    deal_reg_id: pick(
+      (s) =>
+        s === "deal reg id" ||
+        s === "deal reg number" ||
+        s === "registration id" ||
+        s === "dr number" ||
+        s === "deal reg #" ||
+        s.includes("deal reg id") ||
+        (s.includes("registration") && (s.includes("id") || s.includes("number")))
     ),
     crm_opp_id: pick((s) => s.includes("crm") && s.includes("id")) || pick((s) => s === "id" || s.includes("opportunity id")),
     create_date_raw: pick(
