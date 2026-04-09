@@ -195,7 +195,8 @@ export async function GET(req: Request) {
     let channelTerritoryDollarIndex: number | undefined;
     let channelPartnerDollarIndex: number | undefined;
 
-    // Channel (6/7/8): non-empty partner_name always required; then partner-aligned OR territory rep (never unpartnered via territory).
+    // Channel (6/7/8): partner_name always required. Partner assignments and territory are mutually exclusive:
+    // if assigned partner names exist, only match those; otherwise use territory rep ids only.
     if (useChannelScope) {
       params.push(territoryRepIds);
       const territoryIdx = ++p;
@@ -207,7 +208,12 @@ export async function GET(req: Request) {
       where.push(`btrim(o.partner_name) <> ''`);
       where.push(`(
         (COALESCE(array_length($${partnerNamesIdx}::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($${partnerNamesIdx}::text[]))
-        OR (COALESCE(array_length($${territoryIdx}::bigint[], 1), 0) > 0 AND o.rep_id IS NOT NULL AND o.rep_id = ANY($${territoryIdx}::bigint[]))
+        OR (
+          COALESCE(array_length($${partnerNamesIdx}::text[], 1), 0) = 0
+          AND COALESCE(array_length($${territoryIdx}::bigint[], 1), 0) > 0
+          AND o.rep_id IS NOT NULL
+          AND o.rep_id = ANY($${territoryIdx}::bigint[])
+        )
       )`);
     } else if (allowedRepIds !== null) {
       params.push(allowedRepIds);

@@ -791,7 +791,12 @@ export async function GET(req: Request) {
                   AND btrim(o.partner_name) <> ''
                   AND (
                     (COALESCE(array_length($23::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($23::text[]))
-                    OR (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
+                    OR (
+                      COALESCE(array_length($23::text[], 1), 0) = 0
+                      AND COALESCE(array_length($3::bigint[], 1), 0) > 0
+                      AND o.rep_id IS NOT NULL
+                      AND o.rep_id = ANY($3::bigint[])
+                    )
                   )
                 ELSE
                   (o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
@@ -1039,7 +1044,12 @@ export async function GET(req: Request) {
                     AND btrim(o.partner_name) <> ''
                     AND (
                       (COALESCE(array_length($23::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($23::text[]))
-                      OR (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
+                      OR (
+                        COALESCE(array_length($23::text[], 1), 0) = 0
+                        AND COALESCE(array_length($3::bigint[], 1), 0) > 0
+                        AND o.rep_id IS NOT NULL
+                        AND o.rep_id = ANY($3::bigint[])
+                      )
                     )
                   ELSE
                     (o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
@@ -1575,7 +1585,11 @@ export async function GET(req: Request) {
                     AND btrim(o.partner_name) <> ''
                     AND (
                       (COALESCE(array_length($5::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($5::text[]))
-                      OR (COALESCE(array_length($6::bigint[], 1), 0) > 0 AND $3::bigint = ANY($6::bigint[]))
+                      OR (
+                        COALESCE(array_length($5::text[], 1), 0) = 0
+                        AND COALESCE(array_length($6::bigint[], 1), 0) > 0
+                        AND $3::bigint = ANY($6::bigint[])
+                      )
                     )
                   )
                 )
