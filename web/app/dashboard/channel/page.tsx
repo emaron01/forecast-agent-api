@@ -928,7 +928,6 @@ export default async function ChannelDashboardPage({
     console.error("[channel page] getChannelDashboardSummary error", err);
     return null;
   });
-  const directorRepsId = viewerChannelRepsTableId;
   const fyYearKey =
     String(summary.selectedPeriod?.fiscal_year ?? summary.selectedFiscalYear ?? "")
       .trim() || "";
@@ -1402,6 +1401,18 @@ export default async function ChannelDashboardPage({
     return n / d;
   }
 
+  /** Map role-8 channel rep (reps.id) → their Channel Director's reps.id (reps.manager_rep_id), for Team rollup grouping (mirrors sales manager_id on rep rows). */
+  const channelRepDirectory = channelSummary?.repDirectory ?? [];
+  const channelDirectorRepIdByChannelRepId = new Map<number, number>();
+  const repDisplayNameByRepId = new Map<number, string>();
+  for (const d of channelRepDirectory) {
+    repDisplayNameByRepId.set(d.id, String(d.name || "").trim() || `(Rep ${d.id})`);
+    if (Number(d.hierarchy_level) === HIERARCHY.CHANNEL_REP && d.manager_rep_id != null) {
+      const mid = Number(d.manager_rep_id);
+      if (Number.isFinite(mid) && mid > 0) channelDirectorRepIdByChannelRepId.set(d.id, mid);
+    }
+  }
+
   const channelTeamRepRows =
     channelSummary?.channelRepRows.map((r) => {
       const c = channelKpisByRepId.get(String(r.rep_id)) ?? null;
@@ -1436,11 +1447,21 @@ export default async function ChannelDashboardPage({
       const currAtt = c ? safeDivChannel(Number(c.won_amount || 0) || 0, quota) : null;
       const prevAtt = p ? safeDivChannel(Number(p.won_amount || 0) || 0, quota) : null;
       const mixDen = pipeline_amount + best_amount + commit_amount + won_amount;
+      const crTableId = Number(r.rep_id);
+      const directorRepId = Number.isFinite(crTableId)
+        ? channelDirectorRepIdByChannelRepId.get(crTableId)
+        : undefined;
+      const manager_id =
+        directorRepId != null && Number.isFinite(directorRepId) && directorRepId > 0 ? String(directorRepId) : "";
+      const manager_name =
+        directorRepId != null && Number.isFinite(directorRepId) && directorRepId > 0
+          ? repDisplayNameByRepId.get(directorRepId) ?? r.manager_name
+          : r.manager_name;
       return {
         rep_id: r.rep_id,
         rep_name: r.rep_name,
-        manager_id: directorRepsId ? String(directorRepsId) : "",
-        manager_name: r.manager_name,
+        manager_id,
+        manager_name,
         quota: r.quota,
         total_count,
         won_amount,
@@ -1473,34 +1494,71 @@ export default async function ChannelDashboardPage({
     }) ?? [];
 
   const channelManagerRows =
-    directorRepsId && channelTeamRepRows.length > 0
-      ? [
-          {
-            manager_id: String(directorRepsId),
-            manager_name: String(ctx.user.display_name || ctx.user.email || "Channel Director").trim() || "Channel Director",
-            quota: channelTeamRepRows.reduce((sum, row) => sum + (Number(row.quota) || 0), 0),
-            won_amount: channelTeamRepRows.reduce((sum, row) => sum + (Number(row.won_amount) || 0), 0),
-            lost_amount: directorTerritoryLostAmount,
-            lost_count: directorTerritoryLostCount,
-            active_amount: channelTeamRepRows.reduce((sum, row) => sum + (Number(row.pipeline_amount) || 0), 0),
-            attainment: (() => {
-              const quota = channelTeamRepRows.reduce((sum, row) => sum + (Number(row.quota) || 0), 0);
-              const won = channelTeamRepRows.reduce((sum, row) => sum + (Number(row.won_amount) || 0), 0);
-              return quota > 0 ? won / quota : null;
-            })(),
-            win_rate: null,
-            partner_contribution: null,
-          },
-        ]
+    channelTeamRepRows.length > 0
+      ? (() => {
+          const agg = new Map<string, { quota: number; won_amount: number; active_amount: number; manager_name: string }>();
+          for (const row of channelTeamRepRows) {
+            const mid = String(row.manager_id || "").trim();
+            const key = mid || "__unassigned__";
+            const prev = agg.get(key) || { quota: 0, won_amount: 0, active_amount: 0, manager_name: row.manager_name };
+            prev.quota += Number(row.quota) || 0;
+            prev.won_amount += Number(row.won_amount) || 0;
+            prev.active_amount += Number(row.pipeline_amount) || 0;
+            if (mid && row.manager_name) prev.manager_name = row.manager_name;
+            agg.set(key, prev);
+          }
+          const rows: Array<{
+            manager_id: string;
+            manager_name: string;
+            quota: number;
+            won_amount: number;
+            active_amount: number;
+            attainment: number | null;
+            win_rate: null;
+            partner_contribution: null;
+          }> = [];
+          for (const [key, a] of agg.entries()) {
+            const manager_id = key === "__unassigned__" ? "" : key;
+            const quota = a.quota;
+            const won = a.won_amount;
+            rows.push({
+              manager_id,
+              manager_name:
+                manager_id && a.manager_name
+                  ? a.manager_name
+                  : manager_id
+                    ? repDisplayNameByRepId.get(Number(manager_id)) || a.manager_name || `Manager ${manager_id}`
+                    : "(Unassigned)",
+              quota,
+              won_amount: won,
+              active_amount: a.active_amount,
+              attainment: safeDivChannel(won, quota),
+              win_rate: null,
+              partner_contribution: null,
+            });
+          }
+          rows.sort(
+            (x, y) =>
+              (Number(y.attainment ?? -1) - Number(x.attainment ?? -1)) ||
+              y.won_amount - x.won_amount ||
+              x.manager_name.localeCompare(y.manager_name)
+          );
+          return rows;
+        })()
       : [];
+
+  const channelDirectorCardCount = new Set(
+    channelTeamRepRows.map((row) => String(row.manager_id || "").trim()).filter(Boolean)
+  ).size;
+  const channelRollupMultiDirectorCards = channelDirectorCardCount > 1;
 
   const emptyTeamPayload = {
     repRows: channelTeamRepRows,
     managerRows: channelManagerRows,
-    managerLostAmountOverride: directorTerritoryLostAmount,
-    managerLostCountOverride: directorTerritoryLostCount,
-    managerWonAmountOverride: directorWonAmount,
-    managerWonCountOverride: directorWonCount,
+    managerLostAmountOverride: channelRollupMultiDirectorCards ? undefined : directorTerritoryLostAmount,
+    managerLostCountOverride: channelRollupMultiDirectorCards ? undefined : directorTerritoryLostCount,
+    managerWonAmountOverride: channelRollupMultiDirectorCards ? undefined : directorWonAmount,
+    managerWonCountOverride: channelRollupMultiDirectorCards ? undefined : directorWonCount,
     productsClosedWonByRepYtd: channelProductsClosedWonByRepYtd,
     periodName: selectedPeriod?.period_name ?? "",
     periodStart: selectedPeriod?.period_start ?? "",
