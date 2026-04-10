@@ -32,8 +32,6 @@ import { HIERARCHY, isAdmin, isSalesLeader } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
-console.log("[ExecutiveDashboardPage module loaded]");
-
 export default async function ExecutiveDashboardPage({
   searchParams,
 }: {
@@ -95,17 +93,6 @@ export default async function ExecutiveDashboardPage({
     const visibleRepIdsForQuery = visibleRepIds.length > 0 ? visibleRepIds : [-1];
 
     const repDirectory = scope.repDirectory;
-    console.log("REP_DIRECTORY_DEBUG", {
-      totalRows: repDirectory.length,
-      channelRows: repDirectory
-        .filter((r) => Number(r.hierarchy_level) === 6 || Number(r.hierarchy_level) === 7)
-        .map((r) => ({
-          id: r.id,
-          name: r.name,
-          level: r.hierarchy_level,
-          manager_rep_id: r.manager_rep_id,
-        })),
-    });
     const childrenByManagerRepId = new Map<number, number[]>();
     for (const r of repDirectory) {
       if (r.manager_rep_id != null && repDirectory.some((x) => x.id === r.manager_rep_id)) {
@@ -992,13 +979,6 @@ export default async function ExecutiveDashboardPage({
     return out;
   })();
 
-  console.log("DIRECTORY_IN_SCOPE_DEBUG", {
-    totalRows: directoryInScope.length,
-    channelRows: directoryInScope
-      .filter((r) => Number(r.hierarchy_level) === 6 || Number(r.hierarchy_level) === 7)
-      .map((r) => ({ id: r.id, name: r.name, level: r.hierarchy_level })),
-  });
-
   const periodLabel = selectedPeriodForTeam?.period_name ?? "Current Period";
 
   let reportBuilderRepRows: any[] = [];
@@ -1557,6 +1537,14 @@ export default async function ExecutiveDashboardPage({
     const repIdsInData = new Set<string>();
     for (const r of repKpisRows) repIdsInData.add(String(r.rep_id));
     for (const q of quotaByRepPeriod) repIdsInData.add(String(q.rep_id));
+    // Outer-join behavior: channel exec/director (6/7) in scoped directory must appear in Team
+    // Performance even when KPI/quota queries return no rows for them.
+    for (const r of repDirectory) {
+      const hl = Number(r.hierarchy_level);
+      if (hl === HIERARCHY.CHANNEL_EXEC || hl === HIERARCHY.CHANNEL_MANAGER) {
+        repIdsInData.add(String(r.id));
+      }
+    }
 
     const repRowsBuild: RepManagerRepRow[] = [];
     for (const rep_id of repIdsInData) {
@@ -1712,12 +1700,6 @@ export default async function ExecutiveDashboardPage({
     teamRepRows = repRowsBuild;
     teamManagerRows = managerRowsBuild;
     teamRepsByManager = repsByManagerMap;
-    console.log("TEAM_REPS_DEBUG", {
-      totalRows: teamRepRows.length,
-      channelRows: teamRepRows.filter(
-        (r) => r.rep_name?.includes("Channel") || r.rep_name?.includes("VP")
-      ),
-    });
   }
 
   try {
