@@ -3,8 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "../../../../lib/auth";
 import { getChannelTerritoryRepIds } from "../../../../lib/channelTerritoryScope";
 import { pool } from "../../../../lib/pool";
-import { getChannelSubtreeRepDirectory } from "../../../../lib/repScope";
-import { isChannelExec, isChannelManager, isChannelRole } from "../../../../lib/roleHelpers";
+import { isChannelRole } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -116,24 +115,9 @@ export async function POST(req: Request) {
   const bucketsRaw = parsed.data.buckets.slice().sort((a, b) => Number(a.min) - Number(b.min));
   const quarterIds = parsed.data.quarterIds.map((s) => String(s));
   let repIds: string[] | null = parsed.data.repIds ? parsed.data.repIds.map((s) => String(s)) : null;
+  let requirePartnerName = false;
 
-  if (isChannelExec(ctx.user) || isChannelManager(ctx.user)) {
-    const chRows = await getChannelSubtreeRepDirectory({
-      orgId: ctx.user.org_id,
-      user: ctx.user,
-    }).catch(() => []);
-    const allowedIds = chRows.map((r) => r.id).filter((id) => Number.isFinite(id) && id > 0);
-    const allowedSet = new Set(allowedIds.map(String));
-    if (allowedIds.length > 0) {
-      if (repIds && repIds.length > 0) {
-        repIds = repIds.filter((id) => allowedSet.has(String(id)));
-      } else {
-        repIds = allowedIds.map(String);
-      }
-    } else {
-      repIds = [];
-    }
-  } else if (isChannelRole(ctx.user)) {
+  if (isChannelRole(ctx.user)) {
     const channelScope = await getChannelTerritoryRepIds({
       orgId: ctx.user.org_id,
       channelUserId: ctx.user.id,
@@ -149,6 +133,7 @@ export async function POST(req: Request) {
     } else {
       repIds = [];
     }
+    requirePartnerName = true;
   }
 
   const { rows } = await pool.query<OppRow>(
@@ -180,8 +165,14 @@ export async function POST(req: Request) {
         $3::bigint[] IS NULL OR
         o.rep_id = ANY($3::bigint[])
       )
+      AND (
+        NOT $4::boolean OR (
+          o.partner_name IS NOT NULL
+          AND btrim(o.partner_name) <> ''
+        )
+      )
     `,
-    [orgId, quarterIds, repIds]
+    [orgId, quarterIds, repIds, requirePartnerName]
   );
 
   const quartersById = new Map<string, string>();

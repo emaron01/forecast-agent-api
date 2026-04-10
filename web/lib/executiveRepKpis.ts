@@ -67,8 +67,11 @@ export async function getRepKpisByPeriod(args: {
   orgId: number;
   periodIds: string[];
   repIds: number[] | null;
+  /** When true, only opportunities with a non-empty partner_name are included. */
+  requirePartnerName?: boolean;
 }) {
   const useRepFilter = !!(args.repIds && args.repIds.length);
+  const requirePartner = !!args.requirePartnerName;
   const { rows } = await pool.query<RepPeriodKpisRow>(
     `
     WITH periods AS (
@@ -106,6 +109,7 @@ export async function getRepKpisByPeriod(args: {
        AND o.close_date >= p.period_start
        AND o.close_date <= p.period_end
        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+       AND (NOT $5::boolean OR (o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''))
       LEFT JOIN reps r
         ON r.organization_id = $1
        AND r.id = o.rep_id
@@ -169,7 +173,7 @@ export async function getRepKpisByPeriod(args: {
     GROUP BY quota_period_id, rep_id, rep_name
     ORDER BY rep_name ASC, rep_id ASC
     `,
-    [args.orgId, args.periodIds, args.repIds || [], useRepFilter]
+    [args.orgId, args.periodIds, args.repIds || [], useRepFilter, requirePartner]
   );
   return (rows || []) as RepPeriodKpisRow[];
 }
