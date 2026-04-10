@@ -2650,11 +2650,15 @@ export async function replaceManagerVisibility(args: {
     await c.query("BEGIN");
     try {
       // Ensure manager exists in org.
-      const mgrRes = await c.query(`SELECT id, role, hierarchy_level FROM users WHERE id = $1 AND org_id = $2 LIMIT 1`, [managerUserId, orgId]);
+      const mgrRes = await c.query(
+        `SELECT id, role, hierarchy_level, admin_has_full_analytics_access FROM users WHERE id = $1 AND org_id = $2 LIMIT 1`,
+        [managerUserId, orgId]
+      );
       const mgr = mgrRes.rows?.[0] as any;
       if (!mgr) throw new Error("manager_user_id not found in org");
       const mgrLevel = Number(mgr.hierarchy_level);
-      const isConfigurable = mgrLevel === 1 || mgrLevel === 2;
+      const adminExecLeader = mgrLevel === HIERARCHY.ADMIN && !!mgr.admin_has_full_analytics_access;
+      const isConfigurable = mgrLevel === 1 || mgrLevel === 2 || adminExecLeader;
       if (!isConfigurable && (see_all_visibility || visibleUserIds.length)) {
         throw new Error("visibility is only configurable for EXEC_MANAGER (level 1) and MANAGER (level 2)");
       }
@@ -2683,7 +2687,17 @@ export async function replaceManagerVisibility(args: {
           [orgId, visibleUserIds]
         );
         const allowedIds = (targetsRes.rows || [])
-          .filter((r: any) => r && !isAdminLevel(r.hierarchy_level) && Number(r.hierarchy_level) >= 2)
+          .filter((r: any) => {
+            if (!r || isAdminLevel(r.hierarchy_level)) return false;
+            const h = Number(r.hierarchy_level);
+            if (adminExecLeader) {
+              return (
+                (h >= HIERARCHY.EXEC_MANAGER && h <= HIERARCHY.REP) ||
+                (h >= HIERARCHY.CHANNEL_EXEC && h <= HIERARCHY.CHANNEL_REP)
+              );
+            }
+            return Number(r.hierarchy_level) >= 2;
+          })
           .map((r: any) => Number(r.id))
           .filter((n) => Number.isFinite(n) && n > 0);
 

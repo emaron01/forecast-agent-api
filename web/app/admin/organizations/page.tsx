@@ -325,6 +325,10 @@ export default async function OrganizationsPage({
                     <option value="false">false</option>
                     <option value="true">true</option>
                   </select>
+                  <p className="text-xs text-[color:var(--sf-text-secondary)]">
+                    If true, after other users exist in this org, open Admin → Users, edit this administrator, and set optional manager and
+                    direct reports so they appear in the sales org and visibility rules.
+                  </p>
                 </div>
               </div>
             </div>

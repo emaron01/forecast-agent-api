@@ -46,6 +46,12 @@ function canAssignDirectReportLevel(managerLevel: number | null | undefined, tar
   const manager = Number(managerLevel);
   const target = Number(targetLevel);
   if (!Number.isFinite(manager) || !Number.isFinite(target) || target === HIERARCHY.ADMIN) return false;
+  if (manager === HIERARCHY.ADMIN) {
+    return (
+      (target >= HIERARCHY.EXEC_MANAGER && target <= HIERARCHY.REP) ||
+      (target >= HIERARCHY.CHANNEL_EXEC && target <= HIERARCHY.CHANNEL_REP)
+    );
+  }
   if (manager === HIERARCHY.EXEC_MANAGER) return target >= HIERARCHY.EXEC_MANAGER;
   if (manager === HIERARCHY.MANAGER) return target >= HIERARCHY.MANAGER;
   if (manager === HIERARCHY.CHANNEL_EXEC) return target >= HIERARCHY.CHANNEL_EXEC;
@@ -155,7 +161,10 @@ export default async function UsersPage({
     (modal === "edit" || modal === "delete") && userId ? await getUserById({ orgId, userId }).catch(() => null) : null;
 
   const visibleIds =
-    user && (user.hierarchy_level === 1 || user.hierarchy_level === 2)
+    user &&
+    (user.hierarchy_level === 1 ||
+      user.hierarchy_level === 2 ||
+      (user.hierarchy_level === 0 && !!user.admin_has_full_analytics_access))
       ? await listManagerVisibility({ orgId, managerUserId: user.id }).catch(() => [])
       : [];
 
@@ -597,6 +606,59 @@ export default async function UsersPage({
               </div>
             </div>
 
+            {isAdmin ? (
+              <>
+                <div
+                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3"
+                  data-show-roles="ADMIN"
+                  data-show-when-admin-exec="1"
+                  hidden
+                >
+                  <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct reports (assignments)</div>
+                  <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                    Select which existing users report to this leader. These selections also control their visibility scope.
+                  </p>
+                  <div className="mt-2 grid gap-2">
+                    {users
+                      .filter((u) => u.active)
+                      .filter((u) => !isAdminLevel(roleToHierarchyLevel(u.role)))
+                      .map((u) => (
+                        <label
+                          key={u.public_id}
+                          className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]"
+                          data-direct-report-level={String(Number(u.hierarchy_level ?? ""))}
+                          hidden={!canAssignDirectReportLevel(HIERARCHY.ADMIN, u.hierarchy_level)}
+                        >
+                          <input type="checkbox" name="visible_user_public_id" value={String(u.public_id)} className="h-4 w-4" />
+                          <span>
+                            {u.display_name}{" "}
+                            <span className="text-xs text-[color:var(--sf-text-disabled)]">({u.role})</span>
+                          </span>
+                        </label>
+                      ))}
+                  </div>
+                </div>
+                <div className="grid gap-1" data-show-roles="ADMIN" data-show-when-admin-exec="1" hidden>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
+                  <select
+                    name="manager_user_public_id"
+                    defaultValue={prefillManagerUserPublicId || ""}
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                  >
+                    <option value="">(none)</option>
+                    {channelAndSalesLeaders.map((u) => (
+                      <option key={u.public_id} value={String(u.public_id)}>
+                        {u.display_name} ({u.role})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">
+                    Sets the reporting line for this channel user. Also controls territory scope if no Channel Alignment is set.
+                  </p>
+                </div>
+              </>
+            ) : null}
+
             <div className="grid gap-1">
               <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Email</label>
               <input
@@ -742,7 +804,9 @@ export default async function UsersPage({
               <div
                 className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3"
                 data-show-roles="EXEC_MANAGER,MANAGER,CHANNEL_EXECUTIVE,CHANNEL_DIRECTOR"
-                hidden={!isSalesLeaderLevel(roleToHierarchyLevel(user.role)) && !isChannelExec(user) && !isChannelManager(user)}
+                hidden={
+                  !isSalesLeaderLevel(roleToHierarchyLevel(user.role)) && !isChannelExec(user) && !isChannelManager(user)
+                }
               >
                 <input type="hidden" name="direct_reports_submitted" value="1" />
                 <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct reports (assignments)</div>
@@ -773,6 +837,47 @@ export default async function UsersPage({
                           <span className="text-xs text-[color:var(--sf-text-disabled)]">
                             ({u.role})
                           </span>
+                        </span>
+                      </label>
+                    ))}
+                </div>
+              </div>
+            ) : null}
+
+            {isAdmin ? (
+              <div
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3"
+                data-show-roles="ADMIN"
+                data-show-when-admin-exec="1"
+                hidden
+              >
+                <input type="hidden" name="direct_reports_submitted" value="1" />
+                <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct reports (assignments)</div>
+                <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                  Select which existing users report to this leader. These selections also control their visibility scope.
+                </p>
+                <div className="mt-2 grid gap-2">
+                  {users
+                    .filter((u) => u.active)
+                    .filter((u) => u.id !== user.id)
+                    .filter((u) => !isAdminLevel(roleToHierarchyLevel(u.role)))
+                    .map((u) => (
+                      <label
+                        key={`admin-dr-${u.public_id}`}
+                        className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]"
+                        data-direct-report-level={String(Number(u.hierarchy_level ?? ""))}
+                        hidden={!canAssignDirectReportLevel(HIERARCHY.ADMIN, u.hierarchy_level)}
+                      >
+                        <input
+                          type="checkbox"
+                          name="visible_user_public_id"
+                          value={String(u.public_id)}
+                          defaultChecked={visibleIds.includes(u.id)}
+                          className="h-4 w-4"
+                        />
+                        <span>
+                          {u.display_name}{" "}
+                          <span className="text-xs text-[color:var(--sf-text-disabled)]">({u.role})</span>
                         </span>
                       </label>
                     ))}
@@ -851,6 +956,26 @@ export default async function UsersPage({
                   <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
                   <select
                     key={`channel-manager-${user.public_id}`}
+                    name="manager_user_public_id"
+                    defaultValue={user.manager_user_id == null ? "" : String(userById?.get(user.manager_user_id)?.public_id || "")}
+                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                  >
+                    <option value="">(none)</option>
+                    {channelAndSalesLeadersEdit.map((u) => (
+                      <option key={u.public_id} value={String(u.public_id)}>
+                        {u.display_name} ({u.role})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-[color:var(--sf-text-disabled)]">
+                    Sets the reporting line for this channel user. Also controls territory scope if no Channel Alignment is set.
+                  </p>
+                </div>
+
+                <div className="grid gap-1" data-show-roles="ADMIN" data-show-when-admin-exec="1" hidden>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Who is Their Manager (optional)</label>
+                  <select
+                    key={`admin-exec-manager-${user.public_id}`}
                     name="manager_user_public_id"
                     defaultValue={user.manager_user_id == null ? "" : String(userById?.get(user.manager_user_id)?.public_id || "")}
                     className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
