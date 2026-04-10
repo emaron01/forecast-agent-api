@@ -1575,9 +1575,35 @@ export default async function ChannelDashboardPage({
     repFyQuarterRows: channelFyQuarterRows,
   };
 
-  // Report Builder + Revenue Intelligence: territory sales reps only (they own opportunities).
+  // Report Builder + RI: picker = territory sales reps (L3) + their direct sales managers (L1/L2).
+  // getChannelTerritoryRepIds returns the full sales subtree (hierarchy 1–3), so IDs can include
+  // CRO/exec nodes; we must not surface them unless they directly manage a territory rep.
+  const territorySalesRepIds = new Set(
+    summary.repDirectory
+      .filter((r) => territoryRepIds.includes(r.id) && Number(r.hierarchy_level) === HIERARCHY.REP)
+      .map((r) => r.id)
+  );
+
   const reportBuilderDirectory = summary.repDirectory
-    .filter((r) => territoryRepIds.includes(r.id))
+    .filter((r) => {
+      const level = Number(r.hierarchy_level);
+      const isSalesLevel =
+        level >= HIERARCHY.EXEC_MANAGER && level <= HIERARCHY.REP;
+      if (!isSalesLevel) return false;
+
+      if (level === HIERARCHY.REP && territoryRepIds.includes(r.id)) {
+        return true;
+      }
+      if (
+        (level === HIERARCHY.EXEC_MANAGER || level === HIERARCHY.MANAGER) &&
+        summary.repDirectory.some(
+          (rep) => territorySalesRepIds.has(rep.id) && rep.manager_rep_id === r.id
+        )
+      ) {
+        return true;
+      }
+      return false;
+    })
     .map((r) => ({
       id: r.id,
       name: r.name,
