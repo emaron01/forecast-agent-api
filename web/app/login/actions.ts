@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { redirect } from "next/navigation";
-import { createUserSession, getOrganization, getUserByEmail, revokeSessionByTokenHash } from "../../lib/db";
+import { createUserSession, getOrganization, getUserByEmail, revokeSessionByTokenHash, type UserRow } from "../../lib/db";
 import {
   clearMasterSessionCookie,
   clearUserSessionCookie,
@@ -68,7 +68,7 @@ export async function loginAction(formData: FormData) {
       redirect("/admin/organizations");
     }
 
-    const user = await getUserByEmail({ email });
+    const user: UserRow | null = await getUserByEmail({ email });
     if (!user) redirectError("invalid_email");
     if (!user.active) redirectError("user_inactive");
 
@@ -93,7 +93,9 @@ export async function loginAction(formData: FormData) {
     clearMasterSessionCookie();
     setUserSessionCookie(token);
 
-    if (isAdmin(user as any)) redirect("/admin");
+    if (isAdmin(user)) {
+      redirect(user.admin_has_full_analytics_access ? "/dashboard/executive" : "/admin");
+    }
     redirect("/dashboard");
   } catch (e) {
     if (isNextRedirectError(e)) throw e;

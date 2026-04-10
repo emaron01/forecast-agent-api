@@ -20,7 +20,7 @@ export default async function AdminHome() {
   if (ctx.kind === "user" && isManager(ctx.user)) redirect("/admin/users");
 
   const hasQuotaSetupAccess = ctx.kind === "master" || (ctx.kind === "user" && isAdmin(ctx.user));
-  const hasFullAnalyticsAccess =
+  const hasExecutiveDashboardAccess =
     ctx.kind === "master" || (ctx.kind === "user" && isAdmin(ctx.user) && !!ctx.user.admin_has_full_analytics_access);
 
   return (
@@ -60,9 +60,9 @@ export default async function AdminHome() {
             title="Forecast probabilities"
             desc="Set close probabilities by forecast category (Commit/Best/Pipeline)."
           />
-          {hasFullAnalyticsAccess ? (
+          {hasExecutiveDashboardAccess ? (
             <>
-              <Card href="/dashboard/executive" title="Executive Analytics" desc="Company + manager + rep KPI views." />
+              <Card href="/dashboard/executive" title="Executive Dashboard" desc="Company + manager + rep KPI views." />
               <Card
                 href="/dashboard/executive?tab=channel"
                 title="Top Partners"

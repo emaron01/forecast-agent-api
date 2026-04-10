@@ -316,7 +316,7 @@ export default async function OrganizationsPage({
                 </div>
 
                 <div className="grid gap-1">
-                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Analytics Access</label>
+                  <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Executive Dashboard Access</label>
                   <select
                     name="admin_has_full_analytics_access"
                     defaultValue="false"

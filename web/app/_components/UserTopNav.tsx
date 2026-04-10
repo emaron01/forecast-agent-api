@@ -28,8 +28,11 @@ function NavLink({ href, label }: { href: string; label: string }) {
 }
 
 export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser }) {
-  const dashHref =
-    isSalesLeader(user)
+  const dashHref = isAdmin(user)
+    ? user.admin_has_full_analytics_access
+      ? "/dashboard/executive"
+      : "/dashboard"
+    : isSalesLeader(user)
       ? "/dashboard/executive"
       : isChannelExec(user) || isChannelManager(user)
         ? "/dashboard/executive"
@@ -55,6 +58,7 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
           </Link>
           <nav className="ml-3 flex flex-wrap items-center gap-1">
             <NavLink href={dashHref} label="Dashboard" />
+            {isAdmin(user) ? <NavLink href="/admin" label="Admin" /> : null}
             {isAdmin(user) && <NavLink href="/analytics" label="Analytics" />}
             {isSalesLeader(user) && <NavLink href="/analytics/quotas/manager" label="Quotas" />}
             {isChannelLeader ? <NavLink href="/analytics/quotas/manager" label="Quotas" /> : null}

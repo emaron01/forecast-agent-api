@@ -585,7 +585,7 @@ export default async function UsersPage({
                       className="h-5 w-5"
                       defaultChecked={prefillAnalytics === "true"}
                     />
-                    <span>Full Analytics (Admin Only)</span>
+                    <span>Executive Dashboard Access (Admin only)</span>
                   </label>
                 </div>
               ) : null}
@@ -879,7 +879,7 @@ export default async function UsersPage({
                       className="h-5 w-5"
                       defaultChecked={!!user.admin_has_full_analytics_access}
                     />
-                    <span>Full Analytics (Admin Only)</span>
+                    <span>Executive Dashboard Access (Admin only)</span>
                   </label>
                 </div>
               ) : null}

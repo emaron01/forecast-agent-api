@@ -18,7 +18,7 @@ function Card({ href, title, desc }: { href: string; title: string; desc: string
 export default async function AdminAnalyticsHome() {
   const { ctx } = await requireOrgContext();
   if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
-  const hasFullAnalyticsAccess = ctx.kind === "master" || (ctx.kind === "user" && !!ctx.user.admin_has_full_analytics_access);
+  const hasExecutiveDashboardAccess = ctx.kind === "master" || (ctx.kind === "user" && !!ctx.user.admin_has_full_analytics_access);
 
   return (
     <main>
@@ -31,7 +31,7 @@ export default async function AdminAnalyticsHome() {
         <Card href="/admin/analytics/quota-periods" title="Fiscal calendar" desc="Manage quota periods (quota_periods)." />
         <Card href="/admin/analytics/quotas" title="Quota assignments" desc="Assign quotas to reps, managers, VPs, and CRO." />
         <Card href="/admin/analytics/training-readiness" title="Data Readiness" desc="MEDDPICC evidence coverage and training snapshot diagnostics (Admin only)." />
-        {hasFullAnalyticsAccess ? (
+        {hasExecutiveDashboardAccess ? (
           <>
             <Card href="/admin/analytics/quota-rollups" title="Quota roll-ups" desc="View quota roll-ups by level." />
             <Card href="/admin/analytics/attainment" title="Attainment dashboards" desc="View attainment dashboards." />
@@ -57,7 +57,7 @@ export default async function AdminAnalyticsHome() {
               /admin/analytics/quotas
             </Link>
           </li>
-          {hasFullAnalyticsAccess ? (
+          {hasExecutiveDashboardAccess ? (
             <>
               <li>
                 <Link

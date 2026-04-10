@@ -42,7 +42,7 @@ export default async function ExecutiveDashboardPage({
   try {
     const ctx = await requireAuth();
     if (ctx.kind === "master") redirect("/admin/organizations");
-    if (isAdmin(ctx.user)) redirect("/admin");
+    if (isAdmin(ctx.user) && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
     if (ctx.user.hierarchy_level === HIERARCHY.REP || ctx.user.hierarchy_level === HIERARCHY.CHANNEL_REP) redirect("/dashboard");
 
     const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);

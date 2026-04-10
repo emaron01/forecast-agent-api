@@ -47,7 +47,9 @@ export default async function DashboardPage({
   if (isChannelRole(ctx.user)) {
     redirect("/dashboard/channel");
   }
-  if (isAdmin(ctx.user)) redirect("/admin");
+  if (isAdmin(ctx.user)) {
+    redirect(ctx.user.admin_has_full_analytics_access ? "/dashboard/executive" : "/admin");
+  }
   // Make the Executive Dashboard the primary dashboard for leadership roles.
   if (isSalesLeader(ctx.user)) redirect("/dashboard/executive");
 

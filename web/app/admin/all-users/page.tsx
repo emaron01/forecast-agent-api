@@ -60,7 +60,7 @@ export default async function AllUsersPage() {
               <th className="px-4 py-3">role</th>
               <th className="px-4 py-3">hierarchy</th>
               <th className="px-4 py-3">mgr_public_id</th>
-              <th className="px-4 py-3">admin_full_analytics</th>
+              <th className="px-4 py-3">exec_dashboard_access</th>
               <th className="px-4 py-3">user_active</th>
               <th className="px-4 py-3">org_active</th>
             </tr>

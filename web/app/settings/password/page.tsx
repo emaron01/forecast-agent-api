@@ -19,7 +19,7 @@ export default async function SettingsPasswordPage({
 }) {
   const ctx = await requireAuth();
   if (ctx.kind !== "user") return null;
-  if (isAdmin(ctx.user)) redirect("/admin");
+  if (isAdmin(ctx.user) && !ctx.user.admin_has_full_analytics_access) redirect("/admin");
 
   const org = await getOrganization({ id: ctx.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";
