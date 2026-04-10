@@ -140,28 +140,43 @@ export async function POST(req: Request) {
         viewerUserId: ctx.user.id,
         candidateUserIds: explicitChannelUserIds,
       });
-      const territories = await Promise.all(
-        allowedUserIds.map((channelUserId) =>
-          getChannelTerritoryRepIds({ orgId, channelUserId }).catch(() => ({
-            repIds: [] as number[],
-            partnerNames: [] as string[],
-          }))
-        )
-      );
-      const tSet = new Set<number>();
-      const pSet = new Set<string>();
-      for (const s of territories) {
-        s.repIds.forEach((id) => {
-          if (Number.isFinite(id) && id > 0) tSet.add(id);
-        });
-        s.partnerNames.forEach((n) => {
-          const x = String(n).trim().toLowerCase();
-          if (x) pSet.add(x);
-        });
+      if (allowedUserIds.length === 1) {
+        // One selected channel user: same mutually exclusive partner vs territory rule as /api/forecast/deals.
+        const s = await getChannelTerritoryRepIds({ orgId, channelUserId: allowedUserIds[0] }).catch(() => ({
+          repIds: [] as number[],
+          partnerNames: [] as string[],
+        }));
+        territoryRepIds = s.repIds.filter((id) => Number.isFinite(id) && id > 0);
+        partnerNames = s.partnerNames.map((n) => String(n).trim().toLowerCase()).filter(Boolean);
+        channelScopeSql = channelDealScopeWhereStrict(3, 4);
+      } else if (allowedUserIds.length > 1) {
+        const territories = await Promise.all(
+          allowedUserIds.map((channelUserId) =>
+            getChannelTerritoryRepIds({ orgId, channelUserId }).catch(() => ({
+              repIds: [] as number[],
+              partnerNames: [] as string[],
+            }))
+          )
+        );
+        const tSet = new Set<number>();
+        const pSet = new Set<string>();
+        for (const s of territories) {
+          s.repIds.forEach((id) => {
+            if (Number.isFinite(id) && id > 0) tSet.add(id);
+          });
+          s.partnerNames.forEach((n) => {
+            const x = String(n).trim().toLowerCase();
+            if (x) pSet.add(x);
+          });
+        }
+        territoryRepIds = Array.from(tSet);
+        partnerNames = Array.from(pSet);
+        channelScopeSql = channelDealScopeWhereMerged(3, 4);
+      } else {
+        territoryRepIds = [];
+        partnerNames = [];
+        channelScopeSql = channelDealScopeWhereStrict(3, 4);
       }
-      territoryRepIds = Array.from(tSet);
-      partnerNames = Array.from(pSet);
-      channelScopeSql = channelDealScopeWhereMerged(3, 4);
     } else {
       const channelScope = await getChannelTerritoryRepIds({
         orgId: ctx.user.org_id,
