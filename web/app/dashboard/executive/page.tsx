@@ -95,6 +95,17 @@ export default async function ExecutiveDashboardPage({
     const visibleRepIdsForQuery = visibleRepIds.length > 0 ? visibleRepIds : [-1];
 
     const repDirectory = scope.repDirectory;
+    console.log("REP_DIRECTORY_DEBUG", {
+      totalRows: repDirectory.length,
+      channelRows: repDirectory
+        .filter((r) => Number(r.hierarchy_level) === 6 || Number(r.hierarchy_level) === 7)
+        .map((r) => ({
+          id: r.id,
+          name: r.name,
+          level: r.hierarchy_level,
+          manager_rep_id: r.manager_rep_id,
+        })),
+    });
     const childrenByManagerRepId = new Map<number, number[]>();
     for (const r of repDirectory) {
       if (r.manager_rep_id != null && repDirectory.some((x) => x.id === r.manager_rep_id)) {
@@ -981,6 +992,13 @@ export default async function ExecutiveDashboardPage({
     return out;
   })();
 
+  console.log("DIRECTORY_IN_SCOPE_DEBUG", {
+    totalRows: directoryInScope.length,
+    channelRows: directoryInScope
+      .filter((r) => Number(r.hierarchy_level) === 6 || Number(r.hierarchy_level) === 7)
+      .map((r) => ({ id: r.id, name: r.name, level: r.hierarchy_level })),
+  });
+
   const periodLabel = selectedPeriodForTeam?.period_name ?? "Current Period";
 
   let reportBuilderRepRows: any[] = [];
@@ -1694,6 +1712,12 @@ export default async function ExecutiveDashboardPage({
     teamRepRows = repRowsBuild;
     teamManagerRows = managerRowsBuild;
     teamRepsByManager = repsByManagerMap;
+    console.log("TEAM_REPS_DEBUG", {
+      totalRows: teamRepRows.length,
+      channelRows: teamRepRows.filter(
+        (r) => r.rep_name?.includes("Channel") || r.rep_name?.includes("VP")
+      ),
+    });
   }
 
   try {
