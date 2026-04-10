@@ -399,6 +399,15 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
     [organizationId, ALL_HIERARCHY_LEVELS]
   );
 
+  const managerRepIdSyncLevels = [
+    HIERARCHY.EXEC_MANAGER,
+    HIERARCHY.MANAGER,
+    HIERARCHY.REP,
+    HIERARCHY.CHANNEL_EXEC,
+    HIERARCHY.CHANNEL_MANAGER,
+    HIERARCHY.CHANNEL_REP,
+  ];
+
   // 2) Align manager_rep_id based on manager_user_id -> manager's rep row.
   await pool.query(
     `
@@ -413,7 +422,23 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
        AND u.manager_user_id IS NOT NULL
        AND (r.manager_rep_id IS DISTINCT FROM mgr.id)
     `,
-    [organizationId, [HIERARCHY.REP, HIERARCHY.MANAGER, HIERARCHY.CHANNEL_MANAGER, HIERARCHY.CHANNEL_REP]]
+    [organizationId, managerRepIdSyncLevels]
+  );
+
+  // 2b) Clear manager_rep_id when users.manager_user_id is NULL (same roles as step 2).
+  await pool.query(
+    `
+    UPDATE reps r
+       SET manager_rep_id = NULL
+      FROM users u
+     WHERE COALESCE(r.organization_id, r.org_id::bigint) = u.org_id
+       AND r.user_id = u.id
+       AND u.org_id = $1
+       AND COALESCE(u.hierarchy_level, 99) = ANY($2::int[])
+       AND u.manager_user_id IS NULL
+       AND r.manager_rep_id IS NOT NULL
+    `,
+    [organizationId, managerRepIdSyncLevels]
   );
 
   return { ok: true as const };
