@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "../../../../lib/auth";
 import { pool } from "../../../../lib/pool";
+import { isChannelRole } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -53,6 +54,13 @@ export async function POST(req: Request) {
   if (ctx.kind !== "user") return jsonError(403, "Forbidden");
 
   const body = await req.json().catch(() => null);
+  console.log("SAVE_DEBUG", {
+    userId: ctx.user.id,
+    role: ctx.user.role,
+    hierarchy_level: ctx.user.hierarchy_level,
+    isChannel: isChannelRole(ctx.user),
+    body: JSON.stringify(body).slice(0, 200),
+  });
   const parsed = BaseReportSchema.safeParse(body);
   if (!parsed.success) return jsonError(400, "Invalid payload");
 
