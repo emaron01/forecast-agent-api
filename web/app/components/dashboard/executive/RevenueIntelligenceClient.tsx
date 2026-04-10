@@ -566,6 +566,19 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   const quickSelectLeadersOnly = () => dispatchRep({ type: "quickLeadersOnly", repDirectory });
 
   const resolveRepIdsForApi = useCallback((): string[] | null => {
+    // Channel mode: repDirectory ids are channel user ids. We pass selected channel user ids to the API,
+    // which resolves each user to their own getChannelTerritoryRepIds scope (dashboard contract).
+    const hasChannelLevels = repDirectory.some((r) => {
+      const hl = Number((r as any)?.hierarchy_level);
+      return Number.isFinite(hl) && (hl === 6 || hl === 7 || hl === 8);
+    });
+    if (hasChannelLevels) {
+      const ids = new Set<string>();
+      selectedManagerIds.forEach((id) => ids.add(String(id)));
+      selectedRepIds.forEach((id) => ids.add(String(id)));
+      return ids.size ? Array.from(ids) : null;
+    }
+
     const out = new Set<number>();
     for (const id of selectedRepIds) {
       const r = repDirectory.find((x) => String(x.id) === id);
@@ -618,15 +631,21 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   const fetchBreakdown = useCallback(async (): Promise<{ selections: BreakdownSelection[]; results: BreakdownResult[] }> => {
     const selections: BreakdownSelection[] = [];
 
+    const hasChannelLevels = repDirectory.some((r) => {
+      const hl = Number((r as any)?.hierarchy_level);
+      return Number.isFinite(hl) && (hl === 6 || hl === 7 || hl === 8);
+    });
+
     Array.from(selectedManagerIds).forEach((id) => {
       const mgr = repDirectory.find((r) => String(r.id) === id);
       if (!mgr) return;
-      const teamRepIds = repDirectory
-        .filter((r) => isRepRow(r) && r.manager_rep_id === mgr.id)
-        .map((r) => String(r.id));
       selections.push({
-        label: `${mgr.name}'s Team`,
-        repIds: teamRepIds,
+        label: hasChannelLevels ? mgr.name : `${mgr.name}'s Team`,
+        // Channel: manager selection scopes to that manager's own territory/partners.
+        // Sales: manager selection expands to their direct reps.
+        repIds: hasChannelLevels
+          ? [String(mgr.id)]
+          : repDirectory.filter((r) => isRepRow(r) && r.manager_rep_id === mgr.id).map((r) => String(r.id)),
       });
     });
 
@@ -641,15 +660,17 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
 
     if (selections.length === 0) {
       selections.push({
-        label: "All Reps",
-        repIds: repDirectory.filter((r) => isRepRow(r)).map((r) => String(r.id)),
+        label: hasChannelLevels ? "All" : "All Reps",
+        // Channel: omit repIds so the API uses the viewer's own scope.
+        // Sales: include all rep ids.
+        repIds: hasChannelLevels ? [] : repDirectory.filter((r) => isRepRow(r)).map((r) => String(r.id)),
       });
     }
 
     const results = await Promise.all(
       selections.map(async (selection) => ({
         label: selection.label,
-        data: await fetchReportData(selection.repIds),
+        data: await fetchReportData(selection.repIds.length ? selection.repIds : null),
       }))
     );
 
