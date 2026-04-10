@@ -145,13 +145,13 @@ export default async function ExecutiveDashboardPage({
         .map((r) => r.id)
     );
 
-    /** Only sales hierarchy users (excludes channel users by hierarchy level). */
+    /** Sales + channel leaders (6/7) for hygiene; excludes channel reps (8). */
     const hygieneRepRoleSql = `AND EXISTS (
       SELECT 1
       FROM users ux
       WHERE ux.org_id = $1::bigint
         AND ux.id = r.user_id
-        AND ux.hierarchy_level BETWEEN 1 AND 3
+        AND (ux.hierarchy_level BETWEEN 1 AND 3 OR ux.hierarchy_level IN (6, 7))
     )`;
 
     type CoverageRow = {
@@ -386,7 +386,7 @@ export default async function ExecutiveDashboardPage({
         AND opp.org_id = $1
         AND opp.close_date >= $2::timestamptz
         AND opp.close_date < $3::timestamptz
-        AND u_h.hierarchy_level BETWEEN 1 AND 3
+        AND (u_h.hierarchy_level BETWEEN 1 AND 3 OR u_h.hierarchy_level IN (6, 7))
         AND EXISTS (
           SELECT 1 FROM opportunity_audit_events oae
           WHERE oae.opportunity_id = opp.id AND oae.org_id = $1
@@ -826,10 +826,8 @@ export default async function ExecutiveDashboardPage({
   const comparePeriodIds = [selectedPeriodId, prevPeriodId].filter(Boolean);
   const scopeRepIdsForTeam = visibleRepIds.length > 0 ? visibleRepIds : null;
 
-  // Rep directory for Report Builder:
-  // - exclude Channel roles
-  // - keep only REP / MANAGER / EXEC_MANAGER
-  // - sort/group as EXEC_MANAGER -> MANAGER (under their exec) -> REP (under their manager)
+  // Rep directory for Report Builder + revenue intelligence picker:
+  // - sales 1–3 in exec → manager → rep tree; channel leaders 6–7 appended (not 8)
   const directoryInScope = (() => {
     type BuilderDirRow = {
       id: number;
@@ -839,28 +837,35 @@ export default async function ExecutiveDashboardPage({
       hierarchy_level: number;
     };
 
-    const filtered: BuilderDirRow[] = repDirectory
-      .map((r) => {
-        const role = String(r.role || "").trim();
-        return {
-          id: r.id,
-          name: r.name,
-          manager_rep_id: r.manager_rep_id ?? null,
-          role,
-          hierarchy_level: Number(r.hierarchy_level ?? 99),
-        };
-      })
-      .filter((r) => r.hierarchy_level >= HIERARCHY.EXEC_MANAGER && r.hierarchy_level <= HIERARCHY.REP);
+    const mapped: BuilderDirRow[] = repDirectory.map((r) => {
+      const role = String(r.role || "").trim();
+      return {
+        id: r.id,
+        name: r.name,
+        manager_rep_id: r.manager_rep_id ?? null,
+        role,
+        hierarchy_level: Number(r.hierarchy_level ?? 99),
+      };
+    });
 
-    const execs = filtered
+    const inSalesTree = (h: number) => h >= HIERARCHY.EXEC_MANAGER && h <= HIERARCHY.REP;
+    const isChannelLeaderRow = (h: number) => h === HIERARCHY.CHANNEL_EXEC || h === HIERARCHY.CHANNEL_MANAGER;
+
+    const salesFiltered = mapped.filter((r) => inSalesTree(r.hierarchy_level));
+    const channelLeadersSorted = mapped
+      .filter((r) => isChannelLeaderRow(r.hierarchy_level))
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+
+    const execs = salesFiltered
       .filter((r) => r.hierarchy_level === HIERARCHY.EXEC_MANAGER)
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
-    const managers = filtered
+    const managers = salesFiltered
       .filter((r) => r.hierarchy_level === HIERARCHY.MANAGER)
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
-    const reps = filtered
+    const reps = salesFiltered
       .filter((r) => r.hierarchy_level === HIERARCHY.REP)
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
@@ -960,6 +965,16 @@ export default async function ExecutiveDashboardPage({
         manager_rep_id: rep.manager_rep_id ?? null,
         role: rep.role,
         hierarchy_level: rep.hierarchy_level,
+      });
+    }
+
+    for (const cl of channelLeadersSorted) {
+      out.push({
+        id: cl.id,
+        name: cl.name,
+        manager_rep_id: cl.manager_rep_id ?? null,
+        role: cl.role,
+        hierarchy_level: cl.hierarchy_level,
       });
     }
 

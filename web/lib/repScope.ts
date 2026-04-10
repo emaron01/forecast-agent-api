@@ -159,6 +159,68 @@ async function getRepById(orgId: number, repId: number): Promise<RepDirectoryRow
   };
 }
 
+function scopeUserIdsFromRepRows(rows: RepDirectoryRow[], viewerUserId: number): number[] {
+  const ids = new Set<number>();
+  if (Number.isFinite(viewerUserId) && viewerUserId > 0) ids.add(viewerUserId);
+  for (const r of rows) {
+    const uid = r.user_id;
+    if (uid != null && Number.isFinite(Number(uid)) && Number(uid) > 0) ids.add(Number(uid));
+  }
+  return Array.from(ids);
+}
+
+/** Channel exec/director (6/7) linked via users.manager_user_id to anyone already in the sales scope (by user id). */
+async function channelLeadersForManagerUserScope(args: { orgId: number; scopeUserIds: number[] }): Promise<RepDirectoryRow[]> {
+  const ids = Array.from(new Set(args.scopeUserIds.filter((n) => Number.isFinite(n) && n > 0)));
+  if (!ids.length) return [];
+
+  const { rows } = await pool.query(
+    `
+    SELECT
+      r.id,
+      COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), '(Unnamed)') AS name,
+      r.role::text AS role,
+      u.hierarchy_level,
+      mgr_r.id AS manager_rep_id,
+      r.user_id,
+      r.active
+    FROM users u
+    INNER JOIN reps r
+      ON r.user_id = u.id
+     AND r.organization_id = $1::bigint
+    LEFT JOIN reps mgr_r
+      ON mgr_r.user_id = u.manager_user_id
+     AND mgr_r.organization_id = $1::bigint
+     AND (mgr_r.active IS TRUE OR mgr_r.active IS NULL)
+    WHERE u.org_id = $1::bigint
+      AND u.hierarchy_level IN ($2::int, $3::int)
+      AND (u.active IS TRUE OR u.active IS NULL)
+      AND u.manager_user_id = ANY($4::bigint[])
+      AND (r.active IS TRUE OR r.active IS NULL)
+    ORDER BY COALESCE(u.hierarchy_level, 99) ASC, name ASC, r.id ASC
+    `,
+    [args.orgId, HIERARCHY.CHANNEL_EXEC, HIERARCHY.CHANNEL_MANAGER, ids]
+  );
+  return (rows || []).map((r: any) => ({
+    id: Number(r.id),
+    name: String(r.name || "").trim() || "(Unnamed)",
+    role: r.role == null ? null : String(r.role),
+    hierarchy_level: r.hierarchy_level == null ? null : Number(r.hierarchy_level),
+    manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
+    user_id: r.user_id == null ? null : Number(r.user_id),
+    active: r.active == null ? null : !!r.active,
+  }));
+}
+
+function mergeRepDirectoryByRepId(base: RepDirectoryRow[], extras: RepDirectoryRow[]): RepDirectoryRow[] {
+  const map = new Map<number, RepDirectoryRow>();
+  for (const r of base) map.set(r.id, r);
+  for (const r of extras) {
+    if (!map.has(r.id)) map.set(r.id, r);
+  }
+  return Array.from(map.values());
+}
+
 export async function getScopedRepDirectory(args: {
   orgId: number;
   user: AuthUser;
@@ -189,8 +251,19 @@ export async function getScopedRepDirectory(args: {
 
   if (isSalesLeader(args.user) && args.user.see_all_visibility) {
     const allReps = await listActiveSalesRepsForOrg(orgId).catch(() => []);
+    const scopeUserIds = scopeUserIdsFromRepRows(allReps, userId);
+    const channelLeaders = await channelLeadersForManagerUserScope({ orgId, scopeUserIds }).catch(() => []);
+    const merged = mergeRepDirectoryByRepId(allReps, channelLeaders);
+    merged.sort((a, b) => {
+      const rank = (x: RepDirectoryRow) => (Number.isFinite(Number(x.hierarchy_level)) ? Number(x.hierarchy_level) : 99);
+      const dr = rank(a) - rank(b);
+      if (dr !== 0) return dr;
+      const dn = a.name.localeCompare(b.name);
+      if (dn !== 0) return dn;
+      return a.id - b.id;
+    });
     return {
-      repDirectory: allReps,
+      repDirectory: merged,
       allowedRepIds: null,
       myRepId: null,
     };
@@ -288,10 +361,15 @@ export async function getScopedRepDirectory(args: {
       user_id: r.user_id == null ? null : Number(r.user_id),
       active: r.active == null ? null : !!r.active,
     }));
-    const allowed = [me.id, ...reps.map((r) => r.id)];
     const list = [exec, me, ...reps].filter(Boolean) as RepDirectoryRow[];
     const uniq = Array.from(new Map(list.map((r) => [r.id, r] as const)).values());
-    return { repDirectory: uniq, allowedRepIds: allowed, myRepId: me.id };
+    const scopeUserIds = scopeUserIdsFromRepRows(uniq, userId);
+    const channelLeaders = await channelLeadersForManagerUserScope({ orgId, scopeUserIds }).catch(() => []);
+    const merged = mergeRepDirectoryByRepId(uniq, channelLeaders);
+    const allowed = Array.from(
+      new Set([me.id, ...reps.map((r) => r.id), ...merged.map((r) => r.id)].filter((n) => Number.isFinite(n) && n > 0))
+    );
+    return { repDirectory: merged, allowedRepIds: allowed, myRepId: me.id };
   }
 
   // EXEC_MANAGER and channel leadership/sales roles default to exec-style org visibility.
@@ -374,8 +452,20 @@ export async function getScopedRepDirectory(args: {
     return a.id - b.id;
   });
 
-  const allowed = Array.from(new Set(list.map((r) => r.id).filter((n) => Number.isFinite(n) && n > 0)));
-  return { repDirectory: list, allowedRepIds: allowed, myRepId: me.id };
+  const scopeUserIds = scopeUserIdsFromRepRows(list, userId);
+  const channelLeaders = await channelLeadersForManagerUserScope({ orgId, scopeUserIds }).catch(() => []);
+  const merged = mergeRepDirectoryByRepId(list, channelLeaders);
+  merged.sort((a, b) => {
+    const rank = (x: RepDirectoryRow) => (Number.isFinite(Number(x.hierarchy_level)) ? Number(x.hierarchy_level) : 99);
+    const dr = rank(a) - rank(b);
+    if (dr !== 0) return dr;
+    const dn = a.name.localeCompare(b.name);
+    if (dn !== 0) return dn;
+    return a.id - b.id;
+  });
+
+  const allowed = Array.from(new Set(merged.map((r) => r.id).filter((n) => Number.isFinite(n) && n > 0)));
+  return { repDirectory: merged, allowedRepIds: allowed, myRepId: me.id };
 }
 
 /**

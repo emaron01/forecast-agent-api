@@ -24,24 +24,33 @@ type BuilderDirRow = {
 function buildDirectoryInScope(
   repDirectory: { id: number; name: string; manager_rep_id: number | null; hierarchy_level?: number | null }[]
 ): BuilderDirRow[] {
-  const filtered: BuilderDirRow[] = repDirectory
-    .map((r) => ({
-      id: r.id,
-      name: r.name,
-      manager_rep_id: r.manager_rep_id ?? null,
-      hierarchy_level: Number.isFinite(Number(r.hierarchy_level)) ? Number(r.hierarchy_level) : null,
-    }))
-    .filter((r) => r.hierarchy_level != null && r.hierarchy_level >= HIERARCHY.EXEC_MANAGER && r.hierarchy_level <= HIERARCHY.REP);
+  const mapped: BuilderDirRow[] = repDirectory.map((r) => ({
+    id: r.id,
+    name: r.name,
+    manager_rep_id: r.manager_rep_id ?? null,
+    hierarchy_level: Number.isFinite(Number(r.hierarchy_level)) ? Number(r.hierarchy_level) : null,
+  }));
 
-  const execs = filtered
+  const inSalesTree = (h: number | null) =>
+    h != null && h >= HIERARCHY.EXEC_MANAGER && h <= HIERARCHY.REP;
+  const isChannelLeaderRow = (h: number | null) =>
+    h === HIERARCHY.CHANNEL_EXEC || h === HIERARCHY.CHANNEL_MANAGER;
+
+  const salesFiltered = mapped.filter((r) => inSalesTree(r.hierarchy_level));
+  const channelLeadersSorted = mapped
+    .filter((r) => isChannelLeaderRow(r.hierarchy_level))
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
+
+  const execs = salesFiltered
     .filter((r) => r.hierarchy_level === HIERARCHY.EXEC_MANAGER)
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
-  const managers = filtered
+  const managers = salesFiltered
     .filter((r) => r.hierarchy_level === HIERARCHY.MANAGER)
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
-  const reps = filtered
+  const reps = salesFiltered
     .filter((r) => r.hierarchy_level === HIERARCHY.REP)
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name) || a.id - b.id);
@@ -135,6 +144,15 @@ function buildDirectoryInScope(
       name: rep.name,
       manager_rep_id: rep.manager_rep_id ?? null,
       hierarchy_level: rep.hierarchy_level,
+    });
+  }
+
+  for (const cl of channelLeadersSorted) {
+    out.push({
+      id: cl.id,
+      name: cl.name,
+      manager_rep_id: cl.manager_rep_id ?? null,
+      hierarchy_level: cl.hierarchy_level,
     });
   }
 
