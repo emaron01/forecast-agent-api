@@ -50,7 +50,7 @@ BEGIN
   END IF;
 END $$;
 
--- Enforce: only hierarchy levels 1/2 may have see_all_visibility=true.
+-- Enforce: only hierarchy levels 0/1/2 (and channel executive 6) may have see_all_visibility=true.
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -58,11 +58,18 @@ BEGIN
       FROM pg_constraint
      WHERE conname = 'users_see_all_visibility_level_check'
   ) THEN
+    UPDATE users
+    SET see_all_visibility = false, updated_at = NOW()
+    WHERE NOT (
+      see_all_visibility IS FALSE
+      OR hierarchy_level IN (0, 1, 2)
+      OR (role = 'CHANNEL_EXECUTIVE' AND hierarchy_level = 6)
+    );
     ALTER TABLE users
       ADD CONSTRAINT users_see_all_visibility_level_check
       CHECK (
         see_all_visibility IS FALSE
-        OR hierarchy_level IN (1, 2)
+        OR hierarchy_level IN (0, 1, 2)
         OR (role = 'CHANNEL_EXECUTIVE' AND hierarchy_level = 6)
       );
   END IF;

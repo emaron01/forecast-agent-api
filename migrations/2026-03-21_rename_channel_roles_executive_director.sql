@@ -95,11 +95,20 @@ ALTER TABLE users
 
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_see_all_visibility_level_check;
 
+-- This repo runs every .sql migration on every startup (no tracking table). This file runs
+-- before 2026-04-10_relax_see_all_visibility_constraint.sql, so ADD CONSTRAINT here must
+-- match live data: admins (level 0) may already have see_all_visibility = true.
+UPDATE users
+SET see_all_visibility = false, updated_at = NOW()
+WHERE see_all_visibility = true
+  AND hierarchy_level NOT IN (0, 1, 2)
+  AND NOT (role = 'CHANNEL_EXECUTIVE' AND hierarchy_level = 6);
+
 ALTER TABLE users
   ADD CONSTRAINT users_see_all_visibility_level_check
   CHECK (
     see_all_visibility IS FALSE
-    OR hierarchy_level IN (1, 2)
+    OR hierarchy_level IN (0, 1, 2)
     OR (role = 'CHANNEL_EXECUTIVE' AND hierarchy_level = 6)
   );
 
