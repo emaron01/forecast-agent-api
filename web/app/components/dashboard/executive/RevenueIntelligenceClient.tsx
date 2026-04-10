@@ -97,7 +97,15 @@ function quarterLabel(quarters: { id: string; name: string }[]): string {
   return `${sorted.length} Quarters`;
 }
 
-type BucketRow = { id: string; label: string; min: number; max: number | null };
+/** Empty while editing a new row; coerced to 0 only when submitting to APIs / saves. */
+type BucketMin = number | "";
+type BucketRow = { id: string; label: string; min: BucketMin; max: number | null };
+
+function bucketMinToNumber(min: BucketMin): number {
+  if (min === "") return 0;
+  const n = Number(min);
+  return Number.isFinite(n) ? n : 0;
+}
 type ReportType = "deal_volume" | "meddpicc_health" | "product_mix";
 type ReportData = {
   quarters: { id: string; name: string }[];
@@ -596,7 +604,10 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   }, [repDirectory, selectedRepIds, selectedManagerIds]);
 
   /** By min $ only for API payloads, charts, tables, CSV — not for editable bucket row order. */
-  const bucketsSortedByMin = useMemo(() => [...buckets].sort((a, b) => Number(a.min) - Number(b.min)), [buckets]);
+  const bucketsSortedByMin = useMemo(
+    () => [...buckets].sort((a, b) => bucketMinToNumber(a.min) - bucketMinToNumber(b.min)),
+    [buckets]
+  );
 
   const fetchReportData = useCallback(
     async (repIds: Array<string | number> | null): Promise<ReportData> => {
@@ -607,7 +618,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
           buckets: bucketsSortedByMin.map((b) => ({
             id: b.id,
             label: b.label,
-            min: b.min,
+            min: bucketMinToNumber(b.min),
             max: b.max,
           })),
           quarterIds: Array.from(selectedQuarterIds),
@@ -683,7 +694,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
       {
         id: crypto.randomUUID(),
         label: "",
-        min: 0,
+        min: "",
         max: null,
       },
     ]);
@@ -890,7 +901,12 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: bucketSetName.trim(),
-          buckets: buckets.map((b) => ({ id: b.id, label: b.label, min: b.min, max: b.max })),
+          buckets: buckets.map((b) => ({
+            id: b.id,
+            label: b.label,
+            min: bucketMinToNumber(b.min),
+            max: b.max,
+          })),
         }),
       });
       const j = await res.json().catch(() => ({}));
@@ -952,7 +968,12 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     try {
       const config = {
         version: 2,
-        buckets: buckets.map((b) => ({ id: b.id, label: b.label, min: b.min, max: b.max })),
+        buckets: buckets.map((b) => ({
+          id: b.id,
+          label: b.label,
+          min: bucketMinToNumber(b.min),
+          max: b.max,
+        })),
         bucketSetId: bucketSetIdRef,
         selectedQuarterIds: Array.from(selectedQuarterIds),
         selectedRepIds: Array.from(selectedRepIds),
@@ -1363,8 +1384,16 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                 <label className="text-xs text-[color:var(--sf-text-secondary)]">Min $</label>
                 <input
                   type="number"
-                  value={b.min}
-                  onChange={(e) => updateBucket(b.id, { min: Number(e.target.value) })}
+                  value={b.min === "" ? "" : b.min}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "") updateBucket(b.id, { min: "" });
+                    else {
+                      const n = Number(v);
+                      if (Number.isFinite(n)) updateBucket(b.id, { min: n });
+                    }
+                  }}
+                  onFocus={(e) => e.target.select()}
                   className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1.5 text-sm"
                 />
               </div>
@@ -1378,6 +1407,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                     const v = e.target.value.trim();
                     updateBucket(b.id, { max: v === "" ? null : Number(v) });
                   }}
+                  onFocus={(e) => e.target.select()}
                   className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1.5 text-sm"
                 />
               </div>
