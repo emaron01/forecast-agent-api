@@ -14,10 +14,40 @@ export type HelpContentItem = {
 
 const helpContent = helpContentJson as HelpContentItem[];
 
+function normalizeQuery(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(
+      /^(what is|what are|what does|how does|how do|where is|where do|tell me about|explain|show me|what's|whats|how to|why is|why does)\s+/i,
+      ""
+    )
+    .replace(/[?]/g, "")
+    .trim();
+}
+
+function fallbackSearch(query: string): HelpContentItem[] {
+  const q = normalizeQuery(query).toLowerCase();
+  if (!q) return [];
+  return helpContent.filter(
+    (item) =>
+      item.title.toLowerCase().includes(q) ||
+      item.summary.toLowerCase().includes(q) ||
+      item.tags.some((t) => t.toLowerCase().includes(q))
+  );
+}
+
 const fuse = new Fuse(helpContent, {
-  keys: ["title", "summary", "detail", "tags"],
-  threshold: 0.35,
+  keys: [
+    { name: "title", weight: 3 },
+    { name: "tags", weight: 2 },
+    { name: "summary", weight: 1.5 },
+    { name: "detail", weight: 1 },
+  ],
+  threshold: 0.5,
+  distance: 200,
+  minMatchCharLength: 2,
   includeScore: true,
+  useExtendedSearch: false,
 });
 
 const navTriggerClass =
@@ -69,9 +99,14 @@ export function HelpSearchDropdown() {
   }, [query]);
 
   const results = useMemo(() => {
-    const q = query.trim();
-    if (!q) return null;
-    return fuse.search(q).map((r) => r.item);
+    const rawTrim = query.trim();
+    if (!rawTrim) return null;
+    const normalized = normalizeQuery(query).trim();
+    let items = normalized ? fuse.search(normalized).map((r) => r.item) : [];
+    if (normalized && items.length === 0) {
+      items = fallbackSearch(query);
+    }
+    return items;
   }, [query]);
 
   const toggleOpen = () => {
@@ -88,7 +123,7 @@ export function HelpSearchDropdown() {
   return (
     <div ref={containerRef} className="relative">
       <button type="button" onClick={toggleOpen} className={navTriggerClass} aria-expanded={open} aria-haspopup="dialog">
-        Help
+        Search Terms/ Help
       </button>
       {open ? (
         <div
@@ -98,7 +133,7 @@ export function HelpSearchDropdown() {
             border: "0.5px solid var(--color-border-secondary)",
           }}
           role="dialog"
-          aria-label="Help search"
+          aria-label="Search terms and help"
         >
           <div className="p-3">
             <input
