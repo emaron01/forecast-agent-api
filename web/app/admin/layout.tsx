@@ -3,6 +3,7 @@ import "../globals.css";
 import { requireManagerAdminOrMaster } from "../../lib/auth";
 import { getOrganization } from "../../lib/db";
 import { isAdmin, isSalesLeader } from "../../lib/roleHelpers";
+import { AdminHelpSearch } from "../_components/HelpSearchDropdown";
 import { UserProfileBadge } from "../_components/UserProfileBadge";
 
 function NavLink({ href, label }: { href: string; label: string }) {
@@ -76,6 +77,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                   ) : null}
                 </>
               )}
+              <AdminHelpSearch />
             </nav>
           </div>
           <div className="flex items-center gap-3">

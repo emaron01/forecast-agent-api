@@ -9,7 +9,7 @@ import {
   isChannelRole,
   isSalesLeader,
 } from "../../lib/roleHelpers";
-import { HelpSearchDropdown } from "./HelpSearchDropdown";
+import { HelpNavSearch } from "./HelpSearchDropdown";
 import { UserProfileBadge } from "./UserProfileBadge";
 
 function levelOf(user: AuthUser) {
@@ -63,7 +63,7 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
             {levelOf(user) !== HIERARCHY.REP && levelOf(user) !== HIERARCHY.CHANNEL_REP && (
               <NavLink href="/dashboard/excel-upload" label="Upload" />
             )}
-            <HelpSearchDropdown />
+            <HelpNavSearch isAdminUser={isAdmin(user)} />
           </nav>
         </div>
 

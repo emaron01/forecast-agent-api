@@ -56,6 +56,8 @@ body {
   --sf-accent: var(--sf-accent-primary);
   --sf-accent-hover: var(--sf-accent-primary-hover);
 
+  --border-radius-md: 0.375rem;
+
   /* Help search dropdown (maps to sf palette) */
   --color-background-primary: var(--sf-surface);
   --color-background-secondary: var(--sf-surface-alt);
