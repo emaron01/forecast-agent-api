@@ -55,6 +55,15 @@ body {
   /* Compatibility aliases (older token names used in some components) */
   --sf-accent: var(--sf-accent-primary);
   --sf-accent-hover: var(--sf-accent-primary-hover);
+
+  /* Help search dropdown (maps to sf palette) */
+  --color-background-primary: var(--sf-surface);
+  --color-background-secondary: var(--sf-surface-alt);
+  --color-border-secondary: var(--sf-border);
+  --color-border-tertiary: var(--sf-border);
+  --color-text-primary: var(--sf-text-primary);
+  --color-text-secondary: var(--sf-text-secondary);
+  --color-text-tertiary: var(--sf-text-disabled);
 }
 
 @layer base {

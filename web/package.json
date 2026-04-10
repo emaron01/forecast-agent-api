@@ -16,6 +16,7 @@
     "autoprefixer": "^10.4.24",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.73.1",
+    "fuse.js": "^7.3.0",
     "html2canvas": "^1.4.1",
     "next": "^14.2.35",
     "pg": "^8.20.0",

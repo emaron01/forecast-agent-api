@@ -1,0 +1,408 @@
+[
+  {
+    "id": "health-score",
+    "title": "Health Score",
+    "summary": "A 0–100 score showing how likely a deal is to close based on MEDDPICC completeness and sales activity.",
+    "detail": "Green (70+) means strong. Yellow (40–69) needs attention. Red (below 40) is at risk. Found on every deal card and in pipeline views.",
+    "tags": ["health", "score", "deal", "risk", "meddpicc"]
+  },
+  {
+    "id": "meddpicc",
+    "title": "MEDDPICC",
+    "summary": "A sales qualification framework: Metrics, Economic Buyer, Decision Criteria, Decision Process, Identify Pain, Champion, Competition.",
+    "detail": "Each category is scored during a deal review with Matthew. Gaps in MEDDPICC are the biggest predictor of deals slipping or being lost. Found in Deal Review and the MEDDPICC Heatmap.",
+    "tags": ["meddpicc", "qualification", "deal review", "matthew", "metrics", "economic buyer", "champion"]
+  },
+  {
+    "id": "matthew",
+    "title": "Matthew — AI Deal Coach",
+    "summary": "Matthew is your AI-powered deal coach. He listens to your deal notes via voice or text and scores your MEDDPICC in real time.",
+    "detail": "Start a Deal Review from Sales Opportunities. Matthew asks questions, identifies gaps, and updates your deal health score. Channel users see deal data in read-only mode — Matthew coaching is for sales reps and leaders only.",
+    "tags": ["matthew", "ai", "deal review", "coaching", "voice", "meddpicc"]
+  },
+  {
+    "id": "deal-review",
+    "title": "Deal Review",
+    "summary": "A deep-dive coaching session on a single opportunity powered by Matthew.",
+    "detail": "Click View on any deal in Sales Opportunities to open Deal Review. Sales reps can speak or type deal updates. Matthew scores MEDDPICC, identifies risks, and suggests next steps. Channel users see the deal card in read-only mode.",
+    "tags": ["deal review", "matthew", "opportunity", "coaching", "view"]
+  },
+  {
+    "id": "landing-zone",
+    "title": "Landing Zone",
+    "summary": "The AI-weighted forecast — where your quarter is most likely to land based on deal health, pipeline, and historical patterns.",
+    "detail": "Found on the Hero dashboard. Higher than CRM Commit means the AI sees upside. Lower means risk. Use it alongside Commit and Best Case to set realistic expectations.",
+    "tags": ["landing zone", "forecast", "ai", "weighted", "quarter", "hero"]
+  },
+  {
+    "id": "quarter-end-outlook",
+    "title": "Quarter End Outlook %",
+    "summary": "Your projected attainment at quarter end expressed as a percentage of quota.",
+    "detail": "Found top-left on the Hero. 100% = on track to hit quota. Above 100% = likely to exceed. Below 100% = gap exists. Confidence level (High/Medium/Low) reflects how reliable the projection is based on pipeline quality.",
+    "tags": ["outlook", "attainment", "quota", "quarter", "hero", "confidence"]
+  },
+  {
+    "id": "gap-to-quota",
+    "title": "Gap to Quota",
+    "summary": "The dollar amount still needed to hit your quota for the quarter.",
+    "detail": "Found on the Hero. Red means you have a gap. Green means you are projected to exceed quota. The gap attribution section below the hero breaks down which deals and reps are driving the gap.",
+    "tags": ["gap", "quota", "attainment", "hero"]
+  },
+  {
+    "id": "commit",
+    "title": "Commit",
+    "summary": "Deals the rep has committed to closing this quarter — the highest confidence forecast category.",
+    "detail": "Commit deals are expected to close. If a Commit deal slips it directly impacts the quarter. Found in Sales Opportunities, Pipeline Risk, and the Hero forecast bar.",
+    "tags": ["commit", "forecast", "category", "pipeline", "close"]
+  },
+  {
+    "id": "best-case",
+    "title": "Best Case",
+    "summary": "Deals that could close this quarter if everything goes well — medium confidence.",
+    "detail": "Best Case sits between Commit and Pipeline. These deals need attention to convert to Commit. Found in Sales Opportunities and the Hero forecast bar.",
+    "tags": ["best case", "forecast", "category", "pipeline"]
+  },
+  {
+    "id": "pipeline",
+    "title": "Pipeline",
+    "summary": "All active open deals regardless of close probability — the earliest stage forecast category.",
+    "detail": "Pipeline deals are the furthest from closing. High pipeline coverage (4x+ quota) is healthy. Found in Sales Opportunities, Pipeline Risk tab, and the Hero.",
+    "tags": ["pipeline", "forecast", "category", "coverage", "open deals"]
+  },
+  {
+    "id": "pipeline-coverage",
+    "title": "Pipeline Coverage",
+    "summary": "The ratio of total pipeline value to quota — shows how much buffer you have to hit your number.",
+    "detail": "4x coverage is generally healthy. Below 3x is a risk signal. Found on the Hero as Pipeline Coverage (e.g. 5.0x). Pipeline Covered badge turns green when coverage is sufficient.",
+    "tags": ["pipeline", "coverage", "ratio", "quota", "hero"]
+  },
+  {
+    "id": "pipeline-risk-tab",
+    "title": "Pipeline Risk Tab",
+    "summary": "A tab showing which deals are most at risk of slipping or being lost this quarter.",
+    "detail": "Deals are scored by risk factors: low health, missing MEDDPICC, aging, no recent activity. Use this tab to prioritize where to spend coaching time. Available to sales leaders and reps.",
+    "tags": ["pipeline risk", "tab", "at risk", "slipping", "coaching"]
+  },
+  {
+    "id": "gap-attribution",
+    "title": "Gap Attribution",
+    "summary": "A breakdown of where your gap to quota is coming from — by rep, by forecast category, and by deal.",
+    "detail": "Found below the Hero on the executive dashboard. Shows which reps or deals are contributing most to the gap. Red bars mean the gap is widening. Use this to direct coaching conversations.",
+    "tags": ["gap attribution", "rep", "gap", "quota", "executive", "dashboard"]
+  },
+  {
+    "id": "commit-integrity",
+    "title": "Commit Integrity",
+    "summary": "A measure of how well your Commit deals are supported by evidence — are reps committing deals that Matthew has validated?",
+    "detail": "AI-Supported Commit = deals Matthew has reviewed and agrees with. Unsupported Commit = deals in Commit with no AI review. Needs Review = deals flagged as risky despite being in Commit. Found on Pipeline Risk and executive dashboards.",
+    "tags": ["commit integrity", "ai", "unsupported", "needs review", "evidence", "matthew"]
+  },
+  {
+    "id": "top-commit-risks",
+    "title": "Top Commit Risks",
+    "summary": "The Commit and Best Case deals most at risk of not closing — ranked by risk score.",
+    "detail": "Found on Pipeline Risk tab. Each card shows account, rep, amount, health, and the specific risk factors. Click View to open the deal in Matthew for coaching. Channel users see this as a read-only intelligence feed.",
+    "tags": ["commit risks", "at risk", "pipeline risk", "matthew", "coaching", "channel"]
+  },
+  {
+    "id": "coaching-tab",
+    "title": "Coaching Tab",
+    "summary": "A tab showing rep-level coaching insights — which reps need the most attention and why.",
+    "detail": "Found on the executive dashboard. Shows each rep's health scores, MEDDPICC gaps, win rate, and pipeline. Use it to decide where to spend 1:1 time. Links to individual rep dashboards.",
+    "tags": ["coaching", "tab", "rep", "1:1", "meddpicc", "health", "executive"]
+  },
+  {
+    "id": "rep-dashboard",
+    "title": "Rep Dashboard",
+    "summary": "An individual rep's personal view of their quota, pipeline, and deal health for the quarter.",
+    "detail": "Accessible from the Coaching tab by clicking a rep's name. Shows their Hero, pipeline breakdown, and Channel Partners tab (which partners are helping their deals close).",
+    "tags": ["rep", "dashboard", "individual", "quota", "pipeline", "coaching"]
+  },
+  {
+    "id": "team-performance-tab",
+    "title": "Team Performance Tab",
+    "summary": "A side-by-side comparison of all reps on your team — quota attainment, pipeline, health, and win rate.",
+    "detail": "Found on the executive dashboard. Sort by any column to quickly identify top performers and reps who need support. Channel leaders see their territory reps only.",
+    "tags": ["team performance", "tab", "rep", "comparison", "attainment", "win rate"]
+  },
+  {
+    "id": "revenue-mix-tab",
+    "title": "Revenue Mix Tab",
+    "summary": "A breakdown of closed won revenue by product — SEIM vs IAM and other product lines.",
+    "detail": "Found on the executive dashboard. Shows which products are driving revenue this quarter vs last. Useful for understanding product attach rates and mix shifts.",
+    "tags": ["revenue mix", "tab", "product", "SEIM", "IAM", "closed won"]
+  },
+  {
+    "id": "revenue-intelligence-tab",
+    "title": "Revenue Intelligence Tab",
+    "summary": "A custom analytics tool — build charts comparing rep performance, deal size buckets, win rates, and more across multiple quarters.",
+    "detail": "Found on the executive and channel dashboards. Select quarters, reps, and metrics to build a custom view. Save reports for reuse. Download as PNG. Channel leaders see their territory reps only with partner-attributed deals.",
+    "tags": ["revenue intelligence", "tab", "custom", "analytics", "chart", "buckets", "quarters"]
+  },
+  {
+    "id": "report-builder-tab",
+    "title": "Report Builder Tab",
+    "summary": "Build custom rep comparison reports — export to CSV or PNG for QBRs, board decks, and team reviews.",
+    "detail": "Found on the executive and channel dashboards. Select a quota period, choose reps or leaders, and generate a detailed comparison table. Save report configurations for reuse. Channel leaders see territory reps with partner-attributed data only.",
+    "tags": ["report builder", "tab", "custom", "export", "CSV", "QBR", "comparison"]
+  },
+  {
+    "id": "channel-tab",
+    "title": "Channel Tab",
+    "summary": "Shows how partner-sourced and partner-influenced deals are performing vs direct sales.",
+    "detail": "Found on the executive dashboard. Includes Direct vs Indirect performance, CEI scores, WIC, PQS, and partner rankings. Available to sales executives and channel leaders. Shows the full channel contribution picture.",
+    "tags": ["channel", "tab", "partner", "direct", "indirect", "CEI", "WIC", "PQS"]
+  },
+  {
+    "id": "channel-partners-tab",
+    "title": "Channel Partners Tab",
+    "summary": "Shows which partners are performing best on your deals — win rate, health, and revenue by partner.",
+    "detail": "Available to Sales Reps (level 3) and Channel Reps (level 8). For sales reps: shows which partners to trust and co-sell with based on their own deal history. For channel reps: shows where to focus their time based on partner performance in their territory.",
+    "tags": ["channel partners", "tab", "partner", "win rate", "co-sell", "rep", "channel rep"]
+  },
+  {
+    "id": "sales-opportunities",
+    "title": "Sales Opportunities",
+    "summary": "The full list of open opportunities for the selected quarter — searchable and filterable by rep, account, partner, and stage.",
+    "detail": "Found as a tab on all dashboards. Search by account name, opportunity name, partner name, or stage. Sorted by Commit → Best Case → Pipeline. Click View to open a deal in Matthew. Channel users see partner-attributed deals only within their territory.",
+    "tags": ["sales opportunities", "tab", "deals", "search", "filter", "partner", "account"]
+  },
+  {
+    "id": "cei",
+    "title": "CEI — Channel Effectiveness Index",
+    "summary": "A score comparing how well partner-sourced deals perform vs direct deals — higher means partners are adding real value.",
+    "detail": "CEI above 100 means partner-sourced deals outperform direct. Found on the Channel tab. Includes CEI – Direct, CEI – Partner Sourced Only, and the ratio. Confidence and trend indicators show if the score is reliable.",
+    "tags": ["CEI", "channel effectiveness", "partner", "direct", "score", "channel tab"]
+  },
+  {
+    "id": "wic",
+    "title": "WIC — Win Influence Coefficient",
+    "summary": "A score for each partner showing how much they contribute to winning deals — based on win rate, deal size, and involvement.",
+    "detail": "Found in the Canonical Scoring Engine on the Channel tab. Higher WIC = partner is actively influencing wins. Used by channel leaders to decide which partners to scale vs deprioritize. Not shown to sales reps.",
+    "tags": ["WIC", "win influence", "partner", "score", "channel", "canonical scoring"]
+  },
+  {
+    "id": "pqs",
+    "title": "PQS — Partner Quality Score",
+    "summary": "A score measuring the overall quality of a partner relationship — pipeline contribution, deal health, and engagement.",
+    "detail": "Found alongside WIC in the Canonical Scoring Engine on the Channel tab. PQS combines WIC with pipeline health to give a holistic partner quality rating. Used for partner portfolio decisions. Not shown to sales reps.",
+    "tags": ["PQS", "partner quality", "score", "channel", "canonical scoring", "engagement"]
+  },
+  {
+    "id": "canonical-scoring-engine",
+    "title": "Canonical Scoring Engine",
+    "summary": "The WIC + PQS scoring system that ranks partners as Scale Selectively, Maintain, or Deprioritize.",
+    "detail": "Found on the Channel tab. Combines win influence and pipeline quality to recommend how to allocate channel resources. Scale Selectively = high potential. Maintain = performing steadily. Deprioritize = low contribution. Used by channel leaders only.",
+    "tags": ["canonical scoring", "WIC", "PQS", "scale", "maintain", "deprioritize", "channel"]
+  },
+  {
+    "id": "direct-vs-indirect",
+    "title": "Direct vs Indirect Performance",
+    "summary": "A comparison of how direct sales deals perform vs partner-influenced and partner-sourced deals across key metrics.",
+    "detail": "Found on the Channel tab. Metrics include win rate, avg health, avg age, revenue, and mix. Shows whether partners are adding value vs direct selling alone. Displayed as inline bar charts for easy comparison.",
+    "tags": ["direct", "indirect", "partner", "win rate", "health", "channel tab", "comparison"]
+  },
+  {
+    "id": "partner-influenced",
+    "title": "Partner Influenced",
+    "summary": "Deals where a partner was involved in the sales process but did not source the opportunity.",
+    "detail": "The partner helped move the deal forward — introductions, technical validation, co-selling — but the lead came from the direct sales team. Tracked separately from Partner Sourced in the Channel tab.",
+    "tags": ["partner influenced", "channel", "co-sell", "direct vs indirect"]
+  },
+  {
+    "id": "partner-sourced",
+    "title": "Partner Sourced",
+    "summary": "Deals where the partner originated the opportunity — they brought the lead to the sales team.",
+    "detail": "Higher value than Partner Influenced in terms of channel contribution. Partner Sourced deals show true channel pipeline generation. Tracked in the Channel tab and counted in CEI scoring.",
+    "tags": ["partner sourced", "channel", "pipeline", "CEI", "channel tab"]
+  },
+  {
+    "id": "deal-registration",
+    "title": "Deal Registration",
+    "summary": "A flag showing whether a partner has formally registered a deal — protecting their commission and priority on the opportunity.",
+    "detail": "Visible on deal cards and in the Deal Review header. Shown as Registered (with date or ID if available) or Not Registered. Supports boolean, date, and registration ID formats from any CRM. Channel users see this on every deal in their territory.",
+    "tags": ["deal registration", "partner", "registered", "channel", "CRM", "deal reg"]
+  },
+  {
+    "id": "avg-health-closed-won",
+    "title": "Avg Health Closed Won",
+    "summary": "The average health score of deals that closed won this quarter — shows how well-qualified your wins are.",
+    "detail": "Found on the executive Hero. High avg health on closed won deals means your team is closing well-qualified opportunities. Low health means deals are closing despite incomplete MEDDPICC — a risk signal for future quarters.",
+    "tags": ["avg health", "closed won", "health score", "hero", "executive"]
+  },
+  {
+    "id": "avg-health-lost",
+    "title": "Avg Health Lost",
+    "summary": "The average health score of deals that were lost this quarter.",
+    "detail": "Found on the executive Hero. If lost deals have high health scores, the loss is surprising and worth investigating. If they have low health, the loss was predictable and coaching earlier could have helped.",
+    "tags": ["avg health", "lost", "health score", "hero", "executive"]
+  },
+  {
+    "id": "opp-win-conversion",
+    "title": "Opp → Win Conversion",
+    "summary": "The percentage of opportunities that converted to closed won — your overall win rate for the quarter.",
+    "detail": "Found on the executive Hero. Industry average is typically 20–30%. Above 40% is strong. Below 15% signals qualification or competition issues. Compare across quarters to spot trends.",
+    "tags": ["win rate", "conversion", "closed won", "hero", "executive", "quarter"]
+  },
+  {
+    "id": "fy-ytd",
+    "title": "Full Year / YTD Attainment",
+    "summary": "Your year-to-date revenue and attainment against annual quota.",
+    "detail": "Found on the Hero alongside current quarter metrics. YTD Revenue shows actual closed won for the fiscal year. YTD Attainment % shows progress toward annual quota. Useful for board reporting and annual planning.",
+    "tags": ["full year", "YTD", "annual", "attainment", "quota", "hero", "fiscal year"]
+  },
+  {
+    "id": "quarter-over-quarter",
+    "title": "Quarter Over Quarter",
+    "summary": "A comparison of quota and revenue attained across Q1–Q4 of the fiscal year.",
+    "detail": "Found on the right side of the Hero. Shows each quarter's quota, actual revenue, and attainment %. Green = hit quota. Yellow = close. Red = missed. Trend arrows show improvement or decline.",
+    "tags": ["quarter over quarter", "QoQ", "fiscal year", "attainment", "hero", "trend"]
+  },
+  {
+    "id": "pace",
+    "title": "Pace",
+    "summary": "Whether you are On Track or Behind based on where you should be in the quarter relative to days elapsed.",
+    "detail": "Found on the Hero. On Track means your current closed won is proportional to the time elapsed in the quarter. Behind means you need to accelerate. Uses the quarter's start/end dates and today's date.",
+    "tags": ["pace", "on track", "behind", "quarter", "hero", "elapsed"]
+  },
+  {
+    "id": "products-sold",
+    "title": "Products Sold",
+    "summary": "A breakdown of closed won revenue by product line — this quarter and year-to-date.",
+    "detail": "Found on rep and executive dashboards. Shows SEIM and IAM (and other products) separately. Helps identify which products are driving revenue and where attach rates are low.",
+    "tags": ["products", "SEIM", "IAM", "closed won", "revenue", "mix", "dashboard"]
+  },
+  {
+    "id": "top-deals-tab",
+    "title": "Top Deals Tab",
+    "summary": "A view of your largest open opportunities ranked by amount — quick access to your most important deals.",
+    "detail": "Found on the executive dashboard. Shows the biggest deals in pipeline, Commit, and Best Case. Useful for executive deal reviews and board prep. Click View to open any deal in Matthew.",
+    "tags": ["top deals", "tab", "largest", "opportunities", "executive", "pipeline"]
+  },
+  {
+    "id": "reports-tab",
+    "title": "Reports Tab — Executive Briefing",
+    "summary": "An AI-generated executive briefing covering Quarter Outlook, Commit Integrity, Pipeline Risk, and Channel Performance.",
+    "detail": "Found on the executive and channel dashboards. Click Generate to produce a Matthew-written briefing in plain paragraphs — no bullets, just direct analysis. Channel leaders get a channel-specific briefing focused on partner pipeline and partner contribution. Cached for 24 hours.",
+    "tags": ["reports", "tab", "executive briefing", "matthew", "AI", "quarter", "channel"]
+  },
+  {
+    "id": "strategic-takeaway",
+    "title": "✨ Strategic Takeaway",
+    "summary": "An AI-generated insight summarizing what the data means and what action to take — specific to the section you are viewing.",
+    "detail": "Appears throughout the dashboard (Hero, Pipeline, Coaching, Partners, Products). Each takeaway is generated from the data in that specific section. Channel users get channel-specific takeaways focused on partner pipeline. Click to expand the full analysis.",
+    "tags": ["strategic takeaway", "AI", "insight", "action", "dashboard", "channel", "hero"]
+  },
+  {
+    "id": "upload",
+    "title": "Upload",
+    "summary": "Upload your CRM data as an Excel file to populate the platform with opportunities, quotas, and rep data.",
+    "detail": "Found in the top nav (admins, managers, and channel leaders). Map your CRM columns to SalesForecast.io fields including deal registration date, partner name, and product. Data updates immediately after upload. Available to levels 0–2 and channel leaders (6–7).",
+    "tags": ["upload", "excel", "CRM", "data", "import", "mapping"]
+  },
+  {
+    "id": "channel-alignment",
+    "title": "Channel Alignment",
+    "summary": "Admin tool for aligning channel leaders to specific sales territory trees.",
+    "detail": "Found in the top nav for channel leaders and admins. Maps a Channel Executive, Director, or Rep to a sales leader's team — giving them visibility into that team's partner-attributed deals. Territory alignment drives what each channel user sees across the entire platform.",
+    "tags": ["channel alignment", "territory", "admin", "sales leader", "channel executive", "channel director"]
+  },
+  {
+    "id": "partner-assignments",
+    "title": "Partner Assignments",
+    "summary": "Admin tool for assigning specific partner names to Channel Reps (Disti model).",
+    "detail": "Found in the top nav for channel leaders and admins. Used when a channel rep is responsible for specific named partners (distributor model) rather than a sales territory. Drives scoping for that rep across Sales Opportunities, Report Builder, and Revenue Intelligence.",
+    "tags": ["partner assignments", "disti", "distributor", "channel rep", "admin", "partner name"]
+  },
+  {
+    "id": "my-focus-channel",
+    "title": "My Focus (Channel Rep)",
+    "summary": "A channel rep's personal view showing their partner pipeline and where to spend their time.",
+    "detail": "Found on the Channel Rep dashboard. Shows open deals in their territory or partner assignments, plus partner performance data. Helps channel reps prioritize which accounts to engage and which partners to activate.",
+    "tags": ["my focus", "channel rep", "pipeline", "partner", "territory", "priority"]
+  },
+  {
+    "id": "quota-period",
+    "title": "Quota Period / Quarter Selector",
+    "summary": "The dropdown at the top of most pages that selects which fiscal quarter you are viewing data for.",
+    "detail": "Changing the quarter updates all metrics, charts, and deal lists on the page. Defaults to the current active quarter. Historical quarters are available for trend analysis.",
+    "tags": ["quota period", "quarter", "fiscal", "selector", "dropdown", "period"]
+  },
+  {
+    "id": "ai-forecast",
+    "title": "AI Forecast",
+    "summary": "The platform's prediction of what you will close by quarter end — distinct from the CRM forecast which is rep-entered.",
+    "detail": "The AI Forecast is calculated from deal health scores, MEDDPICC completeness, historical close rates, and pipeline aging. It is shown on the Hero alongside CRM Commit and Best Case. The gap between AI Forecast and CRM Commit is a key risk indicator.",
+    "tags": ["AI forecast", "prediction", "quarter", "CRM", "commit", "hero"]
+  },
+  {
+    "id": "avg-deal-age",
+    "title": "Avg Deal Age",
+    "summary": "The average number of days open deals have been in the pipeline.",
+    "detail": "Found on the executive Hero and in the Direct vs Indirect comparison on the Channel tab. High avg age signals stalled deals. Partner-sourced deals often have higher avg age — not necessarily bad, but worth monitoring.",
+    "tags": ["deal age", "aging", "days", "pipeline", "stalled", "channel"]
+  },
+  {
+    "id": "avg-deal-won",
+    "title": "Avg Deal Size (Won)",
+    "summary": "The average revenue of deals that closed won this quarter.",
+    "detail": "Found on the executive Hero. Compare to Avg Deal Lost and Avg Open Deal to understand deal size patterns. If won deals are consistently smaller than open deals, there may be upmarket challenges.",
+    "tags": ["avg deal", "won", "revenue", "closed won", "hero", "deal size"]
+  },
+  {
+    "id": "set-default-view",
+    "title": "Set as My Default View",
+    "summary": "Saves your current tab as the first tab you see when you log in.",
+    "detail": "Found top-right on the dashboard tab bar. Click it to make the current tab your landing page. Useful if you always start with Pipeline Risk, Channel Partners, or Sales Opportunities instead of the Overview.",
+    "tags": ["default view", "tab", "preference", "landing page", "save"]
+  },
+  {
+    "id": "saved-reports",
+    "title": "Saved Reports",
+    "summary": "Save your Revenue Intelligence or Report Builder configuration so you can reload it in one click.",
+    "detail": "Found in Revenue Intelligence and Report Builder. Click New Saved to name and save your current chart or report setup. Load it next time from the saved reports dropdown. Each user's saved reports are private to them.",
+    "tags": ["saved reports", "revenue intelligence", "report builder", "save", "load", "configuration"]
+  },
+  {
+    "id": "download-png",
+    "title": "Download PNG",
+    "summary": "Export the current chart as a PNG image for use in presentations, emails, or Slack.",
+    "detail": "Found in Revenue Intelligence next to View Report — Hide Config. Downloads the chart exactly as displayed. Use for QBRs, board decks, and executive updates.",
+    "tags": ["download", "PNG", "export", "chart", "presentation", "QBR"]
+  },
+  {
+    "id": "total-orders",
+    "title": "Total Orders",
+    "summary": "The count of closed won opportunities for the quarter, with a comparison to last quarter.",
+    "detail": "Found on the executive and channel Hero. The arrow and delta show whether order count is up or down vs last quarter. Different from revenue — a high order count with low revenue may indicate small deal sizes.",
+    "tags": ["total orders", "closed won", "count", "hero", "quarter", "last quarter"]
+  },
+  {
+    "id": "lost-opps",
+    "title": "Lost Opps",
+    "summary": "The count of opportunities that were lost this quarter, with a comparison to last quarter.",
+    "detail": "Found on the executive and channel Hero. Rising lost opps signals competitive pressure or qualification issues. Channel lost opps are scoped to partner-attributed deals only for channel users.",
+    "tags": ["lost opps", "closed lost", "hero", "quarter", "channel", "competitive"]
+  },
+  {
+    "id": "acv-won",
+    "title": "ACV Won",
+    "summary": "Annual Contract Value of deals closed won this quarter.",
+    "detail": "Found on the executive and channel Hero. ACV normalizes deal value to an annual basis — a 3-year $300K deal = $100K ACV. Compare to ACV Lost to understand net revenue impact.",
+    "tags": ["ACV", "annual contract value", "closed won", "revenue", "hero"]
+  },
+  {
+    "id": "acv-lost",
+    "title": "ACV Lost",
+    "summary": "Annual Contract Value of deals that were lost this quarter.",
+    "detail": "Found on the executive and channel Hero. High ACV Lost relative to ACV Won is a red flag — the team is losing big deals. Investigate health scores and MEDDPICC for lost deals to find patterns.",
+    "tags": ["ACV", "annual contract value", "lost", "revenue", "hero", "competitive"]
+  },
+  {
+    "id": "confidence-level",
+    "title": "Confidence Level",
+    "summary": "How reliable the AI forecast is — High, Medium, or Low — based on data completeness and pipeline quality.",
+    "detail": "Found on the Hero below the Quarter End Outlook. High Confidence means the AI has enough data to be accurate. Low Confidence means the pipeline is thin or deal data is incomplete — treat the forecast as directional only.",
+    "tags": ["confidence", "forecast", "AI", "hero", "reliability", "pipeline"]
+  }
+]
