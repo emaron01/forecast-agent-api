@@ -19,7 +19,17 @@ import {
   YAxis,
 } from "recharts";
 import { ExportToExcelButton } from "../../_components/ExportToExcelButton";
-import { isExecManagerLevel, isManagerLevel, isRepLevel, roleToHierarchyLevel } from "../../../lib/roleHelpers";
+import {
+  HIERARCHY,
+  isChannelExecLevel,
+  isChannelManagerLevel,
+  isChannelRepLevel,
+  isExecManagerLevel,
+  isManagerLevel,
+  isRepLevel,
+  roleToHierarchyLevel,
+  type HierarchyLevel,
+} from "../../../lib/roleHelpers";
 
 type RepRow = {
   rep_id: string;
@@ -70,17 +80,46 @@ type RepRow = {
   mix_won: number | null;
 };
 
-function rowLevel(role: string | null | undefined) {
-  return roleToHierarchyLevel(role);
+type RepDirectoryEntry = {
+  id: number;
+  name: string;
+  manager_rep_id: number | null;
+  role: string;
+  hierarchy_level?: number | null;
+};
+
+/** Prefer `role` string; fall back to `hierarchy_level` when reps.role does not match enum (common for channel rows). */
+function directoryRowLevel(row: RepDirectoryEntry): HierarchyLevel | null {
+  const fromRole = roleToHierarchyLevel(row.role);
+  if (fromRole != null) return fromRole;
+  const n = Number(row.hierarchy_level);
+  if (!Number.isFinite(n)) return null;
+  if (
+    n === HIERARCHY.EXEC_MANAGER ||
+    n === HIERARCHY.MANAGER ||
+    n === HIERARCHY.REP ||
+    n === HIERARCHY.CHANNEL_EXEC ||
+    n === HIERARCHY.CHANNEL_MANAGER ||
+    n === HIERARCHY.CHANNEL_REP
+  ) {
+    return n;
+  }
+  return null;
 }
 
-function isLeaderRow(role: string | null | undefined) {
-  const level = rowLevel(role);
-  return isManagerLevel(level) || isExecManagerLevel(level);
+function isLeaderRow(row: RepDirectoryEntry) {
+  const level = directoryRowLevel(row);
+  return (
+    isManagerLevel(level) ||
+    isExecManagerLevel(level) ||
+    isChannelExecLevel(level) ||
+    isChannelManagerLevel(level)
+  );
 }
 
-function isRepRow(role: string | null | undefined) {
-  return isRepLevel(rowLevel(role));
+function isRepRow(row: RepDirectoryEntry) {
+  const level = directoryRowLevel(row);
+  return isRepLevel(level) || isChannelRepLevel(level);
 }
 
 type SavedReportRow = {
@@ -510,7 +549,7 @@ function normalizeConfig(cfg: any): { repIds: string[]; metrics: MetricKey[]; ch
 export function CustomReportDesignerClient(props: {
   reportType: string;
   repRows: RepRow[];
-  repDirectory: Array<{ id: number; name: string; manager_rep_id: number | null; role: string }>;
+  repDirectory: RepDirectoryEntry[];
   /** Logged-in executive's rep id (for "My Team"); REPs with this manager_rep_id are selected. */
   currentExecutiveRepId?: string | null;
   savedReports: SavedReportRow[];
@@ -692,7 +731,9 @@ export function CustomReportDesignerClient(props: {
   const [chartType, setChartType] = useState<ChartType>("table");
 
   const execHeaderName = useMemo(() => {
-    const exec = repDirectory.find((r) => isExecManagerLevel(rowLevel(r.role)));
+    const exec = repDirectory.find(
+      (r) => isExecManagerLevel(directoryRowLevel(r)) || isChannelExecLevel(directoryRowLevel(r))
+    );
     if (exec) {
       const nm = String(exec.name || "").trim();
       return nm || `Executive ${exec.id}`;
@@ -726,13 +767,13 @@ export function CustomReportDesignerClient(props: {
     for (const d of repDirectory) {
       const sid = String(d.id);
       if (!selectedIds.has(sid)) continue;
-      if (isRepRow(d.role)) {
+      if (isRepRow(d)) {
         const row = byId.get(sid);
         if (row) out.push(row);
         continue;
       }
-      if (isLeaderRow(d.role)) {
-        const directDirReps = repDirectory.filter((r) => isRepRow(r.role) && r.manager_rep_id === d.id);
+      if (isLeaderRow(d)) {
+        const directDirReps = repDirectory.filter((r) => isRepRow(r) && r.manager_rep_id === d.id);
         const metricRows = directDirReps.map((r) => byId.get(String(r.id))).filter(Boolean) as RepRow[];
         const displayName = String(d.name || "").trim() || `Rep ${d.id}`;
         out.push({
@@ -812,8 +853,8 @@ export function CustomReportDesignerClient(props: {
   }, [showQvqComparison, qvqPeriodResults, execHeaderName]);
 
   const pickerGroups = useMemo(() => {
-    const managers = repDirectory.filter((r) => isLeaderRow(r.role));
-    const dirReps = repDirectory.filter((r) => isRepRow(r.role));
+    const managers = repDirectory.filter((r) => isLeaderRow(r));
+    const dirReps = repDirectory.filter((r) => isRepRow(r));
     const groups = managers.map((mgr) => ({
       manager: mgr,
       reps: dirReps.filter((r) => r.manager_rep_id === mgr.id),
@@ -1121,12 +1162,12 @@ export function CustomReportDesignerClient(props: {
   }
 
   function quickSelectRepsOnly() {
-    setSelectedIds(new Set(repDirectory.filter((r) => isRepRow(r.role)).map((r) => String(r.id))));
+    setSelectedIds(new Set(repDirectory.filter((r) => isRepRow(r)).map((r) => String(r.id))));
   }
 
   function quickSelectLeadersOnly() {
     setSelectedIds(
-      new Set(repDirectory.filter((r) => isLeaderRow(r.role)).map((r) => String(r.id)))
+      new Set(repDirectory.filter((r) => isLeaderRow(r)).map((r) => String(r.id)))
     );
   }
 

@@ -1583,6 +1583,7 @@ export default async function ChannelDashboardPage({
             name: r.name,
             manager_rep_id: r.manager_rep_id ?? null,
             role: r.role ?? "REP",
+            hierarchy_level: r.hierarchy_level ?? null,
           })
         )
       : [];
@@ -1687,7 +1688,8 @@ export default async function ChannelDashboardPage({
                 reportBuilderRepDirectory={channelScopedDirectory}
                 reportBuilderQuotaPeriods={(channelSummary?.periods ?? summary.periods).map((p) => ({
                   id: String(p.id),
-                  name: p.period_name ? `${p.period_name}` : String(p.id),
+                  name: p.period_name ?? String(p.id),
+                  fiscal_year: String(p.fiscal_year ?? ""),
                 }))}
                 reportBuilderOrgId={orgId}
                 reportBuilderInitialPeriodId={selectedPeriodId}
