@@ -196,6 +196,13 @@ async function channelLeadersForManagerUserScope(args: { orgId: number; scopeUse
       AND u.hierarchy_level IN ($2::int, $3::int)
       AND (u.active IS TRUE OR u.active IS NULL)
       AND u.manager_user_id = ANY($4::bigint[])
+      AND EXISTS (
+        SELECT 1
+          FROM users mgr
+         WHERE mgr.id = u.manager_user_id
+           AND mgr.org_id = $1::bigint
+           AND mgr.hierarchy_level BETWEEN 0 AND 3
+      )
       AND (r.active IS TRUE OR r.active IS NULL)
     ORDER BY COALESCE(u.hierarchy_level, 99) ASC, name ASC, r.id ASC
     `,
@@ -244,12 +251,17 @@ export async function getScopedRepDirectory(args: {
     return { repDirectory: [me], allowedRepIds: [me.id], myRepId: me.id };
   }
 
-  if (isAdmin(args.user)) {
+  // Full org rep list only for Admins without Executive Dashboard (admin UI / non-exec paths).
+  if (isAdmin(args.user) && !args.user.admin_has_full_analytics_access) {
     const all = await listActiveRepsForOrg(orgId).catch(() => []);
     return { repDirectory: all, allowedRepIds: null, myRepId: null };
   }
 
-  if (isSalesLeader(args.user) && args.user.see_all_visibility) {
+  // Executive Dashboard Admins with see-all mirror EXEC_MANAGER/MANAGER see-all scope (sales 1–3 + linked channel leaders).
+  if (
+    (isSalesLeader(args.user) || (isAdmin(args.user) && args.user.admin_has_full_analytics_access)) &&
+    args.user.see_all_visibility
+  ) {
     const allReps = await listActiveSalesRepsForOrg(orgId).catch(() => []);
     const scopeUserIds = scopeUserIdsFromRepRows(allReps, userId);
     const channelLeaders = await channelLeadersForManagerUserScope({ orgId, scopeUserIds }).catch(() => []);

@@ -2660,7 +2660,9 @@ export async function replaceManagerVisibility(args: {
       const adminExecLeader = mgrLevel === HIERARCHY.ADMIN && !!mgr.admin_has_full_analytics_access;
       const isConfigurable = mgrLevel === 1 || mgrLevel === 2 || adminExecLeader;
       if (!isConfigurable && (see_all_visibility || visibleUserIds.length)) {
-        throw new Error("visibility is only configurable for EXEC_MANAGER (level 1) and MANAGER (level 2)");
+        throw new Error(
+          "visibility is only configurable for EXEC_MANAGER (level 1), MANAGER (level 2), or Executive Dashboard Admin"
+        );
       }
 
       // Update manager see-all flag.

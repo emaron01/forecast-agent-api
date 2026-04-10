@@ -102,11 +102,17 @@ export const CreateUserSchema = z
       });
     }
 
-    if (!isManagerLevel(effectiveLevel) && !isExecManagerLevel(effectiveLevel) && effectiveLevel !== HIERARCHY.CHANNEL_EXEC && v.see_all_visibility) {
+    const seeAllAllowed =
+      isManagerLevel(effectiveLevel) ||
+      isExecManagerLevel(effectiveLevel) ||
+      effectiveLevel === HIERARCHY.CHANNEL_EXEC ||
+      (effectiveLevel === HIERARCHY.ADMIN && v.admin_has_full_analytics_access);
+    if (!seeAllAllowed && v.see_all_visibility) {
       ctx.addIssue({
         code: "custom",
         path: ["see_all_visibility"],
-        message: "see_all_visibility is only valid for MANAGER/EXEC_MANAGER/CHANNEL_EXECUTIVE",
+        message:
+          "see_all_visibility is only valid for MANAGER, EXEC_MANAGER, CHANNEL_EXECUTIVE, or Executive Dashboard Admin",
       });
     }
   });

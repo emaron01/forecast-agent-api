@@ -459,6 +459,24 @@ export default async function UsersPage({
                   </label>
                   <p className="text-xs text-[color:var(--sf-text-secondary)]">If unchecked, visibility is limited to assigned users.</p>
                 </div>
+
+                {isAdmin ? (
+                  <div
+                    className="grid gap-1 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3"
+                    data-show-roles="ADMIN"
+                    data-show-when-admin-exec="1"
+                    hidden
+                  >
+                    <label className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Can View All User Data</label>
+                    <label className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                      <input name="see_all_visibility" type="checkbox" className="h-5 w-5" defaultChecked={prefillSeeAll === "true"} />
+                      <span className="font-medium">Yes</span>
+                    </label>
+                    <p className="text-xs text-[color:var(--sf-text-secondary)]">
+                      If unchecked, visibility is limited to assigned users (same as Executive Manager / Manager).
+                    </p>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -784,6 +802,29 @@ export default async function UsersPage({
                   </label>
                   <p className="text-xs text-[color:var(--sf-text-secondary)]">If unchecked, visibility is limited to assigned users.</p>
                 </div>
+
+                {isAdmin ? (
+                  <div
+                    className="grid gap-1 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3"
+                    data-show-roles="ADMIN"
+                    data-show-when-admin-exec="1"
+                    hidden
+                  >
+                    <label className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Can View All User Data</label>
+                    <label className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                      <input
+                        name="see_all_visibility"
+                        type="checkbox"
+                        className="h-5 w-5"
+                        defaultChecked={!!user.see_all_visibility}
+                      />
+                      <span className="font-medium">Yes</span>
+                    </label>
+                    <p className="text-xs text-[color:var(--sf-text-secondary)]">
+                      If unchecked, visibility is limited to assigned users (same as Executive Manager / Manager).
+                    </p>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

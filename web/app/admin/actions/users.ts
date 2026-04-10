@@ -255,6 +255,8 @@ export async function createUserAction(formData: FormData) {
     let see_all_visibility = false;
     if (isManagerLevel(hierarchy_level) || isExecManagerLevel(hierarchy_level)) {
       see_all_visibility = !!(parsed.see_all_visibility ?? false);
+    } else if (isAdminLevel(hierarchy_level) && admin_has_full_analytics_access) {
+      see_all_visibility = !!(parsed.see_all_visibility ?? false);
     } else if (hierarchy_level === HIERARCHY.CHANNEL_EXEC) {
       see_all_visibility = true;
     }
@@ -314,7 +316,7 @@ export async function createUserAction(formData: FormData) {
         orgId,
         managerUserId: created.id,
         visibleUserIds: visibleIds,
-        see_all_visibility: false,
+        see_all_visibility: !!see_all_visibility,
       });
       const mv = await pool.query(`SELECT visible_user_id FROM manager_visibility WHERE manager_user_id = $1`, [created.id]);
       const syncedIds = (mv.rows || [])
@@ -439,6 +441,8 @@ export async function updateUserAction(formData: FormData) {
 
   let see_all_visibility = false;
   if (isManagerLevel(hierarchy_level) || isExecManagerLevel(hierarchy_level)) {
+    see_all_visibility = !!(parsed.see_all_visibility ?? false);
+  } else if (isAdminLevel(hierarchy_level) && admin_has_full_analytics_access) {
     see_all_visibility = !!(parsed.see_all_visibility ?? false);
   } else if (hierarchy_level === HIERARCHY.CHANNEL_EXEC) {
     see_all_visibility = true;
@@ -573,7 +577,11 @@ export async function updateUserAction(formData: FormData) {
         }
       }
     } else if (isAdminExecLeader) {
-      await client.query(`UPDATE users SET see_all_visibility = FALSE, updated_at = NOW() WHERE id = $1 AND org_id = $2`, [userId, orgId]);
+      await client.query(`UPDATE users SET see_all_visibility = $3, updated_at = NOW() WHERE id = $1 AND org_id = $2`, [
+        userId,
+        orgId,
+        !!see_all_visibility,
+      ]);
       await client.query(`DELETE FROM manager_visibility WHERE manager_user_id = $1`, [userId]);
 
       if (checkedRepIds.length) {
