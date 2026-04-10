@@ -63,8 +63,17 @@ export async function updateSalesOrgChartAction(formData: FormData) {
       const user = byPublicId.get(userPublicId);
       if (!user) continue;
 
-      // Only configurable for MANAGER/REP.
-      if (user.hierarchy_level !== 2 && user.hierarchy_level !== 3) continue;
+      // Configurable reporting lines: sales 1–3 plus Executive Dashboard Admin (0).
+      const userIsExecAdmin =
+        user.hierarchy_level === HIERARCHY.ADMIN && !!user.admin_has_full_analytics_access;
+      if (
+        user.hierarchy_level !== HIERARCHY.EXEC_MANAGER &&
+        user.hierarchy_level !== HIERARCHY.MANAGER &&
+        user.hierarchy_level !== HIERARCHY.REP &&
+        !userIsExecAdmin
+      ) {
+        continue;
+      }
 
       const managerPublicId = String(v || "").trim();
       if (!managerPublicId) {
@@ -79,12 +88,27 @@ export async function updateSalesOrgChartAction(formData: FormData) {
       if (manager.id === user.id) errRedirect("invalid_manager_self");
 
       // Enforce structure:
-      // - REP (level 3) may report to MANAGER (level 2) OR EXEC_MANAGER (level 1) for flat orgs
-      // - MANAGER (level 2) must report to EXEC_MANAGER (level 1) (optional)
-      if (user.hierarchy_level === 3) {
-        if (manager.hierarchy_level !== 2 && manager.hierarchy_level !== 1) errRedirect("rep_manager_must_be_manager");
-      } else if (user.hierarchy_level === 2) {
-        if (manager.hierarchy_level !== 1) errRedirect("manager_manager_must_be_exec");
+      // - REP (3) → MANAGER (2) or EXEC_MANAGER (1) or Executive Dashboard Admin (0)
+      // - MANAGER (2) → EXEC_MANAGER (1) or Executive Dashboard Admin (0)
+      // - EXEC_MANAGER (1) → another EXEC_MANAGER (1) or Executive Dashboard Admin (0)
+      const mgrHl = Number(manager.hierarchy_level);
+      const mgrIsExecAdmin = mgrHl === HIERARCHY.ADMIN && !!manager.admin_has_full_analytics_access;
+      if (user.hierarchy_level === HIERARCHY.REP) {
+        if (mgrHl !== HIERARCHY.MANAGER && mgrHl !== HIERARCHY.EXEC_MANAGER && !mgrIsExecAdmin) {
+          errRedirect("rep_manager_must_be_manager");
+        }
+      } else if (user.hierarchy_level === HIERARCHY.MANAGER) {
+        if (mgrHl !== HIERARCHY.EXEC_MANAGER && !mgrIsExecAdmin) errRedirect("manager_manager_must_be_exec");
+      } else if (user.hierarchy_level === HIERARCHY.EXEC_MANAGER) {
+        if (mgrHl !== HIERARCHY.EXEC_MANAGER && !mgrIsExecAdmin) errRedirect("exec_manager_manager_must_be_exec_or_ceo");
+      } else if (userIsExecAdmin) {
+        const ok =
+          mgrIsExecAdmin ||
+          mgrHl === HIERARCHY.EXEC_MANAGER ||
+          mgrHl === HIERARCHY.MANAGER ||
+          mgrHl === HIERARCHY.CHANNEL_EXEC ||
+          mgrHl === HIERARCHY.CHANNEL_MANAGER;
+        if (!ok) errRedirect("admin_exec_manager_invalid");
       }
 
       desiredManagerByUserId.set(user.id, manager.id);
@@ -94,7 +118,15 @@ export async function updateSalesOrgChartAction(formData: FormData) {
     // Compute final mapping for cycle detection using desired overrides, else existing.
     const finalManagerByUserId = new Map<number, number | null>();
     for (const u of users) {
-      if (u.hierarchy_level !== 2 && u.hierarchy_level !== 3) continue;
+      const uExecAdmin = u.hierarchy_level === HIERARCHY.ADMIN && !!u.admin_has_full_analytics_access;
+      if (
+        u.hierarchy_level !== HIERARCHY.EXEC_MANAGER &&
+        u.hierarchy_level !== HIERARCHY.MANAGER &&
+        u.hierarchy_level !== HIERARCHY.REP &&
+        !uExecAdmin
+      ) {
+        continue;
+      }
       finalManagerByUserId.set(u.id, desiredManagerByUserId.has(u.id) ? (desiredManagerByUserId.get(u.id) ?? null) : (u.manager_user_id ?? null));
     }
     if (detectCycle(finalManagerByUserId)) errRedirect("cycle_detected");
@@ -117,7 +149,7 @@ export async function updateSalesOrgChartAction(formData: FormData) {
       // - Recursion in getVisibleUsers gives the full subtree.
       const { rows } = await c.query(
         `
-        SELECT id, role, hierarchy_level, manager_user_id, see_all_visibility, active
+        SELECT id, role, hierarchy_level, manager_user_id, see_all_visibility, active, admin_has_full_analytics_access
           FROM users
          WHERE org_id = $1
         `,
@@ -131,10 +163,14 @@ export async function updateSalesOrgChartAction(formData: FormData) {
         manager_user_id: number | null;
         see_all_visibility: boolean;
         active: boolean;
+        admin_has_full_analytics_access: boolean;
       }>;
 
       const managers = all.filter(
-        (u) => u.hierarchy_level === HIERARCHY.EXEC_MANAGER || u.hierarchy_level === HIERARCHY.MANAGER
+        (u) =>
+          u.hierarchy_level === HIERARCHY.EXEC_MANAGER ||
+          u.hierarchy_level === HIERARCHY.MANAGER ||
+          (u.hierarchy_level === HIERARCHY.ADMIN && !!u.admin_has_full_analytics_access)
       );
       const managerIds = managers.map((m) => m.id);
 
@@ -147,7 +183,6 @@ export async function updateSalesOrgChartAction(formData: FormData) {
       for (const u of all) {
         if (!u.active) continue;
         if (u.hierarchy_level === HIERARCHY.ADMIN) continue;
-        if (u.hierarchy_level < 2) continue; // visibility targets: managers + reps
         if (u.manager_user_id == null) continue;
         if (!byManager.has(u.manager_user_id)) byManager.set(u.manager_user_id, []);
         byManager.get(u.manager_user_id)!.push(u.id);

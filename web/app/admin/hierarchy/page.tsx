@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { requireOrgContext } from "../../../lib/auth";
 import { listHierarchyLevels, listUsers } from "../../../lib/db";
 import { updateSalesOrgChartAction } from "../actions/orgChart";
-import { isAdmin, isSalesLeader } from "../../../lib/roleHelpers";
+import { HIERARCHY, isAdmin, isSalesLeader } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -32,31 +32,69 @@ export default async function HierarchyPage({
   const activeUsers = users.filter((u) => u.active ?? true);
   const executives = activeUsers.filter((u) => u.hierarchy_level === 1);
   const managers = activeUsers.filter((u) => u.hierarchy_level === 2);
-  const nonAdminUsers = activeUsers.filter((u) => u.hierarchy_level !== 0);
-  const userById = new Map(nonAdminUsers.map((u) => [u.id, u] as const));
-  const directReportsByManagerId = new Map<number, typeof nonAdminUsers>();
-  for (const user of nonAdminUsers) {
+  /** Sales org chart: everyone except pure Admins; Executive Dashboard Admins (CEO/CRO) stay visible as level 0. */
+  const salesOrgUsers = activeUsers.filter(
+    (u) => u.hierarchy_level !== HIERARCHY.ADMIN || !!u.admin_has_full_analytics_access
+  );
+  const userById = new Map(salesOrgUsers.map((u) => [u.id, u] as const));
+  const directReportsByManagerId = new Map<number, typeof salesOrgUsers>();
+  for (const user of salesOrgUsers) {
     const managerId = user.manager_user_id;
     if (managerId == null) continue;
     if (!directReportsByManagerId.has(managerId)) directReportsByManagerId.set(managerId, []);
     directReportsByManagerId.get(managerId)!.push(user);
   }
 
-  const roots = nonAdminUsers.filter((u) => u.manager_user_id == null || !userById.has(u.manager_user_id));
+  const roots = salesOrgUsers.filter((u) => u.manager_user_id == null || !userById.has(u.manager_user_id));
   const attachedIds = new Set(
-    nonAdminUsers
+    salesOrgUsers
       .filter((u) => u.manager_user_id != null && userById.has(u.manager_user_id))
       .map((u) => u.id)
   );
   const unassignedUsers = roots.length > 0
-    ? nonAdminUsers.filter((u) => !attachedIds.has(u.id) && !roots.find((r) => r.id === u.id))
+    ? salesOrgUsers.filter((u) => !attachedIds.has(u.id) && !roots.find((r) => r.id === u.id))
     : [];
 
-  function managerOptionsForUser(user: (typeof nonAdminUsers)[number]) {
-    return activeUsers.filter((u) => u.id !== user.id && u.hierarchy_level !== 0 && (u.active ?? true));
+  function canUserManageCandidate(reportLevel: number, candidate: (typeof activeUsers)[number]): boolean {
+    if (!(candidate.active ?? true)) return false;
+    const hl = Number(candidate.hierarchy_level);
+    const candidateIsExecAdmin = hl === HIERARCHY.ADMIN && !!candidate.admin_has_full_analytics_access;
+    if (hl === HIERARCHY.ADMIN && !candidateIsExecAdmin) return false;
+    if (reportLevel === HIERARCHY.REP) {
+      return hl === HIERARCHY.MANAGER || hl === HIERARCHY.EXEC_MANAGER || candidateIsExecAdmin;
+    }
+    if (reportLevel === HIERARCHY.MANAGER) {
+      return hl === HIERARCHY.EXEC_MANAGER || candidateIsExecAdmin;
+    }
+    if (reportLevel === HIERARCHY.EXEC_MANAGER) {
+      return hl === HIERARCHY.EXEC_MANAGER || candidateIsExecAdmin;
+    }
+    if (reportLevel === HIERARCHY.ADMIN) {
+      return (
+        candidateIsExecAdmin ||
+        hl === HIERARCHY.EXEC_MANAGER ||
+        hl === HIERARCHY.MANAGER ||
+        hl === HIERARCHY.CHANNEL_EXEC ||
+        hl === HIERARCHY.CHANNEL_MANAGER
+      );
+    }
+    if (reportLevel >= HIERARCHY.CHANNEL_EXEC && reportLevel <= HIERARCHY.CHANNEL_REP) {
+      return (
+        candidateIsExecAdmin ||
+        hl === HIERARCHY.EXEC_MANAGER ||
+        hl === HIERARCHY.MANAGER ||
+        (hl >= HIERARCHY.CHANNEL_EXEC && hl <= HIERARCHY.CHANNEL_MANAGER)
+      );
+    }
+    return false;
   }
 
-  function renderNode(user: (typeof nonAdminUsers)[number], isRoot = false): React.JSX.Element {
+  function managerOptionsForUser(user: (typeof salesOrgUsers)[number]) {
+    const rl = Number(user.hierarchy_level);
+    return activeUsers.filter((u) => u.id !== user.id && canUserManageCandidate(rl, u));
+  }
+
+  function renderNode(user: (typeof salesOrgUsers)[number], isRoot = false): React.JSX.Element {
     const directReports = directReportsByManagerId.get(user.id) || [];
     const managerOptions = managerOptionsForUser(user);
     const currentManagerPublicId =
@@ -143,7 +181,11 @@ export default async function HierarchyPage({
                 ? "Invalid assignment: Reps must report to a Manager or Executive Manager."
                 : error === "manager_manager_must_be_exec"
                   ? "Invalid assignment: Managers must report to an Executive Manager (or be unassigned)."
-                  : "Could not save. Please review your selections and try again."}
+                  : error === "exec_manager_manager_must_be_exec_or_ceo"
+                    ? "Invalid assignment: Executive Managers must report to another Executive Manager or an Executive Dashboard Admin (CEO)."
+                    : error === "admin_exec_manager_invalid"
+                      ? "Invalid assignment: Executive Dashboard Admin must report to an allowed leader (Executive Dashboard Admin, Executive Manager, Manager, or Channel Executive/Director)."
+                      : "Could not save. Please review your selections and try again."}
           </div>
         ) : null}
 
@@ -160,7 +202,7 @@ export default async function HierarchyPage({
             </div>
           ) : (
             <div className="text-sm text-[color:var(--sf-text-secondary)]">
-              No Executive Managers found. Create an Executive Manager user first.
+              No users in the sales org tree yet. Add an Executive Dashboard Admin (CEO) and/or Executive Managers, then set reporting lines.
             </div>
           )}
 
