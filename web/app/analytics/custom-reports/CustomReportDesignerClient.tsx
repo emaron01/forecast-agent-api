@@ -108,6 +108,8 @@ function directoryRowLevel(row: RepDirectoryEntry): HierarchyLevel | null {
 }
 
 function isLeaderRow(row: RepDirectoryEntry) {
+  const hl = Number(row.hierarchy_level);
+  if (Number.isFinite(hl)) return [1, 2, 6, 7].includes(hl);
   const level = directoryRowLevel(row);
   return (
     isManagerLevel(level) ||
@@ -118,6 +120,8 @@ function isLeaderRow(row: RepDirectoryEntry) {
 }
 
 function isRepRow(row: RepDirectoryEntry) {
+  const hl = Number(row.hierarchy_level);
+  if (Number.isFinite(hl)) return [3, 8].includes(hl);
   const level = directoryRowLevel(row);
   return isRepLevel(level) || isChannelRepLevel(level);
 }
@@ -773,6 +777,12 @@ export function CustomReportDesignerClient(props: {
         continue;
       }
       if (isLeaderRow(d)) {
+        const hl = Number(d.hierarchy_level);
+        const own = byId.get(sid);
+        if (own && Number.isFinite(hl) && (hl === HIERARCHY.CHANNEL_EXEC || hl === HIERARCHY.CHANNEL_MANAGER)) {
+          out.push(own);
+          continue;
+        }
         const directDirReps = repDirectory.filter((r) => isRepRow(r) && r.manager_rep_id === d.id);
         const metricRows = directDirReps.map((r) => byId.get(String(r.id))).filter(Boolean) as RepRow[];
         const displayName = String(d.name || "").trim() || `Rep ${d.id}`;

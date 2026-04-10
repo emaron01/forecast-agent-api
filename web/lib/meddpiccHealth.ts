@@ -1,3 +1,4 @@
+import { channelDealScopeIsEmpty, channelDealScopeWhereStrict } from "./channelDealScope";
 import { pool } from "./pool";
 
 export type RepMeddpiccAveragesRow = {
@@ -92,5 +93,78 @@ export async function getMeddpiccAveragesByRepByPeriods(args: {
     ]
   );
   return (rows || []) as any[];
+}
+
+export type MeddpiccAggregatedRow = Omit<RepMeddpiccAveragesRow, "rep_id">;
+
+export async function getMeddpiccAggregatedByChannelDealScope(args: {
+  orgId: number;
+  periodIds: string[];
+  territoryRepIds: number[];
+  partnerNames: string[];
+  dateStart?: string | null;
+  dateEnd?: string | null;
+}): Promise<MeddpiccAggregatedRow | null> {
+  if (!args.periodIds.length) return null;
+  const tr = args.territoryRepIds.filter((id) => Number.isFinite(id) && id > 0);
+  const pn = args.partnerNames.map((s) => String(s).trim().toLowerCase()).filter(Boolean);
+  if (channelDealScopeIsEmpty(tr, pn)) return null;
+
+  const scopeSql = channelDealScopeWhereStrict(3, 4);
+  const { rows } = await pool.query<MeddpiccAggregatedRow>(
+    `
+    WITH periods AS (
+      SELECT
+        id::bigint AS quota_period_id,
+        period_start::date AS period_start,
+        period_end::date AS period_end,
+        GREATEST(period_start::date, COALESCE($5::date, period_start::date)) AS range_start,
+        LEAST(period_end::date, COALESCE($6::date, period_end::date)) AS range_end
+      FROM quota_periods
+      WHERE org_id = $1::bigint
+        AND id = ANY($2::bigint[])
+    ),
+    base AS (
+      SELECT
+        p.quota_period_id::text AS quota_period_id,
+        o.pain_score,
+        o.metrics_score,
+        o.champion_score,
+        o.eb_score,
+        o.competition_score,
+        o.criteria_score,
+        o.process_score,
+        o.paper_score,
+        o.timing_score,
+        o.budget_score
+      FROM periods p
+      JOIN opportunities o
+        ON o.org_id = $1
+       AND o.rep_id IS NOT NULL
+       AND o.close_date IS NOT NULL
+       AND o.close_date >= p.range_start
+       AND o.close_date <= p.range_end
+       ${scopeSql}
+    )
+    SELECT
+      quota_period_id,
+      AVG(NULLIF(pain_score, 0))::float8 AS avg_pain,
+      AVG(NULLIF(metrics_score, 0))::float8 AS avg_metrics,
+      AVG(NULLIF(champion_score, 0))::float8 AS avg_champion,
+      AVG(NULLIF(eb_score, 0))::float8 AS avg_eb,
+      AVG(NULLIF(competition_score, 0))::float8 AS avg_competition,
+      AVG(NULLIF(criteria_score, 0))::float8 AS avg_criteria,
+      AVG(NULLIF(process_score, 0))::float8 AS avg_process,
+      AVG(NULLIF(paper_score, 0))::float8 AS avg_paper,
+      AVG(NULLIF(timing_score, 0))::float8 AS avg_timing,
+      AVG(NULLIF(budget_score, 0))::float8 AS avg_budget
+    FROM base
+    GROUP BY quota_period_id
+    ORDER BY quota_period_id DESC
+    LIMIT 1
+    `,
+    [args.orgId, args.periodIds, tr, pn, args.dateStart || null, args.dateEnd || null]
+  );
+  return (rows?.[0] as MeddpiccAggregatedRow) || null;
 }
 

@@ -35,15 +35,20 @@ export type RevenueIntelligenceProps = {
     name: string;
     role: string;
     manager_rep_id: number | null;
+    hierarchy_level?: number | null;
   }>;
 };
+
+type RepDirRow = RevenueIntelligenceProps["repDirectory"][number];
 
 function rowLevel(role: string | null | undefined) {
   return roleToHierarchyLevel(role);
 }
 
-function isLeaderRow(role: string | null | undefined) {
-  const level = rowLevel(role);
+function isLeaderRow(row: RepDirRow | null | undefined) {
+  const hl = Number(row?.hierarchy_level);
+  if (Number.isFinite(hl)) return [1, 2, 6, 7].includes(hl);
+  const level = rowLevel(row?.role);
   return (
     isManagerLevel(level) ||
     isExecManagerLevel(level) ||
@@ -52,8 +57,10 @@ function isLeaderRow(role: string | null | undefined) {
   );
 }
 
-function isRepRow(role: string | null | undefined) {
-  const level = rowLevel(role);
+function isRepRow(row: RepDirRow | null | undefined) {
+  const hl = Number(row?.hierarchy_level);
+  if (Number.isFinite(hl)) return [3, 8].includes(hl);
+  const level = rowLevel(row?.role);
   return isRepLevel(level) || isChannelRepLevel(level);
 }
 
@@ -365,21 +372,21 @@ function repSelectionReducer(state: RepSelectionState, action: RepSelectionActio
     case "quickAll":
       return {
         managers: new Set(
-          action.repDirectory.filter((r) => isLeaderRow(r.role)).map((r) => String(r.id))
+          action.repDirectory.filter((r) => isLeaderRow(r)).map((r) => String(r.id))
         ),
-        reps: new Set(action.repDirectory.filter((r) => isRepRow(r.role)).map((r) => String(r.id))),
+        reps: new Set(action.repDirectory.filter((r) => isRepRow(r)).map((r) => String(r.id))),
       };
     case "quickClear":
       return { managers: new Set(), reps: new Set() };
     case "quickRepsOnly":
       return {
         managers: new Set(),
-        reps: new Set(action.repDirectory.filter((r) => isRepRow(r.role)).map((r) => String(r.id))),
+        reps: new Set(action.repDirectory.filter((r) => isRepRow(r)).map((r) => String(r.id))),
       };
     case "quickLeadersOnly":
       return {
         managers: new Set(
-          action.repDirectory.filter((r) => isLeaderRow(r.role)).map((r) => String(r.id))
+          action.repDirectory.filter((r) => isLeaderRow(r)).map((r) => String(r.id))
         ),
         reps: new Set(),
       };
@@ -534,8 +541,8 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   }, []);
 
   const managerGroups = useMemo(() => {
-    const managers = repDirectory.filter((r) => isLeaderRow(r.role));
-    const dirReps = repDirectory.filter((r) => isRepRow(r.role));
+    const managers = repDirectory.filter((r) => isLeaderRow(r));
+    const dirReps = repDirectory.filter((r) => isRepRow(r));
     const groups = managers.map((mgr) => ({
       manager: mgr,
       reps: dirReps.filter((r) => r.manager_rep_id === mgr.id),
@@ -562,13 +569,13 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     const out = new Set<number>();
     for (const id of selectedRepIds) {
       const r = repDirectory.find((x) => String(x.id) === id);
-      if (isRepRow(r?.role)) out.add(r.id);
+      if (isRepRow(r)) out.add(r.id);
     }
     for (const mid of selectedManagerIds) {
       const m = repDirectory.find((x) => String(x.id) === mid);
       if (!m) continue;
       for (const r of repDirectory) {
-        if (isRepRow(r.role) && r.manager_rep_id === m.id) out.add(r.id);
+        if (isRepRow(r) && r.manager_rep_id === m.id) out.add(r.id);
       }
     }
     if (out.size === 0) return null;
@@ -615,7 +622,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
       const mgr = repDirectory.find((r) => String(r.id) === id);
       if (!mgr) return;
       const teamRepIds = repDirectory
-        .filter((r) => isRepRow(r.role) && r.manager_rep_id === mgr.id)
+        .filter((r) => isRepRow(r) && r.manager_rep_id === mgr.id)
         .map((r) => String(r.id));
       selections.push({
         label: `${mgr.name}'s Team`,
@@ -635,7 +642,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     if (selections.length === 0) {
       selections.push({
         label: "All Reps",
-        repIds: repDirectory.filter((r) => isRepRow(r.role)).map((r) => String(r.id)),
+        repIds: repDirectory.filter((r) => isRepRow(r)).map((r) => String(r.id)),
       });
     }
 

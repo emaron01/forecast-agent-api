@@ -1,13 +1,18 @@
 import "server-only";
 
 import type { AuthUser } from "./auth";
-import { getHealthAveragesByRepByPeriods } from "./analyticsHealth";
-import { getQuotaByRepPeriod, getRepKpisByPeriod } from "./executiveRepKpis";
-import { getMeddpiccAveragesByRepByPeriods } from "./meddpiccHealth";
+import { getHealthAggregatedByChannelDealScope, getHealthAveragesByRepByPeriods } from "./analyticsHealth";
+import { fetchChannelOrgDirectoryForViewer } from "./channelOrgDirectory";
 import { getChannelTerritoryRepIds } from "./channelTerritoryScope";
+import {
+  getAggregatedRepKpisByChannelDealScope,
+  getQuotaByRepPeriod,
+  getRepKpisByPeriod,
+} from "./executiveRepKpis";
+import { getMeddpiccAggregatedByChannelDealScope, getMeddpiccAveragesByRepByPeriods } from "./meddpiccHealth";
 import { pool } from "./pool";
 import { getScopedRepDirectory } from "./repScope";
-import { HIERARCHY, isChannelRole } from "./roleHelpers";
+import { HIERARCHY, isChannelExec, isChannelManager, isChannelRep, isChannelRole } from "./roleHelpers";
 
 type BuilderDirRow = {
   id: number;
@@ -160,12 +165,178 @@ export async function loadReportBuilderRepRowsForUser(args: {
     myRepId: null as number | null,
   }));
 
+  const { rows: periodRows } = await pool.query<{ period_name: string | null }>(
+    `SELECT period_name FROM quota_periods WHERE org_id = $1::bigint AND id = $2::bigint LIMIT 1`,
+    [orgId, selectedPeriodId]
+  );
+  const periodLabel = periodRows?.[0]?.period_name?.trim() || "Current Period";
+  const periodIds = [String(selectedPeriodId)];
+
+  function safeDivRb(n: number, d: number) {
+    if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) return null;
+    return n / d;
+  }
+
+  /** Channel exec/manager: org tree in UI; each row = that channel user's dashboard deal scope (same as /api/forecast/deals). */
+  if (isChannelExec(user) || isChannelManager(user)) {
+    const orgDir = await fetchChannelOrgDirectoryForViewer({ orgId, viewerUserId: user.id });
+    if (orgDir.length === 0) {
+      return { repRows: [], periodLabel };
+    }
+    const directoryInScope: BuilderDirRow[] = orgDir.map((r) => ({
+      id: r.id,
+      name: r.name,
+      manager_rep_id: r.manager_rep_id,
+      hierarchy_level: r.hierarchy_level,
+    }));
+
+    const rbRepIdToManagerId = new Map<string, string>();
+    const rbManagerNameById = new Map<string, string>();
+    for (const r of directoryInScope) {
+      rbRepIdToManagerId.set(String(r.id), r.manager_rep_id == null ? "" : String(r.manager_rep_id));
+    }
+    for (const r of directoryInScope) {
+      if (r.manager_rep_id != null) {
+        const mid = String(r.manager_rep_id);
+        if (!rbManagerNameById.has(mid)) {
+          const m = directoryInScope.find((x) => String(x.id) === mid);
+          rbManagerNameById.set(mid, m ? m.name : `Manager ${mid}`);
+        }
+      }
+    }
+
+    const reportBuilderRepRows = await Promise.all(
+      directoryInScope.map(async (opt) => {
+        const chScope = await getChannelTerritoryRepIds({
+          orgId,
+          channelUserId: opt.id,
+        }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }));
+        const tr = chScope.repIds.filter((id) => Number.isFinite(id) && id > 0);
+        const pn = chScope.partnerNames.map((s) => String(s).trim().toLowerCase()).filter(Boolean);
+
+        const [kpis, health, meddpicc, quotaByRepPeriod] = await Promise.all([
+          getAggregatedRepKpisByChannelDealScope({
+            orgId,
+            periodIds,
+            territoryRepIds: tr,
+            partnerNames: pn,
+          }),
+          getHealthAggregatedByChannelDealScope({
+            orgId,
+            periodIds,
+            territoryRepIds: tr,
+            partnerNames: pn,
+            dateStart: null,
+            dateEnd: null,
+          }),
+          getMeddpiccAggregatedByChannelDealScope({
+            orgId,
+            periodIds,
+            territoryRepIds: tr,
+            partnerNames: pn,
+            dateStart: null,
+            dateEnd: null,
+          }),
+          getQuotaByRepPeriod({
+            orgId,
+            quotaPeriodIds: periodIds,
+            repIds: tr.length > 0 ? tr : null,
+          }),
+        ]);
+
+        let quota = 0;
+        for (const q of quotaByRepPeriod || []) {
+          if (String(q.quota_period_id) === String(selectedPeriodId)) {
+            quota += Number(q.quota_amount || 0) || 0;
+          }
+        }
+
+        const rep_id = String(opt.id);
+        const c: any = kpis;
+        const won_amount = c != null && c.won_amount != null ? Number(c.won_amount) : 0;
+        const won_count = c != null && c.won_count != null ? Number(c.won_count) : 0;
+        const lost_count = c != null && c.lost_count != null ? Number(c.lost_count) : 0;
+        const active_amount = c != null && c.active_amount != null ? Number(c.active_amount) : 0;
+        const total_count = c != null && c.total_count != null ? Number(c.total_count) : 0;
+        const manager_id = rbRepIdToManagerId.get(rep_id) || "";
+        const manager_name = manager_id ? rbManagerNameById.get(manager_id) || `Manager ${manager_id}` : "(Unassigned)";
+        const commit_amount = c != null && c.commit_amount != null ? Number(c.commit_amount) : 0;
+        const best_amount = c != null && c.best_amount != null ? Number(c.best_amount) : 0;
+        const pipeline_amount = c != null && c.pipeline_amount != null ? Number(c.pipeline_amount) : 0;
+        const mixDen = pipeline_amount + best_amount + commit_amount + won_amount;
+
+        return {
+          rep_id,
+          rep_name: String(opt?.name || "").trim() || `User ${rep_id}`,
+          manager_id,
+          manager_name,
+          avg_health_all: health?.avg_health_all ?? null,
+          avg_health_commit: health?.avg_health_commit ?? null,
+          avg_health_best: health?.avg_health_best ?? null,
+          avg_health_pipeline: health?.avg_health_pipeline ?? null,
+          avg_health_won: health?.avg_health_won ?? null,
+          avg_health_closed: health?.avg_health_closed ?? null,
+          avg_pain: meddpicc?.avg_pain ?? null,
+          avg_metrics: meddpicc?.avg_metrics ?? null,
+          avg_champion: meddpicc?.avg_champion ?? null,
+          avg_eb: meddpicc?.avg_eb ?? null,
+          avg_competition: meddpicc?.avg_competition ?? null,
+          avg_criteria: meddpicc?.avg_criteria ?? null,
+          avg_process: meddpicc?.avg_process ?? null,
+          avg_paper: meddpicc?.avg_paper ?? null,
+          avg_timing: meddpicc?.avg_timing ?? null,
+          avg_budget: meddpicc?.avg_budget ?? null,
+          quota,
+          total_count,
+          won_amount,
+          won_count,
+          lost_count,
+          active_amount,
+          commit_amount,
+          best_amount,
+          pipeline_amount,
+          created_amount: 0,
+          created_count: 0,
+          win_rate: safeDivRb(won_count, won_count + lost_count),
+          opp_to_win: safeDivRb(won_count, total_count),
+          aov: safeDivRb(won_amount, won_count),
+          attainment: safeDivRb(won_amount, quota),
+          commit_coverage: safeDivRb(commit_amount, quota),
+          best_coverage: safeDivRb(best_amount, quota),
+          partner_contribution: safeDivRb(
+            c != null && c.partner_closed_amount != null ? Number(c.partner_closed_amount) : 0,
+            c != null && c.closed_amount != null ? Number(c.closed_amount) : 0
+          ),
+          partner_win_rate: safeDivRb(
+            c != null && c.partner_won_count != null ? Number(c.partner_won_count) : 0,
+            c != null && c.partner_closed_count != null ? Number(c.partner_closed_count) : 0
+          ),
+          avg_days_won: c?.avg_days_won == null ? null : Number(c.avg_days_won),
+          avg_days_lost: c?.avg_days_lost == null ? null : Number(c.avg_days_lost),
+          avg_days_active: c?.avg_days_active == null ? null : Number(c.avg_days_active),
+          mix_pipeline: safeDivRb(pipeline_amount, mixDen),
+          mix_best: safeDivRb(best_amount, mixDen),
+          mix_commit: safeDivRb(commit_amount, mixDen),
+          mix_won: safeDivRb(won_amount, mixDen),
+        };
+      })
+    );
+
+    reportBuilderRepRows.sort(
+      (a: any, b: any) =>
+        (b.won_amount != null ? Number(b.won_amount) : 0) - (a.won_amount != null ? Number(a.won_amount) : 0) ||
+        String(a.rep_name).localeCompare(String(b.rep_name))
+    );
+
+    return { repRows: reportBuilderRepRows, periodLabel };
+  }
+
   let visibleRepIds: number[];
   let repDirectoryForBuilder: typeof scope.repDirectory;
   let directoryInScope: BuilderDirRow[];
   const channelPartnerAttributedOnly = isChannelRole(user);
 
-  if (isChannelRole(user)) {
+  if (isChannelRep(user)) {
     const channelScope = await getChannelTerritoryRepIds({
       orgId,
       channelUserId: user.id,
@@ -184,17 +355,10 @@ export async function loadReportBuilderRepRowsForUser(args: {
   }
 
   if (visibleRepIds.length === 0) {
-    return { repRows: [], periodLabel: "—" };
+    return { repRows: [], periodLabel };
   }
 
-  const { rows: periodRows } = await pool.query<{ period_name: string | null }>(
-    `SELECT period_name FROM quota_periods WHERE org_id = $1::bigint AND id = $2::bigint LIMIT 1`,
-    [orgId, selectedPeriodId]
-  );
-  const periodLabel = periodRows?.[0]?.period_name?.trim() || "Current Period";
-
   const repIdsFilter = visibleRepIds;
-  const periodIds = [String(selectedPeriodId)];
   const [repKpisRows, quotaByRepPeriod, repHealthRows, meddpiccRows] = await Promise.all([
     getRepKpisByPeriod({
       orgId,
@@ -254,11 +418,6 @@ export async function loadReportBuilderRepRowsForUser(args: {
         rbManagerNameById.set(mid, m ? m.name : `Manager ${mid}`);
       }
     }
-  }
-
-  function safeDivRb(n: number, d: number) {
-    if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) return null;
-    return n / d;
   }
 
   let reportBuilderRepRows = directoryInScope.map((opt: any) => {

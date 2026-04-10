@@ -1,3 +1,4 @@
+import { channelDealScopeIsEmpty, channelDealScopeWhereStrict } from "./channelDealScope";
 import { pool } from "./pool";
 
 export type HealthAveragesRow = {
@@ -169,5 +170,81 @@ export async function getHealthAveragesByRepByPeriods(args: {
     ]
   );
   return (rows || []) as any[];
+}
+
+/** Single aggregate health row for one channel deal scope (matches /api/forecast/deals). */
+export async function getHealthAggregatedByChannelDealScope(args: {
+  orgId: number;
+  periodIds: string[];
+  territoryRepIds: number[];
+  partnerNames: string[];
+  dateStart?: string | null;
+  dateEnd?: string | null;
+}): Promise<HealthAveragesRow | null> {
+  if (!args.periodIds.length) return null;
+  const tr = args.territoryRepIds.filter((id) => Number.isFinite(id) && id > 0);
+  const pn = args.partnerNames.map((s) => String(s).trim().toLowerCase()).filter(Boolean);
+  if (channelDealScopeIsEmpty(tr, pn)) return null;
+
+  const scopeSql = channelDealScopeWhereStrict(3, 4);
+  const { rows } = await pool.query<HealthAveragesRow>(
+    `
+    WITH periods AS (
+      SELECT
+        id::bigint AS quota_period_id,
+        period_start::date AS period_start,
+        period_end::date AS period_end,
+        GREATEST(period_start::date, COALESCE($5::date, period_start::date)) AS range_start,
+        LEAST(period_end::date, COALESCE($6::date, period_end::date)) AS range_end
+      FROM quota_periods
+      WHERE org_id = $1::bigint
+        AND id = ANY($2::bigint[])
+    ),
+    base AS (
+      SELECT
+        p.quota_period_id::text AS quota_period_id,
+        COALESCE(o.health_score, 0)::float8 AS health_score,
+        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+      FROM periods p
+      JOIN opportunities o
+        ON o.org_id = $1
+       AND o.rep_id IS NOT NULL
+       AND o.close_date IS NOT NULL
+       AND o.close_date >= p.range_start
+       AND o.close_date <= p.range_end
+       ${scopeSql}
+    ),
+    classified AS (
+      SELECT
+        *,
+        ((' ' || fs || ' ') LIKE '% won %') AS is_won,
+        (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
+        CASE
+          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %') AND fs LIKE '%commit%') THEN 'commit'
+          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %') AND fs LIKE '%best%') THEN 'best'
+          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %')) THEN 'pipeline'
+          WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 'won'
+          WHEN (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) THEN 'lost'
+          ELSE 'other'
+        END AS bucket
+      FROM base
+    )
+    SELECT
+      quota_period_id,
+      AVG(CASE WHEN health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_all,
+      AVG(CASE WHEN bucket = 'commit' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_commit,
+      AVG(CASE WHEN bucket = 'best' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_best,
+      AVG(CASE WHEN bucket = 'pipeline' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_pipeline,
+      AVG(CASE WHEN is_won AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_won,
+      AVG(CASE WHEN is_lost AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_lost,
+      AVG(CASE WHEN (is_won OR is_lost) AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_closed
+    FROM classified
+    GROUP BY quota_period_id
+    ORDER BY quota_period_id DESC
+    LIMIT 1
+    `,
+    [args.orgId, args.periodIds, tr, pn, args.dateStart || null, args.dateEnd || null]
+  );
+  return (rows?.[0] as HealthAveragesRow) || null;
 }
 

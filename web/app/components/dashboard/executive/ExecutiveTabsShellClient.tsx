@@ -778,6 +778,7 @@ export function ExecutiveTabsShellClient(props: {
     name: string;
     manager_rep_id: number | null;
     role: string;
+    hierarchy_level?: number | null;
   }>;
   reportBuilderQuotaPeriods: { id: string; name: string }[];
   reportBuilderOrgId: number;
@@ -789,6 +790,7 @@ export function ExecutiveTabsShellClient(props: {
     name: string;
     role: string;
     manager_rep_id: number | null;
+    hierarchy_level?: number | null;
   }>;
 }) {
   const router = useRouter();

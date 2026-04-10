@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "../../../../lib/auth";
+import {
+  channelDealScopeIsEmpty,
+  channelDealScopeWhereMerged,
+  channelDealScopeWhereStrict,
+} from "../../../../lib/channelDealScope";
+import { filterChannelUserIdsUnderViewer } from "../../../../lib/channelOrgDirectory";
 import { getChannelTerritoryRepIds } from "../../../../lib/channelTerritoryScope";
 import { pool } from "../../../../lib/pool";
 import { isChannelRole } from "../../../../lib/roleHelpers";
@@ -115,65 +121,131 @@ export async function POST(req: Request) {
   const bucketsRaw = parsed.data.buckets.slice().sort((a, b) => Number(a.min) - Number(b.min));
   const quarterIds = parsed.data.quarterIds.map((s) => String(s));
   let repIds: string[] | null = parsed.data.repIds ? parsed.data.repIds.map((s) => String(s)) : null;
-  let requirePartnerName = false;
+
+  let territoryRepIds: number[] = [];
+  let partnerNames: string[] = [];
+  let channelScopeSql = "";
+  let queryParams: unknown[] = [];
+  let rows: OppRow[] = [];
 
   if (isChannelRole(ctx.user)) {
-    const channelScope = await getChannelTerritoryRepIds({
-      orgId: ctx.user.org_id,
-      channelUserId: ctx.user.id,
-    }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }));
-    const allowedIds = channelScope.repIds.filter((id) => Number.isFinite(id) && id > 0);
-    const allowedSet = new Set(allowedIds.map(String));
-    if (allowedIds.length > 0) {
-      if (repIds && repIds.length > 0) {
-        repIds = repIds.filter((id) => allowedSet.has(String(id)));
-      } else {
-        repIds = allowedIds.map(String);
-      }
-    } else {
-      repIds = [];
-    }
-    requirePartnerName = true;
-  }
+    const explicitChannelUserIds =
+      repIds && repIds.length > 0
+        ? repIds.map((s) => Number(s)).filter((n) => Number.isFinite(n) && n > 0)
+        : [];
 
-  const { rows } = await pool.query<OppRow>(
-    `
-    SELECT
-      o.id,
-      o.amount,
-      o.forecast_stage,
-      o.sales_stage,
-      o.product,
-      o.health_score,
-      o.pain_score, o.metrics_score,
-      o.champion_score, o.eb_score,
-      o.criteria_score, o.process_score,
-      o.competition_score, o.paper_score,
-      o.timing_score, o.budget_score,
-      o.create_date,
-      o.close_date,
-      qp.id::text as quarter_id,
-      qp.period_name
-    FROM opportunities o
-    JOIN quota_periods qp
-      ON o.org_id = qp.org_id
-      AND o.close_date >= qp.period_start
-      AND o.close_date <= qp.period_end
-    WHERE o.org_id = $1
-      AND qp.id = ANY($2::bigint[])
-      AND (
-        $3::bigint[] IS NULL OR
-        o.rep_id = ANY($3::bigint[])
-      )
-      AND (
-        NOT $4::boolean OR (
-          o.partner_name IS NOT NULL
-          AND btrim(o.partner_name) <> ''
+    if (explicitChannelUserIds.length > 0) {
+      const allowedUserIds = await filterChannelUserIdsUnderViewer({
+        orgId,
+        viewerUserId: ctx.user.id,
+        candidateUserIds: explicitChannelUserIds,
+      });
+      const territories = await Promise.all(
+        allowedUserIds.map((channelUserId) =>
+          getChannelTerritoryRepIds({ orgId, channelUserId }).catch(() => ({
+            repIds: [] as number[],
+            partnerNames: [] as string[],
+          }))
         )
-      )
-    `,
-    [orgId, quarterIds, repIds, requirePartnerName]
-  );
+      );
+      const tSet = new Set<number>();
+      const pSet = new Set<string>();
+      for (const s of territories) {
+        s.repIds.forEach((id) => {
+          if (Number.isFinite(id) && id > 0) tSet.add(id);
+        });
+        s.partnerNames.forEach((n) => {
+          const x = String(n).trim().toLowerCase();
+          if (x) pSet.add(x);
+        });
+      }
+      territoryRepIds = Array.from(tSet);
+      partnerNames = Array.from(pSet);
+      channelScopeSql = channelDealScopeWhereMerged(3, 4);
+    } else {
+      const channelScope = await getChannelTerritoryRepIds({
+        orgId: ctx.user.org_id,
+        channelUserId: ctx.user.id,
+      }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }));
+      territoryRepIds = channelScope.repIds.filter((id) => Number.isFinite(id) && id > 0);
+      partnerNames = channelScope.partnerNames.map((n) => String(n).trim().toLowerCase()).filter(Boolean);
+      channelScopeSql = channelDealScopeWhereStrict(3, 4);
+    }
+
+    if (channelDealScopeIsEmpty(territoryRepIds, partnerNames)) {
+      rows = [];
+    } else {
+      queryParams = [orgId, quarterIds, territoryRepIds, partnerNames];
+      const res = await pool.query<OppRow>(
+        `
+        SELECT
+          o.id,
+          o.amount,
+          o.forecast_stage,
+          o.sales_stage,
+          o.product,
+          o.health_score,
+          o.pain_score, o.metrics_score,
+          o.champion_score, o.eb_score,
+          o.criteria_score, o.process_score,
+          o.competition_score, o.paper_score,
+          o.timing_score, o.budget_score,
+          o.create_date,
+          o.close_date,
+          qp.id::text as quarter_id,
+          qp.period_name
+        FROM opportunities o
+        JOIN quota_periods qp
+          ON o.org_id = qp.org_id
+          AND o.close_date >= qp.period_start
+          AND o.close_date <= qp.period_end
+        WHERE o.org_id = $1
+          AND qp.id = ANY($2::bigint[])
+          ${channelScopeSql}
+        `,
+        queryParams
+      );
+      rows = (res.rows || []) as OppRow[];
+    }
+  } else {
+    const repIdsNum: number[] | null =
+      repIds && repIds.length > 0
+        ? repIds.map((s) => Number(s)).filter((n) => Number.isFinite(n) && n > 0)
+        : null;
+    const res = await pool.query<OppRow>(
+      `
+      SELECT
+        o.id,
+        o.amount,
+        o.forecast_stage,
+        o.sales_stage,
+        o.product,
+        o.health_score,
+        o.pain_score, o.metrics_score,
+        o.champion_score, o.eb_score,
+        o.criteria_score, o.process_score,
+        o.competition_score, o.paper_score,
+        o.timing_score, o.budget_score,
+        o.create_date,
+        o.close_date,
+        qp.id::text as quarter_id,
+        qp.period_name
+      FROM opportunities o
+      JOIN quota_periods qp
+        ON o.org_id = qp.org_id
+        AND o.close_date >= qp.period_start
+        AND o.close_date <= qp.period_end
+      WHERE o.org_id = $1
+        AND qp.id = ANY($2::bigint[])
+        AND (
+          $3::bigint[] IS NULL OR
+          o.rep_id = ANY($3::bigint[])
+        )
+      `,
+      [orgId, quarterIds, repIdsNum && repIdsNum.length > 0 ? repIdsNum : null]
+    );
+    rows = (res.rows || []) as OppRow[];
+  }
 
   const quartersById = new Map<string, string>();
   for (const r of rows || []) {

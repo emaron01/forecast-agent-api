@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requireAuth } from "../../../lib/auth";
 import { getOrganization } from "../../../lib/db";
 import { pool } from "../../../lib/pool";
+import { fetchChannelOrgDirectoryForViewer } from "../../../lib/channelOrgDirectory";
 import { getChannelTerritoryRepIds } from "../../../lib/channelTerritoryScope";
 import { getScopedRepDirectory, type RepDirectoryRow } from "../../../lib/repScope";
 import { getChannelDashboardSummary, loadChannelRepFyQuarterRows, loadChannelRepWonDeals, deduplicateWonDeals, type ChannelRepFyQuarterRow } from "../../../lib/channelDashboard";
@@ -1575,42 +1576,16 @@ export default async function ChannelDashboardPage({
     repFyQuarterRows: channelFyQuarterRows,
   };
 
-  // Report Builder + RI: picker = territory sales reps (L3) + their direct sales managers (L1/L2).
-  // getChannelTerritoryRepIds returns the full sales subtree (hierarchy 1–3), so IDs can include
-  // CRO/exec nodes; we must not surface them unless they directly manage a territory rep.
-  const territorySalesRepIds = new Set(
-    summary.repDirectory
-      .filter((r) => territoryRepIds.includes(r.id) && Number(r.hierarchy_level) === HIERARCHY.REP)
-      .map((r) => r.id)
-  );
-
-  const reportBuilderDirectory = summary.repDirectory
-    .filter((r) => {
-      const level = Number(r.hierarchy_level);
-      const isSalesLevel =
-        level >= HIERARCHY.EXEC_MANAGER && level <= HIERARCHY.REP;
-      if (!isSalesLevel) return false;
-
-      if (level === HIERARCHY.REP && territoryRepIds.includes(r.id)) {
-        return true;
-      }
-      if (
-        (level === HIERARCHY.EXEC_MANAGER || level === HIERARCHY.MANAGER) &&
-        summary.repDirectory.some(
-          (rep) => territorySalesRepIds.has(rep.id) && rep.manager_rep_id === r.id
-        )
-      ) {
-        return true;
-      }
-      return false;
-    })
-    .map((r) => ({
+  // Report Builder + RI: channel org tree (users.id) — same subtree as SQL spec; data scope is per-user getChannelTerritoryRepIds on the server.
+  const channelOrgDirectory = (await fetchChannelOrgDirectoryForViewer({ orgId, viewerUserId: ctx.user.id })).map(
+    (r) => ({
       id: r.id,
       name: r.name,
       manager_rep_id: r.manager_rep_id ?? null,
-      role: r.role ?? "REP",
+      role: r.role ?? "CHANNEL_REP",
       hierarchy_level: r.hierarchy_level ?? null,
-    }));
+    })
+  );
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -1709,7 +1684,7 @@ export default async function ChannelDashboardPage({
                 reportBuilderRepRows={[]}
                 reportBuilderSavedReports={[]}
                 reportBuilderPeriodLabel={selectedPeriod?.period_name ?? ""}
-                reportBuilderRepDirectory={reportBuilderDirectory}
+                reportBuilderRepDirectory={channelOrgDirectory}
                 reportBuilderQuotaPeriods={(channelSummary?.periods ?? summary.periods).map((p) => ({
                   id: String(p.id),
                   name: p.period_name ?? String(p.id),
@@ -1723,7 +1698,7 @@ export default async function ChannelDashboardPage({
                   name: p.period_name,
                   fiscal_year: String(p.fiscal_year ?? ""),
                 }))}
-                revenueIntelligenceRepDirectory={reportBuilderDirectory}
+                revenueIntelligenceRepDirectory={channelOrgDirectory}
                 showChannelContribution={ledFedRows.length > 0}
                 channelContributionHero={partnerHero}
                 channelContributionRows={ledFedRows}
