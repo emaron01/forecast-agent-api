@@ -86,13 +86,13 @@ export default async function ExecutiveDashboardPage({
       myRepId: null as number | null,
     }));
 
+    const repDirectory = scope.repDirectory.filter((r) => r.active !== false);
+
     const visibleRepIds: number[] =
       scope.allowedRepIds !== null && scope.allowedRepIds.length > 0
-        ? scope.allowedRepIds
-        : scope.repDirectory.map((r) => r.id).filter((n) => Number.isFinite(n) && n > 0);
+        ? scope.allowedRepIds.filter((id) => repDirectory.some((r) => r.id === id))
+        : repDirectory.map((r) => r.id).filter((n) => Number.isFinite(n) && n > 0);
     const visibleRepIdsForQuery = visibleRepIds.length > 0 ? visibleRepIds : [-1];
-
-    const repDirectory = scope.repDirectory;
     const teamRepIds = repDirectory.map((r) => r.id).filter((n) => Number.isFinite(n) && n > 0);
     const teamRepIdsForQuery = teamRepIds.length > 0 ? teamRepIds : [-1];
 
@@ -984,7 +984,14 @@ export default async function ExecutiveDashboardPage({
       });
     }
 
-    return out;
+    const seenFinal = new Set<number>();
+    const deduped: typeof out = [];
+    for (const row of out) {
+      if (seenFinal.has(row.id)) continue;
+      seenFinal.add(row.id);
+      deduped.push(row);
+    }
+    return deduped;
   })();
 
   const periodLabel = selectedPeriodForTeam?.period_name ?? "Current Period";
