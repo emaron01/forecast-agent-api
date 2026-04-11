@@ -109,13 +109,6 @@ function fmtMoney(n: unknown) {
   return `$${Math.round(v)}`;
 }
 
-function normalizeRepName(name: unknown): string {
-  return String(name || "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase();
-}
-
 function avgCoverage(rows: CoverageHygieneRow[]): number {
   const pcts = rows.map((r) => r.coverage_pct).filter((p): p is number => p != null && Number.isFinite(p));
   if (!pcts.length) return 0;
@@ -179,11 +172,7 @@ export function buildRepCoachingData(
       prog?.repName ??
       coachingRepRows?.find((r) => String(r.rep_id) === repIdKey)?.rep_name ??
       `Rep ${repIdKey}`;
-    const repNameKey = normalizeRepName(repName);
-    const cr =
-      coachingRepRows?.find(
-        (r) => String(r.rep_id) === String(repIdKey) || normalizeRepName(r.rep_name) === repNameKey
-      ) ?? null;
+    const cr = coachingRepRows?.find((r) => String(r.rep_id) === repIdKey) ?? null;
 
     const coverage_pct = cov?.coverage_pct ?? 0;
     const total_opps = cov?.total_opps ?? 0;
@@ -402,9 +391,7 @@ function buildManagerCoachingTeams(
 
   const byMid = new Map<string, RepCoachingData[]>();
   for (const rep of repCoaching) {
-    const repNameKey = normalizeRepName(rep.rep_name);
-    const cr =
-      crRows.find((r) => String(r.rep_id) === rep.rep_id || normalizeRepName(r.rep_name) === repNameKey) ?? null;
+    const cr = crRows.find((r) => String(r.rep_id) === String(rep.rep_id)) ?? null;
     const bucket = coachingBucketForRow(cr);
     if (!byMid.has(bucket)) byMid.set(bucket, []);
     byMid.get(bucket)!.push(rep);
