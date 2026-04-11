@@ -1,14 +1,21 @@
 import type { RepManagerManagerRow, RepManagerRepRow } from "../app/components/dashboard/executive/RepManagerComparisonPanel";
-import { getCreatedByRep, getQuotaByRepPeriod, getRepKpisByPeriod } from "./executiveRepKpis";
+import {
+  getCreatedByRep,
+  getQuotaByRepPeriod,
+  getRepKpisByPeriod,
+  type RepPeriodKpisRow,
+} from "./executiveRepKpis";
 import type { RepDirectoryRow } from "./repScope";
 
-export type BuildTeamRepSetArgs = {
+export type BuildOrgSubtreeArgs = {
   orgId: number;
-  repDirectory: RepDirectoryRow[];
   viewerRepId: number | null;
+  repDirectory: RepDirectoryRow[];
   selectedPeriodId: string;
   comparePeriodIds: string[];
   prevPeriodId: string;
+  /** Passed through to KPI SQL (partner-scoped opportunities only when true). */
+  requirePartnerName?: boolean;
 };
 
 function safeDiv(n: number, d: number): number | null {
@@ -16,25 +23,83 @@ function safeDiv(n: number, d: number): number | null {
   return n / d;
 }
 
+function managerIdKeyForRep(r: RepDirectoryRow, viewerRepId: number | null): string {
+  if (r.manager_rep_id == null) return "";
+  if (viewerRepId != null && Number(viewerRepId) > 0 && r.manager_rep_id === viewerRepId) {
+    return String(viewerRepId);
+  }
+  return String(r.manager_rep_id);
+}
+
+function aggregateDirectReportsToManagerRow(
+  direct: RepManagerRepRow[],
+  repKpisByKey: Map<string, RepPeriodKpisRow>,
+  selectedPeriodId: string
+): Omit<RepManagerManagerRow, "manager_id" | "manager_name"> {
+  let quota = 0;
+  let won_amount = 0;
+  let won_count = 0;
+  let lost_count = 0;
+  let active_amount = 0;
+  let partner_closed_amount = 0;
+  let closed_amount = 0;
+  for (const repRow of direct) {
+    quota += Number(repRow.quota) || 0;
+    won_amount += Number(repRow.won_amount) || 0;
+    won_count += Number(repRow.won_count) || 0;
+    const ck = `${selectedPeriodId}|${String(repRow.rep_id)}`;
+    const c = repKpisByKey.get(ck);
+    lost_count += Number(c?.lost_count || 0) || 0;
+    active_amount += Number(repRow.active_amount) || 0;
+    partner_closed_amount += Number((c as { partner_closed_amount?: number })?.partner_closed_amount || 0) || 0;
+    closed_amount += Number((c as { closed_amount?: number })?.closed_amount || 0) || 0;
+  }
+  return {
+    quota,
+    won_amount,
+    active_amount,
+    attainment: safeDiv(won_amount, quota),
+    win_rate: safeDiv(won_count, won_count + lost_count),
+    partner_contribution: safeDiv(partner_closed_amount, closed_amount),
+  };
+}
+
 /**
- * Single source for Team Performance and Coaching: rep rows + manager rollups from scoped
- * repDirectory (manager_rep_id chains only; KPI scope = all rep ids in directory).
+ * Team Performance + Coaching: org tree from reps.manager_rep_id only (no hierarchy_level).
+ * Viewer rep is omitted from rep cards; never receives a manager rollup card.
  */
-export async function buildTeamAndCoachingRepSet(args: BuildTeamRepSetArgs): Promise<{
+export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
   repRows: RepManagerRepRow[];
   managerRows: RepManagerManagerRow[];
 }> {
-  const { orgId, repDirectory, viewerRepId, selectedPeriodId, comparePeriodIds, prevPeriodId } = args;
+  const {
+    orgId,
+    repDirectory,
+    viewerRepId,
+    selectedPeriodId,
+    comparePeriodIds,
+    prevPeriodId,
+    requirePartnerName = false,
+  } = args;
 
   if (!selectedPeriodId || !comparePeriodIds.length) {
     return { repRows: [], managerRows: [] };
   }
 
-  const teamRepIds = repDirectory.map((r) => r.id).filter((n) => Number.isFinite(n) && n > 0);
-  const scopeRepIdsForKpi = teamRepIds.length > 0 ? teamRepIds : null;
+  const viewerId = viewerRepId != null && Number.isFinite(viewerRepId) && viewerRepId > 0 ? viewerRepId : null;
+
+  const repIds = repDirectory
+    .map((r) => r.id)
+    .filter((id) => Number.isFinite(id) && id > 0 && (viewerId == null || id !== viewerId));
+  const scopeRepIdsForKpi = repIds.length > 0 ? repIds : [-1];
 
   const [repKpisRows, createdByRepRows, quotaByRepPeriod] = await Promise.all([
-    getRepKpisByPeriod({ orgId, periodIds: comparePeriodIds, repIds: scopeRepIdsForKpi }),
+    getRepKpisByPeriod({
+      orgId,
+      periodIds: comparePeriodIds,
+      repIds: scopeRepIdsForKpi,
+      requirePartnerName,
+    }),
     getCreatedByRep({ orgId, periodIds: comparePeriodIds, repIds: scopeRepIdsForKpi }),
     getQuotaByRepPeriod({ orgId, quotaPeriodIds: comparePeriodIds, repIds: scopeRepIdsForKpi }),
   ]);
@@ -45,12 +110,17 @@ export async function buildTeamAndCoachingRepSet(args: BuildTeamRepSetArgs): Pro
     managerNameById.set(id, String(r.name || "").trim() || `Rep ${r.id}`);
   }
 
+  const repDirectoryById = new Map<number, RepDirectoryRow>();
+  for (const r of repDirectory) {
+    if (Number.isFinite(r.id) && r.id > 0) repDirectoryById.set(r.id, r);
+  }
+
   const quotaByRepPeriodMap = new Map<string, number>();
   for (const q of quotaByRepPeriod) {
     const k = `${String(q.quota_period_id)}|${String(q.rep_id)}`;
     quotaByRepPeriodMap.set(k, Number(q.quota_amount || 0) || 0);
   }
-  const repKpisByKey = new Map<string, (typeof repKpisRows)[number]>();
+  const repKpisByKey = new Map<string, RepPeriodKpisRow>();
   for (const r of repKpisRows) {
     repKpisByKey.set(`${String(r.quota_period_id)}|${String(r.rep_id)}`, r);
   }
@@ -64,12 +134,14 @@ export async function buildTeamAndCoachingRepSet(args: BuildTeamRepSetArgs): Pro
   }
 
   const repIdsInData = new Set<string>();
-  for (const r of repDirectory) repIdsInData.add(String(r.id));
+  for (const id of repIds) repIdsInData.add(String(id));
   for (const r of repKpisRows) repIdsInData.add(String(r.rep_id));
   for (const q of quotaByRepPeriod) repIdsInData.add(String(q.rep_id));
 
   const repRowsBuild: RepManagerRepRow[] = [];
   for (const rep_id of repIdsInData) {
+    if (viewerId != null && String(rep_id) === String(viewerId)) continue;
+
     const currK = `${selectedPeriodId}|${rep_id}`;
     const prevK = prevPeriodId ? `${prevPeriodId}|${rep_id}` : "";
     const c = repKpisByKey.get(currK) || null;
@@ -104,12 +176,12 @@ export async function buildTeamAndCoachingRepSet(args: BuildTeamRepSetArgs): Pro
     const prevAttainment = p ? safeDiv(Number(p.won_amount || 0) || 0, prevQuotaForRep) : null;
 
     const created = createdByKey.get(currK) || { created_amount: 0, created_count: 0 };
-    const dirEntry = repDirectory.find((x) => String(x.id) === String(rep_id));
-    const manager_id =
-      dirEntry?.manager_rep_id != null && Number.isFinite(Number(dirEntry.manager_rep_id)) && Number(dirEntry.manager_rep_id) > 0
-        ? String(dirEntry.manager_rep_id)
-        : "";
-    const manager_name = manager_id ? managerNameById.get(manager_id) || `Manager ${manager_id}` : "(Unassigned)";
+    const dirEntry = repDirectoryById.get(Number(rep_id));
+    const manager_id = dirEntry ? managerIdKeyForRep(dirEntry, viewerId) : "";
+    const manager_name =
+      manager_id === ""
+        ? "(Unassigned)"
+        : managerNameById.get(manager_id) || `Manager ${manager_id}`;
 
     const mixDen = pipeline_amount + best_amount + commit_amount + won_amount;
     const mix_pipeline = safeDiv(pipeline_amount, mixDen);
@@ -160,62 +232,44 @@ export async function buildTeamAndCoachingRepSet(args: BuildTeamRepSetArgs): Pro
 
   repRowsBuild.sort((a, b) => (Number(b.attainment ?? -1) - Number(a.attainment ?? -1)) || a.rep_name.localeCompare(b.rep_name));
 
-  const managerAgg = new Map<
-    string,
-    {
-      quota: number;
-      won_amount: number;
-      won_count: number;
-      lost_count: number;
-      active_amount: number;
-      partner_closed_amount: number;
-      closed_amount: number;
+  const managerRepIds = new Set<number>();
+  for (const r of repDirectory) {
+    if (viewerId != null && r.id === viewerId) continue;
+    const m = r.manager_rep_id;
+    if (m != null && Number.isFinite(Number(m)) && Number(m) > 0) {
+      managerRepIds.add(Number(m));
     }
-  >();
-  for (const repRow of repRowsBuild) {
-    const mid = String(repRow.manager_id || "").trim();
-    const a = managerAgg.get(mid) || {
-      quota: 0,
-      won_amount: 0,
-      won_count: 0,
-      lost_count: 0,
-      active_amount: 0,
-      partner_closed_amount: 0,
-      closed_amount: 0,
-    };
-    a.quota += repRow.quota;
-    a.won_amount += repRow.won_amount;
-    a.won_count += repRow.won_count;
-    const ck = `${selectedPeriodId}|${String(repRow.rep_id)}`;
-    const c = repKpisByKey.get(ck);
-    a.lost_count += Number(c?.lost_count || 0) || 0;
-    a.active_amount += repRow.active_amount;
-    a.partner_closed_amount += Number((c as { partner_closed_amount?: number })?.partner_closed_amount || 0) || 0;
-    a.closed_amount += Number((c as { closed_amount?: number })?.closed_amount || 0) || 0;
-    managerAgg.set(mid, a);
   }
-
-  const viewerRepStr =
-    viewerRepId != null && Number.isFinite(viewerRepId) && viewerRepId > 0 ? String(viewerRepId) : "";
 
   const managerRowsBuild: RepManagerManagerRow[] = [];
-  for (const [manager_id, agg] of managerAgg.entries()) {
-    if (viewerRepStr && String(manager_id) === viewerRepStr) continue;
-    const manager_name = manager_id ? managerNameById.get(manager_id) || `Manager ${manager_id}` : "(Unassigned)";
-    const attainment = safeDiv(agg.won_amount, agg.quota);
-    const win_rate = safeDiv(agg.won_count, agg.won_count + agg.lost_count);
-    const partner_contribution = safeDiv(agg.partner_closed_amount, agg.closed_amount);
+
+  const midsSorted = Array.from(managerRepIds).sort((a, b) => a - b);
+  for (const mid of midsSorted) {
+    if (viewerId != null && mid === viewerId) continue;
+    const direct = repRowsBuild.filter((row) => {
+      const d = repDirectoryById.get(Number(row.rep_id));
+      return d != null && d.manager_rep_id === mid;
+    });
+    if (!direct.length) continue;
     managerRowsBuild.push({
-      manager_id,
-      manager_name,
-      quota: agg.quota,
-      won_amount: agg.won_amount,
-      active_amount: agg.active_amount,
-      attainment,
-      win_rate,
-      partner_contribution,
+      manager_id: String(mid),
+      manager_name: managerNameById.get(String(mid)) || `Manager ${mid}`,
+      ...aggregateDirectReportsToManagerRow(direct, repKpisByKey, selectedPeriodId),
     });
   }
+
+  const unassignedDirect = repRowsBuild.filter((row) => {
+    const d = repDirectoryById.get(Number(row.rep_id));
+    return d != null && d.manager_rep_id == null;
+  });
+  if (unassignedDirect.length > 0) {
+    managerRowsBuild.push({
+      manager_id: "",
+      manager_name: "(Unassigned)",
+      ...aggregateDirectReportsToManagerRow(unassignedDirect, repKpisByKey, selectedPeriodId),
+    });
+  }
+
   managerRowsBuild.sort(
     (a, b) =>
       (Number(b.attainment ?? -1) - Number(a.attainment ?? -1)) ||

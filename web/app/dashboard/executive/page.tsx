@@ -16,7 +16,7 @@ import type {
 import { normalizeExecTab, resolveDashboardTab, type ExecTabKey } from "../../actions/execTabConstants";
 import { setExecDefaultTabAction } from "../../actions/execTabPreferences";
 import { getCreatedByRep, getQuotaByRepPeriod, getRepKpisByPeriod } from "../../../lib/executiveRepKpis";
-import { buildTeamAndCoachingRepSet } from "../../../lib/teamRepSet";
+import { buildOrgSubtree } from "../../../lib/teamRepSet";
 import {
   loadChannelLedFedRows,
   loadChannelPartnerHeroProps,
@@ -110,12 +110,9 @@ export default async function ExecutiveDashboardPage({
         arr.push(r.id);
       }
     }
-    const leaders = repDirectory
-      .filter(
-        (r) =>
-          (Number(r.hierarchy_level) === HIERARCHY.EXEC_MANAGER || Number(r.hierarchy_level) === HIERARCHY.MANAGER) &&
-          (childrenByManagerRepId.get(r.id)?.length ?? 0) > 0
-      )
+    /** Subtree rollups: any rep with at least one child in reps.manager_rep_id (no hierarchy_level). */
+    const subtreeManagers = repDirectory
+      .filter((r) => (childrenByManagerRepId.get(r.id)?.length ?? 0) > 0)
       .map((r) => ({ id: r.id, display_name: r.name }))
       .sort((a, b) => a.display_name.localeCompare(b.display_name, "en", { sensitivity: "base" }));
 
@@ -137,26 +134,11 @@ export default async function ExecutiveDashboardPage({
       return out;
     }
 
-    const leaderRepIds = new Map<number, number[]>();
-    for (const leader of leaders) {
-      const repIds = getSubtreeRepIds(leader.id);
-      if (repIds.length > 0) leaderRepIds.set(leader.id, repIds);
+    const subtreeManagerRepIds = new Map<number, number[]>();
+    for (const mgr of subtreeManagers) {
+      const repIds = getSubtreeRepIds(mgr.id);
+      if (repIds.length > 0) subtreeManagerRepIds.set(mgr.id, repIds);
     }
-    /** Hygiene tables: exclude leaders from peer rep rows; they only appear as rollup rows (negative rep_id). */
-    const managerRoleRepIds = new Set(
-      repDirectory
-        .filter((r) => Number(r.hierarchy_level) === HIERARCHY.EXEC_MANAGER || Number(r.hierarchy_level) === HIERARCHY.MANAGER)
-        .map((r) => r.id)
-    );
-
-    /** Sales + channel leaders (6/7) for hygiene; excludes channel reps (8). */
-    const hygieneRepRoleSql = `AND EXISTS (
-      SELECT 1
-      FROM users ux
-      WHERE ux.org_id = $1::bigint
-        AND ux.id = r.user_id
-        AND (ux.hierarchy_level BETWEEN 1 AND 3 OR ux.hierarchy_level IN (6, 7))
-    )`;
 
     type CoverageRow = {
       rep_id: number;
@@ -219,7 +201,6 @@ export default async function ExecutiveDashboardPage({
      AND opp.close_date < $3::timestamptz
     WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
       AND r.id = ANY($4::bigint[])
-      ${hygieneRepRoleSql}
     GROUP BY
       r.id,
       COALESCE(
@@ -240,10 +221,10 @@ export default async function ExecutiveDashboardPage({
       const coverageRowsByRepId = new Map<number, CoverageRow>(
         (coverageRows ?? []).map((r) => [r.rep_id, r])
       );
-      const leaderCoverageRows: CoverageRow[] = leaders
-        .filter((l) => leaderRepIds.get(l.id)?.length)
+      const leaderCoverageRows: CoverageRow[] = subtreeManagers
+        .filter((l) => subtreeManagerRepIds.get(l.id)?.length)
         .map((leader) => {
-          const repIds = leaderRepIds.get(leader.id)!;
+          const repIds = subtreeManagerRepIds.get(leader.id)!;
           let total = 0;
           let reviewed = 0;
           for (const repId of repIds) {
@@ -261,9 +242,7 @@ export default async function ExecutiveDashboardPage({
             coverage_pct: total > 0 ? Math.round((reviewed / total) * 100) : null,
           };
         });
-      const coverageRowsFiltered = (coverageRows ?? []).filter(
-        (row) => row.rep_id > 0 && !managerRoleRepIds.has(row.rep_id)
-      );
+      const coverageRowsFiltered = (coverageRows ?? []).filter((row) => row.rep_id > 0);
       coverageRowsFinal = [...coverageRowsFiltered, ...leaderCoverageRows];
     } catch (e) {
       console.error("[hygiene:coverage]", e);
@@ -333,7 +312,6 @@ export default async function ExecutiveDashboardPage({
      )
     WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
       AND r.id = ANY($4::bigint[])
-      ${hygieneRepRoleSql}
     GROUP BY
       r.id,
       COALESCE(
@@ -400,10 +378,10 @@ export default async function ExecutiveDashboardPage({
       [orgId, startIso, endIso, teamRepIdsForQuery]
     );
 
-    const leaderAssessmentRows: AssessmentRow[] = leaders
-      .filter((l) => leaderRepIds.get(l.id)?.length)
+    const leaderAssessmentRows: AssessmentRow[] = subtreeManagers
+      .filter((l) => subtreeManagerRepIds.get(l.id)?.length)
       .map((leader) => {
-        const repIds = new Set(leaderRepIds.get(leader.id)!);
+        const repIds = new Set(subtreeManagerRepIds.get(leader.id)!);
         const rows = (assessmentOppRows ?? []).filter((r) => repIds.has(r.rep_id));
         const n = rows.length;
         if (n === 0) {
@@ -472,9 +450,7 @@ export default async function ExecutiveDashboardPage({
           avg_total: avgTotal,
         };
       });
-    const assessmentRowsFiltered = (assessmentRows ?? []).filter(
-      (row) => row.rep_id > 0 && !managerRoleRepIds.has(row.rep_id)
-    );
+    const assessmentRowsFiltered = (assessmentRows ?? []).filter((row) => row.rep_id > 0);
     assessmentRowsFinal = [...assessmentRowsFiltered, ...leaderAssessmentRows];
   } catch (e) {
     console.error("[hygiene:assessment]", e);
@@ -515,7 +491,6 @@ export default async function ExecutiveDashboardPage({
     JOIN reps r
       ON r.id = opp.rep_id
      AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
-     ${hygieneRepRoleSql}
     JOIN LATERAL (
       SELECT total_score
       FROM opportunity_audit_events
@@ -560,7 +535,6 @@ export default async function ExecutiveDashboardPage({
     }>();
 
     for (const row of velocityRows) {
-      if (managerRoleRepIds.has(row.rep_id)) continue;
       const key = String(row.rep_id);
       let agg = velocityByRep.get(key);
       if (!agg) {
@@ -597,10 +571,10 @@ export default async function ExecutiveDashboardPage({
       dealsFlat: agg.dealsFlat,
     }));
 
-    const leaderVelocityRows: VelocityRepSummary[] = leaders
-      .filter((l) => leaderRepIds.get(l.id)?.length)
+    const leaderVelocityRows: VelocityRepSummary[] = subtreeManagers
+      .filter((l) => subtreeManagerRepIds.get(l.id)?.length)
       .map((leader) => {
-        const repIds = leaderRepIds.get(leader.id)!;
+        const repIds = subtreeManagerRepIds.get(leader.id)!;
         let count = 0;
         let sumBaseline = 0;
         let sumCurrent = 0;
@@ -608,7 +582,6 @@ export default async function ExecutiveDashboardPage({
         let dealsMoving = 0;
         let dealsFlat = 0;
         for (const row of velocityRows) {
-          if (managerRoleRepIds.has(row.rep_id)) continue;
           if (!repIds.includes(row.rep_id)) continue;
           count += 1;
           const b = num(row.baseline_score);
@@ -681,7 +654,6 @@ export default async function ExecutiveDashboardPage({
     JOIN reps r
       ON r.id = opp.rep_id
      AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
-     ${hygieneRepRoleSql}
     WHERE oae.org_id = $1
       AND opp.org_id = $1
       AND opp.rep_id = ANY($4::bigint[])
@@ -704,7 +676,6 @@ export default async function ExecutiveDashboardPage({
     const now = new Date();
     const progressionByOpp = new Map<number, ProgressionSeries>();
     for (const row of progressionRows) {
-      if (managerRoleRepIds.has(row.rep_id)) continue;
       const t = new Date(row.ts);
       const existing = progressionByOpp.get(row.opportunity_id);
       if (!existing) {
@@ -782,16 +753,15 @@ export default async function ExecutiveDashboardPage({
       })
     );
 
-    const leaderProgressionRows: ProgressionRepSummary[] = leaders
-      .filter((l) => leaderRepIds.get(l.id)?.length)
+    const leaderProgressionRows: ProgressionRepSummary[] = subtreeManagers
+      .filter((l) => subtreeManagerRepIds.get(l.id)?.length)
       .map((leader) => {
-        const repIds = leaderRepIds.get(leader.id)!;
+        const repIds = subtreeManagerRepIds.get(leader.id)!;
         let progressing = 0;
         let stalled = 0;
         let flat = 0;
         let total = 0;
         for (const repId of repIds) {
-          if (managerRoleRepIds.has(repId)) continue;
           const s = progressionByRepId.get(repId);
           if (s) {
             progressing += s.progressing;
@@ -1502,13 +1472,14 @@ export default async function ExecutiveDashboardPage({
   }
 
   if (selectedPeriodId && comparePeriodIds.length) {
-    const { repRows, managerRows } = await buildTeamAndCoachingRepSet({
+    const { repRows, managerRows } = await buildOrgSubtree({
       orgId,
       repDirectory,
       viewerRepId: viewerRepIdForTeam,
       selectedPeriodId,
       comparePeriodIds,
       prevPeriodId,
+      requirePartnerName: false,
     });
     teamRepRows = repRows;
     teamManagerRows = managerRows;
