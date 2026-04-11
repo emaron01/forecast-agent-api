@@ -322,6 +322,11 @@ function attainmentTierTextClass(pct: number): string {
 }
 
 function repAttainmentPctDisplay(rep: RepCoachingData): number | null {
+  const won = Number(rep.won_amount);
+  const quota = Number(rep.quota);
+  if (Number.isFinite(won) && Number.isFinite(quota) && quota > 0) {
+    return Math.min(100, Math.round((won / quota) * 1000) / 10);
+  }
   const a = rep.attainment;
   if (a == null || !Number.isFinite(a)) return null;
   return Math.min(100, Math.round(a * 1000) / 10);
