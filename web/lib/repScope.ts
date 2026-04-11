@@ -327,10 +327,12 @@ export async function getScopedRepDirectory(args: {
       repDirectoryOut = dedupeRepDirectoryByRepId(repDirectoryOut);
     }
 
+    const myRepId = me?.id ?? repDirectoryOut.find((r) => r.user_id === userId)?.id ?? null;
+
     return {
       repDirectory: repDirectoryOut,
       allowedRepIds: null,
-      myRepId: me?.id ?? null,
+      myRepId,
     };
   }
 
