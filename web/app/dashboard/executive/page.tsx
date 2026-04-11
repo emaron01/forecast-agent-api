@@ -28,7 +28,7 @@ import {
 } from "../../../lib/channelPartnerHeroData";
 import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
 import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
-import { HIERARCHY, isAdmin, isSalesLeader } from "../../../lib/roleHelpers";
+import { HIERARCHY, isAdmin, isChannelExec, isChannelManager, isSalesLeader } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -824,7 +824,11 @@ export default async function ExecutiveDashboardPage({
   const comparePeriodIds = [selectedPeriodId, prevPeriodId].filter(Boolean);
   const scopeRepIdsForTeam = visibleRepIds.length > 0 ? visibleRepIds : null;
 
-  let viewerRepIdForOmitManagerCard: number | null = scope.myRepId;
+  const scopeMyRepNumeric =
+    scope.myRepId != null && Number.isFinite(Number(scope.myRepId)) && Number(scope.myRepId) > 0
+      ? Number(scope.myRepId)
+      : null;
+  let viewerRepIdForOmitManagerCard: number | null = scopeMyRepNumeric;
   if (
     viewerRepIdForOmitManagerCard == null &&
     ctx.kind === "user" &&
@@ -1524,20 +1528,20 @@ export default async function ExecutiveDashboardPage({
   }
 
   if (selectedPeriodId && comparePeriodIds.length) {
-    const includeChannelRepsForChannelLeaderRollup =
+    const includeChannelRepsForChannelManagerRollup =
       ctx.kind === "user" &&
-      (isSalesLeader(ctx.user) || (isAdmin(ctx.user) && ctx.user.admin_has_full_analytics_access));
+      (isSalesLeader(ctx.user) ||
+        (isAdmin(ctx.user) && ctx.user.admin_has_full_analytics_access) ||
+        isChannelExec(ctx.user) ||
+        isChannelManager(ctx.user));
 
-    const channelLeaderRepIdsForRollup = repDirectory
-      .filter((r) => {
-        const h = Number(r.hierarchy_level);
-        return h === HIERARCHY.CHANNEL_EXEC || h === HIERARCHY.CHANNEL_MANAGER;
-      })
+    const channelManagerRepIdsInScope = repDirectory
+      .filter((r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_MANAGER)
       .map((r) => r.id)
       .filter((n) => Number.isFinite(n) && n > 0);
 
     let channelRepIdsForTeamKpi: number[] = [];
-    if (includeChannelRepsForChannelLeaderRollup && channelLeaderRepIdsForRollup.length > 0) {
+    if (includeChannelRepsForChannelManagerRollup && channelManagerRepIdsInScope.length > 0) {
       try {
         const { rows: chRows } = await pool.query<{ id: string; manager_rep_id: string | null }>(
           `
@@ -1550,7 +1554,7 @@ export default async function ExecutiveDashboardPage({
              AND (r.active IS TRUE OR r.active IS NULL)
              AND (u.active IS TRUE OR u.active IS NULL)
           `,
-          [orgId, HIERARCHY.CHANNEL_REP, channelLeaderRepIdsForRollup]
+          [orgId, HIERARCHY.CHANNEL_REP, channelManagerRepIdsInScope]
         );
         for (const row of chRows ?? []) {
           const rid = Number(row.id);
@@ -1741,7 +1745,7 @@ export default async function ExecutiveDashboardPage({
 
     const managerRowsBuild: RepManagerManagerRow[] = [];
     for (const [manager_id, agg] of managerAgg.entries()) {
-      if (viewerOmitMid && manager_id === viewerOmitMid) continue;
+      if (viewerOmitMid && String(manager_id) === viewerOmitMid) continue;
       const manager_name = manager_id ? managerNameById.get(manager_id) || `Manager ${manager_id}` : "(Unassigned)";
       const attainment = safeDiv(agg.won_amount, agg.quota);
       const win_rate = safeDiv(agg.won_count, agg.won_count + agg.lost_count);
