@@ -364,6 +364,8 @@ function ReportsTabContent(props: {
 export type TeamRepManagerPayload = {
   repRows: RepManagerRepRow[];
   managerRows: RepManagerManagerRow[];
+  /** Hide manager rollup cards for these rep ids (e.g. viewer's own rep under exec see-all). */
+  omitManagerRepIds?: string[];
   managerLostAmountOverride?: number;
   managerLostCountOverride?: number;
   managerWonAmountOverride?: number;
@@ -884,6 +886,7 @@ export function ExecutiveTabsShellClient(props: {
                 coachingRepRows={props.teamRepManagerPayload.repRows}
                 coachingPeriodStart={props.teamRepManagerPayload.periodStart ?? ""}
                 coachingPeriodEnd={props.teamRepManagerPayload.periodEnd ?? ""}
+                omitManagerRepIds={props.teamRepManagerPayload.omitManagerRepIds}
               />
             </div>
             {/* Part 1: Coaching Insights from teamTabOnly */}
@@ -906,6 +909,7 @@ export function ExecutiveTabsShellClient(props: {
             <TeamLeaderboardClient
               repRows={props.teamRepManagerPayload.repRows}
               managerRows={props.teamRepManagerPayload.managerRows}
+              omitManagerRepIds={props.teamRepManagerPayload.omitManagerRepIds}
               managerLostAmountOverride={props.teamRepManagerPayload.managerLostAmountOverride}
               managerLostCountOverride={props.teamRepManagerPayload.managerLostCountOverride}
               managerWonAmountOverride={props.teamRepManagerPayload.managerWonAmountOverride}

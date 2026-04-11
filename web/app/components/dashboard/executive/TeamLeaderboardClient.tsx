@@ -53,6 +53,8 @@ export type TeamLeaderboardProps = {
   managerWonCountOverride?: number;
   managerLostAmountOverride?: number;
   managerLostCountOverride?: number;
+  /** Rep ids (string) that must not get a manager rollup card; their direct reports group under "(Unassigned)" for display. */
+  omitManagerRepIds?: string[];
 };
 
 function fmtMoney(n: unknown) {
@@ -349,6 +351,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     managerWonCountOverride,
     managerLostAmountOverride,
     managerLostCountOverride,
+    omitManagerRepIds,
   } = props;
 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -356,24 +359,33 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
 
   const { paceRatio } = useMemo(() => computePaceRatio(periodStart, periodEnd), [periodStart, periodEnd]);
 
+  const omitManagerIdSet = useMemo(
+    () => new Set((omitManagerRepIds ?? []).map((id) => String(id || "")).filter(Boolean)),
+    [omitManagerRepIds]
+  );
+
   const repsByManager = useMemo(() => {
     const m = new Map<string, RepManagerRepRow[]>();
     for (const r of repRows) {
-      const k = r.manager_id || "";
+      let k = r.manager_id || "";
+      if (omitManagerIdSet.has(String(k))) k = "";
       const arr = m.get(k) || [];
       arr.push(r);
       m.set(k, arr);
     }
     return m;
-  }, [repRows]);
+  }, [repRows, omitManagerIdSet]);
 
   const orderedManagerIds = useMemo(() => {
-    const managerIdsInRepRows = Array.from(repsByManager.keys());
+    const managerRowsFiltered = managerRows.filter((x) => !omitManagerIdSet.has(String(x.manager_id || "")));
+    const managerIdsInRepRows = Array.from(repsByManager.keys()).filter((id) => !omitManagerIdSet.has(String(id || "")));
     return [
-      ...managerRows.map((x) => x.manager_id || ""),
-      ...managerIdsInRepRows.filter((id) => !managerRows.some((m) => String(m.manager_id || "") === String(id || ""))),
+      ...managerRowsFiltered.map((x) => x.manager_id || ""),
+      ...managerIdsInRepRows.filter(
+        (id) => !managerRowsFiltered.some((m) => String(m.manager_id || "") === String(id || ""))
+      ),
     ];
-  }, [managerRows, repsByManager]);
+  }, [managerRows, repsByManager, omitManagerIdSet]);
 
   const managerIdsWithReps = useMemo(
     () => orderedManagerIds.filter((mid) => (repsByManager?.get(mid) || []).length > 0),

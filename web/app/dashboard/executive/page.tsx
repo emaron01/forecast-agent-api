@@ -824,6 +824,24 @@ export default async function ExecutiveDashboardPage({
   const comparePeriodIds = [selectedPeriodId, prevPeriodId].filter(Boolean);
   const scopeRepIdsForTeam = visibleRepIds.length > 0 ? visibleRepIds : null;
 
+  let viewerRepIdForOmitManagerCard: number | null = scope.myRepId;
+  if (
+    viewerRepIdForOmitManagerCard == null &&
+    ctx.kind === "user" &&
+    (isSalesLeader(ctx.user) || (isAdmin(ctx.user) && ctx.user.admin_has_full_analytics_access))
+  ) {
+    try {
+      const { rows: vr } = await pool.query<{ id: string }>(
+        `SELECT id::text AS id FROM reps WHERE organization_id = $1::bigint AND user_id = $2::bigint LIMIT 1`,
+        [orgId, ctx.user.id]
+      );
+      const rid = vr?.[0]?.id != null ? Number(vr[0].id) : NaN;
+      viewerRepIdForOmitManagerCard = Number.isFinite(rid) && rid > 0 ? rid : null;
+    } catch {
+      viewerRepIdForOmitManagerCard = null;
+    }
+  }
+
   // Rep directory for Report Builder + revenue intelligence picker:
   // - sales 1–3 in exec → manager → rep tree; channel leaders 6–7 appended (not 8)
   const directoryInScope = (() => {
@@ -1157,6 +1175,7 @@ export default async function ExecutiveDashboardPage({
 
   let teamRepRows: RepManagerRepRow[] = [];
   let teamManagerRows: RepManagerManagerRow[] = [];
+  let teamOmitManagerRepIds: string[] = [];
   let teamRepsByManager = new Map<string, RepManagerRepRow[]>();
   let teamOrderedManagerIds: string[] = [];
   let productsClosedWonByRepYtd: Array<{
@@ -1505,10 +1524,61 @@ export default async function ExecutiveDashboardPage({
   }
 
   if (selectedPeriodId && comparePeriodIds.length) {
+    const includeChannelRepsForChannelLeaderRollup =
+      ctx.kind === "user" &&
+      (isSalesLeader(ctx.user) || (isAdmin(ctx.user) && ctx.user.admin_has_full_analytics_access));
+
+    const channelLeaderRepIdsForRollup = repDirectory
+      .filter((r) => {
+        const h = Number(r.hierarchy_level);
+        return h === HIERARCHY.CHANNEL_EXEC || h === HIERARCHY.CHANNEL_MANAGER;
+      })
+      .map((r) => r.id)
+      .filter((n) => Number.isFinite(n) && n > 0);
+
+    let channelRepIdsForTeamKpi: number[] = [];
+    if (includeChannelRepsForChannelLeaderRollup && channelLeaderRepIdsForRollup.length > 0) {
+      try {
+        const { rows: chRows } = await pool.query<{ id: string; manager_rep_id: string | null }>(
+          `
+          SELECT r.id::text AS id, r.manager_rep_id::text AS manager_rep_id
+            FROM reps r
+            JOIN users u ON u.id = r.user_id AND u.org_id = $1::bigint
+           WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+             AND u.hierarchy_level = $2::int
+             AND r.manager_rep_id = ANY($3::bigint[])
+             AND (r.active IS TRUE OR r.active IS NULL)
+             AND (u.active IS TRUE OR u.active IS NULL)
+          `,
+          [orgId, HIERARCHY.CHANNEL_REP, channelLeaderRepIdsForRollup]
+        );
+        for (const row of chRows ?? []) {
+          const rid = Number(row.id);
+          const mrid = row.manager_rep_id != null ? Number(row.manager_rep_id) : NaN;
+          if (!Number.isFinite(rid) || rid <= 0) continue;
+          channelRepIdsForTeamKpi.push(rid);
+          if (Number.isFinite(mrid) && mrid > 0) {
+            repIdToManagerId.set(String(rid), String(mrid));
+            if (!managerNameById.has(String(mrid))) {
+              const m = repDirectory.find((x) => x.id === mrid);
+              managerNameById.set(String(mrid), m ? m.name : `Manager ${mrid}`);
+            }
+          }
+        }
+      } catch {
+        channelRepIdsForTeamKpi = [];
+      }
+    }
+
+    const scopeRepIdsForTeamWithChannelReps =
+      visibleRepIds.length > 0
+        ? Array.from(new Set([...visibleRepIds, ...channelRepIdsForTeamKpi]))
+        : null;
+
     const [repKpisRows, createdByRepRows, quotaByRepPeriod] = await Promise.all([
-      getRepKpisByPeriod({ orgId, periodIds: comparePeriodIds, repIds: scopeRepIdsForTeam }),
-      getCreatedByRep({ orgId, periodIds: comparePeriodIds, repIds: scopeRepIdsForTeam }),
-      getQuotaByRepPeriod({ orgId, quotaPeriodIds: comparePeriodIds, repIds: scopeRepIdsForTeam }),
+      getRepKpisByPeriod({ orgId, periodIds: comparePeriodIds, repIds: scopeRepIdsForTeamWithChannelReps }),
+      getCreatedByRep({ orgId, periodIds: comparePeriodIds, repIds: scopeRepIdsForTeamWithChannelReps }),
+      getQuotaByRepPeriod({ orgId, quotaPeriodIds: comparePeriodIds, repIds: scopeRepIdsForTeamWithChannelReps }),
     ]);
 
     const safeDiv = (n: number, d: number): number | null => {
@@ -1544,6 +1614,9 @@ export default async function ExecutiveDashboardPage({
       if (hl === HIERARCHY.CHANNEL_EXEC || hl === HIERARCHY.CHANNEL_MANAGER) {
         repIdsInData.add(String(r.id));
       }
+    }
+    for (const crid of channelRepIdsForTeamKpi) {
+      repIdsInData.add(String(crid));
     }
 
     const repRowsBuild: RepManagerRepRow[] = [];
@@ -1661,8 +1734,14 @@ export default async function ExecutiveDashboardPage({
       managerAgg.set(mid, a);
     }
 
+    const viewerOmitMid =
+      viewerRepIdForOmitManagerCard != null && Number.isFinite(viewerRepIdForOmitManagerCard)
+        ? String(viewerRepIdForOmitManagerCard)
+        : "";
+
     const managerRowsBuild: RepManagerManagerRow[] = [];
     for (const [manager_id, agg] of managerAgg.entries()) {
+      if (viewerOmitMid && manager_id === viewerOmitMid) continue;
       const manager_name = manager_id ? managerNameById.get(manager_id) || `Manager ${manager_id}` : "(Unassigned)";
       const attainment = safeDiv(agg.won_amount, agg.quota);
       const win_rate = safeDiv(agg.won_count, agg.won_count + agg.lost_count);
@@ -1700,6 +1779,7 @@ export default async function ExecutiveDashboardPage({
     teamRepRows = repRowsBuild;
     teamManagerRows = managerRowsBuild;
     teamRepsByManager = repsByManagerMap;
+    teamOmitManagerRepIds = viewerOmitMid ? [viewerOmitMid] : [];
   }
 
   try {
@@ -2087,6 +2167,7 @@ export default async function ExecutiveDashboardPage({
           teamRepManagerPayload={{
             repRows: teamRepRows,
             managerRows: teamManagerRows,
+            omitManagerRepIds: teamOmitManagerRepIds,
             periodName: summary.selectedPeriod?.period_name ?? "",
             periodStart: selectedPeriod?.period_start ?? "",
             periodEnd: selectedPeriod?.period_end ?? "",

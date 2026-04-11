@@ -381,9 +381,11 @@ function buildManagerCoachingTeams(
   repCoaching: RepCoachingData[],
   coachingRepRows: RepManagerRepRow[] | null | undefined,
   assessmentRepRows: AssessmentHygieneRow[],
-  paceRatio: number
+  paceRatio: number,
+  omitManagerRepIds?: string[] | null
 ): ManagerCoachingTeam[] {
   const crRows = coachingRepRows ?? [];
+  const omit = new Set((omitManagerRepIds ?? []).map((id) => String(id || "")).filter(Boolean));
   if (repCoaching.length === 0) return [];
 
   if (crRows.length === 0) {
@@ -395,7 +397,8 @@ function buildManagerCoachingTeams(
     const repNameKey = normalizeRepName(rep.rep_name);
     const cr =
       crRows.find((r) => String(r.rep_id) === rep.rep_id || normalizeRepName(r.rep_name) === repNameKey) ?? null;
-    const mid = cr ? String(cr.manager_id ?? "") : "__unassigned__";
+    const midRaw = cr ? String(cr.manager_id ?? "") : "__unassigned__";
+    const mid = midRaw !== "__unassigned__" && omit.has(midRaw) ? "" : midRaw;
     if (!byMid.has(mid)) byMid.set(mid, []);
     byMid.get(mid)!.push(rep);
   }
@@ -403,7 +406,8 @@ function buildManagerCoachingTeams(
   const ordered: string[] = [];
   const seen = new Set<string>();
   for (const r of crRows) {
-    const id = String(r.manager_id ?? "");
+    let id = String(r.manager_id ?? "");
+    if (omit.has(id)) id = "";
     if (!seen.has(id) && byMid.has(id)) {
       ordered.push(id);
       seen.add(id);
@@ -419,8 +423,13 @@ function buildManagerCoachingTeams(
   return ordered.map((managerId) => {
     const reps = byMid.get(managerId) ?? [];
     const mgrName =
-      crRows.find((r) => String(r.manager_id ?? "") === managerId)?.manager_name?.trim() ||
-      (managerId === "__unassigned__" ? "(Unassigned)" : `Manager ${managerId}`);
+      managerId === "" || managerId === "__unassigned__"
+        ? "(Unassigned)"
+        : crRows.find((r) => {
+            let id = String(r.manager_id ?? "");
+            if (omit.has(id)) id = "";
+            return id === managerId;
+          })?.manager_name?.trim() || `Manager ${managerId}`;
     return aggregateManagerTeam(managerId, mgrName, reps, assessmentRepRows, paceRatio);
   });
 }
@@ -644,8 +653,11 @@ export function TeamForecastHygienePanels(props: {
   coachingRepRows?: RepManagerRepRow[] | null;
   coachingPeriodStart?: string;
   coachingPeriodEnd?: string;
+  /** Same as Team tab: hide manager bucket for these rep ids (viewer’s own manager card). */
+  omitManagerRepIds?: string[];
 }) {
-  const { pipelineHygiene: h, periodName, coachingRepRows, coachingPeriodStart, coachingPeriodEnd } = props;
+  const { pipelineHygiene: h, periodName, coachingRepRows, coachingPeriodStart, coachingPeriodEnd, omitManagerRepIds } =
+    props;
   const sectionClass = props.sectionClassName ?? "mt-4 space-y-4";
   const [showDetail, setShowDetail] = useState(false);
 
@@ -744,8 +756,15 @@ export function TeamForecastHygienePanels(props: {
   );
 
   const managerCoachingTeams = useMemo(
-    () => buildManagerCoachingTeams(repCoaching, coachingRepRows ?? null, assessmentRepRows, coachingPaceRatio),
-    [repCoaching, coachingRepRows, assessmentRepRows, coachingPaceRatio]
+    () =>
+      buildManagerCoachingTeams(
+        repCoaching,
+        coachingRepRows ?? null,
+        assessmentRepRows,
+        coachingPaceRatio,
+        omitManagerRepIds
+      ),
+    [repCoaching, coachingRepRows, assessmentRepRows, coachingPaceRatio, omitManagerRepIds]
   );
 
   const [expandedManagerKeys, setExpandedManagerKeys] = useState<Set<string>>(new Set());
