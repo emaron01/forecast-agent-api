@@ -294,8 +294,41 @@ export async function getScopedRepDirectory(args: {
       return a.id - b.id;
     });
     const me = await getRepForUser(orgId, userId).catch(() => null);
+    let repDirectoryOut = dedupeRepDirectoryByRepId(allReps);
+
+    // Match subtree paths: align channel leader manager_rep_id via users.manager_user_id (see channelLeadersForManagerUserScope). Gated to 0/1/6 so see-all levels 2/7 stay unchanged.
+    const hl = Number(args.user.hierarchy_level);
+    const enrichSeeAllChannelManagerRepIds =
+      hl === HIERARCHY.ADMIN || hl === HIERARCHY.EXEC_MANAGER || hl === HIERARCHY.CHANNEL_EXEC;
+    if (enrichSeeAllChannelManagerRepIds) {
+      const scopeUserIds = scopeUserIdsFromRepRows(repDirectoryOut, userId);
+      const channelLeaders = await channelLeadersForManagerUserScope({ orgId, scopeUserIds }).catch(() => []);
+      const byId = new Map<number, RepDirectoryRow>();
+      for (const row of repDirectoryOut) {
+        byId.set(row.id, { ...row });
+      }
+      for (const cl of channelLeaders) {
+        const ex = byId.get(cl.id);
+        if (ex && cl.manager_rep_id != null) {
+          ex.manager_rep_id = cl.manager_rep_id;
+        } else if (!ex) {
+          byId.set(cl.id, { ...cl });
+        }
+      }
+      repDirectoryOut = Array.from(byId.values());
+      repDirectoryOut.sort((a, b) => {
+        const rank = (x: RepDirectoryRow) => (Number.isFinite(Number(x.hierarchy_level)) ? Number(x.hierarchy_level) : 99);
+        const dr = rank(a) - rank(b);
+        if (dr !== 0) return dr;
+        const dn = a.name.localeCompare(b.name);
+        if (dn !== 0) return dn;
+        return a.id - b.id;
+      });
+      repDirectoryOut = dedupeRepDirectoryByRepId(repDirectoryOut);
+    }
+
     return {
-      repDirectory: dedupeRepDirectoryByRepId(allReps),
+      repDirectory: repDirectoryOut,
       allowedRepIds: null,
       myRepId: me?.id ?? null,
     };
