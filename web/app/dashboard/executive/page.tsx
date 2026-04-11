@@ -83,7 +83,22 @@ export default async function ExecutiveDashboardPage({
       myRepId: null as number | null,
     }));
 
+    console.log("SCOPE_REPS", {
+      level: ctx.user.hierarchy_level,
+      total: scope.repDirectory.length,
+      duplicateIds: scope.repDirectory
+        .map((r) => r.id)
+        .filter((id, i, arr) => arr.indexOf(id) !== i),
+    });
+
     const repDirectory = scope.repDirectory.filter((r) => r.active !== false && r.user_id != null);
+
+    console.log("FILTERED_REPS", {
+      total: repDirectory.length,
+      duplicateIds: repDirectory
+        .map((r) => r.id)
+        .filter((id, i, arr) => arr.indexOf(id) !== i),
+    });
 
     const visibleRepIds: number[] =
       scope.allowedRepIds !== null && scope.allowedRepIds.length > 0
@@ -1472,7 +1487,7 @@ export default async function ExecutiveDashboardPage({
   }
 
   if (selectedPeriodId && comparePeriodIds.length) {
-    const { repRows, managerRows } = await buildOrgSubtree({
+    const teamResult = await buildOrgSubtree({
       orgId,
       repDirectory,
       viewerRepId: viewerRepIdForTeam,
@@ -1481,8 +1496,19 @@ export default async function ExecutiveDashboardPage({
       prevPeriodId,
       requirePartnerName: false,
     });
-    teamRepRows = repRows;
-    teamManagerRows = managerRows;
+    teamRepRows = teamResult.repRows;
+    teamManagerRows = teamResult.managerRows;
+
+    console.log("ORG_SUBTREE", {
+      repRowsTotal: teamResult.repRows.length,
+      managerRowsTotal: teamResult.managerRows.length,
+      duplicateRepIds: teamResult.repRows
+        .map((r) => r.rep_id)
+        .filter((id, i, arr) => arr.indexOf(id) !== i),
+      duplicateManagerIds: teamResult.managerRows
+        .map((r) => r.manager_id)
+        .filter((id, i, arr) => arr.indexOf(id) !== i),
+    });
     teamViewerRepIdForPayload =
       viewerRepIdForTeam != null && Number.isFinite(viewerRepIdForTeam) && viewerRepIdForTeam > 0
         ? String(viewerRepIdForTeam)
