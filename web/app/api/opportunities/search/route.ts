@@ -31,14 +31,14 @@ export async function GET(req: Request) {
     if (!orgId) return NextResponse.json({ ok: false, error: "Missing org context" }, { status: 400 });
     if (!q) return NextResponse.json({ ok: true, matches: [] });
 
-    // Role scoping:
-    // - REP: forced to their own account_owner_name
-    // - MANAGER: restricted to reps in their visible subtree (manager chain)
-    // - ADMIN/master: unrestricted within org (optionally filter by repName)
+    // Role scoping (opportunities filtered by internal rep_id, not CRM rep_name text):
+    // - REP: reps row for auth.user.id in this org
+    // - MANAGER: rep ids for visible subtree users (user_id on reps)
+    // - ADMIN/master: unrestricted within org (optional filter via rep public_id or reps.rep_name → id)
     const scope =
       auth.kind === "user"
         ? isSalesRep(auth.user) || auth.user.hierarchy_level === 8
-          ? { kind: "rep" as const, repName: auth.user.account_owner_name || "" }
+          ? { kind: "rep" as const }
           : isSalesLeader(auth.user) || isChannelRole(auth.user)
             ? {
                 kind: "scoped" as const,
@@ -47,47 +47,96 @@ export async function GET(req: Request) {
             : { kind: "admin" as const }
         : { kind: "admin" as const };
 
-    const scopedAllowedRepNames =
+    const scopedVisibleReps =
       scope.kind === "scoped" && auth.kind === "user"
         ? (
             await getVisibleUsers({
               orgId,
               user: auth.user,
             }).catch(() => [])
-          )
-            .filter((u) => (Number(u.hierarchy_level) === HIERARCHY.REP || Number(u.hierarchy_level) === HIERARCHY.CHANNEL_REP) && u.active)
-            .map((u) => u.account_owner_name)
-            .filter(Boolean)
+          ).filter((u) => (Number(u.hierarchy_level) === HIERARCHY.REP || Number(u.hierarchy_level) === HIERARCHY.CHANNEL_REP) && u.active)
         : [];
 
-    // Optional explicit rep filter by rep public_id (preferred over repName).
-    let repNameFilter = requestedRepName;
+    const scopedUserIds = scopedVisibleReps.map((u) => u.id).filter((id) => Number.isFinite(id));
+
+    const scopedRepIds: number[] =
+      scopedUserIds.length > 0
+        ? await pool
+            .query<{ id: string }>(
+              `
+              SELECT id::text AS id
+                FROM reps
+               WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
+                 AND user_id = ANY($2::int[])
+              `,
+              [orgId, scopedUserIds]
+            )
+            .then((r) => (r.rows || []).map((row) => Number(row.id)).filter((id) => Number.isFinite(id)))
+            .catch(() => [])
+        : [];
+
+    let myRepId: number | null = null;
+    if (scope.kind === "rep" && auth.kind === "user") {
+      const { rows } = await pool.query<{ id: string }>(
+        `
+        SELECT id::text AS id
+          FROM reps
+         WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
+           AND user_id = $2::int
+         LIMIT 1
+        `,
+        [orgId, auth.user.id]
+      );
+      const id = rows?.[0]?.id;
+      myRepId = id != null && String(id).trim() !== "" && Number.isFinite(Number(id)) ? Number(id) : null;
+    }
+
+    // Optional explicit rep filter: public_id (preferred) or reps.rep_name → internal id (admin only).
+    let adminRepIdFilter: number | null = null;
     if (repPublicIdParam) {
       const parsedPid = z.string().uuid().safeParse(repPublicIdParam);
       if (!parsedPid.success) return NextResponse.json({ ok: false, error: "invalid_rep_public_id" }, { status: 400 });
-      const { rows: repRows } = await pool.query(
-        `SELECT rep_name FROM reps WHERE organization_id = $1 AND public_id = $2 LIMIT 1`,
+      const { rows: repRows } = await pool.query<{ id: string }>(
+        `SELECT id::text AS id FROM reps WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint AND public_id = $2::uuid LIMIT 1`,
         [orgId, parsedPid.data]
       );
-      repNameFilter = String(repRows?.[0]?.rep_name || "").trim();
-      if (!repNameFilter) return NextResponse.json({ ok: true, matches: [] });
+      const id = repRows?.[0]?.id;
+      adminRepIdFilter = id != null && Number.isFinite(Number(id)) ? Number(id) : null;
+      if (adminRepIdFilter == null) return NextResponse.json({ ok: true, matches: [] });
+    } else if (requestedRepName && scope.kind === "admin") {
+      const { rows } = await pool.query<{ id: string }>(
+        `
+        SELECT id::text AS id
+          FROM reps
+         WHERE COALESCE(organization_id, org_id::bigint) = $1::bigint
+           AND lower(btrim(COALESCE(rep_name, ''))) = lower(btrim($2::text))
+         ORDER BY id ASC
+         LIMIT 2
+        `,
+        [orgId, requestedRepName]
+      );
+      if (rows?.length === 1) adminRepIdFilter = Number(rows[0].id);
+      else return NextResponse.json({ ok: true, matches: [] });
     }
 
     // Direct lookup by opportunity public_id (UUID string).
     const asPublicId = z.string().uuid().safeParse(q);
     if (asPublicId.success) {
+      if (scope.kind === "rep" && myRepId == null) {
+        return NextResponse.json({ ok: true, matches: [] });
+      }
       const whereExtra =
         scope.kind === "rep"
-          ? " AND rep_name = $3"
+          ? " AND rep_id = $3::bigint"
           : scope.kind === "scoped"
-            ? " AND rep_name = ANY($3::text[])"
-            : repNameFilter
-              ? " AND rep_name = $3"
+            ? " AND rep_id = ANY($3::bigint[])"
+            : adminRepIdFilter != null
+              ? " AND rep_id = $3::bigint"
               : "";
       const params: any[] = [orgId, asPublicId.data];
-      if (scope.kind === "rep") params.push(scope.repName);
-      else if (scope.kind === "scoped") params.push(scopedAllowedRepNames.length ? scopedAllowedRepNames : ["__none__"]);
-      else if (repNameFilter) params.push(repNameFilter);
+      if (scope.kind === "rep") params.push(myRepId);
+      else if (scope.kind === "scoped") params.push(scopedRepIds);
+      else if (adminRepIdFilter != null) params.push(adminRepIdFilter);
 
       const { rows } = await pool.query(
         `
@@ -103,18 +152,22 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: true, matches: (rows || []) as MatchRow[] });
     }
 
+    if (scope.kind === "rep" && myRepId == null) {
+      return NextResponse.json({ ok: true, matches: [] });
+    }
+
     const like = `%${q}%`;
     const params: any[] = [orgId, like];
     let repClause = "";
     if (scope.kind === "rep") {
-      params.push(scope.repName);
-      repClause = ` AND rep_name = $3`;
+      params.push(myRepId);
+      repClause = ` AND rep_id = $3::bigint`;
     } else if (scope.kind === "scoped") {
-      params.push(scopedAllowedRepNames.length ? scopedAllowedRepNames : ["__none__"]);
-      repClause = ` AND rep_name = ANY($3::text[])`;
-    } else if (repNameFilter) {
-      params.push(repNameFilter);
-      repClause = ` AND rep_name = $3`;
+      params.push(scopedRepIds);
+      repClause = ` AND rep_id = ANY($3::bigint[])`;
+    } else if (adminRepIdFilter != null) {
+      params.push(adminRepIdFilter);
+      repClause = ` AND rep_id = $3::bigint`;
     }
 
     const { rows } = await pool.query(

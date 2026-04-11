@@ -396,12 +396,14 @@ export async function getProductsClosedWonByRepForPeriods(args: {
          WHERE ((' ' || fs || ' ') LIKE '% won %')
       )
       SELECT
-        COALESCE(
-          NULLIF(btrim(r.display_name), ''),
-          NULLIF(btrim(r.rep_name), ''),
-          NULLIF(btrim(r.crm_owner_name), ''),
-          NULLIF(btrim(d.rep_name), ''),
-          '(Unknown rep)'
+        MIN(
+          COALESCE(
+            NULLIF(btrim(r.display_name), ''),
+            NULLIF(btrim(r.rep_name), ''),
+            NULLIF(btrim(r.crm_owner_name), ''),
+            NULLIF(btrim(d.rep_name), ''),
+            '(Unknown rep)'
+          )
         ) AS rep_name,
         d.product,
         COALESCE(SUM(d.amount), 0)::float8 AS won_amount,
@@ -412,15 +414,7 @@ export async function getProductsClosedWonByRepForPeriods(args: {
       LEFT JOIN reps r
         ON r.id = d.rep_id
        AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
-      GROUP BY
-        COALESCE(
-          NULLIF(btrim(r.display_name), ''),
-          NULLIF(btrim(r.rep_name), ''),
-          NULLIF(btrim(r.crm_owner_name), ''),
-          NULLIF(btrim(d.rep_name), ''),
-          '(Unknown rep)'
-        ),
-        d.product
+      GROUP BY d.rep_id, d.product
       ORDER BY won_amount DESC, rep_name ASC, product ASC
       LIMIT 500
       `,
@@ -832,123 +826,6 @@ async function getPipelineStageSnapshotForPeriod(args: {
   return row0 || empty;
 }
 
-async function getPipelineStageSnapshotForPeriodWithNameFallback(args: {
-  orgId: number;
-  quotaPeriodId: string;
-  repIds: number[];
-  repNameKeys: string[];
-}): Promise<ExecPipelineStageSnapshot> {
-  const empty: ExecPipelineStageSnapshot = {
-    commit_amount: 0,
-    commit_count: 0,
-    commit_avg_health_score: null,
-    best_case_amount: 0,
-    best_case_count: 0,
-    best_case_avg_health_score: null,
-    pipeline_amount: 0,
-    pipeline_count: 0,
-    pipeline_avg_health_score: null,
-    total_active_amount: 0,
-    total_active_count: 0,
-    total_active_avg_health_score: null,
-    won_amount: 0,
-    won_count: 0,
-    lost_amount: 0,
-    lost_count: 0,
-  };
-
-  const qpId = String(args.quotaPeriodId || "").trim();
-  if (!qpId) return empty;
-
-  const repIds = Array.isArray(args.repIds) ? args.repIds : [];
-  const repNameKeys = Array.isArray(args.repNameKeys) ? args.repNameKeys : [];
-  const useRepFilter = repIds.length > 0 || repNameKeys.length > 0;
-  if (!useRepFilter) return empty;
-
-  const rows = await pool
-    .query<ExecPipelineStageSnapshot>(
-      `
-      WITH qp AS (
-        SELECT period_start::date AS period_start, period_end::date AS period_end
-          FROM quota_periods
-         WHERE org_id = $1::bigint
-           AND id = $2::bigint
-         LIMIT 1
-      ),
-      base_row AS (
-        SELECT
-          COALESCE(o.amount, 0)::float8 AS amount,
-          o.predictive_eligible,
-          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
-          o.forecast_stage,
-          o.sales_stage
-        FROM opportunities o
-        JOIN qp ON TRUE
-        WHERE o.org_id = $1
-          AND o.close_date IS NOT NULL
-          AND o.close_date >= qp.period_start
-          AND o.close_date <= qp.period_end
-          AND (
-            (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
-            OR (
-              COALESCE(array_length($4::text[], 1), 0) > 0
-              AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-            )
-          )
-      ),
-      base AS (
-        SELECT
-          r.amount,
-          r.predictive_eligible,
-          r.fs,
-          (${crmBucketCaseSql("r")}) AS crm_bucket
-        FROM base_row r
-        LEFT JOIN org_stage_mappings fcm
-          ON fcm.org_id = $1::bigint
-         AND fcm.field = 'forecast_category'
-         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(r.forecast_stage::text, '')))
-        LEFT JOIN org_stage_mappings stm
-          ON stm.org_id = $1::bigint
-         AND stm.field = 'stage'
-         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(r.sales_stage::text, '')))
-      ),
-      classified AS (
-        SELECT
-          *,
-          (crm_bucket = 'won') AS is_won,
-          (crm_bucket IN ('lost', 'excluded')) AS is_lost,
-          (crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active,
-          CASE crm_bucket
-            WHEN 'commit' THEN 'commit'
-            WHEN 'best_case' THEN 'best'
-            WHEN 'pipeline' THEN 'pipeline'
-            ELSE 'other'
-          END AS bucket
-        FROM base
-      )
-      SELECT
-        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
-        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
-        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
-        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
-        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
-        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
-        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) THEN amount ELSE 0 END), 0)::float8 AS total_active_amount,
-        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) THEN 1 ELSE 0 END), 0)::int AS total_active_count,
-        COALESCE(SUM(CASE WHEN is_won THEN amount ELSE 0 END), 0)::float8 AS won_amount,
-        COALESCE(SUM(CASE WHEN is_won THEN 1 ELSE 0 END), 0)::int AS won_count,
-        COALESCE(SUM(CASE WHEN is_lost THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
-        COALESCE(SUM(CASE WHEN is_lost THEN 1 ELSE 0 END), 0)::int AS lost_count
-      FROM classified
-      `,
-      [args.orgId, qpId, repIds, repNameKeys]
-    )
-    .then((r) => r.rows || [])
-    .catch(() => []);
-
-  return (rows?.[0] as any) || empty;
-}
-
 type CreatedPipelineProductRow = {
   product: string;
   amount: number;
@@ -961,13 +838,11 @@ async function getCreatedPipelineByProduct(args: {
   quotaPeriodId: string;
   useRepFilter: boolean;
   repIds: number[];
-  repNameKeys: string[];
   limit: number;
 }): Promise<CreatedPipelineProductRow[]> {
   const qpId = String(args.quotaPeriodId || "").trim();
   if (!qpId) return [];
   const repIds = Array.isArray(args.repIds) ? args.repIds : [];
-  const repNameKeys = Array.isArray(args.repNameKeys) ? args.repNameKeys : [];
   const limit = Math.max(1, Math.min(200, Number(args.limit || 15) || 15));
 
   const rows = await pool
@@ -1000,14 +875,8 @@ async function getCreatedPipelineByProduct(args: {
           AND o.create_date::date >= qp.period_start
           AND o.create_date::date <= qp.period_end
           AND (
-            NOT $5::boolean
-            OR (
-              (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-              OR (
-                COALESCE(array_length($4::text[], 1), 0) > 0
-                AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-              )
-            )
+            NOT $4::boolean
+            OR (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
           )
       ),
       active_created AS (
@@ -1024,9 +893,9 @@ async function getCreatedPipelineByProduct(args: {
       FROM active_created
       GROUP BY product
       ORDER BY amount DESC, opps DESC, product ASC
-      LIMIT $6::int
+      LIMIT $5::int
       `,
-      [args.orgId, qpId, repIds, repNameKeys, args.useRepFilter, limit]
+      [args.orgId, qpId, repIds, args.useRepFilter, limit]
     )
     .then((r) => r.rows || [])
     .catch(() => []);
@@ -1040,12 +909,10 @@ async function getCreatedPipelineAgeMix(args: {
   quotaPeriodId: string;
   useRepFilter: boolean;
   repIds: number[];
-  repNameKeys: string[];
 }): Promise<{ avg_age_days: number | null; bands: Array<{ band: "0-30" | "31-60" | "61+"; opps: number; amount: number }> }> {
   const qpId = String(args.quotaPeriodId || "").trim();
   if (!qpId) return { avg_age_days: null, bands: [] };
   const repIds = Array.isArray(args.repIds) ? args.repIds : [];
-  const repNameKeys = Array.isArray(args.repNameKeys) ? args.repNameKeys : [];
 
   const rows = await pool
     .query<CreatedPipelineAgeBandRow>(
@@ -1075,14 +942,8 @@ async function getCreatedPipelineAgeMix(args: {
           AND o.create_date::date >= qp.period_start
           AND o.create_date::date <= qp.period_end
           AND (
-            NOT $5::boolean
-            OR (
-              (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-              OR (
-                COALESCE(array_length($4::text[], 1), 0) > 0
-                AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-              )
-            )
+            NOT $4::boolean
+            OR (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
           )
       ),
       active_created AS (
@@ -1120,7 +981,7 @@ async function getCreatedPipelineAgeMix(args: {
           ELSE 2
         END ASC
       `,
-      [args.orgId, qpId, repIds, repNameKeys, args.useRepFilter]
+      [args.orgId, qpId, repIds, args.useRepFilter]
     )
     .then((r) => r.rows || [])
     .catch(() => []);
@@ -1167,13 +1028,11 @@ async function getPartnerSpeedSignals(args: {
   quotaPeriodId: string;
   useRepFilter: boolean;
   repIds: number[];
-  repNameKeys: string[];
   limit: number;
 }): Promise<{ direct: PartnerSpeedRow | null; partners: PartnerSpeedRow[] }> {
   const qpId = String(args.quotaPeriodId || "").trim();
   if (!qpId) return { direct: null, partners: [] };
   const repIds = Array.isArray(args.repIds) ? args.repIds : [];
-  const repNameKeys = Array.isArray(args.repNameKeys) ? args.repNameKeys : [];
   const limit = Math.max(1, Math.min(50, Number(args.limit || 10) || 10));
 
   const rows = await pool
@@ -1201,14 +1060,8 @@ async function getPartnerSpeedSignals(args: {
           AND o.close_date::date >= qp.period_start
           AND o.close_date::date <= qp.period_end
           AND (
-            NOT $5::boolean
-            OR (
-              (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-              OR (
-                COALESCE(array_length($4::text[], 1), 0) > 0
-                AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-              )
-            )
+            NOT $4::boolean
+            OR (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
           )
           AND (
             ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
@@ -1262,7 +1115,7 @@ async function getPartnerSpeedSignals(args: {
         closed_opps DESC,
         partner_name ASC NULLS FIRST
       `,
-      [args.orgId, qpId, repIds, repNameKeys, args.useRepFilter]
+      [args.orgId, qpId, repIds, args.useRepFilter]
     )
     .then((r) => r.rows || [])
     .catch(() => []);
@@ -2365,7 +2218,6 @@ export async function getExecutiveForecastDashboardSummary(args: {
                   quotaPeriodId: qpId,
                   useRepFilter: useRepFilterForCreated,
                   repIds: repIdsForCreated || [],
-                  repNameKeys: [],
                   limit: 12,
                 }).catch(() => [])
               : [];
@@ -2375,7 +2227,6 @@ export async function getExecutiveForecastDashboardSummary(args: {
                   quotaPeriodId: prevQpId,
                   useRepFilter: useRepFilterForCreated,
                   repIds: repIdsForCreated || [],
-                  repNameKeys: [],
                   limit: 50,
                 }).catch(() => [])
               : [];
@@ -2388,7 +2239,6 @@ export async function getExecutiveForecastDashboardSummary(args: {
                   quotaPeriodId: qpId,
                   useRepFilter: useRepFilterForCreated,
                   repIds: repIdsForCreated || [],
-                  repNameKeys: [],
                 }).catch(() => ({ avg_age_days: null, bands: [] as any[] }))
               : { avg_age_days: null, bands: [] as any[] };
 
@@ -2398,7 +2248,6 @@ export async function getExecutiveForecastDashboardSummary(args: {
                   quotaPeriodId: qpId,
                   useRepFilter: useRepFilterForCreated,
                   repIds: repIdsForCreated || [],
-                  repNameKeys: [],
                   limit: 8,
                 }).catch(() => ({ direct: null, partners: [] as any[] }))
               : { direct: null, partners: [] as any[] };

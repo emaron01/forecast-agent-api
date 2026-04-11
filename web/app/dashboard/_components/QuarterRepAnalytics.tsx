@@ -7,13 +7,6 @@ function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
 }
 
-function normalizeNameKey(s: any) {
-  return String(s || "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase();
-}
-
 function fmtMoney(n: any) {
   const v = Number(n || 0);
   if (!Number.isFinite(v)) return "—";
@@ -109,39 +102,22 @@ export async function QuarterRepAnalytics(props: {
   const selectedQuotaPeriodId = String(sp(props.searchParams?.quota_period_id) || "").trim();
   const qp = await getSelectedQuotaPeriod({ orgId: props.orgId, selectedQuotaPeriodId }).catch(() => null);
 
-  // Some orgs use `opportunities.rep_name` values that match user display_name (not account_owner_name),
-  // or have slight formatting differences. Use multiple candidate keys to improve matching.
-  const repNameKeys = Array.from(
-    new Set([props.user.account_owner_name, props.user.display_name, props.user.email].map((s) => normalizeNameKey(s)))
-  ).filter(Boolean);
   const repId = await pool
     .query<{ id: number }>(
       `
       SELECT r.id
         FROM reps r
        WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
-         AND (
-           r.user_id = $2
-           OR (
-             COALESCE(array_length($3::text[], 1), 0) > 0
-             AND (
-               lower(regexp_replace(btrim(COALESCE(r.crm_owner_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
-               OR lower(regexp_replace(btrim(COALESCE(r.rep_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
-               OR lower(regexp_replace(btrim(COALESCE(r.display_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
-             )
-           )
-         )
-       ORDER BY
-         CASE WHEN r.user_id = $2 THEN 0 ELSE 1 END,
-         r.id ASC
+         AND r.user_id = $2
+       ORDER BY r.id ASC
        LIMIT 1
       `,
-      [props.orgId, props.user.id, repNameKeys]
+      [props.orgId, props.user.id]
     )
     .then((r) => (Number.isFinite(r.rows?.[0]?.id) ? Number(r.rows?.[0]?.id) : null))
     .catch(() => null);
 
-  const canCompute = !!qp?.id && (repId != null || repNameKeys.length > 0);
+  const canCompute = !!qp?.id && repId != null;
 
   const wonStats = canCompute
     ? await pool
@@ -175,13 +151,8 @@ export async function QuarterRepAnalytics(props: {
               END AS close_d
             FROM opportunities o
             WHERE o.org_id = $1
-              AND (
-                ($3::bigint IS NOT NULL AND o.rep_id = $3::bigint)
-                OR (
-                  COALESCE(array_length($4::text[], 1), 0) > 0
-                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-                )
-              )
+              AND $3::bigint IS NOT NULL
+              AND o.rep_id = $3::bigint
           ),
           deals_in_qtr AS (
             SELECT d.*
@@ -196,7 +167,7 @@ export async function QuarterRepAnalytics(props: {
             COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 1 ELSE 0 END), 0)::int AS won_count
           FROM deals_in_qtr
           `,
-          [props.orgId, qp.id, repId, repNameKeys]
+          [props.orgId, qp.id, repId]
         )
         .then((r) => r.rows?.[0] || null)
         .catch(() => null)

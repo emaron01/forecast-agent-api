@@ -2526,15 +2526,15 @@ export async function setUserPasswordHashByUserId(args: { userId: number; passwo
   return { ok: rowCount === 1 };
 }
 
-export async function listRecentOpportunitiesForAccountOwner(args: {
+/** Latest opportunities for a rep, scoped by internal `reps.id` (opportunities.rep_id). */
+export async function listRecentOpportunitiesForRepId(args: {
   orgId: number;
-  accountOwnerName: string;
+  repId: number;
   limit?: number;
 }) {
   const orgId = zOrganizationId.parse(args.orgId);
-  const accountOwnerName = String(args.accountOwnerName || "").trim();
+  const repId = z.coerce.number().int().positive().parse(args.repId);
   const limit = Math.max(1, Math.min(200, Number(args.limit ?? 50) || 50));
-  if (!accountOwnerName) return [] as OpportunityRow[];
 
   const { rows } = await pool.query(
     `
@@ -2555,11 +2555,11 @@ export async function listRecentOpportunitiesForAccountOwner(args: {
       updated_at::text AS updated_at
     FROM opportunities
     WHERE org_id = $1
-      AND rep_name = $2
+      AND rep_id = $2::bigint
     ORDER BY updated_at DESC NULLS LAST, id DESC
     LIMIT $3
     `,
-    [orgId, accountOwnerName, limit]
+    [orgId, repId, limit]
   );
   return rows as OpportunityRow[];
 }

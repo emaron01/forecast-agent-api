@@ -7,13 +7,6 @@ import { isAdmin, isSalesLeader } from "../../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
-function normalizeNameKey(s: any) {
-  return String(s || "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase();
-}
-
 function jsonError(status: number, error: string, extra?: Record<string, any>) {
   return NextResponse.json({ ok: false, error, ...(extra || {}) }, { status });
 }
@@ -45,9 +38,6 @@ export async function GET(req: Request) {
 
   const useRepFilter = scope.allowedRepIds !== null;
   const repIds = useRepFilter ? (scope.allowedRepIds ?? []) : [];
-  const repNameKeys = useRepFilter
-    ? Array.from(new Set((scope.repDirectory || []).map((r: any) => normalizeNameKey(r?.name)).filter(Boolean)))
-    : [];
 
   // 1) Quota period bounds (ground truth for filtering)
   const qp = await pool
@@ -100,19 +90,12 @@ export async function GET(req: Request) {
             COALESCE(o.amount, 0)::float8 AS amount,
             lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
             o.close_date::date AS close_d,
-            o.rep_id,
-            lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) AS rep_name_key
+            o.rep_id
           FROM opportunities o
           WHERE o.org_id = $1
             AND (
-              NOT $5::boolean
-              OR (
-                (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
-                OR (
-                  COALESCE(array_length($4::text[], 1), 0) > 0
-                  AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($4::text[])
-                )
-              )
+              NOT $4::boolean
+              OR (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND o.rep_id = ANY($3::bigint[]))
             )
         ),
         deals_in_qtr AS (
@@ -141,7 +124,7 @@ export async function GET(req: Request) {
           COUNT(*)::int AS total_count
         FROM open_deals
         `,
-        [auth.user.org_id, quotaPeriodId, repIds, repNameKeys, useRepFilter]
+        [auth.user.org_id, quotaPeriodId, repIds, useRepFilter]
       )
       .then((r) => (r.rows?.[0] as any) || null)
       .catch(() => null)) || {
@@ -175,8 +158,7 @@ export async function GET(req: Request) {
           o.rep_name,
           o.sales_stage,
           o.forecast_stage,
-          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
-          lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) AS rep_name_key
+          lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
         FROM opportunities o
         WHERE o.org_id = $1
       ),
@@ -199,11 +181,8 @@ export async function GET(req: Request) {
         SELECT *
           FROM open_in_qtr
          WHERE (
-           NOT $5::boolean
-           OR (
-             (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND rep_id = ANY($3::bigint[]))
-             OR (COALESCE(array_length($4::text[], 1), 0) > 0 AND rep_name_key = ANY($4::text[]))
-           )
+           NOT $4::boolean
+           OR (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND rep_id = ANY($3::bigint[]))
          )
       )
       SELECT
@@ -214,7 +193,7 @@ export async function GET(req: Request) {
         (SELECT COUNT(*)::int FROM scoped_open) AS opps_open_in_period_scoped,
         (SELECT COALESCE(SUM(COALESCE(amount, 0)), 0)::float8 FROM scoped_open) AS amount_open_in_period_scoped
       `,
-      [auth.user.org_id, quotaPeriodId, repIds, repNameKeys, useRepFilter]
+      [auth.user.org_id, quotaPeriodId, repIds, useRepFilter]
     )
     .then((r) => r.rows?.[0] || null)
     .catch(() => null);
@@ -239,8 +218,7 @@ export async function GET(req: Request) {
           rep_name,
           sales_stage,
           forecast_stage,
-          lower(regexp_replace(COALESCE(NULLIF(btrim(forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
-          lower(regexp_replace(btrim(COALESCE(rep_name, '')), '\\s+', ' ', 'g')) AS rep_name_key
+          lower(regexp_replace(COALESCE(NULLIF(btrim(forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
         FROM opportunities
         WHERE org_id = $1
       ),
@@ -259,11 +237,8 @@ export async function GET(req: Request) {
         SELECT *
           FROM open_in_qtr
          WHERE (
-           NOT $5::boolean
-           OR (
-             (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND rep_id::bigint = ANY($3::bigint[]))
-             OR (COALESCE(array_length($4::text[], 1), 0) > 0 AND rep_name_key = ANY($4::text[]))
-           )
+           NOT $4::boolean
+           OR (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND rep_id::bigint = ANY($3::bigint[]))
          )
       )
       SELECT *
@@ -271,7 +246,7 @@ export async function GET(req: Request) {
        ORDER BY amount DESC, id DESC
        LIMIT 25
       `,
-      [auth.user.org_id, quotaPeriodId, repIds, repNameKeys, useRepFilter]
+      [auth.user.org_id, quotaPeriodId, repIds, useRepFilter]
     )
     .then((r) => r.rows || [])
     .catch(() => []);
@@ -291,8 +266,7 @@ export async function GET(req: Request) {
           COALESCE(NULLIF(btrim(forecast_stage), ''), '(blank)') AS forecast_stage,
           lower(regexp_replace(COALESCE(NULLIF(btrim(forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
           close_date::date AS close_date,
-          rep_id,
-          lower(regexp_replace(btrim(COALESCE(rep_name, '')), '\\s+', ' ', 'g')) AS rep_name_key
+          rep_id
         FROM opportunities
         WHERE org_id = $1
       ),
@@ -311,11 +285,8 @@ export async function GET(req: Request) {
         SELECT *
           FROM open_in_qtr
          WHERE (
-           NOT $5::boolean
-           OR (
-             (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND rep_id = ANY($3::bigint[]))
-             OR (COALESCE(array_length($4::text[], 1), 0) > 0 AND rep_name_key = ANY($4::text[]))
-           )
+           NOT $4::boolean
+           OR (COALESCE(array_length($3::bigint[], 1), 0) > 0 AND rep_id = ANY($3::bigint[]))
          )
       )
       SELECT forecast_stage, COUNT(*)::int AS opps
@@ -324,7 +295,7 @@ export async function GET(req: Request) {
        ORDER BY opps DESC, forecast_stage ASC
        LIMIT 40
       `,
-      [auth.user.org_id, quotaPeriodId, repIds, repNameKeys, useRepFilter]
+      [auth.user.org_id, quotaPeriodId, repIds, useRepFilter]
     )
     .then((r) => r.rows || [])
     .catch(() => []);
@@ -335,7 +306,6 @@ export async function GET(req: Request) {
     scope: {
       useRepFilter,
       repIdsCount: repIds.length,
-      repNameKeysCount: repNameKeys.length,
     },
     counts,
     snapshot,

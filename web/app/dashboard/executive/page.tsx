@@ -561,7 +561,7 @@ export default async function ExecutiveDashboardPage({
 
     for (const row of velocityRows) {
       if (managerRoleRepIds.has(row.rep_id)) continue;
-      const key = `${row.rep_id}:${row.rep_name}`;
+      const key = String(row.rep_id);
       let agg = velocityByRep.get(key);
       if (!agg) {
         agg = {

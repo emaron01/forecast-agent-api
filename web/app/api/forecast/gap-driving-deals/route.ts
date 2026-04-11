@@ -23,13 +23,6 @@ function parseBool(raw: string | null) {
   return s === "1" || s === "true" || s === "yes" || s === "on";
 }
 
-function normalizeNameKey(s: any) {
-  return String(s || "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase();
-}
-
 function n0(v: any) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -471,16 +464,6 @@ export async function GET(req: Request) {
       ? []
       : Array.from(new Set(visibleRepUsers.map((u: any) => Number(u.id)).filter((n: number) => Number.isFinite(n) && n > 0)));
 
-    const visibleRepNameKeys = isChannelRole
-      ? []
-      : Array.from(
-          new Set(
-            visibleRepUsers
-              .flatMap((u: any) => [normalizeNameKey(u.account_owner_name || ""), normalizeNameKey(u.display_name || ""), normalizeNameKey(u.email || "")])
-              .filter(Boolean)
-          )
-        );
-
     const viewHierarchyLevel = Number((auth.user as any).hierarchy_level ?? 0);
     const excludeChannelRepsFromForecastScope = viewHierarchyLevel <= 3;
     const channelRepScopeJoinSql = excludeChannelRepsFromForecastScope
@@ -499,7 +482,7 @@ export async function GET(req: Request) {
       : { repIds: [] as number[], partnerNames: [] as string[] };
     const repIdsToUse = isChannelRole
       ? channelTerritoryScope.repIds
-      : visibleRepUserIds.length || visibleRepNameKeys.length
+      : visibleRepUserIds.length
         ? await pool
             .query<{ id: number }>(
               `
@@ -507,20 +490,11 @@ export async function GET(req: Request) {
                 FROM reps r
                 ${channelRepScopeJoinSql}
                WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
-                 AND (
-                   (COALESCE(array_length($2::int[], 1), 0) > 0 AND r.user_id = ANY($2::int[]))
-                   OR (
-                     COALESCE(array_length($3::text[], 1), 0) > 0
-                     AND (
-                       lower(regexp_replace(btrim(COALESCE(r.crm_owner_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
-                       OR lower(regexp_replace(btrim(COALESCE(r.rep_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
-                       OR lower(regexp_replace(btrim(COALESCE(r.display_name, '')), '\\s+', ' ', 'g')) = ANY($3::text[])
-                     )
-                   )
-                 )
+                 AND COALESCE(array_length($2::int[], 1), 0) > 0
+                 AND r.user_id = ANY($2::int[])
                  ${channelRepScopeWhereSql}
               `,
-              [auth.user.org_id, visibleRepUserIds, visibleRepNameKeys]
+              [auth.user.org_id, visibleRepUserIds]
             )
             .then((r) => (r.rows || []).map((x) => Number(x.id)).filter((n) => Number.isFinite(n) && n > 0))
             .catch(() => [] as number[])
@@ -534,7 +508,7 @@ export async function GET(req: Request) {
 
     // Fail-closed if we can't resolve a scope for a non-admin (align with Forecast: REP sees themselves; managers see their visible reps).
     const channelScopeEmpty = isChannelRole && assignedPartnerNames.length === 0 && repIdsToUse.length === 0;
-    if (useScopedRepIds && repIdsToUse.length === 0 && visibleRepNameKeys.length === 0 && channelScopeEmpty) {
+    if (useScopedRepIds && repIdsToUse.length === 0 && channelScopeEmpty) {
       return NextResponse.json({
         ok: true,
         quota_period: null,
@@ -553,7 +527,7 @@ export async function GET(req: Request) {
               org_id: auth.user.org_id,
               visible_rep_users: visibleRepUsers.length,
               visible_rep_user_ids: visibleRepUserIds.slice(0, 25),
-              visible_rep_name_keys: visibleRepNameKeys.slice(0, 25),
+              visible_rep_name_keys: [],
               rep_ids_to_use: repIdsToUse.slice(0, 25),
               rep_public_id: repPublicId ?? null,
               rep_name: repNameLike || null,
@@ -563,8 +537,6 @@ export async function GET(req: Request) {
           : undefined,
       });
     }
-    const allowedRepNameKeysUniq = visibleRepNameKeys;
-
     // Resolve quota period id (fallback to "current" if omitted).
     const periods = await pool
       .query<{
@@ -731,7 +703,7 @@ export async function GET(req: Request) {
           fiscal_quarter::text AS fiscal_quarter
           FROM quota_periods
          WHERE org_id = $1::bigint
-           AND id = ANY($21::bigint[])
+           AND id = ANY($20::bigint[])
       ),
       base AS (
         SELECT
@@ -786,13 +758,13 @@ export async function GET(req: Request) {
             NOT $2::boolean
             OR (
               CASE
-                WHEN $22::boolean THEN
+                WHEN $21::boolean THEN
                   o.partner_name IS NOT NULL
                   AND btrim(o.partner_name) <> ''
                   AND (
-                    (COALESCE(array_length($23::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($23::text[]))
+                    (COALESCE(array_length($22::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($22::text[]))
                     OR (
-                      COALESCE(array_length($23::text[], 1), 0) = 0
+                      COALESCE(array_length($22::text[], 1), 0) = 0
                       AND COALESCE(array_length($3::bigint[], 1), 0) > 0
                       AND o.rep_id IS NOT NULL
                       AND o.rep_id = ANY($3::bigint[])
@@ -800,16 +772,12 @@ export async function GET(req: Request) {
                   )
                 ELSE
                   (o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
-                  OR (
-                    COALESCE(array_length($18::text[], 1), 0) > 0
-                    AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($18::text[])
-                  )
               END
             )
           )
           AND ($4::bigint IS NULL OR o.rep_id = $4::bigint)
           AND ($5::text IS NULL OR btrim(COALESCE(o.rep_name, '')) ILIKE $5::text)
-          AND (NOT $19::boolean OR (o.rep_id IS NOT NULL AND o.rep_id = ANY($20::bigint[])))
+          AND (NOT $18::boolean OR (o.rep_id IS NOT NULL AND o.rep_id = ANY($19::bigint[])))
       ),
       classified AS (
         SELECT
@@ -961,12 +929,11 @@ export async function GET(req: Request) {
           hiCfg.budget_max == null ? null : Number(hiCfg.budget_max), // $15
           hiCfg.paper_max == null ? null : Number(hiCfg.paper_max), // $16
           effectiveMode === "drivers" || effectiveMode === "risk", // $17
-          allowedRepNameKeysUniq, // $18
-          useTeamFilter, // $19
-          teamRepIdsFilter, // $20
-          effectiveQuarterIdNums, // $21
-          isChannelRole, // $22
-          assignedPartnerNames, // $23
+          useTeamFilter, // $18
+          teamRepIdsFilter, // $19
+          effectiveQuarterIdNums, // $20
+          isChannelRole, // $21
+          assignedPartnerNames, // $22
         ]
       );
     };
@@ -984,7 +951,7 @@ export async function GET(req: Request) {
             fiscal_quarter::text AS fiscal_quarter
             FROM quota_periods
            WHERE org_id = $1::bigint
-             AND id = ANY($21::bigint[])
+             AND id = ANY($20::bigint[])
         ),
         base AS (
           SELECT
@@ -1039,13 +1006,13 @@ export async function GET(req: Request) {
               NOT $2::boolean
               OR (
                 CASE
-                  WHEN $22::boolean THEN
+                  WHEN $21::boolean THEN
                     o.partner_name IS NOT NULL
                     AND btrim(o.partner_name) <> ''
                     AND (
-                      (COALESCE(array_length($23::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($23::text[]))
+                      (COALESCE(array_length($22::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($22::text[]))
                       OR (
-                        COALESCE(array_length($23::text[], 1), 0) = 0
+                        COALESCE(array_length($22::text[], 1), 0) = 0
                         AND COALESCE(array_length($3::bigint[], 1), 0) > 0
                         AND o.rep_id IS NOT NULL
                         AND o.rep_id = ANY($3::bigint[])
@@ -1053,16 +1020,12 @@ export async function GET(req: Request) {
                     )
                   ELSE
                     (o.rep_id IS NOT NULL AND o.rep_id = ANY($3::bigint[]))
-                    OR (
-                      COALESCE(array_length($18::text[], 1), 0) > 0
-                      AND lower(regexp_replace(btrim(COALESCE(o.rep_name, '')), '\\s+', ' ', 'g')) = ANY($18::text[])
-                    )
                 END
               )
             )
             AND ($4::bigint IS NULL OR o.rep_id = $4::bigint)
             AND ($5::text IS NULL OR btrim(COALESCE(o.rep_name, '')) ILIKE $5::text)
-            AND (NOT $19::boolean OR (o.rep_id IS NOT NULL AND o.rep_id = ANY($20::bigint[])))
+            AND (NOT $18::boolean OR (o.rep_id IS NOT NULL AND o.rep_id = ANY($19::bigint[])))
         ),
         classified AS (
           SELECT
@@ -1184,12 +1147,11 @@ export async function GET(req: Request) {
           hiCfg.budget_max == null ? null : Number(hiCfg.budget_max), // $15
           hiCfg.paper_max == null ? null : Number(hiCfg.paper_max), // $16
           effectiveMode === "drivers" || effectiveMode === "risk", // $17
-          allowedRepNameKeysUniq, // $18
-          useTeamFilter, // $19
-          teamRepIdsFilter, // $20
-          effectiveQuarterIdNums, // $21
-          isChannelRole, // $22
-          assignedPartnerNames, // $23
+          useTeamFilter, // $18
+          teamRepIdsFilter, // $19
+          effectiveQuarterIdNums, // $20
+          isChannelRole, // $21
+          assignedPartnerNames, // $22
         ]
       );
     };
@@ -1499,7 +1461,7 @@ export async function GET(req: Request) {
           use_scoped_rep_ids: useScopedRepIds,
           visible_rep_users: visibleRepUsers.length,
           visible_rep_user_ids: visibleRepUserIds.slice(0, 25),
-          visible_rep_name_keys: visibleRepNameKeys.slice(0, 25),
+          visible_rep_name_keys: [],
           rep_ids_to_use: repIdsToUse.slice(0, 25),
           rep_public_id: repPublicId ?? null,
           rep_name: repNameLike || null,

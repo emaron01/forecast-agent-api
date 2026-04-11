@@ -814,24 +814,30 @@ export function CustomReportDesignerClient(props: {
 
   const showQvqComparison = allPeriodResults.length > 1;
 
-  const allRepNames = useMemo(
-    () =>
-      Array.from(new Set(qvqPeriodResults.flatMap((r) => r.rows.map((row) => row.rep_name)))).filter(
-        (name): name is string => Boolean(name)
-      ),
-    [qvqPeriodResults]
-  );
+  const allRepRowKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const pr of qvqPeriodResults) {
+      for (const row of pr.rows) {
+        if (row.rep_id) keys.add(row.rep_id);
+      }
+    }
+    return Array.from(keys);
+  }, [qvqPeriodResults]);
 
   const mergedRows = useMemo(
     () =>
-      allRepNames.map((name) => ({
-        rep_name: name,
+      allRepRowKeys.map((repId) => ({
+        rep_id: repId,
+        rep_name:
+          qvqPeriodResults
+            .flatMap((pr) => pr.rows)
+            .find((r) => r.rep_id === repId)?.rep_name || repId,
         byPeriod: qvqPeriodResults.map((pr) => ({
           label: pr.label,
-          row: pr.rows.find((r) => r.rep_name === name) ?? null,
+          row: pr.rows.find((r) => r.rep_id === repId) ?? null,
         })),
       })),
-    [allRepNames, qvqPeriodResults]
+    [allRepRowKeys, qvqPeriodResults]
   );
 
   const teamTotalRow = useMemo(() => {
@@ -893,10 +899,14 @@ export function CustomReportDesignerClient(props: {
 
   const chartData = useMemo(() => {
     if (showQvqComparison) {
-      return allRepNames.map((name) => {
-        const point: Record<string, any> = { rep: name };
+      return allRepRowKeys.map((repId) => {
+        const repLabel =
+          qvqPeriodResults
+            .flatMap((pr) => pr.rows)
+            .find((r) => r.rep_id === repId)?.rep_name || repId;
+        const point: Record<string, any> = { rep: repLabel };
         qvqPeriodResults.forEach((pr) => {
-          const row = pr.rows.find((r) => r.rep_name === name);
+          const row = pr.rows.find((r) => r.rep_id === repId);
           selectedFields.forEach((f) => {
             point[`${pr.label} - ${f.label}`] = row ? Number((row as any)[f.key] ?? 0) : 0;
           });
@@ -914,7 +924,7 @@ export function CustomReportDesignerClient(props: {
         {} as Record<string, number>
       ),
     }));
-  }, [showQvqComparison, allRepNames, qvqPeriodResults, chartPreviewRows, selectedFields]);
+  }, [showQvqComparison, allRepRowKeys, qvqPeriodResults, chartPreviewRows, selectedFields]);
 
   const radarData = useMemo(() => {
     if (showQvqComparison) {
@@ -978,7 +988,7 @@ export function CustomReportDesignerClient(props: {
   );
 
   const chartHasFields = selectedFields.length > 0;
-  const chartHasReps = showQvqComparison ? allRepNames.length > 0 : chartPreviewRows.length > 0;
+  const chartHasReps = showQvqComparison ? allRepRowKeys.length > 0 : chartPreviewRows.length > 0;
   const showChartPlaceholder = chartType !== "table" && (!chartHasFields || !chartHasReps);
   const showBarLineChart =
     (chartType === "bar" || chartType === "line") && chartHasFields && chartHasReps;
@@ -1640,18 +1650,18 @@ export function CustomReportDesignerClient(props: {
             </thead>
             <tbody>
               {mergedRows.map((row) => (
-                <tr key={row.rep_name} className="border-t border-[color:var(--sf-border)]">
+                <tr key={row.rep_id} className="border-t border-[color:var(--sf-border)]">
                   <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{row.rep_name}</td>
                   {selectedFields.flatMap((f) =>
                     row.byPeriod.map((pd, pi) => (
-                      <td key={`${row.rep_name}-${f.key}-${pi}`} className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">
+                      <td key={`${row.rep_id}-${f.key}-${pi}`} className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">
                         {renderMetricValue(f.key, pd.row ?? ({} as RepRow))}
                       </td>
                     ))
                   )}
                   {qvqPeriodResults.length === 2
                     ? selectedFields.map((f) => (
-                        <td key={`${row.rep_name}-delta-${f.key}`} className="px-4 py-3 text-right font-mono text-xs">
+                        <td key={`${row.rep_id}-delta-${f.key}`} className="px-4 py-3 text-right font-mono text-xs">
                           {renderQvqDelta(f.key, f.label, row.byPeriod)}
                         </td>
                       ))
