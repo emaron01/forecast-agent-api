@@ -35,12 +35,12 @@ async function listActiveRepsForOrg(orgId: number): Promise<RepDirectoryRow[]> {
       r.user_id,
       r.active
     FROM reps r
-    LEFT JOIN users u
-      ON u.org_id = $1::bigint
-     AND u.id = r.user_id
+    INNER JOIN users u
+      ON u.id = r.user_id
+     AND u.org_id = $1::bigint
     WHERE r.organization_id = $1::bigint
       AND (r.active IS TRUE OR r.active IS NULL)
-      AND (u.id IS NULL OR u.active IS TRUE OR u.active IS NULL)
+      AND (u.active IS TRUE OR u.active IS NULL)
     ORDER BY
       COALESCE(u.hierarchy_level, 99) ASC,
       name ASC,

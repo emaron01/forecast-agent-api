@@ -83,7 +83,7 @@ export default async function ExecutiveDashboardPage({
       myRepId: null as number | null,
     }));
 
-    const repDirectory = scope.repDirectory.filter((r) => r.active !== false);
+    const repDirectory = scope.repDirectory.filter((r) => r.active !== false && r.user_id != null);
 
     const visibleRepIds: number[] =
       scope.allowedRepIds !== null && scope.allowedRepIds.length > 0
