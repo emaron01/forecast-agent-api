@@ -28,7 +28,7 @@ import {
 } from "../../../lib/channelPartnerHeroData";
 import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
 import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
-import { HIERARCHY, isAdmin, isChannelExec, isChannelManager, isSalesLeader } from "../../../lib/roleHelpers";
+import { HIERARCHY, isAdmin, isSalesLeader } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -93,6 +93,15 @@ export default async function ExecutiveDashboardPage({
     const visibleRepIdsForQuery = visibleRepIds.length > 0 ? visibleRepIds : [-1];
 
     const repDirectory = scope.repDirectory;
+    const teamRepIds = repDirectory.map((r) => r.id).filter((n) => Number.isFinite(n) && n > 0);
+    const teamRepIdsForQuery = teamRepIds.length > 0 ? teamRepIds : [-1];
+
+    const viewerRepIdForTeam: number | null =
+      scope.myRepId != null && Number.isFinite(Number(scope.myRepId)) && Number(scope.myRepId) > 0
+        ? Number(scope.myRepId)
+        : ctx.kind === "user"
+          ? repDirectory.find((r) => r.user_id === ctx.user.id)?.id ?? null
+          : null;
     const childrenByManagerRepId = new Map<number, number[]>();
     for (const r of repDirectory) {
       if (r.manager_rep_id != null && repDirectory.some((x) => x.id === r.manager_rep_id)) {
@@ -228,7 +237,7 @@ export default async function ExecutiveDashboardPage({
         '(Unknown rep)'
       ) ASC
         `,
-        [orgId, startIso, endIso, visibleRepIdsForQuery]
+        [orgId, startIso, endIso, teamRepIdsForQuery]
       );
 
       const coverageRowsByRepId = new Map<number, CoverageRow>(
@@ -342,7 +351,7 @@ export default async function ExecutiveDashboardPage({
         '(Unknown rep)'
       ) ASC
       `,
-      [orgId, startIso, endIso, visibleRepIdsForQuery]
+      [orgId, startIso, endIso, teamRepIdsForQuery]
     );
 
     type AssessmentOppRow = {
@@ -391,7 +400,7 @@ export default async function ExecutiveDashboardPage({
             AND oae.total_score IS NOT NULL
         )
       `,
-      [orgId, startIso, endIso, visibleRepIdsForQuery]
+      [orgId, startIso, endIso, teamRepIdsForQuery]
     );
 
     const leaderAssessmentRows: AssessmentRow[] = leaders
@@ -539,7 +548,7 @@ export default async function ExecutiveDashboardPage({
       )
     ORDER BY delta ASC NULLS LAST, rep_name ASC, opp_name ASC
       `,
-      [orgId, startIso, endIso, visibleRepIdsForQuery]
+      [orgId, startIso, endIso, teamRepIdsForQuery]
     );
 
     const velocityByRep = new Map<string, {
@@ -683,7 +692,7 @@ export default async function ExecutiveDashboardPage({
       AND opp.close_date < $3::timestamptz
     ORDER BY oae.opportunity_id, oae.ts ASC
       `,
-      [orgId, startIso, endIso, visibleRepIdsForQuery]
+      [orgId, startIso, endIso, teamRepIdsForQuery]
     );
 
     type ProgressionSeries = {
@@ -822,29 +831,6 @@ export default async function ExecutiveDashboardPage({
       : null;
   const prevPeriodId = prevPeriod ? String(prevPeriod.id) : "";
   const comparePeriodIds = [selectedPeriodId, prevPeriodId].filter(Boolean);
-  const scopeRepIdsForTeam = visibleRepIds.length > 0 ? visibleRepIds : null;
-
-  const scopeMyRepNumeric =
-    scope.myRepId != null && Number.isFinite(Number(scope.myRepId)) && Number(scope.myRepId) > 0
-      ? Number(scope.myRepId)
-      : null;
-  let viewerRepIdForOmitManagerCard: number | null = scopeMyRepNumeric;
-  if (
-    viewerRepIdForOmitManagerCard == null &&
-    ctx.kind === "user" &&
-    (isSalesLeader(ctx.user) || (isAdmin(ctx.user) && ctx.user.admin_has_full_analytics_access))
-  ) {
-    try {
-      const { rows: vr } = await pool.query<{ id: string }>(
-        `SELECT id::text AS id FROM reps WHERE organization_id = $1::bigint AND user_id = $2::bigint LIMIT 1`,
-        [orgId, ctx.user.id]
-      );
-      const rid = vr?.[0]?.id != null ? Number(vr[0].id) : NaN;
-      viewerRepIdForOmitManagerCard = Number.isFinite(rid) && rid > 0 ? rid : null;
-    } catch {
-      viewerRepIdForOmitManagerCard = null;
-    }
-  }
 
   // Rep directory for Report Builder + revenue intelligence picker:
   // - sales 1–3 in exec → manager → rep tree; channel leaders 6–7 appended (not 8)
@@ -1005,8 +991,8 @@ export default async function ExecutiveDashboardPage({
 
   let reportBuilderRepRows: any[] = [];
   try {
-    if (selectedPeriodId && visibleRepIds.length > 0) {
-      const repIdsFilter = visibleRepIds;
+    if (selectedPeriodId && teamRepIds.length > 0) {
+      const repIdsFilter = teamRepIds;
       const periodIds = [String(selectedPeriodId)];
       const [repKpisRows, quotaByRepPeriod, repHealthRows, meddpiccRows] = await Promise.all([
         getRepKpisByPeriod({ orgId, periodIds, repIds: repIdsFilter }),
@@ -1163,23 +1149,15 @@ export default async function ExecutiveDashboardPage({
     reportBuilderSavedReports = [];
   }
 
-  const repIdToManagerId = new Map<string, string>();
   const managerNameById = new Map<string, string>();
   for (const r of repDirectory) {
     const id = String(r.id);
-    repIdToManagerId.set(id, r.manager_rep_id != null ? String(r.manager_rep_id) : "");
     managerNameById.set(id, String(r.name || "").trim() || `Rep ${r.id}`);
-  }
-  for (const r of repDirectory) {
-    if (Number(r.hierarchy_level) === HIERARCHY.EXEC_MANAGER || Number(r.hierarchy_level) === HIERARCHY.MANAGER) {
-      const id = String(r.id);
-      if (!managerNameById.has(id)) managerNameById.set(id, String(r.name || "").trim() || `Manager ${r.id}`);
-    }
   }
 
   let teamRepRows: RepManagerRepRow[] = [];
   let teamManagerRows: RepManagerManagerRow[] = [];
-  let teamOmitManagerRepIds: string[] = [];
+  let teamViewerRepIdForPayload: string | null = null;
   let teamRepsByManager = new Map<string, RepManagerRepRow[]>();
   let teamOrderedManagerIds: string[] = [];
   let productsClosedWonByRepYtd: Array<{
@@ -1228,7 +1206,7 @@ export default async function ExecutiveDashboardPage({
     requester_name: string | null;
   };
   let reviewQueueDeals: ReviewQueueDealRow[] = [];
-  if (showManagerReviewQueue && selectedPeriod && visibleRepIdsForQuery.length > 0) {
+  if (showManagerReviewQueue && selectedPeriod && teamRepIdsForQuery.length > 0) {
     try {
       const { rows } = await pool.query<ReviewQueueDealRow>(
         `
@@ -1297,7 +1275,7 @@ export default async function ExecutiveDashboardPage({
           score_after.reviewed_at
         ORDER BY o.review_requested_at DESC NULLS LAST, o.health_score ASC NULLS LAST
         `,
-        [orgId, visibleRepIdsForQuery, selectedPeriod.period_start, selectedPeriod.period_end]
+        [orgId, teamRepIdsForQuery, selectedPeriod.period_start, selectedPeriod.period_end]
       );
       reviewQueueDeals = rows ?? [];
     } catch {
@@ -1528,61 +1506,12 @@ export default async function ExecutiveDashboardPage({
   }
 
   if (selectedPeriodId && comparePeriodIds.length) {
-    const includeChannelRepsForChannelManagerRollup =
-      ctx.kind === "user" &&
-      (isSalesLeader(ctx.user) ||
-        (isAdmin(ctx.user) && ctx.user.admin_has_full_analytics_access) ||
-        isChannelExec(ctx.user) ||
-        isChannelManager(ctx.user));
-
-    const channelManagerRepIdsInScope = repDirectory
-      .filter((r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_MANAGER)
-      .map((r) => r.id)
-      .filter((n) => Number.isFinite(n) && n > 0);
-
-    let channelRepIdsForTeamKpi: number[] = [];
-    if (includeChannelRepsForChannelManagerRollup && channelManagerRepIdsInScope.length > 0) {
-      try {
-        const { rows: chRows } = await pool.query<{ id: string; manager_rep_id: string | null }>(
-          `
-          SELECT r.id::text AS id, r.manager_rep_id::text AS manager_rep_id
-            FROM reps r
-            JOIN users u ON u.id = r.user_id AND u.org_id = $1::bigint
-           WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
-             AND u.hierarchy_level = $2::int
-             AND r.manager_rep_id = ANY($3::bigint[])
-             AND (r.active IS TRUE OR r.active IS NULL)
-             AND (u.active IS TRUE OR u.active IS NULL)
-          `,
-          [orgId, HIERARCHY.CHANNEL_REP, channelManagerRepIdsInScope]
-        );
-        for (const row of chRows ?? []) {
-          const rid = Number(row.id);
-          const mrid = row.manager_rep_id != null ? Number(row.manager_rep_id) : NaN;
-          if (!Number.isFinite(rid) || rid <= 0) continue;
-          channelRepIdsForTeamKpi.push(rid);
-          if (Number.isFinite(mrid) && mrid > 0) {
-            repIdToManagerId.set(String(rid), String(mrid));
-            if (!managerNameById.has(String(mrid))) {
-              const m = repDirectory.find((x) => x.id === mrid);
-              managerNameById.set(String(mrid), m ? m.name : `Manager ${mrid}`);
-            }
-          }
-        }
-      } catch {
-        channelRepIdsForTeamKpi = [];
-      }
-    }
-
-    const scopeRepIdsForTeamWithChannelReps =
-      visibleRepIds.length > 0
-        ? Array.from(new Set([...visibleRepIds, ...channelRepIdsForTeamKpi]))
-        : null;
+    const scopeRepIdsForTeamKpi = teamRepIds.length > 0 ? teamRepIds : null;
 
     const [repKpisRows, createdByRepRows, quotaByRepPeriod] = await Promise.all([
-      getRepKpisByPeriod({ orgId, periodIds: comparePeriodIds, repIds: scopeRepIdsForTeamWithChannelReps }),
-      getCreatedByRep({ orgId, periodIds: comparePeriodIds, repIds: scopeRepIdsForTeamWithChannelReps }),
-      getQuotaByRepPeriod({ orgId, quotaPeriodIds: comparePeriodIds, repIds: scopeRepIdsForTeamWithChannelReps }),
+      getRepKpisByPeriod({ orgId, periodIds: comparePeriodIds, repIds: scopeRepIdsForTeamKpi }),
+      getCreatedByRep({ orgId, periodIds: comparePeriodIds, repIds: scopeRepIdsForTeamKpi }),
+      getQuotaByRepPeriod({ orgId, quotaPeriodIds: comparePeriodIds, repIds: scopeRepIdsForTeamKpi }),
     ]);
 
     const safeDiv = (n: number, d: number): number | null => {
@@ -1609,19 +1538,9 @@ export default async function ExecutiveDashboardPage({
     }
 
     const repIdsInData = new Set<string>();
+    for (const r of repDirectory) repIdsInData.add(String(r.id));
     for (const r of repKpisRows) repIdsInData.add(String(r.rep_id));
     for (const q of quotaByRepPeriod) repIdsInData.add(String(q.rep_id));
-    // Outer-join behavior: channel exec/director (6/7) in scoped directory must appear in Team
-    // Performance even when KPI/quota queries return no rows for them.
-    for (const r of repDirectory) {
-      const hl = Number(r.hierarchy_level);
-      if (hl === HIERARCHY.CHANNEL_EXEC || hl === HIERARCHY.CHANNEL_MANAGER) {
-        repIdsInData.add(String(r.id));
-      }
-    }
-    for (const crid of channelRepIdsForTeamKpi) {
-      repIdsInData.add(String(crid));
-    }
 
     const repRowsBuild: RepManagerRepRow[] = [];
     for (const rep_id of repIdsInData) {
@@ -1659,7 +1578,11 @@ export default async function ExecutiveDashboardPage({
       const prevAttainment = p ? safeDiv(Number(p.won_amount || 0) || 0, prevQuotaForRep) : null;
 
       const created = createdByKey.get(currK) || { created_amount: 0, created_count: 0 };
-      const manager_id = repIdToManagerId.get(String(rep_id)) || "";
+      const dirEntry = repDirectory.find((x) => String(x.id) === String(rep_id));
+      const manager_id =
+        dirEntry?.manager_rep_id != null && Number.isFinite(Number(dirEntry.manager_rep_id)) && Number(dirEntry.manager_rep_id) > 0
+          ? String(dirEntry.manager_rep_id)
+          : "";
       const manager_name = manager_id ? managerNameById.get(manager_id) || `Manager ${manager_id}` : "(Unassigned)";
 
       const mixDen = pipeline_amount + best_amount + commit_amount + won_amount;
@@ -1716,7 +1639,7 @@ export default async function ExecutiveDashboardPage({
       { quota: number; won_amount: number; won_count: number; lost_count: number; active_amount: number; partner_closed_amount: number; closed_amount: number }
     >();
     for (const repRow of repRowsBuild) {
-      const mid = repIdToManagerId.get(String(repRow.rep_id)) || "";
+      const mid = String(repRow.manager_id || "").trim();
       const a = managerAgg.get(mid) || {
         quota: 0,
         won_amount: 0,
@@ -1738,14 +1661,14 @@ export default async function ExecutiveDashboardPage({
       managerAgg.set(mid, a);
     }
 
-    const viewerOmitMid =
-      viewerRepIdForOmitManagerCard != null && Number.isFinite(viewerRepIdForOmitManagerCard)
-        ? String(viewerRepIdForOmitManagerCard)
+    const viewerRepStr =
+      viewerRepIdForTeam != null && Number.isFinite(viewerRepIdForTeam) && viewerRepIdForTeam > 0
+        ? String(viewerRepIdForTeam)
         : "";
 
     const managerRowsBuild: RepManagerManagerRow[] = [];
     for (const [manager_id, agg] of managerAgg.entries()) {
-      if (viewerOmitMid && String(manager_id) === viewerOmitMid) continue;
+      if (viewerRepStr && String(manager_id) === viewerRepStr) continue;
       const manager_name = manager_id ? managerNameById.get(manager_id) || `Manager ${manager_id}` : "(Unassigned)";
       const attainment = safeDiv(agg.won_amount, agg.quota);
       const win_rate = safeDiv(agg.won_count, agg.won_count + agg.lost_count);
@@ -1783,7 +1706,7 @@ export default async function ExecutiveDashboardPage({
     teamRepRows = repRowsBuild;
     teamManagerRows = managerRowsBuild;
     teamRepsByManager = repsByManagerMap;
-    teamOmitManagerRepIds = viewerOmitMid ? [viewerOmitMid] : [];
+    teamViewerRepIdForPayload = viewerRepStr || null;
   }
 
   try {
@@ -1791,7 +1714,7 @@ export default async function ExecutiveDashboardPage({
       .filter((p) => String(p.fiscal_year) === String(summary.selectedPeriod?.fiscal_year))
       .map((p) => String(p.id));
 
-    if (fyPeriodIds.length > 0 && visibleRepIds.length > 0) {
+    if (fyPeriodIds.length > 0 && teamRepIds.length > 0) {
       const { rows } = await pool.query<{
         rep_id: string;
         rep_int_id: string;
@@ -1879,7 +1802,7 @@ export default async function ExecutiveDashboardPage({
         GROUP BY r.id, qp.id, qp.period_name, qp.fiscal_quarter, qp.period_start
         ORDER BY qp.period_start ASC
         `,
-        [orgId, fyPeriodIds.map(Number), visibleRepIds]
+        [orgId, fyPeriodIds.map(Number), teamRepIds]
       );
 
       repFyQuarterRows = (rows ?? []).map((r) => {
@@ -1910,8 +1833,8 @@ export default async function ExecutiveDashboardPage({
     repFyQuarterRows = [];
   }
 
-  const allowedRepIds = visibleRepIds;
-  const useScoped = scope.allowedRepIds !== null && scope.allowedRepIds.length > 0;
+  const allowedRepIds = teamRepIds;
+  const useScopedProducts = teamRepIds.length > 0;
   try {
     const fyPeriodIds = summary.periods
       .filter((p) => String(p.fiscal_year) === String(summary.selectedPeriod?.fiscal_year))
@@ -1922,7 +1845,7 @@ export default async function ExecutiveDashboardPage({
         orgId: ctx.user.org_id,
         periodIds: fyPeriodIds,
         repIds: allowedRepIds,
-        useScoped,
+        useScoped: useScopedProducts,
       }).catch(() => []);
     } else {
       productsClosedWonByRepYtd = Array.isArray(summary.productsClosedWonByRep)
@@ -2171,7 +2094,7 @@ export default async function ExecutiveDashboardPage({
           teamRepManagerPayload={{
             repRows: teamRepRows,
             managerRows: teamManagerRows,
-            omitManagerRepIds: teamOmitManagerRepIds,
+            teamViewerRepId: teamViewerRepIdForPayload,
             periodName: summary.selectedPeriod?.period_name ?? "",
             periodStart: selectedPeriod?.period_start ?? "",
             periodEnd: selectedPeriod?.period_end ?? "",

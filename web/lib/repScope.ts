@@ -7,6 +7,7 @@ import {
   isChannelManager,
   isChannelRep,
   isChannelRole,
+  isExecSeeAllVisibilityEligibleLevel,
   isManager,
   isRep,
   isSalesLeader,
@@ -257,16 +258,16 @@ export async function getScopedRepDirectory(args: {
     return { repDirectory: all, allowedRepIds: null, myRepId: null };
   }
 
-  // Executive Dashboard Admins with see-all mirror EXEC_MANAGER/MANAGER see-all scope (sales 1–3 + linked channel leaders).
-  if (
-    (isSalesLeader(args.user) || (isAdmin(args.user) && args.user.admin_has_full_analytics_access)) &&
-    args.user.see_all_visibility
-  ) {
-    const allReps = await listActiveSalesRepsForOrg(orgId).catch(() => []);
-    const scopeUserIds = scopeUserIdsFromRepRows(allReps, userId);
-    const channelLeaders = await channelLeadersForManagerUserScope({ orgId, scopeUserIds }).catch(() => []);
-    const merged = mergeRepDirectoryByRepId(allReps, channelLeaders);
-    merged.sort((a, b) => {
+  // Executive: see_all_visibility + eligible level → full org rep list (manager_rep_id defines structure; no level-based subset).
+  const canExecutiveDirectoryAccess =
+    (isAdmin(args.user) && args.user.admin_has_full_analytics_access) ||
+    isSalesLeader(args.user) ||
+    isChannelExec(args.user) ||
+    isChannelManager(args.user);
+
+  if (canExecutiveDirectoryAccess && args.user.see_all_visibility && isExecSeeAllVisibilityEligibleLevel(args.user.hierarchy_level)) {
+    const allReps = await listActiveRepsForOrg(orgId).catch(() => []);
+    allReps.sort((a, b) => {
       const rank = (x: RepDirectoryRow) => (Number.isFinite(Number(x.hierarchy_level)) ? Number(x.hierarchy_level) : 99);
       const dr = rank(a) - rank(b);
       if (dr !== 0) return dr;
@@ -274,10 +275,11 @@ export async function getScopedRepDirectory(args: {
       if (dn !== 0) return dn;
       return a.id - b.id;
     });
+    const me = await getRepForUser(orgId, userId).catch(() => null);
     return {
-      repDirectory: merged,
+      repDirectory: allReps,
       allowedRepIds: null,
-      myRepId: null,
+      myRepId: me?.id ?? null,
     };
   }
 

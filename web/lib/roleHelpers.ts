@@ -158,3 +158,17 @@ export const CHANNEL_HIERARCHY_LEVELS = [6, 7, 8];
 
 // SQL helper — all hierarchy levels
 export const ALL_HIERARCHY_LEVELS = [0, 1, 2, 3, 6, 7, 8];
+
+/** User levels allowed to use org-wide `see_all_visibility` on executive-style dashboards (DB enforces validity). */
+export const EXEC_SEE_ALL_VISIBILITY_LEVELS: readonly number[] = [
+  HIERARCHY.ADMIN,
+  HIERARCHY.EXEC_MANAGER,
+  HIERARCHY.MANAGER,
+  HIERARCHY.CHANNEL_EXEC,
+  HIERARCHY.CHANNEL_MANAGER,
+] as const;
+
+export function isExecSeeAllVisibilityEligibleLevel(level: number | null | undefined) {
+  const n = Number(level);
+  return Number.isFinite(n) && EXEC_SEE_ALL_VISIBILITY_LEVELS.includes(n);
+}

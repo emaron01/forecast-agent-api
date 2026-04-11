@@ -377,15 +377,23 @@ function aggregateManagerTeam(
   };
 }
 
+function coachingBucketForRow(cr: RepManagerRepRow | null): string {
+  if (!cr) return "__orphan__";
+  const m = String(cr.manager_id ?? "").trim();
+  return m === "" ? "__unassigned__" : m;
+}
+
 function buildManagerCoachingTeams(
   repCoaching: RepCoachingData[],
   coachingRepRows: RepManagerRepRow[] | null | undefined,
   assessmentRepRows: AssessmentHygieneRow[],
   paceRatio: number,
-  omitManagerRepIds?: string[] | null
+  teamViewerRepId?: string | null
 ): ManagerCoachingTeam[] {
   const crRows = coachingRepRows ?? [];
-  const omit = new Set((omitManagerRepIds ?? []).map((id) => String(id || "")).filter(Boolean));
+  const viewerKey =
+    teamViewerRepId != null && String(teamViewerRepId).trim() !== "" ? String(teamViewerRepId).trim() : null;
+
   if (repCoaching.length === 0) return [];
 
   if (crRows.length === 0) {
@@ -397,20 +405,22 @@ function buildManagerCoachingTeams(
     const repNameKey = normalizeRepName(rep.rep_name);
     const cr =
       crRows.find((r) => String(r.rep_id) === rep.rep_id || normalizeRepName(r.rep_name) === repNameKey) ?? null;
-    const midRaw = cr ? String(cr.manager_id ?? "") : "__unassigned__";
-    const mid = midRaw !== "__unassigned__" && omit.has(midRaw) ? "" : midRaw;
-    if (!byMid.has(mid)) byMid.set(mid, []);
-    byMid.get(mid)!.push(rep);
+    const bucket = coachingBucketForRow(cr);
+    if (!byMid.has(bucket)) byMid.set(bucket, []);
+    byMid.get(bucket)!.push(rep);
   }
+
+  const directReps = viewerKey && byMid.has(viewerKey) ? (byMid.get(viewerKey) ?? []).slice() : [];
+  if (viewerKey && byMid.has(viewerKey)) byMid.delete(viewerKey);
 
   const ordered: string[] = [];
   const seen = new Set<string>();
   for (const r of crRows) {
-    let id = String(r.manager_id ?? "");
-    if (omit.has(id)) id = "";
-    if (!seen.has(id) && byMid.has(id)) {
-      ordered.push(id);
-      seen.add(id);
+    const bucket = coachingBucketForRow(r);
+    if (viewerKey && bucket === viewerKey) continue;
+    if (!seen.has(bucket) && byMid.has(bucket)) {
+      ordered.push(bucket);
+      seen.add(bucket);
     }
   }
   for (const id of byMid.keys()) {
@@ -420,18 +430,28 @@ function buildManagerCoachingTeams(
     }
   }
 
-  return ordered.map((managerId) => {
+  const directTeams: ManagerCoachingTeam[] = directReps.map((rep) =>
+    aggregateManagerTeam(
+      `direct:${rep.rep_id}`,
+      String(rep.rep_name || "").trim() || `Rep ${rep.rep_id}`,
+      [rep],
+      assessmentRepRows,
+      paceRatio
+    )
+  );
+
+  const managerTeams = ordered.map((managerId) => {
     const reps = byMid.get(managerId) ?? [];
     const mgrName =
-      managerId === "" || managerId === "__unassigned__"
+      managerId === "__unassigned__"
         ? "(Unassigned)"
-        : crRows.find((r) => {
-            let id = String(r.manager_id ?? "");
-            if (omit.has(id)) id = "";
-            return id === managerId;
-          })?.manager_name?.trim() || `Manager ${managerId}`;
+        : managerId === "__orphan__"
+          ? "(Unassigned)"
+          : crRows.find((r) => coachingBucketForRow(r) === managerId)?.manager_name?.trim() || `Manager ${managerId}`;
     return aggregateManagerTeam(managerId, mgrName, reps, assessmentRepRows, paceRatio);
   });
+
+  return [...directTeams, ...managerTeams];
 }
 
 function repPaceIcon(rep: RepCoachingData, paceRatio: number): string {
@@ -653,10 +673,10 @@ export function TeamForecastHygienePanels(props: {
   coachingRepRows?: RepManagerRepRow[] | null;
   coachingPeriodStart?: string;
   coachingPeriodEnd?: string;
-  /** Same as Team tab: hide manager bucket for these rep ids (viewer’s own manager card). */
-  omitManagerRepIds?: string[];
+  /** Same as Team tab: viewer’s direct reports as top-level coaching cards. */
+  teamViewerRepId?: string | null;
 }) {
-  const { pipelineHygiene: h, periodName, coachingRepRows, coachingPeriodStart, coachingPeriodEnd, omitManagerRepIds } =
+  const { pipelineHygiene: h, periodName, coachingRepRows, coachingPeriodStart, coachingPeriodEnd, teamViewerRepId } =
     props;
   const sectionClass = props.sectionClassName ?? "mt-4 space-y-4";
   const [showDetail, setShowDetail] = useState(false);
@@ -762,9 +782,9 @@ export function TeamForecastHygienePanels(props: {
         coachingRepRows ?? null,
         assessmentRepRows,
         coachingPaceRatio,
-        omitManagerRepIds
+        teamViewerRepId
       ),
-    [repCoaching, coachingRepRows, assessmentRepRows, coachingPaceRatio, omitManagerRepIds]
+    [repCoaching, coachingRepRows, assessmentRepRows, coachingPaceRatio, teamViewerRepId]
   );
 
   const [expandedManagerKeys, setExpandedManagerKeys] = useState<Set<string>>(new Set());

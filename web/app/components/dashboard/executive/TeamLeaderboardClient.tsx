@@ -53,8 +53,8 @@ export type TeamLeaderboardProps = {
   managerWonCountOverride?: number;
   managerLostAmountOverride?: number;
   managerLostCountOverride?: number;
-  /** Rep ids (string) that must not get a manager rollup card; their direct reports group under "(Unassigned)" for display. */
-  omitManagerRepIds?: string[];
+  /** Viewer's rep id: direct reports show as top-level rep cards (same rule as Coaching). */
+  teamViewerRepId?: string | null;
 };
 
 function fmtMoney(n: unknown) {
@@ -351,7 +351,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     managerWonCountOverride,
     managerLostAmountOverride,
     managerLostCountOverride,
-    omitManagerRepIds,
+    teamViewerRepId,
   } = props;
 
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -359,36 +359,46 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
 
   const { paceRatio } = useMemo(() => computePaceRatio(periodStart, periodEnd), [periodStart, periodEnd]);
 
-  const omitManagerIdSet = useMemo(
-    () => new Set((omitManagerRepIds ?? []).map((id) => String(id || "")).filter(Boolean)),
-    [omitManagerRepIds]
-  );
+  const viewerKey =
+    teamViewerRepId != null && String(teamViewerRepId).trim() !== "" ? String(teamViewerRepId).trim() : null;
 
   const repsByManager = useMemo(() => {
     const m = new Map<string, RepManagerRepRow[]>();
     for (const r of repRows) {
-      let k = r.manager_id || "";
-      if (omitManagerIdSet.has(String(k))) k = "";
+      const k = String(r.manager_id || "").trim();
       const arr = m.get(k) || [];
       arr.push(r);
       m.set(k, arr);
     }
     return m;
-  }, [repRows, omitManagerIdSet]);
+  }, [repRows]);
+
+  const directReportsOfViewer = useMemo(() => {
+    if (!viewerKey) return [] as RepManagerRepRow[];
+    return (repsByManager.get(viewerKey) || []).slice();
+  }, [repsByManager, viewerKey]);
 
   const orderedManagerIds = useMemo(() => {
-    const managerRowsFiltered = managerRows.filter((x) => !omitManagerIdSet.has(String(x.manager_id || "")));
-    const managerIdsInRepRows = Array.from(repsByManager.keys()).filter((id) => !omitManagerIdSet.has(String(id || "")));
+    const managerRowsFiltered = managerRows.filter((x) => {
+      const id = String(x.manager_id || "").trim();
+      if (viewerKey && id === viewerKey) return false;
+      return true;
+    });
+    const managerIdsInRepRows = Array.from(repsByManager.keys()).filter((id) => {
+      const s = String(id || "").trim();
+      if (viewerKey && s === viewerKey) return false;
+      return true;
+    });
     return [
-      ...managerRowsFiltered.map((x) => x.manager_id || ""),
+      ...managerRowsFiltered.map((x) => String(x.manager_id || "").trim()),
       ...managerIdsInRepRows.filter(
-        (id) => !managerRowsFiltered.some((m) => String(m.manager_id || "") === String(id || ""))
+        (id) => !managerRowsFiltered.some((m) => String(m.manager_id || "").trim() === String(id || "").trim())
       ),
     ];
-  }, [managerRows, repsByManager, omitManagerIdSet]);
+  }, [managerRows, repsByManager, viewerKey]);
 
   const managerIdsWithReps = useMemo(
-    () => orderedManagerIds.filter((mid) => (repsByManager?.get(mid) || []).length > 0),
+    () => orderedManagerIds.filter((mid) => (repsByManager.get(String(mid || "").trim()) || []).length > 0),
     [orderedManagerIds, repsByManager]
   );
 
@@ -796,19 +806,20 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
   };
 
   const renderManagerCard = (managerId: string) => {
-    const repsUnder = (repsByManager?.get(managerId) || [])
+    const mid = String(managerId || "").trim();
+    const repsUnder = (repsByManager?.get(mid) || [])
       .slice()
       .sort((a, b) => {
         const aa = a.attainment == null || !Number.isFinite(a.attainment) ? Number.POSITIVE_INFINITY : Number(a.attainment);
         const bb = b.attainment == null || !Number.isFinite(b.attainment) ? Number.POSITIVE_INFINITY : Number(b.attainment);
         return bb - aa || a.rep_name.localeCompare(b.rep_name);
       });
-    const mgrMeta = managerRows.find((m) => String(m.manager_id || "") === String(managerId || ""));
+    const mgrMeta = managerRows.find((m) => String(m.manager_id || "").trim() === mid);
     const managerLabel =
       mgrMeta?.manager_name ||
-      (managerId ? repsUnder[0]?.manager_name : "(Unassigned)") ||
-      `Manager ${managerId || ""}`;
-    const cardKey = `mgr:${managerId || "unassigned"}`;
+      (mid ? repsUnder[0]?.manager_name : "(Unassigned)") ||
+      `Manager ${mid || ""}`;
+    const cardKey = `mgr:${mid || "unassigned"}`;
     const current = aggregateCurrentTeam(repsUnder);
     const repIntIds = repsUnder.map((r) => r.rep_id);
     const annual = aggregateAnnualTeam(allPeriodRows ?? [], repIntIds);
@@ -888,7 +899,13 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     );
   };
 
-  const showManagerGrid = managerIdsWithReps.length > 0;
+  function repSortCompare(a: RepManagerRepRow, b: RepManagerRepRow) {
+    const aa = a.attainment == null || !Number.isFinite(a.attainment) ? Number.POSITIVE_INFINITY : Number(a.attainment);
+    const bb = b.attainment == null || !Number.isFinite(b.attainment) ? Number.POSITIVE_INFINITY : Number(b.attainment);
+    return bb - aa || a.rep_name.localeCompare(b.rep_name);
+  }
+
+  const showFlatRepGrid = managerIdsWithReps.length === 0 && directReportsOfViewer.length === 0;
 
   return (
     <div>
@@ -907,15 +924,9 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-1">
-        {showManagerGrid
-          ? managerIdsWithReps.map((mid) => renderManagerCard(mid))
-          : [...repRows]
-              .sort((a, b) => {
-                const aa = a.attainment == null || !Number.isFinite(a.attainment) ? Number.POSITIVE_INFINITY : Number(a.attainment);
-                const bb = b.attainment == null || !Number.isFinite(b.attainment) ? Number.POSITIVE_INFINITY : Number(b.attainment);
-                return bb - aa || a.rep_name.localeCompare(b.rep_name);
-              })
-              .map((r) => renderRepCard(r))}
+        {directReportsOfViewer.slice().sort(repSortCompare).map((r) => renderRepCard(r))}
+        {managerIdsWithReps.map((mid) => renderManagerCard(mid))}
+        {showFlatRepGrid ? [...repRows].sort(repSortCompare).map((r) => renderRepCard(r)) : null}
       </div>
 
       <button

@@ -52,7 +52,6 @@ export async function getQuotaByRepPeriod(args: {
       ON u.id = r.user_id
      AND u.org_id = q.org_id
     WHERE q.org_id = $1::bigint
-      AND (u.hierarchy_level BETWEEN 1 AND 3 OR u.hierarchy_level IN (6, 7, 8))
       AND q.rep_id IS NOT NULL
       AND q.quota_period_id = ANY($2::bigint[])
       AND (NOT $4::boolean OR q.rep_id = ANY($3::bigint[]))
