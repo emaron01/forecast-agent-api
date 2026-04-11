@@ -228,7 +228,7 @@ async function channelLeadersForManagerUserScope(args: { orgId: number; scopeUse
   );
 }
 
-/** One row per rep id; first occurrence wins (base preferred when used as mergeRepDirectoryByRepId base). */
+/** One row per rep id; first occurrence wins. */
 function dedupeRepDirectoryByRepId(rows: RepDirectoryRow[]): RepDirectoryRow[] {
   const seen = new Map<number, RepDirectoryRow>();
   for (const row of rows) {
@@ -238,13 +238,19 @@ function dedupeRepDirectoryByRepId(rows: RepDirectoryRow[]): RepDirectoryRow[] {
   return Array.from(seen.values());
 }
 
-function mergeRepDirectoryByRepId(base: RepDirectoryRow[], extras: RepDirectoryRow[]): RepDirectoryRow[] {
-  const seen = new Map<number, RepDirectoryRow>();
-  for (const row of base) seen.set(row.id, row);
-  for (const row of extras) {
-    if (!seen.has(row.id)) seen.set(row.id, row);
+/** Same manager_rep_id overlay as see-all enrichment: overwrite on match, add missing ids. */
+function mergeAndEnrichRepDirectory(base: RepDirectoryRow[], extra: RepDirectoryRow[]): RepDirectoryRow[] {
+  const byId = new Map<number, RepDirectoryRow>();
+  for (const row of base) byId.set(row.id, { ...row });
+  for (const cl of extra) {
+    const ex = byId.get(cl.id);
+    if (ex && cl.manager_rep_id != null) {
+      ex.manager_rep_id = cl.manager_rep_id;
+    } else if (!ex) {
+      byId.set(cl.id, { ...cl });
+    }
   }
-  return Array.from(seen.values());
+  return dedupeRepDirectoryByRepId(Array.from(byId.values()));
 }
 
 export async function getScopedRepDirectory(args: {
@@ -412,12 +418,11 @@ export async function getScopedRepDirectory(args: {
         ON u.org_id = $1::bigint
        AND u.id = r.user_id
       WHERE r.organization_id = $1::bigint
-        AND COALESCE(u.hierarchy_level, 99) = $3::int
         AND r.manager_rep_id = $2::bigint
         AND (r.active IS TRUE OR r.active IS NULL)
       ORDER BY name ASC, id ASC
       `,
-      [orgId, me.id, HIERARCHY.REP]
+      [orgId, me.id]
     );
     const reps = (rows || []).map((r: any) => ({
       id: Number(r.id),
@@ -432,7 +437,7 @@ export async function getScopedRepDirectory(args: {
     const uniq = Array.from(new Map(list.map((r) => [r.id, r] as const)).values());
     const scopeUserIds = scopeUserIdsFromRepRows(uniq, userId);
     const channelLeaders = await channelLeadersForManagerUserScope({ orgId, scopeUserIds }).catch(() => []);
-    const merged = dedupeRepDirectoryByRepId(mergeRepDirectoryByRepId(uniq, channelLeaders));
+    const merged = mergeAndEnrichRepDirectory(uniq, channelLeaders);
     const allowed = Array.from(
       new Set([me.id, ...reps.map((r) => r.id), ...merged.map((r) => r.id)].filter((n) => Number.isFinite(n) && n > 0))
     );
@@ -521,7 +526,7 @@ export async function getScopedRepDirectory(args: {
 
   const scopeUserIds = scopeUserIdsFromRepRows(list, userId);
   const channelLeaders = await channelLeadersForManagerUserScope({ orgId, scopeUserIds }).catch(() => []);
-  const merged = dedupeRepDirectoryByRepId(mergeRepDirectoryByRepId(list, channelLeaders));
+  const merged = mergeAndEnrichRepDirectory(list, channelLeaders);
   merged.sort((a, b) => {
     const rank = (x: RepDirectoryRow) => (Number.isFinite(Number(x.hierarchy_level)) ? Number(x.hierarchy_level) : 99);
     const dr = rank(a) - rank(b);
