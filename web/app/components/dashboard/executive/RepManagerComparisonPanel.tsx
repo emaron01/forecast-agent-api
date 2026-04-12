@@ -57,6 +57,8 @@ export type RepManagerRepRow = {
 export type RepManagerManagerRow = {
   manager_id: string;
   manager_name: string;
+  /** Rep id of this manager’s own manager; "" when parent is the viewer, unassigned, or unknown. */
+  parent_manager_id: string;
   quota: number;
   won_amount: number;
   active_amount: number;

@@ -1,7 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { RepManagerRepRow } from "../../../app/components/dashboard/executive/RepManagerComparisonPanel";
+import type {
+  RepManagerManagerRow,
+  RepManagerRepRow,
+} from "../../../app/components/dashboard/executive/RepManagerComparisonPanel";
 
 export type CoverageHygieneRow = {
   rep_id: number;
@@ -377,7 +380,8 @@ function buildManagerCoachingTeams(
   coachingRepRows: RepManagerRepRow[] | null | undefined,
   assessmentRepRows: AssessmentHygieneRow[],
   paceRatio: number,
-  teamViewerRepId?: string | null
+  teamViewerRepId?: string | null,
+  coachingManagerRows?: RepManagerManagerRow[] | null
 ): ManagerCoachingTeam[] {
   const crRows = coachingRepRows ?? [];
   const viewerKey =
@@ -395,6 +399,40 @@ function buildManagerCoachingTeams(
     const bucket = coachingBucketForRow(cr);
     if (!byMid.has(bucket)) byMid.set(bucket, []);
     byMid.get(bucket)!.push(rep);
+  }
+
+  const coachingMgr = coachingManagerRows ?? [];
+  if (coachingMgr.length > 0) {
+    const topLevelManagerRows = coachingMgr.filter((r) => r.parent_manager_id === "");
+    const managerIdSet = new Set(coachingMgr.map((r) => r.manager_id));
+    const viewerBucketReps = viewerKey ? (byMid.get(viewerKey) ?? []) : [];
+    const leafRepsCoaching = viewerBucketReps.filter((rep) => !managerIdSet.has(String(rep.rep_id)));
+    const managerTeams = topLevelManagerRows
+      .filter((r) => r.manager_id !== "")
+      .map((r) =>
+        aggregateManagerTeam(
+          r.manager_id,
+          String(r.manager_name || "").trim() || `Manager ${r.manager_id}`,
+          byMid.get(r.manager_id) ?? [],
+          assessmentRepRows,
+          paceRatio
+        )
+      );
+    const leafTeams = leafRepsCoaching.map((rep) =>
+      aggregateManagerTeam(
+        `direct:${rep.rep_id}`,
+        String(rep.rep_name || "").trim() || `Rep ${rep.rep_id}`,
+        [rep],
+        assessmentRepRows,
+        paceRatio
+      )
+    );
+    const unassigned = byMid.get("__unassigned__") ?? [];
+    const unassignedTeam =
+      unassigned.length > 0
+        ? [aggregateManagerTeam("__unassigned__", "(Unassigned)", unassigned, assessmentRepRows, paceRatio)]
+        : [];
+    return [...managerTeams, ...leafTeams, ...unassignedTeam];
   }
 
   const directReps = viewerKey && byMid.has(viewerKey) ? (byMid.get(viewerKey) ?? []).slice() : [];
@@ -662,9 +700,17 @@ export function TeamForecastHygienePanels(props: {
   coachingPeriodEnd?: string;
   /** Same as Team tab: viewer’s direct reports as top-level coaching cards. */
   teamViewerRepId?: string | null;
+  coachingManagerRows?: RepManagerManagerRow[] | null;
 }) {
-  const { pipelineHygiene: h, periodName, coachingRepRows, coachingPeriodStart, coachingPeriodEnd, teamViewerRepId } =
-    props;
+  const {
+    pipelineHygiene: h,
+    periodName,
+    coachingRepRows,
+    coachingPeriodStart,
+    coachingPeriodEnd,
+    teamViewerRepId,
+    coachingManagerRows,
+  } = props;
   const sectionClass = props.sectionClassName ?? "mt-4 space-y-4";
   const [showDetail, setShowDetail] = useState(false);
 
@@ -769,9 +815,10 @@ export function TeamForecastHygienePanels(props: {
         coachingRepRows ?? null,
         assessmentRepRows,
         coachingPaceRatio,
-        teamViewerRepId
+        teamViewerRepId,
+        coachingManagerRows ?? null
       ),
-    [repCoaching, coachingRepRows, assessmentRepRows, coachingPaceRatio, teamViewerRepId]
+    [repCoaching, coachingRepRows, assessmentRepRows, coachingPaceRatio, teamViewerRepId, coachingManagerRows]
   );
 
   const [expandedManagerKeys, setExpandedManagerKeys] = useState<Set<string>>(new Set());

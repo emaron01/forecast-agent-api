@@ -887,6 +887,7 @@ export function ExecutiveTabsShellClient(props: {
                 coachingPeriodStart={props.teamRepManagerPayload.periodStart ?? ""}
                 coachingPeriodEnd={props.teamRepManagerPayload.periodEnd ?? ""}
                 teamViewerRepId={props.teamRepManagerPayload.teamViewerRepId}
+                coachingManagerRows={props.teamRepManagerPayload.managerRows}
               />
             </div>
             {/* Part 1: Coaching Insights from teamTabOnly */}

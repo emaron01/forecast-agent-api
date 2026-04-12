@@ -35,7 +35,7 @@ function aggregateDirectReportsToManagerRow(
   direct: RepManagerRepRow[],
   repKpisByKey: Map<string, RepPeriodKpisRow>,
   selectedPeriodId: string
-): Omit<RepManagerManagerRow, "manager_id" | "manager_name"> {
+): Omit<RepManagerManagerRow, "manager_id" | "manager_name" | "parent_manager_id"> {
   let quota = 0;
   let won_amount = 0;
   let won_count = 0;
@@ -251,9 +251,18 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
       return d != null && d.manager_rep_id === mid;
     });
     if (!direct.length) continue;
+    const managerDirRow = repDirectoryById.get(mid);
+    const parentManagerRepId = managerDirRow?.manager_rep_id ?? null;
+    const parentManagerId =
+      parentManagerRepId == null
+        ? ""
+        : viewerId != null && Number(parentManagerRepId) === viewerId
+          ? ""
+          : String(parentManagerRepId);
     managerRowsBuild.push({
       manager_id: String(mid),
       manager_name: managerNameById.get(String(mid)) || `Manager ${mid}`,
+      parent_manager_id: parentManagerId,
       ...aggregateDirectReportsToManagerRow(direct, repKpisByKey, selectedPeriodId),
     });
   }
@@ -266,6 +275,7 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
     managerRowsBuild.push({
       manager_id: "",
       manager_name: "(Unassigned)",
+      parent_manager_id: "",
       ...aggregateDirectReportsToManagerRow(unassignedDirect, repKpisByKey, selectedPeriodId),
     });
   }

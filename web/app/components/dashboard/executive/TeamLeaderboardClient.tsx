@@ -359,9 +359,6 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
 
   const { paceRatio } = useMemo(() => computePaceRatio(periodStart, periodEnd), [periodStart, periodEnd]);
 
-  const viewerKey =
-    teamViewerRepId != null && String(teamViewerRepId).trim() !== "" ? String(teamViewerRepId).trim() : null;
-
   const repsByManager = useMemo(() => {
     const m = new Map<string, RepManagerRepRow[]>();
     for (const r of repRows) {
@@ -373,34 +370,36 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     return m;
   }, [repRows]);
 
-  const directReportsOfViewer = useMemo(() => {
-    if (!viewerKey) return [] as RepManagerRepRow[];
-    return (repsByManager.get(viewerKey) || []).slice();
-  }, [repsByManager, viewerKey]);
-
-  const orderedManagerIds = useMemo(() => {
-    const managerRowsFiltered = managerRows.filter((x) => {
-      const id = String(x.manager_id || "").trim();
-      if (viewerKey && id === viewerKey) return false;
-      return true;
-    });
-    const managerIdsInRepRows = Array.from(repsByManager.keys()).filter((id) => {
-      const s = String(id || "").trim();
-      if (viewerKey && s === viewerKey) return false;
-      return true;
-    });
-    return [
-      ...managerRowsFiltered.map((x) => String(x.manager_id || "").trim()),
-      ...managerIdsInRepRows.filter(
-        (id) => !managerRowsFiltered.some((m) => String(m.manager_id || "").trim() === String(id || "").trim())
-      ),
-    ];
-  }, [managerRows, repsByManager, viewerKey]);
-
-  const managerIdsWithReps = useMemo(
-    () => orderedManagerIds.filter((mid) => (repsByManager.get(String(mid || "").trim()) || []).length > 0),
-    [orderedManagerIds, repsByManager]
+  const managerIdSet = useMemo(
+    () => new Set(managerRows.map((r) => String(r.manager_id || "").trim())),
+    [managerRows]
   );
+
+  const topLevelManagers = useMemo(
+    () => managerRows.filter((r) => r.parent_manager_id === ""),
+    [managerRows]
+  );
+
+  const leafReps = useMemo(
+    () => repRows.filter((r) => !managerIdSet.has(String(r.rep_id))),
+    [repRows, managerIdSet]
+  );
+
+  const viewerKey = teamViewerRepId != null ? String(teamViewerRepId) : null;
+
+  const topLevelLeafReps = useMemo(() => {
+    const vk = viewerKey != null && String(viewerKey).trim() !== "" ? String(viewerKey).trim() : null;
+    if (vk) {
+      return leafReps.filter((r) => {
+        const mid = String(r.manager_id || "").trim();
+        return mid === vk || mid === "";
+      });
+    }
+    return leafReps.filter((r) => String(r.manager_id || "").trim() === "");
+  }, [leafReps, viewerKey]);
+
+  const showFlatRepGrid =
+    topLevelManagers.length === 0 && topLevelLeafReps.length === 0 && repRows.length > 0;
 
   function toggleExpand(id: string) {
     setExpandedIds((prev) => {
@@ -905,8 +904,6 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     return bb - aa || a.rep_name.localeCompare(b.rep_name);
   }
 
-  const showFlatRepGrid = managerIdsWithReps.length === 0 && directReportsOfViewer.length === 0;
-
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
@@ -924,8 +921,8 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-1">
-        {directReportsOfViewer.slice().sort(repSortCompare).map((r) => renderRepCard(r))}
-        {managerIdsWithReps.map((mid) => renderManagerCard(mid))}
+        {topLevelManagers.map((m) => renderManagerCard(String(m.manager_id || "").trim()))}
+        {topLevelLeafReps.slice().sort(repSortCompare).map((r) => renderRepCard(r))}
         {showFlatRepGrid ? [...repRows].sort(repSortCompare).map((r) => renderRepCard(r)) : null}
       </div>
 

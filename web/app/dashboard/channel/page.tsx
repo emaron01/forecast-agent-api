@@ -1520,6 +1520,7 @@ export default async function ChannelDashboardPage({
           const rows: Array<{
             manager_id: string;
             manager_name: string;
+            parent_manager_id: string;
             quota: number;
             won_amount: number;
             active_amount: number;
@@ -1539,6 +1540,7 @@ export default async function ChannelDashboardPage({
                   : manager_id
                     ? repDisplayNameByRepId.get(Number(manager_id)) || a.manager_name || `Manager ${manager_id}`
                     : "(Unassigned)",
+              parent_manager_id: "",
               quota,
               won_amount: won,
               active_amount: a.active_amount,
