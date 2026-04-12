@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { pool } from "../../../lib/pool";
+import { syncManagerQuotas } from "../../../lib/db";
 import { requireOrgContext } from "../../../lib/auth";
 import type { QuotaPeriodRow, QuotaRow } from "../../../lib/quotaModels";
 import { isAdmin } from "../../../lib/roleHelpers";
@@ -322,6 +323,11 @@ export async function createQuota(formData: FormData): Promise<QuotaRow> {
 
   const row = rows?.[0];
   if (!row) throw new Error("create_failed");
+  const repNum = parsed.rep_id ? Number(parsed.rep_id) : NaN;
+  const qpNum = Number(parsed.quota_period_id);
+  if (Number.isFinite(repNum) && repNum > 0 && Number.isFinite(qpNum) && qpNum > 0) {
+    await syncManagerQuotas({ orgId, quotaPeriodId: qpNum, startRepId: repNum }).catch(() => null);
+  }
   return row;
 }
 
@@ -385,6 +391,11 @@ export async function updateQuota(formData: FormData): Promise<QuotaRow> {
 
   const row = rows?.[0];
   if (!row) throw new Error("not_found");
+  const repNum = parsed.rep_id ? Number(parsed.rep_id) : NaN;
+  const qpNum = Number(parsed.quota_period_id);
+  if (Number.isFinite(repNum) && repNum > 0 && Number.isFinite(qpNum) && qpNum > 0) {
+    await syncManagerQuotas({ orgId, quotaPeriodId: qpNum, startRepId: repNum }).catch(() => null);
+  }
   return row;
 }
 
@@ -462,6 +473,7 @@ export async function upsertRepQuotaSet(formData: FormData): Promise<{ ok: true 
          SET quota_amount = $4::numeric,
              annual_target = $5::numeric,
              manager_id = $6::bigint,
+             is_manual = false,
              updated_at = NOW()
        WHERE org_id = $1::bigint
          AND rep_id = $2::bigint
@@ -491,7 +503,8 @@ export async function upsertRepQuotaSet(formData: FormData): Promise<{ ok: true 
         quota_amount,
         annual_target,
         carry_forward,
-        adjusted_quarterly_quota
+        adjusted_quarterly_quota,
+        is_manual
       ) VALUES (
         $1::bigint,
         $2::bigint,
@@ -507,11 +520,22 @@ export async function upsertRepQuotaSet(formData: FormData): Promise<{ ok: true 
         $5::numeric,
         $6::numeric,
         0,
-        NULL
+        NULL,
+        false
       )
       `,
       [orgId, parsed.rep_id, manager_id, q.quota_period_id, q.quota_amount, annual_target]
     );
+  }
+
+  const repIdNum = Number(parsed.rep_id);
+  if (Number.isFinite(repIdNum) && repIdNum > 0) {
+    for (const q of quarterRows) {
+      const qpid = Number(q.quota_period_id);
+      if (Number.isFinite(qpid) && qpid > 0) {
+        await syncManagerQuotas({ orgId, quotaPeriodId: qpid, startRepId: repIdNum }).catch(() => null);
+      }
+    }
   }
 
   return { ok: true };

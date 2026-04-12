@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireAuth, type AuthUser } from "../../../../lib/auth";
-import { getOrganization } from "../../../../lib/db";
+import { getOrganization, syncManagerQuotas } from "../../../../lib/db";
 import { pool } from "../../../../lib/pool";
 import type { QuotaPeriodRow, QuotaRow } from "../../../../lib/quotaModels";
 import { UserTopNav } from "../../../_components/UserTopNav";
@@ -166,7 +166,9 @@ async function upsertRepQuota(args: {
   quotaPeriodId: string;
   quotaAmount: number;
   annualTarget: number;
+  isManual?: boolean;
 }) {
+  const isManual = args.isManual === true;
   const existing = await pool.query<{ id: string }>(
     `
     SELECT id::text AS id
@@ -189,11 +191,12 @@ async function upsertRepQuota(args: {
       UPDATE quotas
          SET quota_amount = $3::numeric,
              annual_target = $4::numeric,
+             is_manual = $5::boolean,
              updated_at = NOW()
        WHERE org_id = $1::bigint
          AND id = $2::uuid
       `,
-      [args.orgId, id, args.quotaAmount, args.annualTarget]
+      [args.orgId, id, args.quotaAmount, args.annualTarget, isManual]
     );
     return;
   }
@@ -207,7 +210,8 @@ async function upsertRepQuota(args: {
       role_level,
       quota_period_id,
       quota_amount,
-      annual_target
+      annual_target,
+      is_manual
     ) VALUES (
       $1::bigint,
       $2::bigint,
@@ -215,14 +219,16 @@ async function upsertRepQuota(args: {
       $4::int,
       $5::bigint,
       $6::numeric,
-      $7::numeric
+      $7::numeric,
+      $8::boolean
     )
     ON CONFLICT (org_id, rep_id, quota_period_id)
     DO UPDATE SET
       quota_amount = EXCLUDED.quota_amount,
+      is_manual = EXCLUDED.is_manual,
       updated_at = NOW()
     `,
-    [args.orgId, args.repId, args.managerId, args.roleLevel, args.quotaPeriodId, args.quotaAmount, args.annualTarget]
+    [args.orgId, args.repId, args.managerId, args.roleLevel, args.quotaPeriodId, args.quotaAmount, args.annualTarget, isManual]
   );
 }
 
@@ -353,6 +359,25 @@ async function saveRepQuotasForYearAction(formData: FormData) {
     );
   }
 
+  const manualLevels = new Set([0, 1, 2, 6, 7]);
+  let quotaIsManual = false;
+  const hl = ctx.user.hierarchy_level;
+  if (hl != null && Number.isFinite(Number(hl)) && manualLevels.has(Number(hl))) {
+    const chk = await pool.query<{ ok: boolean }>(
+      `
+      SELECT EXISTS (
+        SELECT 1
+          FROM reps r
+         WHERE r.id = $1::bigint
+           AND r.organization_id = $2::bigint
+           AND r.user_id = $3::bigint
+      ) AS ok
+      `,
+      [repId, ctx.user.org_id, ctx.user.id]
+    );
+    quotaIsManual = chk.rows[0]?.ok === true;
+  }
+
   const quarterAssignments = [
     { quota_period_id: String(q1p.id), quota_amount: q1_quota },
     { quota_period_id: String(q2p.id), quota_amount: q2_quota },
@@ -368,7 +393,12 @@ async function saveRepQuotasForYearAction(formData: FormData) {
       quotaPeriodId: qa.quota_period_id,
       quotaAmount: qa.quota_amount,
       annualTarget,
+      isManual: quotaIsManual,
     });
+    const qpid = Number(qa.quota_period_id);
+    if (Number.isFinite(qpid) && qpid > 0) {
+      await syncManagerQuotas({ orgId: ctx.user.org_id, quotaPeriodId: qpid, startRepId: repId }).catch(() => null);
+    }
   }
 
   revalidatePath("/analytics/quotas/manager");
