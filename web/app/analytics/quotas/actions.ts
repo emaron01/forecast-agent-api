@@ -330,11 +330,7 @@ export async function assignQuotaToUser(input: z.input<typeof AssignQuotaToUserS
     const out = await normalizeQuotaRow(rows as any[]);
     if (!out) return { ok: false, error: "update_failed" };
     if (repId) {
-      await syncManagerQuotas({
-        orgId: a.orgId,
-        quotaPeriodId: Number(parsed.quota_period_id),
-        startRepId: Number(repId),
-      }).catch(() => null);
+      await syncManagerQuotas({ orgId: a.orgId, startRepId: Number(repId) }).catch(() => null);
     }
     return { ok: true, data: out };
   }
@@ -395,11 +391,7 @@ export async function assignQuotaToUser(input: z.input<typeof AssignQuotaToUserS
   const out = await normalizeQuotaRow(rows as any[]);
   if (!out) return { ok: false, error: "create_failed" };
   if (repId) {
-    await syncManagerQuotas({
-      orgId: a.orgId,
-      quotaPeriodId: Number(parsed.quota_period_id),
-      startRepId: Number(repId),
-    }).catch(() => null);
+    await syncManagerQuotas({ orgId: a.orgId, startRepId: Number(repId) }).catch(() => null);
   }
   return { ok: true, data: out };
 }
@@ -485,11 +477,7 @@ export async function updateQuota(input: z.input<typeof UpdateQuotaSchema>): Pro
   const row = rows?.[0];
   if (!row) return { ok: false, error: "not_found" };
   if (repId) {
-    await syncManagerQuotas({
-      orgId: a.orgId,
-      quotaPeriodId: Number(parsed.quota_period_id),
-      startRepId: Number(repId),
-    }).catch(() => null);
+    await syncManagerQuotas({ orgId: a.orgId, startRepId: Number(repId) }).catch(() => null);
   }
   return { ok: true, data: row };
 }

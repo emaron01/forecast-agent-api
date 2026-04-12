@@ -324,9 +324,8 @@ export async function createQuota(formData: FormData): Promise<QuotaRow> {
   const row = rows?.[0];
   if (!row) throw new Error("create_failed");
   const repNum = parsed.rep_id ? Number(parsed.rep_id) : NaN;
-  const qpNum = Number(parsed.quota_period_id);
-  if (Number.isFinite(repNum) && repNum > 0 && Number.isFinite(qpNum) && qpNum > 0) {
-    await syncManagerQuotas({ orgId, quotaPeriodId: qpNum, startRepId: repNum }).catch(() => null);
+  if (Number.isFinite(repNum) && repNum > 0) {
+    await syncManagerQuotas({ orgId, startRepId: repNum }).catch(() => null);
   }
   return row;
 }
@@ -392,9 +391,8 @@ export async function updateQuota(formData: FormData): Promise<QuotaRow> {
   const row = rows?.[0];
   if (!row) throw new Error("not_found");
   const repNum = parsed.rep_id ? Number(parsed.rep_id) : NaN;
-  const qpNum = Number(parsed.quota_period_id);
-  if (Number.isFinite(repNum) && repNum > 0 && Number.isFinite(qpNum) && qpNum > 0) {
-    await syncManagerQuotas({ orgId, quotaPeriodId: qpNum, startRepId: repNum }).catch(() => null);
+  if (Number.isFinite(repNum) && repNum > 0) {
+    await syncManagerQuotas({ orgId, startRepId: repNum }).catch(() => null);
   }
   return row;
 }
@@ -530,12 +528,7 @@ export async function upsertRepQuotaSet(formData: FormData): Promise<{ ok: true 
 
   const repIdNum = Number(parsed.rep_id);
   if (Number.isFinite(repIdNum) && repIdNum > 0) {
-    for (const q of quarterRows) {
-      const qpid = Number(q.quota_period_id);
-      if (Number.isFinite(qpid) && qpid > 0) {
-        await syncManagerQuotas({ orgId, quotaPeriodId: qpid, startRepId: repIdNum }).catch(() => null);
-      }
-    }
+    await syncManagerQuotas({ orgId, startRepId: repIdNum }).catch(() => null);
   }
 
   return { ok: true };

@@ -447,19 +447,41 @@ export async function syncRepsFromUsers(args: { organizationId: number }) {
 }
 
 /**
- * Walk manager_rep_id ancestors from startRepId and set each manager's quota for the period
- * to the sum of direct reports' quotas, unless that manager row is is_manual.
+ * Walk manager_rep_id ancestors from startRepId and roll up direct-report quota_amount
+ * into each manager row per quota period (unless is_manual for that row).
+ * When quotaPeriodId is omitted or null, all quota_periods for the org are synced.
+ * After quarterly amounts are set, annual_target on each non-manual row is set to the sum of
+ * that rep's quota_amount across all periods in the same fiscal_year (quarters in this schema).
  */
 export async function syncManagerQuotas(args: {
   orgId: number;
-  quotaPeriodId: number;
   startRepId: number;
+  quotaPeriodId?: number | null;
 }): Promise<void> {
   const orgId = zOrganizationId.parse(args.orgId);
-  const quotaPeriodId = Number(args.quotaPeriodId);
   const startRepId = Number(args.startRepId);
-  if (!Number.isFinite(quotaPeriodId) || quotaPeriodId <= 0) return;
   if (!Number.isFinite(startRepId) || startRepId <= 0) return;
+
+  const qpArg = args.quotaPeriodId == null ? null : Number(args.quotaPeriodId);
+  let periodIds: number[];
+  if (qpArg != null && Number.isFinite(qpArg) && qpArg > 0) {
+    periodIds = [qpArg];
+  } else {
+    const periodsResult = await pool.query<{ id: string }>(
+      `
+      SELECT id::text AS id
+        FROM quota_periods
+       WHERE org_id = $1::bigint
+       ORDER BY period_start ASC, id ASC
+      `,
+      [orgId]
+    );
+    periodIds = (periodsResult.rows || [])
+      .map((r) => Number(r.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+  }
+
+  if (!periodIds.length) return;
 
   const { rows: ancestorRows } = await pool.query<{ mgr_id: number }>(
     `
@@ -487,38 +509,6 @@ export async function syncManagerQuotas(args: {
     const managerRepId = Number(row.mgr_id);
     if (!Number.isFinite(managerRepId)) continue;
 
-    const manualCheck = await pool.query<{ is_manual: boolean }>(
-      `
-      SELECT COALESCE(is_manual, false) AS is_manual
-        FROM quotas
-       WHERE org_id = $1::bigint
-         AND rep_id = $2::bigint
-         AND quota_period_id = $3::bigint
-       LIMIT 1
-      `,
-      [orgId, managerRepId, quotaPeriodId]
-    );
-    if (manualCheck.rows[0]?.is_manual === true) continue;
-
-    const sumResult = await pool.query<{ total: string }>(
-      `
-      SELECT COALESCE(SUM(s.amt), 0)::text AS total
-        FROM (
-          SELECT MAX(q.quota_amount)::numeric AS amt
-            FROM quotas q
-            INNER JOIN reps r ON r.id = q.rep_id
-           WHERE q.org_id = $1::bigint
-             AND q.quota_period_id = $2::bigint
-             AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
-             AND r.manager_rep_id = $3::bigint
-           GROUP BY q.rep_id
-        ) s
-      `,
-      [orgId, quotaPeriodId, managerRepId]
-    );
-    const total = Number(sumResult.rows[0]?.total ?? "0");
-    if (!Number.isFinite(total)) continue;
-
     const managerInfo = await pool.query<{ role_level: number | null; manager_rep_id: number | null }>(
       `
       SELECT u.hierarchy_level AS role_level,
@@ -534,26 +524,10 @@ export async function syncManagerQuotas(args: {
     const roleLevel = managerInfo.rows[0]?.role_level ?? 3;
     const managerOfManager = managerInfo.rows[0]?.manager_rep_id ?? null;
 
-    const updated = await pool.query(
-      `
-      UPDATE quotas
-         SET quota_amount = $4::numeric,
-             annual_target = $4::numeric,
-             manager_id = $5::bigint,
-             role_level = $6::int,
-             updated_at = NOW()
-       WHERE org_id = $1::bigint
-         AND rep_id = $2::bigint
-         AND quota_period_id = $3::bigint
-         AND is_manual = false
-      `,
-      [orgId, managerRepId, quotaPeriodId, total, managerOfManager, roleLevel]
-    );
-
-    if ((updated.rowCount ?? 0) === 0) {
-      const exists = await pool.query(
+    for (const quotaPeriodId of periodIds) {
+      const manualCheck = await pool.query<{ is_manual: boolean }>(
         `
-        SELECT 1
+        SELECT COALESCE(is_manual, false) AS is_manual
           FROM quotas
          WHERE org_id = $1::bigint
            AND rep_id = $2::bigint
@@ -562,69 +536,116 @@ export async function syncManagerQuotas(args: {
         `,
         [orgId, managerRepId, quotaPeriodId]
       );
-      if (exists.rowCount === 0) {
-        await pool.query(
+      if (manualCheck.rows[0]?.is_manual === true) continue;
+
+      const sumResult = await pool.query<{ total: string }>(
+        `
+        SELECT COALESCE(SUM(s.amt), 0)::text AS total
+          FROM (
+            SELECT MAX(q.quota_amount)::numeric AS amt
+              FROM quotas q
+              INNER JOIN reps r ON r.id = q.rep_id
+             WHERE q.org_id = $1::bigint
+               AND q.quota_period_id = $2::bigint
+               AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+               AND r.manager_rep_id = $3::bigint
+             GROUP BY q.rep_id
+          ) s
+        `,
+        [orgId, quotaPeriodId, managerRepId]
+      );
+      const total = Number(sumResult.rows[0]?.total ?? "0");
+      if (!Number.isFinite(total)) continue;
+
+      const updated = await pool.query(
+        `
+        UPDATE quotas
+           SET quota_amount = $4::numeric,
+               manager_id = $5::bigint,
+               role_level = $6::int,
+               updated_at = NOW()
+         WHERE org_id = $1::bigint
+           AND rep_id = $2::bigint
+           AND quota_period_id = $3::bigint
+           AND is_manual = false
+        `,
+        [orgId, managerRepId, quotaPeriodId, total, managerOfManager, roleLevel]
+      );
+
+      if ((updated.rowCount ?? 0) === 0) {
+        const exists = await pool.query(
           `
-          INSERT INTO quotas (
-            org_id,
-            rep_id,
-            manager_id,
-            role_level,
-            quota_period_id,
-            quota_amount,
-            annual_target,
-            carry_forward,
-            adjusted_quarterly_quota,
-            is_manual
-          ) VALUES (
-            $1::bigint,
-            $2::bigint,
-            $3::bigint,
-            $4::int,
-            $5::bigint,
-            $6::numeric,
-            $6::numeric,
-            0,
-            NULL,
-            false
-          )
+          SELECT 1
+            FROM quotas
+           WHERE org_id = $1::bigint
+             AND rep_id = $2::bigint
+             AND quota_period_id = $3::bigint
+           LIMIT 1
           `,
-          [orgId, managerRepId, managerOfManager, roleLevel, quotaPeriodId, total]
+          [orgId, managerRepId, quotaPeriodId]
         );
+        if (exists.rowCount === 0) {
+          await pool.query(
+            `
+            INSERT INTO quotas (
+              org_id,
+              rep_id,
+              manager_id,
+              role_level,
+              quota_period_id,
+              quota_amount,
+              annual_target,
+              carry_forward,
+              adjusted_quarterly_quota,
+              is_manual
+            ) VALUES (
+              $1::bigint,
+              $2::bigint,
+              $3::bigint,
+              $4::int,
+              $5::bigint,
+              $6::numeric,
+              $6::numeric,
+              0,
+              NULL,
+              false
+            )
+            `,
+            [orgId, managerRepId, managerOfManager, roleLevel, quotaPeriodId, total]
+          );
+        }
       }
     }
+
+    await pool.query(
+      `
+      UPDATE quotas q
+         SET annual_target = (
+               SELECT COALESCE(SUM(q2.quota_amount), 0)
+                 FROM quotas q2
+                 INNER JOIN quota_periods qp2
+                   ON qp2.id = q2.quota_period_id
+                  AND qp2.org_id = q.org_id
+                 INNER JOIN quota_periods qp_row
+                   ON qp_row.id = q.quota_period_id
+                  AND qp_row.org_id = q.org_id
+                WHERE q2.org_id = q.org_id
+                  AND q2.rep_id = q.rep_id
+                  AND qp2.fiscal_year = qp_row.fiscal_year
+             ),
+             updated_at = NOW()
+       WHERE q.org_id = $1::bigint
+         AND q.rep_id = $2::bigint
+         AND COALESCE(q.is_manual, false) = false
+      `,
+      [orgId, managerRepId]
+    );
   }
 }
 
-/** After manager_rep_id changes, recompute auto manager quotas for current (or all) periods from each leaf rep. */
+/** After manager_rep_id changes, recompute auto manager quotas (all periods) from each leaf rep. */
 async function recomputeManagerQuotasAfterRepHierarchySync(args: { orgId: number }): Promise<void> {
   const orgId = zOrganizationId.parse(args.orgId);
-
-  let { rows: periodRows } = await pool.query<{ id: string }>(
-    `
-    SELECT id::text AS id
-      FROM quota_periods
-     WHERE org_id = $1::bigint
-       AND period_start::date <= CURRENT_DATE
-       AND period_end::date >= CURRENT_DATE
-     ORDER BY period_start DESC, id DESC
-    `,
-    [orgId]
-  );
-
-  if (!periodRows.length) {
-    const fallback = await pool.query<{ id: string }>(
-      `
-      SELECT id::text AS id
-        FROM quota_periods
-       WHERE org_id = $1::bigint
-       ORDER BY period_start DESC, id DESC
-       LIMIT 24
-      `,
-      [orgId]
-    );
-    periodRows = fallback.rows || [];
-  }
 
   const { rows: leafRows } = await pool.query<{ id: number }>(
     `
@@ -641,12 +662,8 @@ async function recomputeManagerQuotasAfterRepHierarchySync(args: { orgId: number
     [orgId]
   );
 
-  for (const p of periodRows) {
-    const qpid = Number(p.id);
-    if (!Number.isFinite(qpid)) continue;
-    for (const leaf of leafRows) {
-      await syncManagerQuotas({ orgId, quotaPeriodId: qpid, startRepId: leaf.id }).catch(() => null);
-    }
+  for (const leaf of leafRows) {
+    await syncManagerQuotas({ orgId, startRepId: leaf.id }).catch(() => null);
   }
 }
 

@@ -395,11 +395,9 @@ async function saveRepQuotasForYearAction(formData: FormData) {
       annualTarget,
       isManual: quotaIsManual,
     });
-    const qpid = Number(qa.quota_period_id);
-    if (Number.isFinite(qpid) && qpid > 0) {
-      await syncManagerQuotas({ orgId: ctx.user.org_id, quotaPeriodId: qpid, startRepId: repId }).catch(() => null);
-    }
   }
+
+  await syncManagerQuotas({ orgId: ctx.user.org_id, startRepId: repId }).catch(() => null);
 
   revalidatePath("/analytics/quotas/manager");
 
