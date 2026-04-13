@@ -24,8 +24,8 @@ function safeDiv(n: number, d: number): number | null {
 }
 
 function managerIdKeyForRep(r: RepDirectoryRow, viewerRepId: number | null): string {
-  if (r.manager_rep_id == null) return "";
-  if (viewerRepId != null && Number(viewerRepId) > 0 && Number(r.manager_rep_id) === Number(viewerRepId)) return "";
+  if (r.manager_rep_id == null) return "__unassigned__";
+  if (viewerRepId != null && Number(viewerRepId) > 0 && Number(r.manager_rep_id) === Number(viewerRepId)) return String(viewerRepId);
   return String(r.manager_rep_id);
 }
 
@@ -196,7 +196,7 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
     const dirEntry = repDirectoryById.get(Number(rep_id));
     const manager_id = dirEntry ? managerIdKeyForRep(dirEntry, viewerId) : "";
     const manager_name =
-      manager_id === ""
+      manager_id === "__unassigned__"
         ? "(Unassigned)"
         : managerNameById.get(manager_id) || `Manager ${manager_id}`;
 
@@ -321,16 +321,32 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
     });
   }
 
-  const unassignedDirect = repRowsBuild.filter((row) => {
-    const d = repDirectoryById.get(Number(row.rep_id));
-    return d != null && d.manager_rep_id == null;
-  });
+  const unassignedDirect = repRowsBuild.filter((row) => row.manager_id === "__unassigned__");
   if (unassignedDirect.length > 0) {
     managerRowsBuild.push({
-      manager_id: "",
+      manager_id: "__unassigned__",
       manager_name: "(Unassigned)",
       parent_manager_id: "",
       ...aggregateDirectReportsToManagerRow(unassignedDirect, repKpisByKey, selectedPeriodId),
+    });
+  }
+
+  // Viewer root card is always first: full subtree rollup, no parent.
+  if (viewerId != null) {
+    const viewerDirRow = repDirectoryById.get(viewerId) || null;
+    const viewerName = String(viewerDirRow?.name || "").trim() || `Rep ${viewerId}`;
+    const viewerQuota = quotaByRepPeriodMap.get(`${selectedPeriodId}|${String(viewerId)}`) || 0;
+    const viewerWon = sumSubtreeWon(viewerId);
+    managerRowsBuild.unshift({
+      manager_id: String(viewerId),
+      manager_name: viewerName,
+      parent_manager_id: "",
+      quota: viewerQuota,
+      won_amount: viewerWon,
+      active_amount: 0,
+      attainment: safeDiv(viewerWon, viewerQuota),
+      win_rate: null,
+      partner_contribution: null,
     });
   }
 

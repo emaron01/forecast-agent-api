@@ -354,7 +354,10 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     teamViewerRepId,
   } = props;
 
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
+    const vk = props.teamViewerRepId != null && String(props.teamViewerRepId).trim() !== "" ? String(props.teamViewerRepId).trim() : null;
+    return vk ? new Set([`mgr:${vk}`]) : new Set();
+  });
   const [showDetail, setShowDetail] = useState(false);
 
   const { paceRatio } = useMemo(() => computePaceRatio(periodStart, periodEnd), [periodStart, periodEnd]);
@@ -375,31 +378,46 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     [managerRows]
   );
 
-  const topLevelManagers = useMemo(
-    () => managerRows,
-    [managerRows]
-  );
+  const viewerKey = teamViewerRepId != null && String(teamViewerRepId).trim() !== "" ? String(teamViewerRepId).trim() : null;
+
+  const viewerManagerCard = useMemo(() => {
+    if (!viewerKey) return null;
+    return managerRows.find((r) => String(r.manager_id || "").trim() === viewerKey) ?? null;
+  }, [managerRows, viewerKey]);
+
+  const otherManagerRows = useMemo(() => {
+    if (!viewerKey) return managerRows.slice();
+    return managerRows.filter((r) => String(r.manager_id || "").trim() !== viewerKey);
+  }, [managerRows, viewerKey]);
+
+  const subManagersByParent = useMemo(() => {
+    const m = new Map<string, RepManagerManagerRow[]>();
+    for (const row of otherManagerRows) {
+      const parent = String(row.parent_manager_id || "").trim();
+      const arr = m.get(parent) || [];
+      arr.push(row);
+      m.set(parent, arr);
+    }
+    return m;
+  }, [otherManagerRows]);
 
   const leafReps = useMemo(
     () => repRows.filter((r) => !managerIdSet.has(String(r.rep_id))),
     [repRows, managerIdSet]
   );
 
-  const viewerKey = teamViewerRepId != null ? String(teamViewerRepId) : null;
-
   const topLevelLeafReps = useMemo(() => {
-    const vk = viewerKey != null && String(viewerKey).trim() !== "" ? String(viewerKey).trim() : null;
-    if (vk) {
+    if (viewerKey) {
       return leafReps.filter((r) => {
         const mid = String(r.manager_id || "").trim();
-        return mid === vk || mid === "";
+        return mid === viewerKey || mid === "__unassigned__";
       });
     }
-    return leafReps.filter((r) => String(r.manager_id || "").trim() === "");
+    return leafReps.filter((r) => String(r.manager_id || "").trim() === "__unassigned__");
   }, [leafReps, viewerKey]);
 
   const showFlatRepGrid =
-    topLevelManagers.length === 0 && topLevelLeafReps.length === 0 && repRows.length > 0;
+    managerRows.length === 0 && topLevelLeafReps.length === 0 && repRows.length > 0;
 
   function toggleExpand(id: string) {
     setExpandedIds((prev) => {
@@ -806,23 +824,24 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
 
   const renderManagerCard = (managerId: string) => {
     const mid = String(managerId || "").trim();
-    const repsUnder = (repsByManager?.get(mid) || [])
+    const repsUnderAll = (repsByManager?.get(mid) || [])
       .slice()
       .sort((a, b) => {
         const aa = a.attainment == null || !Number.isFinite(a.attainment) ? Number.POSITIVE_INFINITY : Number(a.attainment);
         const bb = b.attainment == null || !Number.isFinite(b.attainment) ? Number.POSITIVE_INFINITY : Number(b.attainment);
         return bb - aa || a.rep_name.localeCompare(b.rep_name);
       });
+    const leafRepsUnderManager = repsUnderAll.filter((r) => !managerIdSet.has(String(r.rep_id)));
     const mgrMeta = managerRows.find((m) => String(m.manager_id || "").trim() === mid);
     const managerLabel =
       mgrMeta?.manager_name ||
-      (mid ? repsUnder[0]?.manager_name : "(Unassigned)") ||
+      (mid ? repsUnderAll[0]?.manager_name : "(Unassigned)") ||
       `Manager ${mid || ""}`;
     const cardKey = `mgr:${mid || "unassigned"}`;
-    const current = aggregateCurrentTeam(repsUnder);
-    const repIntIds = repsUnder.map((r) => r.rep_id);
+    const current = aggregateCurrentTeam(repsUnderAll);
+    const repIntIds = repsUnderAll.map((r) => r.rep_id);
     const annual = aggregateAnnualTeam(allPeriodRows ?? [], repIntIds);
-    const repIds = repsUnder.map((r) => String(r.rep_id));
+    const repIds = repsUnderAll.map((r) => String(r.rep_id));
     const fyQuarters = aggregateFyQuarterRows(
       (allPeriodRows ?? [])
         .filter((r) => repIds.includes(String(r.rep_id)) || repIds.includes(String(r.rep_int_id)))
@@ -838,13 +857,13 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const productSummary = getProductSummary({
       input: productsClosedWonByRep,
       repIds,
-      repNames: repsUnder.map((r) => r.rep_name),
+      repNames: repsUnderAll.map((r) => r.rep_name),
       fallbackAov: current.aov,
     });
     const ytdProductSummary = getProductSummary({
       input: productsClosedWonByRepYtd,
       repIds,
-      repNames: repsUnder.map((r) => r.rep_name),
+      repNames: repsUnderAll.map((r) => r.rep_name),
       fallbackAov: current.aov,
     });
 
@@ -885,13 +904,14 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           avgHealthPct: productSummary.avgHealthPct,
           isLeader: true,
           expanded: expandedIds.has(cardKey),
-          repCount: repsUnder.length,
+          repCount: repsUnderAll.length,
           onToggle: () => toggleExpand(cardKey),
         })}
 
         {expandedIds.has(cardKey) && (
           <div className="mt-2 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] divide-y divide-[color:var(--sf-border)]">
-            {repsUnder.map((rep) => renderRepCard(rep))}
+            {(subManagersByParent.get(mid) || []).map((m) => renderManagerCard(String(m.manager_id || "").trim()))}
+            {leafRepsUnderManager.map((rep) => renderRepCard(rep))}
           </div>
         )}
       </div>
@@ -921,7 +941,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-1">
-        {topLevelManagers.map((m) => renderManagerCard(String(m.manager_id || "").trim()))}
+        {viewerManagerCard ? renderManagerCard(String(viewerManagerCard.manager_id || "").trim()) : null}
         {topLevelLeafReps.slice().sort(repSortCompare).map((r) => renderRepCard(r))}
         {showFlatRepGrid ? [...repRows].sort(repSortCompare).map((r) => renderRepCard(r)) : null}
       </div>
