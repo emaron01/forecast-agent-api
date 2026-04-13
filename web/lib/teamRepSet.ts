@@ -152,12 +152,16 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
   }
 
   const repIdsInData = new Set<string>();
-  for (const id of repIds) repIdsInData.add(String(id));
+  for (const id of repIds) {
+    if (isManagerRepId.has(id)) continue;
+    repIdsInData.add(String(id));
+  }
   for (const r of repKpisRows) {
     const id = Number(r.rep_id);
     if (!Number.isFinite(id) || id <= 0) continue;
     if (viewerId != null && id === viewerId) continue;
     if (!activeRepIdSet.has(id)) continue;
+    if (isManagerRepId.has(id)) continue;
     repIdsInData.add(String(id));
   }
   for (const q of quotaByRepPeriod) {
