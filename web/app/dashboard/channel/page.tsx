@@ -1521,7 +1521,7 @@ export default async function ChannelDashboardPage({
       };
     }) ?? [];
 
-  const channelManagerRows =
+  const channelDirectorManagerRows: RepManagerManagerRow[] =
     channelTeamRepRows.length > 0
       ? (() => {
           const agg = new Map<string, { quota: number; won_amount: number; active_amount: number; manager_name: string }>();
@@ -1551,9 +1551,11 @@ export default async function ChannelDashboardPage({
               parent_manager_id:
                 key === "__unassigned__"
                   ? ""
-                  : channelViewerRepId != null
-                    ? String(channelViewerRepId)
-                    : "",
+                  : channelViewerRepId != null && key === String(channelViewerRepId)
+                    ? ""
+                    : channelViewerRepId != null
+                      ? String(channelViewerRepId)
+                      : "",
               quota,
               won_amount: won,
               active_amount: a.active_amount,
@@ -1572,10 +1574,11 @@ export default async function ChannelDashboardPage({
         })()
       : [];
 
+  let channelManagerRows: RepManagerManagerRow[] = channelDirectorManagerRows;
   if (channelViewerRepId != null) {
-    const totalQuota = channelManagerRows.reduce((s, r) => s + (Number(r.quota) || 0), 0);
-    const totalWon = channelManagerRows.reduce((s, r) => s + (Number(r.won_amount) || 0), 0);
-    const totalActive = channelManagerRows.reduce((s, r) => s + (Number(r.active_amount) || 0), 0);
+    const totalQuota = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.quota) || 0), 0);
+    const totalWon = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.won_amount) || 0), 0);
+    const totalActive = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.active_amount) || 0), 0);
     const viewerRow: RepManagerManagerRow = {
       manager_id: String(channelViewerRepId),
       manager_name: channelViewerName || `Rep ${channelViewerRepId}`,
@@ -1587,7 +1590,7 @@ export default async function ChannelDashboardPage({
       win_rate: null,
       partner_contribution: null,
     };
-    channelManagerRows.unshift(viewerRow);
+    channelManagerRows = [viewerRow, ...channelDirectorManagerRows];
   }
 
   const channelDirectorCardCount = new Set(
