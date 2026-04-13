@@ -1639,6 +1639,63 @@ export default async function ExecutiveDashboardPage({
     repFyQuarterRows = [];
   }
 
+  // Inject subtree-aggregated FY rows for manager nodes (pure managers own no deals
+  // so their repFyQuarterRows entries show won=0; we replace with subtree sums).
+  if (repFyQuarterRows.length > 0 && repDirectory.length > 0) {
+    // Build children map from repDirectory
+    const fyChildrenByManagerId = new Map<number, number[]>();
+    for (const r of repDirectory) {
+      if (r.manager_rep_id != null && Number.isFinite(Number(r.manager_rep_id)) && Number(r.manager_rep_id) > 0) {
+        const mid = Number(r.manager_rep_id);
+        const arr = fyChildrenByManagerId.get(mid) ?? [];
+        arr.push(r.id);
+        fyChildrenByManagerId.set(mid, arr);
+      }
+    }
+
+    // Build won per rep per period from existing repFyQuarterRows
+    const fyWonByRepPeriod = new Map<string, number>();
+    for (const row of repFyQuarterRows) {
+      fyWonByRepPeriod.set(`${row.period_id}|${row.rep_int_id}`, Number(row.won_amount) || 0);
+    }
+
+    // Recursive subtree won sum per period
+    const fySubtreeWonMemo = new Map<string, number>();
+    function fySubtreeWon(repId: number, periodId: string): number {
+      const cacheKey = `${periodId}|${repId}`;
+      const cached = fySubtreeWonMemo.get(cacheKey);
+      if (cached != null) return cached;
+      const children = fyChildrenByManagerId.get(repId) ?? [];
+      let sum = 0;
+      for (const childId of children) {
+        sum += fyWonByRepPeriod.get(`${periodId}|${String(childId)}`) ?? 0;
+        sum += fySubtreeWon(childId, periodId);
+      }
+      fySubtreeWonMemo.set(cacheKey, sum);
+      return sum;
+    }
+
+    // For each row where the rep is a manager node, replace won_amount with subtree sum
+    const isManagerNode = new Set<number>();
+    for (const r of repDirectory) {
+      if (r.manager_rep_id != null && Number.isFinite(Number(r.manager_rep_id)) && Number(r.manager_rep_id) > 0) {
+        isManagerNode.add(Number(r.manager_rep_id));
+      }
+    }
+
+    repFyQuarterRows = repFyQuarterRows.map((row) => {
+      const repIntId = Number(row.rep_int_id);
+      if (!isManagerNode.has(repIntId)) return row;
+      const subtreeWon = fySubtreeWon(repIntId, row.period_id);
+      const quota = Number(row.quota) || 0;
+      return {
+        ...row,
+        won_amount: subtreeWon,
+        attainment: quota > 0 ? subtreeWon / quota : null,
+      };
+    });
+  }
+
   const allowedRepIds = teamRepIds;
   const useScopedProducts = teamRepIds.length > 0;
   try {
