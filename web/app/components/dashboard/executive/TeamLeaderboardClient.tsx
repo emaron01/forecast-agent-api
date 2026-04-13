@@ -804,6 +804,11 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const subManagerCards = managerRows.filter(
       (r) => String(r.parent_manager_id || "").trim() === mid && mid !== ""
     );
+    console.log("RENDER_MANAGER_CARD", {
+      mid,
+      subManagerCards: subManagerCards.map((r) => r.manager_id),
+      parentManagerIds: managerRows.map((r) => ({ id: r.manager_id, parent: r.parent_manager_id })),
+    });
     const subManagerIdSet = new Set(subManagerCards.map((r) => String(r.manager_id)));
     const leafRepsUnder = repsUnder.filter((r) => !subManagerIdSet.has(String(r.rep_id)));
     const current = aggregateCurrentTeam(repsUnder);

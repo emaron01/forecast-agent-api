@@ -340,6 +340,8 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
       a.manager_name.localeCompare(b.manager_name)
   );
 
+  console.log("VIEWER_ID_DEBUG", { viewerRepId, viewerId });
+
   // Insert viewer as first manager card with full subtree rollup
   if (viewerId != null) {
     const viewerDirRow = repDirectoryById.get(viewerId);
