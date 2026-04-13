@@ -45,7 +45,6 @@ function periodToOption(p: {
 const CHANNEL_DASHBOARD_LEADER_TABS: ExecTabKey[] = [
   "pipeline",
   "sales_opportunities",
-  "coaching",
   "team",
   "channel",
   "revenue_mix",

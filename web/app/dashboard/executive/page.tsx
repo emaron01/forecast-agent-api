@@ -25,7 +25,7 @@ import {
 } from "../../../lib/channelPartnerHeroData";
 import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
 import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
-import { HIERARCHY, isAdmin, isSalesLeader } from "../../../lib/roleHelpers";
+import { CHANNEL_HIERARCHY_LEVELS, HIERARCHY, isAdmin, isSalesLeader } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -1487,10 +1487,6 @@ export default async function ExecutiveDashboardPage({
   }
 
   if (selectedPeriodId && comparePeriodIds.length) {
-    console.log(
-      "[buildOrgSubtree input] repDirectory levels",
-      repDirectory.map((r) => ({ id: r.id, name: r.name, level: r.hierarchy_level }))
-    );
     const teamResult = await buildOrgSubtree({
       orgId,
       repDirectory,

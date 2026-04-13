@@ -40,7 +40,7 @@ export type ExecutiveGapDeal = {
   id: string;
   /** CRM `opportunities.partner_name` (from gap-driving-deals API). */
   partner_name?: string | null;
-  rep: { rep_public_id?: string | null; rep_name: string | null };
+  rep: { rep_id?: string | null; rep_public_id?: string | null; rep_name: string | null };
   deal_name: { account_name: string | null; opportunity_name: string | null };
   close_date?: string | null;
   quarter?: { label: string | null };

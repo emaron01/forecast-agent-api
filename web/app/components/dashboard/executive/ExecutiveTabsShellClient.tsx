@@ -50,6 +50,9 @@ const DEFAULT_EXEC_ALLOWED_TABS: ExecTabKey[] = [
   "reports",
 ];
 
+/** Channel hierarchy (6 / 7 / 8) — omitted from Executive Coaching tab content only (sales coaching scope). */
+const CHANNEL_COACHING_TAB_EXCLUDED_LEVELS = new Set([6, 7, 8]);
+
 const REPORT_LINKS = [
   {
     title: "Top Deals",
@@ -807,6 +810,48 @@ export function ExecutiveTabsShellClient(props: {
     [allowedTabKeys]
   );
 
+  const channelCoachingExcludedRepIds = useMemo(() => {
+    const s = new Set<number>();
+    for (const r of props.reportBuilderRepDirectory) {
+      const hl = r.hierarchy_level;
+      if (hl == null || !Number.isFinite(Number(hl))) continue;
+      if (!CHANNEL_COACHING_TAB_EXCLUDED_LEVELS.has(Number(hl))) continue;
+      const id = Number(r.id);
+      if (Number.isFinite(id) && id > 0) s.add(id);
+    }
+    return s;
+  }, [props.reportBuilderRepDirectory]);
+
+  const coachingPipelineHygiene: PipelineHygienePayload = useMemo(() => {
+    const ex = channelCoachingExcludedRepIds;
+    const keepRep = (repId: number) => repId <= 0 || !ex.has(repId);
+    return {
+      coverageRows: props.pipelineHygiene.coverageRows.filter((row) => keepRep(row.rep_id)),
+      assessmentRows: props.pipelineHygiene.assessmentRows.filter((row) => keepRep(row.rep_id)),
+      velocitySummaries: props.pipelineHygiene.velocitySummaries.filter((row) => keepRep(row.repId)),
+      progressionSummaries: props.pipelineHygiene.progressionSummaries.filter((row) => keepRep(row.repId)),
+    };
+  }, [props.pipelineHygiene, channelCoachingExcludedRepIds]);
+
+  const coachingRepRows = useMemo(
+    () =>
+      props.teamRepManagerPayload.repRows.filter(
+        (row) => !channelCoachingExcludedRepIds.has(Number(row.rep_id))
+      ),
+    [props.teamRepManagerPayload.repRows, channelCoachingExcludedRepIds]
+  );
+
+  const coachingManagerRows = useMemo(
+    () =>
+      props.teamRepManagerPayload.managerRows.filter((m) => {
+        if (m.manager_id === "__unassigned__") return true;
+        const n = Number(m.manager_id);
+        if (!Number.isFinite(n) || n <= 0) return true;
+        return !channelCoachingExcludedRepIds.has(n);
+      }),
+    [props.teamRepManagerPayload.managerRows, channelCoachingExcludedRepIds]
+  );
+
   useEffect(() => {
     setActiveTab(props.initialTab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -880,14 +925,14 @@ export function ExecutiveTabsShellClient(props: {
           <div className="space-y-6">
             <div className="-mx-4">
               <TeamForecastHygienePanels
-                pipelineHygiene={props.pipelineHygiene}
+                pipelineHygiene={coachingPipelineHygiene}
                 periodName={props.pipelineTabProps.periodName}
                 sectionClassName="space-y-4"
-                coachingRepRows={props.teamRepManagerPayload.repRows}
+                coachingRepRows={coachingRepRows}
                 coachingPeriodStart={props.teamRepManagerPayload.periodStart ?? ""}
                 coachingPeriodEnd={props.teamRepManagerPayload.periodEnd ?? ""}
                 teamViewerRepId={props.teamRepManagerPayload.teamViewerRepId}
-                coachingManagerRows={props.teamRepManagerPayload.managerRows}
+                coachingManagerRows={coachingManagerRows}
               />
             </div>
             {/* Part 1: Coaching Insights from teamTabOnly */}

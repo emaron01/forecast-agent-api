@@ -26,7 +26,14 @@ import type { DealCoachingCardDeal } from "../../../app/components/dashboard/coa
 import { PartnerMotionPerformanceSection } from "./PartnerMotionPerformanceSection";
 import { useAiTakeaway } from "../../../app/components/ai/useAiTakeaway";
 import { AiTakeawayTimestamp } from "../../../app/components/ai/aiTakeawayUiMeta";
-import { HIERARCHY, isExecManagerLevel, isManagerLevel, isRepLevel, roleToHierarchyLevel } from "../../../lib/roleHelpers";
+import {
+  CHANNEL_HIERARCHY_LEVELS,
+  HIERARCHY,
+  isExecManagerLevel,
+  isManagerLevel,
+  isRepLevel,
+  roleToHierarchyLevel,
+} from "../../../lib/roleHelpers";
 import { ChannelRepHeroCards } from "../channel/ChannelRepHeroCards";
 
 type RiskCategoryKey =
@@ -97,6 +104,13 @@ function dealAccountLabel(d: DealOut) {
 
 function dealRep(d: DealOut) {
   return String(d.rep?.rep_name || "").trim() || "—";
+}
+
+function gapDealRepIdNum(d: DealOut): number | null {
+  const raw = d.rep?.rep_id;
+  if (raw == null || String(raw).trim() === "") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function bucketLabel(k: any) {
@@ -928,6 +942,30 @@ export function ExecutiveGapInsightsClient(props: {
     return [...(d.groups.commit.deals || []), ...(d.groups.best_case.deals || []), ...(d.groups.pipeline.deals || [])];
   }, [analysisOk]);
 
+  const channelCoachingTabExcludedRepIds = useMemo(() => {
+    const excludeLevels = new Set<number>(CHANNEL_HIERARCHY_LEVELS);
+    const s = new Set<number>();
+    for (const r of props.repDirectory || []) {
+      const hl = r.hierarchy_level;
+      if (hl == null || !Number.isFinite(Number(hl))) continue;
+      if (!excludeLevels.has(Number(hl))) continue;
+      const id = Number(r.id);
+      if (Number.isFinite(id) && id > 0) s.add(id);
+    }
+    return s;
+  }, [props.repDirectory]);
+
+  /** Coaching tab (`teamTabOnly`): drop gap-driving deals owned by channel hierarchy reps (6–8). */
+  const coachingTabGapSourceDeals = useMemo(() => {
+    const base = analysisFlattenedDeals.length ? analysisFlattenedDeals : flattenedDeals;
+    if (!props.teamTabOnly || channelCoachingTabExcludedRepIds.size === 0) return base;
+    return base.filter((d) => {
+      const rid = gapDealRepIdNum(d);
+      if (rid == null) return true;
+      return !channelCoachingTabExcludedRepIds.has(rid);
+    });
+  }, [props.teamTabOnly, analysisFlattenedDeals, flattenedDeals, channelCoachingTabExcludedRepIds]);
+
   const fyDeals = useMemo(() => {
     const d = asOk(fyData);
     if (!d) return [] as DealOut[];
@@ -1269,7 +1307,7 @@ export function ExecutiveGapInsightsClient(props: {
   }, [analysisFlattenedDeals, flattenedDeals, analysisOk?.totals?.gap, ok?.totals?.gap, props.leftToGo, props.gap, analysisLoading]);
 
   const radarStrategicTakeaway = useMemo(() => {
-    const sourceDeals = analysisFlattenedDeals.length ? analysisFlattenedDeals : flattenedDeals;
+    const sourceDeals = props.teamTabOnly ? coachingTabGapSourceDeals : analysisFlattenedDeals.length ? analysisFlattenedDeals : flattenedDeals;
     const riskSet = sourceDeals.filter((d) => Number(d.weighted?.gap || 0) < 0);
     const isRiskScore = (score: number | null) => {
       if (score == null) return true;
@@ -1358,12 +1396,12 @@ export function ExecutiveGapInsightsClient(props: {
       repTrends,
       quickWins,
     };
-  }, [analysisFlattenedDeals, flattenedDeals]);
+  }, [analysisFlattenedDeals, flattenedDeals, props.teamTabOnly, coachingTabGapSourceDeals]);
 
   const coachingTips = useMemo(() => {
     const out: Array<{ key: string; tip: string; evidence: string; rep: string; account: string }> = [];
     const seen = new Set<string>();
-    const sourceDeals = analysisFlattenedDeals.length ? analysisFlattenedDeals : flattenedDeals;
+    const sourceDeals = props.teamTabOnly ? coachingTabGapSourceDeals : analysisFlattenedDeals.length ? analysisFlattenedDeals : flattenedDeals;
     // Include tips from categories with scores 0–2 (coaching moments); ignore categories with score 3
     const isCoachingScore = (score: number | null) => {
       if (score == null) return true;
@@ -1394,7 +1432,7 @@ export function ExecutiveGapInsightsClient(props: {
     }
 
     return out;
-  }, [analysisFlattenedDeals, flattenedDeals]);
+  }, [analysisFlattenedDeals, flattenedDeals, props.teamTabOnly, coachingTabGapSourceDeals]);
 
   const radarTakeawayPayload = useMemo(() => {
     return {
