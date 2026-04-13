@@ -25,9 +25,7 @@ function safeDiv(n: number, d: number): number | null {
 
 function managerIdKeyForRep(r: RepDirectoryRow, viewerRepId: number | null): string {
   if (r.manager_rep_id == null) return "";
-  if (viewerRepId != null && Number(viewerRepId) > 0 && r.manager_rep_id === viewerRepId) {
-    return String(viewerRepId);
-  }
+  if (viewerRepId != null && Number(viewerRepId) > 0 && Number(r.manager_rep_id) === Number(viewerRepId)) return "";
   return String(r.manager_rep_id);
 }
 
@@ -243,6 +241,39 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
 
   const managerRowsBuild: RepManagerManagerRow[] = [];
 
+  const wonByRepId = new Map<number, number>();
+  for (const row of repKpisRows) {
+    if (String(row.quota_period_id) !== String(selectedPeriodId)) continue;
+    const repId = Number(row.rep_id);
+    if (!Number.isFinite(repId) || repId <= 0) continue;
+    wonByRepId.set(repId, Number(row.won_amount || 0) || 0);
+  }
+
+  const childrenByManagerId = new Map<number, RepDirectoryRow[]>();
+  for (const r of repDirectory) {
+    const mid = r.manager_rep_id == null ? null : Number(r.manager_rep_id);
+    if (mid == null || !Number.isFinite(mid) || mid <= 0) continue;
+    const arr = childrenByManagerId.get(mid) || [];
+    arr.push(r);
+    childrenByManagerId.set(mid, arr);
+  }
+
+  const subtreeWonMemo = new Map<number, number>();
+  function sumSubtreeWon(managerId: number): number {
+    const cached = subtreeWonMemo.get(managerId);
+    if (cached != null) return cached;
+    const children = childrenByManagerId.get(managerId) || [];
+    let sum = 0;
+    for (const child of children) {
+      const childId = Number(child.id);
+      if (!Number.isFinite(childId) || childId <= 0) continue;
+      sum += Number(wonByRepId.get(childId) ?? 0) || 0;
+      sum += sumSubtreeWon(childId);
+    }
+    subtreeWonMemo.set(managerId, sum);
+    return sum;
+  }
+
   const midsSorted = Array.from(managerRepIds).sort((a, b) => a - b);
   for (const mid of midsSorted) {
     if (viewerId != null && mid === viewerId) continue;
@@ -256,14 +287,18 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
     const parentManagerId =
       parentManagerRepId == null
         ? ""
-        : viewerId != null && Number(parentManagerRepId) === viewerId
+        : viewerId != null && Number(parentManagerRepId) === Number(viewerId)
           ? ""
           : String(parentManagerRepId);
+    const directAgg = aggregateDirectReportsToManagerRow(direct, repKpisByKey, selectedPeriodId);
+    const subtreeWon = sumSubtreeWon(mid);
     managerRowsBuild.push({
       manager_id: String(mid),
       manager_name: managerNameById.get(String(mid)) || `Manager ${mid}`,
       parent_manager_id: parentManagerId,
-      ...aggregateDirectReportsToManagerRow(direct, repKpisByKey, selectedPeriodId),
+      ...directAgg,
+      won_amount: subtreeWon,
+      attainment: safeDiv(subtreeWon, directAgg.quota),
     });
   }
 
