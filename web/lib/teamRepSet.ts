@@ -139,6 +139,8 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
   const repRowsBuild: RepManagerRepRow[] = [];
   for (const rep_id of repIdsInData) {
     if (viewerId != null && String(rep_id) === String(viewerId)) continue;
+    // Exclude viewer from repRows entirely (prevents viewer being treated as "(Unassigned)").
+    if (viewerRepId != null && Number(rep_id) === Number(viewerRepId)) continue;
 
     const currK = `${selectedPeriodId}|${rep_id}`;
     const prevK = prevPeriodId ? `${prevPeriodId}|${rep_id}` : "";

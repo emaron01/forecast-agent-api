@@ -376,7 +376,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
   );
 
   const topLevelManagers = useMemo(
-    () => managerRows.filter((r) => r.parent_manager_id === ""),
+    () => managerRows,
     [managerRows]
   );
 

@@ -403,7 +403,7 @@ function buildManagerCoachingTeams(
 
   const coachingMgr = coachingManagerRows ?? [];
   if (coachingMgr.length > 0) {
-    const topLevelManagerRows = coachingMgr.filter((r) => r.parent_manager_id === "");
+    const topLevelManagerRows = coachingMgr;
     const managerIdSet = new Set(coachingMgr.map((r) => r.manager_id));
     const viewerBucketReps = viewerKey ? (byMid.get(viewerKey) ?? []) : [];
     const leafRepsCoaching = viewerBucketReps.filter((rep) => !managerIdSet.has(String(rep.rep_id)));
