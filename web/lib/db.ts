@@ -525,11 +525,20 @@ export async function syncManagerQuotas(args: {
 
     // Channel roles have no quota and are not part of the sales rollup chain.
     // Stop processing this ancestor and all further ancestors.
-    if (roleLevel === 6 || roleLevel === 7 || roleLevel === 8) break;
+    if (roleLevel === 6 || roleLevel === 7 || roleLevel === 8) {
+      console.log("[syncManagerQuotas] breaking/skipping on roleLevel", roleLevel);
+      break;
+    }
 
     const managerOfManager = managerInfo.rows[0]?.manager_rep_id ?? null;
 
     for (const quotaPeriodId of periodIds) {
+      console.log("[syncManagerQuotas] processing ancestor", {
+        managerRepId,
+        roleLevel,
+        quotaPeriodId,
+      });
+
       const manualCheck = await pool.query<{ is_manual: boolean }>(
         `
         SELECT COALESCE(is_manual, false) AS is_manual
@@ -542,6 +551,8 @@ export async function syncManagerQuotas(args: {
         [orgId, managerRepId, quotaPeriodId]
       );
       if (manualCheck.rows[0]?.is_manual === true) continue;
+
+      console.log("[syncManagerQuotas] not manual, computing sum for", { managerRepId, quotaPeriodId });
 
       const sumResult = await pool.query<{ total: string }>(
         `
@@ -564,6 +575,7 @@ export async function syncManagerQuotas(args: {
         [orgId, quotaPeriodId, managerRepId]
       );
       const total = Number(sumResult.rows[0]?.total ?? "0");
+      console.log("[syncManagerQuotas] sumResult", { managerRepId, quotaPeriodId, total });
       if (!Number.isFinite(total)) continue;
 
       const updated = await pool.query(
