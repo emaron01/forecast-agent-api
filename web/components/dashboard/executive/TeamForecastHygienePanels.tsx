@@ -407,23 +407,8 @@ function buildManagerCoachingTeams(
     const managerIdSet = new Set(coachingMgr.map((r) => r.manager_id));
     const viewerBucketReps = viewerKey ? (byMid.get(viewerKey) ?? []) : [];
     const leafRepsCoaching = viewerBucketReps.filter((rep) => !managerIdSet.has(String(rep.rep_id)));
-    const viewerRow = viewerKey ? coachingMgr.find((r) => String(r.manager_id) === String(viewerKey)) ?? null : null;
-    const viewerTeam =
-      viewerRow && viewerKey
-        ? [
-            aggregateManagerTeam(
-              viewerKey,
-              String(viewerRow.manager_name || "").trim() || `Manager ${viewerKey}`,
-              repCoaching.slice(),
-              assessmentRepRows,
-              paceRatio
-            ),
-          ]
-        : [];
-
     const managerTeams = topLevelManagerRows
       .filter((r) => r.manager_id !== "")
-      .filter((r) => (viewerKey ? String(r.manager_id) !== String(viewerKey) : true))
       .map((r) =>
         aggregateManagerTeam(
           r.manager_id,
@@ -447,7 +432,7 @@ function buildManagerCoachingTeams(
       unassigned.length > 0
         ? [aggregateManagerTeam("__unassigned__", "(Unassigned)", unassigned, assessmentRepRows, paceRatio)]
         : [];
-    return [...viewerTeam, ...managerTeams, ...leafTeams, ...unassignedTeam];
+    return [...managerTeams, ...leafTeams, ...unassignedTeam];
   }
 
   const directReps = viewerKey && byMid.has(viewerKey) ? (byMid.get(viewerKey) ?? []).slice() : [];
