@@ -2003,31 +2003,23 @@ export async function getExecutiveForecastDashboardSummary(args: {
     pipeline_modifier: verdictAgg.pipeline_crm > 0 ? verdictAgg.pipeline_verdict / verdictAgg.pipeline_crm : 1,
   };
 
-  const quota = qpId
-    ? await (async () => {
-        const repFilter = scope.allowedRepIds;
-        const useFilter = Array.isArray(repFilter) && repFilter.length > 0;
-        return pool
+  const quota =
+    qpId && scope.myRepId
+      ? await pool
           .query<{ quota_amount: number }>(
             `
-            SELECT COALESCE(SUM(q.quota_amount), 0)::float8 AS quota_amount
-              FROM quotas q
-              JOIN reps r
-                ON r.id = q.rep_id
-              JOIN users u
-                ON u.id = r.user_id
-               AND u.org_id = q.org_id
-             WHERE q.org_id = $1::bigint
-               AND u.hierarchy_level IN (1, 2, 3)
-               AND q.quota_period_id = $2::bigint
-               AND (NOT $4::boolean OR q.rep_id = ANY($3::bigint[]))
-            `,
-            [args.orgId, qpId, repFilter || [], useFilter]
+        SELECT COALESCE(q.quota_amount, 0)::float8 AS quota_amount
+          FROM quotas q
+         WHERE q.org_id = $1::bigint
+           AND q.rep_id = $2::bigint
+           AND q.quota_period_id = $3::bigint
+         LIMIT 1
+        `,
+            [args.orgId, scope.myRepId, qpId]
           )
           .then((r) => Number(r.rows?.[0]?.quota_amount || 0) || 0)
-          .catch(() => 0);
-      })()
-    : 0;
+          .catch(() => 0)
+      : 0;
 
   const summary = computeSalesVsVerdictForecastSummary({
     crm_totals: {
