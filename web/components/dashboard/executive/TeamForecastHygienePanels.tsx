@@ -272,6 +272,10 @@ type ManagerCoachingTeam = {
   teamFlat: number;
   teamWeakest: string[];
   teamRadarData: { category: string; value: number }[];
+  /** Nested manager coaching teams (sub-managers under this manager). */
+  subTeams?: ManagerCoachingTeam[];
+  /** Reps shown under this card when expanded (excludes reps who are sub-managers). */
+  leafReps?: RepCoachingData[];
 };
 
 function paceRatioFromPeriod(periodStart?: string, periodEnd?: string): number {
@@ -375,6 +379,50 @@ function coachingBucketForRow(cr: RepManagerRepRow | null): string {
   return m === "" ? "__unassigned__" : m;
 }
 
+function buildCoachingTeamTreeForManager(
+  mid: string,
+  coachingMgr: RepManagerManagerRow[],
+  byMid: Map<string, RepCoachingData[]>,
+  assessmentRepRows: AssessmentHygieneRow[],
+  paceRatio: number
+): ManagerCoachingTeam {
+  const mgrMeta = coachingMgr.find((r) => String(r.manager_id) === String(mid));
+  const managerName =
+    mid === "__unassigned__"
+      ? "(Unassigned)"
+      : String(mgrMeta?.manager_name || "").trim() || `Manager ${mid}`;
+
+  const repsUnder = (byMid.get(mid) ?? []).slice().sort((a, b) => {
+    const aa = repAttainmentPctDisplay(a) ?? 999;
+    const bb = repAttainmentPctDisplay(b) ?? 999;
+    return aa - bb;
+  });
+
+  const subManagerRows = coachingMgr.filter(
+    (r) => String(r.parent_manager_id || "").trim() === mid && mid !== ""
+  );
+  const subManagerIdSet = new Set(subManagerRows.map((r) => String(r.manager_id)));
+  const leafRepsOnly = repsUnder.filter((r) => !subManagerIdSet.has(String(r.rep_id)));
+
+  let subTeams = subManagerRows.map((sm) =>
+    buildCoachingTeamTreeForManager(String(sm.manager_id), coachingMgr, byMid, assessmentRepRows, paceRatio)
+  );
+  subTeams = subTeams.sort(
+    (a, b) =>
+      (Number(b.teamAttainmentPct) - Number(a.teamAttainmentPct)) ||
+      b.teamWonSum - a.teamWonSum ||
+      a.managerName.localeCompare(b.managerName)
+  );
+
+  const team = aggregateManagerTeam(mid, managerName, repsUnder, assessmentRepRows, paceRatio);
+  return {
+    ...team,
+    repCount: subTeams.length + leafRepsOnly.length,
+    subTeams: subTeams.length > 0 ? subTeams : undefined,
+    leafReps: leafRepsOnly,
+  };
+}
+
 function buildManagerCoachingTeams(
   repCoaching: RepCoachingData[],
   coachingRepRows: RepManagerRepRow[] | null | undefined,
@@ -403,36 +451,15 @@ function buildManagerCoachingTeams(
 
   const coachingMgr = coachingManagerRows ?? [];
   if (coachingMgr.length > 0) {
-    const topLevelManagerRows = coachingMgr;
-    const managerIdSet = new Set(coachingMgr.map((r) => r.manager_id));
-    const viewerBucketReps = viewerKey ? (byMid.get(viewerKey) ?? []) : [];
-    const leafRepsCoaching = viewerBucketReps.filter((rep) => !managerIdSet.has(String(rep.rep_id)));
-    const managerTeams = topLevelManagerRows
-      .filter((r) => r.manager_id !== "")
-      .map((r) =>
-        aggregateManagerTeam(
-          r.manager_id,
-          String(r.manager_name || "").trim() || `Manager ${r.manager_id}`,
-          byMid.get(r.manager_id) ?? [],
-          assessmentRepRows,
-          paceRatio
-        )
-      );
-    const leafTeams = leafRepsCoaching.map((rep) =>
-      aggregateManagerTeam(
-        `direct:${rep.rep_id}`,
-        String(rep.rep_name || "").trim() || `Rep ${rep.rep_id}`,
-        [rep],
-        assessmentRepRows,
-        paceRatio
-      )
-    );
+    const out: ManagerCoachingTeam[] = [];
+    if (viewerKey && coachingMgr.some((r) => String(r.manager_id) === viewerKey)) {
+      out.push(buildCoachingTeamTreeForManager(viewerKey, coachingMgr, byMid, assessmentRepRows, paceRatio));
+    }
     const unassigned = byMid.get("__unassigned__") ?? [];
-    const unassignedTeam =
-      unassigned.length > 0
-        ? [aggregateManagerTeam("__unassigned__", "(Unassigned)", unassigned, assessmentRepRows, paceRatio)]
-        : [];
-    return [...managerTeams, ...leafTeams, ...unassignedTeam];
+    if (unassigned.length > 0) {
+      out.push(buildCoachingTeamTreeForManager("__unassigned__", coachingMgr, byMid, assessmentRepRows, paceRatio));
+    }
+    return out;
   }
 
   const directReps = viewerKey && byMid.has(viewerKey) ? (byMid.get(viewerKey) ?? []).slice() : [];
@@ -506,11 +533,13 @@ function PaceStatusBadge({ paceStatus }: { paceStatus: PaceStatus }) {
 function ManagerCoachingLeaderCard(props: {
   team: ManagerCoachingTeam;
   cardKey: string;
-  expanded: boolean;
-  onToggle: () => void;
   paceRatio: number;
+  expandKeys: Set<string>;
+  toggleExpandKey: (key: string) => void;
 }) {
-  const { team, cardKey, expanded, onToggle, paceRatio } = props;
+  const { team, cardKey, paceRatio, expandKeys, toggleExpandKey } = props;
+  const expandKey = `mgr:${team.managerId}`;
+  const expanded = expandKeys.has(expandKey);
   const borderColor = paceStatusCardClass(team.paceStatus);
   const headlineColor = attainmentTierTextClass(team.teamAttainmentPct);
   const attDisplay = Math.round(team.teamAttainmentPct * 10) / 10;
@@ -518,7 +547,8 @@ function ManagerCoachingLeaderCard(props: {
   const teamQuotaSum = team.teamQuotaSum;
   const paceStatus = team.paceStatus;
 
-  const sortedReps = [...team.reps].sort((a, b) => {
+  const repListForExpanded = team.leafReps ?? team.reps;
+  const sortedReps = [...repListForExpanded].sort((a, b) => {
     const aa = repAttainmentPctDisplay(a) ?? 999;
     const bb = repAttainmentPctDisplay(b) ?? 999;
     return aa - bb;
@@ -597,7 +627,7 @@ function ManagerCoachingLeaderCard(props: {
 
         <button
           type="button"
-          onClick={onToggle}
+          onClick={() => toggleExpandKey(expandKey)}
           className="mt-3 text-xs text-[color:var(--sf-accent-primary)] hover:underline"
         >
           {expanded ? "▲ Hide reps" : "▼ See reps"}
@@ -606,6 +636,19 @@ function ManagerCoachingLeaderCard(props: {
 
       {expanded && (
         <div className="mt-2 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] divide-y divide-[color:var(--sf-border)]">
+          {(team.subTeams ?? []).map((sub) => (
+            <div key={`${cardKey}-sub-${sub.managerId}`} className="p-3">
+              <div className="pl-2 ml-1 border-l border-[color:var(--sf-border)]">
+                <ManagerCoachingLeaderCard
+                  team={sub}
+                  cardKey={`${cardKey}>${sub.managerId}`}
+                  paceRatio={paceRatio}
+                  expandKeys={expandKeys}
+                  toggleExpandKey={toggleExpandKey}
+                />
+              </div>
+            </div>
+          ))}
           {sortedReps.map((rep) => {
             const repPct = repAttainmentPctDisplay(rep);
             const repPaceStatus = calcPaceStatus(Number(rep.won_amount) || 0, Number(rep.quota) || 0, paceRatio);
@@ -821,7 +864,13 @@ export function TeamForecastHygienePanels(props: {
     [repCoaching, coachingRepRows, assessmentRepRows, coachingPaceRatio, teamViewerRepId, coachingManagerRows]
   );
 
-  const [expandedManagerKeys, setExpandedManagerKeys] = useState<Set<string>>(new Set());
+  const [expandedManagerKeys, setExpandedManagerKeys] = useState<Set<string>>(() => {
+    const vk =
+      teamViewerRepId != null && String(teamViewerRepId).trim() !== ""
+        ? String(teamViewerRepId).trim()
+        : null;
+    return new Set(vk != null ? [`mgr:${vk}`] : []);
+  });
 
   function toggleManagerExpand(managerKey: string) {
     setExpandedManagerKeys((prev) => {
@@ -894,9 +943,9 @@ export function TeamForecastHygienePanels(props: {
               key={cardKey}
               cardKey={cardKey}
               team={team}
-              expanded={expandedManagerKeys.has(cardKey)}
-              onToggle={() => toggleManagerExpand(cardKey)}
               paceRatio={coachingPaceRatio}
+              expandKeys={expandedManagerKeys}
+              toggleExpandKey={toggleManagerExpand}
             />
           );
         })}
