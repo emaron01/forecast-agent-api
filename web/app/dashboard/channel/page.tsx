@@ -9,6 +9,7 @@ import { getChannelDashboardSummary, loadChannelRepFyQuarterRows, loadChannelRep
 import { getRepKpisByPeriod, type RepPeriodKpisRow } from "../../../lib/executiveRepKpis";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ExecutiveTabsShellClient } from "../../components/dashboard/executive/ExecutiveTabsShellClient";
+import type { RepManagerManagerRow } from "../../components/dashboard/executive/RepManagerComparisonPanel";
 import { normalizeExecTab, resolveDashboardTab, type ExecTabKey } from "../../actions/execTabConstants";
 import { setExecDefaultTabAction } from "../../actions/execTabPreferences";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
@@ -732,6 +733,16 @@ export default async function ChannelDashboardPage({
           userId: ctx.user.id,
         }).catch(() => null)
       : null;
+  const channelViewerRepId =
+    viewerChannelRepsTableId != null &&
+    Number.isFinite(Number(viewerChannelRepsTableId)) &&
+    Number(viewerChannelRepsTableId) > 0
+      ? Number(viewerChannelRepsTableId)
+      : currentChannelRepId != null &&
+          Number.isFinite(Number(currentChannelRepId)) &&
+          Number(currentChannelRepId) > 0
+        ? Number(currentChannelRepId)
+        : null;
   const assignedPartnerNames = await listAssignedPartnerNames({
     orgId: ctx.user.org_id,
     hierarchyLevel: Number(ctx.user.hierarchy_level),
@@ -1423,6 +1434,13 @@ export default async function ChannelDashboardPage({
     }
   }
 
+  const channelViewerName =
+    channelViewerRepId != null
+      ? repDisplayNameByRepId.get(channelViewerRepId) ||
+        String(ctx.user.display_name || "").trim() ||
+        `Rep ${channelViewerRepId}`
+      : "";
+
   const channelTeamRepRows =
     channelSummary?.channelRepRows.map((r) => {
       const c = channelKpisByRepId.get(String(r.rep_id)) ?? null;
@@ -1517,30 +1535,25 @@ export default async function ChannelDashboardPage({
             if (mid && row.manager_name) prev.manager_name = row.manager_name;
             agg.set(key, prev);
           }
-          const rows: Array<{
-            manager_id: string;
-            manager_name: string;
-            parent_manager_id: string;
-            quota: number;
-            won_amount: number;
-            active_amount: number;
-            attainment: number | null;
-            win_rate: null;
-            partner_contribution: null;
-          }> = [];
+          const rows: RepManagerManagerRow[] = [];
           for (const [key, a] of agg.entries()) {
-            const manager_id = key === "__unassigned__" ? "" : key;
+            const manager_id = key;
             const quota = a.quota;
             const won = a.won_amount;
             rows.push({
               manager_id,
               manager_name:
-                manager_id && a.manager_name
-                  ? a.manager_name
-                  : manager_id
-                    ? repDisplayNameByRepId.get(Number(manager_id)) || a.manager_name || `Manager ${manager_id}`
-                    : "(Unassigned)",
-              parent_manager_id: "",
+                key === "__unassigned__"
+                  ? "(Unassigned)"
+                  : manager_id && a.manager_name
+                    ? a.manager_name
+                    : repDisplayNameByRepId.get(Number(manager_id)) || a.manager_name || `Manager ${manager_id}`,
+              parent_manager_id:
+                key === "__unassigned__"
+                  ? ""
+                  : channelViewerRepId != null
+                    ? String(channelViewerRepId)
+                    : "",
               quota,
               won_amount: won,
               active_amount: a.active_amount,
@@ -1559,6 +1572,24 @@ export default async function ChannelDashboardPage({
         })()
       : [];
 
+  if (channelViewerRepId != null) {
+    const totalQuota = channelManagerRows.reduce((s, r) => s + (Number(r.quota) || 0), 0);
+    const totalWon = channelManagerRows.reduce((s, r) => s + (Number(r.won_amount) || 0), 0);
+    const totalActive = channelManagerRows.reduce((s, r) => s + (Number(r.active_amount) || 0), 0);
+    const viewerRow: RepManagerManagerRow = {
+      manager_id: String(channelViewerRepId),
+      manager_name: channelViewerName || `Rep ${channelViewerRepId}`,
+      parent_manager_id: "",
+      quota: totalQuota,
+      won_amount: totalWon,
+      active_amount: totalActive,
+      attainment: totalQuota > 0 ? totalWon / totalQuota : null,
+      win_rate: null,
+      partner_contribution: null,
+    };
+    channelManagerRows.unshift(viewerRow);
+  }
+
   const channelDirectorCardCount = new Set(
     channelTeamRepRows.map((row) => String(row.manager_id || "").trim()).filter(Boolean)
   ).size;
@@ -1567,6 +1598,7 @@ export default async function ChannelDashboardPage({
   const emptyTeamPayload = {
     repRows: channelTeamRepRows,
     managerRows: channelManagerRows,
+    teamViewerRepId: channelViewerRepId != null ? String(channelViewerRepId) : null,
     managerLostAmountOverride: channelRollupMultiDirectorCards ? undefined : directorTerritoryLostAmount,
     managerLostCountOverride: channelRollupMultiDirectorCards ? undefined : directorTerritoryLostCount,
     managerWonAmountOverride: channelRollupMultiDirectorCards ? undefined : directorWonAmount,
