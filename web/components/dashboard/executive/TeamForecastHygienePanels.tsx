@@ -272,10 +272,13 @@ type ManagerCoachingTeam = {
   teamFlat: number;
   teamWeakest: string[];
   teamRadarData: { category: string; value: number }[];
-  /** Nested manager coaching teams (sub-managers under this manager). */
-  subTeams?: ManagerCoachingTeam[];
   /** Reps shown under this card when expanded (excludes reps who are sub-managers). */
   leafReps?: RepCoachingData[];
+};
+
+/** Tree shape used only while building; flattened to `ManagerCoachingTeam[]` for the grid. */
+type ManagerCoachingTeamTree = ManagerCoachingTeam & {
+  subTeams?: ManagerCoachingTeamTree[];
 };
 
 function paceRatioFromPeriod(periodStart?: string, periodEnd?: string): number {
@@ -379,13 +382,22 @@ function coachingBucketForRow(cr: RepManagerRepRow | null): string {
   return m === "" ? "__unassigned__" : m;
 }
 
+function flattenCoachingTree(team: ManagerCoachingTeamTree): ManagerCoachingTeam[] {
+  const { subTeams, ...rest } = team;
+  const result: ManagerCoachingTeam[] = [rest];
+  for (const sub of subTeams ?? []) {
+    result.push(...flattenCoachingTree(sub));
+  }
+  return result;
+}
+
 function buildCoachingTeamTreeForManager(
   mid: string,
   coachingMgr: RepManagerManagerRow[],
   byMid: Map<string, RepCoachingData[]>,
   assessmentRepRows: AssessmentHygieneRow[],
   paceRatio: number
-): ManagerCoachingTeam {
+): ManagerCoachingTeamTree {
   const mgrMeta = coachingMgr.find((r) => String(r.manager_id) === String(mid));
   const managerName =
     mid === "__unassigned__"
@@ -453,11 +465,19 @@ function buildManagerCoachingTeams(
   if (coachingMgr.length > 0) {
     const out: ManagerCoachingTeam[] = [];
     if (viewerKey && coachingMgr.some((r) => String(r.manager_id) === viewerKey)) {
-      out.push(buildCoachingTeamTreeForManager(viewerKey, coachingMgr, byMid, assessmentRepRows, paceRatio));
+      const viewerTree = buildCoachingTeamTreeForManager(viewerKey, coachingMgr, byMid, assessmentRepRows, paceRatio);
+      out.push(...flattenCoachingTree(viewerTree));
     }
     const unassigned = byMid.get("__unassigned__") ?? [];
     if (unassigned.length > 0) {
-      out.push(buildCoachingTeamTreeForManager("__unassigned__", coachingMgr, byMid, assessmentRepRows, paceRatio));
+      const unassignedTree = buildCoachingTeamTreeForManager(
+        "__unassigned__",
+        coachingMgr,
+        byMid,
+        assessmentRepRows,
+        paceRatio
+      );
+      out.push(...flattenCoachingTree(unassignedTree));
     }
     return out;
   }
@@ -636,19 +656,6 @@ function ManagerCoachingLeaderCard(props: {
 
       {expanded && (
         <div className="mt-2 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] divide-y divide-[color:var(--sf-border)]">
-          {(team.subTeams ?? []).map((sub) => (
-            <div key={`${cardKey}-sub-${sub.managerId}`} className="p-3">
-              <div className="pl-2 ml-1 border-l border-[color:var(--sf-border)]">
-                <ManagerCoachingLeaderCard
-                  team={sub}
-                  cardKey={`${cardKey}>${sub.managerId}`}
-                  paceRatio={paceRatio}
-                  expandKeys={expandKeys}
-                  toggleExpandKey={toggleExpandKey}
-                />
-              </div>
-            </div>
-          ))}
           {sortedReps.map((rep) => {
             const repPct = repAttainmentPctDisplay(rep);
             const repPaceStatus = calcPaceStatus(Number(rep.won_amount) || 0, Number(rep.quota) || 0, paceRatio);
@@ -934,21 +941,18 @@ export function TeamForecastHygienePanels(props: {
         </div>
       </div>
 
-      {/* Manager leader cards + expandable rep rows (Team tab pattern) */}
-      <div className="mt-6 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-        {managerCoachingTeams.map((team) => {
-          const cardKey = `mgr:${team.managerId}`;
-          return (
-            <ManagerCoachingLeaderCard
-              key={cardKey}
-              cardKey={cardKey}
-              team={team}
-              paceRatio={coachingPaceRatio}
-              expandKeys={expandedManagerKeys}
-              toggleExpandKey={toggleManagerExpand}
-            />
-          );
-        })}
+      {/* Manager leader cards + expandable rep rows (flat grid; order = depth-first org tree) */}
+      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {managerCoachingTeams.map((team) => (
+          <ManagerCoachingLeaderCard
+            key={team.managerId}
+            cardKey={`mgr:${team.managerId}`}
+            team={team}
+            paceRatio={coachingPaceRatio}
+            expandKeys={expandedManagerKeys}
+            toggleExpandKey={toggleManagerExpand}
+          />
+        ))}
       </div>
 
       <button
