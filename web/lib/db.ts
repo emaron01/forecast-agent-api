@@ -523,22 +523,9 @@ export async function syncManagerQuotas(args: {
     );
     const roleLevel = managerInfo.rows[0]?.role_level ?? 3;
 
-    // Channel roles have no quota and are not part of the sales rollup chain.
-    // Stop processing this ancestor and all further ancestors.
-    if (roleLevel === 6 || roleLevel === 7 || roleLevel === 8) {
-      console.log("[syncManagerQuotas] breaking/skipping on roleLevel", roleLevel);
-      break;
-    }
-
     const managerOfManager = managerInfo.rows[0]?.manager_rep_id ?? null;
 
     for (const quotaPeriodId of periodIds) {
-      console.log("[syncManagerQuotas] processing ancestor", {
-        managerRepId,
-        roleLevel,
-        quotaPeriodId,
-      });
-
       const manualCheck = await pool.query<{ is_manual: boolean }>(
         `
         SELECT COALESCE(is_manual, false) AS is_manual
@@ -551,8 +538,6 @@ export async function syncManagerQuotas(args: {
         [orgId, managerRepId, quotaPeriodId]
       );
       if (manualCheck.rows[0]?.is_manual === true) continue;
-
-      console.log("[syncManagerQuotas] not manual, computing sum for", { managerRepId, quotaPeriodId });
 
       const sumResult = await pool.query<{ total: string }>(
         `
@@ -568,14 +553,16 @@ export async function syncManagerQuotas(args: {
                AND q.quota_period_id = $2::bigint
                AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
                AND r.manager_rep_id = $3::bigint
-               AND COALESCE(u.hierarchy_level, 3) NOT IN (6, 7, 8)
+               AND (
+                 $4::int IN (6, 7)
+                 OR COALESCE(u.hierarchy_level, 3) NOT IN (6, 7, 8)
+               )
              GROUP BY q.rep_id
           ) s
         `,
-        [orgId, quotaPeriodId, managerRepId]
+        [orgId, quotaPeriodId, managerRepId, roleLevel]
       );
       const total = Number(sumResult.rows[0]?.total ?? "0");
-      console.log("[syncManagerQuotas] sumResult", { managerRepId, quotaPeriodId, total });
       if (!Number.isFinite(total)) continue;
 
       const updated = await pool.query(
@@ -661,6 +648,8 @@ export async function syncManagerQuotas(args: {
       `,
       [orgId, managerRepId]
     );
+
+    if (roleLevel === 6) break;
   }
 }
 
