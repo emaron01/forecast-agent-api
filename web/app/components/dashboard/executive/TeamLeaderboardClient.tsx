@@ -354,7 +354,9 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     teamViewerRepId,
   } = props;
 
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(
+    () => new Set(teamViewerRepId != null ? [`mgr:${teamViewerRepId}`] : [])
+  );
   const [showDetail, setShowDetail] = useState(false);
 
   const { paceRatio } = useMemo(() => computePaceRatio(periodStart, periodEnd), [periodStart, periodEnd]);
@@ -370,36 +372,16 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     return m;
   }, [repRows]);
 
-  const managerIdSet = useMemo(
-    () => new Set(managerRows.map((r) => String(r.manager_id || "").trim())),
+  const viewerCard = useMemo(
+    () =>
+      teamViewerRepId != null ? managerRows.find((r) => String(r.manager_id) === String(teamViewerRepId)) : null,
+    [managerRows, teamViewerRepId]
+  );
+
+  const unassignedCard = useMemo(
+    () => managerRows.find((r) => r.manager_id === "__unassigned__") ?? null,
     [managerRows]
   );
-
-  const topLevelManagers = useMemo(
-    () => managerRows,
-    [managerRows]
-  );
-
-  const leafReps = useMemo(
-    () => repRows.filter((r) => !managerIdSet.has(String(r.rep_id))),
-    [repRows, managerIdSet]
-  );
-
-  const viewerKey = teamViewerRepId != null ? String(teamViewerRepId) : null;
-
-  const topLevelLeafReps = useMemo(() => {
-    const vk = viewerKey != null && String(viewerKey).trim() !== "" ? String(viewerKey).trim() : null;
-    if (vk) {
-      return leafReps.filter((r) => {
-        const mid = String(r.manager_id || "").trim();
-        return mid === vk || mid === "";
-      });
-    }
-    return leafReps.filter((r) => String(r.manager_id || "").trim() === "");
-  }, [leafReps, viewerKey]);
-
-  const showFlatRepGrid =
-    topLevelManagers.length === 0 && topLevelLeafReps.length === 0 && repRows.length > 0;
 
   function toggleExpand(id: string) {
     setExpandedIds((prev) => {
@@ -819,6 +801,11 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
       (mid ? repsUnder[0]?.manager_name : "(Unassigned)") ||
       `Manager ${mid || ""}`;
     const cardKey = `mgr:${mid || "unassigned"}`;
+    const subManagerCards = managerRows.filter(
+      (r) => String(r.parent_manager_id || "").trim() === mid && mid !== ""
+    );
+    const subManagerIdSet = new Set(subManagerCards.map((r) => String(r.manager_id)));
+    const leafRepsUnder = repsUnder.filter((r) => !subManagerIdSet.has(String(r.rep_id)));
     const current = aggregateCurrentTeam(repsUnder);
     const repIntIds = repsUnder.map((r) => r.rep_id);
     const annual = aggregateAnnualTeam(allPeriodRows ?? [], repIntIds);
@@ -885,24 +872,19 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           avgHealthPct: productSummary.avgHealthPct,
           isLeader: true,
           expanded: expandedIds.has(cardKey),
-          repCount: repsUnder.length,
+          repCount: subManagerCards.length + leafRepsUnder.length,
           onToggle: () => toggleExpand(cardKey),
         })}
 
         {expandedIds.has(cardKey) && (
           <div className="mt-2 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] divide-y divide-[color:var(--sf-border)]">
-            {repsUnder.map((rep) => renderRepCard(rep))}
+            {subManagerCards.map((m) => renderManagerCard(String(m.manager_id || "").trim()))}
+            {leafRepsUnder.map((r) => renderRepCard(r))}
           </div>
         )}
       </div>
     );
   };
-
-  function repSortCompare(a: RepManagerRepRow, b: RepManagerRepRow) {
-    const aa = a.attainment == null || !Number.isFinite(a.attainment) ? Number.POSITIVE_INFINITY : Number(a.attainment);
-    const bb = b.attainment == null || !Number.isFinite(b.attainment) ? Number.POSITIVE_INFINITY : Number(b.attainment);
-    return bb - aa || a.rep_name.localeCompare(b.rep_name);
-  }
 
   return (
     <div>
@@ -921,9 +903,8 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-1">
-        {topLevelManagers.map((m) => renderManagerCard(String(m.manager_id || "").trim()))}
-        {topLevelLeafReps.slice().sort(repSortCompare).map((r) => renderRepCard(r))}
-        {showFlatRepGrid ? [...repRows].sort(repSortCompare).map((r) => renderRepCard(r)) : null}
+        {viewerCard ? renderManagerCard(String(viewerCard.manager_id)) : null}
+        {unassignedCard ? renderManagerCard("__unassigned__") : null}
       </div>
 
       <button
