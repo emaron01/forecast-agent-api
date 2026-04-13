@@ -131,10 +131,27 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
     });
   }
 
+  const activeRepIdSet = new Set<number>();
+  for (const r of repDirectory) {
+    if (Number.isFinite(r.id) && r.id > 0) activeRepIdSet.add(r.id);
+  }
+
   const repIdsInData = new Set<string>();
   for (const id of repIds) repIdsInData.add(String(id));
-  for (const r of repKpisRows) repIdsInData.add(String(r.rep_id));
-  for (const q of quotaByRepPeriod) repIdsInData.add(String(q.rep_id));
+  for (const r of repKpisRows) {
+    const id = Number(r.rep_id);
+    if (!Number.isFinite(id) || id <= 0) continue;
+    if (viewerId != null && id === viewerId) continue;
+    if (!activeRepIdSet.has(id)) continue;
+    repIdsInData.add(String(id));
+  }
+  for (const q of quotaByRepPeriod) {
+    const id = Number(q.rep_id);
+    if (!Number.isFinite(id) || id <= 0) continue;
+    if (viewerId != null && id === viewerId) continue;
+    if (!activeRepIdSet.has(id)) continue;
+    repIdsInData.add(String(id));
+  }
 
   const repRowsBuild: RepManagerRepRow[] = [];
   for (const rep_id of repIdsInData) {
