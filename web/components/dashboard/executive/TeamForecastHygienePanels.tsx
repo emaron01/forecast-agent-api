@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactElement, type ReactNode } from "react";
 import type {
   RepManagerManagerRow,
   RepManagerRepRow,
@@ -276,11 +276,6 @@ type ManagerCoachingTeam = {
   leafReps?: RepCoachingData[];
 };
 
-/** Tree shape used only while building; flattened to `ManagerCoachingTeam[]` for the grid. */
-type ManagerCoachingTeamTree = ManagerCoachingTeam & {
-  subTeams?: ManagerCoachingTeamTree[];
-};
-
 function paceRatioFromPeriod(periodStart?: string, periodEnd?: string): number {
   if (!periodStart || !periodEnd) return 1;
   const today = new Date();
@@ -382,66 +377,13 @@ function coachingBucketForRow(cr: RepManagerRepRow | null): string {
   return m === "" ? "__unassigned__" : m;
 }
 
-function flattenCoachingTree(team: ManagerCoachingTeamTree): ManagerCoachingTeam[] {
-  const { subTeams, ...rest } = team;
-  const result: ManagerCoachingTeam[] = [rest];
-  for (const sub of subTeams ?? []) {
-    result.push(...flattenCoachingTree(sub));
-  }
-  return result;
-}
-
-function buildCoachingTeamTreeForManager(
-  mid: string,
-  coachingMgr: RepManagerManagerRow[],
-  byMid: Map<string, RepCoachingData[]>,
-  assessmentRepRows: AssessmentHygieneRow[],
-  paceRatio: number
-): ManagerCoachingTeamTree {
-  const mgrMeta = coachingMgr.find((r) => String(r.manager_id) === String(mid));
-  const managerName =
-    mid === "__unassigned__"
-      ? "(Unassigned)"
-      : String(mgrMeta?.manager_name || "").trim() || `Manager ${mid}`;
-
-  const repsUnder = (byMid.get(mid) ?? []).slice().sort((a, b) => {
-    const aa = repAttainmentPctDisplay(a) ?? 999;
-    const bb = repAttainmentPctDisplay(b) ?? 999;
-    return aa - bb;
-  });
-
-  const subManagerRows = coachingMgr.filter(
-    (r) => String(r.parent_manager_id || "").trim() === mid && mid !== ""
-  );
-  const subManagerIdSet = new Set(subManagerRows.map((r) => String(r.manager_id)));
-  const leafRepsOnly = repsUnder.filter((r) => !subManagerIdSet.has(String(r.rep_id)));
-
-  let subTeams = subManagerRows.map((sm) =>
-    buildCoachingTeamTreeForManager(String(sm.manager_id), coachingMgr, byMid, assessmentRepRows, paceRatio)
-  );
-  subTeams = subTeams.sort(
-    (a, b) =>
-      (Number(b.teamAttainmentPct) - Number(a.teamAttainmentPct)) ||
-      b.teamWonSum - a.teamWonSum ||
-      a.managerName.localeCompare(b.managerName)
-  );
-
-  const team = aggregateManagerTeam(mid, managerName, repsUnder, assessmentRepRows, paceRatio);
-  return {
-    ...team,
-    repCount: subTeams.length + leafRepsOnly.length,
-    subTeams: subTeams.length > 0 ? subTeams : undefined,
-    leafReps: leafRepsOnly,
-  };
-}
-
-function buildManagerCoachingTeams(
+/** Legacy flat list when `coachingManagerRows` is empty (no org tree). */
+function buildLegacyFlatCoachingTeams(
   repCoaching: RepCoachingData[],
   coachingRepRows: RepManagerRepRow[] | null | undefined,
   assessmentRepRows: AssessmentHygieneRow[],
   paceRatio: number,
-  teamViewerRepId?: string | null,
-  coachingManagerRows?: RepManagerManagerRow[] | null
+  teamViewerRepId?: string | null
 ): ManagerCoachingTeam[] {
   const crRows = coachingRepRows ?? [];
   const viewerKey =
@@ -459,27 +401,6 @@ function buildManagerCoachingTeams(
     const bucket = coachingBucketForRow(cr);
     if (!byMid.has(bucket)) byMid.set(bucket, []);
     byMid.get(bucket)!.push(rep);
-  }
-
-  const coachingMgr = coachingManagerRows ?? [];
-  if (coachingMgr.length > 0) {
-    const out: ManagerCoachingTeam[] = [];
-    if (viewerKey && coachingMgr.some((r) => String(r.manager_id) === viewerKey)) {
-      const viewerTree = buildCoachingTeamTreeForManager(viewerKey, coachingMgr, byMid, assessmentRepRows, paceRatio);
-      out.push(...flattenCoachingTree(viewerTree));
-    }
-    const unassigned = byMid.get("__unassigned__") ?? [];
-    if (unassigned.length > 0) {
-      const unassignedTree = buildCoachingTeamTreeForManager(
-        "__unassigned__",
-        coachingMgr,
-        byMid,
-        assessmentRepRows,
-        paceRatio
-      );
-      out.push(...flattenCoachingTree(unassignedTree));
-    }
-    return out;
   }
 
   const directReps = viewerKey && byMid.has(viewerKey) ? (byMid.get(viewerKey) ?? []).slice() : [];
@@ -526,12 +447,33 @@ function buildManagerCoachingTeams(
   return [...directTeams, ...managerTeams];
 }
 
-function repPaceIcon(rep: RepCoachingData, paceRatio: number): string {
-  const s = calcPaceStatus(Number(rep.won_amount) || 0, Number(rep.quota) || 0, paceRatio);
-  if (s === "on_track") return "✅";
-  if (s === "at_risk") return "⚠️";
-  if (s === "behind") return "🔴";
-  return "·";
+function mergeManagerMetaIntoTeam(
+  team: ManagerCoachingTeam,
+  mgrMeta: RepManagerManagerRow | undefined,
+  paceRatio: number,
+  repCountDisplay: number,
+  leafReps: RepCoachingData[]
+): ManagerCoachingTeam {
+  if (!mgrMeta) {
+    return { ...team, repCount: repCountDisplay, leafReps };
+  }
+  const q = Number(mgrMeta.quota) || 0;
+  const w = Number(mgrMeta.won_amount) || 0;
+  const attPct =
+    mgrMeta.attainment != null && Number.isFinite(Number(mgrMeta.attainment))
+      ? Math.min(100, Number(mgrMeta.attainment) * 100)
+      : q > 0
+        ? Math.min(100, (w / q) * 100)
+        : team.teamAttainmentPct;
+  return {
+    ...team,
+    teamQuotaSum: q,
+    teamWonSum: w,
+    teamAttainmentPct: attPct,
+    paceStatus: calcPaceStatus(w, q, paceRatio),
+    repCount: repCountDisplay,
+    leafReps,
+  };
 }
 
 function PaceStatusBadge({ paceStatus }: { paceStatus: PaceStatus }) {
@@ -556,8 +498,10 @@ function ManagerCoachingLeaderCard(props: {
   paceRatio: number;
   expandKeys: Set<string>;
   toggleExpandKey: (key: string) => void;
+  /** Rendered inside the expanded panel before leaf rep rows (e.g. nested manager cards). */
+  expandedBeforeReps?: ReactNode;
 }) {
-  const { team, cardKey, paceRatio, expandKeys, toggleExpandKey } = props;
+  const { team, cardKey, paceRatio, expandKeys, toggleExpandKey, expandedBeforeReps } = props;
   const expandKey = `mgr:${team.managerId}`;
   const expanded = expandKeys.has(expandKey);
   const borderColor = paceStatusCardClass(team.paceStatus);
@@ -655,7 +599,11 @@ function ManagerCoachingLeaderCard(props: {
       </div>
 
       {expanded && (
-        <div className="mt-2 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] divide-y divide-[color:var(--sf-border)]">
+        <div className="mt-2 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+          {expandedBeforeReps ? (
+            <div className="space-y-4 border-b border-[color:var(--sf-border)] p-3">{expandedBeforeReps}</div>
+          ) : null}
+          <div className="divide-y divide-[color:var(--sf-border)]">
           {sortedReps.map((rep) => {
             const repPct = repAttainmentPctDisplay(rep);
             const repPaceStatus = calcPaceStatus(Number(rep.won_amount) || 0, Number(rep.quota) || 0, paceRatio);
@@ -734,6 +682,7 @@ function ManagerCoachingLeaderCard(props: {
               </div>
             );
           })}
+          </div>
         </div>
       )}
     </div>
@@ -858,17 +807,50 @@ export function TeamForecastHygienePanels(props: {
     [coachingPeriodStart, coachingPeriodEnd]
   );
 
-  const managerCoachingTeams = useMemo(
+  const managerRows = coachingManagerRows ?? [];
+  const hasCoachingManagerTree = managerRows.length > 0;
+
+  const repsByManager = useMemo(() => {
+    const m = new Map<string, RepCoachingData[]>();
+    const crRows = coachingRepRows ?? [];
+    for (const rep of repCoaching) {
+      const cr = crRows.find((r) => String(r.rep_id) === String(rep.rep_id)) ?? null;
+      const k = coachingBucketForRow(cr);
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(rep);
+    }
+    for (const arr of m.values()) {
+      arr.sort((a, b) => (repAttainmentPctDisplay(a) ?? 999) - (repAttainmentPctDisplay(b) ?? 999));
+    }
+    return m;
+  }, [repCoaching, coachingRepRows]);
+
+  const viewerCard = useMemo(() => {
+    const vk =
+      teamViewerRepId != null && String(teamViewerRepId).trim() !== ""
+        ? String(teamViewerRepId).trim()
+        : null;
+    if (!vk || !managerRows.length) return null;
+    return managerRows.find((r) => String(r.manager_id) === vk) ?? null;
+  }, [managerRows, teamViewerRepId]);
+
+  const unassignedCard = useMemo(
+    () => managerRows.find((r) => r.manager_id === "__unassigned__") ?? null,
+    [managerRows]
+  );
+
+  const legacyFlatTeams = useMemo(
     () =>
-      buildManagerCoachingTeams(
-        repCoaching,
-        coachingRepRows ?? null,
-        assessmentRepRows,
-        coachingPaceRatio,
-        teamViewerRepId,
-        coachingManagerRows ?? null
-      ),
-    [repCoaching, coachingRepRows, assessmentRepRows, coachingPaceRatio, teamViewerRepId, coachingManagerRows]
+      hasCoachingManagerTree
+        ? []
+        : buildLegacyFlatCoachingTeams(
+            repCoaching,
+            coachingRepRows ?? null,
+            assessmentRepRows,
+            coachingPaceRatio,
+            teamViewerRepId
+          ),
+    [hasCoachingManagerTree, repCoaching, coachingRepRows, assessmentRepRows, coachingPaceRatio, teamViewerRepId]
   );
 
   const [expandedManagerKeys, setExpandedManagerKeys] = useState<Set<string>>(() => {
@@ -886,6 +868,63 @@ export function TeamForecastHygienePanels(props: {
       else next.add(managerKey);
       return next;
     });
+  }
+
+  function renderCoachingManagerCard(managerId: string): ReactElement {
+    const mid = String(managerId || "").trim();
+    const mgrMeta = managerRows.find((r) => String(r.manager_id) === mid);
+    const repsUnder = repsByManager.get(mid) ?? [];
+    const subManagerCards = managerRows
+      .filter((r) => String(r.parent_manager_id || "").trim() === mid && mid !== "")
+      .sort(
+        (a, b) =>
+          (Number(b.attainment ?? -1) - Number(a.attainment ?? -1)) ||
+          Number(b.won_amount || 0) - Number(a.won_amount || 0) ||
+          String(a.manager_name || "").localeCompare(String(b.manager_name || ""))
+      );
+    const subManagerIdSet = new Set(subManagerCards.map((r) => String(r.manager_id)));
+    const leafRepsUnder = repsUnder.filter((r) => !subManagerIdSet.has(String(r.rep_id)));
+    const managerName =
+      mid === "__unassigned__"
+        ? "(Unassigned)"
+        : String(mgrMeta?.manager_name || "").trim() ||
+          (mid ? repsUnder[0]?.rep_name : "") ||
+          `Manager ${mid || ""}`;
+    const baseTeam = aggregateManagerTeam(mid, managerName, repsUnder, assessmentRepRows, coachingPaceRatio);
+    const team = mergeManagerMetaIntoTeam(
+      baseTeam,
+      mgrMeta,
+      coachingPaceRatio,
+      subManagerCards.length + leafRepsUnder.length,
+      leafRepsUnder
+    );
+    const cardKey = `mgr:${mid || "unassigned"}`;
+
+    return (
+      <div key={cardKey} className="min-w-0 w-full">
+        <ManagerCoachingLeaderCard
+          team={team}
+          cardKey={cardKey}
+          paceRatio={coachingPaceRatio}
+          expandKeys={expandedManagerKeys}
+          toggleExpandKey={toggleManagerExpand}
+          expandedBeforeReps={
+            subManagerCards.length > 0 ? (
+              <>
+                {subManagerCards.map((sm) => (
+                  <div
+                    key={String(sm.manager_id)}
+                    className="pl-2 ml-1 border-l border-[color:var(--sf-border)]"
+                  >
+                    {renderCoachingManagerCard(String(sm.manager_id))}
+                  </div>
+                ))}
+              </>
+            ) : undefined
+          }
+        />
+      </div>
+    );
   }
 
   return (
@@ -941,18 +980,25 @@ export function TeamForecastHygienePanels(props: {
         </div>
       </div>
 
-      {/* Manager leader cards + expandable rep rows (flat grid; order = depth-first org tree) */}
+      {/* Manager leader cards + nested tree (same pattern as Team Performance) */}
       <div className="mt-6 grid grid-cols-1 gap-4">
-        {managerCoachingTeams.map((team) => (
-          <ManagerCoachingLeaderCard
-            key={team.managerId}
-            cardKey={`mgr:${team.managerId}`}
-            team={team}
-            paceRatio={coachingPaceRatio}
-            expandKeys={expandedManagerKeys}
-            toggleExpandKey={toggleManagerExpand}
-          />
-        ))}
+        {hasCoachingManagerTree ? (
+          <>
+            {viewerCard ? renderCoachingManagerCard(String(viewerCard.manager_id)) : null}
+            {unassignedCard ? renderCoachingManagerCard("__unassigned__") : null}
+          </>
+        ) : (
+          legacyFlatTeams.map((team) => (
+            <ManagerCoachingLeaderCard
+              key={team.managerId}
+              cardKey={`mgr:${team.managerId}`}
+              team={team}
+              paceRatio={coachingPaceRatio}
+              expandKeys={expandedManagerKeys}
+              toggleExpandKey={toggleManagerExpand}
+            />
+          ))
+        )}
       </div>
 
       <button
