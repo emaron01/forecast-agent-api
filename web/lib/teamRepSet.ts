@@ -7,6 +7,8 @@ import {
 } from "./executiveRepKpis";
 import type { RepDirectoryRow } from "./repScope";
 
+const CHANNEL_LEVELS = new Set([6, 7, 8]);
+
 export type BuildOrgSubtreeArgs = {
   orgId: number;
   viewerRepId: number | null;
@@ -310,10 +312,11 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
     for (const child of children) {
       const childId = Number(child.id);
       if (!Number.isFinite(childId) || childId <= 0) continue;
-      // Add this child's own quota
+      // Channel roles (6, 7, 8) are never part of the sales quota rollup
+      const childLevel = child.hierarchy_level != null ? Number(child.hierarchy_level) : null;
+      if (childLevel != null && CHANNEL_LEVELS.has(childLevel)) continue;
       const childQuotaKey = `${selectedPeriodId}|${childId}`;
       sum += quotaByRepPeriodMap.get(childQuotaKey) ?? 0;
-      // Recurse into child's subtree
       sum += sumSubtreeQuota(childId);
     }
     subtreeQuotaMemo.set(managerId, sum);

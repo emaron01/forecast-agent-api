@@ -545,10 +545,14 @@ export async function syncManagerQuotas(args: {
             SELECT MAX(q.quota_amount)::numeric AS amt
               FROM quotas q
               INNER JOIN reps r ON r.id = q.rep_id
+              LEFT JOIN users u
+                ON u.id = r.user_id
+               AND u.org_id = q.org_id
              WHERE q.org_id = $1::bigint
                AND q.quota_period_id = $2::bigint
                AND COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
                AND r.manager_rep_id = $3::bigint
+               AND COALESCE(u.hierarchy_level, 3) NOT IN (6, 7, 8)
              GROUP BY q.rep_id
           ) s
         `,
