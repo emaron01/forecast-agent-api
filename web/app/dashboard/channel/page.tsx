@@ -6,7 +6,7 @@ import { fetchChannelOrgDirectoryForViewer } from "../../../lib/channelOrgDirect
 import { getChannelTerritoryRepIds } from "../../../lib/channelTerritoryScope";
 import { getScopedRepDirectory, type RepDirectoryRow } from "../../../lib/repScope";
 import { getChannelDashboardSummary, loadChannelRepFyQuarterRows, loadChannelRepWonDeals, deduplicateWonDeals, type ChannelRepFyQuarterRow } from "../../../lib/channelDashboard";
-import { getRepKpisByPeriod, type RepPeriodKpisRow } from "../../../lib/executiveRepKpis";
+import { getQuotaByRepPeriod, getRepKpisByPeriod, type RepPeriodKpisRow } from "../../../lib/executiveRepKpis";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ExecutiveTabsShellClient } from "../../components/dashboard/executive/ExecutiveTabsShellClient";
 import type { RepManagerManagerRow } from "../../components/dashboard/executive/RepManagerComparisonPanel";
@@ -1574,19 +1574,59 @@ export default async function ChannelDashboardPage({
         })()
       : [];
 
+  const directorRepIds = channelDirectorManagerRows
+    .filter((r) => r.manager_id !== "__unassigned__")
+    .map((r) => Number(r.manager_id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+
+  const repIdsForQuota = Array.from(
+    new Set([
+      ...directorRepIds,
+      ...(channelViewerRepId != null && Number.isFinite(channelViewerRepId) && channelViewerRepId > 0
+        ? [channelViewerRepId]
+        : []),
+    ])
+  );
+
+  let quotaRows: Awaited<ReturnType<typeof getQuotaByRepPeriod>> = [];
+  if (repIdsForQuota.length > 0 && selectedPeriodId) {
+    quotaRows = await getQuotaByRepPeriod({
+      orgId,
+      quotaPeriodIds: [selectedPeriodId],
+      repIds: repIdsForQuota,
+    });
+  }
+
+  const periodIdStr = String(selectedPeriodId || "");
+  for (const row of channelDirectorManagerRows) {
+    if (row.manager_id === "__unassigned__") continue;
+    const dbQuota = quotaRows.find(
+      (q) => String(q.rep_id) === row.manager_id && String(q.quota_period_id) === periodIdStr
+    );
+    if (dbQuota != null) {
+      row.quota = Number(dbQuota.quota_amount) || 0;
+      row.attainment = safeDivChannel(row.won_amount, row.quota);
+    }
+  }
+
   let channelManagerRows: RepManagerManagerRow[] = channelDirectorManagerRows;
   if (channelViewerRepId != null) {
-    const totalQuota = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.quota) || 0), 0);
     const totalWon = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.won_amount) || 0), 0);
     const totalActive = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.active_amount) || 0), 0);
+    const viewerQuotaRow = quotaRows.find(
+      (q) => String(q.rep_id) === String(channelViewerRepId) && String(q.quota_period_id) === periodIdStr
+    );
+    const viewerQuota = viewerQuotaRow
+      ? Number(viewerQuotaRow.quota_amount) || 0
+      : channelDirectorManagerRows.reduce((s, r) => s + (Number(r.quota) || 0), 0);
     const viewerRow: RepManagerManagerRow = {
       manager_id: String(channelViewerRepId),
       manager_name: channelViewerName || `Rep ${channelViewerRepId}`,
       parent_manager_id: "",
-      quota: totalQuota,
+      quota: viewerQuota,
       won_amount: totalWon,
       active_amount: totalActive,
-      attainment: totalQuota > 0 ? totalWon / totalQuota : null,
+      attainment: viewerQuota > 0 ? totalWon / viewerQuota : null,
       win_rate: null,
       partner_contribution: null,
     };
