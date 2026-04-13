@@ -942,7 +942,7 @@ export function TeamForecastHygienePanels(props: {
       </div>
 
       {/* Manager leader cards + expandable rep rows (flat grid; order = depth-first org tree) */}
-      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="mt-6 grid grid-cols-1 gap-4">
         {managerCoachingTeams.map((team) => (
           <ManagerCoachingLeaderCard
             key={team.managerId}
