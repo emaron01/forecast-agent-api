@@ -955,7 +955,11 @@ export function ExecutiveGapInsightsClient(props: {
     return s;
   }, [props.repDirectory]);
 
-  /** Coaching tab (`teamTabOnly`): drop gap-driving deals owned by channel hierarchy reps (6–8). */
+  /**
+   * Executive Coaching tab only (`teamTabOnly` — set from `ExecutiveTabsShellClient` when `activeTab === "coaching"`).
+   * That tab does not render the GAP DEALS grid; it still loads gap-driving-deals data to power "Coaching tips" + AI Strategic Takeaway.
+   * Here we exclude reps with hierarchy 6/7/8 from that derived content. All other tabs keep full deal sets.
+   */
   const coachingTabGapSourceDeals = useMemo(() => {
     const base = analysisFlattenedDeals.length ? analysisFlattenedDeals : flattenedDeals;
     if (!props.teamTabOnly || channelCoachingTabExcludedRepIds.size === 0) return base;
