@@ -522,6 +522,11 @@ export async function syncManagerQuotas(args: {
       [managerRepId, orgId]
     );
     const roleLevel = managerInfo.rows[0]?.role_level ?? 3;
+
+    // Channel roles have no quota and are not part of the sales rollup chain.
+    // Stop processing this ancestor and all further ancestors.
+    if (roleLevel === 6 || roleLevel === 7 || roleLevel === 8) break;
+
     const managerOfManager = managerInfo.rows[0]?.manager_rep_id ?? null;
 
     for (const quotaPeriodId of periodIds) {
