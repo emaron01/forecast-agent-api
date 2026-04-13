@@ -7,8 +7,6 @@ import {
 } from "./executiveRepKpis";
 import type { RepDirectoryRow } from "./repScope";
 
-const CHANNEL_LEVELS = new Set([6, 7, 8]);
-
 export type BuildOrgSubtreeArgs = {
   orgId: number;
   viewerRepId: number | null;
@@ -303,26 +301,6 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
     return sum;
   }
 
-  const subtreeQuotaMemo = new Map<number, number>();
-  function sumSubtreeQuota(managerId: number): number {
-    const cached = subtreeQuotaMemo.get(managerId);
-    if (cached != null) return cached;
-    const children = childrenByManagerId.get(managerId) || [];
-    let sum = 0;
-    for (const child of children) {
-      const childId = Number(child.id);
-      if (!Number.isFinite(childId) || childId <= 0) continue;
-      // Channel roles (6, 7, 8) are never part of the sales quota rollup
-      const childLevel = child.hierarchy_level != null ? Number(child.hierarchy_level) : null;
-      if (childLevel != null && CHANNEL_LEVELS.has(childLevel)) continue;
-      const childQuotaKey = `${selectedPeriodId}|${childId}`;
-      sum += quotaByRepPeriodMap.get(childQuotaKey) ?? 0;
-      sum += sumSubtreeQuota(childId);
-    }
-    subtreeQuotaMemo.set(managerId, sum);
-    return sum;
-  }
-
   const midsSorted = Array.from(managerRepIds).sort((a, b) => a - b);
   for (const mid of midsSorted) {
     if (viewerId != null && mid === viewerId) continue;
@@ -332,7 +310,7 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
     const parentManagerId = parentManagerRepId == null ? "" : String(parentManagerRepId);
 
     const subtreeWon = sumSubtreeWon(mid);
-    const subtreeQuota = sumSubtreeQuota(mid);
+    const subtreeQuota = quotaByRepPeriodMap.get(`${selectedPeriodId}|${mid}`) ?? 0;
 
     // directAgg is used for win_rate, partner_contribution, active_amount.
     // quota and won_amount are overridden with subtree values below.
@@ -386,7 +364,7 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
   if (viewerId != null) {
     const viewerDirRow = repDirectoryById.get(viewerId);
     const viewerWon = sumSubtreeWon(viewerId);
-    const viewerQuota = sumSubtreeQuota(viewerId);
+    const viewerQuota = quotaByRepPeriodMap.get(`${selectedPeriodId}|${viewerId}`) ?? 0;
 
     const viewerManagerRow: RepManagerManagerRow = {
       manager_id: String(viewerId),
