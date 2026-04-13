@@ -306,11 +306,7 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
     const managerDirRow = repDirectoryById.get(mid);
     const parentManagerRepId = managerDirRow?.manager_rep_id ?? null;
     const parentManagerId =
-      parentManagerRepId == null
-        ? ""
-        : viewerId != null && Number(parentManagerRepId) === Number(viewerId)
-          ? ""
-          : String(parentManagerRepId);
+      parentManagerRepId == null ? "" : String(parentManagerRepId);
     const directAgg = aggregateDirectReportsToManagerRow(direct, repKpisByKey, selectedPeriodId);
     const subtreeWon = sumSubtreeWon(mid);
     managerRowsBuild.push({
