@@ -1487,6 +1487,10 @@ export default async function ExecutiveDashboardPage({
   }
 
   if (selectedPeriodId && comparePeriodIds.length) {
+    console.log(
+      "[buildOrgSubtree input] repDirectory levels",
+      repDirectory.map((r) => ({ id: r.id, name: r.name, level: r.hierarchy_level }))
+    );
     const teamResult = await buildOrgSubtree({
       orgId,
       repDirectory,

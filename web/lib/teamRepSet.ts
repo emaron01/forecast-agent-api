@@ -144,6 +144,13 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
     if (Number.isFinite(r.id) && r.id > 0) activeRepIdSet.add(r.id);
   }
 
+  const isManagerRepId = new Set<number>();
+  for (const r of repDirectory) {
+    if (r.manager_rep_id != null && Number.isFinite(Number(r.manager_rep_id)) && Number(r.manager_rep_id) > 0) {
+      isManagerRepId.add(Number(r.manager_rep_id));
+    }
+  }
+
   const repIdsInData = new Set<string>();
   for (const id of repIds) repIdsInData.add(String(id));
   for (const r of repKpisRows) {
@@ -158,6 +165,7 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
     if (!Number.isFinite(id) || id <= 0) continue;
     if (viewerId != null && id === viewerId) continue;
     if (!activeRepIdSet.has(id)) continue;
+    if (isManagerRepId.has(id)) continue;
     repIdsInData.add(String(id));
   }
 
