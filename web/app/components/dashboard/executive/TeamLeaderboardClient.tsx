@@ -802,6 +802,16 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const leafRepsUnder = repsUnder.filter((r) => !subManagerIdSet.has(String(r.rep_id)));
     const current = aggregateCurrentTeam(repsUnder);
 
+    // For pure-manager nodes (no direct leaf reps), current quarter quota and won
+    // come from mgrMeta (the manager row from buildOrgSubtree) which has correct subtree rollups.
+    const effectiveQuota = mgrMeta?.quota != null && Number(mgrMeta.quota) > 0 ? Number(mgrMeta.quota) : current.quota;
+    const effectiveWonAmount =
+      managerWonAmountOverride ??
+      (mgrMeta?.won_amount != null && Number(mgrMeta.won_amount) > 0 && current.wonAmount === 0
+        ? Number(mgrMeta.won_amount)
+        : current.wonAmount);
+    const effectiveWonCount = managerWonCountOverride ?? current.wonCount;
+
     // Collect all rep integer IDs in this manager's subtree (not just direct reports)
     // by recursively gathering from managerRows tree.
     function getSubtreeRepIntIds(managerId: string, visited: Set<string>): string[] {
@@ -826,13 +836,11 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
         .filter((r) => subtreeRepIntIds.includes(String(r.rep_int_id)))
         .sort((a, b) => Number(a.fiscal_quarter) - Number(b.fiscal_quarter))
     );
-    const annualQuota = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.quota, 0) : current.quota * 4;
-    const effectiveWonAmount = managerWonAmountOverride ?? current.wonAmount;
-    const effectiveWonCount = managerWonCountOverride ?? current.wonCount;
+    const annualQuota = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.quota, 0) : effectiveQuota * 4;
     const ytdRevenue = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.won_amount, 0) : effectiveWonAmount;
     const ytdAttainPct = annualQuota > 0 ? Math.round((ytdRevenue / annualQuota) * 100) : 0;
-    const attainPct = current.quota > 0 ? Math.round((effectiveWonAmount / current.quota) * 100) : 0;
-    const paceStatus = calcPaceStatus(effectiveWonAmount, current.quota, paceRatio);
+    const attainPct = effectiveQuota > 0 ? Math.round((effectiveWonAmount / effectiveQuota) * 100) : 0;
+    const paceStatus = calcPaceStatus(effectiveWonAmount, effectiveQuota, paceRatio);
     const productSummary = getProductSummary({
       input: productsClosedWonByRep,
       repIds,
@@ -852,7 +860,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           name: managerLabel,
           paceStatus,
           attainPct,
-          quota: current.quota,
+          quota: effectiveQuota,
           wonAmount: effectiveWonAmount,
           annualQuota,
           ytdRevenue,
