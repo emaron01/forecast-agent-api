@@ -376,6 +376,8 @@ export type BuildChannelTeamPayloadArgs = {
   prevQuotaPeriodId: string;
   /** When set (e.g. channel dashboard), skips a second `listChannelScopedRepIds` query. */
   channelScopedRepIds?: number[];
+  /** For sales leadership viewers: rep table ids of channel reps (hierarchy 8) from scoped `repDirectory` when `listChannelScopedRepIds` returns []. */
+  channelRepIdsFromDirectory?: number[];
 };
 
 export type BuildChannelTeamPayloadResult = {
@@ -697,13 +699,6 @@ export async function assembleChannelTeamLeaderboardFromState(
 export async function buildChannelTeamPayload(
   args: BuildChannelTeamPayloadArgs
 ): Promise<BuildChannelTeamPayloadResult | null> {
-  console.log("[buildChannelTeamPayload] called with", {
-    orgId: args.orgId,
-    userId: args.userId,
-    hierarchyLevel: args.hierarchyLevel,
-    selectedQuotaPeriodId: args.selectedQuotaPeriodId,
-  });
-
   const {
     orgId,
     userId,
@@ -748,22 +743,23 @@ export async function buildChannelTeamPayload(
     channelRepId: currentChannelUserId,
   });
 
-  const channelScopedRepIds =
+  let channelScopedRepIds =
     scopedRepIdsArg ??
-    (await (async () => {
-      console.log("[buildChannelTeamPayload] step: listChannelScopedRepIds starting");
-      return listChannelScopedRepIds({
-        orgId,
-        hierarchyLevel: Number(hierarchyLevel),
-        viewerChannelRepId: currentChannelRepId,
-        viewerUserId: userId,
-      });
-    })());
+    (await listChannelScopedRepIds({
+      orgId,
+      hierarchyLevel: Number(hierarchyLevel),
+      viewerChannelRepId: currentChannelRepId,
+      viewerUserId: userId,
+    }));
 
-  console.log("[buildChannelTeamPayload] channelScopedRepIds", channelScopedRepIds);
+  // For non-channel viewers (sales leadership), listChannelScopedRepIds returns []
+  // because it scopes by channel role relationships. Fall back to using channel rep
+  // ids from the rep directory that was passed in.
+  if (channelScopedRepIds.length === 0 && args.channelRepIdsFromDirectory?.length) {
+    channelScopedRepIds = args.channelRepIdsFromDirectory;
+  }
 
-  if (channelScopedRepIds.length === 0) {
-    console.log("[buildChannelTeamPayload] returning null - no channel rep ids");
+  if (!channelScopedRepIds.length) {
     return null;
   }
 
@@ -781,8 +777,6 @@ export async function buildChannelTeamPayload(
     console.error("[buildChannelTeamPayload] getChannelDashboardSummary error", err);
     return null;
   });
-
-  console.log("[buildChannelTeamPayload] channelRepRows count", channelSummary?.channelRepRows?.length);
 
   const fyYearKey = String(fyYearKeyRaw || "").trim();
   const channelFyQuarterRows: ChannelRepFyQuarterRow[] =
@@ -1082,19 +1076,10 @@ export async function buildChannelTeamPayload(
     directorWonCount,
   });
 
-  const result: BuildChannelTeamPayloadResult = {
+  return {
     ...assembled,
     channelDashboardSummary: channelSummary,
     productsClosedWonByRep: channelProductsClosedWonByRep,
     productsClosedWonByRepYtd: channelProductsClosedWonByRepYtd,
   };
-
-  console.log("[buildChannelTeamPayload] returning", {
-    channelTeamRepRows: result.channelTeamRepRows.length,
-    channelManagerRows: result.channelManagerRows.length,
-    channelFyQuarterRows: result.channelFyQuarterRows.length,
-    channelViewerRepId: result.channelViewerRepId,
-  });
-
-  return result;
 }

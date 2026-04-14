@@ -820,13 +820,6 @@ export default async function ExecutiveDashboardPage({
     (r) => r.hierarchy_level != null && [6, 7, 8].includes(Number(r.hierarchy_level))
   );
 
-  console.log("[channelTeamPayload guard]", {
-    isChannelRole: isChannelRole(ctx.user),
-    viewerHasChannelScope,
-    repDirectoryLevels: repDirectory.map((r) => ({ id: r.id, level: r.hierarchy_level })),
-    selectedPeriodId,
-  });
-
   if (selectedPeriodId && (isChannelRole(ctx.user) || viewerHasChannelScope)) {
     const fyYearKeyChannel =
       String(summary.selectedPeriod?.fiscal_year ?? summary.selectedFiscalYear ?? "")
@@ -842,6 +835,9 @@ export default async function ExecutiveDashboardPage({
         : summary.myRepId != null && Number.isFinite(Number(summary.myRepId)) && Number(summary.myRepId) > 0
           ? Number(summary.myRepId)
           : null;
+    const channelRepIdsFromDirectory = repDirectory
+      .filter((r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_REP)
+      .map((r) => r.id);
     channelTeamPayload = await buildChannelTeamPayload({
       orgId: ctx.user.org_id,
       userId: ctx.user.id,
@@ -856,6 +852,7 @@ export default async function ExecutiveDashboardPage({
         : null,
       fyQuotaPeriodIds: fyPeriodIdsChannel,
       prevQuotaPeriodId: prevPeriodId,
+      channelRepIdsFromDirectory,
     }).catch((err) => {
       console.error("[executive page] buildChannelTeamPayload error", err);
       return null;
