@@ -800,18 +800,9 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     );
     const subManagerIdSet = new Set(subManagerCards.map((r) => String(r.manager_id)));
     const leafRepsUnder = repsUnder.filter((r) => !subManagerIdSet.has(String(r.rep_id)));
-    const current = aggregateCurrentTeam(repsUnder);
 
     // For pure-manager nodes (no direct leaf reps), current quarter quota and won
     // come from mgrMeta (the manager row from buildOrgSubtree) which has correct subtree rollups.
-    const effectiveQuota = mgrMeta?.quota != null && Number(mgrMeta.quota) > 0 ? Number(mgrMeta.quota) : current.quota;
-    const effectiveWonAmount =
-      managerWonAmountOverride ??
-      (mgrMeta?.won_amount != null && Number(mgrMeta.won_amount) > 0 && current.wonAmount === 0
-        ? Number(mgrMeta.won_amount)
-        : current.wonAmount);
-    const effectiveWonCount = managerWonCountOverride ?? current.wonCount;
-
     // Collect all rep integer IDs in this manager's subtree (not just direct reports)
     // by recursively gathering from managerRows tree.
     function getSubtreeRepIntIds(managerId: string, visited: Set<string>): string[] {
@@ -828,9 +819,22 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     }
 
     const subtreeRepIntIds = getSubtreeRepIntIds(mid, new Set<string>());
+    // All rep rows in the subtree (not just direct reports) for pipeline aggregation
+    const allSubtreeRepRows = repRows.filter((r) =>
+      subtreeRepIntIds.includes(String(r.rep_id))
+    );
+    const current = aggregateCurrentTeam(allSubtreeRepRows);
+
+    const effectiveQuota = mgrMeta?.quota != null && Number(mgrMeta.quota) > 0 ? Number(mgrMeta.quota) : current.quota;
+    const effectiveWonAmount =
+      managerWonAmountOverride ??
+      (mgrMeta?.won_amount != null && Number(mgrMeta.won_amount) > 0 && current.wonAmount === 0
+        ? Number(mgrMeta.won_amount)
+        : current.wonAmount);
+    const effectiveWonCount = managerWonCountOverride ?? current.wonCount;
+
     const repIntIds = subtreeRepIntIds;
     const annual = aggregateAnnualTeam(allPeriodRows ?? [], repIntIds);
-    const repIds = subtreeRepIntIds;
     const fyQuarters = aggregateFyQuarterRows(
       (allPeriodRows ?? [])
         .filter((r) => subtreeRepIntIds.includes(String(r.rep_int_id)))
@@ -843,14 +847,14 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const paceStatus = calcPaceStatus(effectiveWonAmount, effectiveQuota, paceRatio);
     const productSummary = getProductSummary({
       input: productsClosedWonByRep,
-      repIds,
-      repNames: repsUnder.map((r) => r.rep_name),
+      repIds: subtreeRepIntIds,
+      repNames: allSubtreeRepRows.map((r) => r.rep_name),
       fallbackAov: current.aov,
     });
     const ytdProductSummary = getProductSummary({
       input: productsClosedWonByRepYtd,
-      repIds,
-      repNames: repsUnder.map((r) => r.rep_name),
+      repIds: subtreeRepIntIds,
+      repNames: allSubtreeRepRows.map((r) => r.rep_name),
       fallbackAov: current.aov,
     });
 
