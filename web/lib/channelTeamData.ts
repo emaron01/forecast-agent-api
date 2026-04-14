@@ -495,6 +495,7 @@ export async function assembleChannelTeamLeaderboardFromState(
   const channelViewerName =
     channelViewerRepId != null
       ? repDisplayNameByRepId.get(channelViewerRepId) ||
+        args.repDirectoryForRollup?.find((r) => r.id === channelViewerRepId)?.name ||
         String(viewerDisplayName || "").trim() ||
         `Rep ${channelViewerRepId}`
       : "";
@@ -576,6 +577,17 @@ export async function assembleChannelTeamLeaderboardFromState(
       qoq_attainment_delta: currAtt != null && prevAtt != null ? currAtt - prevAtt : null,
     };
   });
+
+  console.log(
+    "[assembleChannelTeamLeaderboardFromState] repRows",
+    channelTeamRepRows.map((r) => ({
+      rep_id: r.rep_id,
+      rep_name: r.rep_name,
+      manager_id: r.manager_id,
+      won: r.won_amount,
+      quota: r.quota,
+    }))
+  );
 
   const channelDirectorManagerRows: RepManagerManagerRow[] =
     channelTeamRepRows.length > 0
