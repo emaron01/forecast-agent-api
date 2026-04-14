@@ -697,6 +697,13 @@ export async function assembleChannelTeamLeaderboardFromState(
 export async function buildChannelTeamPayload(
   args: BuildChannelTeamPayloadArgs
 ): Promise<BuildChannelTeamPayloadResult | null> {
+  console.log("[buildChannelTeamPayload] called with", {
+    orgId: args.orgId,
+    userId: args.userId,
+    hierarchyLevel: args.hierarchyLevel,
+    selectedQuotaPeriodId: args.selectedQuotaPeriodId,
+  });
+
   const {
     orgId,
     userId,
@@ -1067,10 +1074,19 @@ export async function buildChannelTeamPayload(
     directorWonCount,
   });
 
-  return {
+  const result: BuildChannelTeamPayloadResult = {
     ...assembled,
     channelDashboardSummary: channelSummary,
     productsClosedWonByRep: channelProductsClosedWonByRep,
     productsClosedWonByRepYtd: channelProductsClosedWonByRepYtd,
   };
+
+  console.log("[buildChannelTeamPayload] returning", {
+    channelTeamRepRows: result.channelTeamRepRows.length,
+    channelManagerRows: result.channelManagerRows.length,
+    channelFyQuarterRows: result.channelFyQuarterRows.length,
+    channelViewerRepId: result.channelViewerRepId,
+  });
+
+  return result;
 }
