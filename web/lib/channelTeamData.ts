@@ -750,14 +750,20 @@ export async function buildChannelTeamPayload(
 
   const channelScopedRepIds =
     scopedRepIdsArg ??
-    (await listChannelScopedRepIds({
-      orgId,
-      hierarchyLevel: Number(hierarchyLevel),
-      viewerChannelRepId: currentChannelRepId,
-      viewerUserId: userId,
-    }));
+    (await (async () => {
+      console.log("[buildChannelTeamPayload] step: listChannelScopedRepIds starting");
+      return listChannelScopedRepIds({
+        orgId,
+        hierarchyLevel: Number(hierarchyLevel),
+        viewerChannelRepId: currentChannelRepId,
+        viewerUserId: userId,
+      });
+    })());
+
+  console.log("[buildChannelTeamPayload] channelScopedRepIds", channelScopedRepIds);
 
   if (channelScopedRepIds.length === 0) {
+    console.log("[buildChannelTeamPayload] returning null - no channel rep ids");
     return null;
   }
 
@@ -775,6 +781,8 @@ export async function buildChannelTeamPayload(
     console.error("[buildChannelTeamPayload] getChannelDashboardSummary error", err);
     return null;
   });
+
+  console.log("[buildChannelTeamPayload] channelRepRows count", channelSummary?.channelRepRows?.length);
 
   const fyYearKey = String(fyYearKeyRaw || "").trim();
   const channelFyQuarterRows: ChannelRepFyQuarterRow[] =
