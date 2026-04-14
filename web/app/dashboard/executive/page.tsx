@@ -848,6 +848,19 @@ export default async function ExecutiveDashboardPage({
       console.error("[executive page] buildChannelTeamPayload error", err);
       return null;
     });
+
+    console.log("[channelTeamPayload result]", {
+      isNull: channelTeamPayload == null,
+      repRows: channelTeamPayload?.channelTeamRepRows?.length ?? "n/a",
+      managerRows: channelTeamPayload?.channelManagerRows?.length ?? "n/a",
+      managerRowIds:
+        channelTeamPayload?.channelManagerRows?.map((r) => ({
+          id: r.manager_id,
+          name: r.manager_name,
+          parent: r.parent_manager_id,
+        })) ?? [],
+      channelViewerRepId: channelTeamPayload?.channelViewerRepId,
+    });
   }
 
   // Rep directory for Report Builder + revenue intelligence picker:

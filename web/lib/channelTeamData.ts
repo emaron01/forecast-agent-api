@@ -1149,6 +1149,18 @@ export async function buildChannelTeamPayload(
     repDirectoryForRollup: args.repDirectoryForRollup,
   });
 
+  console.log("[buildChannelTeamPayload] final result", {
+    channelViewerRepId,
+    channelScopedRepIds,
+    managerRows: assembled.channelManagerRows.map((r) => ({
+      id: r.manager_id,
+      name: r.manager_name,
+      parent: r.parent_manager_id,
+    })),
+    repRows: assembled.channelTeamRepRows.length,
+    topChannelLeaderFound: !!args.repDirectoryForRollup?.find((r) => Number(r.hierarchy_level) === 6),
+  });
+
   return {
     ...assembled,
     channelDashboardSummary: channelSummary,
