@@ -814,13 +814,11 @@ export async function buildChannelTeamPayload(
       viewerUserId: userId,
     }));
 
-  let usedRepDirectoryFallback = false;
   // For non-channel viewers (sales leadership), listChannelScopedRepIds returns []
   // because it scopes by channel role relationships. Fall back to using channel rep
   // ids from the rep directory that was passed in.
   if (channelScopedRepIds.length === 0 && args.channelRepIdsFromDirectory?.length) {
     channelScopedRepIds = args.channelRepIdsFromDirectory;
-    usedRepDirectoryFallback = true;
   }
 
   if (!channelScopedRepIds.length) {
@@ -849,31 +847,6 @@ export async function buildChannelTeamPayload(
       mergedPartners.push(...result.partnerNames);
     }
     territoryRepIds = [...new Set(territoryRepIds)];
-    assignedPartnerNames = Array.from(
-      new Set(mergedPartners.map((p) => String(p || "").trim().toLowerCase()).filter(Boolean))
-    );
-  } else if (usedRepDirectoryFallback && args.repDirectoryForRollup?.length) {
-    const territoryResults = await Promise.all(
-      channelScopedRepIds.map((repId) => {
-        const repRow = args.repDirectoryForRollup?.find((r) => r.id === repId);
-        const uid =
-          repRow?.user_id != null && Number.isFinite(Number(repRow.user_id)) ? Number(repRow.user_id) : NaN;
-        if (!Number.isFinite(uid) || uid <= 0) {
-          return Promise.resolve({ repIds: [] as number[], partnerNames: [] as string[] });
-        }
-        return getChannelTerritoryRepIds({ orgId, channelUserId: uid }).catch(() => ({
-          repIds: [] as number[],
-          partnerNames: [] as string[],
-        }));
-      })
-    );
-    const mergedRepIds: number[] = [];
-    const mergedPartners: string[] = [];
-    for (const tr of territoryResults) {
-      mergedRepIds.push(...tr.repIds);
-      mergedPartners.push(...tr.partnerNames);
-    }
-    territoryRepIds = [...new Set(mergedRepIds)];
     assignedPartnerNames = Array.from(
       new Set(mergedPartners.map((p) => String(p || "").trim().toLowerCase()).filter(Boolean))
     );
