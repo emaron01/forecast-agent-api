@@ -857,6 +857,13 @@ export default async function ExecutiveDashboardPage({
       console.error("[executive page] buildChannelTeamPayload error", err);
       return null;
     });
+
+    console.log("[channelTeamPayload result]", {
+      isNull: channelTeamPayload == null,
+      repRows: channelTeamPayload?.channelTeamRepRows?.length ?? "n/a",
+      managerRows: channelTeamPayload?.channelManagerRows?.length ?? "n/a",
+      fyRows: channelTeamPayload?.channelFyQuarterRows?.length ?? "n/a",
+    });
   }
 
   // Rep directory for Report Builder + revenue intelligence picker:
