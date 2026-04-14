@@ -25,7 +25,8 @@ import {
 } from "../../../lib/channelPartnerHeroData";
 import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
 import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
-import { CHANNEL_HIERARCHY_LEVELS, HIERARCHY, isAdmin, isSalesLeader } from "../../../lib/roleHelpers";
+import { buildChannelTeamPayload, type BuildChannelTeamPayloadResult } from "../../../lib/channelTeamData";
+import { CHANNEL_HIERARCHY_LEVELS, HIERARCHY, isAdmin, isChannelRole, isSalesLeader } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -813,6 +814,42 @@ export default async function ExecutiveDashboardPage({
       : null;
   const prevPeriodId = prevPeriod ? String(prevPeriod.id) : "";
   const comparePeriodIds = [selectedPeriodId, prevPeriodId].filter(Boolean);
+
+  let channelTeamPayload: BuildChannelTeamPayloadResult | null = null;
+  if (isChannelRole(ctx.user) && selectedPeriodId) {
+    const fyYearKeyChannel =
+      String(summary.selectedPeriod?.fiscal_year ?? summary.selectedFiscalYear ?? "")
+        .trim() || "";
+    const fyPeriodIdsChannel = fyYearKeyChannel
+      ? summary.periods
+          .filter((p) => String(p.fiscal_year).trim() === fyYearKeyChannel)
+          .map((p) => String(p.id))
+      : [];
+    const myRepIdFallbackChannel =
+      scope.myRepId != null && Number.isFinite(Number(scope.myRepId)) && Number(scope.myRepId) > 0
+        ? Number(scope.myRepId)
+        : summary.myRepId != null && Number.isFinite(Number(summary.myRepId)) && Number(summary.myRepId) > 0
+          ? Number(summary.myRepId)
+          : null;
+    channelTeamPayload = await buildChannelTeamPayload({
+      orgId: ctx.user.org_id,
+      userId: ctx.user.id,
+      hierarchyLevel: Number(ctx.user.hierarchy_level),
+      selectedQuotaPeriodId: selectedPeriodId,
+      fiscalYear: fyYearKeyChannel,
+      comparePeriodIds,
+      myRepIdFallback: myRepIdFallbackChannel,
+      viewerDisplayName: String(ctx.user.display_name || "").trim(),
+      selectedPeriod: selectedPeriodForTeam
+        ? { period_start: selectedPeriodForTeam.period_start, period_end: selectedPeriodForTeam.period_end }
+        : null,
+      fyQuotaPeriodIds: fyPeriodIdsChannel,
+      prevQuotaPeriodId: prevPeriodId,
+    }).catch((err) => {
+      console.error("[executive page] buildChannelTeamPayload error", err);
+      return null;
+    });
+  }
 
   // Rep directory for Report Builder + revenue intelligence picker:
   // - sales 1–3 in exec → manager → rep tree; channel leaders 6–7 appended (not 8)
@@ -1997,6 +2034,7 @@ export default async function ExecutiveDashboardPage({
           showChannelContribution={showChannelContribution}
           channelContributionHero={channelContributionHero}
           channelContributionRows={channelContributionRows}
+          channelTeamPayload={channelTeamPayload}
           revenueTabProps={{
             basePath: "/dashboard/executive",
             periods: summary.periods,

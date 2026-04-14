@@ -12,6 +12,7 @@ import { TeamLeaderboardClient } from "./TeamLeaderboardClient";
 import type { ProductsClosedWonByRepMap, ProductsClosedWonByRepRow } from "./TeamLeaderboardClient";
 import { ManagerReviewQueueClient, type ManagerReviewQueueProps } from "./ManagerReviewQueueClient";
 import type { ChannelLedFedRow, ChannelPartnerHeroProps } from "../../../../lib/channelPartnerHeroData";
+import type { BuildChannelTeamPayloadResult } from "../../../../lib/channelTeamData";
 import { CustomReportDesignerClient } from "../../../analytics/custom-reports/CustomReportDesignerClient";
 import { sha256HexUtf8 } from "../../../../lib/payloadSha256";
 import { RevenueIntelligenceClient } from "./RevenueIntelligenceClient";
@@ -797,12 +798,18 @@ export function ExecutiveTabsShellClient(props: {
     manager_rep_id: number | null;
     hierarchy_level?: number | null;
   }>;
+  /** Channel (partner) scoped team data for executive channel viewers; enables Direct | Indirect team sub-tabs. */
+  channelTeamPayload?: BuildChannelTeamPayloadResult | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<ExecTabKey>(props.initialTab);
+  const [teamSubTab, setTeamSubTab] = useState<"direct" | "indirect">("direct");
   const [isPending, startTransition] = useTransition();
+
+  const showIndirectTeamTab =
+    props.channelTeamPayload != null && props.channelTeamPayload.channelTeamRepRows.length > 0;
 
   const allowedTabKeys = props.allowedTabKeys ?? DEFAULT_EXEC_ALLOWED_TABS;
   const visibleTabs = useMemo(
@@ -882,6 +889,14 @@ export function ExecutiveTabsShellClient(props: {
         : "border-transparent text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)] hover:border-[color:var(--sf-border)]",
     ].join(" ");
 
+  const teamSubTabClasses = (sub: "direct" | "indirect") =>
+    [
+      "px-3 py-2 text-sm font-medium border-b-2",
+      teamSubTab === sub
+        ? "border-[color:var(--sf-accent-primary)] text-[color:var(--sf-text-primary)]"
+        : "border-transparent text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)] hover:border-[color:var(--sf-border)]",
+    ].join(" ");
+
   return (
     <section className="mt-6 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -952,23 +967,62 @@ export function ExecutiveTabsShellClient(props: {
         )}
         {activeTab === "team" && (
           <div className="space-y-6">
-            <TeamLeaderboardClient
-              repRows={props.teamRepManagerPayload.repRows}
-              managerRows={props.teamRepManagerPayload.managerRows}
-              teamViewerRepId={props.teamRepManagerPayload.teamViewerRepId}
-              managerLostAmountOverride={props.teamRepManagerPayload.managerLostAmountOverride}
-              managerLostCountOverride={props.teamRepManagerPayload.managerLostCountOverride}
-              managerWonAmountOverride={props.teamRepManagerPayload.managerWonAmountOverride}
-              managerWonCountOverride={props.teamRepManagerPayload.managerWonCountOverride}
-              periodName={props.teamRepManagerPayload.periodName ?? ""}
-              quotaPeriodId={String(props.forecastTabProps.quotaPeriodId ?? "")}
-              fiscalYear={props.forecastTabProps.fiscalYear}
-              periodStart={props.teamRepManagerPayload.periodStart ?? ""}
-              periodEnd={props.teamRepManagerPayload.periodEnd ?? ""}
-              allPeriodRows={props.teamRepManagerPayload.repFyQuarterRows}
-              productsClosedWonByRep={props.forecastTabProps.productsClosedWonByRep}
-              productsClosedWonByRepYtd={props.teamRepManagerPayload.productsClosedWonByRepYtd}
-            />
+            {showIndirectTeamTab ? (
+              <div className="flex flex-wrap gap-2 mb-4">
+                <button type="button" onClick={() => setTeamSubTab("direct")} className={teamSubTabClasses("direct")}>
+                  Direct
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTeamSubTab("indirect")}
+                  className={teamSubTabClasses("indirect")}
+                >
+                  Indirect
+                </button>
+              </div>
+            ) : null}
+            {(!showIndirectTeamTab || teamSubTab === "direct") && (
+              <TeamLeaderboardClient
+                repRows={props.teamRepManagerPayload.repRows}
+                managerRows={props.teamRepManagerPayload.managerRows}
+                teamViewerRepId={props.teamRepManagerPayload.teamViewerRepId}
+                managerLostAmountOverride={props.teamRepManagerPayload.managerLostAmountOverride}
+                managerLostCountOverride={props.teamRepManagerPayload.managerLostCountOverride}
+                managerWonAmountOverride={props.teamRepManagerPayload.managerWonAmountOverride}
+                managerWonCountOverride={props.teamRepManagerPayload.managerWonCountOverride}
+                periodName={props.teamRepManagerPayload.periodName ?? ""}
+                quotaPeriodId={String(props.forecastTabProps.quotaPeriodId ?? "")}
+                fiscalYear={props.forecastTabProps.fiscalYear}
+                periodStart={props.teamRepManagerPayload.periodStart ?? ""}
+                periodEnd={props.teamRepManagerPayload.periodEnd ?? ""}
+                allPeriodRows={props.teamRepManagerPayload.repFyQuarterRows}
+                productsClosedWonByRep={props.forecastTabProps.productsClosedWonByRep}
+                productsClosedWonByRepYtd={props.teamRepManagerPayload.productsClosedWonByRepYtd}
+              />
+            )}
+            {showIndirectTeamTab && teamSubTab === "indirect" && props.channelTeamPayload ? (
+              <TeamLeaderboardClient
+                repRows={props.channelTeamPayload.channelTeamRepRows}
+                managerRows={props.channelTeamPayload.channelManagerRows}
+                teamViewerRepId={
+                  props.channelTeamPayload.channelViewerRepId != null
+                    ? String(props.channelTeamPayload.channelViewerRepId)
+                    : null
+                }
+                managerLostAmountOverride={props.channelTeamPayload.managerLostAmountOverride}
+                managerLostCountOverride={props.channelTeamPayload.managerLostCountOverride}
+                managerWonAmountOverride={props.channelTeamPayload.managerWonAmountOverride}
+                managerWonCountOverride={props.channelTeamPayload.managerWonCountOverride}
+                periodName={props.teamRepManagerPayload.periodName ?? ""}
+                quotaPeriodId={String(props.forecastTabProps.quotaPeriodId ?? "")}
+                fiscalYear={props.forecastTabProps.fiscalYear}
+                periodStart={props.teamRepManagerPayload.periodStart ?? ""}
+                periodEnd={props.teamRepManagerPayload.periodEnd ?? ""}
+                allPeriodRows={props.channelTeamPayload.channelFyQuarterRows}
+                productsClosedWonByRep={props.channelTeamPayload.productsClosedWonByRep}
+                productsClosedWonByRepYtd={props.channelTeamPayload.productsClosedWonByRepYtd}
+              />
+            ) : null}
           </div>
         )}
         {"channel" === activeTab && (

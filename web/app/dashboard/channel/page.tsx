@@ -4,12 +4,17 @@ import { getOrganization } from "../../../lib/db";
 import { pool } from "../../../lib/pool";
 import { fetchChannelOrgDirectoryForViewer } from "../../../lib/channelOrgDirectory";
 import { getChannelTerritoryRepIds } from "../../../lib/channelTerritoryScope";
-import { getScopedRepDirectory, type RepDirectoryRow } from "../../../lib/repScope";
-import { getChannelDashboardSummary, loadChannelRepFyQuarterRows, loadChannelRepWonDeals, deduplicateWonDeals, type ChannelRepFyQuarterRow } from "../../../lib/channelDashboard";
-import { getQuotaByRepPeriod, getRepKpisByPeriod, type RepPeriodKpisRow } from "../../../lib/executiveRepKpis";
+import { getScopedRepDirectory } from "../../../lib/repScope";
+import type { ChannelProductWonByRepRow, ChannelTeamLeaderboardSlice } from "../../../lib/channelTeamData";
+import { getChannelDashboardSummary, loadChannelRepFyQuarterRows, type ChannelRepFyQuarterRow } from "../../../lib/channelDashboard";
+import {
+  assembleChannelTeamLeaderboardFromState,
+  buildChannelTeamPayload,
+  getCurrentChannelRepsTableId,
+  listChannelScopedRepIds,
+} from "../../../lib/channelTeamData";
 import { UserTopNav } from "../../_components/UserTopNav";
 import { ExecutiveTabsShellClient } from "../../components/dashboard/executive/ExecutiveTabsShellClient";
-import type { RepManagerManagerRow } from "../../components/dashboard/executive/RepManagerComparisonPanel";
 import { normalizeExecTab, resolveDashboardTab, type ExecTabKey } from "../../actions/execTabConstants";
 import { setExecDefaultTabAction } from "../../actions/execTabPreferences";
 import { ForecastPeriodFiltersClient } from "../../forecast/_components/ForecastPeriodFiltersClient";
@@ -67,60 +72,6 @@ function partnerScopeSql(rowAlias: string, parameterIndex: number) {
       ELSE lower(btrim(${rowAlias}.partner_name)) = ANY($${parameterIndex}::text[])
     END
   )`;
-}
-
-function aggregateTerritoryRepKpis(
-  rows: RepPeriodKpisRow[],
-  periodId: string,
-  territorySalesRepIdSet: Set<string>
-): RepPeriodKpisRow | null {
-  const filtered = rows.filter(
-    (r) => String(r.quota_period_id) === String(periodId) && territorySalesRepIdSet.has(String(r.rep_id))
-  );
-  if (!filtered.length) return null;
-
-  const sumNum = (key: keyof RepPeriodKpisRow) =>
-    filtered.reduce((acc, r) => acc + (Number((r as Record<string, unknown>)[key as string]) || 0), 0);
-
-  const weightedAvg = (
-    getVal: (r: RepPeriodKpisRow) => number | null | undefined,
-    getWt: (r: RepPeriodKpisRow) => number
-  ): number | null => {
-    let wSum = 0;
-    let wtTot = 0;
-    for (const r of filtered) {
-      const v = getVal(r);
-      const wt = getWt(r);
-      if (v != null && Number.isFinite(Number(v)) && wt > 0) {
-        wSum += Number(v) * wt;
-        wtTot += wt;
-      }
-    }
-    return wtTot > 0 ? wSum / wtTot : null;
-  };
-
-  return {
-    quota_period_id: String(periodId),
-    rep_id: "",
-    rep_name: "",
-    total_count: sumNum("total_count"),
-    won_count: sumNum("won_count"),
-    lost_count: sumNum("lost_count"),
-    active_count: sumNum("active_count"),
-    won_amount: sumNum("won_amount"),
-    active_amount: sumNum("active_amount"),
-    commit_amount: sumNum("commit_amount"),
-    best_amount: sumNum("best_amount"),
-    pipeline_amount: sumNum("pipeline_amount"),
-    partner_closed_amount: sumNum("partner_closed_amount"),
-    closed_amount: sumNum("closed_amount"),
-    lost_amount: sumNum("lost_amount"),
-    partner_won_count: sumNum("partner_won_count"),
-    partner_closed_count: sumNum("partner_closed_count"),
-    avg_days_won: weightedAvg((r) => r.avg_days_won, (r) => Number(r.won_count) || 0),
-    avg_days_lost: weightedAvg((r) => r.avg_days_lost, (r) => Number(r.lost_count) || 0),
-    avg_days_active: weightedAvg((r) => r.avg_days_active, (r) => Number(r.active_count) || 0),
-  };
 }
 
 type ChannelLostDealRow = {
@@ -304,68 +255,6 @@ async function getCurrentChannelUserId(args: {
   const id = Number(rows?.[0]?.id);
   if (Number.isFinite(id) && id > 0) return id;
   return null;
-}
-
-async function getCurrentChannelRepsTableId(args: {
-  orgId: number;
-  userId: number;
-}): Promise<number | null> {
-  const { rows } = await pool.query<{ rep_id: number }>(
-    `
-    SELECT r.id AS rep_id
-    FROM reps r
-    WHERE r.user_id = $1::bigint
-      AND r.organization_id = $2::bigint
-      AND r.active = true
-    LIMIT 1
-    `,
-    [args.userId, args.orgId]
-  );
-  const repId = Number(rows?.[0]?.rep_id);
-  return Number.isFinite(repId) && repId > 0 ? repId : null;
-}
-
-async function listChannelScopedRepIds(args: {
-  orgId: number;
-  hierarchyLevel: number;
-  viewerChannelRepId: number | null;
-  viewerUserId: number;
-}): Promise<number[]> {
-  try {
-    const { rows } = await pool.query<{ id: number }>(
-      `
-      SELECT r.id
-      FROM reps r
-      LEFT JOIN users u
-        ON u.org_id = $1::bigint
-       AND u.id = r.user_id
-      WHERE r.organization_id = $1::bigint
-        AND (r.active IS TRUE OR r.active IS NULL)
-        AND COALESCE(u.hierarchy_level, 99) = $2::int
-        AND (
-          ($3::int = $2::int AND $4::bigint IS NOT NULL AND r.id = $4::bigint)
-          OR ($3::int = $5::int AND u.manager_user_id = $6::bigint)
-          OR ($3::int = $7::int)
-        )
-      ORDER BY r.id ASC
-      `,
-      [
-        args.orgId,
-        HIERARCHY.CHANNEL_REP,
-        args.hierarchyLevel,
-        args.viewerChannelRepId,
-        HIERARCHY.CHANNEL_MANAGER,
-        args.viewerUserId,
-        HIERARCHY.CHANNEL_EXEC,
-      ]
-    );
-    return (rows || [])
-      .map((row) => Number(row.id))
-      .filter((id) => Number.isFinite(id) && id > 0);
-  } catch (error) {
-    console.error("[channel page] listChannelScopedRepIds error", error);
-    return [];
-  }
 }
 
 async function listAssignedPartnerNames(args: {
@@ -870,20 +759,6 @@ export default async function ChannelDashboardPage({
     viewerChannelRepId: currentChannelRepId,
     viewerUserId: ctx.user.id,
   });
-  const channelSummary = await getChannelDashboardSummary({
-    orgId: ctx.user.org_id,
-    userId: ctx.user.id,
-    hierarchyLevel: Number(ctx.user.hierarchy_level),
-    selectedQuotaPeriodId: selectedPeriodId ?? "",
-    territoryRepIds,
-    channelRepIds: channelScopedRepIds.length > 0 ? channelScopedRepIds : [],
-    assignedPartnerNames,
-    viewerChannelRepId: currentChannelRepId,
-    viewerUserId: ctx.user.id,
-  }).catch((err) => {
-    console.error("[channel page] getChannelDashboardSummary error", err);
-    return null;
-  });
   const fyYearKey =
     String(summary.selectedPeriod?.fiscal_year ?? summary.selectedFiscalYear ?? "")
       .trim() || "";
@@ -892,302 +767,52 @@ export default async function ChannelDashboardPage({
         .filter((p) => String(p.fiscal_year).trim() === fyYearKey)
         .map((p) => String(p.id))
     : [];
-  const channelFyQuarterRows: ChannelRepFyQuarterRow[] =
-    fyYearKey && channelScopedRepIds.length > 0
-      ? await loadChannelRepFyQuarterRows({
-          orgId,
-          fiscalYear: fyYearKey,
-          channelRepIds: channelScopedRepIds,
-        }).catch((err) => {
-          console.error("[channel page] loadChannelRepFyQuarterRows error", err);
-          return [] as ChannelRepFyQuarterRow[];
-        })
-      : [];
 
-  type ChannelProductWonByRepRow = {
-    rep_name: string;
-    product: string;
-    won_amount: number;
-    won_count: number;
-    avg_order_value: number;
-    avg_health_score: number | null;
-  };
-
-  let channelRepKpisRows: RepPeriodKpisRow[] = [];
-  let channelProductsClosedWonByRep: ChannelProductWonByRepRow[] = [];
-  let channelProductsClosedWonByRepYtd: ChannelProductWonByRepRow[] = [];
-  let directorTerritoryLostAmount = 0;
-  let directorTerritoryLostCount = 0;
-  let directorWonAmount = 0;
-  let directorWonCount = 0;
-  let lostDealsByRole8RepId = new Map<number, ChannelLostDealRow[]>();
-  const territorySalesIdsByChannelRepId = new Map<number, Set<string>>();
-  try {
-    if (selectedPeriodId && comparePeriodIds.length && channelScopedRepIds.length > 0) {
-      const { rows: repUserRows } = await pool.query<{ rep_id: number; user_id: number }>(
-        `
-        SELECT r.id AS rep_id, u.id AS user_id
-        FROM reps r
-        JOIN users u
-          ON u.id = r.user_id
-         AND u.org_id = $1::bigint
-        WHERE r.organization_id = $1::bigint
-          AND r.id = ANY($2::bigint[])
-        `,
-        [orgId, channelScopedRepIds]
-      );
-      const scopeList = repUserRows || [];
-      const assignmentRows = await pool
-        .query<{ channel_rep_id: number; partner_name: string | null }>(
-          `
-          SELECT
-            channel_rep_id,
-            lower(btrim(partner_name)) AS partner_name
-          FROM partner_channel_assignments
-          WHERE org_id = $1::bigint
-            AND channel_rep_id = ANY($2::int[])
-          `,
-          [orgId, scopeList.map((r) => Number(r.user_id))]
-        )
-        .then((res) => res.rows || [])
-        .catch(() => []);
-
-      const partnerNamesByUserId = new Map<number, string[]>();
-      for (const row of assignmentRows) {
-        const uid = Number(row.channel_rep_id);
-        if (!Number.isFinite(uid) || uid <= 0) continue;
-        const pn = String(row.partner_name || "")
-          .trim()
-          .toLowerCase();
-        const cur = partnerNamesByUserId.get(uid) || [];
-        if (pn) cur.push(pn);
-        partnerNamesByUserId.set(uid, cur);
-      }
-      for (const [uid, names] of partnerNamesByUserId.entries()) {
-        partnerNamesByUserId.set(uid, Array.from(new Set(names.filter(Boolean))));
-      }
-
-      const territoryByChannelRepId = new Map<number, number[]>();
-      const scopePartnerNamesByChannelRepId = new Map<number, string[]>();
-      const allTerritoryIds = new Set<number>();
-      await Promise.all(
-        scopeList.map(async (row) => {
-          const repTableId = Number(row.rep_id);
-          const userId = Number(row.user_id);
-          const sc = await getChannelTerritoryRepIds({ orgId, channelUserId: userId }).catch(() => ({
-            repIds: [] as number[],
-            partnerNames: [] as string[],
-          }));
-          territoryByChannelRepId.set(repTableId, sc.repIds);
-          scopePartnerNamesByChannelRepId.set(repTableId, sc.partnerNames);
-          territorySalesIdsByChannelRepId.set(repTableId, new Set(sc.repIds.map((id) => String(id))));
-          for (const id of sc.repIds) allTerritoryIds.add(id);
-        })
-      );
-
-      const territoryIdList = Array.from(allTerritoryIds);
-      if (territoryIdList.length > 0) {
-        channelRepKpisRows = await getRepKpisByPeriod({
-          orgId,
-          periodIds: comparePeriodIds,
-          repIds: territoryIdList,
-        });
-      }
-
-      const repDirById = new Map<number, RepDirectoryRow>(
-        (channelSummary?.repDirectory ?? []).map((d) => [d.id, d] as const)
-      );
-
-      if (selectedPeriod?.period_start && selectedPeriod?.period_end) {
-        const ps = selectedPeriod.period_start;
-        const pe = selectedPeriod.period_end;
-        directorTerritoryLostAmount = 0;
-        directorTerritoryLostCount = 0;
-
-        const role8ScopeRows = scopeList.filter((row) => {
-          const meta = repDirById.get(Number(row.rep_id));
-          return meta?.hierarchy_level === HIERARCHY.CHANNEL_REP;
-        });
-
-        const lostResultList = await Promise.all(
-          role8ScopeRows.map(async (row) => {
-            const rid = Number(row.rep_id);
-            const territory = territoryByChannelRepId.get(rid) || [];
-            const scopePn = scopePartnerNamesByChannelRepId.get(rid) || [];
-            const r = await queryChannelLostDealsByScope({
-              orgId,
-              repIds: territory,
-              partnerNames: scopePn,
-              periodStart: ps,
-              periodEnd: pe,
-            });
-            return { rid, rows: r };
-          })
-        );
-
-        lostDealsByRole8RepId = new Map(lostResultList.map(({ rid, rows }) => [rid, rows]));
-
-        const directorDealMaps = new Map<number, Map<string, number>>();
-        for (const [rep8Id, deals] of lostDealsByRole8RepId) {
-          const meta = repDirById.get(rep8Id);
-          const mgrId = meta?.manager_rep_id;
-          if (mgrId == null || !Number.isFinite(mgrId) || mgrId <= 0) continue;
-          let dm = directorDealMaps.get(mgrId);
-          if (!dm) {
-            dm = new Map();
-            directorDealMaps.set(mgrId, dm);
-          }
-          for (const d of deals) {
-            dm.set(String(d.id), Number(d.amount) || 0);
-          }
-        }
-
-        function sumDedupedChannelLost(m: Map<string, number>) {
-          let amount = 0;
-          for (const v of m.values()) amount += v;
-          return { amount, count: m.size };
-        }
-
-        const hl = Number(ctx.user.hierarchy_level);
-        const viewerRid =
-          viewerChannelRepsTableId != null && Number.isFinite(Number(viewerChannelRepsTableId))
-            ? Number(viewerChannelRepsTableId)
-            : NaN;
-
-        if (hl === HIERARCHY.CHANNEL_MANAGER && Number.isFinite(viewerRid) && viewerRid > 0) {
-          const m = directorDealMaps.get(viewerRid);
-          if (m) {
-            const s = sumDedupedChannelLost(m);
-            directorTerritoryLostAmount = s.amount;
-            directorTerritoryLostCount = s.count;
-          }
-        } else if (hl === HIERARCHY.CHANNEL_EXEC && Number.isFinite(viewerRid) && viewerRid > 0) {
-          const merged = new Map<string, number>();
-          for (const d of channelSummary?.repDirectory ?? []) {
-            if (Number(d.hierarchy_level) !== HIERARCHY.CHANNEL_MANAGER) continue;
-            const execId = d.manager_rep_id == null ? NaN : Number(d.manager_rep_id);
-            if (execId !== viewerRid) continue;
-            const sub = directorDealMaps.get(d.id);
-            if (!sub) continue;
-            for (const [kid, amt] of sub) merged.set(kid, amt);
-          }
-          const s = sumDedupedChannelLost(merged);
-          directorTerritoryLostAmount = s.amount;
-          directorTerritoryLostCount = s.count;
-        }
-
-        // Won deal dedup — mirrors lost dedup pattern above
-        const wonDealsByRep = await loadChannelRepWonDeals({
-          orgId,
+  const teamPayload =
+    selectedPeriodId && channelScopedRepIds.length > 0
+      ? await buildChannelTeamPayload({
+          orgId: ctx.user.org_id,
+          userId: ctx.user.id,
+          hierarchyLevel: Number(ctx.user.hierarchy_level),
           selectedQuotaPeriodId: selectedPeriodId,
-          channelRepIds: role8ScopeRows.map((r) => Number(r.rep_id)),
-        });
-        const dedupedWon = deduplicateWonDeals(wonDealsByRep);
-        if (hl === HIERARCHY.CHANNEL_MANAGER && Number.isFinite(viewerRid) && viewerRid > 0) {
-          directorWonAmount = dedupedWon.wonAmount;
-          directorWonCount = dedupedWon.wonCount;
-        } else if (hl === HIERARCHY.CHANNEL_EXEC && Number.isFinite(viewerRid) && viewerRid > 0) {
-          directorWonAmount = dedupedWon.wonAmount;
-          directorWonCount = dedupedWon.wonCount;
-        }
-      }
-
-      const repNameByChannelRepId = new Map<string, string>(
-        (channelSummary?.channelRepRows ?? []).map((r) => [String(r.rep_id), String(r.rep_name || "").trim()] as const)
-      );
-
-      const productRowsNested = await Promise.all(
-        scopeList.map(async (row) => {
-          const repTableId = Number(row.rep_id);
-          const userId = Number(row.user_id);
-          const territoryRepIds = territoryByChannelRepId.get(repTableId) || [];
-          const scopePn = scopePartnerNamesByChannelRepId.get(repTableId) || [];
-          const assigned = partnerNamesByUserId.get(userId) || [];
-          const repLabel =
-            repNameByChannelRepId.get(String(repTableId))?.trim() ||
-            `(Rep ${repTableId})`;
-          if (!territoryRepIds.length && !scopePn.length) return [] as ChannelProductWonByRepRow[];
-          const prows = await loadPartnerScopedProductsForTerritory({
-            orgId,
-            quotaPeriodId: selectedPeriodId,
-            territoryRepIds,
-            scopePartnerNames: scopePn,
-            assignedPartnerNames: assigned,
-          });
-          return prows.map((p) => ({
-            rep_name: repLabel,
-            product: p.product,
-            won_amount: Number(p.won_amount || 0) || 0,
-            won_count: Number(p.won_count || 0) || 0,
-            avg_order_value: Number(p.avg_order_value || 0) || 0,
-            avg_health_score:
-              p.avg_health_score == null || !Number.isFinite(Number(p.avg_health_score))
-                ? null
-                : Number(p.avg_health_score),
-          }));
+          fiscalYear: fyYearKey,
+          comparePeriodIds,
+          myRepIdFallback: currentChannelRepId,
+          viewerDisplayName: String(ctx.user.display_name || "").trim(),
+          selectedPeriod: selectedPeriod
+            ? { period_start: selectedPeriod.period_start, period_end: selectedPeriod.period_end }
+            : null,
+          fyQuotaPeriodIds: fyPeriodIds,
+          prevQuotaPeriodId: prevQpId,
+          channelScopedRepIds,
+        }).catch((err) => {
+          console.error("[channel page] buildChannelTeamPayload error", err);
+          return null;
         })
-      );
-      channelProductsClosedWonByRep = productRowsNested.flat();
+      : null;
 
-      // YTD products — same query per rep but across all FY periods
-      if (fyPeriodIds.length > 1) {
-        const ytdProductRowsNested = await Promise.all(
-          scopeList.map(async (row) => {
-            const repTableId = Number(row.rep_id);
-            const userId = Number(row.user_id);
-            const territoryRepIds = territoryByChannelRepId.get(repTableId) || [];
-            const scopePn = scopePartnerNamesByChannelRepId.get(repTableId) || [];
-            const assigned = partnerNamesByUserId.get(userId) || [];
-            const repLabel =
-              repNameByChannelRepId.get(String(repTableId))?.trim() ||
-              `(Rep ${repTableId})`;
-            if (!territoryRepIds.length && !scopePn.length) return [] as ChannelProductWonByRepRow[];
-            const periodRows = await Promise.all(
-              fyPeriodIds
-                .filter((pid) => pid !== selectedPeriodId)
-                .map((pid) =>
-                  loadPartnerScopedProductsForTerritory({
-                    orgId,
-                    quotaPeriodId: pid,
-                    territoryRepIds,
-                    scopePartnerNames: scopePn,
-                    assignedPartnerNames: assigned,
-                  }).catch(() => [])
-                )
-            );
-            return periodRows.flat().map((p) => ({
-              rep_name: repLabel,
-              product: p.product,
-              won_amount: Number(p.won_amount || 0) || 0,
-              won_count: Number(p.won_count || 0) || 0,
-              avg_order_value: Number(p.avg_order_value || 0) || 0,
-              avg_health_score:
-                p.avg_health_score == null || !Number.isFinite(Number(p.avg_health_score))
-                  ? null
-                  : Number(p.avg_health_score),
-            }));
-          })
-        );
-        // Combine current quarter + prior quarters = full YTD
-        channelProductsClosedWonByRepYtd = [
-          ...channelProductsClosedWonByRep,
-          ...ytdProductRowsNested.flat(),
-        ];
-      } else {
-        channelProductsClosedWonByRepYtd = [...channelProductsClosedWonByRep];
-      }
-    }
-  } catch (e) {
-    console.error("[channel rep kpis / productsClosedWonByRep]", e);
-    channelRepKpisRows = [];
-    channelProductsClosedWonByRep = [];
-    channelProductsClosedWonByRepYtd = [];
-    lostDealsByRole8RepId = new Map();
-    directorTerritoryLostAmount = 0;
-    directorTerritoryLostCount = 0;
-    directorWonAmount = 0;
-    directorWonCount = 0;
+  let channelSummary = teamPayload?.channelDashboardSummary ?? null;
+  if (!channelSummary) {
+    channelSummary = await getChannelDashboardSummary({
+      orgId: ctx.user.org_id,
+      userId: ctx.user.id,
+      hierarchyLevel: Number(ctx.user.hierarchy_level),
+      selectedQuotaPeriodId: selectedPeriodId ?? "",
+      territoryRepIds,
+      channelRepIds: channelScopedRepIds.length > 0 ? channelScopedRepIds : [],
+      assignedPartnerNames,
+      viewerChannelRepId: currentChannelRepId,
+      viewerUserId: ctx.user.id,
+    }).catch((err) => {
+      console.error("[channel page] getChannelDashboardSummary error", err);
+      return null;
+    });
   }
+
+  const channelProductsClosedWonByRep: ChannelProductWonByRepRow[] = teamPayload?.productsClosedWonByRep ?? [];
+  const channelProductsClosedWonByRepYtd: ChannelProductWonByRepRow[] =
+    teamPayload?.productsClosedWonByRepYtd ?? [];
+
   const viewerQuotaRoleLevel = mapChannelHierarchyToQuotaRoleLevel(ctx.user.hierarchy_level);
 
   let channelHeroMetrics: ChannelDashboardHeroMetrics | null = null;
@@ -1406,245 +1031,57 @@ export default async function ChannelDashboardPage({
     progressionSummaries: [],
   };
 
-  const channelKpisByRepId = new Map<string, RepPeriodKpisRow>();
-  const channelKpisPrevByRepId = new Map<string, RepPeriodKpisRow>();
-  for (const crId of channelScopedRepIds) {
-    const salesSet = territorySalesIdsByChannelRepId.get(crId) ?? new Set<string>();
-    const cur = aggregateTerritoryRepKpis(channelRepKpisRows, selectedPeriodId, salesSet);
-    const prev = prevQpId ? aggregateTerritoryRepKpis(channelRepKpisRows, prevQpId, salesSet) : null;
-    if (cur) channelKpisByRepId.set(String(crId), cur);
-    if (prev) channelKpisPrevByRepId.set(String(crId), prev);
-  }
+  const channelFyQuarterRows: ChannelRepFyQuarterRow[] =
+    teamPayload?.channelFyQuarterRows ??
+    (fyYearKey && channelScopedRepIds.length > 0
+      ? await loadChannelRepFyQuarterRows({
+          orgId,
+          fiscalYear: fyYearKey,
+          channelRepIds: channelScopedRepIds,
+        }).catch((err) => {
+          console.error("[channel page] loadChannelRepFyQuarterRows error", err);
+          return [] as ChannelRepFyQuarterRow[];
+        })
+      : []);
 
-  function safeDivChannel(n: number, d: number): number | null {
-    if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) return null;
-    return n / d;
-  }
-
-  /** Map role-8 channel rep (reps.id) → their Channel Director's reps.id (reps.manager_rep_id), for Team rollup grouping (mirrors sales manager_id on rep rows). */
-  const channelRepDirectory = channelSummary?.repDirectory ?? [];
-  const channelDirectorRepIdByChannelRepId = new Map<number, number>();
-  const repDisplayNameByRepId = new Map<number, string>();
-  for (const d of channelRepDirectory) {
-    repDisplayNameByRepId.set(d.id, String(d.name || "").trim() || `(Rep ${d.id})`);
-    if (Number(d.hierarchy_level) === HIERARCHY.CHANNEL_REP && d.manager_rep_id != null) {
-      const mid = Number(d.manager_rep_id);
-      if (Number.isFinite(mid) && mid > 0) channelDirectorRepIdByChannelRepId.set(d.id, mid);
-    }
-  }
-
-  const channelViewerName =
-    channelViewerRepId != null
-      ? repDisplayNameByRepId.get(channelViewerRepId) ||
-        String(ctx.user.display_name || "").trim() ||
-        `Rep ${channelViewerRepId}`
-      : "";
-
-  const channelTeamRepRows =
-    channelSummary?.channelRepRows.map((r) => {
-      const c = channelKpisByRepId.get(String(r.rep_id)) ?? null;
-      const p = prevQpId ? channelKpisPrevByRepId.get(String(r.rep_id)) ?? null : null;
-      const quota = Number(r.quota) || 0;
-      const won_amount = Number(r.won_amount) || 0;
-      const won_count = Number(r.won_count) || 0;
-      const total_count = c
-        ? Number(c.total_count || 0) || 0
-        : (Number(r.partner_deals_won) || 0) + (Number(r.partner_deals_pipeline) || 0);
-      const lostRows = lostDealsByRole8RepId.get(Number(r.rep_id)) ?? [];
-      const lost_count = lostRows.length;
-      const lost_amount = lostRows.reduce((s, d) => s + (Number(d.amount) || 0), 0);
-      const commit_amount = c ? Number(c.commit_amount || 0) || 0 : 0;
-      const best_amount = c ? Number(c.best_amount || 0) || 0 : 0;
-      const pipeline_amount = c ? Number(c.pipeline_amount || 0) || 0 : Number(r.pipeline_amount) || 0;
-      const active_amount = c ? Number(c.active_amount || 0) || 0 : Number(r.pipeline_amount) || 0;
-      const win_rate = c
-        ? safeDivChannel(Number(c.won_count || 0) || 0, (Number(c.won_count || 0) || 0) + (Number(c.lost_count || 0) || 0))
-        : null;
-      const opp_to_win = c ? safeDivChannel(Number(c.won_count || 0) || 0, Number(c.total_count || 0) || 0) : null;
-      const aov = c ? safeDivChannel(Number(c.won_amount || 0) || 0, Number(c.won_count || 0) || 0) : null;
-      const attainment = c ? safeDivChannel(Number(c.won_amount || 0) || 0, quota) : r.attainment;
-      const commit_coverage = c ? safeDivChannel(Number(c.commit_amount || 0) || 0, quota) : null;
-      const best_coverage = c ? safeDivChannel(Number(c.best_amount || 0) || 0, quota) : null;
-      const partner_contribution = c
-        ? safeDivChannel(Number(c.partner_closed_amount || 0) || 0, Number(c.closed_amount || 0) || 0)
-        : r.contribution_pct;
-      const partner_win_rate = c
-        ? safeDivChannel(Number(c.partner_won_count || 0) || 0, Number(c.partner_closed_count || 0) || 0)
-        : null;
-      const currAtt = c ? safeDivChannel(Number(c.won_amount || 0) || 0, quota) : null;
-      const prevAtt = p ? safeDivChannel(Number(p.won_amount || 0) || 0, quota) : null;
-      const mixDen = pipeline_amount + best_amount + commit_amount + won_amount;
-      const crTableId = Number(r.rep_id);
-      const directorRepId = Number.isFinite(crTableId)
-        ? channelDirectorRepIdByChannelRepId.get(crTableId)
-        : undefined;
-      const manager_id =
-        directorRepId != null && Number.isFinite(directorRepId) && directorRepId > 0 ? String(directorRepId) : "";
-      const manager_name =
-        directorRepId != null && Number.isFinite(directorRepId) && directorRepId > 0
-          ? repDisplayNameByRepId.get(directorRepId) ?? r.manager_name
-          : r.manager_name;
-      return {
-        rep_id: r.rep_id,
-        rep_name: r.rep_name,
-        manager_id,
-        manager_name,
-        quota: r.quota,
-        total_count,
-        won_amount,
-        won_count,
-        lost_count,
-        lost_amount,
-        active_amount,
-        commit_amount,
-        best_amount,
-        pipeline_amount,
-        created_amount: 0,
-        created_count: 0,
-        win_rate,
-        opp_to_win,
-        aov,
-        attainment: attainment ?? r.attainment,
-        commit_coverage,
-        best_coverage,
-        partner_contribution,
-        partner_win_rate,
-        avg_days_won: c?.avg_days_won ?? null,
-        avg_days_lost: c?.avg_days_lost ?? null,
-        avg_days_active: c?.avg_days_active ?? null,
-        mix_pipeline: safeDivChannel(pipeline_amount, mixDen),
-        mix_best: safeDivChannel(best_amount, mixDen),
-        mix_commit: safeDivChannel(commit_amount, mixDen),
-        mix_won: safeDivChannel(won_amount, mixDen),
-        qoq_attainment_delta: currAtt != null && prevAtt != null ? currAtt - prevAtt : null,
-      };
-    }) ?? [];
-
-  const channelDirectorManagerRows: RepManagerManagerRow[] =
-    channelTeamRepRows.length > 0
-      ? (() => {
-          const agg = new Map<string, { quota: number; won_amount: number; active_amount: number; manager_name: string }>();
-          for (const row of channelTeamRepRows) {
-            const mid = String(row.manager_id || "").trim();
-            const key = mid || "__unassigned__";
-            const prev = agg.get(key) || { quota: 0, won_amount: 0, active_amount: 0, manager_name: row.manager_name };
-            prev.quota += Number(row.quota) || 0;
-            prev.won_amount += Number(row.won_amount) || 0;
-            prev.active_amount += Number(row.pipeline_amount) || 0;
-            if (mid && row.manager_name) prev.manager_name = row.manager_name;
-            agg.set(key, prev);
-          }
-          const rows: RepManagerManagerRow[] = [];
-          for (const [key, a] of agg.entries()) {
-            const manager_id = key;
-            const quota = a.quota;
-            const won = a.won_amount;
-            rows.push({
-              manager_id,
-              manager_name:
-                key === "__unassigned__"
-                  ? "(Unassigned)"
-                  : manager_id && a.manager_name
-                    ? a.manager_name
-                    : repDisplayNameByRepId.get(Number(manager_id)) || a.manager_name || `Manager ${manager_id}`,
-              parent_manager_id:
-                key === "__unassigned__"
-                  ? ""
-                  : channelViewerRepId != null && key === String(channelViewerRepId)
-                    ? ""
-                    : channelViewerRepId != null
-                      ? String(channelViewerRepId)
-                      : "",
-              quota,
-              won_amount: won,
-              active_amount: a.active_amount,
-              attainment: safeDivChannel(won, quota),
-              win_rate: null,
-              partner_contribution: null,
-            });
-          }
-          rows.sort(
-            (x, y) =>
-              (Number(y.attainment ?? -1) - Number(x.attainment ?? -1)) ||
-              y.won_amount - x.won_amount ||
-              x.manager_name.localeCompare(y.manager_name)
-          );
-          return rows;
-        })()
-      : [];
-
-  const directorRepIds = channelDirectorManagerRows
-    .filter((r) => r.manager_id !== "__unassigned__")
-    .map((r) => Number(r.manager_id))
-    .filter((id) => Number.isFinite(id) && id > 0);
-
-  const repIdsForQuota = Array.from(
-    new Set([
-      ...directorRepIds,
-      ...(channelViewerRepId != null && Number.isFinite(channelViewerRepId) && channelViewerRepId > 0
-        ? [channelViewerRepId]
-        : []),
-    ])
-  );
-
-  let quotaRows: Awaited<ReturnType<typeof getQuotaByRepPeriod>> = [];
-  if (repIdsForQuota.length > 0 && selectedPeriodId) {
-    quotaRows = await getQuotaByRepPeriod({
-      orgId,
-      quotaPeriodIds: [selectedPeriodId],
-      repIds: repIdsForQuota,
-    });
-  }
-
-  const periodIdStr = String(selectedPeriodId || "");
-  for (const row of channelDirectorManagerRows) {
-    if (row.manager_id === "__unassigned__") continue;
-    const dbQuota = quotaRows.find(
-      (q) => String(q.rep_id) === row.manager_id && String(q.quota_period_id) === periodIdStr
-    );
-    if (dbQuota != null) {
-      row.quota = Number(dbQuota.quota_amount) || 0;
-      row.attainment = safeDivChannel(row.won_amount, row.quota);
-    }
-  }
-
-  let channelManagerRows: RepManagerManagerRow[] = channelDirectorManagerRows;
-  if (channelViewerRepId != null) {
-    const totalWon = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.won_amount) || 0), 0);
-    const totalActive = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.active_amount) || 0), 0);
-    const viewerQuotaRow = quotaRows.find(
-      (q) => String(q.rep_id) === String(channelViewerRepId) && String(q.quota_period_id) === periodIdStr
-    );
-    const viewerQuota = viewerQuotaRow
-      ? Number(viewerQuotaRow.quota_amount) || 0
-      : channelDirectorManagerRows.reduce((s, r) => s + (Number(r.quota) || 0), 0);
-    const viewerRow: RepManagerManagerRow = {
-      manager_id: String(channelViewerRepId),
-      manager_name: channelViewerName || `Rep ${channelViewerRepId}`,
-      parent_manager_id: "",
-      quota: viewerQuota,
-      won_amount: totalWon,
-      active_amount: totalActive,
-      attainment: viewerQuota > 0 ? totalWon / viewerQuota : null,
-      win_rate: null,
-      partner_contribution: null,
-    };
-    channelManagerRows = [viewerRow, ...channelDirectorManagerRows];
-  }
-
-  const channelDirectorCardCount = new Set(
-    channelTeamRepRows.map((row) => String(row.manager_id || "").trim()).filter(Boolean)
-  ).size;
-  const channelRollupMultiDirectorCards = channelDirectorCardCount > 1;
+  const teamForLeaderboard: ChannelTeamLeaderboardSlice = teamPayload
+    ? {
+        channelTeamRepRows: teamPayload.channelTeamRepRows,
+        channelManagerRows: teamPayload.channelManagerRows,
+        channelFyQuarterRows: teamPayload.channelFyQuarterRows,
+        channelViewerRepId: teamPayload.channelViewerRepId,
+        managerLostAmountOverride: teamPayload.managerLostAmountOverride,
+        managerLostCountOverride: teamPayload.managerLostCountOverride,
+        managerWonAmountOverride: teamPayload.managerWonAmountOverride,
+        managerWonCountOverride: teamPayload.managerWonCountOverride,
+      }
+    : await assembleChannelTeamLeaderboardFromState({
+        orgId: ctx.user.org_id,
+        channelSummary,
+        channelScopedRepIds,
+        channelRepKpisRows: [],
+        lostDealsByRole8RepId: new Map(),
+        territorySalesIdsByChannelRepId: new Map(),
+        prevQuotaPeriodId: prevQpId,
+        selectedQuotaPeriodId: selectedPeriodId ?? "",
+        channelFyQuarterRows,
+        channelViewerRepId,
+        viewerDisplayName: String(ctx.user.display_name || "").trim(),
+        directorTerritoryLostAmount: 0,
+        directorTerritoryLostCount: 0,
+        directorWonAmount: 0,
+        directorWonCount: 0,
+      });
 
   const emptyTeamPayload = {
-    repRows: channelTeamRepRows,
-    managerRows: channelManagerRows,
-    teamViewerRepId: channelViewerRepId != null ? String(channelViewerRepId) : null,
-    managerLostAmountOverride: channelRollupMultiDirectorCards ? undefined : directorTerritoryLostAmount,
-    managerLostCountOverride: channelRollupMultiDirectorCards ? undefined : directorTerritoryLostCount,
-    managerWonAmountOverride: channelRollupMultiDirectorCards ? undefined : directorWonAmount,
-    managerWonCountOverride: channelRollupMultiDirectorCards ? undefined : directorWonCount,
+    repRows: teamForLeaderboard.channelTeamRepRows,
+    managerRows: teamForLeaderboard.channelManagerRows,
+    teamViewerRepId:
+      teamForLeaderboard.channelViewerRepId != null ? String(teamForLeaderboard.channelViewerRepId) : null,
+    managerLostAmountOverride: teamForLeaderboard.managerLostAmountOverride,
+    managerLostCountOverride: teamForLeaderboard.managerLostCountOverride,
+    managerWonAmountOverride: teamForLeaderboard.managerWonAmountOverride,
+    managerWonCountOverride: teamForLeaderboard.managerWonCountOverride,
     productsClosedWonByRepYtd: channelProductsClosedWonByRepYtd,
     periodName: selectedPeriod?.period_name ?? "",
     periodStart: selectedPeriod?.period_start ?? "",
