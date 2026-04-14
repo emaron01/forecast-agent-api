@@ -820,6 +820,13 @@ export default async function ExecutiveDashboardPage({
     (r) => r.hierarchy_level != null && [6, 7, 8].includes(Number(r.hierarchy_level))
   );
 
+  console.log("[channelTeamPayload guard]", {
+    isChannelRole: isChannelRole(ctx.user),
+    viewerHasChannelScope,
+    repDirectoryLevels: repDirectory.map((r) => ({ id: r.id, level: r.hierarchy_level })),
+    selectedPeriodId,
+  });
+
   if (selectedPeriodId && (isChannelRole(ctx.user) || viewerHasChannelScope)) {
     const fyYearKeyChannel =
       String(summary.selectedPeriod?.fiscal_year ?? summary.selectedFiscalYear ?? "")
