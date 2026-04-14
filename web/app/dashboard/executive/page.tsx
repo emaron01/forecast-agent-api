@@ -816,7 +816,11 @@ export default async function ExecutiveDashboardPage({
   const comparePeriodIds = [selectedPeriodId, prevPeriodId].filter(Boolean);
 
   let channelTeamPayload: BuildChannelTeamPayloadResult | null = null;
-  if (isChannelRole(ctx.user) && selectedPeriodId) {
+  const viewerHasChannelScope = repDirectory.some(
+    (r) => r.hierarchy_level != null && [6, 7, 8].includes(Number(r.hierarchy_level))
+  );
+
+  if (selectedPeriodId && (isChannelRole(ctx.user) || viewerHasChannelScope)) {
     const fyYearKeyChannel =
       String(summary.selectedPeriod?.fiscal_year ?? summary.selectedFiscalYear ?? "")
         .trim() || "";
