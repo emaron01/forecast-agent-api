@@ -721,13 +721,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const repKey = String(rep.rep_id);
     const fyQuarters = aggregateFyQuarterRows(
       (allPeriodRows ?? [])
-        .filter(
-          (r) =>
-            r.rep_id === repKey ||
-            r.rep_int_id === repKey ||
-            r.rep_id === String(rep.rep_id) ||
-            r.rep_int_id === String(rep.rep_id)
-        )
+        .filter((r) => String(r.rep_int_id) === String(rep.rep_id))
         .sort((a, b) => Number(a.fiscal_quarter) - Number(b.fiscal_quarter))
     );
     const annualQuota = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.quota, 0) : quota * 4;
@@ -804,27 +798,32 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const subManagerCards = managerRows.filter(
       (r) => String(r.parent_manager_id || "").trim() === mid && mid !== ""
     );
-    console.log("RENDER_MANAGER_CARD", {
-      mid,
-      subManagerCards: subManagerCards.map((r) => r.manager_id),
-      parentManagerIds: managerRows.map((r) => ({ id: r.manager_id, parent: r.parent_manager_id })),
-    });
     const subManagerIdSet = new Set(subManagerCards.map((r) => String(r.manager_id)));
     const leafRepsUnder = repsUnder.filter((r) => !subManagerIdSet.has(String(r.rep_id)));
     const current = aggregateCurrentTeam(repsUnder);
-    const repIntIds = repsUnder.map((r) => r.rep_id);
-    const annual = aggregateAnnualTeam(allPeriodRows ?? [], repIntIds);
-    const repIds = repsUnder.map((r) => String(r.rep_id));
-    if (mid === String(teamViewerRepId)) {
-      console.log("VIEWER_CARD_DEBUG", {
-        mid,
-        repsUnder: repsUnder.map((r) => ({ rep_id: r.rep_id, rep_name: r.rep_name })),
-        allPeriodRowsSample: (allPeriodRows ?? []).slice(0, 3).map((r) => ({ rep_id: r.rep_id, rep_int_id: r.rep_int_id })),
-      });
+
+    // Collect all rep integer IDs in this manager's subtree (not just direct reports)
+    // by recursively gathering from managerRows tree.
+    function getSubtreeRepIntIds(managerId: string, visited: Set<string>): string[] {
+      const m = String(managerId || "").trim();
+      if (!m || visited.has(m)) return [];
+      visited.add(m);
+
+      const direct = (repsByManager?.get(m) ?? []).map((r) => String(r.rep_id));
+      const subMgrs = managerRows.filter(
+        (r) => String(r.parent_manager_id || "").trim() === m && m !== ""
+      );
+      const fromSubMgrs = subMgrs.flatMap((sm) => getSubtreeRepIntIds(String(sm.manager_id), visited));
+      return [...direct, ...fromSubMgrs];
     }
+
+    const subtreeRepIntIds = getSubtreeRepIntIds(mid, new Set<string>());
+    const repIntIds = subtreeRepIntIds;
+    const annual = aggregateAnnualTeam(allPeriodRows ?? [], repIntIds);
+    const repIds = subtreeRepIntIds;
     const fyQuarters = aggregateFyQuarterRows(
       (allPeriodRows ?? [])
-        .filter((r) => repIds.includes(String(r.rep_id)) || repIds.includes(String(r.rep_int_id)))
+        .filter((r) => subtreeRepIntIds.includes(String(r.rep_int_id)))
         .sort((a, b) => Number(a.fiscal_quarter) - Number(b.fiscal_quarter))
     );
     const annualQuota = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.quota, 0) : current.quota * 4;
