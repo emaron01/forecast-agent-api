@@ -13,7 +13,7 @@ import { getChannelTerritoryRepIds } from "./channelTerritoryScope";
 import { getQuotaByRepPeriod, getRepKpisByPeriod, type RepPeriodKpisRow } from "./executiveRepKpis";
 import { pool } from "./pool";
 import type { RepDirectoryRow } from "./repScope";
-import { HIERARCHY } from "./roleHelpers";
+import { HIERARCHY, isChannelRoleLevel } from "./roleHelpers";
 
 export async function getCurrentChannelRepsTableId(args: { orgId: number; userId: number }): Promise<number | null> {
   const { rows } = await pool.query<{ rep_id: number }>(
@@ -771,7 +771,7 @@ export async function buildChannelTeamPayload(
   const viewerChannelRepsTableId = selectedQuotaPeriodId
     ? await getCurrentChannelRepsTableId({ orgId, userId }).catch(() => null)
     : null;
-  const channelViewerRepId =
+  let channelViewerRepId =
     viewerChannelRepsTableId != null &&
     Number.isFinite(Number(viewerChannelRepsTableId)) &&
     Number(viewerChannelRepsTableId) > 0
@@ -779,6 +779,25 @@ export async function buildChannelTeamPayload(
       : currentChannelRepId != null && Number.isFinite(Number(currentChannelRepId)) && Number(currentChannelRepId) > 0
         ? Number(currentChannelRepId)
         : null;
+
+  const isChannelViewer = isChannelRoleLevel(hierarchyLevel);
+  // For non-channel viewers, channelViewerRepId should be the top channel leader
+  // in scope (level 6), not the sales viewer's own rep id.
+  if (!isChannelViewer && args.repDirectoryForRollup) {
+    const topChannelLeader =
+      args.repDirectoryForRollup
+        .filter((r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_EXEC)
+        .sort((a, b) => a.id - b.id)[0] ?? null;
+    if (topChannelLeader) {
+      channelViewerRepId = topChannelLeader.id;
+    } else {
+      const topChannelManager =
+        args.repDirectoryForRollup
+          .filter((r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_MANAGER)
+          .sort((a, b) => a.id - b.id)[0] ?? null;
+      channelViewerRepId = topChannelManager?.id ?? null;
+    }
+  }
 
   let assignedPartnerNames = await listAssignedPartnerNames({
     orgId,
@@ -808,7 +827,32 @@ export async function buildChannelTeamPayload(
     return null;
   }
 
-  if (usedRepDirectoryFallback && args.repDirectoryForRollup?.length) {
+  if (!isChannelViewer && args.repDirectoryForRollup && channelScopedRepIds.length > 0) {
+    const channelRep8Rows = args.repDirectoryForRollup.filter(
+      (r) =>
+        Number(r.hierarchy_level) === HIERARCHY.CHANNEL_REP &&
+        channelScopedRepIds.includes(r.id) &&
+        r.user_id != null
+    );
+    const territoryResults = await Promise.all(
+      channelRep8Rows.map((r) =>
+        getChannelTerritoryRepIds({ orgId, channelUserId: Number(r.user_id) }).catch(() => ({
+          repIds: [] as number[],
+          partnerNames: [] as string[],
+        }))
+      )
+    );
+    territoryRepIds = [];
+    const mergedPartners: string[] = [];
+    for (const result of territoryResults) {
+      territoryRepIds.push(...result.repIds);
+      mergedPartners.push(...result.partnerNames);
+    }
+    territoryRepIds = [...new Set(territoryRepIds)];
+    assignedPartnerNames = Array.from(
+      new Set(mergedPartners.map((p) => String(p || "").trim().toLowerCase()).filter(Boolean))
+    );
+  } else if (usedRepDirectoryFallback && args.repDirectoryForRollup?.length) {
     const territoryResults = await Promise.all(
       channelScopedRepIds.map((repId) => {
         const repRow = args.repDirectoryForRollup?.find((r) => r.id === repId);
