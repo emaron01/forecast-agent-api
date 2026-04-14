@@ -84,22 +84,7 @@ export default async function ExecutiveDashboardPage({
       myRepId: null as number | null,
     }));
 
-    console.log("SCOPE_REPS", {
-      level: ctx.user.hierarchy_level,
-      total: scope.repDirectory.length,
-      duplicateIds: scope.repDirectory
-        .map((r) => r.id)
-        .filter((id, i, arr) => arr.indexOf(id) !== i),
-    });
-
     const repDirectory = scope.repDirectory.filter((r) => r.active !== false && r.user_id != null);
-
-    console.log("FILTERED_REPS", {
-      total: repDirectory.length,
-      duplicateIds: repDirectory
-        .map((r) => r.id)
-        .filter((id, i, arr) => arr.indexOf(id) !== i),
-    });
 
     const visibleRepIds: number[] =
       scope.allowedRepIds !== null && scope.allowedRepIds.length > 0
@@ -853,16 +838,15 @@ export default async function ExecutiveDashboardPage({
       fyQuotaPeriodIds: fyPeriodIdsChannel,
       prevQuotaPeriodId: prevPeriodId,
       channelRepIdsFromDirectory,
+      repDirectoryForRollup: repDirectory.map((r) => ({
+        id: r.id,
+        name: r.name,
+        hierarchy_level: r.hierarchy_level ?? null,
+        user_id: r.user_id ?? null,
+      })),
     }).catch((err) => {
       console.error("[executive page] buildChannelTeamPayload error", err);
       return null;
-    });
-
-    console.log("[channelTeamPayload result]", {
-      isNull: channelTeamPayload == null,
-      repRows: channelTeamPayload?.channelTeamRepRows?.length ?? "n/a",
-      managerRows: channelTeamPayload?.channelManagerRows?.length ?? "n/a",
-      fyRows: channelTeamPayload?.channelFyQuarterRows?.length ?? "n/a",
     });
   }
 
@@ -1551,16 +1535,19 @@ export default async function ExecutiveDashboardPage({
     teamRepRows = teamResult.repRows;
     teamManagerRows = teamResult.managerRows;
 
-    console.log("ORG_SUBTREE", {
-      repRowsTotal: teamResult.repRows.length,
-      managerRowsTotal: teamResult.managerRows.length,
-      duplicateRepIds: teamResult.repRows
-        .map((r) => r.rep_id)
-        .filter((id, i, arr) => arr.indexOf(id) !== i),
-      duplicateManagerIds: teamResult.managerRows
-        .map((r) => r.manager_id)
-        .filter((id, i, arr) => arr.indexOf(id) !== i),
-    });
+    const CHANNEL_ROLE_LEVELS = new Set<number>([
+      HIERARCHY.CHANNEL_EXEC,
+      HIERARCHY.CHANNEL_MANAGER,
+      HIERARCHY.CHANNEL_REP,
+    ]);
+    const salesRepDirectoryIds = new Set(
+      repDirectory
+        .filter((r) => !CHANNEL_ROLE_LEVELS.has(Number(r.hierarchy_level)))
+        .map((r) => String(r.id))
+    );
+    teamRepRows = teamRepRows.filter((r) => salesRepDirectoryIds.has(String(r.rep_id)));
+    teamManagerRows = teamManagerRows.filter((r) => salesRepDirectoryIds.has(String(r.manager_id)));
+
     teamViewerRepIdForPayload =
       viewerRepIdForTeam != null && Number.isFinite(viewerRepIdForTeam) && viewerRepIdForTeam > 0
         ? String(viewerRepIdForTeam)

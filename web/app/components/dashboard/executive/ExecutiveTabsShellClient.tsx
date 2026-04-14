@@ -811,12 +811,6 @@ export function ExecutiveTabsShellClient(props: {
   const showIndirectTeamTab =
     props.channelTeamPayload != null && props.channelTeamPayload.channelTeamRepRows.length > 0;
 
-  console.log("[ExecutiveTabsShellClient] channelTeamPayload", {
-    received: props.channelTeamPayload != null,
-    repRows: props.channelTeamPayload?.channelTeamRepRows?.length ?? "n/a",
-    showIndirectTeamTab,
-  });
-
   const allowedTabKeys = props.allowedTabKeys ?? DEFAULT_EXEC_ALLOWED_TABS;
   const visibleTabs = useMemo(
     () => allowedTabKeys.map((key) => ({ key, label: TAB_LABELS[key] ?? key })),

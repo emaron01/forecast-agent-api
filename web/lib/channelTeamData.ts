@@ -378,6 +378,13 @@ export type BuildChannelTeamPayloadArgs = {
   channelScopedRepIds?: number[];
   /** For sales leadership viewers: rep table ids of channel reps (hierarchy 8) from scoped `repDirectory` when `listChannelScopedRepIds` returns []. */
   channelRepIdsFromDirectory?: number[];
+  /** Scoped rep directory rows (for sales viewers: channel exec rollup + territory fallback user ids). */
+  repDirectoryForRollup?: Array<{
+    id: number;
+    name: string;
+    hierarchy_level: number | null;
+    user_id: number | null;
+  }>;
 };
 
 export type BuildChannelTeamPayloadResult = {
@@ -416,6 +423,12 @@ export type AssembleChannelTeamLeaderboardFromStateArgs = {
   directorTerritoryLostCount: number;
   directorWonAmount: number;
   directorWonCount: number;
+  repDirectoryForRollup?: Array<{
+    id: number;
+    name: string;
+    hierarchy_level: number | null;
+    user_id: number | null;
+  }>;
 };
 
 export type ChannelTeamLeaderboardSlice = Pick<
@@ -453,6 +466,7 @@ export async function assembleChannelTeamLeaderboardFromState(
     directorTerritoryLostCount,
     directorWonAmount,
     directorWonCount,
+    repDirectoryForRollup,
   } = args;
 
   const channelKpisByRepId = new Map<string, RepPeriodKpisRow>();
@@ -673,6 +687,35 @@ export async function assembleChannelTeamLeaderboardFromState(
       partner_contribution: null,
     };
     channelManagerRows = [viewerRow, ...channelDirectorManagerRows];
+  } else if (
+    channelViewerRepId == null &&
+    channelDirectorManagerRows.length > 0 &&
+    repDirectoryForRollup?.length
+  ) {
+    const topChannelLeader = repDirectoryForRollup.find((r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_EXEC);
+    if (topChannelLeader) {
+      const totalWon = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.won_amount) || 0), 0);
+      const totalActive = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.active_amount) || 0), 0);
+      const totalQuota = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.quota) || 0), 0);
+      const rollupRow: RepManagerManagerRow = {
+        manager_id: String(topChannelLeader.id),
+        manager_name: topChannelLeader.name,
+        parent_manager_id: "",
+        quota: totalQuota,
+        won_amount: totalWon,
+        active_amount: totalActive,
+        attainment: totalQuota > 0 ? totalWon / totalQuota : null,
+        win_rate: null,
+        partner_contribution: null,
+      };
+      channelManagerRows = [
+        rollupRow,
+        ...channelDirectorManagerRows.map((r) => ({
+          ...r,
+          parent_manager_id: String(topChannelLeader.id),
+        })),
+      ];
+    }
   }
 
   const channelDirectorCardCount = new Set(
@@ -714,7 +757,7 @@ export async function buildChannelTeamPayload(
     channelScopedRepIds: scopedRepIdsArg,
   } = args;
 
-  const territoryRepIds = (
+  let territoryRepIds = (
     await getChannelTerritoryRepIds({
       orgId,
       channelUserId: userId,
@@ -737,7 +780,7 @@ export async function buildChannelTeamPayload(
         ? Number(currentChannelRepId)
         : null;
 
-  const assignedPartnerNames = await listAssignedPartnerNames({
+  let assignedPartnerNames = await listAssignedPartnerNames({
     orgId,
     hierarchyLevel: Number(hierarchyLevel),
     channelRepId: currentChannelUserId,
@@ -752,15 +795,44 @@ export async function buildChannelTeamPayload(
       viewerUserId: userId,
     }));
 
+  let usedRepDirectoryFallback = false;
   // For non-channel viewers (sales leadership), listChannelScopedRepIds returns []
   // because it scopes by channel role relationships. Fall back to using channel rep
   // ids from the rep directory that was passed in.
   if (channelScopedRepIds.length === 0 && args.channelRepIdsFromDirectory?.length) {
     channelScopedRepIds = args.channelRepIdsFromDirectory;
+    usedRepDirectoryFallback = true;
   }
 
   if (!channelScopedRepIds.length) {
     return null;
+  }
+
+  if (usedRepDirectoryFallback && args.repDirectoryForRollup?.length) {
+    const territoryResults = await Promise.all(
+      channelScopedRepIds.map((repId) => {
+        const repRow = args.repDirectoryForRollup?.find((r) => r.id === repId);
+        const uid =
+          repRow?.user_id != null && Number.isFinite(Number(repRow.user_id)) ? Number(repRow.user_id) : NaN;
+        if (!Number.isFinite(uid) || uid <= 0) {
+          return Promise.resolve({ repIds: [] as number[], partnerNames: [] as string[] });
+        }
+        return getChannelTerritoryRepIds({ orgId, channelUserId: uid }).catch(() => ({
+          repIds: [] as number[],
+          partnerNames: [] as string[],
+        }));
+      })
+    );
+    const mergedRepIds: number[] = [];
+    const mergedPartners: string[] = [];
+    for (const tr of territoryResults) {
+      mergedRepIds.push(...tr.repIds);
+      mergedPartners.push(...tr.partnerNames);
+    }
+    territoryRepIds = [...new Set(mergedRepIds)];
+    assignedPartnerNames = Array.from(
+      new Set(mergedPartners.map((p) => String(p || "").trim().toLowerCase()).filter(Boolean))
+    );
   }
 
   const channelSummary: ChannelDashboardSummary | null = await getChannelDashboardSummary({
@@ -1074,6 +1146,7 @@ export async function buildChannelTeamPayload(
     directorTerritoryLostCount,
     directorWonAmount,
     directorWonCount,
+    repDirectoryForRollup: args.repDirectoryForRollup,
   });
 
   return {
