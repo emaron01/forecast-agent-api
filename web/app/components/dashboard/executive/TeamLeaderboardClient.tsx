@@ -815,6 +815,13 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const repIntIds = repsUnder.map((r) => r.rep_id);
     const annual = aggregateAnnualTeam(allPeriodRows ?? [], repIntIds);
     const repIds = repsUnder.map((r) => String(r.rep_id));
+    if (mid === String(teamViewerRepId)) {
+      console.log("VIEWER_CARD_DEBUG", {
+        mid,
+        repsUnder: repsUnder.map((r) => ({ rep_id: r.rep_id, rep_name: r.rep_name })),
+        allPeriodRowsSample: (allPeriodRows ?? []).slice(0, 3).map((r) => ({ rep_id: r.rep_id, rep_int_id: r.rep_int_id })),
+      });
+    }
     const fyQuarters = aggregateFyQuarterRows(
       (allPeriodRows ?? [])
         .filter((r) => repIds.includes(String(r.rep_id)) || repIds.includes(String(r.rep_int_id)))
