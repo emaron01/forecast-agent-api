@@ -1001,27 +1001,37 @@ export function ExecutiveTabsShellClient(props: {
               />
             )}
             {showIndirectTeamTab && teamSubTab === "indirect" && props.channelTeamPayload ? (
-              <TeamLeaderboardClient
-                repRows={props.channelTeamPayload.channelTeamRepRows}
-                managerRows={props.channelTeamPayload.channelManagerRows}
-                teamViewerRepId={
-                  props.channelTeamPayload.channelViewerRepId != null
-                    ? String(props.channelTeamPayload.channelViewerRepId)
-                    : null
-                }
-                managerLostAmountOverride={props.channelTeamPayload.managerLostAmountOverride}
-                managerLostCountOverride={props.channelTeamPayload.managerLostCountOverride}
-                managerWonAmountOverride={props.channelTeamPayload.managerWonAmountOverride}
-                managerWonCountOverride={props.channelTeamPayload.managerWonCountOverride}
-                periodName={props.teamRepManagerPayload.periodName ?? ""}
-                quotaPeriodId={String(props.forecastTabProps.quotaPeriodId ?? "")}
-                fiscalYear={props.forecastTabProps.fiscalYear}
-                periodStart={props.teamRepManagerPayload.periodStart ?? ""}
-                periodEnd={props.teamRepManagerPayload.periodEnd ?? ""}
-                allPeriodRows={props.channelTeamPayload.channelFyQuarterRows}
-                productsClosedWonByRep={props.channelTeamPayload.productsClosedWonByRep}
-                productsClosedWonByRepYtd={props.channelTeamPayload.productsClosedWonByRepYtd}
-              />
+              (() => {
+                const channelTeamPayload = props.channelTeamPayload;
+                console.log("[Indirect TeamLeaderboardClient props]", {
+                  managerWonAmountOverride: channelTeamPayload.managerWonAmountOverride,
+                  managerWonCountOverride: channelTeamPayload.managerWonCountOverride,
+                  channelViewerRepId: channelTeamPayload.channelViewerRepId,
+                });
+                return (
+                  <TeamLeaderboardClient
+                    repRows={channelTeamPayload.channelTeamRepRows}
+                    managerRows={channelTeamPayload.channelManagerRows}
+                    teamViewerRepId={
+                      channelTeamPayload.channelViewerRepId != null
+                        ? String(channelTeamPayload.channelViewerRepId)
+                        : null
+                    }
+                    managerLostAmountOverride={channelTeamPayload.managerLostAmountOverride}
+                    managerLostCountOverride={channelTeamPayload.managerLostCountOverride}
+                    managerWonAmountOverride={channelTeamPayload.managerWonAmountOverride}
+                    managerWonCountOverride={channelTeamPayload.managerWonCountOverride}
+                    periodName={props.teamRepManagerPayload.periodName ?? ""}
+                    quotaPeriodId={String(props.forecastTabProps.quotaPeriodId ?? "")}
+                    fiscalYear={props.forecastTabProps.fiscalYear}
+                    periodStart={props.teamRepManagerPayload.periodStart ?? ""}
+                    periodEnd={props.teamRepManagerPayload.periodEnd ?? ""}
+                    allPeriodRows={channelTeamPayload.channelFyQuarterRows}
+                    productsClosedWonByRep={channelTeamPayload.productsClosedWonByRep}
+                    productsClosedWonByRepYtd={channelTeamPayload.productsClosedWonByRepYtd}
+                  />
+                );
+              })()
             ) : null}
           </div>
         )}

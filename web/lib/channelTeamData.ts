@@ -735,15 +735,21 @@ export async function assembleChannelTeamLeaderboardFromState(
   ).size;
   const channelRollupMultiDirectorCards = channelDirectorCardCount > 1;
 
+  // Won/lost overrides only apply for channel viewers — for sales viewers the
+  // manager card aggregates correctly from channelTeamRepRows won amounts.
+  const applyOverrides = directorWonAmount > 0 || directorTerritoryLostAmount > 0;
+
   return {
     channelTeamRepRows,
     channelManagerRows,
     channelFyQuarterRows,
     channelViewerRepId,
-    managerLostAmountOverride: channelRollupMultiDirectorCards ? undefined : directorTerritoryLostAmount,
-    managerLostCountOverride: channelRollupMultiDirectorCards ? undefined : directorTerritoryLostCount,
-    managerWonAmountOverride: channelRollupMultiDirectorCards ? undefined : directorWonAmount,
-    managerWonCountOverride: channelRollupMultiDirectorCards ? undefined : directorWonCount,
+    managerLostAmountOverride:
+      applyOverrides && !channelRollupMultiDirectorCards ? directorTerritoryLostAmount : undefined,
+    managerLostCountOverride:
+      applyOverrides && !channelRollupMultiDirectorCards ? directorTerritoryLostCount : undefined,
+    managerWonAmountOverride: applyOverrides && !channelRollupMultiDirectorCards ? directorWonAmount : undefined,
+    managerWonCountOverride: applyOverrides && !channelRollupMultiDirectorCards ? directorWonCount : undefined,
   };
 }
 
@@ -1084,6 +1090,7 @@ export async function buildChannelTeamPayload(
           const assigned = partnerNamesByUserId.get(uId) || [];
           const repLabel = repNameByChannelRepId.get(String(repTableId))?.trim() || `(Rep ${repTableId})`;
           if (!tRepIds.length && !scopePn.length) return [] as ChannelProductWonByRepRow[];
+          console.log("[products] rep", repTableId, { tRepIds: tRepIds.length, scopePn, assigned });
           const prows = await loadPartnerScopedProductsForTerritory({
             orgId,
             quotaPeriodId: selectedQuotaPeriodId,
