@@ -50,8 +50,18 @@ export type TeamLeaderboardProps = {
   productsClosedWonByRep?: ProductsClosedWonByRepRow[] | ProductsClosedWonByRepMap;
   productsClosedWonByRepYtd?: ProductsClosedWonByRepRow[] | ProductsClosedWonByRepMap;
   /** When set, manager rollup cards use this deduped org-level breakdown instead of subtree product aggregation. */
-  managerLevelProducts?: Array<{ product: string; won_amount: number; won_count: number }>;
-  managerLevelProductsYtd?: Array<{ product: string; won_amount: number; won_count: number }>;
+  managerLevelProducts?: Array<{
+    product: string;
+    won_amount: number;
+    won_count: number;
+    avg_health_score?: number | null;
+  }>;
+  managerLevelProductsYtd?: Array<{
+    product: string;
+    won_amount: number;
+    won_count: number;
+    avg_health_score?: number | null;
+  }>;
   managerWonAmountOverride?: number;
   managerWonCountOverride?: number;
   managerLostAmountOverride?: number;
@@ -176,7 +186,7 @@ function healthPctFrom30(score: number | null | undefined): number | null {
 }
 
 function orgLevelProductsToSummary(
-  rows: Array<{ product: string; won_amount: number; won_count: number }> | undefined
+  rows: Array<{ product: string; won_amount: number; won_count: number; avg_health_score?: number | null }> | undefined
 ): {
   repProducts: Array<{ product: string; amount: number }>;
   aov: number;
@@ -187,12 +197,23 @@ function orgLevelProductsToSummary(
   }
   const totalAmount = rows.reduce((s, r) => s + (Number(r.won_amount) || 0), 0);
   const totalCount = rows.reduce((s, r) => s + (Number(r.won_count) || 0), 0);
+  let healthWeightedSum = 0;
+  let healthWeightedCount = 0;
+  for (const r of rows) {
+    const wonCount = Number(r.won_count || 0) || 0;
+    const hs = r.avg_health_score;
+    if (hs != null && Number.isFinite(Number(hs)) && Number(hs) > 0 && wonCount > 0) {
+      healthWeightedSum += Number(hs) * wonCount;
+      healthWeightedCount += wonCount;
+    }
+  }
+  const avgHealthScore = healthWeightedCount > 0 ? healthWeightedSum / healthWeightedCount : null;
   return {
     repProducts: rows
       .map((r) => ({ product: r.product, amount: Number(r.won_amount) || 0 }))
       .sort((a, b) => b.amount - a.amount),
     aov: totalCount > 0 ? totalAmount / totalCount : 0,
-    avgHealthPct: null,
+    avgHealthPct: healthPctFrom30(avgHealthScore),
   };
 }
 

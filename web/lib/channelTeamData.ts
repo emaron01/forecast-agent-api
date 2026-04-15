@@ -270,7 +270,24 @@ export type OrgLevelProductRow = {
   product: string;
   won_amount: number;
   won_count: number;
+  /** Per-product average health (0–30); used for manager-card Avg Health parity with getProductSummary. */
+  avg_health_score?: number | null;
 };
+
+function blendHealthWeighted(c0: number, h0: number | null | undefined, c1: number, h1: number | null | undefined): number | null {
+  let sum = 0;
+  let wt = 0;
+  const add = (c: number, h: number | null | undefined) => {
+    if (c <= 0) return;
+    const v = h == null || !Number.isFinite(Number(h)) || Number(h) <= 0 ? null : Number(h);
+    if (v == null) return;
+    sum += v * c;
+    wt += c;
+  };
+  add(c0, h0);
+  add(c1, h1);
+  return wt > 0 ? sum / wt : null;
+}
 
 function mergeOrgLevelProductRows(rowsList: OrgLevelProductRow[][]): OrgLevelProductRow[] {
   const byProduct = new Map<string, OrgLevelProductRow>();
@@ -281,10 +298,19 @@ function mergeOrgLevelProductRows(rowsList: OrgLevelProductRow[][]): OrgLevelPro
       const wonAmount = Number(r.won_amount || 0) || 0;
       const wonCount = Number(r.won_count || 0) || 0;
       if (prev) {
+        const c0 = prev.won_count;
+        const h0 = prev.avg_health_score;
         prev.won_amount += wonAmount;
         prev.won_count += wonCount;
+        prev.avg_health_score = blendHealthWeighted(c0, h0, wonCount, r.avg_health_score);
       } else {
-        byProduct.set(key, { product: r.product, won_amount: wonAmount, won_count: wonCount });
+        byProduct.set(key, {
+          product: r.product,
+          won_amount: wonAmount,
+          won_count: wonCount,
+          avg_health_score:
+            r.avg_health_score == null || !Number.isFinite(Number(r.avg_health_score)) ? null : Number(r.avg_health_score),
+        });
       }
     }
   }
@@ -309,7 +335,12 @@ export async function loadDedupedChannelProductsForScope(args: {
   const pn = Array.from(new Set(args.allPartnerNames.map((s) => s.trim().toLowerCase()).filter(Boolean)));
   const partnerLen = pn.length;
 
-  const { rows } = await pool.query<{ product: string; won_amount: number; won_count: number }>(
+  const { rows } = await pool.query<{
+    product: string;
+    won_amount: number;
+    won_count: number;
+    avg_health_score: number | null;
+  }>(
     `
     WITH qp AS (
       SELECT period_start::date AS period_start, period_end::date AS period_end
@@ -321,7 +352,8 @@ export async function loadDedupedChannelProductsForScope(args: {
       SELECT DISTINCT ON (o.id)
         o.id,
         COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
-        COALESCE(o.amount, 0)::float8 AS amount
+        COALESCE(o.amount, 0)::float8 AS amount,
+        o.health_score
       FROM opportunities o
       JOIN qp ON TRUE
       WHERE o.org_id = $1
@@ -343,7 +375,8 @@ export async function loadDedupedChannelProductsForScope(args: {
     SELECT
       product,
       SUM(amount)::float8 AS won_amount,
-      COUNT(*)::int AS won_count
+      COUNT(*)::int AS won_count,
+      AVG(NULLIF(health_score, 0))::float8 AS avg_health_score
     FROM won_deals
     GROUP BY product
     ORDER BY won_amount DESC
@@ -355,6 +388,8 @@ export async function loadDedupedChannelProductsForScope(args: {
     product: r.product,
     won_amount: Number(r.won_amount || 0) || 0,
     won_count: Number(r.won_count || 0) || 0,
+    avg_health_score:
+      r.avg_health_score == null || !Number.isFinite(Number(r.avg_health_score)) ? null : Number(r.avg_health_score),
   }));
 }
 
