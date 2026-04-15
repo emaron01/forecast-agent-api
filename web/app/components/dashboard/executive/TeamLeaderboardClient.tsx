@@ -823,6 +823,16 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const allSubtreeRepRows = repRows.filter((r) =>
       subtreeRepIntIds.includes(String(r.rep_id))
     );
+    if (mid === "40") {
+      console.log("[Channel Director products debug]", {
+        repIds: subtreeRepIntIds,
+        repNames: allSubtreeRepRows.map((r) => r.rep_name),
+        productsClosedWonByRepType: Array.isArray(props.productsClosedWonByRep) ? "array" : "object",
+        productsClosedWonByRepSample: Array.isArray(props.productsClosedWonByRep)
+          ? (props.productsClosedWonByRep as any[]).slice(0, 3)
+          : Object.keys(props.productsClosedWonByRep ?? {}).slice(0, 3),
+      });
+    }
     const current = aggregateCurrentTeam(allSubtreeRepRows);
 
     const effectiveQuota = mgrMeta?.quota != null && Number(mgrMeta.quota) > 0 ? Number(mgrMeta.quota) : current.quota;
