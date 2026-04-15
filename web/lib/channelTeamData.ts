@@ -328,8 +328,8 @@ async function loadPartnerScopedProductsForTerritory(args: {
       FROM opportunities o
       WHERE o.org_id = $1
         AND (
-          ($6::int > 0 AND o.rep_id = ANY($3::bigint[]))
-          OR ($7::int > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($4::text[]))
+          ($6::bigint > 0 AND o.rep_id = ANY($3::bigint[]))
+          OR ($7::bigint > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($4::text[]))
         )
         AND ${partnerScopeSql("o", 5)}
     ),
@@ -357,7 +357,15 @@ async function loadPartnerScopedProductsForTerritory(args: {
     ORDER BY won_amount DESC, product ASC
     LIMIT 30
     `,
-    [args.orgId, args.quotaPeriodId, args.territoryRepIds, scopePn, args.assignedPartnerNames, repLen, partnerLen]
+    [
+      args.orgId,
+      args.quotaPeriodId,
+      args.territoryRepIds,
+      scopePn,
+      args.assignedPartnerNames,
+      Number(repLen),
+      Number(partnerLen),
+    ]
   );
   console.log("[loadPartnerScopedProductsForTerritory] result", {
     quotaPeriodId: args.quotaPeriodId,
