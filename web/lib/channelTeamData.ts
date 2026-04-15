@@ -279,8 +279,6 @@ async function loadPartnerScopedProductsForTerritory(args: {
   territoryRepIds: number[];
   scopePartnerNames: string[];
   assignedPartnerNames: string[];
-  /** When true, only count partners that are configured as channel partners in org. */
-  requirePartnerInChannelAssignments?: boolean;
 }): Promise<PartnerScopedProductAggRow[]> {
   const repLen = args.territoryRepIds.length;
   const scopePn = Array.from(
@@ -288,7 +286,6 @@ async function loadPartnerScopedProductsForTerritory(args: {
   );
   const partnerLen = scopePn.length;
   if (!args.quotaPeriodId || (repLen === 0 && partnerLen === 0)) return [];
-  const requireChannelPartner = !!args.requirePartnerInChannelAssignments;
   const { rows } = await pool.query<PartnerScopedProductAggRow>(
     `
     WITH qp AS (
@@ -314,15 +311,6 @@ async function loadPartnerScopedProductsForTerritory(args: {
         o.close_date::date AS close_d
       FROM opportunities o
       WHERE o.org_id = $1
-        AND (
-          NOT $8::boolean
-          OR EXISTS (
-            SELECT 1
-              FROM partner_channel_assignments pca
-             WHERE pca.org_id = $1::bigint
-               AND lower(btrim(COALESCE(pca.partner_name, ''))) = lower(btrim(COALESCE(o.partner_name, '')))
-          )
-        )
         AND (
           ($6::bigint > 0 AND o.rep_id = ANY($3::bigint[]))
           OR ($7::bigint > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($4::text[]))
@@ -361,7 +349,6 @@ async function loadPartnerScopedProductsForTerritory(args: {
       args.assignedPartnerNames,
       Number(repLen),
       Number(partnerLen),
-      requireChannelPartner,
     ]
   );
   return (rows || []).map((r) => ({
@@ -803,7 +790,6 @@ export async function buildChannelTeamPayload(
         : null;
 
   const isChannelViewer = isChannelRoleLevel(hierarchyLevel);
-  const requireChannelPartnerInProducts = !isChannelViewer;
   // For non-channel viewers, channelViewerRepId should be the top channel leader
   // in scope (level 6), not the sales viewer's own rep id.
   if (!isChannelViewer && args.repDirectoryForRollup) {
@@ -1101,7 +1087,6 @@ export async function buildChannelTeamPayload(
             territoryRepIds: tRepIds,
             scopePartnerNames: scopePn,
             assignedPartnerNames: assigned,
-            requirePartnerInChannelAssignments: requireChannelPartnerInProducts,
           });
           return prows.map((p) => ({
             rep_name: repLabel,
@@ -1138,7 +1123,6 @@ export async function buildChannelTeamPayload(
                     territoryRepIds: territoryRepIdsL,
                     scopePartnerNames: scopePn,
                     assignedPartnerNames: assigned,
-                    requirePartnerInChannelAssignments: requireChannelPartnerInProducts,
                   }).catch(() => [])
                 )
             );
