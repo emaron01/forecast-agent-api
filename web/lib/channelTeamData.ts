@@ -1159,6 +1159,17 @@ export async function buildChannelTeamPayload(
     directorWonCount = 0;
   }
 
+  console.log("[buildChannelTeamPayload] pre-assemble", {
+    directorWonAmount,
+    directorWonCount,
+    directorTerritoryLostAmount,
+    directorTerritoryLostCount,
+    channelRepKpisRowsCount: channelRepKpisRows.length,
+    territorySalesIdsByChannelRepIdEntries: Array.from(territorySalesIdsByChannelRepId.entries()).map(
+      ([k, v]) => ({ repId: k, salesRepCount: v.size })
+    ),
+  });
+
   const assembled = await assembleChannelTeamLeaderboardFromState({
     orgId,
     channelSummary,
