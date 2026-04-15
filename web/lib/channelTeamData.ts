@@ -318,13 +318,7 @@ async function loadPartnerScopedProductsForTerritory(args: {
             'g'
           )
         ) AS fs,
-        CASE
-          WHEN o.close_date IS NULL THEN NULL
-          WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
-          WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
-            to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
-          ELSE NULL
-        END AS close_d
+        o.close_date::date AS close_d
       FROM opportunities o
       WHERE o.org_id = $1
         AND (
