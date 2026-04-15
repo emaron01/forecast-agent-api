@@ -292,7 +292,10 @@ function getProductSummary(args: {
     let healthWeightedCount = 0;
 
     for (const row of input) {
-      if (!repNameSet.has(normalizeNameKey(row.rep_name))) continue;
+      const rowRepId = (row as { rep_id?: string }).rep_id;
+      const matchById = rowRepId != null && repIdSet.has(String(rowRepId));
+      const matchByName = !matchById && repNameSet.has(normalizeNameKey(row.rep_name));
+      if (!matchById && !matchByName) continue;
       const amount = Number(row.won_amount || 0) || 0;
       const wonCount = Number(row.won_count || 0) || 0;
       const healthScore = row.avg_health_score == null || !Number.isFinite(Number(row.avg_health_score)) ? null : Number(row.avg_health_score);

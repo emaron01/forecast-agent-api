@@ -257,6 +257,7 @@ async function queryChannelLostDealsByScope(args: {
 }
 
 export type ChannelProductWonByRepRow = {
+  rep_id?: string;
   rep_name: string;
   product: string;
   won_amount: number;
@@ -1089,6 +1090,7 @@ export async function buildChannelTeamPayload(
             assignedPartnerNames: assigned,
           });
           return prows.map((p) => ({
+            rep_id: String(repTableId),
             rep_name: repLabel,
             product: p.product,
             won_amount: Number(p.won_amount || 0) || 0,
@@ -1127,6 +1129,7 @@ export async function buildChannelTeamPayload(
                 )
             );
             return periodRows.flat().map((p) => ({
+              rep_id: String(repTableId),
               rep_name: repLabel,
               product: p.product,
               won_amount: Number(p.won_amount || 0) || 0,
