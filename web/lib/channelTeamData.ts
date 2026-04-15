@@ -286,6 +286,16 @@ async function loadPartnerScopedProductsForTerritory(args: {
   );
   const partnerLen = scopePn.length;
   if (!args.quotaPeriodId || (repLen === 0 && partnerLen === 0)) return [];
+  console.log("[loadPartnerScopedProductsForTerritory] params", {
+    orgId: args.orgId,
+    quotaPeriodId: args.quotaPeriodId,
+    territoryRepIds: args.territoryRepIds,
+    scopePartnerNames: args.scopePartnerNames,
+    assignedPartnerNames: args.assignedPartnerNames,
+    repLen,
+    partnerLen,
+    scopePnFinal: scopePn,
+  });
   const { rows } = await pool.query<PartnerScopedProductAggRow>(
     `
     WITH qp AS (
