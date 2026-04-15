@@ -266,6 +266,98 @@ export type ChannelProductWonByRepRow = {
   avg_health_score: number | null;
 };
 
+export type OrgLevelProductRow = {
+  product: string;
+  won_amount: number;
+  won_count: number;
+};
+
+function mergeOrgLevelProductRows(rowsList: OrgLevelProductRow[][]): OrgLevelProductRow[] {
+  const byProduct = new Map<string, OrgLevelProductRow>();
+  for (const rows of rowsList) {
+    for (const r of rows) {
+      const key = r.product;
+      const prev = byProduct.get(key);
+      const wonAmount = Number(r.won_amount || 0) || 0;
+      const wonCount = Number(r.won_count || 0) || 0;
+      if (prev) {
+        prev.won_amount += wonAmount;
+        prev.won_count += wonCount;
+      } else {
+        byProduct.set(key, { product: r.product, won_amount: wonAmount, won_count: wonCount });
+      }
+    }
+  }
+  return Array.from(byProduct.values())
+    .sort((a, b) => b.won_amount - a.won_amount)
+    .slice(0, 30);
+}
+
+/**
+ * Single-query product rollup for the union of all channel rep scopes, deduping wins by opportunity id.
+ */
+export async function loadDedupedChannelProductsForScope(args: {
+  orgId: number;
+  quotaPeriodId: string;
+  allTerritoryRepIds: number[];
+  allPartnerNames: string[];
+}): Promise<OrgLevelProductRow[]> {
+  if (!args.quotaPeriodId || (args.allTerritoryRepIds.length === 0 && args.allPartnerNames.length === 0)) {
+    return [];
+  }
+  const repLen = args.allTerritoryRepIds.length;
+  const pn = Array.from(new Set(args.allPartnerNames.map((s) => s.trim().toLowerCase()).filter(Boolean)));
+  const partnerLen = pn.length;
+
+  const { rows } = await pool.query<{ product: string; won_amount: number; won_count: number }>(
+    `
+    WITH qp AS (
+      SELECT period_start::date AS period_start, period_end::date AS period_end
+      FROM quota_periods
+      WHERE org_id = $1::bigint AND id = $2::bigint
+      LIMIT 1
+    ),
+    won_deals AS (
+      SELECT DISTINCT ON (o.id)
+        o.id,
+        COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
+        COALESCE(o.amount, 0)::float8 AS amount
+      FROM opportunities o
+      JOIN qp ON TRUE
+      WHERE o.org_id = $1
+        AND o.partner_name IS NOT NULL
+        AND btrim(o.partner_name) <> ''
+        AND o.close_date::date >= qp.period_start
+        AND o.close_date::date <= qp.period_end
+        AND (
+          ($5::bigint > 0 AND o.rep_id = ANY($3::bigint[]))
+          OR ($6::bigint > 0 AND lower(btrim(COALESCE(o.partner_name,''))) = ANY($4::text[]))
+        )
+        AND ((' ' || lower(regexp_replace(
+          COALESCE(NULLIF(btrim(o.forecast_stage),''),'') || ' ' ||
+          COALESCE(NULLIF(btrim(o.sales_stage),''),''),
+          '[^a-zA-Z]+', ' ', 'g'
+        )) || ' ') LIKE '% won %')
+      ORDER BY o.id
+    )
+    SELECT
+      product,
+      SUM(amount)::float8 AS won_amount,
+      COUNT(*)::int AS won_count
+    FROM won_deals
+    GROUP BY product
+    ORDER BY won_amount DESC
+    LIMIT 30
+    `,
+    [args.orgId, args.quotaPeriodId, args.allTerritoryRepIds, pn, Number(repLen), Number(partnerLen)]
+  );
+  return (rows || []).map((r) => ({
+    product: r.product,
+    won_amount: Number(r.won_amount || 0) || 0,
+    won_count: Number(r.won_count || 0) || 0,
+  }));
+}
+
 type PartnerScopedProductAggRow = {
   product: string;
   won_amount: number;
@@ -399,6 +491,9 @@ export type BuildChannelTeamPayloadResult = {
   channelDashboardSummary: ChannelDashboardSummary | null;
   productsClosedWonByRep: ChannelProductWonByRepRow[];
   productsClosedWonByRepYtd: ChannelProductWonByRepRow[];
+  /** Deduplicated across channel scopes (Indirect manager cards). */
+  orgLevelProductsCurrentQ: OrgLevelProductRow[];
+  orgLevelProductsYtd: OrgLevelProductRow[];
   managerLostAmountOverride?: number;
   managerLostCountOverride?: number;
   managerWonAmountOverride?: number;
@@ -893,6 +988,8 @@ export async function buildChannelTeamPayload(
   let channelRepKpisRows: RepPeriodKpisRow[] = [];
   let channelProductsClosedWonByRep: ChannelProductWonByRepRow[] = [];
   let channelProductsClosedWonByRepYtd: ChannelProductWonByRepRow[] = [];
+  let orgLevelProductsCurrentQ: OrgLevelProductRow[] = [];
+  let orgLevelProductsYtd: OrgLevelProductRow[] = [];
   let directorTerritoryLostAmount = 0;
   let directorTerritoryLostCount = 0;
   let directorWonAmount = 0;
@@ -963,7 +1060,42 @@ export async function buildChannelTeamPayload(
         })
       );
 
-      const territoryIdList = Array.from(allTerritoryIds);
+      const allTerritoryRepIdsUnion = Array.from(allTerritoryIds);
+      const allPartnerNamesUnion = Array.from(
+        new Set(
+          [
+            ...[...scopePartnerNamesByChannelRepId.values()].flat(),
+            ...[...partnerNamesByUserId.values()].flat(),
+          ]
+            .map((s) => String(s || "").trim().toLowerCase())
+            .filter(Boolean)
+        )
+      );
+
+      orgLevelProductsCurrentQ = await loadDedupedChannelProductsForScope({
+        orgId,
+        quotaPeriodId: selectedQuotaPeriodId,
+        allTerritoryRepIds: allTerritoryRepIdsUnion,
+        allPartnerNames: allPartnerNamesUnion,
+      });
+
+      if (fyPeriodIds.length > 1) {
+        const ytdPerPeriod = await Promise.all(
+          fyPeriodIds.map((pid) =>
+            loadDedupedChannelProductsForScope({
+              orgId,
+              quotaPeriodId: pid,
+              allTerritoryRepIds: allTerritoryRepIdsUnion,
+              allPartnerNames: allPartnerNamesUnion,
+            })
+          )
+        );
+        orgLevelProductsYtd = mergeOrgLevelProductRows(ytdPerPeriod);
+      } else {
+        orgLevelProductsYtd = [...orgLevelProductsCurrentQ];
+      }
+
+      const territoryIdList = allTerritoryRepIdsUnion;
       if (territoryIdList.length > 0) {
         channelRepKpisRows = await getRepKpisByPeriod({
           orgId,
@@ -1152,6 +1284,8 @@ export async function buildChannelTeamPayload(
     channelRepKpisRows = [];
     channelProductsClosedWonByRep = [];
     channelProductsClosedWonByRepYtd = [];
+    orgLevelProductsCurrentQ = [];
+    orgLevelProductsYtd = [];
     lostDealsByRole8RepId = new Map();
     directorTerritoryLostAmount = 0;
     directorTerritoryLostCount = 0;
@@ -1183,5 +1317,7 @@ export async function buildChannelTeamPayload(
     channelDashboardSummary: channelSummary,
     productsClosedWonByRep: channelProductsClosedWonByRep,
     productsClosedWonByRepYtd: channelProductsClosedWonByRepYtd,
+    orgLevelProductsCurrentQ,
+    orgLevelProductsYtd,
   };
 }

@@ -49,6 +49,9 @@ export type TeamLeaderboardProps = {
   allPeriodRows?: TeamLeaderboardFyQuarterRow[];
   productsClosedWonByRep?: ProductsClosedWonByRepRow[] | ProductsClosedWonByRepMap;
   productsClosedWonByRepYtd?: ProductsClosedWonByRepRow[] | ProductsClosedWonByRepMap;
+  /** When set, manager rollup cards use this deduped org-level breakdown instead of subtree product aggregation. */
+  managerLevelProducts?: Array<{ product: string; won_amount: number; won_count: number }>;
+  managerLevelProductsYtd?: Array<{ product: string; won_amount: number; won_count: number }>;
   managerWonAmountOverride?: number;
   managerWonCountOverride?: number;
   managerLostAmountOverride?: number;
@@ -170,6 +173,27 @@ function normalizeNameKey(value: unknown): string {
 function healthPctFrom30(score: number | null | undefined): number | null {
   if (score == null || !Number.isFinite(score) || score <= 0) return null;
   return Math.max(0, Math.min(100, Math.round((score / 30) * 100)));
+}
+
+function orgLevelProductsToSummary(
+  rows: Array<{ product: string; won_amount: number; won_count: number }> | undefined
+): {
+  repProducts: Array<{ product: string; amount: number }>;
+  aov: number;
+  avgHealthPct: number | null;
+} {
+  if (!rows?.length) {
+    return { repProducts: [], aov: 0, avgHealthPct: null };
+  }
+  const totalAmount = rows.reduce((s, r) => s + (Number(r.won_amount) || 0), 0);
+  const totalCount = rows.reduce((s, r) => s + (Number(r.won_count) || 0), 0);
+  return {
+    repProducts: rows
+      .map((r) => ({ product: r.product, amount: Number(r.won_amount) || 0 }))
+      .sort((a, b) => b.amount - a.amount),
+    aov: totalCount > 0 ? totalAmount / totalCount : 0,
+    avgHealthPct: null,
+  };
 }
 
 function aggregateCurrentTeam(reps: RepManagerRepRow[]) {
@@ -350,6 +374,8 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     allPeriodRows,
     productsClosedWonByRep,
     productsClosedWonByRepYtd,
+    managerLevelProducts,
+    managerLevelProductsYtd,
     managerWonAmountOverride,
     managerWonCountOverride,
     managerLostAmountOverride,
@@ -826,16 +852,6 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const allSubtreeRepRows = repRows.filter((r) =>
       subtreeRepIntIds.includes(String(r.rep_id))
     );
-    if (mid === "40") {
-      console.log("[Channel Director products debug]", {
-        repIds: subtreeRepIntIds,
-        repNames: allSubtreeRepRows.map((r) => r.rep_name),
-        productsClosedWonByRepType: Array.isArray(props.productsClosedWonByRep) ? "array" : "object",
-        productsClosedWonByRepSample: Array.isArray(props.productsClosedWonByRep)
-          ? (props.productsClosedWonByRep as any[]).slice(0, 3)
-          : Object.keys(props.productsClosedWonByRep ?? {}).slice(0, 3),
-      });
-    }
     const current = aggregateCurrentTeam(allSubtreeRepRows);
 
     const effectiveQuota = mgrMeta?.quota != null && Number(mgrMeta.quota) > 0 ? Number(mgrMeta.quota) : current.quota;
@@ -858,18 +874,24 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const ytdAttainPct = annualQuota > 0 ? Math.round((ytdRevenue / annualQuota) * 100) : 0;
     const attainPct = effectiveQuota > 0 ? Math.round((effectiveWonAmount / effectiveQuota) * 100) : 0;
     const paceStatus = calcPaceStatus(effectiveWonAmount, effectiveQuota, paceRatio);
-    const productSummary = getProductSummary({
-      input: productsClosedWonByRep,
-      repIds: subtreeRepIntIds,
-      repNames: allSubtreeRepRows.map((r) => r.rep_name),
-      fallbackAov: current.aov,
-    });
-    const ytdProductSummary = getProductSummary({
-      input: productsClosedWonByRepYtd,
-      repIds: subtreeRepIntIds,
-      repNames: allSubtreeRepRows.map((r) => r.rep_name),
-      fallbackAov: current.aov,
-    });
+    const productSummary =
+      managerLevelProducts != null
+        ? orgLevelProductsToSummary(managerLevelProducts)
+        : getProductSummary({
+            input: productsClosedWonByRep,
+            repIds: subtreeRepIntIds,
+            repNames: allSubtreeRepRows.map((r) => r.rep_name),
+            fallbackAov: current.aov,
+          });
+    const ytdProductSummary =
+      managerLevelProductsYtd != null
+        ? orgLevelProductsToSummary(managerLevelProductsYtd)
+        : getProductSummary({
+            input: productsClosedWonByRepYtd,
+            repIds: subtreeRepIntIds,
+            repNames: allSubtreeRepRows.map((r) => r.rep_name),
+            fallbackAov: current.aov,
+          });
 
     return (
       <div key={cardKey} className="min-w-0">
