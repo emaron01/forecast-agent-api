@@ -1082,6 +1082,8 @@ export default async function ChannelDashboardPage({
     managerLostCountOverride: teamForLeaderboard.managerLostCountOverride,
     managerWonAmountOverride: teamForLeaderboard.managerWonAmountOverride,
     managerWonCountOverride: teamForLeaderboard.managerWonCountOverride,
+    managerLevelProducts: teamPayload?.orgLevelProductsCurrentQ ?? [],
+    managerLevelProductsYtd: teamPayload?.orgLevelProductsYtd ?? [],
     productsClosedWonByRepYtd: channelProductsClosedWonByRepYtd,
     periodName: selectedPeriod?.period_name ?? "",
     periodStart: selectedPeriod?.period_start ?? "",

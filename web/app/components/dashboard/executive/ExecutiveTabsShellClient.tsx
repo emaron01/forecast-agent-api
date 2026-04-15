@@ -12,7 +12,7 @@ import { TeamLeaderboardClient } from "./TeamLeaderboardClient";
 import type { ProductsClosedWonByRepMap, ProductsClosedWonByRepRow } from "./TeamLeaderboardClient";
 import { ManagerReviewQueueClient, type ManagerReviewQueueProps } from "./ManagerReviewQueueClient";
 import type { ChannelLedFedRow, ChannelPartnerHeroProps } from "../../../../lib/channelPartnerHeroData";
-import type { BuildChannelTeamPayloadResult } from "../../../../lib/channelTeamData";
+import type { BuildChannelTeamPayloadResult, OrgLevelProductRow } from "../../../../lib/channelTeamData";
 import { CustomReportDesignerClient } from "../../../analytics/custom-reports/CustomReportDesignerClient";
 import { sha256HexUtf8 } from "../../../../lib/payloadSha256";
 import { RevenueIntelligenceClient } from "./RevenueIntelligenceClient";
@@ -374,6 +374,8 @@ export type TeamRepManagerPayload = {
   managerLostCountOverride?: number;
   managerWonAmountOverride?: number;
   managerWonCountOverride?: number;
+  managerLevelProducts?: OrgLevelProductRow[];
+  managerLevelProductsYtd?: OrgLevelProductRow[];
   productsClosedWonByRepYtd?: ProductsClosedWonByRepRow[] | ProductsClosedWonByRepMap;
   periodName?: string;
   periodStart?: string;
@@ -998,6 +1000,8 @@ export function ExecutiveTabsShellClient(props: {
                 allPeriodRows={props.teamRepManagerPayload.repFyQuarterRows}
                 productsClosedWonByRep={props.forecastTabProps.productsClosedWonByRep}
                 productsClosedWonByRepYtd={props.teamRepManagerPayload.productsClosedWonByRepYtd}
+                managerLevelProducts={props.teamRepManagerPayload.managerLevelProducts}
+                managerLevelProductsYtd={props.teamRepManagerPayload.managerLevelProductsYtd}
               />
             )}
             {showIndirectTeamTab && teamSubTab === "indirect" && props.channelTeamPayload ? (

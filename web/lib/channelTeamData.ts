@@ -562,6 +562,8 @@ export type AssembleChannelTeamLeaderboardFromStateArgs = {
     hierarchy_level: number | null;
     user_id: number | null;
   }>;
+  dedupedOrgWonAmount?: number;
+  dedupedOrgWonCount?: number;
 };
 
 export type ChannelTeamLeaderboardSlice = Pick<
@@ -600,6 +602,7 @@ export async function assembleChannelTeamLeaderboardFromState(
     directorWonAmount,
     directorWonCount,
     repDirectoryForRollup,
+    dedupedOrgWonAmount,
   } = args;
 
   const channelKpisByRepId = new Map<string, RepPeriodKpisRow>();
@@ -802,6 +805,7 @@ export async function assembleChannelTeamLeaderboardFromState(
   let channelManagerRows: RepManagerManagerRow[] = channelDirectorManagerRows;
   if (channelViewerRepId != null) {
     const totalWon = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.won_amount) || 0), 0);
+    const rollupWon = dedupedOrgWonAmount ?? totalWon;
     const totalActive = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.active_amount) || 0), 0);
     const viewerQuotaRow = quotaRows.find(
       (q) => String(q.rep_id) === String(channelViewerRepId) && String(q.quota_period_id) === periodIdStr
@@ -814,9 +818,9 @@ export async function assembleChannelTeamLeaderboardFromState(
       manager_name: channelViewerName || `Rep ${channelViewerRepId}`,
       parent_manager_id: "",
       quota: viewerQuota,
-      won_amount: totalWon,
+      won_amount: rollupWon,
       active_amount: totalActive,
-      attainment: viewerQuota > 0 ? totalWon / viewerQuota : null,
+      attainment: viewerQuota > 0 ? rollupWon / viewerQuota : null,
       win_rate: null,
       partner_contribution: null,
     };
@@ -829,6 +833,7 @@ export async function assembleChannelTeamLeaderboardFromState(
     const topChannelLeader = repDirectoryForRollup.find((r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_EXEC);
     if (topChannelLeader) {
       const totalWon = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.won_amount) || 0), 0);
+      const rollupWon = dedupedOrgWonAmount ?? totalWon;
       const totalActive = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.active_amount) || 0), 0);
       const totalQuota = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.quota) || 0), 0);
       const rollupRow: RepManagerManagerRow = {
@@ -836,9 +841,9 @@ export async function assembleChannelTeamLeaderboardFromState(
         manager_name: topChannelLeader.name,
         parent_manager_id: "",
         quota: totalQuota,
-        won_amount: totalWon,
+        won_amount: rollupWon,
         active_amount: totalActive,
-        attainment: totalQuota > 0 ? totalWon / totalQuota : null,
+        attainment: totalQuota > 0 ? rollupWon / totalQuota : null,
         win_rate: null,
         partner_contribution: null,
       };
@@ -1031,6 +1036,8 @@ export async function buildChannelTeamPayload(
   let directorWonCount = 0;
   let lostDealsByRole8RepId = new Map<number, ChannelLostDealRow[]>();
   const territorySalesIdsByChannelRepId = new Map<number, Set<string>>();
+  let dedupedChannelWon = 0;
+  let dedupedChannelWonCount = 0;
 
   try {
     if (selectedQuotaPeriodId && comparePeriodIds.length && channelScopedRepIds.length > 0) {
@@ -1137,6 +1144,18 @@ export async function buildChannelTeamPayload(
           periodIds: comparePeriodIds,
           repIds: territoryIdList,
         });
+      }
+
+      // Deduped channel won for the current quarter across all scoped channel reps.
+      if (selectedPeriod?.period_start && selectedPeriod?.period_end && channelScopedRepIds.length > 0) {
+        const wonDealsByRep = await loadChannelRepWonDeals({
+          orgId,
+          selectedQuotaPeriodId,
+          channelRepIds: channelScopedRepIds,
+        }).catch(() => new Map<number, Array<{ opp_id: number; amount: number }>>());
+        const deduped = deduplicateWonDeals(wonDealsByRep);
+        dedupedChannelWon = deduped.wonAmount;
+        dedupedChannelWonCount = deduped.wonCount;
       }
 
       const repDirById = new Map<number, RepDirectoryRow>(
@@ -1326,6 +1345,8 @@ export async function buildChannelTeamPayload(
     directorTerritoryLostCount = 0;
     directorWonAmount = 0;
     directorWonCount = 0;
+    dedupedChannelWon = 0;
+    dedupedChannelWonCount = 0;
   }
 
   const assembled = await assembleChannelTeamLeaderboardFromState({
@@ -1345,6 +1366,8 @@ export async function buildChannelTeamPayload(
     directorWonAmount,
     directorWonCount,
     repDirectoryForRollup: args.repDirectoryForRollup,
+    dedupedOrgWonAmount: dedupedChannelWon > 0 ? dedupedChannelWon : undefined,
+    dedupedOrgWonCount: dedupedChannelWonCount > 0 ? dedupedChannelWonCount : undefined,
   });
 
   return {
