@@ -370,8 +370,6 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
       a.manager_name.localeCompare(b.manager_name)
   );
 
-  console.log("VIEWER_ID_DEBUG", { viewerRepId, viewerId });
-
   // Insert viewer as first manager card with full subtree rollup
   if (viewerId != null) {
     const viewerDirRow = repDirectoryById.get(viewerId);
@@ -392,31 +390,6 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
 
     managerRowsBuild.unshift(viewerManagerRow);
   }
-
-  console.log(
-    "MANAGER_ROWS_DEBUG",
-    JSON.stringify(
-      managerRowsBuild.map((r) => ({
-        manager_id: r.manager_id,
-        manager_name: r.manager_name,
-        parent_manager_id: r.parent_manager_id,
-        quota: r.quota,
-        won: r.won_amount,
-      }))
-    )
-  );
-
-  console.log(
-    "REP_ROWS_DEBUG",
-    JSON.stringify(
-      repRowsBuild.map((r) => ({
-        rep_id: r.rep_id,
-        manager_id: r.manager_id,
-        won: r.won_amount,
-        quota: r.quota,
-      }))
-    )
-  );
 
   return { repRows: repRowsBuild, managerRows: managerRowsBuild };
 }

@@ -286,16 +286,6 @@ async function loadPartnerScopedProductsForTerritory(args: {
   );
   const partnerLen = scopePn.length;
   if (!args.quotaPeriodId || (repLen === 0 && partnerLen === 0)) return [];
-  console.log("[loadPartnerScopedProductsForTerritory] params", {
-    orgId: args.orgId,
-    quotaPeriodId: args.quotaPeriodId,
-    territoryRepIds: args.territoryRepIds,
-    scopePartnerNames: args.scopePartnerNames,
-    assignedPartnerNames: args.assignedPartnerNames,
-    repLen,
-    partnerLen,
-    scopePnFinal: scopePn,
-  });
   const { rows } = await pool.query<PartnerScopedProductAggRow>(
     `
     WITH qp AS (
@@ -361,12 +351,6 @@ async function loadPartnerScopedProductsForTerritory(args: {
       Number(partnerLen),
     ]
   );
-  console.log("[loadPartnerScopedProductsForTerritory] result", {
-    quotaPeriodId: args.quotaPeriodId,
-    territoryRepIds: args.territoryRepIds.length,
-    scopePartnerNames: args.scopePartnerNames,
-    rowCount: rows.length,
-  });
   return (rows || []).map((r) => ({
     product: r.product,
     won_amount: Number(r.won_amount || 0) || 0,
@@ -595,17 +579,6 @@ export async function assembleChannelTeamLeaderboardFromState(
       qoq_attainment_delta: currAtt != null && prevAtt != null ? currAtt - prevAtt : null,
     };
   });
-
-  console.log(
-    "[assembleChannelTeamLeaderboardFromState] repRows",
-    channelTeamRepRows.map((r) => ({
-      rep_id: r.rep_id,
-      rep_name: r.rep_name,
-      manager_id: r.manager_id,
-      won: r.won_amount,
-      quota: r.quota,
-    }))
-  );
 
   const channelDirectorManagerRows: RepManagerManagerRow[] =
     channelTeamRepRows.length > 0
@@ -1108,7 +1081,6 @@ export async function buildChannelTeamPayload(
           const assigned = partnerNamesByUserId.get(uId) || [];
           const repLabel = repNameByChannelRepId.get(String(repTableId))?.trim() || `(Rep ${repTableId})`;
           if (!tRepIds.length && !scopePn.length) return [] as ChannelProductWonByRepRow[];
-          console.log("[products] rep", repTableId, { tRepIds: tRepIds.length, scopePn, assigned });
           const prows = await loadPartnerScopedProductsForTerritory({
             orgId,
             quotaPeriodId: selectedQuotaPeriodId,
@@ -1184,17 +1156,6 @@ export async function buildChannelTeamPayload(
     directorWonCount = 0;
   }
 
-  console.log("[buildChannelTeamPayload] pre-assemble", {
-    directorWonAmount,
-    directorWonCount,
-    directorTerritoryLostAmount,
-    directorTerritoryLostCount,
-    channelRepKpisRowsCount: channelRepKpisRows.length,
-    territorySalesIdsByChannelRepIdEntries: Array.from(territorySalesIdsByChannelRepId.entries()).map(
-      ([k, v]) => ({ repId: k, salesRepCount: v.size })
-    ),
-  });
-
   const assembled = await assembleChannelTeamLeaderboardFromState({
     orgId,
     channelSummary,
@@ -1212,18 +1173,6 @@ export async function buildChannelTeamPayload(
     directorWonAmount,
     directorWonCount,
     repDirectoryForRollup: args.repDirectoryForRollup,
-  });
-
-  console.log("[buildChannelTeamPayload] final result", {
-    channelViewerRepId,
-    channelScopedRepIds,
-    managerRows: assembled.channelManagerRows.map((r) => ({
-      id: r.manager_id,
-      name: r.manager_name,
-      parent: r.parent_manager_id,
-    })),
-    repRows: assembled.channelTeamRepRows.length,
-    topChannelLeaderFound: !!args.repDirectoryForRollup?.find((r) => Number(r.hierarchy_level) === 6),
   });
 
   return {
