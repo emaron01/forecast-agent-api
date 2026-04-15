@@ -349,6 +349,12 @@ async function loadPartnerScopedProductsForTerritory(args: {
     `,
     [args.orgId, args.quotaPeriodId, args.territoryRepIds, scopePn, args.assignedPartnerNames, repLen, partnerLen]
   );
+  console.log("[loadPartnerScopedProductsForTerritory] result", {
+    quotaPeriodId: args.quotaPeriodId,
+    territoryRepIds: args.territoryRepIds.length,
+    scopePartnerNames: args.scopePartnerNames,
+    rowCount: rows.length,
+  });
   return (rows || []).map((r) => ({
     product: r.product,
     won_amount: Number(r.won_amount || 0) || 0,
