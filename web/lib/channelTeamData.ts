@@ -602,7 +602,6 @@ export async function assembleChannelTeamLeaderboardFromState(
     directorWonAmount,
     directorWonCount,
     repDirectoryForRollup,
-    dedupedOrgWonAmount,
   } = args;
 
   const channelKpisByRepId = new Map<string, RepPeriodKpisRow>();
@@ -805,7 +804,7 @@ export async function assembleChannelTeamLeaderboardFromState(
   let channelManagerRows: RepManagerManagerRow[] = channelDirectorManagerRows;
   if (channelViewerRepId != null) {
     const totalWon = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.won_amount) || 0), 0);
-    const rollupWon = dedupedOrgWonAmount ?? totalWon;
+    const rollupWon = args.dedupedOrgWonAmount ?? totalWon;
     const totalActive = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.active_amount) || 0), 0);
     const viewerQuotaRow = quotaRows.find(
       (q) => String(q.rep_id) === String(channelViewerRepId) && String(q.quota_period_id) === periodIdStr
@@ -824,6 +823,11 @@ export async function assembleChannelTeamLeaderboardFromState(
       win_rate: null,
       partner_contribution: null,
     };
+    console.log("[assembleChannelTeamLeaderboardFromState] viewerRow won", {
+      dedupedOrgWonAmount: args.dedupedOrgWonAmount,
+      totalWon,
+      rollupWon,
+    });
     channelManagerRows = [viewerRow, ...channelDirectorManagerRows];
   } else if (
     channelViewerRepId == null &&
@@ -833,7 +837,7 @@ export async function assembleChannelTeamLeaderboardFromState(
     const topChannelLeader = repDirectoryForRollup.find((r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_EXEC);
     if (topChannelLeader) {
       const totalWon = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.won_amount) || 0), 0);
-      const rollupWon = dedupedOrgWonAmount ?? totalWon;
+      const rollupWon = args.dedupedOrgWonAmount ?? totalWon;
       const totalActive = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.active_amount) || 0), 0);
       const totalQuota = channelDirectorManagerRows.reduce((s, r) => s + (Number(r.quota) || 0), 0);
       const rollupRow: RepManagerManagerRow = {
