@@ -1349,6 +1349,8 @@ export async function buildChannelTeamPayload(
     dedupedChannelWonCount = 0;
   }
 
+  console.log("[deduped won]", { dedupedChannelWon, dedupedChannelWonCount });
+
   const assembled = await assembleChannelTeamLeaderboardFromState({
     orgId,
     channelSummary,
