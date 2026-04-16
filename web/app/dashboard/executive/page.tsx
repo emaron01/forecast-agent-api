@@ -26,7 +26,7 @@ import {
 import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
 import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
 import { buildChannelTeamPayload, type BuildChannelTeamPayloadResult } from "../../../lib/channelTeamData";
-import { CHANNEL_HIERARCHY_LEVELS, HIERARCHY, isAdmin, isChannelRole, isSalesLeader } from "../../../lib/roleHelpers";
+import { CHANNEL_HIERARCHY_LEVELS, HIERARCHY, isAdmin, isSalesLeader } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
 
@@ -800,55 +800,56 @@ export default async function ExecutiveDashboardPage({
   const prevPeriodId = prevPeriod ? String(prevPeriod.id) : "";
   const comparePeriodIds = [selectedPeriodId, prevPeriodId].filter(Boolean);
 
-  let channelTeamPayload: BuildChannelTeamPayloadResult | null = null;
   const viewerHasChannelScope = repDirectory.some(
     (r) => r.hierarchy_level != null && [6, 7, 8].includes(Number(r.hierarchy_level))
   );
 
-  if (selectedPeriodId && (isChannelRole(ctx.user) || viewerHasChannelScope)) {
-    const fyYearKeyChannel =
-      String(summary.selectedPeriod?.fiscal_year ?? summary.selectedFiscalYear ?? "")
-        .trim() || "";
-    const fyPeriodIdsChannel = fyYearKeyChannel
-      ? summary.periods
-          .filter((p) => String(p.fiscal_year).trim() === fyYearKeyChannel)
-          .map((p) => String(p.id))
-      : [];
-    const myRepIdFallbackChannel =
-      scope.myRepId != null && Number.isFinite(Number(scope.myRepId)) && Number(scope.myRepId) > 0
-        ? Number(scope.myRepId)
-        : summary.myRepId != null && Number.isFinite(Number(summary.myRepId)) && Number(summary.myRepId) > 0
-          ? Number(summary.myRepId)
-          : null;
-    const channelRepIdsFromDirectory = repDirectory
-      .filter((r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_REP)
-      .map((r) => r.id);
-    channelTeamPayload = await buildChannelTeamPayload({
-      orgId: ctx.user.org_id,
-      userId: ctx.user.id,
-      hierarchyLevel: Number(ctx.user.hierarchy_level),
-      selectedQuotaPeriodId: selectedPeriodId,
-      fiscalYear: fyYearKeyChannel,
-      comparePeriodIds,
-      myRepIdFallback: myRepIdFallbackChannel,
-      viewerDisplayName: String(ctx.user.display_name || "").trim(),
-      selectedPeriod: selectedPeriodForTeam
-        ? { period_start: selectedPeriodForTeam.period_start, period_end: selectedPeriodForTeam.period_end }
-        : null,
-      fyQuotaPeriodIds: fyPeriodIdsChannel,
-      prevQuotaPeriodId: prevPeriodId,
-      channelRepIdsFromDirectory,
-      repDirectoryForRollup: repDirectory.map((r) => ({
-        id: r.id,
-        name: r.name,
-        hierarchy_level: r.hierarchy_level ?? null,
-        user_id: r.user_id ?? null,
-      })),
-    }).catch((err) => {
-      console.error("[executive page] buildChannelTeamPayload error", err);
-      return null;
-    });
-  }
+  const fyYearKeyChannel =
+    String(summary.selectedPeriod?.fiscal_year ?? summary.selectedFiscalYear ?? "")
+      .trim() || "";
+  const fyPeriodIdsChannel = fyYearKeyChannel
+    ? summary.periods
+        .filter((p) => String(p.fiscal_year).trim() === fyYearKeyChannel)
+        .map((p) => String(p.id))
+    : [];
+  const myRepIdFallbackChannel =
+    scope.myRepId != null && Number.isFinite(Number(scope.myRepId)) && Number(scope.myRepId) > 0
+      ? Number(scope.myRepId)
+      : summary.myRepId != null && Number.isFinite(Number(summary.myRepId)) && Number(summary.myRepId) > 0
+        ? Number(summary.myRepId)
+        : null;
+  const channelRepIdsFromDirectory = repDirectory
+    .filter((r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_REP)
+    .map((r) => r.id);
+
+  const channelTeamPayloadPromise: Promise<BuildChannelTeamPayloadResult | null> =
+    selectedPeriodId && viewerHasChannelScope
+      ? buildChannelTeamPayload({
+          orgId: ctx.user.org_id,
+          userId: ctx.user.id,
+          hierarchyLevel: Number(ctx.user.hierarchy_level),
+          selectedQuotaPeriodId: selectedPeriodId,
+          fiscalYear: fyYearKeyChannel,
+          comparePeriodIds,
+          myRepIdFallback: myRepIdFallbackChannel,
+          viewerDisplayName: String(ctx.user.display_name || "").trim(),
+          selectedPeriod: selectedPeriodForTeam
+            ? { period_start: selectedPeriodForTeam.period_start, period_end: selectedPeriodForTeam.period_end }
+            : null,
+          fyQuotaPeriodIds: fyPeriodIdsChannel,
+          prevQuotaPeriodId: prevPeriodId,
+          channelRepIdsFromDirectory,
+          repDirectoryForRollup: repDirectory.map((r) => ({
+            id: r.id,
+            name: r.name,
+            hierarchy_level: r.hierarchy_level ?? null,
+            user_id: r.user_id ?? null,
+          })),
+        }).catch((e) => {
+          console.error("[buildChannelTeamPayload] error", e instanceof Error ? e.stack : String(e));
+          return null;
+        })
+      : Promise.resolve(null);
 
   // Rep directory for Report Builder + revenue intelligence picker:
   // - sales 1–3 in exec → manager → rep tree; channel leaders 6–7 appended (not 8)
@@ -1793,6 +1794,8 @@ export default async function ExecutiveDashboardPage({
     allowed: EXEC_ALLOWED_TABS,
     fallback: "pipeline",
   });
+
+  const channelTeamPayload = await channelTeamPayloadPromise;
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">

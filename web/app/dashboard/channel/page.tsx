@@ -691,12 +691,6 @@ export default async function ChannelDashboardPage({
   let topPartnerLost: TopPartnerDealRow[] = [];
   let partnerHero: Awaited<ReturnType<typeof loadChannelPartnerHeroProps>> = null;
   let ledFedRows: Awaited<ReturnType<typeof loadChannelLedFedRows>> = [];
-  console.log("[channel hero scope]", {
-    visibleRepIds,
-    viewerChannelScopePartnerNames,
-    heroScopePartnerNames,
-    hl: Number(ctx.user.hierarchy_level),
-  });
   try {
     if (selectedPeriod && channelViewerHasDataScope && selectedPeriodId) {
       const [won, lost, ph, lf] = await Promise.all([

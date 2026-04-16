@@ -1795,12 +1795,6 @@ export function ExecutiveGapInsightsClient(props: {
   const quota = props.quota;
   const coverageRatio = channelHeroCoverageValue;
   const pipelineCoverage = channelHeroCoverageValue;
-  console.log("GAP_INSIGHTS_DEBUG", {
-    landingZone,
-    quota,
-    coverageRatio,
-    pipelineCoverage,
-  });
   const channelHeroCoverageColor =
     channelHeroCoverageValue == null || !Number.isFinite(channelHeroCoverageValue)
       ? "text-[color:var(--sf-text-primary)]"
