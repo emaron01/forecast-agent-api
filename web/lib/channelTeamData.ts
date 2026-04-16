@@ -823,11 +823,6 @@ export async function assembleChannelTeamLeaderboardFromState(
       win_rate: null,
       partner_contribution: null,
     };
-    console.log("[assembleChannelTeamLeaderboardFromState] viewerRow won", {
-      dedupedOrgWonAmount: args.dedupedOrgWonAmount,
-      totalWon,
-      rollupWon,
-    });
     channelManagerRows = [viewerRow, ...channelDirectorManagerRows];
   } else if (
     channelViewerRepId == null &&
@@ -866,9 +861,10 @@ export async function assembleChannelTeamLeaderboardFromState(
   ).size;
   const channelRollupMultiDirectorCards = channelDirectorCardCount > 1;
 
-  // Won/lost overrides only apply for channel viewers — for sales viewers the
-  // manager card aggregates correctly from channelTeamRepRows won amounts.
-  const applyOverrides = directorWonAmount > 0 || directorTerritoryLostAmount > 0;
+  const applyOverrides =
+    directorWonAmount > 0 ||
+    directorTerritoryLostAmount > 0 ||
+    (args.dedupedOrgWonAmount ?? 0) > 0;
 
   return {
     channelTeamRepRows,
@@ -879,8 +875,14 @@ export async function assembleChannelTeamLeaderboardFromState(
       applyOverrides && !channelRollupMultiDirectorCards ? directorTerritoryLostAmount : undefined,
     managerLostCountOverride:
       applyOverrides && !channelRollupMultiDirectorCards ? directorTerritoryLostCount : undefined,
-    managerWonAmountOverride: applyOverrides && !channelRollupMultiDirectorCards ? directorWonAmount : undefined,
-    managerWonCountOverride: applyOverrides && !channelRollupMultiDirectorCards ? directorWonCount : undefined,
+    managerWonAmountOverride:
+      applyOverrides && !channelRollupMultiDirectorCards
+        ? (args.dedupedOrgWonAmount ?? directorWonAmount)
+        : undefined,
+    managerWonCountOverride:
+      applyOverrides && !channelRollupMultiDirectorCards
+        ? (args.dedupedOrgWonCount ?? directorWonCount)
+        : undefined,
   };
 }
 
