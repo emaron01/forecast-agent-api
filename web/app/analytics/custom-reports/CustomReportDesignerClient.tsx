@@ -290,7 +290,9 @@ function fmtMoney(n: any) {
 
 function fmtPct(n: number | null | undefined) {
   if (n == null || n === undefined || !Number.isFinite(Number(n))) return "-";
-  return `${Math.round(Number(n) * 100)}%`;
+  const pct = Number(n) * 100;
+  const s = Number.isInteger(pct) ? String(pct) : pct.toFixed(2);
+  return `${s.replace(/\.00$/, "")}%`;
 }
 
 function healthFracFrom30(score: any) {
@@ -306,6 +308,25 @@ function fmtNum(n: any) {
   const v = Number(n);
   if (!Number.isFinite(v)) return "-";
   return v.toLocaleString();
+}
+
+function isPctMetricKey(key: MetricKey): boolean {
+  return (
+    key.startsWith("avg_health_") ||
+    key.endsWith("_coverage") ||
+    key === "attainment" ||
+    key === "win_rate" ||
+    key === "opp_to_win" ||
+    key.startsWith("mix_") ||
+    key.startsWith("partner_")
+  );
+}
+
+function fmtTooltipValue(value: any, metricKey: string | undefined) {
+  const v = value == null ? null : Number(value);
+  if (!Number.isFinite(Number(v))) return value;
+  if (metricKey && isPctMetricKey(metricKey as MetricKey)) return fmtPct(v);
+  return v;
 }
 
 function lmhFromAvg(avg: any) {
@@ -1561,6 +1582,7 @@ export function CustomReportDesignerClient(props: {
                   border: "1px solid var(--sf-border)",
                   color: "var(--sf-text-primary)",
                 }}
+                formatter={(value: any, name: any) => [fmtTooltipValue(value, String(name || "")), name]}
               />
               <Legend
                 wrapperStyle={{
@@ -1603,6 +1625,7 @@ export function CustomReportDesignerClient(props: {
                   border: "1px solid var(--sf-border)",
                   color: "var(--sf-text-primary)",
                 }}
+                formatter={(value: any, name: any) => [fmtTooltipValue(value, String(name || "")), name]}
               />
               <Legend
                 wrapperStyle={{
@@ -1650,6 +1673,7 @@ export function CustomReportDesignerClient(props: {
                   border: "1px solid var(--sf-border)",
                   color: "var(--sf-text-primary)",
                 }}
+                formatter={(value: any, name: any) => [fmtTooltipValue(value, String(name || "")), name]}
               />
             </RadarChart>
           </ResponsiveContainer>
