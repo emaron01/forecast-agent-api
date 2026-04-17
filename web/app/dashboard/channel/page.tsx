@@ -891,6 +891,18 @@ export default async function ChannelDashboardPage({
       open_pipeline: row.pipeline_amount,
     })) ?? [];
 
+  // Revenue Mix tab only: product rollup scoped to channel territory + partners (not org-wide summary.productsClosedWon).
+  const revenueMixProductsClosedWon: ChannelScopedProductRow[] =
+    selectedPeriodId && channelViewerHasDataScope
+      ? await loadPartnerScopedProductsForTerritory({
+          orgId,
+          quotaPeriodId: selectedPeriodId,
+          territoryRepIds,
+          scopePartnerNames: heroScopePartnerNames,
+          assignedPartnerNames,
+        }).catch(() => [])
+      : [];
+
   const channelPartnersExecutive =
     summary.partnersExecutive && channelSummary
       ? {
@@ -959,6 +971,11 @@ export default async function ChannelDashboardPage({
     topPartnerLost: channelTopPartnerLost,
     periodName: selectedPeriod?.period_name ?? "",
     channelTopPartnerDealsOnPage: false,
+  };
+
+  const channelRevenueMixTabProps = {
+    ...channelTabProps,
+    productsClosedWon: channelViewerHasDataScope ? revenueMixProductsClosedWon : summary.productsClosedWon,
   };
 
   /** Same props as `/forecast/simple` — `/api/forecast/deals` scopes by channel for isChannelRole users. */
@@ -1185,7 +1202,7 @@ export default async function ChannelDashboardPage({
                 reviewQueueDeals={[]}
                 currentUserId={ctx.user.id}
                 showManagerReviewQueue={false}
-                revenueTabProps={channelTabProps}
+                revenueTabProps={channelRevenueMixTabProps}
                 topPartnerWon={channelTopPartnerWon}
                 topPartnerLost={channelTopPartnerLost}
                 topDealsWon={topDealsWonRows}
@@ -1248,7 +1265,7 @@ export default async function ChannelDashboardPage({
                 ),
                 channel_partners: (
                   <ChannelTabPanelClient
-                    revenueTabProps={channelTabProps}
+                    revenueTabProps={channelRevenueMixTabProps}
                     viewerRole={ctx.user.role}
                     showChannelContribution={ledFedRows.length > 0}
                     channelContributionHero={partnerHero}
