@@ -47,6 +47,8 @@ export default async function RepDashboardPage({
     email: String(repUser.email || ""),
     role: "REP" as const,
     hierarchy_level: Number((repUser as any).hierarchy_level ?? 3) || 3,
+    first_name: (repUser as any).first_name == null ? null : String((repUser as any).first_name),
+    last_name: (repUser as any).last_name == null ? null : String((repUser as any).last_name),
     display_name: String(repUser.display_name || ""),
     account_owner_name: repUser.account_owner_name == null ? null : String(repUser.account_owner_name || ""),
     manager_user_id: repUser.manager_user_id == null ? null : Number(repUser.manager_user_id),

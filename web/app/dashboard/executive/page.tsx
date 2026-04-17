@@ -1840,7 +1840,9 @@ export default async function ExecutiveDashboardPage({
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-pageTitle text-[color:var(--sf-text-primary)]">
-              {`${String(ctx.user.first_name || "").trim()} ${String(ctx.user.last_name || "").trim()}`.trim() || "Executive"}{" "}
+              {`${String(ctx.user.first_name || "").trim()} ${String(ctx.user.last_name || "").trim()}`.trim() ||
+                String(ctx.user.display_name || "").trim() ||
+                "Executive"}{" "}
               Dashboard
             </h1>
           </div>

@@ -353,7 +353,8 @@ export async function getScopedRepDirectory(args: {
       const anchorUserId = Number(mid);
       if (Number.isFinite(anchorUserId) && anchorUserId > 0 && anchorUserId !== userId) {
         const { rows: arRows } = await pool.query(
-          `SELECT id, public_id::text AS public_id, org_id, email, role::text AS role, hierarchy_level, display_name, account_owner_name, manager_user_id, admin_has_full_analytics_access, see_all_visibility, active
+          `SELECT id, public_id::text AS public_id, org_id, email, role::text AS role, hierarchy_level,
+                  first_name, last_name, display_name, account_owner_name, manager_user_id, admin_has_full_analytics_access, see_all_visibility, active
              FROM users
             WHERE org_id = $1 AND id = $2 LIMIT 1`,
           [orgId, anchorUserId]
@@ -366,6 +367,8 @@ export async function getScopedRepDirectory(args: {
               email: String(arRows[0].email || ""),
               role: arRows[0].role as AuthUser["role"],
               hierarchy_level: Number(arRows[0].hierarchy_level ?? HIERARCHY.REP) || HIERARCHY.REP,
+              first_name: arRows[0].first_name == null ? null : String(arRows[0].first_name),
+              last_name: arRows[0].last_name == null ? null : String(arRows[0].last_name),
               display_name: String(arRows[0].display_name || ""),
               account_owner_name: arRows[0].account_owner_name == null ? null : String(arRows[0].account_owner_name || ""),
               manager_user_id: arRows[0].manager_user_id == null ? null : Number(arRows[0].manager_user_id),

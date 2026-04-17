@@ -35,6 +35,8 @@ async function pickOrgAnalyticsUser(orgId: number): Promise<AuthUser | null> {
         email,
         role,
         hierarchy_level,
+        first_name,
+        last_name,
         display_name,
         account_owner_name,
         manager_user_id,

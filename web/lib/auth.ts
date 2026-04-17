@@ -29,6 +29,8 @@ export type AuthUser = {
     | "CHANNEL_DIRECTOR"
     | "CHANNEL_REP";
   hierarchy_level: number;
+  first_name: string | null;
+  last_name: string | null;
   display_name: string;
   account_owner_name: string | null;
   manager_user_id: number | null;
@@ -197,6 +199,8 @@ export async function getAuth(): Promise<AuthContext | null> {
         u.email,
         u.role,
         u.hierarchy_level,
+        u.first_name,
+        u.last_name,
         u.display_name,
         u.account_owner_name,
         u.manager_user_id,
@@ -246,6 +250,8 @@ export async function getAuth(): Promise<AuthContext | null> {
     email: String(r.email || ""),
     role: r.role as AuthUser["role"],
     hierarchy_level,
+    first_name: r.first_name == null ? null : String(r.first_name),
+    last_name: r.last_name == null ? null : String(r.last_name),
     display_name: String(r.display_name || ""),
     account_owner_name: r.account_owner_name == null ? null : String(r.account_owner_name || ""),
     manager_user_id: r.manager_user_id == null ? null : Number(r.manager_user_id),
