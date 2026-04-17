@@ -2891,6 +2891,24 @@ export async function listManagerVisibility(args: { orgId: number; managerUserId
     .filter((n) => Number.isFinite(n) && n > 0);
 }
 
+export async function listDirectReportUserIds(args: { orgId: number; managerUserId: number }) {
+  const orgId = zOrganizationId.parse(args.orgId);
+  const managerUserId = zUserId.parse(args.managerUserId);
+  const { rows } = await pool.query(
+    `
+    SELECT u.id AS user_id
+      FROM users u
+     WHERE u.org_id = $1::bigint
+       AND u.manager_user_id = $2::bigint
+     ORDER BY u.id ASC
+    `,
+    [orgId, managerUserId]
+  );
+  return (rows || [])
+    .map((r: any) => Number(r.user_id))
+    .filter((n) => Number.isFinite(n) && n > 0);
+}
+
 export async function replaceManagerVisibility(args: {
   orgId: number;
   managerUserId: number;

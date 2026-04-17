@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Modal } from "../_components/Modal";
 import { UserFormRoleSync } from "../_components/UserFormRoleSync";
 import { requireOrgContext } from "../../../lib/auth";
-import { getUserById, listManagerVisibility, listRepUsersForManager, listUsers } from "../../../lib/db";
+import { getUserById, listDirectReportUserIds, listManagerVisibility, listRepUsersForManager, listUsers } from "../../../lib/db";
 import { roleLabel } from "../../../lib/userRoles";
 import { resolvePublicId } from "../../../lib/publicId";
 import {
@@ -164,8 +164,12 @@ export default async function UsersPage({
     user &&
     (user.hierarchy_level === 1 ||
       user.hierarchy_level === 2 ||
+      user.hierarchy_level === 6 ||
+      user.hierarchy_level === 7 ||
       (user.hierarchy_level === 0 && !!user.admin_has_full_analytics_access))
-      ? await listManagerVisibility({ orgId, managerUserId: user.id }).catch(() => [])
+      ? user.hierarchy_level === 6 || user.hierarchy_level === 7
+        ? await listDirectReportUserIds({ orgId, managerUserId: user.id }).catch(() => [])
+        : await listManagerVisibility({ orgId, managerUserId: user.id }).catch(() => [])
       : [];
 
   const channelAndSalesLeadersEdit =
@@ -850,10 +854,25 @@ export default async function UsersPage({
                 }
               >
                 <input type="hidden" name="direct_reports_submitted" value="1" />
+                <input type="hidden" name="remove_all_direct_reports" value="0" />
                 <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct reports (assignments)</div>
                 <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
                   Select which existing users report to this leader. These selections also control their visibility scope.
                 </p>
+                <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                  Assigning a Team leader automatically includes that team leader&apos;s direct reports. Do not select INDIRECT reports as
+                  direct reports, as this will pull them from their manager&apos;s team and place them directly under this leader.
+                </p>
+                <div className="mt-2 flex items-center justify-end">
+                  <button
+                    type="submit"
+                    name="remove_all_direct_reports"
+                    value="1"
+                    className="rounded-full border border-[color:var(--sf-border)] bg-white px-3 py-1 text-xs font-semibold text-[#E74C3C] hover:bg-[color:var(--sf-surface-alt)]"
+                  >
+                    Remove all direct reports
+                  </button>
+                </div>
                 <div className="mt-2 grid gap-2">
                   {users
                     .filter((u) => u.active)
@@ -893,10 +912,25 @@ export default async function UsersPage({
                 hidden
               >
                 <input type="hidden" name="direct_reports_submitted" value="1" />
+                <input type="hidden" name="remove_all_direct_reports" value="0" />
                 <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct reports (assignments)</div>
                 <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
                   Select which existing users report to this leader. These selections also control their visibility scope.
                 </p>
+                <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
+                  Assigning a Team leader automatically includes that team leader&apos;s direct reports. Do not select INDIRECT reports as
+                  direct reports, as this will pull them from their manager&apos;s team and place them directly under this leader.
+                </p>
+                <div className="mt-2 flex items-center justify-end">
+                  <button
+                    type="submit"
+                    name="remove_all_direct_reports"
+                    value="1"
+                    className="rounded-full border border-[color:var(--sf-border)] bg-white px-3 py-1 text-xs font-semibold text-[#E74C3C] hover:bg-[color:var(--sf-surface-alt)]"
+                  >
+                    Remove all direct reports
+                  </button>
+                </div>
                 <div className="mt-2 grid gap-2">
                   {users
                     .filter((u) => u.active)

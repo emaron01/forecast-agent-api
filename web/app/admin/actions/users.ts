@@ -489,6 +489,7 @@ export async function updateUserAction(formData: FormData) {
     if (resolvedId !== userId) visibleIds.push(resolvedId);
   }
   const directReportsSubmitted = formData.get("direct_reports_submitted") === "1";
+  const removeAllDirectReports = String(formData.get("remove_all_direct_reports") || "") === "1";
   const checkedRepIds = Array.from(new Set(visibleIds)).filter((id) => Number.isFinite(id) && id > 0);
   if (isManagerLevel(hierarchy_level) && !see_all_visibility && visibleIds.length === 0) {
     throw new Error("MANAGER must have visibility assignments unless see_all_visibility is enabled");
@@ -646,6 +647,20 @@ export async function updateUserAction(formData: FormData) {
     }
 
     if (supportsDirectReportAssignments && directReportsSubmitted) {
+      if (removeAllDirectReports) {
+        // Explicit UX action: clear all direct reports for this leader.
+        await client.query(
+          `
+          UPDATE users
+             SET manager_user_id = NULL,
+                 updated_at = NOW()
+           WHERE org_id = $1
+             AND manager_user_id = $2
+          `,
+          [orgId, userId]
+        );
+        await client.query(`DELETE FROM manager_visibility WHERE manager_user_id = $1`, [userId]);
+      } else {
       if (checkedRepIds.length) {
         await client.query(
           `
@@ -658,18 +673,22 @@ export async function updateUserAction(formData: FormData) {
           [userId, orgId, checkedRepIds]
         );
       }
-
-      await client.query(
-        `
-        UPDATE users
-           SET manager_user_id = NULL,
-               updated_at = NOW()
-         WHERE org_id = $1
-           AND manager_user_id = $2
-           AND id != ALL($3::int[])
-        `,
-        [orgId, userId, checkedRepIds]
-      );
+      // Only clear existing direct reports when at least one checkbox is selected.
+      // This prevents unrelated edits (name/title/email) from wiping assignments if the selection payload is empty.
+      if (checkedRepIds.length) {
+        await client.query(
+          `
+          UPDATE users
+             SET manager_user_id = NULL,
+                 updated_at = NOW()
+           WHERE org_id = $1
+             AND manager_user_id = $2
+             AND id != ALL($3::int[])
+          `,
+          [orgId, userId, checkedRepIds]
+        );
+      }
+      }
     }
 
     await client.query("COMMIT");
