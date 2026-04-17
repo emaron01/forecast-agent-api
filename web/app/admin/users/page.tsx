@@ -854,15 +854,16 @@ export default async function UsersPage({
                 }
               >
                 <input type="hidden" name="direct_reports_submitted" value="1" />
-                <input type="hidden" name="remove_all_direct_reports" value="0" />
                 <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct reports (assignments)</div>
-                <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-                  Select which existing users report to this leader. These selections also control their visibility scope.
-                </p>
-                <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-                  Assigning a Team leader automatically includes that team leader&apos;s direct reports. Do not select INDIRECT reports as
-                  direct reports, as this will pull them from their manager&apos;s team and place them directly under this leader.
-                </p>
+                <div className="mt-1 space-y-3 text-[calc(0.75rem+1pt)] leading-snug text-[color:var(--sf-text-secondary)]">
+                  <p>
+                    Select which existing users report to this leader. These selections also control their visibility scope.
+                  </p>
+                  <p>
+                    Assigning a Team leader automatically includes that team leader&apos;s direct reports. Do not select INDIRECT reports as
+                    direct reports, as this will pull them from their manager&apos;s team and place them directly under this leader.
+                  </p>
+                </div>
                 <div className="mt-2 flex items-center justify-end">
                   <button
                     type="submit"
@@ -912,15 +913,16 @@ export default async function UsersPage({
                 hidden
               >
                 <input type="hidden" name="direct_reports_submitted" value="1" />
-                <input type="hidden" name="remove_all_direct_reports" value="0" />
                 <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Direct reports (assignments)</div>
-                <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-                  Select which existing users report to this leader. These selections also control their visibility scope.
-                </p>
-                <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">
-                  Assigning a Team leader automatically includes that team leader&apos;s direct reports. Do not select INDIRECT reports as
-                  direct reports, as this will pull them from their manager&apos;s team and place them directly under this leader.
-                </p>
+                <div className="mt-1 space-y-3 text-[calc(0.75rem+1pt)] leading-snug text-[color:var(--sf-text-secondary)]">
+                  <p>
+                    Select which existing users report to this leader. These selections also control their visibility scope.
+                  </p>
+                  <p>
+                    Assigning a Team leader automatically includes that team leader&apos;s direct reports. Do not select INDIRECT reports as
+                    direct reports, as this will pull them from their manager&apos;s team and place them directly under this leader.
+                  </p>
+                </div>
                 <div className="mt-2 flex items-center justify-end">
                   <button
                     type="submit"
