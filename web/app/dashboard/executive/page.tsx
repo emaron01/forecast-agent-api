@@ -818,12 +818,43 @@ export default async function ExecutiveDashboardPage({
       : summary.myRepId != null && Number.isFinite(Number(summary.myRepId)) && Number(summary.myRepId) > 0
         ? Number(summary.myRepId)
         : null;
-  const channelRepIdsFromDirectory = repDirectory
+  let channelRepIdsFromDirectory = repDirectory
     .filter((r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_REP)
     .map((r) => r.id);
 
+  const viewerHlForChannelTeam = Number(ctx.user.hierarchy_level);
+  if (
+    channelRepIdsFromDirectory.length === 0 &&
+    viewerHlForChannelTeam >= HIERARCHY.ADMIN &&
+    viewerHlForChannelTeam <= HIERARCHY.MANAGER
+  ) {
+    const { rows: chRepRows } = await pool.query<{ id: number }>(
+      `
+      SELECT r.id
+        FROM reps r
+        INNER JOIN users u
+          ON u.id = r.user_id
+         AND u.org_id = $1::bigint
+       WHERE r.organization_id = $1::bigint
+         AND (r.active IS TRUE OR r.active IS NULL)
+         AND (u.active IS TRUE OR u.active IS NULL)
+         AND u.hierarchy_level = $2::int
+       ORDER BY r.id ASC
+      `,
+      [orgId, HIERARCHY.CHANNEL_REP]
+    );
+    channelRepIdsFromDirectory = (chRepRows || [])
+      .map((row) => Number(row.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+  }
+
+  const loadChannelTeamPayloadForTeamTab =
+    !!selectedPeriodId &&
+    (viewerHasChannelScope ||
+      (viewerHlForChannelTeam >= HIERARCHY.ADMIN && viewerHlForChannelTeam <= HIERARCHY.MANAGER));
+
   const channelTeamPayloadPromise: Promise<BuildChannelTeamPayloadResult | null> =
-    selectedPeriodId && viewerHasChannelScope
+    loadChannelTeamPayloadForTeamTab
       ? buildChannelTeamPayload({
           orgId: ctx.user.org_id,
           userId: ctx.user.id,

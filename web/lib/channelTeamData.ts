@@ -923,23 +923,6 @@ export async function buildChannelTeamPayload(
         : null;
 
   const isChannelViewer = isChannelRoleLevel(hierarchyLevel);
-  // For non-channel viewers, channelViewerRepId should be the top channel leader
-  // in scope (level 6), not the sales viewer's own rep id.
-  if (!isChannelViewer && args.repDirectoryForRollup) {
-    const topChannelLeader =
-      args.repDirectoryForRollup
-        .filter((r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_EXEC)
-        .sort((a, b) => a.id - b.id)[0] ?? null;
-    if (topChannelLeader) {
-      channelViewerRepId = topChannelLeader.id;
-    } else {
-      const topChannelManager =
-        args.repDirectoryForRollup
-          .filter((r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_MANAGER)
-          .sort((a, b) => a.id - b.id)[0] ?? null;
-      channelViewerRepId = topChannelManager?.id ?? null;
-    }
-  }
 
   let assignedPartnerNames = await listAssignedPartnerNames({
     orgId,
@@ -967,8 +950,96 @@ export async function buildChannelTeamPayload(
     return null;
   }
 
-  if (!isChannelViewer && args.repDirectoryForRollup && channelScopedRepIds.length > 0) {
-    const channelRep8Rows = args.repDirectoryForRollup.filter(
+  type RollupDirRow = {
+    id: number;
+    name: string;
+    hierarchy_level: number | null;
+    user_id: number | null;
+  };
+  let rollupDirectory: RollupDirRow[] = [...(args.repDirectoryForRollup ?? [])];
+
+  const rollupPresent = new Set(rollupDirectory.map((r) => r.id));
+  const missingScopedRepIds = channelScopedRepIds.filter((id) => !rollupPresent.has(id));
+  if (missingScopedRepIds.length > 0) {
+    const { rows: hydrateRepRows } = await pool.query<{ id: number; user_id: number | null }>(
+      `
+      SELECT r.id, r.user_id
+        FROM reps r
+       WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+         AND r.id = ANY($2::bigint[])
+         AND (r.active IS TRUE OR r.active IS NULL)
+      `,
+      [orgId, missingScopedRepIds]
+    );
+    for (const row of hydrateRepRows || []) {
+      const id = Number(row.id);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      rollupDirectory.push({
+        id,
+        name: "",
+        hierarchy_level: HIERARCHY.CHANNEL_REP,
+        user_id: row.user_id == null ? null : Number(row.user_id),
+      });
+    }
+  }
+
+  const rollupIds = new Set(rollupDirectory.map((r) => r.id));
+  if (!isChannelViewer) {
+    const { rows: leaderRows } = await pool.query<{
+      id: number;
+      user_id: number | null;
+      name: string | null;
+      hierarchy_level: number | null;
+    }>(
+      `
+      SELECT r.id, r.user_id,
+             COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), '') AS name,
+             u.hierarchy_level::int AS hierarchy_level
+        FROM reps r
+        JOIN users u
+          ON u.id = r.user_id
+         AND u.org_id::bigint = $1::bigint
+       WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+         AND (r.active IS TRUE OR r.active IS NULL)
+         AND (u.active IS TRUE OR u.active IS NULL)
+         AND u.hierarchy_level IN ($2::int, $3::int)
+       ORDER BY u.hierarchy_level ASC, r.id ASC
+      `,
+      [orgId, HIERARCHY.CHANNEL_EXEC, HIERARCHY.CHANNEL_MANAGER]
+    );
+    for (const row of leaderRows || []) {
+      const id = Number(row.id);
+      if (!Number.isFinite(id) || id <= 0 || rollupIds.has(id)) continue;
+      rollupIds.add(id);
+      rollupDirectory.push({
+        id,
+        name: String(row.name || "").trim(),
+        hierarchy_level: row.hierarchy_level == null ? null : Number(row.hierarchy_level),
+        user_id: row.user_id == null ? null : Number(row.user_id),
+      });
+    }
+  }
+
+  // For non-channel viewers, channelViewerRepId should be the top channel leader
+  // in scope (level 6), not the sales viewer's own rep id.
+  if (!isChannelViewer && rollupDirectory.length > 0) {
+    const topChannelLeader =
+      rollupDirectory
+        .filter((r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_EXEC)
+        .sort((a, b) => a.id - b.id)[0] ?? null;
+    if (topChannelLeader) {
+      channelViewerRepId = topChannelLeader.id;
+    } else {
+      const topChannelManager =
+        rollupDirectory
+          .filter((r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_MANAGER)
+          .sort((a, b) => a.id - b.id)[0] ?? null;
+      channelViewerRepId = topChannelManager?.id ?? null;
+    }
+  }
+
+  if (!isChannelViewer && rollupDirectory.length > 0 && channelScopedRepIds.length > 0) {
+    const channelRep8Rows = rollupDirectory.filter(
       (r) =>
         Number(r.hierarchy_level) === HIERARCHY.CHANNEL_REP &&
         channelScopedRepIds.includes(r.id) &&
@@ -1342,7 +1413,7 @@ export async function buildChannelTeamPayload(
     directorTerritoryLostCount,
     directorWonAmount,
     directorWonCount,
-    repDirectoryForRollup: args.repDirectoryForRollup,
+    repDirectoryForRollup: rollupDirectory,
   });
 
   return {
