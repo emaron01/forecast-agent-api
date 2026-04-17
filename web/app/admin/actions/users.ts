@@ -125,6 +125,17 @@ function isValidManagerForAdminExecDashboard(managerHierarchyLevel: number) {
   );
 }
 
+/** Prefer `hierarchy_level`; fall back to `role` when the level column is null or out of sync (user edit saves). */
+function effectiveUserHierarchyLevel(row: { hierarchy_level?: unknown; role?: unknown }): number | null {
+  const raw = row?.hierarchy_level;
+  if (raw !== null && raw !== undefined && String(raw).trim() !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return n;
+  }
+  const fromRole = roleToHierarchyLevel(String(row?.role ?? ""));
+  return fromRole != null ? Number(fromRole) : null;
+}
+
 async function syncDirectReportsFromVisibility(args: {
   orgId: number;
   managerUserId: number;
@@ -495,7 +506,9 @@ export async function updateUserAction(formData: FormData) {
     throw new Error("MANAGER must have visibility assignments unless see_all_visibility is enabled");
   }
   const isSalesLeader = isExecManagerLevel(hierarchy_level) || isManagerLevel(hierarchy_level);
-  const isAdminExecLeader = isAdminLevel(hierarchy_level) && admin_has_full_analytics_access;
+  /** Level 0 + Executive Dashboard Access, or role ADMIN with that checkbox (covers hierarchy drift). */
+  const isAdminExecLeader =
+    admin_has_full_analytics_access && (isAdminLevel(hierarchy_level) || parsed.role === "ADMIN");
   const supportsDirectReportAssignments =
     isSalesLeader ||
     hierarchy_level === HIERARCHY.CHANNEL_EXEC ||
@@ -507,19 +520,6 @@ export async function updateUserAction(formData: FormData) {
     await client.query("BEGIN");
 
     if (isSalesLeader) {
-      const mgrRes = await client.query(`SELECT id, hierarchy_level FROM users WHERE id = $1 AND org_id = $2 LIMIT 1`, [userId, orgId]);
-      const mgr = mgrRes.rows?.[0] as { id?: number; hierarchy_level?: number } | undefined;
-      if (!mgr) throw new Error("manager_user_id not found in org");
-      const mgrLevel = Number(mgr.hierarchy_level);
-      const isConfigurable =
-        mgrLevel === HIERARCHY.EXEC_MANAGER ||
-        mgrLevel === HIERARCHY.MANAGER ||
-        mgrLevel === HIERARCHY.CHANNEL_EXEC ||
-        mgrLevel === HIERARCHY.CHANNEL_MANAGER;
-      if (!isConfigurable && (see_all_visibility || checkedRepIds.length)) {
-        throw new Error("visibility is only configurable for EXEC_MANAGER (level 1) and MANAGER (level 2)");
-      }
-
       await client.query(`UPDATE users SET see_all_visibility = $3, updated_at = NOW() WHERE id = $1 AND org_id = $2`, [
         userId,
         orgId,
@@ -538,8 +538,15 @@ export async function updateUserAction(formData: FormData) {
           `,
           [orgId, checkedRepIds]
         );
+        const minVisibleLevel = isExecManagerLevel(hierarchy_level) ? HIERARCHY.EXEC_MANAGER : HIERARCHY.MANAGER;
         const allowedIds = (targetsRes.rows || [])
-          .filter((r: any) => r && !isAdminLevel(r.hierarchy_level) && Number(r.hierarchy_level) >= 2)
+          .filter((r: any) => {
+            if (!r) return false;
+            const h = effectiveUserHierarchyLevel(r);
+            if (h == null || !Number.isFinite(h)) return false;
+            if (isAdminLevel(h)) return false;
+            return h >= minVisibleLevel;
+          })
           .map((r: any) => Number(r.id))
           .filter((n) => Number.isFinite(n) && n > 0);
 
@@ -597,8 +604,10 @@ export async function updateUserAction(formData: FormData) {
         );
         const allowedIds = (targetsRes.rows || [])
           .filter((r: any) => {
-            if (!r || isAdminLevel(r.hierarchy_level)) return false;
-            const h = Number(r.hierarchy_level);
+            if (!r) return false;
+            const h = effectiveUserHierarchyLevel(r);
+            if (h == null || !Number.isFinite(h)) return false;
+            if (h === HIERARCHY.ADMIN) return true;
             return (
               (h >= HIERARCHY.EXEC_MANAGER && h <= HIERARCHY.REP) ||
               (h >= HIERARCHY.CHANNEL_EXEC && h <= HIERARCHY.CHANNEL_REP)
