@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createHash } from "crypto";
+
 import type { RepManagerManagerRow, RepManagerRepRow } from "../app/components/dashboard/executive/RepManagerComparisonPanel";
 import {
   deduplicateWonDeals,
@@ -535,6 +537,55 @@ export type BuildChannelTeamPayloadResult = {
   managerWonCountOverride?: number;
 };
 
+function buildChannelTeamCacheKey(args: BuildChannelTeamPayloadArgs): string {
+  const stable = JSON.stringify({
+    orgId: args.orgId,
+    userId: args.userId,
+    hierarchyLevel: args.hierarchyLevel,
+    selectedQuotaPeriodId: args.selectedQuotaPeriodId,
+    fiscalYear: args.fiscalYear,
+    prevQuotaPeriodId: args.prevQuotaPeriodId,
+    comparePeriodIds: [...(args.comparePeriodIds ?? [])].sort(),
+    fyQuotaPeriodIds: [...(args.fyQuotaPeriodIds ?? [])].sort(),
+    channelRepIdsFromDirectory: [...(args.channelRepIdsFromDirectory ?? [])].sort(),
+  });
+  return createHash("sha256").update(stable).digest("hex");
+}
+
+async function getCachedChannelTeamPayload(orgId: number, inputHash: string): Promise<BuildChannelTeamPayloadResult | null> {
+  try {
+    const { rows } = await pool.query<{ payload: string }>(
+      `SELECT snapshot_json::text AS payload
+       FROM executive_snapshots
+       WHERE org_id = $1 AND quota_period_id = 0 AND input_hash = $2
+       LIMIT 1`,
+      [orgId, `channel_team:${inputHash}`]
+    );
+    if (!rows[0]?.payload) return null;
+    return JSON.parse(rows[0].payload) as BuildChannelTeamPayloadResult;
+  } catch {
+    return null;
+  }
+}
+
+async function putCachedChannelTeamPayload(
+  orgId: number,
+  inputHash: string,
+  result: BuildChannelTeamPayloadResult
+): Promise<void> {
+  try {
+    await pool.query(
+      `INSERT INTO executive_snapshots (org_id, quota_period_id, input_hash, snapshot_json)
+       VALUES ($1, 0, $2, $3::jsonb)
+       ON CONFLICT (org_id, quota_period_id, input_hash)
+       DO UPDATE SET snapshot_json = EXCLUDED.snapshot_json, created_at = NOW()`,
+      [orgId, `channel_team:${inputHash}`, JSON.stringify(result)]
+    );
+  } catch (e) {
+    console.error("[putCachedChannelTeamPayload] error", e instanceof Error ? e.stack : String(e));
+  }
+}
+
 function safeDivChannel(n: number, d: number): number | null {
   if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) return null;
   return n / d;
@@ -884,6 +935,10 @@ export async function assembleChannelTeamLeaderboardFromState(
 export async function buildChannelTeamPayload(
   args: BuildChannelTeamPayloadArgs
 ): Promise<BuildChannelTeamPayloadResult | null> {
+  const inputHash = buildChannelTeamCacheKey(args);
+  const cached = await getCachedChannelTeamPayload(args.orgId, inputHash);
+  if (cached) return cached;
+
   const {
     orgId,
     userId,
@@ -1345,7 +1400,7 @@ export async function buildChannelTeamPayload(
     repDirectoryForRollup: args.repDirectoryForRollup,
   });
 
-  return {
+  const result: BuildChannelTeamPayloadResult = {
     ...assembled,
     channelDashboardSummary: channelSummary,
     productsClosedWonByRep: channelProductsClosedWonByRep,
@@ -1353,4 +1408,6 @@ export async function buildChannelTeamPayload(
     orgLevelProductsCurrentQ,
     orgLevelProductsYtd,
   };
+  await putCachedChannelTeamPayload(args.orgId, inputHash, result);
+  return result;
 }
