@@ -1013,6 +1013,11 @@ export default async function ExecutiveDashboardPage({
     return deduped;
   })();
 
+  // Executive-only UX: hide channel roles (6/7/8) from Report Builder + Revenue Intelligence rep selection.
+  const directoryInScopeNoChannel = directoryInScope.filter(
+    (r) => !CHANNEL_HIERARCHY_LEVELS.includes(Number(r.hierarchy_level))
+  );
+
   const periodLabel = selectedPeriodForTeam?.period_name ?? "Current Period";
 
   let reportBuilderRepRows: any[] = [];
@@ -2016,7 +2021,7 @@ export default async function ExecutiveDashboardPage({
           reportBuilderRepRows={reportBuilderRepRows}
           reportBuilderSavedReports={reportBuilderSavedReports}
           reportBuilderPeriodLabel={periodLabel}
-          reportBuilderRepDirectory={directoryInScope}
+          reportBuilderRepDirectory={directoryInScopeNoChannel}
           reportBuilderQuotaPeriods={summary.periods.map((p) => ({
             id: String(p.id),
             name: p.period_name ? `${p.period_name}` : String(p.id),
@@ -2030,7 +2035,7 @@ export default async function ExecutiveDashboardPage({
             name: p.period_name,
             fiscal_year: String(p.fiscal_year ?? ""),
           }))}
-          revenueIntelligenceRepDirectory={directoryInScope.map((r) => ({
+          revenueIntelligenceRepDirectory={directoryInScopeNoChannel.map((r) => ({
             id: r.id,
             name: r.name,
             role: r.role ?? "REP",
