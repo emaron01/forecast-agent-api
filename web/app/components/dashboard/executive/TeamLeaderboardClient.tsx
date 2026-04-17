@@ -78,6 +78,14 @@ function fmtMoney(n: unknown) {
   return `$${Math.round(v)}`;
 }
 
+function departedRepHasInScopeActivity(rep: RepManagerRepRow): boolean {
+  const won = Number(rep.won_amount) || 0;
+  const lost = Number(rep.lost_amount ?? 0) || 0;
+  const activeAmt = Number(rep.active_amount) || 0;
+  const total = Number(rep.total_count) || 0;
+  return won > 0 || lost > 0 || activeAmt > 0 || total > 0;
+}
+
 function computePaceRatio(periodStart: string, periodEnd: string) {
   const today = new Date();
   const start = new Date(periodStart);
@@ -866,7 +874,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const subManagerIdSet = new Set(subManagerCards.map((r) => String(r.manager_id)));
     const leafRepsUnder = repsUnder.filter((r) => !subManagerIdSet.has(String(r.rep_id)));
     const activeRepRows = leafRepsUnder.filter((r) => r.active !== false);
-    const departedRepRows = leafRepsUnder.filter((r) => r.active === false);
+    const departedRepRows = leafRepsUnder.filter((r) => r.active === false && departedRepHasInScopeActivity(r));
 
     // For pure-manager nodes (no direct leaf reps), current quarter quota and won
     // come from mgrMeta (the manager row from buildOrgSubtree) which has correct subtree rollups.

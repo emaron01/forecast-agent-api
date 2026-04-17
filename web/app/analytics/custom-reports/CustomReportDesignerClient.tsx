@@ -81,6 +81,14 @@ type RepRow = {
   active?: boolean;
 };
 
+function repRowHasInScopeActivity(r: RepRow): boolean {
+  const won = Number(r.won_amount) || 0;
+  const lost = Number((r as RepRow & { lost_amount?: number }).lost_amount ?? 0) || 0;
+  const activeAmt = Number(r.active_amount) || 0;
+  const total = Number(r.total_count) || 0;
+  return won > 0 || lost > 0 || activeAmt > 0 || total > 0;
+}
+
 type RepDirectoryEntry = {
   id: number;
   name: string;
@@ -917,7 +925,10 @@ export function CustomReportDesignerClient(props: {
   );
 
   const activePreviewRows = useMemo(() => previewRows.filter((r) => r.active !== false), [previewRows]);
-  const departedPreviewRows = useMemo(() => previewRows.filter((r) => r.active === false), [previewRows]);
+  const departedPreviewRows = useMemo(
+    () => previewRows.filter((r) => r.active === false && repRowHasInScopeActivity(r)),
+    [previewRows]
+  );
 
   const activeMergedRows = useMemo(
     () =>
@@ -931,7 +942,8 @@ export function CustomReportDesignerClient(props: {
     () =>
       mergedRows.filter((row) => {
         const sample = row.byPeriod.map((p) => p.row).find((x) => x != null);
-        return sample?.active === false;
+        if (sample?.active !== false) return false;
+        return row.byPeriod.some((pd) => pd.row != null && repRowHasInScopeActivity(pd.row));
       }),
     [mergedRows]
   );

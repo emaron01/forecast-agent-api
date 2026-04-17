@@ -258,6 +258,21 @@ type AggRow = {
   products: Record<string, number>;
 };
 
+function breakdownRowsHaveInScopeActivity(rows: AggRow[], quarterIds: Set<string>): boolean {
+  let won_amount = 0;
+  let lost_amount = 0;
+  let pipeline_amount = 0;
+  let total_count = 0;
+  for (const r of rows) {
+    if (!quarterIds.has(r.quarter_id)) continue;
+    won_amount += Number(r.won_amount || 0);
+    lost_amount += Number(r.lost_amount || 0);
+    pipeline_amount += Number(r.pipeline_amount || 0);
+    total_count += Number(r.won_count || 0) + Number(r.lost_count || 0) + Number(r.pipeline_count || 0);
+  }
+  return won_amount > 0 || lost_amount > 0 || pipeline_amount > 0 || total_count > 0;
+}
+
 type BucketSummary = {
   won_count: number;
   lost_count: number;
@@ -802,11 +817,12 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
           const row = repDirectory.find((r) => String(r.id) === String(id));
           return row?.active === false;
         });
-      if (allDeparted) departed.push(e);
-      else active.push(e);
+      if (allDeparted) {
+        if (breakdownRowsHaveInScopeActivity(e.data.rows, selectedQuarterIds)) departed.push(e);
+      } else active.push(e);
     }
     return { active, departed };
-  }, [breakdownEntries, repDirectory]);
+  }, [breakdownEntries, repDirectory, selectedQuarterIds]);
 
   const bOrder = useMemo(() => {
     if (!reportData?.buckets?.length) return bucketsSortedByMin;

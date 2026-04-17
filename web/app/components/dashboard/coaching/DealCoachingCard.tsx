@@ -182,6 +182,8 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
   const repLabel = String(props.deal.rep?.rep_name || "").trim() || "—";
   const partnerLabel = String(props.deal.partner_name || "").trim();
   const channelDash = !!props.channelDashboard;
+  const requestReviewBtnClass =
+    "inline-flex items-center justify-center rounded-md border border-[color:var(--sf-accent-primary)] px-4 text-xs font-semibold text-[color:var(--sf-accent-primary)] hover:bg-[color:var(--sf-accent-primary)] hover:text-white transition-colors";
 
   return (
     <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4">
@@ -237,13 +239,22 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
             </div>
           ) : null}
           {!channelDash ? (
-            <div className="mt-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               <Link
                 href={`/opportunities/${encodeURIComponent(props.deal.id)}/deal-review`}
                 className="inline-flex h-[34px] items-center justify-center rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 text-sm font-medium text-[color:var(--sf-accent-primary)] hover:bg-[color:var(--sf-surface-alt)]"
               >
                 View Full Deal
               </Link>
+              {props.showRequestReview ? (
+                <button
+                  type="button"
+                  onClick={() => props.onRequestReview?.(props.deal.id)}
+                  className={`${requestReviewBtnClass} h-[34px]`}
+                >
+                  Request Matthew Review
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -349,22 +360,6 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
         </div>
       </div>
 
-      {props.deal.risk_flags.length ? (
-        <div className="mt-3">
-          <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Risks</div>
-          <div className="mt-1 flex flex-wrap gap-2">
-            {props.deal.risk_flags.slice(0, 8).map((rf, idx) => (
-              <span
-                key={`${rf.key}:${idx}`}
-                className="rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-2 py-1 text-xs text-[color:var(--sf-text-primary)]"
-              >
-                {rf.label}
-              </span>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
       {props.deal.coaching_insights.length ? (
         <div className="mt-3">
           <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Coaching insights</div>
@@ -378,15 +373,9 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
 
       {props.showRequestReview && !channelDash ? (
         <button
-          onClick={() => props.onRequestReview?.(
-            props.deal.id
-          )}
-          className="mt-3 rounded-md border 
-      border-[color:var(--sf-accent-primary)] 
-      px-4 py-2 text-xs font-semibold 
-      text-[color:var(--sf-accent-primary)] 
-      hover:bg-[color:var(--sf-accent-primary)] 
-      hover:text-white transition-colors"
+          type="button"
+          onClick={() => props.onRequestReview?.(props.deal.id)}
+          className={`mt-3 ${requestReviewBtnClass} py-2`}
         >
           Request Matthew Review
         </button>
