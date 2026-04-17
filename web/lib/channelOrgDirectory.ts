@@ -13,7 +13,7 @@ export type ChannelOrgDirectoryRow = {
 
 /**
  * Channel org tree under the viewer.
- * - Channel exec / director (6/7): full channel subtree (all levels 6/7/8 under the viewer in the manager chain).
+ * - Channel exec / director (6/7, or role CHANNEL_EXECUTIVE / CHANNEL_DIRECTOR): full channel subtree under the viewer.
  * - Channel rep (8): self, direct reports, and one level of indirect reports (unchanged).
  * `id` is users.id (used with getChannelTerritoryRepIds({ channelUserId: id })).
  */
@@ -26,9 +26,9 @@ export async function fetchChannelOrgDirectoryForViewer(args: {
   if (!Number.isFinite(orgId) || orgId <= 0) return [];
   if (!Number.isFinite(viewerUserId) || viewerUserId <= 0) return [];
 
-  const { rows: viewerRows } = await pool.query<{ hierarchy_level: number | null }>(
+  const { rows: viewerRows } = await pool.query<{ hierarchy_level: number | null; role: string | null }>(
     `
-    SELECT u.hierarchy_level
+    SELECT u.hierarchy_level, COALESCE(u.role::text, '') AS role
     FROM users u
     WHERE u.org_id = $1::bigint
       AND u.id = $2::bigint
@@ -37,8 +37,12 @@ export async function fetchChannelOrgDirectoryForViewer(args: {
     [orgId, viewerUserId]
   );
   const viewerHl = viewerRows[0]?.hierarchy_level == null ? null : Number(viewerRows[0].hierarchy_level);
+  const viewerRole = String(viewerRows[0]?.role || "").trim();
   const useFullChannelSubtree =
-    viewerHl === HIERARCHY.CHANNEL_EXEC || viewerHl === HIERARCHY.CHANNEL_MANAGER;
+    viewerHl === HIERARCHY.CHANNEL_EXEC ||
+    viewerHl === HIERARCHY.CHANNEL_MANAGER ||
+    viewerRole === "CHANNEL_EXECUTIVE" ||
+    viewerRole === "CHANNEL_DIRECTOR";
 
   const sql = useFullChannelSubtree
     ? `

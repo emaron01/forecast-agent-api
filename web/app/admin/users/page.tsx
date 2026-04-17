@@ -1129,6 +1129,12 @@ export default async function UsersPage({
               This will deactivate <span className="font-semibold">{user.display_name}</span> ({user.email}). The record will be kept
               and can be reactivated later.
             </p>
+            <p className="text-sm text-[color:var(--sf-text-secondary)]">
+              <span className="font-semibold text-[color:var(--sf-text-primary)]">Go-forward quota:</span> If a new hire gets quota for
+              the same future periods this user still has, attainment can be double-counted. You can fix that before deactivating by
+              adjusting go-forward quota assignments—or wait until the replacement is set up, then reactivate this user, adjust overlapping
+              quota, and deactivate again.
+            </p>
             <div className="flex items-center justify-end gap-2">
               <Link
                 href={closeHref()}

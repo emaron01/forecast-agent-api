@@ -1705,7 +1705,22 @@ export function CustomReportDesignerClient(props: {
                   border: "1px solid var(--sf-border)",
                   color: "var(--sf-text-primary)",
                 }}
-                formatter={(value: any, name: any) => [fmtTooltipValue(value, String(name || "")), name]}
+                formatter={(value: any, name: any, item: any) => {
+                  const payload = item?.payload;
+                  const metricLabel =
+                    payload && typeof payload === "object" && payload !== null && "metric" in payload
+                      ? String((payload as { metric?: string }).metric || "").trim()
+                      : "";
+                  const mk = metricLabel
+                    ? selectedFields.find((f) => f.label === metricLabel)?.key
+                    : resolveMetricKeyForChartTooltip(
+                        String(name || ""),
+                        selectedFields,
+                        showQvqComparison,
+                        qvqPeriodResults
+                      );
+                  return [fmtTooltipValue(value, mk), name];
+                }}
               />
             </RadarChart>
           </ResponsiveContainer>

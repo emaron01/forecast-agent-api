@@ -196,7 +196,12 @@ export async function loadReportBuilderRepRowsForUser(args: {
   }
 
   /** Channel exec/manager: org tree in UI; each row = that channel user's dashboard deal scope (same as /api/forecast/deals). */
-  if (isChannelExec(user) || isChannelManager(user)) {
+  if (
+    isChannelExec(user) ||
+    isChannelManager(user) ||
+    user.role === "CHANNEL_EXECUTIVE" ||
+    user.role === "CHANNEL_DIRECTOR"
+  ) {
     const orgDir = await fetchChannelOrgDirectoryForViewer({ orgId, viewerUserId: user.id });
     if (orgDir.length === 0) {
       return { repRows: [], periodLabel };
