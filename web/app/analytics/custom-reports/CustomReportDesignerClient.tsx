@@ -322,6 +322,26 @@ function isPctMetricKey(key: MetricKey): boolean {
   );
 }
 
+/** Recharts passes series `name` (display label), not `dataKey`; map back for pct formatting. */
+function resolveMetricKeyForChartTooltip(
+  seriesDisplayName: string,
+  selectedFields: Array<{ key: MetricKey; label: string }>,
+  showQvqComparison: boolean,
+  qvqPeriodResults: Array<{ label: string }>
+): MetricKey | undefined {
+  const s = String(seriesDisplayName || "").trim();
+  if (!s) return undefined;
+  if (showQvqComparison) {
+    for (const f of selectedFields) {
+      for (const pr of qvqPeriodResults) {
+        if (`${pr.label} - ${f.label}` === s) return f.key;
+      }
+    }
+    return undefined;
+  }
+  return selectedFields.find((f) => f.label === s)?.key;
+}
+
 function fmtTooltipValue(value: any, metricKey: string | undefined) {
   const v = value == null ? null : Number(value);
   if (!Number.isFinite(Number(v))) return value;
@@ -970,7 +990,7 @@ export function CustomReportDesignerClient(props: {
       ...selectedFields.reduce(
         (acc, f) => ({
           ...acc,
-          [f.label]: (row as any)[f.key] != null ? Number((row as any)[f.key]) : 0,
+          [f.key]: (row as any)[f.key] != null ? Number((row as any)[f.key]) : 0,
         }),
         {} as Record<string, number>
       ),
@@ -1013,7 +1033,7 @@ export function CustomReportDesignerClient(props: {
           )
         : selectedFields.map((f, i) => ({
             key: f.key,
-            dataKey: f.label,
+            dataKey: f.key,
             name: f.label,
             color: CHART_COLORS[i % CHART_COLORS.length],
           })),
@@ -1582,7 +1602,13 @@ export function CustomReportDesignerClient(props: {
                   border: "1px solid var(--sf-border)",
                   color: "var(--sf-text-primary)",
                 }}
-                formatter={(value: any, name: any) => [fmtTooltipValue(value, String(name || "")), name]}
+                formatter={(value: any, name: any) => [
+                  fmtTooltipValue(
+                    value,
+                    resolveMetricKeyForChartTooltip(String(name || ""), selectedFields, showQvqComparison, qvqPeriodResults)
+                  ),
+                  name,
+                ]}
               />
               <Legend
                 wrapperStyle={{
@@ -1625,7 +1651,13 @@ export function CustomReportDesignerClient(props: {
                   border: "1px solid var(--sf-border)",
                   color: "var(--sf-text-primary)",
                 }}
-                formatter={(value: any, name: any) => [fmtTooltipValue(value, String(name || "")), name]}
+                formatter={(value: any, name: any) => [
+                  fmtTooltipValue(
+                    value,
+                    resolveMetricKeyForChartTooltip(String(name || ""), selectedFields, showQvqComparison, qvqPeriodResults)
+                  ),
+                  name,
+                ]}
               />
               <Legend
                 wrapperStyle={{

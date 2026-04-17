@@ -1,6 +1,7 @@
 import "server-only";
 
 import { pool } from "./pool";
+import { HIERARCHY } from "./roleHelpers";
 
 export type ChannelOrgDirectoryRow = {
   id: number;
@@ -11,7 +12,9 @@ export type ChannelOrgDirectoryRow = {
 };
 
 /**
- * Channel org tree under the viewer (6/7): self, direct reports, and one level of indirect reports.
+ * Channel org tree under the viewer.
+ * - Channel exec / director (6/7): full channel subtree (all levels 6/7/8 under the viewer in the manager chain).
+ * - Channel rep (8): self, direct reports, and one level of indirect reports (unchanged).
  * `id` is users.id (used with getChannelTerritoryRepIds({ channelUserId: id })).
  */
 export async function fetchChannelOrgDirectoryForViewer(args: {
@@ -23,14 +26,50 @@ export async function fetchChannelOrgDirectoryForViewer(args: {
   if (!Number.isFinite(orgId) || orgId <= 0) return [];
   if (!Number.isFinite(viewerUserId) || viewerUserId <= 0) return [];
 
-  const { rows } = await pool.query<{
-    id: number;
-    name: string | null;
-    manager_rep_id: number | null;
-    role: string | null;
-    hierarchy_level: number | null;
-  }>(
+  const { rows: viewerRows } = await pool.query<{ hierarchy_level: number | null }>(
     `
+    SELECT u.hierarchy_level
+    FROM users u
+    WHERE u.org_id = $1::bigint
+      AND u.id = $2::bigint
+      AND (u.active IS TRUE OR u.active IS NULL)
+    `,
+    [orgId, viewerUserId]
+  );
+  const viewerHl = viewerRows[0]?.hierarchy_level == null ? null : Number(viewerRows[0].hierarchy_level);
+  const useFullChannelSubtree =
+    viewerHl === HIERARCHY.CHANNEL_EXEC || viewerHl === HIERARCHY.CHANNEL_MANAGER;
+
+  const sql = useFullChannelSubtree
+    ? `
+    WITH RECURSIVE tree AS (
+      SELECT u.id
+      FROM users u
+      WHERE u.org_id = $1::bigint
+        AND u.id = $2::bigint
+        AND (u.active IS TRUE OR u.active IS NULL)
+      UNION ALL
+      SELECT c.id
+      FROM users c
+      INNER JOIN tree t ON c.manager_user_id = t.id
+      WHERE c.org_id = $1::bigint
+        AND COALESCE(c.hierarchy_level, 99) IN (6, 7, 8)
+        AND (c.active IS TRUE OR c.active IS NULL)
+    )
+    SELECT
+      u.id,
+      COALESCE(NULLIF(btrim(u.display_name), ''), '(Unnamed)') AS name,
+      u.manager_user_id AS manager_rep_id,
+      COALESCE(u.role::text, '') AS role,
+      u.hierarchy_level
+    FROM users u
+    WHERE u.org_id = $1::bigint
+      AND u.id IN (SELECT id FROM tree)
+      AND COALESCE(u.hierarchy_level, 99) IN (6, 7, 8)
+      AND (u.active IS TRUE OR u.active IS NULL)
+    ORDER BY u.hierarchy_level ASC, name ASC, u.id ASC
+    `
+    : `
     SELECT
       u.id,
       COALESCE(NULLIF(btrim(u.display_name), ''), '(Unnamed)') AS name,
@@ -51,9 +90,15 @@ export async function fetchChannelOrgDirectoryForViewer(args: {
         )
       )
     ORDER BY u.hierarchy_level ASC, name ASC, u.id ASC
-    `,
-    [orgId, viewerUserId]
-  );
+    `;
+
+  const { rows } = await pool.query<{
+    id: number;
+    name: string | null;
+    manager_rep_id: number | null;
+    role: string | null;
+    hierarchy_level: number | null;
+  }>(sql, [orgId, viewerUserId]);
 
   return (rows || []).map((r) => ({
     id: Number(r.id),
