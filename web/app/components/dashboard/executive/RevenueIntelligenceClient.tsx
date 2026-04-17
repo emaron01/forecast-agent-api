@@ -204,6 +204,14 @@ function fmtNum(n: number | null | undefined) {
   return Number(n).toLocaleString("en-US", { maximumFractionDigits: 1 });
 }
 
+function meddpiccScoreToCell(avg: number | null | undefined) {
+  const v = avg == null || !Number.isFinite(Number(avg)) ? null : Number(avg);
+  if (v == null) return { label: "—", text: "text-[color:var(--sf-text-disabled)]", bg: "bg-[color:var(--sf-surface-alt)]", n: 0 };
+  if (v < 0.5) return { label: "L", text: "text-red-400", bg: "bg-red-500/20", n: 0 };
+  if (v < 1.5) return { label: "M", text: "text-yellow-400", bg: "bg-yellow-500/20", n: 1 };
+  return { label: "H", text: "text-green-400", bg: "bg-green-500/20", n: 2 };
+}
+
 function escapeCsvCell(v: string) {
   if (/[",\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
   return v;
@@ -825,7 +833,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         const cell = rows.find((r) => r.bucket_id === b.id && r.quarter_id === meddpiccQuarterId);
         const k = `${spoke.key}_${meddpiccOutcome}`;
         const raw = cell ? ((cell as any)[k] as number | null | undefined) : null;
-        pt[`bk_${b.id}`] = raw != null && Number.isFinite(Number(raw)) ? Number(raw) : 0;
+        pt[`bk_${b.id}`] = meddpiccScoreToCell(raw).n;
       }
       return pt;
     });
@@ -1169,8 +1177,8 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         const rr = rows.find((r) => r.bucket_id === b.id && r.quarter_id === qid);
         const cells: string[] = [b.label];
         for (const sp of MEDDPICC_SPOKES) {
-          const v = rr ? rr[sp.key] : null;
-          cells.push(v == null ? "" : fmtNum(v as number));
+          const v = rr ? ((rr as any)[`${String(sp.key)}_${meddpiccOutcome}`] as number | null | undefined) : null;
+          cells.push(meddpiccScoreToCell(v).label === "—" ? "" : meddpiccScoreToCell(v).label);
         }
         lines.push(cells);
       }
@@ -1217,8 +1225,20 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     () => buildSelectionChartData("won_count", dealVolumeMetricValue),
     [buildSelectionChartData]
   );
+  const dealVolumeLostCountDrillData = useMemo(
+    () => buildSelectionChartData("lost_count", dealVolumeMetricValue),
+    [buildSelectionChartData]
+  );
+  const dealVolumePipelineCountDrillData = useMemo(
+    () => buildSelectionChartData("pipeline_count", dealVolumeMetricValue),
+    [buildSelectionChartData]
+  );
   const dealVolumeWonAmountDrillData = useMemo(
     () => buildSelectionChartData("won_amount", dealVolumeMetricValue),
+    [buildSelectionChartData]
+  );
+  const dealVolumeLostAmountDrillData = useMemo(
+    () => buildSelectionChartData("lost_amount", dealVolumeMetricValue),
     [buildSelectionChartData]
   );
   const dealVolumeWinRateDrillData = useMemo(
@@ -1694,12 +1714,65 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
               {drillDown ? (
                 <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
                   <div className="rounded-lg border border-[color:var(--sf-border)] p-3">
-                    <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Won Deals by Segment</div>
-                    {renderGroupedChart({ data: dealVolumeWonCountDrillData, metric: "won_count", height: 220 })}
+                    {chartMetric === "won_count" ? (
+                      <>
+                        <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Won Deals by Segment</div>
+                        {renderGroupedChart({ data: dealVolumeWonCountDrillData, metric: "won_count", height: 220 })}
+                      </>
+                    ) : chartMetric === "lost_count" ? (
+                      <>
+                        <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Lost Deals by Segment</div>
+                        {renderGroupedChart({ data: dealVolumeLostCountDrillData, metric: "lost_count", height: 220 })}
+                      </>
+                    ) : chartMetric === "pipeline_count" ? (
+                      <>
+                        <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Pipeline Deals by Segment</div>
+                        {renderGroupedChart({ data: dealVolumePipelineCountDrillData, metric: "pipeline_count", height: 220 })}
+                      </>
+                    ) : chartMetric === "win_rate" ? (
+                      <>
+                        <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Win Rate by Segment</div>
+                        {renderGroupedChart({ data: dealVolumeWinRateDrillData, metric: "win_rate", height: 220 })}
+                      </>
+                    ) : chartMetric === "won_amount" ? (
+                      <>
+                        <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Revenue Won by Segment</div>
+                        {renderGroupedChart({ data: dealVolumeWonAmountDrillData, metric: "won_amount", height: 220 })}
+                      </>
+                    ) : (
+                      <>
+                        <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Revenue Lost by Segment</div>
+                        {renderGroupedChart({ data: dealVolumeLostAmountDrillData, metric: "lost_amount", height: 220 })}
+                      </>
+                    )}
                   </div>
                   <div className="rounded-lg border border-[color:var(--sf-border)] p-3">
-                    <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Revenue Won by Segment</div>
-                    {renderGroupedChart({ data: dealVolumeWonAmountDrillData, metric: "won_amount", height: 220 })}
+                    {chartMetric === "won_count" || chartMetric === "won_amount" ? (
+                      <>
+                        <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Revenue Won by Segment</div>
+                        {renderGroupedChart({ data: dealVolumeWonAmountDrillData, metric: "won_amount", height: 220 })}
+                      </>
+                    ) : chartMetric === "lost_count" || chartMetric === "lost_amount" ? (
+                      <>
+                        <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Revenue Lost by Segment</div>
+                        {renderGroupedChart({ data: dealVolumeLostAmountDrillData, metric: "lost_amount", height: 220 })}
+                      </>
+                    ) : chartMetric === "pipeline_count" ? (
+                      <>
+                        <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Won Deals by Segment</div>
+                        {renderGroupedChart({ data: dealVolumeWonCountDrillData, metric: "won_count", height: 220 })}
+                      </>
+                    ) : chartMetric === "win_rate" ? (
+                      <>
+                        <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Won Deals by Segment</div>
+                        {renderGroupedChart({ data: dealVolumeWonCountDrillData, metric: "won_count", height: 220 })}
+                      </>
+                    ) : (
+                      <>
+                        <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Lost Deals by Segment</div>
+                        {renderGroupedChart({ data: dealVolumeLostCountDrillData, metric: "lost_count", height: 220 })}
+                      </>
+                    )}
                   </div>
                   <div className="rounded-lg border border-[color:var(--sf-border)] p-3">
                     <div className="mb-2 text-sm font-semibold text-[color:var(--sf-text-primary)]">Win Rate by Segment</div>
@@ -2041,7 +2114,12 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
               <RadarChart data={meddpiccRadarRows}>
                 <PolarGrid stroke="var(--sf-border)" />
                 <PolarAngleAxis dataKey="spoke" tick={{ fill: "var(--sf-text-secondary)", fontSize: 10 }} />
-                <PolarRadiusAxis tick={{ fill: "var(--sf-text-secondary)", fontSize: 9 }} />
+                <PolarRadiusAxis
+                  domain={[0, 2]}
+                  tickCount={3}
+                  tick={{ fill: "var(--sf-text-secondary)", fontSize: 9 }}
+                  tickFormatter={(v: any) => (v === 0 ? "L" : v === 1 ? "M" : v === 2 ? "H" : "")}
+                />
                 <Tooltip
                   contentStyle={{
                     background: "var(--sf-surface)",
@@ -2083,7 +2161,15 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                       <td className="px-3 py-2 font-medium">{b.label}</td>
                       {MEDDPICC_SPOKES.map((s) => (
                         <td key={s.key} className="px-2 py-2 text-right">
-                          {rr ? fmtNum((rr as any)[`${s.key}_${meddpiccOutcome}`] as number) : "—"}
+                          {(() => {
+                            const raw = rr ? ((rr as any)[`${s.key}_${meddpiccOutcome}`] as number | null | undefined) : null;
+                            const cell = meddpiccScoreToCell(raw);
+                            return (
+                              <span className={`inline-flex min-w-[1.75rem] justify-center rounded px-1.5 py-0.5 text-xs font-semibold ${cell.bg} ${cell.text}`}>
+                                {cell.label}
+                              </span>
+                            );
+                          })()}
                         </td>
                       ))}
                     </tr>
