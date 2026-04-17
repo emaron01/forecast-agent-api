@@ -611,6 +611,10 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
 
   const fetchReportData = useCallback(
     async (repIds: Array<string | number> | null): Promise<ReportData> => {
+      const isChannelMode = repDirectory.some((r) => {
+        const hl = Number((r as any)?.hierarchy_level);
+        return Number.isFinite(hl) && (hl === 6 || hl === 7 || hl === 8);
+      });
       const res = await fetch("/api/revenue-intelligence/data", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -624,6 +628,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
           quarterIds: Array.from(selectedQuarterIds),
           repIds,
           reportType,
+          isChannelDashboard: isChannelMode,
         }),
       });
       const j = await res.json().catch(() => ({}));
@@ -636,7 +641,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         rows: j.rows || [],
       };
     },
-    [bucketsSortedByMin, reportType, selectedQuarterIds]
+    [bucketsSortedByMin, reportType, selectedQuarterIds, repDirectory]
   );
 
   const fetchBreakdown = useCallback(async (): Promise<{ selections: BreakdownSelection[]; results: BreakdownResult[] }> => {

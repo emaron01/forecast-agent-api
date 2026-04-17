@@ -29,6 +29,7 @@ const BodySchema = z.object({
   quarterIds: z.array(z.string().min(1)).min(1).max(12),
   repIds: z.array(z.string().min(1)).nullable(),
   reportType: z.enum(["deal_volume", "meddpicc_health", "product_mix"]),
+  isChannelDashboard: z.boolean().optional(),
 });
 
 type OppRow = {
@@ -128,7 +129,7 @@ export async function POST(req: Request) {
   let queryParams: unknown[] = [];
   let rows: OppRow[] = [];
 
-  if (isChannelRole(ctx.user)) {
+  if (isChannelRole(ctx.user) || body.isChannelDashboard === true) {
     const explicitChannelUserIds =
       repIds && repIds.length > 0
         ? repIds.map((s) => Number(s)).filter((n) => Number.isFinite(n) && n > 0)
