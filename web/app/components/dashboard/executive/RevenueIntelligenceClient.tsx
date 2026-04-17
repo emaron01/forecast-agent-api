@@ -117,6 +117,7 @@ type BreakdownResult = { label: string; data: ReportData };
 type DealVolumeMetric = "won_count" | "lost_count" | "pipeline_count" | "win_rate" | "won_amount" | "lost_amount";
 type VelocityMetric = "avg_days_won" | "avg_days_lost" | "avg_days_pipeline";
 type HealthMetric = "avg_health_won" | "avg_health_lost" | "avg_health_pipeline";
+type OutcomeKey = "won" | "lost" | "pipeline";
 
 const CHART_COLORS = [
   "#00BCD4",
@@ -168,6 +169,12 @@ const HEALTH_METRICS: Array<{ key: HealthMetric; label: string }> = [
   { key: "avg_health_won", label: "Health Won" },
   { key: "avg_health_lost", label: "Health Lost" },
   { key: "avg_health_pipeline", label: "Health Pipeline" },
+];
+
+const OUTCOME_OPTIONS: Array<{ key: OutcomeKey; label: string }> = [
+  { key: "won", label: "Won" },
+  { key: "lost", label: "Lost" },
+  { key: "pipeline", label: "Pipeline" },
 ];
 
 function newId() {
@@ -515,6 +522,8 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   const [velocityDrillDown, setVelocityDrillDown] = useState(false);
   const [healthChartMetric, setHealthChartMetric] = useState<HealthMetric>("avg_health_won");
   const [healthDrillDown, setHealthDrillDown] = useState(false);
+  const [meddpiccOutcome, setMeddpiccOutcome] = useState<OutcomeKey>("won");
+  const [productMixOutcome, setProductMixOutcome] = useState<OutcomeKey>("won");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -743,12 +752,18 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
     if (!reportData?.rows?.length) return [];
     const s = new Set<string>();
     for (const r of reportData.rows) {
-      for (const k of Object.keys(r.products || {})) {
+      const byOutcome =
+        productMixOutcome === "won"
+          ? (r as any).products_won
+          : productMixOutcome === "lost"
+            ? (r as any).products_lost
+            : (r as any).products_pipeline;
+      for (const k of Object.keys((byOutcome as Record<string, number>) || {})) {
         if (k) s.add(k);
       }
     }
     return Array.from(s).sort((a, b) => a.localeCompare(b));
-  }, [reportData]);
+  }, [reportData, productMixOutcome]);
 
   const breakdownEntries = useMemo(() => {
     return breakdownSelections
@@ -808,12 +823,13 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
       const pt: Record<string, string | number> = { spoke: spoke.label };
       for (const b of reportData.buckets) {
         const cell = rows.find((r) => r.bucket_id === b.id && r.quarter_id === meddpiccQuarterId);
-        const raw = cell ? (cell[spoke.key] as number | null | undefined) : null;
+        const k = `${spoke.key}_${meddpiccOutcome}`;
+        const raw = cell ? ((cell as any)[k] as number | null | undefined) : null;
         pt[`bk_${b.id}`] = raw != null && Number.isFinite(Number(raw)) ? Number(raw) : 0;
       }
       return pt;
     });
-  }, [reportData, meddpiccQuarterId]);
+  }, [reportData, meddpiccQuarterId, meddpiccOutcome]);
 
   const productMixChartData = useMemo(() => {
     if (!reportData?.rows?.length || !reportData.buckets.length || !allProductNames.length) return [];
@@ -824,13 +840,19 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
         let sum = 0;
         for (const q of selectedQuartersOrdered) {
           const cell = rows.find((r) => r.bucket_id === b.id && r.quarter_id === q.id);
-          sum += cell?.products?.[prod] ? Number(cell.products[prod]) : 0;
+          const byOutcome =
+            productMixOutcome === "won"
+              ? (cell as any)?.products_won
+              : productMixOutcome === "lost"
+                ? (cell as any)?.products_lost
+                : (cell as any)?.products_pipeline;
+          sum += byOutcome?.[prod] ? Number(byOutcome[prod]) : 0;
         }
         pt[prod] = sum;
       }
       return pt;
     });
-  }, [reportData, allProductNames, selectedQuartersOrdered]);
+  }, [reportData, allProductNames, selectedQuartersOrdered, productMixOutcome]);
 
   const runReport = async () => {
     setError(null);
@@ -1251,6 +1273,22 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
       <button type="button" onClick={() => setDrillState(!drillState)} className={drillDownBtnClass(drillState)}>
         {drillState ? "▲ Snapshot" : "▼ Drill Down"}
       </button>
+    </div>
+  );
+
+  const renderOutcomeSelector = (label: string, value: OutcomeKey, setValue: (v: OutcomeKey) => void) => (
+    <div className="mb-4 flex flex-wrap gap-2">
+      <span className="mr-2 self-center text-sm text-[color:var(--sf-text-secondary)]">{label}</span>
+      {OUTCOME_OPTIONS.map((o) => (
+        <button
+          key={o.key}
+          type="button"
+          onClick={() => setValue(o.key)}
+          className={selectorBtnClass(value === o.key)}
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 
@@ -1997,6 +2035,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
               ))}
             </div>
           ) : null}
+          {renderOutcomeSelector("Outcome:", meddpiccOutcome, setMeddpiccOutcome)}
           <div>
             <ResponsiveContainer width="100%" height={320}>
               <RadarChart data={meddpiccRadarRows}>
@@ -2044,7 +2083,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                       <td className="px-3 py-2 font-medium">{b.label}</td>
                       {MEDDPICC_SPOKES.map((s) => (
                         <td key={s.key} className="px-2 py-2 text-right">
-                          {rr ? fmtNum(rr[s.key] as number) : "—"}
+                          {rr ? fmtNum((rr as any)[`${s.key}_${meddpiccOutcome}`] as number) : "—"}
                         </td>
                       ))}
                     </tr>
@@ -2073,6 +2112,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
               Download PNG
             </button>
           </div>
+          {renderOutcomeSelector("Outcome:", productMixOutcome, setProductMixOutcome)}
           <div>
             <ResponsiveContainer width="100%" height={320}>
               <BarChart data={productMixChartData}>
@@ -2119,7 +2159,13 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                         let sum = 0;
                         for (const q of selectedQuartersOrdered) {
                           const rr = byQ.get(q.id);
-                          sum += rr?.products?.[p] ? Number(rr.products[p]) : 0;
+                          const byOutcome =
+                            productMixOutcome === "won"
+                              ? (rr as any)?.products_won
+                              : productMixOutcome === "lost"
+                                ? (rr as any)?.products_lost
+                                : (rr as any)?.products_pipeline;
+                          sum += byOutcome?.[p] ? Number(byOutcome[p]) : 0;
                         }
                         total += sum;
                         return (

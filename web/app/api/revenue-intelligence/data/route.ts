@@ -82,7 +82,40 @@ type Agg = {
   avg_paper: number | null;
   avg_timing: number | null;
   avg_budget: number | null;
+  avg_pain_won: number | null;
+  avg_pain_lost: number | null;
+  avg_pain_pipeline: number | null;
+  avg_metrics_won: number | null;
+  avg_metrics_lost: number | null;
+  avg_metrics_pipeline: number | null;
+  avg_champion_won: number | null;
+  avg_champion_lost: number | null;
+  avg_champion_pipeline: number | null;
+  avg_eb_won: number | null;
+  avg_eb_lost: number | null;
+  avg_eb_pipeline: number | null;
+  avg_criteria_won: number | null;
+  avg_criteria_lost: number | null;
+  avg_criteria_pipeline: number | null;
+  avg_process_won: number | null;
+  avg_process_lost: number | null;
+  avg_process_pipeline: number | null;
+  avg_competition_won: number | null;
+  avg_competition_lost: number | null;
+  avg_competition_pipeline: number | null;
+  avg_paper_won: number | null;
+  avg_paper_lost: number | null;
+  avg_paper_pipeline: number | null;
+  avg_timing_won: number | null;
+  avg_timing_lost: number | null;
+  avg_timing_pipeline: number | null;
+  avg_budget_won: number | null;
+  avg_budget_lost: number | null;
+  avg_budget_pipeline: number | null;
   products: Record<string, number>;
+  products_won: Record<string, number>;
+  products_lost: Record<string, number>;
+  products_pipeline: Record<string, number>;
 };
 
 function norm(s: unknown) {
@@ -311,6 +344,66 @@ export async function POST(req: Request) {
       timing_n: number;
       budget_sum: number;
       budget_n: number;
+      pain_won_sum: number;
+      pain_won_n: number;
+      pain_lost_sum: number;
+      pain_lost_n: number;
+      pain_pipe_sum: number;
+      pain_pipe_n: number;
+      metrics_won_sum: number;
+      metrics_won_n: number;
+      metrics_lost_sum: number;
+      metrics_lost_n: number;
+      metrics_pipe_sum: number;
+      metrics_pipe_n: number;
+      champion_won_sum: number;
+      champion_won_n: number;
+      champion_lost_sum: number;
+      champion_lost_n: number;
+      champion_pipe_sum: number;
+      champion_pipe_n: number;
+      eb_won_sum: number;
+      eb_won_n: number;
+      eb_lost_sum: number;
+      eb_lost_n: number;
+      eb_pipe_sum: number;
+      eb_pipe_n: number;
+      criteria_won_sum: number;
+      criteria_won_n: number;
+      criteria_lost_sum: number;
+      criteria_lost_n: number;
+      criteria_pipe_sum: number;
+      criteria_pipe_n: number;
+      process_won_sum: number;
+      process_won_n: number;
+      process_lost_sum: number;
+      process_lost_n: number;
+      process_pipe_sum: number;
+      process_pipe_n: number;
+      competition_won_sum: number;
+      competition_won_n: number;
+      competition_lost_sum: number;
+      competition_lost_n: number;
+      competition_pipe_sum: number;
+      competition_pipe_n: number;
+      paper_won_sum: number;
+      paper_won_n: number;
+      paper_lost_sum: number;
+      paper_lost_n: number;
+      paper_pipe_sum: number;
+      paper_pipe_n: number;
+      timing_won_sum: number;
+      timing_won_n: number;
+      timing_lost_sum: number;
+      timing_lost_n: number;
+      timing_pipe_sum: number;
+      timing_pipe_n: number;
+      budget_won_sum: number;
+      budget_won_n: number;
+      budget_lost_sum: number;
+      budget_lost_n: number;
+      budget_pipe_sum: number;
+      budget_pipe_n: number;
     }
   >();
 
@@ -345,7 +438,40 @@ export async function POST(req: Request) {
         avg_paper: null,
         avg_timing: null,
         avg_budget: null,
+        avg_pain_won: null,
+        avg_pain_lost: null,
+        avg_pain_pipeline: null,
+        avg_metrics_won: null,
+        avg_metrics_lost: null,
+        avg_metrics_pipeline: null,
+        avg_champion_won: null,
+        avg_champion_lost: null,
+        avg_champion_pipeline: null,
+        avg_eb_won: null,
+        avg_eb_lost: null,
+        avg_eb_pipeline: null,
+        avg_criteria_won: null,
+        avg_criteria_lost: null,
+        avg_criteria_pipeline: null,
+        avg_process_won: null,
+        avg_process_lost: null,
+        avg_process_pipeline: null,
+        avg_competition_won: null,
+        avg_competition_lost: null,
+        avg_competition_pipeline: null,
+        avg_paper_won: null,
+        avg_paper_lost: null,
+        avg_paper_pipeline: null,
+        avg_timing_won: null,
+        avg_timing_lost: null,
+        avg_timing_pipeline: null,
+        avg_budget_won: null,
+        avg_budget_lost: null,
+        avg_budget_pipeline: null,
         products: {},
+        products_won: {},
+        products_lost: {},
+        products_pipeline: {},
       };
       aggByKey.set(k, a);
       sums.set(k, {
@@ -381,6 +507,66 @@ export async function POST(req: Request) {
         timing_n: 0,
         budget_sum: 0,
         budget_n: 0,
+        pain_won_sum: 0,
+        pain_won_n: 0,
+        pain_lost_sum: 0,
+        pain_lost_n: 0,
+        pain_pipe_sum: 0,
+        pain_pipe_n: 0,
+        metrics_won_sum: 0,
+        metrics_won_n: 0,
+        metrics_lost_sum: 0,
+        metrics_lost_n: 0,
+        metrics_pipe_sum: 0,
+        metrics_pipe_n: 0,
+        champion_won_sum: 0,
+        champion_won_n: 0,
+        champion_lost_sum: 0,
+        champion_lost_n: 0,
+        champion_pipe_sum: 0,
+        champion_pipe_n: 0,
+        eb_won_sum: 0,
+        eb_won_n: 0,
+        eb_lost_sum: 0,
+        eb_lost_n: 0,
+        eb_pipe_sum: 0,
+        eb_pipe_n: 0,
+        criteria_won_sum: 0,
+        criteria_won_n: 0,
+        criteria_lost_sum: 0,
+        criteria_lost_n: 0,
+        criteria_pipe_sum: 0,
+        criteria_pipe_n: 0,
+        process_won_sum: 0,
+        process_won_n: 0,
+        process_lost_sum: 0,
+        process_lost_n: 0,
+        process_pipe_sum: 0,
+        process_pipe_n: 0,
+        competition_won_sum: 0,
+        competition_won_n: 0,
+        competition_lost_sum: 0,
+        competition_lost_n: 0,
+        competition_pipe_sum: 0,
+        competition_pipe_n: 0,
+        paper_won_sum: 0,
+        paper_won_n: 0,
+        paper_lost_sum: 0,
+        paper_lost_n: 0,
+        paper_pipe_sum: 0,
+        paper_pipe_n: 0,
+        timing_won_sum: 0,
+        timing_won_n: 0,
+        timing_lost_sum: 0,
+        timing_lost_n: 0,
+        timing_pipe_sum: 0,
+        timing_pipe_n: 0,
+        budget_won_sum: 0,
+        budget_won_n: 0,
+        budget_lost_sum: 0,
+        budget_lost_n: 0,
+        budget_pipe_sum: 0,
+        budget_pipe_n: 0,
       });
     }
     return { k, a, s: sums.get(k)! };
@@ -462,9 +648,77 @@ export async function POST(req: Request) {
     addScore(r.timing_score, "timing_sum", "timing_n");
     addScore(r.budget_score, "budget_sum", "budget_n");
 
+    const addScoreByOutcome = (
+      val: number | null,
+      out: "won" | "lost" | "pipeline",
+      keys: {
+        won: { sum: keyof typeof s; n: keyof typeof s };
+        lost: { sum: keyof typeof s; n: keyof typeof s };
+        pipeline: { sum: keyof typeof s; n: keyof typeof s };
+      }
+    ) => {
+      if (out === "won") addScore(val, keys.won.sum, keys.won.n);
+      else if (out === "lost") addScore(val, keys.lost.sum, keys.lost.n);
+      else addScore(val, keys.pipeline.sum, keys.pipeline.n);
+    };
+
+    addScoreByOutcome(r.pain_score, out, {
+      won: { sum: "pain_won_sum", n: "pain_won_n" },
+      lost: { sum: "pain_lost_sum", n: "pain_lost_n" },
+      pipeline: { sum: "pain_pipe_sum", n: "pain_pipe_n" },
+    });
+    addScoreByOutcome(r.metrics_score, out, {
+      won: { sum: "metrics_won_sum", n: "metrics_won_n" },
+      lost: { sum: "metrics_lost_sum", n: "metrics_lost_n" },
+      pipeline: { sum: "metrics_pipe_sum", n: "metrics_pipe_n" },
+    });
+    addScoreByOutcome(r.champion_score, out, {
+      won: { sum: "champion_won_sum", n: "champion_won_n" },
+      lost: { sum: "champion_lost_sum", n: "champion_lost_n" },
+      pipeline: { sum: "champion_pipe_sum", n: "champion_pipe_n" },
+    });
+    addScoreByOutcome(r.eb_score, out, {
+      won: { sum: "eb_won_sum", n: "eb_won_n" },
+      lost: { sum: "eb_lost_sum", n: "eb_lost_n" },
+      pipeline: { sum: "eb_pipe_sum", n: "eb_pipe_n" },
+    });
+    addScoreByOutcome(r.criteria_score, out, {
+      won: { sum: "criteria_won_sum", n: "criteria_won_n" },
+      lost: { sum: "criteria_lost_sum", n: "criteria_lost_n" },
+      pipeline: { sum: "criteria_pipe_sum", n: "criteria_pipe_n" },
+    });
+    addScoreByOutcome(r.process_score, out, {
+      won: { sum: "process_won_sum", n: "process_won_n" },
+      lost: { sum: "process_lost_sum", n: "process_lost_n" },
+      pipeline: { sum: "process_pipe_sum", n: "process_pipe_n" },
+    });
+    addScoreByOutcome(r.competition_score, out, {
+      won: { sum: "competition_won_sum", n: "competition_won_n" },
+      lost: { sum: "competition_lost_sum", n: "competition_lost_n" },
+      pipeline: { sum: "competition_pipe_sum", n: "competition_pipe_n" },
+    });
+    addScoreByOutcome(r.paper_score, out, {
+      won: { sum: "paper_won_sum", n: "paper_won_n" },
+      lost: { sum: "paper_lost_sum", n: "paper_lost_n" },
+      pipeline: { sum: "paper_pipe_sum", n: "paper_pipe_n" },
+    });
+    addScoreByOutcome(r.timing_score, out, {
+      won: { sum: "timing_won_sum", n: "timing_won_n" },
+      lost: { sum: "timing_lost_sum", n: "timing_lost_n" },
+      pipeline: { sum: "timing_pipe_sum", n: "timing_pipe_n" },
+    });
+    addScoreByOutcome(r.budget_score, out, {
+      won: { sum: "budget_won_sum", n: "budget_won_n" },
+      lost: { sum: "budget_lost_sum", n: "budget_lost_n" },
+      pipeline: { sum: "budget_pipe_sum", n: "budget_pipe_n" },
+    });
+
     const product = String(r.product || "").trim();
     if (product) {
       a.products[product] = (Number(a.products[product] || 0) || 0) + amt;
+      if (out === "won") a.products_won[product] = (Number(a.products_won[product] || 0) || 0) + amt;
+      else if (out === "lost") a.products_lost[product] = (Number(a.products_lost[product] || 0) || 0) + amt;
+      else a.products_pipeline[product] = (Number(a.products_pipeline[product] || 0) || 0) + amt;
     }
   }
 
@@ -489,6 +743,36 @@ export async function POST(req: Request) {
     a.avg_paper = safeAvg(s.paper_sum, s.paper_n);
     a.avg_timing = safeAvg(s.timing_sum, s.timing_n);
     a.avg_budget = safeAvg(s.budget_sum, s.budget_n);
+    a.avg_pain_won = safeAvg(s.pain_won_sum, s.pain_won_n);
+    a.avg_pain_lost = safeAvg(s.pain_lost_sum, s.pain_lost_n);
+    a.avg_pain_pipeline = safeAvg(s.pain_pipe_sum, s.pain_pipe_n);
+    a.avg_metrics_won = safeAvg(s.metrics_won_sum, s.metrics_won_n);
+    a.avg_metrics_lost = safeAvg(s.metrics_lost_sum, s.metrics_lost_n);
+    a.avg_metrics_pipeline = safeAvg(s.metrics_pipe_sum, s.metrics_pipe_n);
+    a.avg_champion_won = safeAvg(s.champion_won_sum, s.champion_won_n);
+    a.avg_champion_lost = safeAvg(s.champion_lost_sum, s.champion_lost_n);
+    a.avg_champion_pipeline = safeAvg(s.champion_pipe_sum, s.champion_pipe_n);
+    a.avg_eb_won = safeAvg(s.eb_won_sum, s.eb_won_n);
+    a.avg_eb_lost = safeAvg(s.eb_lost_sum, s.eb_lost_n);
+    a.avg_eb_pipeline = safeAvg(s.eb_pipe_sum, s.eb_pipe_n);
+    a.avg_criteria_won = safeAvg(s.criteria_won_sum, s.criteria_won_n);
+    a.avg_criteria_lost = safeAvg(s.criteria_lost_sum, s.criteria_lost_n);
+    a.avg_criteria_pipeline = safeAvg(s.criteria_pipe_sum, s.criteria_pipe_n);
+    a.avg_process_won = safeAvg(s.process_won_sum, s.process_won_n);
+    a.avg_process_lost = safeAvg(s.process_lost_sum, s.process_lost_n);
+    a.avg_process_pipeline = safeAvg(s.process_pipe_sum, s.process_pipe_n);
+    a.avg_competition_won = safeAvg(s.competition_won_sum, s.competition_won_n);
+    a.avg_competition_lost = safeAvg(s.competition_lost_sum, s.competition_lost_n);
+    a.avg_competition_pipeline = safeAvg(s.competition_pipe_sum, s.competition_pipe_n);
+    a.avg_paper_won = safeAvg(s.paper_won_sum, s.paper_won_n);
+    a.avg_paper_lost = safeAvg(s.paper_lost_sum, s.paper_lost_n);
+    a.avg_paper_pipeline = safeAvg(s.paper_pipe_sum, s.paper_pipe_n);
+    a.avg_timing_won = safeAvg(s.timing_won_sum, s.timing_won_n);
+    a.avg_timing_lost = safeAvg(s.timing_lost_sum, s.timing_lost_n);
+    a.avg_timing_pipeline = safeAvg(s.timing_pipe_sum, s.timing_pipe_n);
+    a.avg_budget_won = safeAvg(s.budget_won_sum, s.budget_won_n);
+    a.avg_budget_lost = safeAvg(s.budget_lost_sum, s.budget_lost_n);
+    a.avg_budget_pipeline = safeAvg(s.budget_pipe_sum, s.budget_pipe_n);
     outRows.push(a);
   }
 
