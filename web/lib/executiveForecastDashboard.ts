@@ -1334,8 +1334,27 @@ export async function getExecutiveForecastDashboardSummary(args: {
                   ELSE NULL
                 END AS close_d
               FROM opportunities o
+              LEFT JOIN reps rep
+                ON rep.id = o.rep_id
+               AND COALESCE(rep.organization_id, rep.org_id::bigint) = o.org_id::bigint
+              LEFT JOIN users usr
+                ON usr.id = rep.user_id
+               AND usr.org_id::bigint = o.org_id::bigint
               WHERE o.org_id = $1
-                AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
+                AND (
+                  ($4 IS TRUE AND o.rep_id = ANY($3::bigint[]))
+                  OR (
+                    $4 IS NOT TRUE
+                    AND (
+                      o.rep_id IS NULL
+                      OR (
+                        rep.id IS NOT NULL
+                        AND (rep.active IS TRUE OR rep.active IS NULL)
+                        AND (usr.active IS TRUE OR usr.active IS NULL)
+                      )
+                    )
+                  )
+                )
             ),
             deals AS (
               SELECT
@@ -1456,8 +1475,27 @@ export async function getExecutiveForecastDashboardSummary(args: {
               ELSE NULL
             END AS close_d
           FROM opportunities o
+          LEFT JOIN reps rep
+            ON rep.id = o.rep_id
+           AND COALESCE(rep.organization_id, rep.org_id::bigint) = o.org_id::bigint
+          LEFT JOIN users usr
+            ON usr.id = rep.user_id
+           AND usr.org_id::bigint = o.org_id::bigint
           WHERE o.org_id = $1
-            AND (NOT $3::boolean OR o.rep_id = ANY($2::bigint[]))
+            AND (
+              ($3 IS TRUE AND o.rep_id = ANY($2::bigint[]))
+              OR (
+                $3 IS NOT TRUE
+                AND (
+                  o.rep_id IS NULL
+                  OR (
+                    rep.id IS NOT NULL
+                    AND (rep.active IS TRUE OR rep.active IS NULL)
+                    AND (usr.active IS TRUE OR usr.active IS NULL)
+                  )
+                )
+              )
+            )
         ),
         deals AS (
           SELECT
