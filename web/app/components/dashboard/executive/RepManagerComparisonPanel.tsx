@@ -22,6 +22,8 @@ function fmtNum(n: unknown) {
 export type RepManagerRepRow = {
   rep_id: string;
   rep_name: string;
+  /** When `false`, rep is inactive (departed); omit or non-`false` = active. */
+  active?: boolean;
   manager_id: string;
   manager_name: string;
   quota: number;

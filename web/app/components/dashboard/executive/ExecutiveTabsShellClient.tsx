@@ -787,6 +787,7 @@ export function ExecutiveTabsShellClient(props: {
     manager_rep_id: number | null;
     role: string;
     hierarchy_level?: number | null;
+    active?: boolean;
   }>;
   reportBuilderQuotaPeriods: { id: string; name: string }[];
   reportBuilderOrgId: number;
@@ -799,6 +800,7 @@ export function ExecutiveTabsShellClient(props: {
     role: string;
     manager_rep_id: number | null;
     hierarchy_level?: number | null;
+    active?: boolean;
   }>;
   /** Channel (partner) scoped team data for executive channel viewers; enables Direct | Indirect team sub-tabs. */
   channelTeamPayload?: BuildChannelTeamPayloadResult | null;

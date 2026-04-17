@@ -19,16 +19,24 @@ type BuilderDirRow = {
   name: string;
   manager_rep_id: number | null;
   hierarchy_level: number | null;
+  active?: boolean;
 };
 
 function buildDirectoryInScope(
-  repDirectory: { id: number; name: string; manager_rep_id: number | null; hierarchy_level?: number | null }[]
+  repDirectory: {
+    id: number;
+    name: string;
+    manager_rep_id: number | null;
+    hierarchy_level?: number | null;
+    active?: boolean | null;
+  }[]
 ): BuilderDirRow[] {
   const mapped: BuilderDirRow[] = repDirectory.map((r) => ({
     id: r.id,
     name: r.name,
     manager_rep_id: r.manager_rep_id ?? null,
     hierarchy_level: Number.isFinite(Number(r.hierarchy_level)) ? Number(r.hierarchy_level) : null,
+    active: r.active !== false,
   }));
 
   const inSalesTree = (h: number | null) =>
@@ -89,6 +97,7 @@ function buildDirectoryInScope(
       name: exec.name,
       manager_rep_id: exec.manager_rep_id ?? null,
       hierarchy_level: exec.hierarchy_level,
+      active: exec.active,
     });
 
     const execManagers = (managersByExecId.get(exec.id) || []).slice();
@@ -100,6 +109,7 @@ function buildDirectoryInScope(
         name: mgr.name,
         manager_rep_id: mgr.manager_rep_id ?? null,
         hierarchy_level: mgr.hierarchy_level,
+        active: mgr.active,
       });
 
       const mgrReps = (repsByManagerId.get(mgr.id) || []).slice();
@@ -111,6 +121,7 @@ function buildDirectoryInScope(
           name: rep.name,
           manager_rep_id: rep.manager_rep_id ?? null,
           hierarchy_level: rep.hierarchy_level,
+          active: rep.active,
         });
       }
     }
@@ -123,6 +134,7 @@ function buildDirectoryInScope(
       name: mgr.name,
       manager_rep_id: mgr.manager_rep_id ?? null,
       hierarchy_level: mgr.hierarchy_level,
+      active: mgr.active,
     });
 
     const mgrReps = (repsByManagerId.get(mgr.id) || []).slice();
@@ -133,6 +145,7 @@ function buildDirectoryInScope(
         name: rep.name,
         manager_rep_id: rep.manager_rep_id ?? null,
         hierarchy_level: rep.hierarchy_level,
+        active: rep.active,
       });
     }
   }
@@ -144,6 +157,7 @@ function buildDirectoryInScope(
       name: rep.name,
       manager_rep_id: rep.manager_rep_id ?? null,
       hierarchy_level: rep.hierarchy_level,
+      active: rep.active,
     });
   }
 
@@ -153,6 +167,7 @@ function buildDirectoryInScope(
       name: cl.name,
       manager_rep_id: cl.manager_rep_id ?? null,
       hierarchy_level: cl.hierarchy_level,
+      active: cl.active,
     });
   }
 
@@ -211,6 +226,7 @@ export async function loadReportBuilderRepRowsForUser(args: {
       name: r.name,
       manager_rep_id: r.manager_rep_id,
       hierarchy_level: r.hierarchy_level,
+      active: r.active,
     }));
 
     const rbRepIdToManagerId = new Map<string, string>();
@@ -291,6 +307,7 @@ export async function loadReportBuilderRepRowsForUser(args: {
         return {
           rep_id,
           rep_name: String(opt?.name || "").trim() || `User ${rep_id}`,
+          active: opt.active !== false,
           manager_id,
           manager_name,
           avg_health_all: health?.avg_health_all ?? null,
@@ -464,6 +481,7 @@ export async function loadReportBuilderRepRowsForUser(args: {
     return {
       rep_id,
       rep_name: String(opt?.name || "").trim() || String(c?.rep_name || "").trim() || `Rep ${rep_id}`,
+      active: opt.active !== false,
       manager_id,
       manager_name,
       avg_health_all: healthByRepId.get(rep_id)?.avg_health_all ?? null,

@@ -9,6 +9,8 @@ export type ChannelOrgDirectoryRow = {
   manager_rep_id: number | null;
   role: string;
   hierarchy_level: number | null;
+  /** User account active; false = departed. */
+  active: boolean;
 };
 
 /**
@@ -65,7 +67,8 @@ export async function fetchChannelOrgDirectoryForViewer(args: {
       COALESCE(NULLIF(btrim(u.display_name), ''), '(Unnamed)') AS name,
       u.manager_user_id AS manager_rep_id,
       COALESCE(u.role::text, '') AS role,
-      u.hierarchy_level
+      u.hierarchy_level,
+      COALESCE(u.active, true) AS active
     FROM users u
     WHERE u.org_id = $1::bigint
       AND u.id IN (SELECT id FROM tree)
@@ -79,7 +82,8 @@ export async function fetchChannelOrgDirectoryForViewer(args: {
       COALESCE(NULLIF(btrim(u.display_name), ''), '(Unnamed)') AS name,
       u.manager_user_id AS manager_rep_id,
       COALESCE(u.role::text, '') AS role,
-      u.hierarchy_level
+      u.hierarchy_level,
+      COALESCE(u.active, true) AS active
     FROM users u
     WHERE u.org_id = $1::bigint
       AND COALESCE(u.hierarchy_level, 99) IN (6, 7, 8)
@@ -102,6 +106,7 @@ export async function fetchChannelOrgDirectoryForViewer(args: {
     manager_rep_id: number | null;
     role: string | null;
     hierarchy_level: number | null;
+    active: boolean | null;
   }>(sql, [orgId, viewerUserId]);
 
   return (rows || []).map((r) => ({
@@ -110,6 +115,7 @@ export async function fetchChannelOrgDirectoryForViewer(args: {
     manager_rep_id: r.manager_rep_id == null ? null : Number(r.manager_rep_id),
     role: String(r.role || "").trim() || "CHANNEL_REP",
     hierarchy_level: r.hierarchy_level == null ? null : Number(r.hierarchy_level),
+    active: r.active !== false,
   }));
 }
 

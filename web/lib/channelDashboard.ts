@@ -32,6 +32,8 @@ export type ChannelDeal = {
 export type ChannelRepRow = {
   rep_id: string;
   rep_name: string;
+  /** Linked user account active; omit or non-`false` = active. */
+  active?: boolean;
   manager_name: string;
   quota: number;
   won_amount: number;
@@ -697,13 +699,15 @@ async function loadChannelRepRows(args: {
         user_id: number;
         rep_name: string;
         manager_name: string;
+        user_active: boolean | null;
       }>(
         `
         SELECT
           r.id AS rep_id,
           u.id AS user_id,
           COALESCE(NULLIF(btrim(r.rep_name), ''), NULLIF(btrim(r.display_name), ''), '(Unnamed Rep)') AS rep_name,
-          COALESCE(NULLIF(btrim(m.display_name), ''), NULLIF(btrim(m.rep_name), ''), '(No Manager)') AS manager_name
+          COALESCE(NULLIF(btrim(m.display_name), ''), NULLIF(btrim(m.rep_name), ''), '(No Manager)') AS manager_name,
+          u.active AS user_active
         FROM reps r
         JOIN users u
           ON u.id = r.user_id
@@ -869,6 +873,7 @@ async function loadChannelRepRows(args: {
       return {
         rep_id: cleanText(row.rep_id),
         rep_name: cleanText(row.rep_name, "(Unnamed Rep)"),
+        active: row.user_active !== false,
         manager_name: cleanText(row.manager_name, "(No Manager)"),
         quota,
         won_amount: wonAmount,

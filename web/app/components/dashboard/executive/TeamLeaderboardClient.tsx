@@ -407,6 +407,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(
     () => new Set(teamViewerRepId != null ? [`mgr:${teamViewerRepId}`] : [])
   );
+  const [departedExpandedIds, setDepartedExpandedIds] = useState<Set<string>>(() => new Set());
   const [showDetail, setShowDetail] = useState(false);
 
   const { paceRatio } = useMemo(() => computePaceRatio(periodStart, periodEnd), [periodStart, periodEnd]);
@@ -438,6 +439,15 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleDepartedSection(leaderCardKey: string) {
+    setDepartedExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(leaderCardKey)) next.delete(leaderCardKey);
+      else next.add(leaderCardKey);
       return next;
     });
   }
@@ -764,7 +774,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     );
   };
 
-  const renderRepCard = (rep: RepManagerRepRow) => {
+  const renderRepCard = (rep: RepManagerRepRow, opts?: { departedBadge?: boolean }) => {
     const quota = Number(rep.quota) || 0;
     const wonAmount = Number(rep.won_amount) || 0;
     const paceStatus = calcPaceStatus(wonAmount, quota, paceRatio);
@@ -793,7 +803,12 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     });
 
     return (
-      <div key={`rep:${rep.rep_id}`}>
+      <div key={`rep:${rep.rep_id}`} className={opts?.departedBadge ? "relative" : undefined}>
+        {opts?.departedBadge ? (
+          <span className="pointer-events-none absolute right-3 top-3 z-10 rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+            Departed
+          </span>
+        ) : null}
         {renderPerformanceCard({
           name: rep.rep_name,
           paceStatus,
@@ -850,6 +865,8 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     );
     const subManagerIdSet = new Set(subManagerCards.map((r) => String(r.manager_id)));
     const leafRepsUnder = repsUnder.filter((r) => !subManagerIdSet.has(String(r.rep_id)));
+    const activeRepRows = leafRepsUnder.filter((r) => r.active !== false);
+    const departedRepRows = leafRepsUnder.filter((r) => r.active === false);
 
     // For pure-manager nodes (no direct leaf reps), current quarter quota and won
     // come from mgrMeta (the manager row from buildOrgSubtree) which has correct subtree rollups.
@@ -958,7 +975,28 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
         {expandedIds.has(cardKey) && (
           <div className="mt-2 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] divide-y divide-[color:var(--sf-border)]">
             {subManagerCards.map((m) => renderManagerCard(String(m.manager_id || "").trim()))}
-            {leafRepsUnder.map((r) => renderRepCard(r))}
+            {activeRepRows.map((r) => renderRepCard(r))}
+            {departedRepRows.length > 0 ? (
+              <div className="divide-y divide-[color:var(--sf-border)]">
+                <button
+                  type="button"
+                  onClick={() => toggleDepartedSection(cardKey)}
+                  className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-[color:var(--sf-surface)]"
+                >
+                  <span className="text-xs font-bold uppercase tracking-wider text-[color:var(--sf-text-secondary)]">
+                    Departed Reps ({departedRepRows.length})
+                  </span>
+                  <span className="shrink-0 text-xs text-[color:var(--sf-text-secondary)]" aria-hidden>
+                    {departedExpandedIds.has(cardKey) ? "▲" : "▼"}
+                  </span>
+                </button>
+                {departedExpandedIds.has(cardKey) ? (
+                  <div className="divide-y divide-[color:var(--sf-border)] px-2 pb-2 pt-0">
+                    {departedRepRows.map((r) => renderRepCard(r, { departedBadge: true }))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         )}
       </div>

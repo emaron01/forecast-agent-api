@@ -56,7 +56,14 @@ async function listQuotaPeriodsForOrg(orgId: number): Promise<QuotaPeriodLite[]>
   return (rows || []) as any[];
 }
 
-type RepOption = { id: number; name: string; manager_rep_id: number | null; role: string };
+type RepOption = {
+  id: number;
+  name: string;
+  manager_rep_id: number | null;
+  role: string;
+  hierarchy_level?: number | null;
+  active?: boolean;
+};
 
 type RepPeriodKpisRow = {
   quota_period_id: string;
@@ -246,6 +253,8 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
     name: r.name,
     manager_rep_id: r.manager_rep_id,
     role: String(r.role || "").trim() || "REP",
+    hierarchy_level: r.hierarchy_level ?? null,
+    active: r.active !== false,
   }));
 
   // REP users should see the page, but only for themselves.
@@ -329,6 +338,7 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
     return {
       rep_id,
       rep_name: String(opt?.name || "").trim() || String(c?.rep_name || "").trim() || `Rep ${rep_id}`,
+      active: opt.active !== false,
       manager_id,
       manager_name,
       avg_health_all: healthByRepId.get(rep_id)?.avg_health_all ?? null,

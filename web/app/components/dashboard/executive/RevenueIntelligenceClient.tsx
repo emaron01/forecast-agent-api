@@ -36,6 +36,7 @@ export type RevenueIntelligenceProps = {
     role: string;
     manager_rep_id: number | null;
     hierarchy_level?: number | null;
+    active?: boolean;
   }>;
 };
 
@@ -534,6 +535,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
   const [productMixOutcome, setProductMixOutcome] = useState<OutcomeKey>("won");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [riDepartedBreakdownOpen, setRiDepartedBreakdownOpen] = useState(false);
 
   const [savedReports, setSavedReports] = useState<any[]>([]);
   const [reportName, setReportName] = useState("");
@@ -782,6 +784,29 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
       }))
       .filter((entry): entry is BreakdownSelection & { data: ReportData } => Boolean(entry.data));
   }, [breakdownResults, breakdownSelections]);
+
+  const breakdownEntriesByDeparted = useMemo(() => {
+    if (breakdownEntries.length <= 1) {
+      return { active: breakdownEntries, departed: [] as typeof breakdownEntries };
+    }
+    const active: typeof breakdownEntries = [];
+    const departed: typeof breakdownEntries = [];
+    for (const e of breakdownEntries) {
+      const repScopedIds = e.repIds.filter((id) => {
+        const row = repDirectory.find((r) => String(r.id) === String(id));
+        return row != null && isRepRow(row);
+      });
+      const allDeparted =
+        repScopedIds.length > 0 &&
+        repScopedIds.every((id) => {
+          const row = repDirectory.find((r) => String(r.id) === String(id));
+          return row?.active === false;
+        });
+      if (allDeparted) departed.push(e);
+      else active.push(e);
+    }
+    return { active, departed };
+  }, [breakdownEntries, repDirectory]);
 
   const bOrder = useMemo(() => {
     if (!reportData?.buckets?.length) return bucketsSortedByMin;
@@ -1784,8 +1809,9 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
               )}
             </div>
             <div className="mt-4 overflow-x-auto space-y-6">
-              {breakdownEntries.length > 1
-                ? breakdownEntries.map((entry) => (
+              {breakdownEntries.length > 1 ? (
+                <>
+                  {breakdownEntriesByDeparted.active.map((entry) => (
                     <div key={entry.label} className="space-y-4">
                       <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{entry.label}</div>
                       {selectedQuartersOrdered.map((q) => (
@@ -1826,8 +1852,73 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                         </div>
                       ))}
                     </div>
-                  ))
-                : selectedQuartersOrdered.map((q) => (
+                  ))}
+                  {breakdownEntriesByDeparted.departed.length > 0 ? (
+                    <div className="space-y-3">
+                      <button
+                        type="button"
+                        onClick={() => setRiDepartedBreakdownOpen((v) => !v)}
+                        className="flex w-full items-center justify-between gap-2 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-left hover:bg-[color:var(--sf-surface)]"
+                      >
+                        <span className="text-xs font-bold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                          Departed Reps ({breakdownEntriesByDeparted.departed.length})
+                        </span>
+                        <span className="shrink-0 text-xs text-[color:var(--sf-text-secondary)]" aria-hidden>
+                          {riDepartedBreakdownOpen ? "▲" : "▼"}
+                        </span>
+                      </button>
+                      {riDepartedBreakdownOpen
+                        ? breakdownEntriesByDeparted.departed.map((entry) => (
+                            <div key={`dep:${entry.label}`} className="relative space-y-4 pt-1">
+                              <span className="pointer-events-none absolute right-0 top-0 z-10 rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                                Departed
+                              </span>
+                              <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">{entry.label}</div>
+                              {selectedQuartersOrdered.map((q) => (
+                                <div key={`${entry.label}-${q.id}-dep`}>
+                                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                                    {quarterLabel([q])}
+                                  </div>
+                                  <div className="mb-2 text-xs text-[color:var(--sf-text-secondary)]">Showing: {entry.label}</div>
+                                  <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                                    <thead className="bg-[color:var(--sf-surface-alt)] text-xs text-[color:var(--sf-text-secondary)]">
+                                      <tr>
+                                        <th className="border-b border-[color:var(--sf-border)] px-3 py-2">Bucket</th>
+                                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Won</th>
+                                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Lost</th>
+                                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Pipeline</th>
+                                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Win Rate</th>
+                                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Won $</th>
+                                        <th className="border-b border-[color:var(--sf-border)] px-2 py-2 text-right">Lost $</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {bOrder.map((b) => {
+                                        const rr = entry.data.rows.find((r) => r.bucket_id === b.id && r.quarter_id === q.id);
+                                        return (
+                                          <tr key={`${entry.label}-${b.id}-${q.id}-p1-dep`} className="border-t border-[color:var(--sf-border)]">
+                                            <td className="px-3 py-2 font-medium">{b.label}</td>
+                                            <td className="px-2 py-2 text-right">{rr ? rr.won_count : "—"}</td>
+                                            <td className="px-2 py-2 text-right">{rr ? rr.lost_count : "—"}</td>
+                                            <td className="px-2 py-2 text-right">{rr ? rr.pipeline_count : "—"}</td>
+                                            <td className="px-2 py-2 text-right">{rr ? fmtPct01(rr.win_rate) : "—"}</td>
+                                            <td className="px-2 py-2 text-right font-mono text-xs">{rr ? fmtMoney(rr.won_amount) : "—"}</td>
+                                            <td className="px-2 py-2 text-right font-mono text-xs">{rr ? fmtMoney(rr.lost_amount) : "—"}</td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ))}
+                            </div>
+                          ))
+                        : null}
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                selectedQuartersOrdered.map((q) => (
                     <div key={q.id}>
                       <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
                         {quarterLabel([q])}
@@ -1863,7 +1954,7 @@ export function RevenueIntelligenceClient(props: RevenueIntelligenceProps) {
                         </tbody>
                       </table>
                     </div>
-                  ))}
+                  )))}
             </div>
           </section>
 

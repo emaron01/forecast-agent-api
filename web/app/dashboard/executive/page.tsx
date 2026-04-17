@@ -891,6 +891,7 @@ export default async function ExecutiveDashboardPage({
       manager_rep_id: number | null;
       role: string;
       hierarchy_level: number;
+      active?: boolean;
     };
 
     const mapped: BuilderDirRow[] = repDirectory.map((r) => {
@@ -901,6 +902,7 @@ export default async function ExecutiveDashboardPage({
         manager_rep_id: r.manager_rep_id ?? null,
         role,
         hierarchy_level: Number(r.hierarchy_level ?? 99),
+        active: r.active !== false,
       };
     });
 
@@ -961,6 +963,7 @@ export default async function ExecutiveDashboardPage({
         manager_rep_id: exec.manager_rep_id ?? null,
         role: exec.role,
         hierarchy_level: exec.hierarchy_level,
+        active: exec.active,
       });
 
       const execManagers = (managersByExecId.get(exec.id) || []).slice();
@@ -973,6 +976,7 @@ export default async function ExecutiveDashboardPage({
           manager_rep_id: mgr.manager_rep_id ?? null,
           role: mgr.role,
           hierarchy_level: mgr.hierarchy_level,
+          active: mgr.active,
         });
 
         const mgrReps = (repsByManagerId.get(mgr.id) || []).slice();
@@ -985,6 +989,7 @@ export default async function ExecutiveDashboardPage({
             manager_rep_id: rep.manager_rep_id ?? null,
             role: rep.role,
             hierarchy_level: rep.hierarchy_level,
+            active: rep.active,
           });
         }
       }
@@ -998,6 +1003,7 @@ export default async function ExecutiveDashboardPage({
         manager_rep_id: mgr.manager_rep_id ?? null,
         role: mgr.role,
         hierarchy_level: mgr.hierarchy_level,
+        active: mgr.active,
       });
 
       const mgrReps = (repsByManagerId.get(mgr.id) || []).slice();
@@ -1009,6 +1015,7 @@ export default async function ExecutiveDashboardPage({
           manager_rep_id: rep.manager_rep_id ?? null,
           role: rep.role,
           hierarchy_level: rep.hierarchy_level,
+          active: rep.active,
         });
       }
     }
@@ -1021,6 +1028,7 @@ export default async function ExecutiveDashboardPage({
         manager_rep_id: rep.manager_rep_id ?? null,
         role: rep.role,
         hierarchy_level: rep.hierarchy_level,
+        active: rep.active,
       });
     }
 
@@ -1031,6 +1039,7 @@ export default async function ExecutiveDashboardPage({
         manager_rep_id: cl.manager_rep_id ?? null,
         role: cl.role,
         hierarchy_level: cl.hierarchy_level,
+        active: cl.active,
       });
     }
 
@@ -1136,6 +1145,7 @@ export default async function ExecutiveDashboardPage({
         return {
           rep_id,
           rep_name: String(opt?.name || "").trim() || String(c?.rep_name || "").trim() || `Rep ${rep_id}`,
+          active: opt.active !== false,
           manager_id,
           manager_name,
           avg_health_all: healthByRepId.get(rep_id)?.avg_health_all ?? null,
@@ -2076,6 +2086,8 @@ export default async function ExecutiveDashboardPage({
             name: r.name,
             role: r.role ?? "REP",
             manager_rep_id: r.manager_rep_id ?? null,
+            hierarchy_level: r.hierarchy_level,
+            active: r.active !== false,
           }))}
           showChannelContribution={showChannelContribution}
           channelContributionHero={channelContributionHero}

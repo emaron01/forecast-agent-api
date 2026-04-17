@@ -234,6 +234,7 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
     repRowsBuild.push({
       rep_id: String(rep_id),
       rep_name,
+      active: dirEntry ? dirEntry.active !== false : true,
       manager_id,
       manager_name,
       quota,

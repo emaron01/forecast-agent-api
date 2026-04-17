@@ -675,9 +675,12 @@ export async function assembleChannelTeamLeaderboardFromState(
       directorRepId != null && Number.isFinite(directorRepId) && directorRepId > 0
         ? repDisplayNameByRepId.get(directorRepId) ?? r.manager_name
         : r.manager_name;
+    const dirActive = channelRepDirectory.find((d) => String(d.id) === String(r.rep_id));
+    const rowActive = typeof (r as { active?: boolean }).active === "boolean" ? (r as { active?: boolean }).active : undefined;
     return {
       rep_id: r.rep_id,
       rep_name: r.rep_name,
+      active: rowActive !== undefined ? rowActive : dirActive ? dirActive.active !== false : true,
       manager_id,
       manager_name,
       quota: r.quota,

@@ -78,6 +78,7 @@ type RepRow = {
   mix_best: number | null;
   mix_commit: number | null;
   mix_won: number | null;
+  active?: boolean;
 };
 
 type RepDirectoryEntry = {
@@ -86,6 +87,7 @@ type RepDirectoryEntry = {
   manager_rep_id: number | null;
   role: string;
   hierarchy_level?: number | null;
+  active?: boolean;
 };
 
 /** Prefer `role` string; fall back to `hierarchy_level` when reps.role does not match enum (common for channel rows). */
@@ -549,6 +551,7 @@ function rollupRepRows(args: { label: string; execName: string; managerName: str
     mix_best,
     mix_commit,
     mix_won,
+    active: true,
   };
 }
 
@@ -617,6 +620,8 @@ export function CustomReportDesignerClient(props: {
   }[]>([]);
   const [periodLabelDisplay, setPeriodLabelDisplay] = useState(() => props.periodLabel);
   const [controlsOpen, setControlsOpen] = useState(true);
+  const [reportDepartedTableOpen, setReportDepartedTableOpen] = useState(false);
+  const [reportDepartedQvqOpen, setReportDepartedQvqOpen] = useState(false);
 
   const [periodSelection, dispatchPeriodSelection] = useReducer(
     periodSelectionReducer,
@@ -909,6 +914,26 @@ export function CustomReportDesignerClient(props: {
         })),
       })),
     [allRepRowKeys, qvqPeriodResults]
+  );
+
+  const activePreviewRows = useMemo(() => previewRows.filter((r) => r.active !== false), [previewRows]);
+  const departedPreviewRows = useMemo(() => previewRows.filter((r) => r.active === false), [previewRows]);
+
+  const activeMergedRows = useMemo(
+    () =>
+      mergedRows.filter((row) => {
+        const sample = row.byPeriod.map((p) => p.row).find((x) => x != null);
+        return sample?.active !== false;
+      }),
+    [mergedRows]
+  );
+  const departedMergedRows = useMemo(
+    () =>
+      mergedRows.filter((row) => {
+        const sample = row.byPeriod.map((p) => p.row).find((x) => x != null);
+        return sample?.active === false;
+      }),
+    [mergedRows]
   );
 
   const teamTotalRow = useMemo(() => {
@@ -1219,7 +1244,8 @@ export function CustomReportDesignerClient(props: {
 
   const exportRows = useMemo(() => {
     const teamStr = `Executive: ${execHeaderName}`;
-    const rows: Record<string, any>[] = previewRows.map((r) => {
+    const tableRowOrder = [...activePreviewRows, ...departedPreviewRows];
+    const rows: Record<string, any>[] = tableRowOrder.map((r) => {
       const out: Record<string, any> = {
         rep: r.rep_name,
         team: teamStr,
@@ -1240,7 +1266,7 @@ export function CustomReportDesignerClient(props: {
       rows.push(totalOut);
     }
     return rows;
-  }, [metricList, previewRows, execHeaderName, teamTotalRow, labelForMetric]);
+  }, [metricList, previewRows, activePreviewRows, departedPreviewRows, execHeaderName, teamTotalRow, labelForMetric]);
 
   const allDirectoryIds = useMemo(() => repDirectory.map((r) => String(r.id)), [repDirectory]);
 
@@ -1750,7 +1776,7 @@ export function CustomReportDesignerClient(props: {
               </tr>
             </thead>
             <tbody>
-              {mergedRows.map((row) => (
+              {activeMergedRows.map((row) => (
                 <tr key={row.rep_id} className="border-t border-[color:var(--sf-border)]">
                   <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{row.rep_name}</td>
                   {selectedFields.flatMap((f) =>
@@ -1769,6 +1795,53 @@ export function CustomReportDesignerClient(props: {
                     : null}
                 </tr>
               ))}
+              {departedMergedRows.length > 0 ? (
+                <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                  <td
+                    colSpan={1 + selectedFields.length * qvqPeriodResults.length + (qvqPeriodResults.length === 2 ? selectedFields.length : 0)}
+                    className="p-0"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setReportDepartedQvqOpen((v) => !v)}
+                      className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-[color:var(--sf-surface)]"
+                    >
+                      <span className="text-xs font-bold uppercase tracking-wider text-[color:var(--sf-text-secondary)]">
+                        Departed Reps ({departedMergedRows.length})
+                      </span>
+                      <span className="shrink-0 text-xs text-[color:var(--sf-text-secondary)]" aria-hidden>
+                        {reportDepartedQvqOpen ? "▲" : "▼"}
+                      </span>
+                    </button>
+                  </td>
+                </tr>
+              ) : null}
+              {reportDepartedQvqOpen
+                ? departedMergedRows.map((row) => (
+                    <tr key={`dep:${row.rep_id}`} className="border-t border-[color:var(--sf-border)]">
+                      <td className="relative px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">
+                        <span className="pointer-events-none absolute right-3 top-2 z-10 rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                          Departed
+                        </span>
+                        {row.rep_name}
+                      </td>
+                      {selectedFields.flatMap((f) =>
+                        row.byPeriod.map((pd, pi) => (
+                          <td key={`${row.rep_id}-${f.key}-${pi}-dep`} className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">
+                            {renderMetricValue(f.key, pd.row ?? ({} as RepRow))}
+                          </td>
+                        ))
+                      )}
+                      {qvqPeriodResults.length === 2
+                        ? selectedFields.map((f) => (
+                            <td key={`${row.rep_id}-delta-${f.key}-dep`} className="px-4 py-3 text-right font-mono text-xs">
+                              {renderQvqDelta(f.key, f.label, row.byPeriod)}
+                            </td>
+                          ))
+                        : null}
+                    </tr>
+                  ))
+                : null}
               {qvqTeamTotalRow ? (
                 <tr className="border-t-2 border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
                   <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{qvqTeamTotalRow.rep_name}</td>
@@ -1813,7 +1886,7 @@ export function CustomReportDesignerClient(props: {
               </tr>
             </thead>
             <tbody>
-              {previewRows.map((r) => (
+              {activePreviewRows.map((r) => (
                 <tr key={`row:${r.rep_id || r.rep_name}`} className="border-t border-[color:var(--sf-border)]">
                   <td className="px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">{r.rep_name}</td>
                   {metricList.map((k) => (
@@ -1823,6 +1896,41 @@ export function CustomReportDesignerClient(props: {
                   ))}
                 </tr>
               ))}
+              {departedPreviewRows.length > 0 ? (
+                <tr className="border-t border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                  <td colSpan={1 + metricList.length} className="p-0">
+                    <button
+                      type="button"
+                      onClick={() => setReportDepartedTableOpen((v) => !v)}
+                      className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left hover:bg-[color:var(--sf-surface)]"
+                    >
+                      <span className="text-xs font-bold uppercase tracking-wider text-[color:var(--sf-text-secondary)]">
+                        Departed Reps ({departedPreviewRows.length})
+                      </span>
+                      <span className="shrink-0 text-xs text-[color:var(--sf-text-secondary)]" aria-hidden>
+                        {reportDepartedTableOpen ? "▲" : "▼"}
+                      </span>
+                    </button>
+                  </td>
+                </tr>
+              ) : null}
+              {reportDepartedTableOpen
+                ? departedPreviewRows.map((r) => (
+                    <tr key={`row:dep:${r.rep_id || r.rep_name}`} className="border-t border-[color:var(--sf-border)]">
+                      <td className="relative px-4 py-3 font-medium text-[color:var(--sf-text-primary)]">
+                        <span className="pointer-events-none absolute right-3 top-2 z-10 rounded border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">
+                          Departed
+                        </span>
+                        {r.rep_name}
+                      </td>
+                      {metricList.map((k) => (
+                        <td key={k} className="px-4 py-3 text-right font-mono text-xs text-[color:var(--sf-text-primary)]">
+                          {renderMetricCell(k, r)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                : null}
               {teamTotalRow && previewRows.length > 0 ? (
                 <tr className="border-t-2 border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
                   <td className="px-4 py-2 text-xs font-semibold text-[color:var(--sf-text-primary)]">{teamTotalRow.rep_name}</td>

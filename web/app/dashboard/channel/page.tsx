@@ -1110,6 +1110,7 @@ export default async function ChannelDashboardPage({
       manager_rep_id: r.manager_rep_id ?? null,
       role: r.role ?? "CHANNEL_REP",
       hierarchy_level: r.hierarchy_level ?? null,
+      active: r.active,
     })
   );
 
