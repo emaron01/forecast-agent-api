@@ -768,6 +768,36 @@ export function CustomReportDesignerClient(props: {
     const byId = new Map<string, RepRow>();
     for (const r of baseRows) byId.set(String(r.rep_id), r);
     const out: RepRow[] = [];
+
+    // Build a children map so leader rollups include indirect reps.
+    const childrenByManagerId = new Map<number, RepDirectoryEntry[]>();
+    for (const row of repDirectory) {
+      if (row.manager_rep_id == null) continue;
+      const mid = Number(row.manager_rep_id);
+      if (!Number.isFinite(mid) || mid <= 0) continue;
+      const arr = childrenByManagerId.get(mid) ?? [];
+      arr.push(row);
+      childrenByManagerId.set(mid, arr);
+    }
+
+    const subtreeRepDirectoryRows = (rootId: number) => {
+      const reps: RepDirectoryEntry[] = [];
+      const q: number[] = [rootId];
+      const visited = new Set<number>([rootId]);
+      while (q.length) {
+        const id = q.shift()!;
+        const children = childrenByManagerId.get(id) ?? [];
+        for (const c of children) {
+          const cid = Number(c.id);
+          if (!Number.isFinite(cid) || cid <= 0 || visited.has(cid)) continue;
+          visited.add(cid);
+          if (isRepRow(c)) reps.push(c);
+          if (isLeaderRow(c)) q.push(cid);
+        }
+      }
+      return reps;
+    };
+
     for (const d of repDirectory) {
       const sid = String(d.id);
       if (!selectedIds.has(sid)) continue;
@@ -783,8 +813,8 @@ export function CustomReportDesignerClient(props: {
           out.push(own);
           continue;
         }
-        const directDirReps = repDirectory.filter((r) => isRepRow(r) && r.manager_rep_id === d.id);
-        const metricRows = directDirReps.map((r) => byId.get(String(r.id))).filter(Boolean) as RepRow[];
+        const subtreeDirReps = subtreeRepDirectoryRows(Number(d.id));
+        const metricRows = subtreeDirReps.map((r) => byId.get(String(r.id))).filter(Boolean) as RepRow[];
         const displayName = String(d.name || "").trim() || `Rep ${d.id}`;
         out.push({
           ...rollupRepRows({
