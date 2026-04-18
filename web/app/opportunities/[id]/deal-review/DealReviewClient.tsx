@@ -164,6 +164,16 @@ function parseSSE(buffer: string): { messages: any[]; remaining: string } {
   return { messages, remaining };
 }
 
+const UPDATE_CATEGORY_RETRY_MS = 1000;
+
+/** One silent HTTP retry before surfacing save failure (same init body). */
+async function fetchUpdateCategoryWithSilentRetry(url: string, init: RequestInit): Promise<Response> {
+  let res = await fetch(url, init);
+  if (res.ok) return res;
+  await new Promise((r) => setTimeout(r, UPDATE_CATEGORY_RETRY_MS));
+  return fetch(url, init);
+}
+
 export function DealReviewClient(props: {
   opportunityId: string;
   initialCategory?: string;
@@ -218,6 +228,7 @@ export function DealReviewClient(props: {
   const [micTuneStatus, setMicTuneStatus] = useState("");
   const [micError, setMicError] = useState("");
   const [sttError, setSttError] = useState("");
+  const [categorySaveFailed, setCategorySaveFailed] = useState(false);
   const [ttsError, setTtsError] = useState("");
   const [lastTranscript, setLastTranscript] = useState("");
   const [listening, setListening] = useState(false);
@@ -278,6 +289,14 @@ export function DealReviewClient(props: {
   const categoryWaitingForUserRef = useRef(false);
   const inputInFlightRef = useRef(false);
   const sttInFlightRef = useRef(false);
+  /** Last update-category POST body for manual retry after save failure (voice/typed category update). */
+  const lastCategoryUpdatePayloadRef = useRef<{
+    category: string;
+    text: string;
+    sessionId?: string;
+    deal_context?: typeof dealContextRef.current;
+  } | null>(null);
+  const routeTranscriptRef = useRef<((text: string, opts?: { skipUserMsg?: boolean }) => Promise<void>) | null>(null);
   const sentenceQueueRef = useRef<string[]>([]);
   const isPlayingSentenceRef = useRef(false);
 
@@ -958,7 +977,7 @@ export function DealReviewClient(props: {
         return null;
       };
 
-      const routeTranscript = async (text: string) => {
+      const routeTranscript = async (text: string, opts?: { skipUserMsg?: boolean }) => {
         sttInFlightRef.current = false;
         setSttInFlight(false);
         inputInFlightRef.current = true;
@@ -972,7 +991,9 @@ export function DealReviewClient(props: {
             const cat = String(selectedCategoryRef.current || "").trim();
             if (!cat) return;
             const sid = String(catSessionIdRef.current || "").trim();
-            setCatMessages((prev) => [...prev, msg]);
+            if (!opts?.skipUserMsg) {
+              setCatMessages((prev) => [...prev, msg]);
+            }
             const baseBody: {
               category: string;
               text: string;
@@ -986,15 +1007,26 @@ export function DealReviewClient(props: {
             if ((cat === "budget" || cat === "economic_buyer") && dealContextRef.current) {
               baseBody.deal_context = dealContextRef.current;
             }
-            const res = await fetch(`/api/deal-review/opportunities/${encodeURIComponent(opportunityId)}/update-category`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(baseBody),
-          });
+            lastCategoryUpdatePayloadRef.current = {
+              category: cat,
+              text,
+              sessionId: baseBody.sessionId,
+              deal_context: baseBody.deal_context,
+            };
+            const updateCategoryUrl = `/api/deal-review/opportunities/${encodeURIComponent(opportunityId)}/update-category`;
+            const updateCategoryInit: RequestInit = {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(baseBody),
+            };
+            try {
+              setCategorySaveFailed(false);
+              let res = await fetchUpdateCategoryWithSilentRetry(updateCategoryUrl, updateCategoryInit);
           const contentType = res.headers.get("content-type") || "";
           if (contentType.includes("text/event-stream")) {
+            const runSseOnce = async (resIn: Response) => {
             // Latency-layer: SSE streaming with sentence chunking. Play sentences sequentially.
-            const reader = res.body?.getReader();
+            const reader = resIn.body?.getReader();
             if (!reader) throw new Error("No response body");
             const decoder = new TextDecoder();
             let buffer = "";
@@ -1068,6 +1100,15 @@ export function DealReviewClient(props: {
               }
               void onCategoryCompleteInChain(savedCategory, Number(score), result);
             }
+            };
+            try {
+              await runSseOnce(res);
+            } catch {
+              await new Promise((r) => setTimeout(r, UPDATE_CATEGORY_RETRY_MS));
+              const res2 = await fetch(updateCategoryUrl, updateCategoryInit);
+              if (!res2.ok) throw new Error("Update failed");
+              await runSseOnce(res2);
+            }
             return;
           }
           const json = await res.json().catch(() => ({}));
@@ -1083,14 +1124,17 @@ export function DealReviewClient(props: {
               if ((cat === "budget" || cat === "economic_buyer") && dealContextRef.current) {
                 retryBody.deal_context = dealContextRef.current;
               }
-              const retryRes = await fetch(`/api/deal-review/opportunities/${encodeURIComponent(opportunityId)}/update-category`, {
+              const retryRes = await fetchUpdateCategoryWithSilentRetry(updateCategoryUrl, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(retryBody),
               });
               const retryJson = await retryRes.json().catch(() => ({}));
               if (!retryRes.ok || !retryJson?.ok) {
-                failCapture(new Error(retryJson?.error || "Update failed"));
+                void loadOpportunityState();
+                setCategorySaveFailed(true);
+                setSttError("");
+                setCompletedCategoryKey("");
                 return;
               }
               if (retryJson?.sessionId) setCatSessionId(String(retryJson.sessionId));
@@ -1118,12 +1162,21 @@ export function DealReviewClient(props: {
             const score = result?.score;
             void onCategoryCompleteInChain(savedCategory, Number(score), result);
           }
-        }
+            } catch {
+              void loadOpportunityState();
+              setCategorySaveFailed(true);
+              setSttError("");
+              setCompletedCategoryKey("");
+              return;
+            }
+          }
         } finally {
           inputInFlightRef.current = false;
           setInputInFlight(false);
         }
       };
+
+      routeTranscriptRef.current = routeTranscript;
 
       const loop = async () => {
         if (!voiceActiveRef.current) return;
@@ -1277,6 +1330,15 @@ export function DealReviewClient(props: {
     stopRecorder,
     voice,
   ]);
+
+  const retryLastCategorySave = useCallback(async () => {
+    const p = lastCategoryUpdatePayloadRef.current;
+    if (!p?.text) return;
+    setCategorySaveFailed(false);
+    const rt = routeTranscriptRef.current;
+    if (!rt) return;
+    await rt(p.text, { skipUserMsg: true });
+  }, []);
 
   // Category update: if waiting (last assistant asked a question), capture voice.
   const categoryWaitingForUser = useMemo(() => {
@@ -1624,6 +1686,7 @@ export function DealReviewClient(props: {
     setCategoryInputMode("VOICE");
     setFullReviewHighlightCategory("");
     setSttError("");
+    setCategorySaveFailed(false);
     setTtsError("");
     setMicTuneStatus("");
     closeMicStreamOnly();
@@ -2353,6 +2416,30 @@ export function DealReviewClient(props: {
                 {sttError ? (
                   <div className="small" style={{ marginTop: 8, color: "var(--bad)" }}>
                     STT: {sttError}
+                  </div>
+                ) : null}
+                {categorySaveFailed ? (
+                  <div
+                    className="small"
+                    style={{
+                      marginTop: 8,
+                      padding: 10,
+                      borderRadius: 8,
+                      border: "1px solid var(--bad)",
+                      background: "rgba(231, 76, 60, 0.08)",
+                      color: "var(--bad)",
+                    }}
+                  >
+                    <div>We couldn&apos;t save your update. Please try again.</div>
+                    <button
+                      type="button"
+                      onClick={() => void retryLastCategorySave()}
+                      disabled={busy || inputInFlight}
+                      style={{ marginTop: 8 }}
+                      className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-1.5 text-xs font-semibold text-[color:var(--sf-text-primary)] disabled:opacity-60"
+                    >
+                      Try Again
+                    </button>
                   </div>
                 ) : null}
                 {ttsError ? (
