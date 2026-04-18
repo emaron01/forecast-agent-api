@@ -120,10 +120,11 @@ function gapMoneyColorClass(v: number) {
 }
 
 /**
- * Channel-tab hero (Outlook + cards + remaining forecast + KPI row + gap attribution)
- * using {@link loadChannelPartnerHeroProps} scope only — matches executive `heroOnly` channel layout.
+ * Partner-scoped metrics block for the **Channel tab / Channel Partners** panel (`ChannelTabPanelClient`).
+ * Not the primary page hero: that is `ExecutiveGapInsightsClient` `heroOnly` on `/dashboard/channel` or `/dashboard/executive`.
+ * Data: {@link loadChannelPartnerHeroProps}. Executive Channel tab uses a stripped layout via `basePath === "/dashboard/executive"`.
  */
-export function ChannelTabScopedHeroPanel(props: { hero: ChannelPartnerHeroProps; basePath: string }) {
+export function ChannelPartnersTabHeroPanel(props: { hero: ChannelPartnerHeroProps; basePath: string }) {
   const { hero, basePath } = props;
   const kpis = hero.quarterKpis;
   const wonAmount =
@@ -141,7 +142,7 @@ export function ChannelTabScopedHeroPanel(props: { hero: ChannelPartnerHeroProps
   const partnerCont01 = kpis?.directVsPartner?.partnerContributionPct;
   const contributionPct =
     partnerCont01 != null && Number.isFinite(Number(partnerCont01)) ? Number(partnerCont01) * 100 : null;
-  /** Channel tab always shows the Contribution card (same grid as main channel hero). */
+  /** Full layout: always show Contribution card (mirrors page hero card row). */
   const showContributionCard = true;
   const contributionColor =
     contributionPct == null ? "text-[color:var(--sf-text-primary)]" : heroColor(contributionPct, 100, [0.8, 0.5]);
@@ -233,74 +234,40 @@ export function ChannelTabScopedHeroPanel(props: { hero: ChannelPartnerHeroProps
           ? "text-yellow-400"
           : "text-red-400";
 
+  /** Executive Dashboard → Channel tab only: strip Outlook column + Quota / Gap / Landing Zone cards (not the main page hero). */
+  const isExecChannelTabHero = String(basePath || "").trim() === "/dashboard/executive";
+
+  const forecastBlockInner = (
+    <>
+      <ExecutiveRemainingQuarterlyForecastBlock
+        crmTotals={hero.crmForecast}
+        quota={hero.quota}
+        pipelineMomentum={hero.pipelineMomentum}
+        heroBucketAmounts={heroBucketAmounts}
+      />
+      {channelHeroMode ? (
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
+                          [data-channel-hero-coverage-tone="text-green-400"] .mt-2.grid > div:last-child .text-kpiValue { color: rgb(74 222 128); }
+                          [data-channel-hero-coverage-tone="text-yellow-400"] .mt-2.grid > div:last-child .text-kpiValue { color: rgb(250 204 21); }
+                          [data-channel-hero-coverage-tone="text-red-400"] .mt-2.grid > div:last-child .text-kpiValue { color: rgb(248 113 113); }
+                        `,
+          }}
+        />
+      ) : null}
+    </>
+  );
+
   return (
     <>
       <section className="w-full rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,320px)_1fr] lg:items-start">
-          <div className="min-w-0">
-            <div className="flex items-center justify-center">
-              <div className="relative w-[280px] max-w-[85vw] shrink-0 aspect-[1024/272] sm:w-[320px]">
-                <Image
-                  src="/brand/logooutlook.png"
-                  alt="SalesForecast.io Outlook"
-                  fill
-                  sizes="(min-width: 640px) 420px, 320px"
-                  className="origin-center scale-90 object-contain"
-                  priority={true}
-                />
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <div className="text-left">
-                <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quarter End Outlook</div>
-                <div className="mt-1 text-kpiHero text-[color:var(--sf-text-primary)]">
-                  {aiPctToGoal == null || !Number.isFinite(aiPctToGoal) ? "—" : `${Math.round(aiPctToGoal * 100)}%`}
-                </div>
-              </div>
-
-              <div className="mt-2 flex items-end gap-[2px]">
-                {(() => {
-                  const segments = 52;
-                  const pct = aiPctToGoal == null ? 0 : clamp01(aiPctToGoal);
-                  const filled = Math.round(pct * segments);
-                  const minH = 10;
-                  const maxH = 34;
-                  const exp = 3.6;
-                  return Array.from({ length: segments }).map((_, i) => {
-                    const t = segments <= 1 ? 1 : i / (segments - 1);
-                    const fillColor = gradientColorAt(t);
-                    const bg = i < filled ? fillColor : "var(--sf-surface-alt)";
-                    const h = minH + (maxH - minH) * Math.pow(t, exp);
-                    return (
-                      <div
-                        key={i}
-                        className="w-[12px] rounded-[3px] border border-[color:var(--sf-border)]"
-                        style={{ background: bg, height: `${Math.round(h)}px` }}
-                        aria-hidden="true"
-                      />
-                    );
-                  });
-                })()}
-              </div>
-
-              <div className="mt-5">
-                <span className={`inline-flex rounded-full border px-3 py-1 text-meta font-[500] ${pill}`}>{c.label}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="min-w-0 lg:pt-1">
-            <div className={`mt-4 grid grid-cols-2 gap-4 sm:grid-cols-2 ${showContributionCard ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
+        {isExecChannelTabHero ? (
+          <>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-2">
               <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
                 <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-primary)]">Closed Won</div>
                 <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-green-400 sm:text-2xl">{fmtMoney(wonAmount)}</div>
-              </div>
-              <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
-                <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quota</div>
-                <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">
-                  {fmtMoney(quotaNum)}
-                </div>
               </div>
               {showContributionCard ? (
                 <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
@@ -311,51 +278,118 @@ export function ChannelTabScopedHeroPanel(props: { hero: ChannelPartnerHeroProps
                   <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Channel closed won vs assigned sales team</div>
                 </div>
               ) : null}
-              <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
-                <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Gap to Quota</div>
-                <div className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${gapColor}`}>{fmtMoney(gapToQuota)}</div>
-                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">{gapSubtitle}</div>
-              </div>
-              <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
-                <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Landing Zone</div>
-                <div
-                  className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${
-                    Number(hero.aiForecast) > quotaNum
-                      ? "text-[#2ECC71]"
-                      : Number(hero.aiForecast) >= quotaNum * 0.8
-                        ? "text-[#F1C40F]"
-                        : "text-[#E74C3C]"
-                  }`}
-                >
-                  {fmtMoney(hero.aiForecast)}
+            </div>
+            <div className="mt-4" data-channel-hero-coverage-tone={channelHeroMode ? channelHeroCoverageColor : undefined}>
+              {forecastBlockInner}
+            </div>
+          </>
+        ) : (
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,320px)_1fr] lg:items-start">
+            <div className="min-w-0">
+              <div className="flex items-center justify-center">
+                <div className="relative w-[280px] max-w-[85vw] shrink-0 aspect-[1024/272] sm:w-[320px]">
+                  <Image
+                    src="/brand/logooutlook.png"
+                    alt="SalesForecast.io Outlook"
+                    fill
+                    sizes="(min-width: 640px) 420px, 320px"
+                    className="origin-center scale-90 object-contain"
+                    priority={true}
+                  />
                 </div>
-                <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">AI weighted forecast</div>
+              </div>
+
+              <div className="mt-4">
+                <div className="text-left">
+                  <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Quarter End Outlook</div>
+                  <div className="mt-1 text-kpiHero text-[color:var(--sf-text-primary)]">
+                    {aiPctToGoal == null || !Number.isFinite(aiPctToGoal) ? "—" : `${Math.round(aiPctToGoal * 100)}%`}
+                  </div>
+                </div>
+
+                <div className="mt-2 flex items-end gap-[2px]">
+                  {(() => {
+                    const segments = 52;
+                    const pct = aiPctToGoal == null ? 0 : clamp01(aiPctToGoal);
+                    const filled = Math.round(pct * segments);
+                    const minH = 10;
+                    const maxH = 34;
+                    const exp = 3.6;
+                    return Array.from({ length: segments }).map((_, i) => {
+                      const t = segments <= 1 ? 1 : i / (segments - 1);
+                      const fillColor = gradientColorAt(t);
+                      const bg = i < filled ? fillColor : "var(--sf-surface-alt)";
+                      const h = minH + (maxH - minH) * Math.pow(t, exp);
+                      return (
+                        <div
+                          key={i}
+                          className="w-[12px] rounded-[3px] border border-[color:var(--sf-border)]"
+                          style={{ background: bg, height: `${Math.round(h)}px` }}
+                          aria-hidden="true"
+                        />
+                      );
+                    });
+                  })()}
+                </div>
+
+                <div className="mt-5">
+                  <span className={`inline-flex rounded-full border px-3 py-1 text-meta font-[500] ${pill}`}>{c.label}</span>
+                </div>
               </div>
             </div>
 
-            <div data-channel-hero-coverage-tone={channelHeroMode ? channelHeroCoverageColor : undefined}>
-              <ExecutiveRemainingQuarterlyForecastBlock
-                crmTotals={hero.crmForecast}
-                quota={hero.quota}
-                pipelineMomentum={hero.pipelineMomentum}
-                heroBucketAmounts={heroBucketAmounts}
-              />
-              {channelHeroMode ? (
-                <style
-                  dangerouslySetInnerHTML={{
-                    __html: `
-                          [data-channel-hero-coverage-tone="text-green-400"] .mt-2.grid > div:last-child .text-kpiValue { color: rgb(74 222 128); }
-                          [data-channel-hero-coverage-tone="text-yellow-400"] .mt-2.grid > div:last-child .text-kpiValue { color: rgb(250 204 21); }
-                          [data-channel-hero-coverage-tone="text-red-400"] .mt-2.grid > div:last-child .text-kpiValue { color: rgb(248 113 113); }
-                        `,
-                  }}
-                />
-              ) : null}
+            <div className="min-w-0 lg:pt-1">
+              <div className={`mt-4 grid grid-cols-2 gap-4 sm:grid-cols-2 ${showContributionCard ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
+                <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-primary)]">Closed Won</div>
+                  <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-green-400 sm:text-2xl">{fmtMoney(wonAmount)}</div>
+                </div>
+                <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Quota</div>
+                  <div className="mt-1 break-all text-xl font-bold font-[tabular-nums] text-[color:var(--sf-text-primary)] sm:text-2xl">
+                    {fmtMoney(quotaNum)}
+                  </div>
+                </div>
+                {showContributionCard ? (
+                  <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Contribution</div>
+                    <div className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${contributionColor}`}>
+                      {contributionPct == null ? "—" : `${contributionPct.toFixed(1)}%`}
+                    </div>
+                    <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Channel closed won vs assigned sales team</div>
+                  </div>
+                ) : null}
+                <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Gap to Quota</div>
+                  <div className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${gapColor}`}>{fmtMoney(gapToQuota)}</div>
+                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">{gapSubtitle}</div>
+                </div>
+                <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-[color:var(--sf-text-secondary)]">Landing Zone</div>
+                  <div
+                    className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${
+                      Number(hero.aiForecast) > quotaNum
+                        ? "text-[#2ECC71]"
+                        : Number(hero.aiForecast) >= quotaNum * 0.8
+                          ? "text-[#F1C40F]"
+                          : "text-[#E74C3C]"
+                    }`}
+                  >
+                    {fmtMoney(hero.aiForecast)}
+                  </div>
+                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">AI weighted forecast</div>
+                </div>
+              </div>
+
+              <div data-channel-hero-coverage-tone={channelHeroMode ? channelHeroCoverageColor : undefined}>
+                {forecastBlockInner}
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </section>
 
+      {!isExecChannelTabHero ? (
       <div className="mt-4 space-y-4">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
           <div className={heroCard}>
@@ -503,6 +537,7 @@ export function ChannelTabScopedHeroPanel(props: { hero: ChannelPartnerHeroProps
           </div>
         </div>
       </div>
+      ) : null}
     </>
   );
 }

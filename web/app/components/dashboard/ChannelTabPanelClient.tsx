@@ -2,7 +2,7 @@
 
 import { type ComponentProps } from "react";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
-import { ChannelTabScopedHeroPanel } from "../../../components/dashboard/channel/ChannelTabScopedHeroPanel";
+import { ChannelPartnersTabHeroPanel } from "../../../components/dashboard/channel/ChannelPartnersTabHeroPanel";
 import type { ChannelLedFedRow, ChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
 
 type ExecutiveGapProps = ComponentProps<typeof ExecutiveGapInsightsClient>;
@@ -37,7 +37,7 @@ export function ChannelTabPanelClient(props: {
     <div className="-mx-4 -mt-4 space-y-5">
       {showChannelContribution && channelContributionHero ? (
         <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <ChannelTabScopedHeroPanel hero={channelContributionHero} basePath={revenueTabProps.basePath ?? ""} />
+          <ChannelPartnersTabHeroPanel hero={channelContributionHero} basePath={revenueTabProps.basePath ?? ""} />
           {(channelContributionRows?.length ?? 0) > 0 ? (
             <div className="mt-4 overflow-x-auto">
               <table className="w-full min-w-[640px] border-collapse text-sm">
