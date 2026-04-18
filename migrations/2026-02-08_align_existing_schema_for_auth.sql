@@ -8,9 +8,25 @@ ALTER TABLE organizations ADD COLUMN IF NOT EXISTS active boolean;
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS updated_at timestamp without time zone;
 
 -- Backfill active/updated_at from existing columns where possible.
-UPDATE organizations
-   SET active = COALESCE(active, is_active, true)
- WHERE active IS NULL;
+-- is_active exists only on legacy DBs; omit it when the column is absent (replay-safe).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'organizations'
+       AND column_name = 'is_active'
+  ) THEN
+    UPDATE organizations
+       SET active = COALESCE(active, is_active, true)
+     WHERE active IS NULL;
+  ELSE
+    UPDATE organizations
+       SET active = COALESCE(active, true)
+     WHERE active IS NULL;
+  END IF;
+END $$;
 
 UPDATE organizations
    SET updated_at = COALESCE(updated_at, created_at, NOW())

@@ -36,12 +36,19 @@ function loadLocalEnvIfPresent() {
   dotenv.config({ path: envLocalPath, override: false });
 }
 
+const CREATE_MIGRATIONS_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  filename text PRIMARY KEY,
+  applied_at timestamptz NOT NULL DEFAULT NOW()
+);
+`;
+
 /**
- * Best-effort migration runner (idempotent migrations).
+ * Production-safe migration runner.
  *
+ * - Ensures `schema_migrations` exists on every run (CREATE TABLE IF NOT EXISTS).
+ * - Runs each `/migrations/*.sql` file at most once per environment (tracked by basename).
  * - Uses node-postgres (no `psql` dependency).
- * - Runs ALL `.sql` files in `/migrations` in lexical order.
- * - Intended for local dev + simple production deployments.
  */
 export async function maybeRunMigrations() {
   loadLocalEnvIfPresent();
@@ -57,21 +64,42 @@ export async function maybeRunMigrations() {
 
   await client.connect();
   try {
+    await client.query(CREATE_MIGRATIONS_TABLE_SQL);
+
     const migrationsDir = getMigrationsDir();
     const files = await listSqlFiles(migrationsDir);
     if (!files.length) return { ok: false, skipped: true, reason: "no migrations found" };
 
-    let ran = 0;
+    let applied = 0;
+    let skipped = 0;
+
     for (const f of files) {
+      const already = await client.query("SELECT 1 FROM schema_migrations WHERE filename = $1 LIMIT 1", [f]);
+      if ((already.rowCount ?? already.rows?.length ?? 0) > 0) {
+        skipped += 1;
+        continue;
+      }
+
       const fullPath = path.join(migrationsDir, f);
       const sql = await loadSql(fullPath);
-      if (!sql) continue;
-      // NOTE: most migration files are safe to run multiple times via IF NOT EXISTS / DO $$ guards.
+      if (!sql) {
+        skipped += 1;
+        continue;
+      }
+
       await client.query(sql);
-      ran += 1;
+      await client.query("INSERT INTO schema_migrations (filename) VALUES ($1)", [f]);
+      applied += 1;
     }
 
-    return { ok: true, skipped: false, reason: "migrations applied", ran };
+    return {
+      ok: true,
+      skipped: false,
+      reason: "migrations applied",
+      applied,
+      skippedRecords: skipped,
+      ran: applied,
+    };
   } finally {
     await client.end();
   }
@@ -94,4 +122,3 @@ if (invokedPath && path.resolve(thisFilePath) === invokedPath) {
       process.exit(1);
     });
 }
-

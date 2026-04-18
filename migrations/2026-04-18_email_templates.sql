@@ -1,14 +1,15 @@
 -- Global email templates (SalesForecast.io handoff).
--- If legacy table (template_key) exists, rename it so the new schema can own `email_templates`.
+-- If public.email_templates exists but is not the new schema (no template_type), rename it away
+-- so CREATE TABLE can own `email_templates`. Do not key off template_key — some DBs never had that column name.
 
 DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.tables
     WHERE table_schema = 'public' AND table_name = 'email_templates'
-  ) AND EXISTS (
+  ) AND NOT EXISTS (
     SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'email_templates' AND column_name = 'template_key'
+    WHERE table_schema = 'public' AND table_name = 'email_templates' AND column_name = 'template_type'
   ) THEN
     EXECUTE 'ALTER TABLE public.email_templates RENAME TO email_templates_legacy_20260208';
   END IF;
