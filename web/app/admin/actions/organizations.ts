@@ -1,10 +1,12 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireAuth } from "../../../lib/auth";
 import { randomToken, sha256Hex } from "../../../lib/auth";
+import { sendEmail } from "../../../lib/emailService";
 import { hashPassword } from "../../../lib/password";
 import { createOrganization, createOrganizationWithFirstAdmin, deleteOrganization, updateOrganization } from "../../../lib/db";
 import { resolvePublicId } from "../../../lib/publicId";
@@ -123,7 +125,7 @@ export async function createOrganizationWithFirstAdminAction(formData: FormData)
 
   const inviteReset =
     pw.trim() === ""
-      ? { token: randomToken(), expires_at: new Date(Date.now() + 60 * 60 * 1000) } // 1 hour
+      ? { token: randomUUID(), expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000) }
       : null;
 
   const parent_org_id = parsed.parent_org_public_id ? await resolvePublicId("organizations", parsed.parent_org_public_id) : null;
@@ -154,6 +156,26 @@ export async function createOrganizationWithFirstAdminAction(formData: FormData)
   });
 
   revalidatePath("/admin/organizations");
+
+  if (inviteReset) {
+    const base = String(process.env.APP_URL || "").replace(/\/+$/, "");
+    const setLink = `${base}/reset-password?token=${encodeURIComponent(inviteReset.token)}`;
+    const welcomeName =
+      String(created.user.display_name || "").trim() ||
+      `${String(parsed.admin_first_name || "").trim()} ${String(parsed.admin_last_name || "").trim()}`.trim() ||
+      email;
+    await sendEmail({
+      templateType: "admin_welcome",
+      to: email,
+      userId: created.user.id,
+      orgId: created.org.id,
+      variables: {
+        name: welcomeName,
+        org_name: String(created.org.name || "").trim() || "Your organization",
+        set_password_link: setLink,
+      },
+    });
+  }
 
   const params = new URLSearchParams();
   params.set("createdOrgPublicId", String(created.org.public_id));

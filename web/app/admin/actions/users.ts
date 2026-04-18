@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -8,6 +9,7 @@ import { pool } from "../../../lib/pool";
 import {
   createPasswordResetToken,
   createUser,
+  getOrganization,
   getUserById,
   listUsers,
   replaceManagerVisibility,
@@ -15,6 +17,7 @@ import {
   syncRepsFromUsers,
   updateUser,
 } from "../../../lib/db";
+import { sendEmail } from "../../../lib/emailService";
 import { hashPassword } from "../../../lib/password";
 import { randomToken, sha256Hex } from "../../../lib/auth";
 import { resolvePublicId } from "../../../lib/publicId";
@@ -343,6 +346,36 @@ export async function createUserAction(formData: FormData) {
 
     // Keep the `reps` directory in sync with `users` (names + hierarchy).
     await syncRepsFromUsers({ organizationId: orgId }).catch(() => null);
+
+    await pool
+      .query(`UPDATE password_reset_tokens SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`, [created.id])
+      .catch(() => null);
+    const welcomeToken = randomUUID();
+    const welcomeRow = await createPasswordResetToken({
+      userId: created.id,
+      token_hash: sha256Hex(welcomeToken),
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    }).catch(() => null);
+    if (welcomeRow) {
+      const orgRow = await getOrganization({ id: orgId }).catch(() => null);
+      const base = String(process.env.APP_URL || "").replace(/\/+$/, "");
+      const setLink = `${base}/reset-password?token=${encodeURIComponent(welcomeToken)}`;
+      const welcomeName =
+        String(created.display_name || "").trim() ||
+        `${String(parsed.first_name || "").trim()} ${String(parsed.last_name || "").trim()}`.trim() ||
+        String(parsed.email || "").trim();
+      await sendEmail({
+        templateType: "user_welcome",
+        to: String(parsed.email || "").trim().toLowerCase(),
+        userId: created.id,
+        orgId,
+        variables: {
+          name: welcomeName,
+          org_name: String(orgRow?.name || "").trim() || "Your organization",
+          set_password_link: setLink,
+        },
+      });
+    }
 
     revalidatePath("/admin/users");
     redirect(buildSuccessRedirect({ created: created.public_id }));

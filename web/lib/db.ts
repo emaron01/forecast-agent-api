@@ -1589,16 +1589,6 @@ export type PasswordResetTokenRow = {
   used_at: string | null;
 };
 
-export type EmailTemplateRow = {
-  id: string; // bigint as text
-  template_key: string;
-  subject: string;
-  body: string;
-  active: boolean;
-  created_at: string;
-  updated_at: string;
-};
-
 export type HierarchyLevelRow = {
   level: number;
   label: string;
@@ -2055,7 +2045,7 @@ export async function deleteOrganization(args: { id: number }) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    // Delete in dependency order so no orphaned rows remain.
+    // Delete in dependency order so no orphaned rows remain and FKs (including non-CASCADE) are satisfied.
     // 1. Collect rep IDs (for quota manager cleanup)
     const repIdsResult = await client.query(
       `SELECT id FROM reps WHERE org_id = $1 OR organization_id = $1`,
@@ -2068,7 +2058,20 @@ export async function deleteOrganization(args: { id: number }) {
       await client.query(`DELETE FROM quotas WHERE manager_id = ANY($1::bigint[])`, [repIds]);
     }
 
-    // 3. Delete all direct org dependents
+    // 3. Org/user-scoped telemetry & mail (must clear before users/org: email_log FK is not CASCADE)
+    await client.query(
+      `DELETE FROM email_log WHERE org_id = $1 OR user_id IN (SELECT id FROM users WHERE org_id = $1)`,
+      [id]
+    );
+    await client.query(`DELETE FROM perf_events WHERE org_id = $1`, [id]);
+    await client.query(`DELETE FROM perf_rollups_daily WHERE org_id = $1`, [id]);
+    // Cached snapshots reference quota periods — remove before quota_periods.
+    await client.query(`DELETE FROM executive_snapshots WHERE org_id = $1`, [id]);
+    await client.query(`DELETE FROM ai_takeaway_cache WHERE org_id = $1`, [id]);
+    await client.query(`DELETE FROM org_stage_mappings WHERE org_id = $1`, [id]);
+    await client.query(`DELETE FROM revenue_intelligence_reports WHERE org_id = $1`, [id]);
+
+    // 4. Core org data (order: user-owned analytics → mapping → forecast config → CRM pipeline → quota → reps)
     await client.query(`DELETE FROM analytics_saved_reports WHERE org_id = $1`, [id]);
     await client.query(`DELETE FROM field_mapping_sets WHERE organization_id = $1`, [id]);
     await client.query(`DELETE FROM forecast_probabilities WHERE org_id = $1`, [id]);
@@ -2081,10 +2084,10 @@ export async function deleteOrganization(args: { id: number }) {
     await client.query(`DELETE FROM revenue_buckets WHERE org_id = $1`, [id]);
     await client.query(`DELETE FROM reps WHERE org_id = $1 OR organization_id = $1`, [id]);
 
-    // 4. Nullify self-referencing child orgs (do not delete them)
+    // 5. Nullify self-referencing child orgs (do not delete them)
     await client.query(`UPDATE organizations SET parent_org_id = NULL WHERE parent_org_id = $1`, [id]);
 
-    // 5. Finally delete the org
+    // 6. Finally delete the org (CASCADE removes users, sessions, password_reset_tokens, manager_visibility, etc.)
     await client.query("DELETE FROM organizations WHERE id = $1", [id]);
 
     await client.query("COMMIT");
@@ -2653,48 +2656,6 @@ export async function createPasswordResetToken(args: { userId: number; token_has
     [userId, token_hash, args.expires_at.toISOString()]
   );
   return rows[0] as PasswordResetTokenRow;
-}
-
-export async function listEmailTemplates() {
-  const { rows } = await pool.query(
-    `
-    SELECT id::text AS id, template_key, subject, body, active, created_at, updated_at
-      FROM email_templates
-     ORDER BY template_key ASC, id ASC
-    `
-  );
-  return rows as EmailTemplateRow[];
-}
-
-export async function getEmailTemplateByKey(args: { template_key: string }) {
-  const template_key = String(args.template_key || "").trim();
-  if (!template_key) throw new Error("template_key is required");
-  const { rows } = await pool.query(
-    `SELECT id::text AS id, template_key, subject, body, active, created_at, updated_at FROM email_templates WHERE template_key = $1 LIMIT 1`,
-    [template_key]
-  );
-  return (rows?.[0] as EmailTemplateRow | undefined) || null;
-}
-
-export async function upsertEmailTemplate(args: { template_key: string; subject: string; body: string; active?: boolean }) {
-  const template_key = String(args.template_key || "").trim();
-  const subject = String(args.subject || "").trim();
-  const body = String(args.body || "").trim();
-  if (!template_key) throw new Error("template_key is required");
-  if (!subject) throw new Error("subject is required");
-  if (!body) throw new Error("body is required");
-
-  const { rows } = await pool.query(
-    `
-    INSERT INTO email_templates (template_key, subject, body, active, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, NOW(), NOW())
-    ON CONFLICT (template_key)
-    DO UPDATE SET subject = EXCLUDED.subject, body = EXCLUDED.body, active = EXCLUDED.active, updated_at = NOW()
-    RETURNING id::text AS id, template_key, subject, body, active, created_at, updated_at
-    `,
-    [template_key, subject, body, args.active ?? true]
-  );
-  return rows[0] as EmailTemplateRow;
 }
 
 export async function consumePasswordResetToken(args: { token_hash: string }) {

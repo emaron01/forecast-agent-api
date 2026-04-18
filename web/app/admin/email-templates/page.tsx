@@ -1,36 +1,104 @@
+"use client";
+
+import dynamic from "next/dynamic";
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { Modal } from "../_components/Modal";
-import { requireAuth } from "../../../lib/auth";
-import { getEmailTemplateByKey, listEmailTemplates } from "../../../lib/db";
-import { upsertEmailTemplateAction } from "../actions/emailTemplates";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-export const runtime = "nodejs";
+import "react-quill/dist/quill.snow.css";
 
-function sp(v: string | string[] | undefined) {
-  return Array.isArray(v) ? v[0] : v;
+const ReactQuill = dynamic(() => import("react-quill"), { ssr: false, loading: () => <p className="text-sm text-[color:var(--sf-text-secondary)]">Loading editor…</p> });
+
+const TEMPLATE_TYPES = ["admin_welcome", "user_welcome", "password_reset"] as const;
+type TemplateType = (typeof TEMPLATE_TYPES)[number];
+
+function stripHtmlTags(html: string) {
+  return String(html || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-export default async function EmailTemplatesPage({
-  searchParams,
-}: {
-  searchParams: Record<string, string | string[] | undefined>;
-}) {
-  const ctx = await requireAuth();
-  if (ctx.kind !== "master") redirect("/admin");
+function compilePreview(html: string, vars: Record<string, string>) {
+  let s = String(html || "");
+  for (const [k, v] of Object.entries(vars)) {
+    s = s.split(`{{${k}}}`).join(v);
+  }
+  return s;
+}
 
-  const modal = sp(searchParams.modal) || "";
-  const key = sp(searchParams.key) || "";
+const PREVIEW_VARS: Record<string, string> = {
+  name: "Jane Smith",
+  org_name: "Acme Corp",
+  set_password_link: "#",
+  reset_link: "#",
+  login_url: "#",
+};
 
-  const templates = await listEmailTemplates().catch(() => []);
-  const tpl = modal === "edit" && key ? await getEmailTemplateByKey({ template_key: key }).catch(() => null) : null;
+export default function EmailTemplatesPage() {
+  const [active, setActive] = useState<TemplateType>("admin_welcome");
+  const [subject, setSubject] = useState("");
+  const [bodyHtml, setBodyHtml] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const previewHtml = useMemo(() => compilePreview(bodyHtml, PREVIEW_VARS), [bodyHtml]);
+
+  const load = useCallback(async (type: TemplateType) => {
+    setLoadError(null);
+    setStatus(null);
+    try {
+      const r = await fetch(`/api/admin/email-templates/${encodeURIComponent(type)}`, { credentials: "include" });
+      if (r.status === 401) {
+        setLoadError("You must be signed in as the SaaS owner to manage templates.");
+        return;
+      }
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.template) {
+        setLoadError(String(j?.error || "Failed to load template."));
+        return;
+      }
+      setSubject(String(j.template.subject || ""));
+      setBodyHtml(String(j.template.body_html || ""));
+    } catch {
+      setLoadError("Failed to load template.");
+    }
+  }, []);
+
+  useEffect(() => {
+    void load(active);
+  }, [active, load]);
+
+  async function onSave() {
+    setSaving(true);
+    setStatus(null);
+    try {
+      const body_text = stripHtmlTags(bodyHtml);
+      const r = await fetch(`/api/admin/email-templates/${encodeURIComponent(active)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ subject, body_html: bodyHtml, body_text }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setStatus(String(j?.error || "Save failed."));
+        setSaving(false);
+        return;
+      }
+      setStatus("Saved.");
+    } catch {
+      setStatus("Save failed.");
+    }
+    setSaving(false);
+  }
 
   return (
     <main>
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Email templates</h1>
-          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Global templates managed by the SaaS owner.</p>
+          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">Global templates for outbound email (SaaS owner only).</p>
         </div>
         <div className="flex items-center gap-2">
           <Link
@@ -42,96 +110,81 @@ export default async function EmailTemplatesPage({
         </div>
       </div>
 
-      <div className="mt-5 overflow-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
-            <tr>
-              <th className="px-4 py-3">key</th>
-              <th className="px-4 py-3">subject</th>
-              <th className="px-4 py-3">active</th>
-              <th className="px-4 py-3 text-right">actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {templates.length ? (
-              templates.map((t) => (
-                <tr key={t.template_key} className="border-t border-[color:var(--sf-border)]">
-                  <td className="px-4 py-3 font-mono text-xs">{t.template_key}</td>
-                  <td className="px-4 py-3">{t.subject}</td>
-                  <td className="px-4 py-3">{t.active ? "true" : "false"}</td>
-                  <td className="px-4 py-3 text-right">
-                    <Link
-                      href={`/admin/email-templates?modal=edit&key=${encodeURIComponent(t.template_key)}`}
-                      className="rounded-md border border-[color:var(--sf-border)] px-2 py-1 text-xs hover:bg-[color:var(--sf-surface-alt)]"
-                    >
-                      Edit
-                    </Link>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
-                  No templates found.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      {loadError ? (
+        <div className="mt-4 rounded-md border border-[#E74C3C] bg-[color:var(--sf-surface)] px-4 py-3 text-sm text-[color:var(--sf-text-primary)]">
+          {loadError}
+        </div>
+      ) : null}
+
+      <div className="mt-5 flex flex-wrap gap-2">
+        {TEMPLATE_TYPES.map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setActive(t)}
+            className={`rounded-md border px-3 py-2 text-xs font-medium ${
+              active === t
+                ? "border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-primary)]"
+                : "border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface-alt)]"
+            }`}
+          >
+            {t}
+          </button>
+        ))}
       </div>
 
-      {modal === "edit" && tpl ? (
-        <Modal title={`Edit template "${tpl.template_key}"`} closeHref="/admin/email-templates">
-          <form action={upsertEmailTemplateAction} className="grid gap-3">
-            <input type="hidden" name="template_key" value={tpl.template_key} />
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+          <div className="grid gap-3">
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">subject</label>
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Subject</label>
               <input
-                name="subject"
-                defaultValue={tpl.subject}
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
                 className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-                required
               />
             </div>
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">body</label>
-              <textarea
-                name="body"
-                defaultValue={tpl.body}
-                rows={10}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-mono text-[color:var(--sf-text-primary)]"
-                required
-              />
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Body (HTML)</label>
+              <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]">
+                <ReactQuill theme="snow" value={bodyHtml} onChange={setBodyHtml} className="bg-[color:var(--sf-surface-alt)]" />
+              </div>
               <p className="text-xs text-[color:var(--sf-text-disabled)]">
-                Use placeholders like {"{{org_name}}"}, {"{{display_name}}"}, {"{{invite_link}}"}, {"{{reset_link}}"}.
+                Placeholders: {"{{name}}"}, {"{{org_name}}"}, {"{{set_password_link}}"}, {"{{reset_link}}"}, {"{{login_url}}"}.
               </p>
             </div>
-            <div className="grid gap-1">
-              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">active</label>
-              <select
-                name="active"
-                defaultValue={tpl.active ? "true" : "false"}
-                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-              >
-                <option value="true">true</option>
-                <option value="false">false</option>
-              </select>
-            </div>
-            <div className="mt-2 flex items-center justify-end gap-2">
-              <Link
-                href="/admin/email-templates"
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => void load(active)}
                 className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
               >
-                Cancel
-              </Link>
-              <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
-                Save
+                Reload
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => void onSave()}
+                className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)] disabled:opacity-60"
+              >
+                {saving ? "Saving…" : "Save"}
               </button>
             </div>
-          </form>
-        </Modal>
-      ) : null}
+            {status ? <div className="text-sm text-[color:var(--sf-text-secondary)]">{status}</div> : null}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4 shadow-sm">
+          <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Preview</div>
+          <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Sample variables are substituted for display only.</p>
+          <div className="mt-3 rounded-md border border-[color:var(--sf-border)] bg-white p-3 text-sm text-[color:var(--sf-text-primary)]">
+            <div className="mb-2 text-xs font-medium text-[color:var(--sf-text-secondary)]">Subject</div>
+            <div className="mb-4 font-medium">{compilePreview(subject, PREVIEW_VARS)}</div>
+            <div className="mb-2 text-xs font-medium text-[color:var(--sf-text-secondary)]">Body</div>
+            <div className="max-w-none text-sm leading-relaxed [&_a]:text-[color:var(--sf-accent-primary)]" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+          </div>
+        </div>
+      </div>
     </main>
   );
 }
-

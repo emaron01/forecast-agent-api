@@ -1,4 +1,4 @@
-[
+﻿[
   {
     "id": "health-score",
     "title": "Health Score",
@@ -128,9 +128,9 @@
   {
     "id": "revenue-mix-tab",
     "title": "Revenue Mix Tab",
-    "summary": "A breakdown of closed won revenue by product — SEIM vs IAM and other product lines.",
+    "summary": "A breakdown of closed won revenue by product — grouped using the product values from your CRM.",
     "detail": "Found on the executive dashboard. Shows which products are driving revenue this quarter vs last. Useful for understanding product attach rates and mix shifts.",
-    "tags": ["revenue mix", "tab", "product", "SEIM", "IAM", "closed won"]
+    "tags": ["revenue mix", "tab", "product", "product lines", "closed won"]
   },
   {
     "id": "revenue-intelligence-tab",
@@ -269,8 +269,8 @@
     "id": "products-sold",
     "title": "Products Sold",
     "summary": "A breakdown of closed won revenue by product line — this quarter and year-to-date.",
-    "detail": "Found on rep and executive dashboards. Shows SEIM and IAM (and other products) separately. Helps identify which products are driving revenue and where attach rates are low.",
-    "tags": ["products", "SEIM", "IAM", "closed won", "revenue", "mix", "dashboard"]
+    "detail": "Found on rep and executive dashboards. Breaks out closed won by product line using your CRM product field, so you can see which offerings are driving revenue and where attach rates are low.",
+    "tags": ["products", "product lines", "closed won", "revenue", "mix", "dashboard"]
   },
   {
     "id": "top-deals-tab",

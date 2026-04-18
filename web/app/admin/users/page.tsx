@@ -13,6 +13,7 @@ import {
   reactivateUserAction,
   updateUserAction,
 } from "../actions/users";
+import { EditUserResetEmailButton } from "./EditUserResetEmailButton";
 import { RoleSelect } from "../../../components/admin/RoleSelect";
 import {
   HIERARCHY,
@@ -1103,6 +1104,8 @@ export default async function UsersPage({
                 required
               />
             </div>
+
+            {isAdmin ? <EditUserResetEmailButton email={user.email} /> : null}
 
             <div className="mt-2 flex items-center justify-end gap-2">
               <Link
